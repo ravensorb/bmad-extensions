@@ -1,0 +1,5 @@
+name,description,module,path
+"brainstorming","Facilitate interactive brainstorming sessions using diverse creative techniques and ideation methods. Use when the user says help me brainstorm or help me ideate.","core","_bmad/core/workflows/brainstorming/workflow.md"
+"party-mode","Orchestrates group discussions between all installed BMAD agents, enabling natural multi-agent conversations. Use when user requests party mode.","core","_bmad/core/workflows/party-mode/workflow.md"
+"sprint-execute","Orchestrate a complete sprint execution cycle — story writing, development, QA/testing, and defect fixing for each story, then sprint-level retrospective, adversarial review, and red team. All issues must be resolved before the sprint closes.","bmad-extensions","bmad-sprint-execute/workflow.md"
+"epic-execute","Orchestrate a complete epic execution cycle — running sprint(s) for all stories, then epic-level retrospective, adversarial review, red team, architectural drift analysis, and functional completeness review against requirements. All Critical and High issues must be resolved before the epic closes.","bmad-extensions","bmad-epic-execute/workflow.md"

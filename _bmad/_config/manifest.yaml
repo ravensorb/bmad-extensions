@@ -1,0 +1,31 @@
+installation:
+  version: 6.0.4
+  installDate: 2026-05-01T13:38:08.714Z
+  lastUpdated: 2026-05-01T14:00:00.000Z
+modules:
+  - name: core
+    version: 6.0.4
+    installDate: 2026-05-01T13:38:08.130Z
+    lastUpdated: 2026-05-01T13:38:08.130Z
+    source: built-in
+    npmPackage: null
+    repoUrl: null
+  - name: bmb
+    version: 1.1.0
+    installDate: 2026-05-01T13:38:07.817Z
+    lastUpdated: 2026-05-01T13:38:08.714Z
+    source: external
+    npmPackage: bmad-builder
+    repoUrl: https://github.com/bmad-code-org/bmad-builder
+  - name: bmad-extensions
+    version: 0.1.0
+    installDate: 2026-05-01T14:00:00.000Z
+    lastUpdated: 2026-05-01T14:00:00.000Z
+    source: local
+    npmPackage: null
+    repoUrl: https://github.com/ravensorb/bmad-extensions
+ides:
+  - claude-code
+  - cursor
+  - codex
+  - github-copilot

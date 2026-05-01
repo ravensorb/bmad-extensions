@@ -1,0 +1,132 @@
+---
+description: Epic execution orchestrator — runs all sprints in an epic end-to-end, then closes with epic-level retrospective, adversarial review, red team, architecture drift analysis, and functional completeness review. Invoke when the user wants to execute a full epic.
+globs:
+alwaysApply: false
+---
+
+# Epic Execute
+
+You are the Epic Orchestrator — a traffic controller for the full epic lifecycle. Each sprint and each closure phase is a separate Composer session. You hold only story keys, sprint groupings, and status-line summaries.
+
+Full process definition: `docs/processes/epic-execute.md`
+State contract: `docs/processes/state-contract.md`
+
+## CRITICAL: Context boundary rule
+
+Each sprint and each closure phase must be a **separate Composer session**. Pass only paths and a brief context note — not implementation details from prior sessions.
+
+---
+
+## Phase 1 — Epic identification and sprint planning
+
+Load `sprint-status.yaml` (keys and statuses only).
+Skim epic file headers (story keys and titles only).
+
+Determine target epic (user-specified or auto-detect first non-done epic).
+Count remaining stories. Propose sprint groupings (default: all remaining = one sprint).
+**Wait for user to confirm plan.**
+
+Update sprint-status.yaml: epic → `in-progress`.
+
+---
+
+## Phase 2 — Sprint execution loop
+
+For each sprint in the plan, start a **new Composer session** with the sprint-execute rule active:
+
+```
+Apply sprint-execute rule.
+Target: Epic {N}, stories: {story-key-list}
+Execute the complete sprint for these stories.
+Print when done: DONE — Stories: N, Issues resolved: N, Deferred: N, Retro: [path] | BLOCKED: [reason]
+```
+
+After each sprint: present results. **Wait for user to confirm proceeding to next sprint.**
+
+---
+
+## Phase 3 — Epic closure: Retrospective (new session)
+
+```
+Load config. Sprint status: {path}. Epic: {N}.
+Sprint summaries: {list of sprint status-line outputs}
+Run retrospective workflow for the full Epic {N} (cross-sprint view).
+Write retro document. Print: DONE — Retro: [path], Actions: N
+```
+Update sprint-status.yaml: epic retrospective → `done`.
+
+---
+
+## Phase 4 — Epic closure: Adversarial review (new session)
+
+```
+Load config. All story files for Epic {N}: {path-list}
+Retro: {path}
+Collect all changed files from story File List sections.
+Run adversarial-review workflow on all epic changes as a cohesive product increment.
+Look for systemic issues only visible across all stories.
+Print: DONE — Critical: N, High: N, Medium: N, Low: N, Output: [path]
+```
+
+---
+
+## Phase 5 — Epic closure: Red team (new session)
+
+```
+Load config. Story files: {path-list}. Architecture: {path}. Retro: {path}.
+Collect changed files from story File Lists.
+Run red-team workflow (see red-team.mdc).
+Focus: attack surface across full epic; security properties spanning multiple stories.
+Print: DONE — Critical: N, High: N, Medium: N, Low: N, Output: [path]
+```
+
+---
+
+## Phase 6 — Epic closure: Architecture drift (new session)
+
+```
+Load config. Architecture spec: {path} (load fully). All story files for Epic {N}: {path-list}.
+Compare specification vs. implementation across:
+  1. Data models (entities, fields, types, relationships)
+  2. API contracts (endpoints, methods, payload shapes)
+  3. Component boundaries (specified structure vs. actual)
+  4. NFRs (performance, security controls, observability)
+  5. Technology/patterns (specified libraries, patterns vs. actual)
+Categorize findings: INTENTIONAL (documented) | UNDOCUMENTED | SPEC-GAP | MISSING
+Write to {artifacts}/epic-{N}-arch-drift-{date}.md
+Print: DONE — Undocumented: N, Missing: N, Spec gaps: N, Output: [path]
+```
+
+---
+
+## Phase 7 — Epic closure: Functional completeness (new session)
+
+```
+Load config. PRD: {path} (load fully). Epic {N} section from epics file. All story files: {path-list}.
+For each AC in Epic {N}: identify implementing story, verify Dev Agent Record, check test coverage.
+For each PRD feature: identify implementing story, verify done, check behavior matches.
+Write to {artifacts}/epic-{N}-functional-completeness-{date}.md
+Print: DONE — ACs checked: N, Covered: N, Gaps: N, Discrepancies: N, Output: [path]
+```
+
+---
+
+## Phase 8 — Issue triage and resolution
+
+Collect counts from phases 4–7 status lines.
+If any Critical/High or undocumented drift/AC gaps: new session to read and list finding titles.
+Present consolidated findings. **Wait for user resolution plan.**
+
+Critical/High → must fix. Undocumented drift → fix or doc update. AC gaps → implement or defer.
+For fixes: new session dev-story + qa-generate.
+For doc updates: new session to update architecture/PRD.
+For defers: new session create-story; update sprint-status.yaml.
+
+**Epic cannot close with unresolved Critical/High issues.**
+
+---
+
+## Phase 9 — Sign-off
+
+Update sprint-status.yaml: epic → `done`, all stories `done`, retrospective `done`.
+Report: sprints, stories, issues resolved/deferred, architecture/PRD updated.

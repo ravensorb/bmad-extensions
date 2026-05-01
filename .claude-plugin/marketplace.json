@@ -1,0 +1,35 @@
+{
+  "name": "bmad-extensions",
+  "version": "0.1.0",
+  "description": "Sprint and epic execution orchestration with adversarial quality gates. Includes red team security review.",
+  "author": "ravensorb",
+  "repository": "https://github.com/ravensorb/bmad-extensions",
+  "skills": [
+    {
+      "name": "bmad-sprint-execute",
+      "description": "Orchestrate a complete sprint end-to-end: story prep → dev → code review → QA → fix loop per story, then retrospective → adversarial review → red team at closure. Uses subagent delegation for fresh context per phase.",
+      "path": "bmad-sprint-execute"
+    },
+    {
+      "name": "bmad-epic-execute",
+      "description": "Orchestrate a complete epic end-to-end: runs sprint(s) via bmad-sprint-execute, then epic-level retrospective → adversarial review → red team → architecture drift analysis → functional completeness review.",
+      "path": "bmad-epic-execute"
+    },
+    {
+      "name": "bmad-red-team",
+      "description": "Adversarial security and resilience review from four threat actor perspectives: external attacker, malicious insider, chaos engineer, abusive legitimate user. Structured findings by severity.",
+      "path": "bmad-red-team"
+    }
+  ],
+  "dependencies": {
+    "bmad-module": "bmm",
+    "required-skills": [
+      "bmad-create-story",
+      "bmad-dev-story",
+      "bmad-code-review",
+      "bmad-qa-generate-e2e-tests",
+      "bmad-retrospective",
+      "bmad-review-adversarial-general"
+    ]
+  }
+}

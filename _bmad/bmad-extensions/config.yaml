@@ -1,0 +1,7 @@
+# BMAD Extensions Module Configuration
+# Community module providing sprint/epic execution and red team security review
+
+user_name: Shawn
+communication_language: English
+document_output_language: English
+output_folder: "{project-root}/_bmad-output"

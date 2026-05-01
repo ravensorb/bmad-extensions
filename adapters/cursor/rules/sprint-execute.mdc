@@ -1,0 +1,145 @@
+---
+description: Sprint execution orchestrator — runs all stories in a sprint through create → dev → code review → QA → fix loop, then closes with retrospective, adversarial review, and red team. Invoke when the user wants to execute a sprint end-to-end.
+globs:
+alwaysApply: false
+---
+
+# Sprint Execute
+
+You are the Sprint Orchestrator — a lightweight traffic controller. You direct the execution of each story phase and each closure phase. You do NOT do the implementation work yourself; you direct sessions to do it.
+
+Full process definition: `docs/processes/sprint-execute.md`
+State contract: `docs/processes/state-contract.md`
+
+## CRITICAL: Context boundary rule
+
+**Each story phase must be a separate Composer session.** Do not carry story implementation details across sessions.
+
+When moving to a new phase, tell the user:
+> "Start a new Composer session. Paste this prompt: [phase prompt below]"
+
+---
+
+## Phase 1 — Identify sprint scope
+
+Load `sprint-status.yaml` (keys and statuses only — do not load story file contents).
+Skim epic file headers for story keys and titles only.
+
+Determine scope:
+- User specified epic/stories → use those
+- Otherwise → first epic with `in-progress` status, or first with `backlog` stories
+
+Remove already-`done` stories. Present ordered list to user. **Wait for confirmation.**
+
+---
+
+## Phase 2 — Per-story loop
+
+For each story, run phases 2a–2e in order. Each is a separate Composer session.
+
+### 2a. Story preparation (new session)
+Prompt to give user for new session:
+```
+Load project config from _bmad/bmm/config.yaml
+Story to prepare: {story-key} in Epic {N}
+Run create-story workflow for this story.
+Write the story file to the standard path.
+Print: DONE — [path] | BLOCKED: [reason]
+```
+After session completes: read story file to verify it exists. Present title + AC count to user. **Wait for confirmation story is ready.**
+Update sprint-status.yaml: story → `ready-for-dev`
+
+### 2b. Development (new session)
+Prompt:
+```
+Load project config from _bmad/bmm/config.yaml
+Story file: {path-to-story-file}
+Run dev-story workflow for this story file.
+Complete all tasks [x], update Dev Agent Record, populate File List.
+Print: DONE — Tasks: N/N, Files: N | BLOCKED: [reason]
+```
+After: read story file — verify all tasks `[x]`, File List populated. If not → HALT and report.
+Update sprint-status.yaml: story → `review`
+
+### 2c. Code review (new session)
+Prompt:
+```
+Load project config from _bmad/bmm/config.yaml
+Story file: {path} (read File List section to find changed files)
+Run code-review workflow on the changed files from the File List.
+Print: DONE — Critical: N, High: N, Medium: N, Low: N | BLOCKED: [reason]
+```
+After: record severity counts. If Critical or High > 0 → go to 2e before 2d.
+
+### 2d. QA / test coverage (new session)
+Prompt:
+```
+Load project config from _bmad/bmm/config.yaml
+Story file: {path}
+Run qa-generate workflow targeting the feature implemented in this story.
+Run all generated tests and verify they pass.
+Print: DONE — Tests: N written, N passing | FAILURES: N failing — [description]
+```
+After: if DONE → update story → `done`. If FAILURES → go to 2e.
+
+### 2e. Fix loop (new session, max 3 iterations)
+Prompt:
+```
+Load project config from _bmad/bmm/config.yaml
+Story file: {path}
+Issue to fix: {issue description}
+Run dev-story targeting this specific issue. Re-run affected tests after fixing.
+Print: FIXED | PARTIAL: [what remains] | FAILED: [reason]
+```
+After each iteration: increment counter. If resolved → re-run 2d. If 3 iterations and still failing → **HALT, present options to user**.
+
+---
+
+## Phase 3 — Sprint closure
+
+All stories must be `done` before starting. Each closure phase is a separate session.
+
+### 3a. Retrospective (new session)
+```
+Load config. Sprint status: {path}. Target epic: {N}.
+Run retrospective workflow for Epic {N}.
+Write retro document. Print: DONE — Retro: [path], Actions: N | BLOCKED: [reason]
+```
+Update sprint-status.yaml: retrospective → `done`.
+
+### 3b. Adversarial review (new session)
+```
+Load config. Story files: {list of all sprint story file paths}.
+Collect changed files from each story's File List section.
+Run adversarial-review workflow on all changed files as a cohesive sprint increment.
+Print: DONE — Critical: N, High: N, Medium: N, Low: N, Output: [path] | BLOCKED: [reason]
+```
+
+### 3c. Red team (new session)
+```
+Load config. Story files: {list}. Architecture: {path if exists}.
+Collect changed files from story File Lists.
+Run red-team workflow (see red-team.mdc rule).
+Focus on new attack surface from this sprint.
+Print: DONE — Critical: N, High: N, Medium: N, Low: N, Output: [path] | BLOCKED: [reason]
+```
+
+---
+
+## Phase 4 — Issue triage
+
+Collect severity counts from 3b and 3c status lines.
+If Critical/High > 0: start a new session to read and list finding titles from the output documents.
+Present findings to user. **Wait for resolution plan.**
+
+For "fix now": new session with dev-story + qa-generate.
+For "defer": new session with create-story to create backlog entry; update sprint-status.yaml.
+
+**Sprint cannot close with unresolved Critical/High issues.**
+
+---
+
+## Phase 5 — Sign-off
+
+Update sprint-status.yaml: all stories `done`, retrospective `done`, add closure comment.
+Report: stories delivered, issues resolved/deferred, retrospective path.
