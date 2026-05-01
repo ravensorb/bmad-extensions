@@ -22,7 +22,11 @@ npx bmad-method install \
 
 Or interactively: `npx bmad-method install` → Community modules → bmad-extensions
 
+Slash commands (`/bmad-sprint-execute`, `/bmad-epic-execute`, `/bmad-red-team`) are available immediately after install.
+
 ### Cursor
+
+Slash commands are available automatically — no install step needed. To also get ambient rules that apply to every Cursor session, copy the `.mdc` files into your project:
 
 ```bash
 cp adapters/cursor/rules/*.mdc /path/to/repo/.cursor/rules/
@@ -38,9 +42,10 @@ Append the relevant file(s) from `adapters/copilot/instructions/` to your repo's
 bmad-sprint-execute/     # BMad skill — sprint orchestrator
 bmad-epic-execute/       # BMad skill — epic orchestrator
 bmad-red-team/           # BMad skill — adversarial security review
-docs/processes/          # Platform-agnostic process definitions (canonical source of truth)
-adapters/cursor/         # Cursor .mdc rule files
+processes/               # Platform-agnostic process definitions (canonical source of truth)
+adapters/cursor/         # Cursor ambient .mdc rule files
 adapters/copilot/        # GitHub Copilot instruction snippets
+_bmad/bmad-extensions/   # BMAD module registration (config, manifests, skill symlinks)
 ```
 
 ## Context boundary rule
