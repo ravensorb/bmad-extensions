@@ -1,17 +1,13 @@
 # Changelog
 
-All notable changes to this project are documented in this file.
+All notable changes to this project will be documented in this file. See [commit-and-tag-version](https://github.com/absolute-version/commit-and-tag-version) for commit guidelines.
 
-## [Unreleased]
+## [0.1.3](https://github.com/ravensorb/bmad-extensions/compare/v0.1.2...v0.1.3) (2026-05-13)
 
-### Changed
 
-- Renamed `bmad-migrate-artifacts` to `bmad-cleanup-artifacts` across skill wrappers, commands, and BMAD manifests.
-- Updated extension docs and command listings to use `/bmad-cleanup-artifacts`.
+### Features
 
-### Added (0.1.2)
-
-- Added a final state-correctness review step to artifact cleanup to validate epic/sprint folder naming, artifact placement, and status-file references after moves.
+* rename artifact cleanup skill and expand validation ([432e203](https://github.com/ravensorb/bmad-extensions/commit/432e2036db8e5f38436e0f287c4882ea3ba99a92))
 
 ## [0.1.2] - 2026-05-13
 
