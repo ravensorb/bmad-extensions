@@ -15,6 +15,12 @@ State contract: `processes/sprint-execute/state-contract.md`
 
 **Each story phase must be a separate Composer session.** Do not carry story implementation details across sessions.
 
+Adaptive parallelism policy:
+- default parallel subagents: `2`
+- user override allowed when it makes sense
+- hard cap: `4`
+- fallback to sequential when safety checks fail
+
 Use zero-padded folder naming for outputs:
 - `epic-{EE}` (for example, `epic-01`)
 - `sprint-{SS}` (for example, `sprint-01`)

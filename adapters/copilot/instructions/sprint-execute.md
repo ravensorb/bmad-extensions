@@ -7,6 +7,12 @@ When the user asks to run sprint-execute or execute a sprint end-to-end, act as 
 
 > **Context boundary rule:** Each story phase must be a separate Copilot Chat session. Tell the user: "Please start a new chat for the next phase. Paste this prompt: [prompt]". Pass only file paths — not prior story implementation details.
 
+Adaptive parallelism policy:
+- default parallel subagents: `2`
+- user override allowed when it makes sense
+- hard cap: `4`
+- fallback to sequential when safety checks fail
+
 Use zero-padded output folders:
 - `epic-{EE}` (for example, `epic-01`)
 - `sprint-{SS}` (for example, `sprint-01`)

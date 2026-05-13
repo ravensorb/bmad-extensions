@@ -10,6 +10,7 @@
 - State passes through disk only: story files, sprint-status.yaml, and review output documents
 - After each subagent completes, you read disk state (status lines + targeted file reads) to determine next action
 - Subagents may use any tools available in the active runtime and permitted by caller access; do not assume fixed tool availability
+- Parallel execution is adaptive and safety-gated; only use when work units are independent and merge behavior is deterministic
 
 - Communicate all responses in {communication_language}
 - Execute all steps in exact order; do NOT skip steps
@@ -33,6 +34,11 @@ Load config from `{project-root}/_bmad/bmm/config.yaml` and resolve:
 - `status_file` = `{implementation_artifacts}/sprint-status.yaml`
 - `config_file` = `{project-root}/_bmad/bmm/config.yaml`
 - `context_file` = `**/project-context.md`
+- `parallel_mode` = `adaptive` (default), values: `adaptive | off`
+- `max_parallel_subagents_default` = `2`
+- `max_parallel_subagents_hard_cap` = `4`
+- `max_parallel_subagents_requested` = optional user-provided override
+- `effective_parallel_subagents` = `min(requested or default, hard_cap, safe_batch_size)`; force `1` when `parallel_mode=off` or safety checks fail
 - `arch_file` = `{planning_artifacts}/*architecture*.md`
 - `prd_file` = `{planning_artifacts}/*prd*.md`
 - `epics_file` = `{planning_artifacts}/*epic*.md`
@@ -70,6 +76,31 @@ FAILED: [reason]
 ```
 
 After each subagent completes, read that status line and any targeted disk reads needed for routing. Do not read full file contents unless needed for triage.
+
+## ADAPTIVE PARALLELISM POLICY
+
+- Default to sequential execution.
+- Sprint loop (step 2): sequential by default; parallel sprints only if sprint groups are proven independent and state merges are serialized.
+- Epic closure phases:
+  - Step 3 (retrospective) remains sequential and must complete first.
+  - Steps 4/5/6/7 may run in parallel when safe because outputs are isolated files.
+- Allow override when it makes sense: user may set `max_parallel_subagents_requested`, bounded by hard cap and safety checks.
+- Parallel safety checks required:
+  - No shared output file path collisions.
+  - No concurrent writes to `sprint-status.yaml`.
+  - No unresolved blocker that invalidates sibling phases.
+- If any safety check is uncertain, set `effective_parallel_subagents=1` and run sequentially.
+
+## USER PROGRESS AND ETA REPORTING
+
+- Keep announce lines concise ("what is starting"), then emit a separate progress line with ETA.
+- Use ETA ranges (example: `~3-8 min`) rather than exact timestamps.
+- For parallel batches, report active batch size and queue position.
+- After each completion, report elapsed time and refreshed ETA for remaining work.
+- If confidence is low, say `ETA uncertain` and continue with periodic progress updates.
+
+**Progress line template:**
+`PROGRESS — {{phase_or_batch}} — ETA: {{eta_range}} — Position: {{index}}/{{total}}`
 
 ---
 
@@ -139,7 +170,9 @@ Beginning Sprint 1 of {{total_sprint_count}}."
 
 <step n="2" goal="Sprint execution loop — one fresh subagent per sprint">
 
-<action>For each sprint in {{sprint_plan}}, in order:</action>
+<action>Resolve `effective_parallel_subagents` from requested/default values, hard cap, and safety checks before each candidate parallel batch.</action>
+<action>Decide execution mode for sprint loop using adaptive policy: sequential default; parallel up to {{effective_parallel_subagents}} only when sprint groups are independent and status merges are serialized.</action>
+<action>For each sprint in {{sprint_plan}}, in order when sequential, or as independent batch items when parallel:</action>
 
 <action>Announce: "Spawning sprint subagent {{current_sprint_num}} of {{total_sprint_count}} — stories: {{sprint_story_keys}}"</action>
 <action>Resolve {{current_sprint_padded}} as a two-digit value</action>

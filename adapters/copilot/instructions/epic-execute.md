@@ -6,6 +6,12 @@ When the user asks to run epic-execute or execute a full epic end-to-end, act as
 
 > **Context boundary rule:** Each sprint and each closure phase must be a separate Copilot Chat session. Pass only paths and a brief note — not implementation details from prior sessions.
 
+Adaptive parallelism policy:
+- default parallel subagents: `2`
+- user override allowed when it makes sense
+- hard cap: `4`
+- fallback to sequential when safety checks fail
+
 Use zero-padded output folders:
 - `epic-{EE}` (for example, `epic-01`)
 - `sprint-{SS}` (for example, `sprint-01`)

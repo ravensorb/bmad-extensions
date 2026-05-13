@@ -9,6 +9,22 @@ Execute all stories in a sprint from preparation through done, then run quality 
 - Claude Code: enforce via subagent delegation (fresh `claude` invocation per phase)
 - Cursor / Copilot: enforce manually — start a new Composer/chat session for each phase
 
+## Parallel execution rule (adaptive)
+- Default to sequential execution.
+- Default parallel limit is 2 subagents.
+- Allow user override only when it makes sense, with a hard cap of 4 and safety checks.
+- Effective parallelism rule: `min(requested or default, hard cap, safe batch size)`.
+- Parallelize only when it clearly makes sense: independent stories, no shared-file overlap, and deterministic status merge.
+- Safe parallel candidates: story phases 2a/2b/2c/2d across different stories.
+- Keep sequential: per-story fix loop (2e), triage, and final sign-off updates.
+- If safety is uncertain, fall back to sequential.
+
+## Progress and ETA guidance
+- Announce start of each unit of work, then provide a separate ETA progress line.
+- Use ETA ranges, not exact timestamps.
+- For parallel batches, report batch size and queue position.
+- After each unit completes, provide elapsed time and updated ETA for remaining items.
+
 ## State
 All state passes through disk. See [state-contract.md](./state-contract.md).
 

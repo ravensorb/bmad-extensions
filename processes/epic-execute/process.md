@@ -6,6 +6,21 @@ Execute a complete epic — running one or more sprints for all stories, then ap
 ## Context boundary rule
 Same as sprint-execute: each unit of work (sprint, closure phase) runs with minimal context from prior units. The epic orchestrator holds only keys, sprint groupings, status summaries, and status-line outputs.
 
+## Parallel execution rule (adaptive)
+- Default to sequential execution.
+- Default parallel limit is 2 subagents.
+- Allow user override only when it makes sense, with a hard cap of 4 and safety checks.
+- Effective parallelism rule: `min(requested or default, hard cap, safe batch size)`.
+- Sprint loop is sequential by default; parallel sprints only when sprint groups are independent and status merges are serialized.
+- After epic retrospective, closure analyses (adversarial/red team/drift/completeness) may run in parallel if outputs are isolated and no shared state writes occur.
+- If safety is uncertain, fall back to sequential.
+
+## Progress and ETA guidance
+- Announce start of each unit of work, then provide a separate ETA progress line.
+- Use ETA ranges, not exact timestamps.
+- For parallel phases, report active batch size and queue position.
+- After each unit completes, provide elapsed time and updated ETA for remaining items.
+
 ## State
 All state passes through disk. See [state-contract.md](./state-contract.md).
 

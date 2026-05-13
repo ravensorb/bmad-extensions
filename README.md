@@ -60,6 +60,15 @@ All three workflows are designed around one core principle: **each unit of work 
 - **Cursor**: enforced manually — start a new Composer session for each story phase
 - **Copilot**: enforced manually — start a new chat for each story phase
 
+## Adaptive Parallelism
+
+Execution defaults to sequential and only parallelizes when work is independent and safe.
+- default parallel subagents: `2`
+- user override allowed when it makes sense
+- hard cap: `4`
+- safety fallback: force sequential (`1`) when independence/state safety is unclear
+- progress updates should include ETA ranges in separate status lines (announce + progress pattern)
+
 ## Artifact Conventions
 
 Runtime artifacts are organized with zero-padded epic/sprint folders:
@@ -79,4 +88,4 @@ This repository uses a BMAD discovery manifest at `/.claude-plugin/marketplace.j
 
 - Bump `plugins[0].version` in `/.claude-plugin/marketplace.json`
 - Keep `_bmad/_config/manifest.yaml` module version aligned
-- Tag the release with semver (for example, `v0.1.1`)
+- Tag the release with semver (for example, `v0.1.2`)
