@@ -9,6 +9,15 @@ Same as sprint-execute: each unit of work (sprint, closure phase) runs with mini
 ## State
 All state passes through disk. See [state-contract.md](./state-contract.md).
 
+## Artifact path conventions
+Use zero-padded two-digit folder names for epic and sprint:
+- Epic folder: `epic-{EE}` (for example, `epic-01`, `epic-15`)
+- Sprint folder: `sprint-{SS}` (for example, `sprint-01`, `sprint-02`)
+- Story files: `{artifacts}/epic-{EE}/sprint-{SS}/stories/{story-key}.md`
+- Epic closure outputs: `{artifacts}/epic-{EE}/epic-closure/...`
+- Epic test evidence outputs: `{artifacts}/epic-{EE}/tests/...`
+- Epic planning outputs: `{planning_artifacts}/epic-{EE}/...`
+
 ## Sub-processes called
 `sprint-execute`, `retrospective`, `adversarial-review`, `red-team`
 Plus inline analysis (no sub-process): architecture drift, functional completeness.
@@ -49,7 +58,7 @@ For each sprint in the confirmed plan, in order — each sprint is a separate se
 Separate session/subagent receives: `sprint-status.yaml` path + target epic number + sprint summaries.
 
 Run sub-process `retrospective` for the full epic (cross-sprint view).
-Write to `{artifacts}/epic-{N}-retro-{date}.md`.
+Write to `{artifacts}/epic-{EE}/epic-closure/epic-{EE}-retro-{date}.md`.
 Update `sprint-status.yaml`: epic retrospective → `done`.
 
 Output status line: `DONE — Retro file: [path], Action items: N`
@@ -97,7 +106,7 @@ Categorize each finding:
 - **Spec gap**: spec was silent, implementation made a reasonable choice — flag for doc update
 - **Missing**: specified but not yet implemented
 
-Write to `{artifacts}/epic-{N}-arch-drift-{date}.md`.
+Write to `{artifacts}/epic-{EE}/epic-closure/epic-{EE}-arch-drift-{date}.md`.
 
 Output status line: `DONE — Undocumented deviations: N, Missing: N, Spec gaps: N, Output: [path]`
 
@@ -118,7 +127,7 @@ For each user-facing feature described in the PRD for this epic:
 - Verify story is done
 - Check implementation matches described behavior
 
-Write to `{artifacts}/epic-{N}-functional-completeness-{date}.md`.
+Write to `{artifacts}/epic-{EE}/epic-closure/epic-{EE}-functional-completeness-{date}.md`.
 
 Output status line: `DONE — ACs checked: N, Covered: N, Gaps: N, PRD discrepancies: N, Output: [path]`
 

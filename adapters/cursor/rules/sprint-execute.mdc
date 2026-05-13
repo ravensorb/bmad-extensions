@@ -8,12 +8,20 @@ alwaysApply: false
 
 You are the Sprint Orchestrator — a lightweight traffic controller. You direct the execution of each story phase and each closure phase. You do NOT do the implementation work yourself; you direct sessions to do it.
 
-Full process definition: `docs/processes/sprint-execute.md`
-State contract: `docs/processes/state-contract.md`
+Full process definition: `processes/sprint-execute/process.md`
+State contract: `processes/sprint-execute/state-contract.md`
 
 ## CRITICAL: Context boundary rule
 
 **Each story phase must be a separate Composer session.** Do not carry story implementation details across sessions.
+
+Use zero-padded folder naming for outputs:
+- `epic-{EE}` (for example, `epic-01`)
+- `sprint-{SS}` (for example, `sprint-01`)
+- story files: `{implementation_artifacts}/epic-{EE}/sprint-{SS}/stories/{story-key}.md`
+- sprint closure files: `{implementation_artifacts}/epic-{EE}/sprint-{SS}/closure/...`
+- sprint test evidence files: `{implementation_artifacts}/epic-{EE}/sprint-{SS}/tests/...`
+- sprint planning files: `{planning_artifacts}/epic-{EE}/sprint-{SS}/...`
 
 When moving to a new phase, tell the user:
 > "Start a new Composer session. Paste this prompt: [phase prompt below]"
@@ -43,7 +51,8 @@ Prompt to give user for new session:
 Load project config from _bmad/bmm/config.yaml
 Story to prepare: {story-key} in Epic {N}
 Run create-story workflow for this story.
-Write the story file to the standard path.
+Sprint number: {S}. Write the story file to:
+{implementation_artifacts}/epic-{EE}/sprint-{SS}/stories/{story-key}.md
 Print: DONE — [path] | BLOCKED: [reason]
 ```
 After session completes: read story file to verify it exists. Present title + AC count to user. **Wait for confirmation story is ready.**
@@ -103,7 +112,9 @@ All stories must be `done` before starting. Each closure phase is a separate ses
 ```
 Load config. Sprint status: {path}. Target epic: {N}.
 Run retrospective workflow for Epic {N}.
-Write retro document. Print: DONE — Retro: [path], Actions: N | BLOCKED: [reason]
+Sprint number: {S}. Write retro document to:
+{implementation_artifacts}/epic-{EE}/sprint-{SS}/closure/epic-{EE}-sprint-{SS}-retro-{date}.md
+Print: DONE — Retro: [path], Actions: N | BLOCKED: [reason]
 ```
 Update sprint-status.yaml: retrospective → `done`.
 

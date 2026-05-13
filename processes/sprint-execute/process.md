@@ -12,6 +12,15 @@ Execute all stories in a sprint from preparation through done, then run quality 
 ## State
 All state passes through disk. See [state-contract.md](./state-contract.md).
 
+## Artifact path conventions
+Use zero-padded two-digit folder names for epic and sprint:
+- Epic folder: `epic-{EE}` (for example, `epic-01`, `epic-15`)
+- Sprint folder: `sprint-{SS}` (for example, `sprint-01`, `sprint-02`)
+- Story files: `{artifacts}/epic-{EE}/sprint-{SS}/stories/{story-key}.md`
+- Sprint closure outputs: `{artifacts}/epic-{EE}/sprint-{SS}/closure/...`
+- Sprint test evidence outputs: `{artifacts}/epic-{EE}/sprint-{SS}/tests/...`
+- Sprint planning outputs: `{planning_artifacts}/epic-{EE}/sprint-{SS}/...`
+
 ## Sub-processes called
 `create-story`, `dev-story`, `code-review`, `qa-generate`, `retrospective`, `adversarial-review`, `red-team`
 (Adapter maps these to tool-specific invocations.)
@@ -41,7 +50,7 @@ Repeat steps 2a–2e for each story in order. Each step is a separate session/su
 ### 2a. Story preparation
 *Goal: produce a complete, implementation-ready story file.*
 
-1. Check: does `{artifacts}/{story-key}.md` exist?
+1. Check: does `{artifacts}/epic-{EE}/sprint-{SS}/stories/{story-key}.md` exist?
 2. If not → run sub-process `create-story` for this epic/story number
 3. Load only the story file's section headers and AC list (not full content)
 4. Present summary to user: title + AC count + task count
@@ -118,7 +127,7 @@ All stories must be at `done` before starting closure. Each closure phase is a s
 Session receives: `sprint-status.yaml` path + target epic number.
 
 Run sub-process `retrospective` for the epic.
-Write retrospective document to `{artifacts}/epic-{N}-retro-{date}.md`.
+Write retrospective document to `{artifacts}/epic-{EE}/sprint-{SS}/closure/epic-{EE}-sprint-{SS}-retro-{date}.md`.
 
 Output status line: `DONE — Retro file: [path], Action items: N`
 

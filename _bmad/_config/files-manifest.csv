@@ -41,3 +41,4 @@ type,name,module,path,hash
 "file","bmad-sprint-execute","bmad-extensions","bmad-extensions/skills/bmad-sprint-execute",""
 "file","bmad-epic-execute","bmad-extensions","bmad-extensions/skills/bmad-epic-execute",""
 "file","bmad-red-team","bmad-extensions","bmad-extensions/skills/bmad-red-team",""
+"file","bmad-migrate-artifacts","bmad-extensions","bmad-extensions/skills/bmad-migrate-artifacts",""

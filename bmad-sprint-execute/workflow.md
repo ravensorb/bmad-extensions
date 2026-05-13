@@ -10,6 +10,7 @@
 - State is passed through disk only: story files and sprint-status.yaml
 - After each subagent completes, you read disk state to determine next action
 - Closure phase reviews (retro, adversarial, red team) are also subagents
+- Subagents may use any tools available in the active runtime and permitted by caller access; do not assume fixed tool availability
 
 - Communicate all responses in {communication_language}
 - Execute all steps in exact order; do NOT skip steps
@@ -33,6 +34,14 @@ Load config from `{project-root}/_bmad/bmm/config.yaml` and resolve:
 - `status_file` = `{implementation_artifacts}/sprint-status.yaml`
 - `config_file` = `{project-root}/_bmad/bmm/config.yaml`
 - `context_file` = `**/project-context.md` (path only — do NOT load contents)
+- `target_sprint_num` = user-provided sprint number when available; otherwise `1`
+- `target_epic_padded` = two-digit zero-padded epic number (example: `01`, `09`, `15`)
+- `target_sprint_padded` = two-digit zero-padded sprint number (example: `01`, `02`)
+- `sprint_root_dir` = `{implementation_artifacts}/epic-{{target_epic_padded}}/sprint-{{target_sprint_padded}}`
+- `story_output_dir` = `{{sprint_root_dir}}/stories`
+- `closure_output_dir` = `{{sprint_root_dir}}/closure`
+- `test_output_dir` = `{{sprint_root_dir}}/tests`
+- `planning_sprint_dir` = `{planning_artifacts}/epic-{{target_epic_padded}}/sprint-{{target_sprint_padded}}`
 
 > **Orchestrator memory rule:** Load config and status file to build the sprint plan. After that, hold only story keys and status values — not file contents, implementation details, or test output. Let disk be the memory.
 
@@ -44,6 +53,7 @@ When this workflow says **"spawn subagent"**, use the following approach:
 
 **Option A — Agent tool (preferred when available):**
 Use the Agent tool with a self-contained prompt. Do NOT forward the current conversation history. Pass only paths and the skill name.
+Subagents should use tools opportunistically based on active runtime availability and caller permissions.
 
 **Option B — Bash CLI:**
 ```bash
@@ -95,6 +105,10 @@ When done, print a one-line status: DONE | BLOCKED: [reason] | FAILED: [reason]
 
 <action>Remove any stories already at `done` from {{sprint_stories}}</action>
 <action>Build ordered execution list (preserve order from {status_file})</action>
+<action>Resolve {{target_sprint_num}} from user input when available; default to `1`</action>
+<action>Resolve {{target_epic_padded}} and {{target_sprint_padded}} as two-digit values</action>
+<action>Resolve {{sprint_root_dir}}, {{story_output_dir}}, {{closure_output_dir}}, {{test_output_dir}}, and {{planning_sprint_dir}}</action>
+<action>Create directories on disk if missing: {{story_output_dir}}, {{closure_output_dir}}, {{test_output_dir}}, and {{planning_sprint_dir}}</action>
 
 <output>
 Sprint Orchestrator: "Sprint scope identified — Epic {{target_epic}}, {{story_count}} stories:
@@ -102,6 +116,10 @@ Sprint Orchestrator: "Sprint scope identified — Epic {{target_epic}}, {{story_
 {{story_key_list_with_current_status}}
 
 I'll delegate each story phase to a fresh subagent. State passes through disk only.
+Story files for this sprint will be stored in: {{story_output_dir}}
+Sprint closure files for this sprint will be stored in: {{closure_output_dir}}
+Sprint test evidence files will be stored in: {{test_output_dir}}
+Sprint planning artifacts will be stored in: {{planning_sprint_dir}}
 Execution per story: Story Prep → Dev → Code Review → QA → Fix Loop
 Sprint closure: Retrospective → Adversarial Review → Red Team → Issue Resolution
 
@@ -120,7 +138,12 @@ Shall I begin?"
 
 **Step 2a — Story Preparation (subagent)**
 
-<action>Check: does `{implementation_artifacts}/{{story_key}}.md` exist on disk?</action>
+<action>Set {{story_file_path}} = `{{story_output_dir}}/{{story_key}}.md`</action>
+<action>Set {{legacy_story_file_path}} = `{implementation_artifacts}/{{story_key}}.md`</action>
+<check if="{{story_file_path}} does not exist AND {{legacy_story_file_path}} exists">
+  <action>Move the story file from {{legacy_story_file_path}} to {{story_file_path}}</action>
+</check>
+<action>Check: does `{{story_file_path}}` exist on disk?</action>
 
 <check if="story file does NOT exist">
   <action>Announce: "Spawning story prep subagent for {{story_key}}"</action>
@@ -130,19 +153,21 @@ Load config from: {config_file}
 Load project context from: {context_file} (if exists)
 Invoke skill: bmad-create-story
 Target: Epic {{target_epic}}, Story {{story_num}}
-Execute completely. Write the story file to {implementation_artifacts}/{{story_key}}.md
+Execute completely. Write the story file to {{story_file_path}}
+If planning documents are generated, place them under: {{planning_sprint_dir}}/stories/
+If the skill writes to a legacy flat path, the orchestrator will relocate it to {{story_file_path}}.
 Print status when done: DONE | BLOCKED: [reason]
 ```
   </action>
   <action>Wait for subagent to complete</action>
-  <action>Read {implementation_artifacts}/{{story_key}}.md — verify it was created</action>
-  <check if="story file was not created or subagent reported BLOCKED">
+  <action>Read {{story_file_path}} — verify it was created</action>
+  <check if="story file was not created at {{story_file_path}} or subagent reported BLOCKED">
     <action>HALT and report to {user_name} with the subagent's status output</action>
     <ask>Resolve the blocker before continuing</ask>
   </check>
 </check>
 
-<check if="story file already exists">
+<check if="{{story_file_path}} already exists">
   <action>Read only the Status and section headers from the story file to verify it is complete</action>
 </check>
 
@@ -161,7 +186,7 @@ Print status when done: DONE | BLOCKED: [reason]
 ```
 Load config from: {config_file}
 Load project context from: {context_file} (if exists)
-Story file: {implementation_artifacts}/{{story_key}}.md
+Story file: {{story_file_path}}
 Invoke skill: bmad-dev-story
 Execute completely — all tasks and subtasks must be checked [x] before finishing.
 Update the story file Dev Agent Record and File List as the skill requires.
@@ -190,7 +215,7 @@ Print status when done: DONE | BLOCKED: [reason] | FAILED: [reason]
 ```
 Load config from: {config_file}
 Load project context from: {context_file} (if exists)
-Story file: {implementation_artifacts}/{{story_key}}.md
+Story file: {{story_file_path}}
 Changed files: {{changed_files}}
 Invoke skill: bmad-code-review
 Target: the files listed above as changed by this story.
@@ -220,11 +245,13 @@ Print a brief summary when done:
 ```
 Load config from: {config_file}
 Load project context from: {context_file} (if exists)
-Story file: {implementation_artifacts}/{{story_key}}.md
+Story file: {{story_file_path}}
 Invoke skill: bmad-qa-generate-e2e-tests
 Target: the feature implemented in this story.
 Run all generated tests and verify they pass before finishing.
 Write test results summary to the story file Dev Agent Record section.
+Write QA evidence report to:
+  {{test_output_dir}}/epic-{{target_epic_padded}}-sprint-{{target_sprint_padded}}-{{story_key}}-qa-{{date}}.md
 Print status when done:
   DONE — Tests: N written, N passing
   FAILURES: N tests failing — [brief description]
@@ -261,7 +288,7 @@ Print status when done:
 ```
 Load config from: {config_file}
 Load project context from: {context_file} (if exists)
-Story file: {implementation_artifacts}/{{story_key}}.md
+Story file: {{story_file_path}}
 Issue to fix: {{issue_description}}
 Invoke skill: bmad-dev-story
 Target the specific issue above. Read the story file Dev Agent Record for full context.
@@ -323,7 +350,8 @@ Sprint status file: {status_file}
 Target epic: {{target_epic}}
 Invoke skill: bmad-retrospective
 Execute the full retrospective for Epic {{target_epic}}.
-Write the retrospective document to the standard output path.
+Write the retrospective document to:
+  {{closure_output_dir}}/epic-{{target_epic_padded}}-sprint-{{target_sprint_padded}}-retro-{{date}}.md
 Print when done:
   DONE — Retro file: [path], Action items: N
   BLOCKED: [reason]
@@ -352,6 +380,8 @@ Invoke skill: bmad-review-adversarial-general
 Content to review: all code changes across all sprint stories (collect File List sections from each story file).
 Also consider: "Sprint retrospective at {{retro_file_path}}. Review all stories as a cohesive sprint increment, not story by story."
 Execute the full review.
+Write findings to:
+  {{closure_output_dir}}/epic-{{target_epic_padded}}-sprint-{{target_sprint_padded}}-adversarial-{{date}}.md
 Print findings summary when done:
   DONE — Critical: N, High: N, Medium: N, Low: N
   BLOCKED: [reason]
@@ -377,6 +407,8 @@ Invoke skill: bmad-red-team
 Scope: all code changes introduced in this sprint (collect from story file File List sections).
 Context: architecture document above. Focus on new attack surface introduced by this sprint.
 Execute the full red team review.
+Write findings to:
+  {{closure_output_dir}}/epic-{{target_epic_padded}}-sprint-{{target_sprint_padded}}-redteam-{{date}}.md
 Print findings summary when done:
   DONE — Critical: N, High: N, Medium: N, Low: N
   BLOCKED: [reason]
@@ -404,7 +436,8 @@ Red Team:            Critical {{rt_critical}}, High {{rt_high}}, Medium {{rt_med
 <action>Spawn subagent with prompt:
 ```
 Load the adversarial review findings and red team findings for sprint Epic {{target_epic}}.
-Look for review output files in {implementation_artifacts} created today.
+Look for review output files in {{closure_output_dir}} created today.
+Look for QA evidence files in {{test_output_dir}} created today.
 List all Critical and High findings with: title, severity, one-sentence description.
 Also list Medium findings with title only.
 Print the list.
@@ -482,20 +515,21 @@ Sprint Orchestrator: "Sprint CLOSED — Epic {{target_epic}} — {{date}}
 | `{{retro_file_path}}` | string | Path written by retro subagent |
 | `{{adv_critical/high/medium/low}}` | int | Counts from adversarial review status line |
 | `{{rt_critical/high/medium/low}}` | int | Counts from red team status line |
+| `{{test_output_dir}}` | string | Sprint test evidence output directory |
 | `{{deferred_story_keys}}` | list | Backlog stories created during closure |
 
 ## Disk handoff contract
 
 | Phase | Subagent writes | Orchestrator reads |
 |-------|-----------------|-------------------|
-| Story prep | `{implementation_artifacts}/{{story_key}}.md` | File exists? Section headers complete? |
+| Story prep | `{{story_output_dir}}/{{story_key}}.md` (fallback from legacy flat path if needed) | File exists? Section headers complete? |
 | Dev | Story file — tasks [x], Dev Agent Record, File List | All tasks checked? File List populated? |
 | Code review | Story file — Dev Agent Record append | Printed status line (Critical/High counts) |
-| QA | Story file — Dev Agent Record + test files | Printed status line (pass/fail counts) |
+| QA | Story file — Dev Agent Record + test files + `{{test_output_dir}}/...-qa-{{date}}.md` | Printed status line (pass/fail counts) |
 | Fix | Story file — Dev Agent Record fix notes | Printed status (FIXED/PARTIAL/FAILED) |
-| Retro | Retrospective document | Printed path + action item count |
-| Adversarial | Review findings document | Printed severity counts |
-| Red team | Red team findings document | Printed severity counts |
+| Retro | `{{closure_output_dir}}/epic-{{target_epic_padded}}-sprint-{{target_sprint_padded}}-retro-{{date}}.md` | Printed path + action item count |
+| Adversarial | `{{closure_output_dir}}/epic-{{target_epic_padded}}-sprint-{{target_sprint_padded}}-adversarial-{{date}}.md` | Printed severity counts |
+| Red team | `{{closure_output_dir}}/epic-{{target_epic_padded}}-sprint-{{target_sprint_padded}}-redteam-{{date}}.md` | Printed severity counts |
 
 ## Sub-Skills Delegated to Subagents
 

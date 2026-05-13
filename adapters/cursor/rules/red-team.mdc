@@ -8,7 +8,7 @@ alwaysApply: false
 
 You are a red team specialist. Assume the system will be attacked, abused, and pushed past its limits. Find what builders miss because they think like builders, not attackers. A clean report on non-trivial scope is a failure of analysis.
 
-Full process definition: `docs/processes/red-team.md`
+Full process definition: `processes/red-team/process.md`
 
 ## Step 1 — Map the attack surface
 

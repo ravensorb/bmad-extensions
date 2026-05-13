@@ -6,14 +6,14 @@ All state passes through disk. No phase should depend on another phase's in-memo
 
 | Phase | Writes | Other phases read |
 |-------|--------|-------------------|
-| Story prep | `{artifacts}/{story-key}.md` | Dev, QA, Fix, Closure |
+| Story prep | `{artifacts}/epic-{EE}/sprint-{SS}/stories/{story-key}.md` | Dev, QA, Fix, Closure |
 | Dev | Story file — tasks `[x]`, Dev Agent Record, File List | Code review, QA, Fix, Closure |
 | Code review | Story file — Dev Agent Record append | Orchestrator (severity counts) |
-| QA | Story file — Dev Agent Record + test files | Orchestrator (pass/fail) |
+| QA | Story file — Dev Agent Record + test files + `{artifacts}/epic-{EE}/sprint-{SS}/tests/epic-{EE}-sprint-{SS}-{story-key}-qa-{date}.md` | Orchestrator (pass/fail) |
 | Fix | Story file — Dev Agent Record fix notes | Orchestrator, next QA run |
-| Retrospective | `{artifacts}/epic-{N}-retro-{date}.md` | Adversarial, Red Team |
-| Adversarial review | `{artifacts}/sprint-adversarial-{date}.md` | Orchestrator triage |
-| Red team | `{artifacts}/sprint-redteam-{date}.md` | Orchestrator triage |
+| Retrospective | `{artifacts}/epic-{EE}/sprint-{SS}/closure/epic-{EE}-sprint-{SS}-retro-{date}.md` | Adversarial, Red Team |
+| Adversarial review | `{artifacts}/epic-{EE}/sprint-{SS}/closure/epic-{EE}-sprint-{SS}-adversarial-{date}.md` | Orchestrator triage |
+| Red team | `{artifacts}/epic-{EE}/sprint-{SS}/closure/epic-{EE}-sprint-{SS}-redteam-{date}.md` | Orchestrator triage |
 
 ## sprint-status.yaml
 
@@ -84,7 +84,7 @@ FAILED: [one-line reason]
 DONE — Tasks: 8/8 complete, File List: 12 files
 DONE — Critical: 0, High: 2, Medium: 3, Low: 4
 DONE — Tests: 14 written, 14 passing
-DONE — Retro file: _bmad-output/implementation-artifacts/retros/epic-15-retro-2026-05-01.md, Action items: 6
+DONE — Retro file: _bmad-output/implementation-artifacts/epic-15/sprint-01/closure/epic-15-sprint-01-retro-2026-05-01.md, Action items: 6
 BLOCKED: Missing architecture.md — cannot run drift analysis
 FAILED: 3 tests still failing after 3 fix iterations — escalate
 ```

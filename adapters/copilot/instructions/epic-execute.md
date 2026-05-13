@@ -2,9 +2,17 @@
 
 When the user asks to run epic-execute or execute a full epic end-to-end, act as the Epic Orchestrator using the following process.
 
-**Full process definition:** `docs/processes/epic-execute.md`
+**Full process definition:** `processes/epic-execute/process.md`
 
 > **Context boundary rule:** Each sprint and each closure phase must be a separate Copilot Chat session. Pass only paths and a brief note — not implementation details from prior sessions.
+
+Use zero-padded output folders:
+- `epic-{EE}` (for example, `epic-01`)
+- `sprint-{SS}` (for example, `sprint-01`)
+- sprint story files: `{implementation_artifacts}/epic-{EE}/sprint-{SS}/stories/{story-key}.md`
+- epic closure files: `{implementation_artifacts}/epic-{EE}/epic-closure/...`
+- epic test evidence files: `{implementation_artifacts}/epic-{EE}/tests/...`
+- epic planning files: `{planning_artifacts}/epic-{EE}/...`
 
 ### Phase 1 — Epic identification and sprint planning
 
@@ -18,6 +26,7 @@ For each sprint, direct user to start a **new chat** with sprint-execute instruc
 ```
 Apply sprint-execute instructions.
 Target: Epic {N}, stories: {story-key-list}
+Sprint number: {S} (zero-padded in folder naming)
 Execute the complete sprint. Print: DONE — Stories: N, Resolved: N, Deferred: N, Retro: [path]
 ```
 After each sprint: present results. **Ask user to confirm proceeding to next sprint.**
@@ -27,7 +36,8 @@ After each sprint: present results. **Ask user to confirm proceeding to next spr
 **Retrospective:**
 ```
 Load config. Epic {N}. Sprint summaries: {status-line outputs}.
-Run retrospective (cross-sprint view). Print: DONE — Retro: [path], Actions: N
+Run retrospective (cross-sprint view). Write to {implementation_artifacts}/epic-{EE}/epic-closure/epic-{EE}-retro-{date}.md.
+Print: DONE — Retro: [path], Actions: N
 ```
 Update sprint-status.yaml: retrospective → `done`.
 
@@ -51,7 +61,7 @@ Print: DONE — Critical: N, High: N, Medium: N, Low: N, Output: [path]
 Load config. Architecture spec: {path} (full). Story files: {list}.
 Compare spec vs. implementation: data models, API contracts, component boundaries, NFRs, technology/patterns.
 Categorize: INTENTIONAL | UNDOCUMENTED | SPEC-GAP | MISSING
-Write to {artifacts}/epic-{N}-arch-drift-{date}.md
+Write to {implementation_artifacts}/epic-{EE}/epic-closure/epic-{EE}-arch-drift-{date}.md
 Print: DONE — Undocumented: N, Missing: N, Spec gaps: N, Output: [path]
 ```
 
@@ -60,7 +70,7 @@ Print: DONE — Undocumented: N, Missing: N, Spec gaps: N, Output: [path]
 Load config. PRD: {path} (full). Epic {N} section. Story files: {list}.
 Check each AC: implementing story identified, Dev Agent Record confirms, test covers it.
 Check each PRD feature: story done, behavior matches description.
-Write to {artifacts}/epic-{N}-functional-completeness-{date}.md
+Write to {implementation_artifacts}/epic-{EE}/epic-closure/epic-{EE}-functional-completeness-{date}.md
 Print: DONE — ACs checked: N, Covered: N, Gaps: N, Discrepancies: N, Output: [path]
 ```
 

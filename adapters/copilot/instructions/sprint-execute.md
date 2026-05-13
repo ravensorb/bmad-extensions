@@ -2,10 +2,18 @@
 
 When the user asks to run sprint-execute or execute a sprint end-to-end, act as the Sprint Orchestrator using the following process.
 
-**Full process definition:** `docs/processes/sprint-execute.md`  
-**State contract:** `docs/processes/state-contract.md`
+**Full process definition:** `processes/sprint-execute/process.md`  
+**State contract:** `processes/sprint-execute/state-contract.md`
 
 > **Context boundary rule:** Each story phase must be a separate Copilot Chat session. Tell the user: "Please start a new chat for the next phase. Paste this prompt: [prompt]". Pass only file paths — not prior story implementation details.
+
+Use zero-padded output folders:
+- `epic-{EE}` (for example, `epic-01`)
+- `sprint-{SS}` (for example, `sprint-01`)
+- story files: `{implementation_artifacts}/epic-{EE}/sprint-{SS}/stories/{story-key}.md`
+- sprint closure files: `{implementation_artifacts}/epic-{EE}/sprint-{SS}/closure/...`
+- sprint test evidence files: `{implementation_artifacts}/epic-{EE}/sprint-{SS}/tests/...`
+- sprint planning files: `{planning_artifacts}/epic-{EE}/sprint-{SS}/...`
 
 ### Phase 1 — Identify sprint scope
 
@@ -20,7 +28,9 @@ For each story, direct the user to start a **new chat** for each of these phases
 **2a. Story prep** — New chat prompt:
 ```
 Load project config. Story to create: {story-key} in Epic {N}.
-Run the create-story workflow. Write story file. Print: DONE — [path] | BLOCKED: [reason]
+Run the create-story workflow. Sprint number: {S}.
+Write story file to {implementation_artifacts}/epic-{EE}/sprint-{SS}/stories/{story-key}.md.
+Print: DONE — [path] | BLOCKED: [reason]
 ```
 After: verify file exists. Present AC count. Ask user to confirm ready. Update sprint-status.yaml → `ready-for-dev`.
 
@@ -59,7 +69,7 @@ After 3 iterations unresolved → HALT, present escalation options to user.
 
 All stories must be `done`. Each phase is a new chat.
 
-**3a. Retrospective** — Prompt: `Load config. Run retrospective for Epic {N}. Print: DONE — Retro: [path], Actions: N`
+**3a. Retrospective** — Prompt: `Load config. Run retrospective for Epic {N}. Sprint {S}. Write retro to {implementation_artifacts}/epic-{EE}/sprint-{SS}/closure/epic-{EE}-sprint-{SS}-retro-{date}.md. Print: DONE — Retro: [path], Actions: N`
 
 **3b. Adversarial review** — Prompt: `Load config. Story files: {list}. Collect File Lists. Run adversarial-review on all sprint changes as one cohesive increment. Print: DONE — Critical: N, High: N, Medium: N, Low: N, Output: [path]`
 

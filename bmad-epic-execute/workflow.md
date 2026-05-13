@@ -9,6 +9,7 @@
 - Each epic closure phase (retro, adversarial, red team, drift, completeness) is a fresh subagent
 - State passes through disk only: story files, sprint-status.yaml, and review output documents
 - After each subagent completes, you read disk state (status lines + targeted file reads) to determine next action
+- Subagents may use any tools available in the active runtime and permitted by caller access; do not assume fixed tool availability
 
 - Communicate all responses in {communication_language}
 - Execute all steps in exact order; do NOT skip steps
@@ -35,6 +36,11 @@ Load config from `{project-root}/_bmad/bmm/config.yaml` and resolve:
 - `arch_file` = `{planning_artifacts}/*architecture*.md`
 - `prd_file` = `{planning_artifacts}/*prd*.md`
 - `epics_file` = `{planning_artifacts}/*epic*.md`
+- `target_epic_padded` = two-digit zero-padded epic number (example: `01`, `09`, `15`)
+- `epic_root_dir` = `{implementation_artifacts}/epic-{{target_epic_padded}}`
+- `epic_closure_dir` = `{{epic_root_dir}}/epic-closure`
+- `epic_test_dir` = `{{epic_root_dir}}/tests`
+- `planning_epic_dir` = `{planning_artifacts}/epic-{{target_epic_padded}}`
 
 > **Orchestrator memory rule:** Load config and skim status file for epic/story keys only. After planning, hold only keys, sprint groupings, status values, and printed status-line summaries from subagents. Do not load architecture, PRD, or story file contents into this context.
 
@@ -46,6 +52,7 @@ When this workflow says **"spawn subagent"**, use:
 
 **Option A — Agent tool (preferred when available):**
 Use the Agent tool with a self-contained prompt. Do NOT forward the current conversation history. Pass only paths and the skill name.
+Subagents should use tools opportunistically based on active runtime availability and caller permissions.
 
 **Option B — Bash CLI:**
 ```bash
@@ -108,6 +115,9 @@ To split: provide story key groups (e.g. Sprint 1: 15-0, 15-1, 15-2 / Sprint 2: 
 
 <action>Set {{sprint_plan}} = confirmed groupings</action>
 <action>Set {{total_sprint_count}} = number of sprints</action>
+<action>Resolve {{target_epic_padded}} as a two-digit value</action>
+<action>Resolve {{epic_root_dir}}, {{epic_closure_dir}}, {{epic_test_dir}}, and {{planning_epic_dir}}</action>
+<action>Create directories on disk if missing: {{epic_root_dir}}, {{epic_closure_dir}}, {{epic_test_dir}}, and {{planning_epic_dir}}</action>
 <action>Update epic-{{target_epic}} to `in-progress` in {status_file}</action>
 
 <output>
@@ -115,6 +125,10 @@ Epic Orchestrator: "Execution confirmed for Epic {{target_epic}} — {{epic_titl
 {{total_sprint_count}} sprint(s), {{remaining_count}} stories.
 
 Each sprint runs as a fresh bmad-sprint-execute subagent.
+Sprint outputs will be stored under: {{epic_root_dir}}/sprint-XX
+Epic-level closure outputs will be stored under: {{epic_closure_dir}}
+Epic-level test evidence outputs will be stored under: {{epic_test_dir}}
+Epic-level planning artifacts will be stored under: {{planning_epic_dir}}
 Epic closure (after all sprints): Retrospective → Adversarial → Red Team → Architecture Drift → Functional Completeness.
 All phases are fresh subagents. State passes through disk only.
 
@@ -128,6 +142,7 @@ Beginning Sprint 1 of {{total_sprint_count}}."
 <action>For each sprint in {{sprint_plan}}, in order:</action>
 
 <action>Announce: "Spawning sprint subagent {{current_sprint_num}} of {{total_sprint_count}} — stories: {{sprint_story_keys}}"</action>
+<action>Resolve {{current_sprint_padded}} as a two-digit value</action>
 
 <action>Spawn subagent with prompt:
 ```
@@ -135,6 +150,8 @@ Load config from: {config_file}
 Load project context from: {context_file} (if exists)
 Sprint status file: {status_file}
 Target: Epic {{target_epic}}, stories: {{sprint_story_keys}}
+Sprint number: {{current_sprint_num}} (two-digit: {{current_sprint_padded}})
+Expected sprint output root: {{epic_root_dir}}/sprint-{{current_sprint_padded}}
 Invoke skill: bmad-sprint-execute
 Execute the complete sprint for the listed stories.
 This includes per-story: create-story → dev → code-review → qa → fix loop
@@ -181,7 +198,8 @@ Sprint summaries (for cross-sprint context): {{sprint_summaries}}
 Invoke skill: bmad-retrospective
 Execute a full epic-level retrospective for Epic {{target_epic}}.
 Incorporate cross-sprint learnings — this covers the entire epic, not just the last sprint.
-Write the retrospective document to the standard output path.
+Write the retrospective document to:
+  {{epic_closure_dir}}/epic-{{target_epic_padded}}-retro-{{date}}.md
 Print when done:
   DONE — Retro file: [path], Action items: N
   BLOCKED: [reason]
@@ -210,6 +228,8 @@ Content to review: all code changes across the entire epic.
   To find them: read the File List section from each story file listed above.
 Also consider: "Epic retrospective at {{epic_retro_file}}. Review the entire epic as a cohesive product increment — look for systemic issues only visible across all stories together: inter-story interactions, data flow across features, consistency of approach, patterns that only emerge at scale."
 Execute the full adversarial review. Write findings to an output document.
+Write findings to:
+  {{epic_closure_dir}}/epic-{{target_epic_padded}}-adversarial-{{date}}.md
 Print when done:
   DONE — Critical: N, High: N, Medium: N, Low: N, Output: [path]
   BLOCKED: [reason]
@@ -237,6 +257,8 @@ Scope: all code changes across the entire epic (collect from story file File Lis
 Context: architecture document above, epic retrospective.
 Focus on: (1) new attack surface introduced by the entire epic, (2) security properties spanning multiple stories (auth model, data ownership, trust boundaries), (3) failure modes that only emerge when all epic features interact.
 Write findings to an output document.
+Write findings to:
+  {{epic_closure_dir}}/epic-{{target_epic_padded}}-redteam-{{date}}.md
 Print when done:
   DONE — Critical: N, High: N, Medium: N, Low: N, Output: [path]
   BLOCKED: [reason]
@@ -276,7 +298,7 @@ For each finding, categorize as:
   - SPEC GAP: spec was silent, implementation made a choice — flag for doc update
   - MISSING: specified but not yet implemented
 
-Write a structured findings report to {implementation_artifacts}/epic-{{target_epic}}-arch-drift-{{date}}.md
+Write a structured findings report to {{epic_closure_dir}}/epic-{{target_epic_padded}}-arch-drift-{{date}}.md
 Print when done:
   DONE — Undocumented deviations: N, Missing implementations: N, Spec gaps: N, Output: [path]
   BLOCKED: [reason]
@@ -317,7 +339,7 @@ For each user-facing feature described for Epic {{target_epic}} in the PRD:
 
 Check cross-cutting concerns specified at epic level in the PRD (consistent UX patterns, shared data model elements, error handling).
 
-Write a structured findings report to {implementation_artifacts}/epic-{{target_epic}}-functional-completeness-{{date}}.md
+Write a structured findings report to {{epic_closure_dir}}/epic-{{target_epic_padded}}-functional-completeness-{{date}}.md
 Print when done:
   DONE — ACs checked: N, Covered: N, Gaps: N, PRD discrepancies: N, Output: [path]
   BLOCKED: [reason]
@@ -373,10 +395,11 @@ Indicate your plan for each item.</ask>
   1. Announce: "Spawning fix subagent: {{issue_title}}"
   2. Spawn subagent: invoke `bmad-create-story` if a new story is needed, else invoke `bmad-dev-story` directly with fix context
   3. Spawn verification subagent: invoke `bmad-qa-generate-e2e-tests`
-  4. Read verification status line — confirm tests pass
+  4. Store verification evidence in `{{epic_test_dir}}/epic-{{target_epic_padded}}-fix-verification-{{date}}.md`
+  5. Read verification status line — confirm tests pass
 
 <action>For each "doc update" (spec gaps, intentional drift documentation):</action>
-  1. Spawn subagent to update the relevant architecture or PRD document
+  1. Spawn subagent to update the relevant architecture or PRD document (store new docs under `{{planning_epic_dir}}` when creating net new files)
   2. Read confirmation from subagent status line
 
 <action>For each "defer / backlog":</action>
@@ -434,6 +457,7 @@ Epic Orchestrator: "Epic {{target_epic}} — {{epic_title}} — CLOSED — {{dat
 | Variable | Type | Description |
 |----------|------|-------------|
 | `{{target_epic}}` | string | Epic number being executed |
+| `{{target_epic_padded}}` | string | Two-digit epic number used in folder naming |
 | `{{sprint_plan}}` | list of key-groups | Sprint groupings confirmed by user |
 | `{{sprint_summaries}}` | list of status lines | One status-line summary per completed sprint |
 | `{{all_sprint_story_files}}` | list of paths | Story file paths (not contents) |
@@ -442,6 +466,7 @@ Epic Orchestrator: "Epic {{target_epic}} — {{epic_title}} — CLOSED — {{dat
 | `{{rt_critical/high/medium}}` | int | Counts from red team status line |
 | `{{drift_undoc/missing/gaps}}` | int | Counts from drift analysis status line |
 | `{{func_ac_gaps/discrepancies}}` | int | Counts from completeness status line |
+| `{{epic_test_dir}}` | string | Epic-level test evidence output directory |
 | `{{deferred_story_keys}}` | list | Backlog stories created during closure |
 
 ## Disk handoff contract
@@ -449,13 +474,13 @@ Epic Orchestrator: "Epic {{target_epic}} — {{epic_title}} — CLOSED — {{dat
 | Phase | Subagent writes | Orchestrator reads |
 |-------|-----------------|-------------------|
 | Each sprint | Story files, sprint-status.yaml updates, sprint retro + review docs | Printed status line (stories done, issues counts) |
-| Epic retro | Retrospective document | Printed path + action count |
-| Adversarial | Review findings document | Printed severity counts + output path |
-| Red team | Red team findings document | Printed severity counts + output path |
-| Arch drift | `epic-N-arch-drift-DATE.md` | Printed deviation counts + output path |
-| Func completeness | `epic-N-functional-completeness-DATE.md` | Printed gap counts + output path |
-| Fix subagents | Story files, updated source code | Printed DONE/FAILED + QA verification status |
-| Doc updates | Architecture/PRD documents | Printed DONE confirmation |
+| Epic retro | `{{epic_closure_dir}}/epic-{{target_epic_padded}}-retro-{{date}}.md` | Printed path + action count |
+| Adversarial | `{{epic_closure_dir}}/epic-{{target_epic_padded}}-adversarial-{{date}}.md` | Printed severity counts + output path |
+| Red team | `{{epic_closure_dir}}/epic-{{target_epic_padded}}-redteam-{{date}}.md` | Printed severity counts + output path |
+| Arch drift | `{{epic_closure_dir}}/epic-{{target_epic_padded}}-arch-drift-{{date}}.md` | Printed deviation counts + output path |
+| Func completeness | `{{epic_closure_dir}}/epic-{{target_epic_padded}}-functional-completeness-{{date}}.md` | Printed gap counts + output path |
+| Fix subagents | Story files, updated source code + `{{epic_test_dir}}/epic-{{target_epic_padded}}-fix-verification-{{date}}.md` | Printed DONE/FAILED + QA verification status |
+| Doc updates | Architecture/PRD documents (new files under `{{planning_epic_dir}}`) | Printed DONE confirmation |
 
 ## Sub-Skills Delegated to Subagents
 

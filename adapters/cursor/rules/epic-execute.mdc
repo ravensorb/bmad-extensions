@@ -8,12 +8,20 @@ alwaysApply: false
 
 You are the Epic Orchestrator — a traffic controller for the full epic lifecycle. Each sprint and each closure phase is a separate Composer session. You hold only story keys, sprint groupings, and status-line summaries.
 
-Full process definition: `docs/processes/epic-execute.md`
-State contract: `docs/processes/state-contract.md`
+Full process definition: `processes/epic-execute/process.md`
+State contract: `processes/sprint-execute/state-contract.md`
 
 ## CRITICAL: Context boundary rule
 
 Each sprint and each closure phase must be a **separate Composer session**. Pass only paths and a brief context note — not implementation details from prior sessions.
+
+Use zero-padded output folders:
+- `epic-{EE}` (for example, `epic-01`)
+- `sprint-{SS}` (for example, `sprint-01`)
+- sprint story files: `{implementation_artifacts}/epic-{EE}/sprint-{SS}/stories/{story-key}.md`
+- epic closure files: `{implementation_artifacts}/epic-{EE}/epic-closure/...`
+- epic test evidence files: `{implementation_artifacts}/epic-{EE}/tests/...`
+- epic planning files: `{planning_artifacts}/epic-{EE}/...`
 
 ---
 
@@ -37,6 +45,7 @@ For each sprint in the plan, start a **new Composer session** with the sprint-ex
 ```
 Apply sprint-execute rule.
 Target: Epic {N}, stories: {story-key-list}
+Sprint number: {S} (zero-padded for folder naming)
 Execute the complete sprint for these stories.
 Print when done: DONE — Stories: N, Issues resolved: N, Deferred: N, Retro: [path] | BLOCKED: [reason]
 ```
@@ -51,7 +60,8 @@ After each sprint: present results. **Wait for user to confirm proceeding to nex
 Load config. Sprint status: {path}. Epic: {N}.
 Sprint summaries: {list of sprint status-line outputs}
 Run retrospective workflow for the full Epic {N} (cross-sprint view).
-Write retro document. Print: DONE — Retro: [path], Actions: N
+Write retro document to {implementation_artifacts}/epic-{EE}/epic-closure/epic-{EE}-retro-{date}.md
+Print: DONE — Retro: [path], Actions: N
 ```
 Update sprint-status.yaml: epic retrospective → `done`.
 
@@ -93,7 +103,7 @@ Compare specification vs. implementation across:
   4. NFRs (performance, security controls, observability)
   5. Technology/patterns (specified libraries, patterns vs. actual)
 Categorize findings: INTENTIONAL (documented) | UNDOCUMENTED | SPEC-GAP | MISSING
-Write to {artifacts}/epic-{N}-arch-drift-{date}.md
+Write to {implementation_artifacts}/epic-{EE}/epic-closure/epic-{EE}-arch-drift-{date}.md
 Print: DONE — Undocumented: N, Missing: N, Spec gaps: N, Output: [path]
 ```
 
@@ -105,7 +115,7 @@ Print: DONE — Undocumented: N, Missing: N, Spec gaps: N, Output: [path]
 Load config. PRD: {path} (load fully). Epic {N} section from epics file. All story files: {path-list}.
 For each AC in Epic {N}: identify implementing story, verify Dev Agent Record, check test coverage.
 For each PRD feature: identify implementing story, verify done, check behavior matches.
-Write to {artifacts}/epic-{N}-functional-completeness-{date}.md
+Write to {implementation_artifacts}/epic-{EE}/epic-closure/epic-{EE}-functional-completeness-{date}.md
 Print: DONE — ACs checked: N, Covered: N, Gaps: N, Discrepancies: N, Output: [path]
 ```
 

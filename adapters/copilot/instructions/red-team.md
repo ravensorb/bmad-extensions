@@ -2,7 +2,7 @@
 
 When the user asks for a red team review, security analysis, or threat modeling, act as a red team specialist using the following process.
 
-**Full process definition:** `docs/processes/red-team.md`
+**Full process definition:** `processes/red-team/process.md`
 
 You are simultaneously: an external attacker, a malicious insider, a chaos engineer, and an abusive legitimate user. A clean report on non-trivial scope is a failure of analysis — re-examine if you find no Critical or High issues.
 

@@ -5,10 +5,11 @@ AI-assisted development workflow extensions for sprint and epic execution with b
 ## Workflows
 
 | Skill | What it does |
-|-------|-------------|
+| ----- | ------------ |
 | `bmad-sprint-execute` | Full sprint: story prep → dev → code review → QA → fix loop per story, then retrospective → adversarial review → red team at closure. Sprint does not close until all Critical/High issues resolved. |
 | `bmad-epic-execute` | Full epic: runs sprint(s), then epic-level retrospective → adversarial → red team → architecture drift analysis → functional completeness review. |
 | `bmad-red-team` | Security and resilience review from four adversarial perspectives: external attacker, malicious insider, chaos engineer, abusive legitimate user. |
+| `bmad-migrate-artifacts` | One-time migration utility for existing projects: reorganizes legacy flat artifact files into `epic-XX/sprint-YY` folders (with dry-run first). |
 
 ## Install
 
@@ -16,13 +17,16 @@ AI-assisted development workflow extensions for sprint and epic execution with b
 
 ```bash
 npx bmad-method install \
+  --directory . \
   --custom-source https://github.com/ravensorb/bmad-extensions \
-  --tools claude-code
+  --tools claude-code \
+  --yes
 ```
 
 Or interactively: `npx bmad-method install` → Community modules → bmad-extensions
 
-Slash commands (`/bmad-sprint-execute`, `/bmad-epic-execute`, `/bmad-red-team`) are available immediately after install.
+Slash commands (`/bmad-sprint-execute`, `/bmad-epic-execute`, `/bmad-red-team`, `/bmad-migrate-artifacts`) are available immediately after install.
+Use `/bmad-migrate-artifacts` once in existing projects before running the updated orchestrators.
 
 ### Cursor
 
@@ -38,7 +42,7 @@ Append the relevant file(s) from `adapters/copilot/instructions/` to your repo's
 
 ## Repo layout
 
-```
+```text
 bmad-sprint-execute/     # BMad skill — sprint orchestrator
 bmad-epic-execute/       # BMad skill — epic orchestrator
 bmad-red-team/           # BMad skill — adversarial security review
@@ -56,7 +60,23 @@ All three workflows are designed around one core principle: **each unit of work 
 - **Cursor**: enforced manually — start a new Composer session for each story phase
 - **Copilot**: enforced manually — start a new chat for each story phase
 
+## Artifact Conventions
+
+Runtime artifacts are organized with zero-padded epic/sprint folders:
+- implementation stories: `.../implementation-artifacts/epic-XX/sprint-YY/stories/`
+- implementation closure: `.../implementation-artifacts/epic-XX/sprint-YY/closure/`
+- implementation tests: `.../implementation-artifacts/epic-XX/sprint-YY/tests/` and `.../implementation-artifacts/epic-XX/tests/`
+- planning artifacts: `.../planning-artifacts/epic-XX/` (and `sprint-YY/` when sprint-scoped)
+
 ## Dependencies
 
 Requires these BMad skills to be installed (part of standard BMad bmm module):
 `bmad-create-story`, `bmad-dev-story`, `bmad-code-review`, `bmad-qa-generate-e2e-tests`, `bmad-retrospective`, `bmad-review-adversarial-general`
+
+## Release Notes
+
+This repository uses a BMAD discovery manifest at `/.claude-plugin/marketplace.json` following the `plugins[]` schema. For each release:
+
+- Bump `plugins[0].version` in `/.claude-plugin/marketplace.json`
+- Keep `_bmad/_config/manifest.yaml` module version aligned
+- Tag the release with semver (for example, `v0.1.1`)
