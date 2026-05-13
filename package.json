@@ -1,0 +1,16 @@
+{
+  "name": "bmad-extensions",
+  "version": "0.1.2",
+  "private": true,
+  "scripts": {
+    "release": "commit-and-tag-version",
+    "release:patch": "commit-and-tag-version --release-as patch",
+    "release:minor": "commit-and-tag-version --release-as minor",
+    "release:major": "commit-and-tag-version --release-as major",
+    "changelog": "conventional-changelog -p angular -i CHANGELOG.md -s"
+  },
+  "devDependencies": {
+    "commit-and-tag-version": "latest",
+    "conventional-changelog-cli": "latest"
+  }
+}

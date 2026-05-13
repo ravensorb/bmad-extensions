@@ -30,15 +30,68 @@ Use `/bmad-migrate-artifacts` once in existing projects before running the updat
 
 ### Cursor
 
-Slash commands are available automatically — no install step needed. To also get ambient rules that apply to every Cursor session, copy the `.mdc` files into your project:
+Slash commands are available automatically — no install step needed.
+
+Copying `.mdc` files is optional and only needed if you want ambient/project-level Cursor rules.
+
+Quick enable for the current repo:
 
 ```bash
-cp adapters/cursor/rules/*.mdc /path/to/repo/.cursor/rules/
+mkdir -p .cursor/rules && cp adapters/cursor/rules/*.mdc .cursor/rules/
 ```
 
 ### GitHub Copilot
 
-Append the relevant file(s) from `adapters/copilot/instructions/` to your repo's `.github/copilot-instructions.md`.
+Copilot reads `.github/copilot-instructions.md`.
+
+Quick setup for the current repo:
+
+```bash
+mkdir -p .github && touch .github/copilot-instructions.md && for f in adapters/copilot/instructions/*.md; do b="$(basename "$f" .md)"; marker="<!-- BMAD:${b}:START -->"; rg -qF "$marker" .github/copilot-instructions.md || { printf "\n%s\n" "$marker" >> .github/copilot-instructions.md; cat "$f" >> .github/copilot-instructions.md; printf "\n<!-- BMAD:%s:END -->\n" "$b" >> .github/copilot-instructions.md; }; done
+```
+
+This command is idempotent:
+
+- appends BMAD snippets from `adapters/copilot/instructions/*.md` only if not already present
+- preserves unrelated custom content in `.github/copilot-instructions.md`
+
+Alternative (path-specific instructions structure):
+
+```bash
+mkdir -p .github/instructions && cp adapters/copilot/instructions/*.md .github/instructions/
+```
+
+If you use this alternative, rename copied files to `*.instructions.md` and add `applyTo` frontmatter in each file so Copilot can apply them by path.
+
+### Codex
+
+No manual copy step is required for Codex when BMAD is already installed in the repo.
+
+## Releases and Changelog (Node Standard)
+
+This repo supports a standard Conventional Commits release flow with `commit-and-tag-version`.
+
+Install release tooling:
+
+```bash
+npm install
+```
+
+Common commands:
+
+- patch release + changelog + tag:
+  - `npm run release:patch`
+- minor release + changelog + tag:
+  - `npm run release:minor`
+- major release + changelog + tag:
+  - `npm run release:major`
+- regenerate changelog only:
+  - `npm run changelog`
+
+This flow uses repo config in `.versionrc.cjs` and also bumps:
+
+- `.claude-plugin/marketplace.json` plugin version
+- `_bmad/_config/manifest.yaml` `bmad-extensions` module version
 
 ## Repo layout
 
@@ -63,6 +116,7 @@ All three workflows are designed around one core principle: **each unit of work 
 ## Adaptive Parallelism
 
 Execution defaults to sequential and only parallelizes when work is independent and safe.
+
 - default parallel subagents: `2`
 - user override allowed when it makes sense
 - hard cap: `4`
@@ -72,6 +126,7 @@ Execution defaults to sequential and only parallelizes when work is independent 
 ## Artifact Conventions
 
 Runtime artifacts are organized with zero-padded epic/sprint folders:
+
 - implementation stories: `.../implementation-artifacts/epic-XX/sprint-YY/stories/`
 - implementation closure: `.../implementation-artifacts/epic-XX/sprint-YY/closure/`
 - implementation tests: `.../implementation-artifacts/epic-XX/sprint-YY/tests/` and `.../implementation-artifacts/epic-XX/tests/`
@@ -82,10 +137,6 @@ Runtime artifacts are organized with zero-padded epic/sprint folders:
 Requires these BMad skills to be installed (part of standard BMad bmm module):
 `bmad-create-story`, `bmad-dev-story`, `bmad-code-review`, `bmad-qa-generate-e2e-tests`, `bmad-retrospective`, `bmad-review-adversarial-general`
 
-## Release Notes
+## Changelog
 
-This repository uses a BMAD discovery manifest at `/.claude-plugin/marketplace.json` following the `plugins[]` schema. For each release:
-
-- Bump `plugins[0].version` in `/.claude-plugin/marketplace.json`
-- Keep `_bmad/_config/manifest.yaml` module version aligned
-- Tag the release with semver (for example, `v0.1.2`)
+See `CHANGELOG.md` for release history.
