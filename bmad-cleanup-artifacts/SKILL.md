@@ -1,12 +1,14 @@
 ---
-name: bmad-migrate-artifacts
-description: Migrate existing flat BMAD artifact outputs into the zero-padded epic/sprint folder layout. Use when enabling the new epic-XX/sprint-YY artifact structure in an existing project.
+name: bmad-cleanup-artifacts
+description: Clean up legacy BMAD artifact outputs into the zero-padded epic/sprint folder layout, then review epic/sprint state consistency.
 ---
 
-# Artifact Layout Migration
+# Artifact Layout Cleanup
 
 ## Goal
-Migrate legacy flat files in implementation and planning artifacts into the new folder structure:
+
+Clean up legacy flat files in implementation and planning artifacts into the current folder structure:
+
 - `epic-{EE}/sprint-{SS}/stories/{story-key}.md`
 - `epic-{EE}/sprint-{SS}/closure/...`
 - `epic-{EE}/sprint-{SS}/tests/...`
@@ -17,13 +19,19 @@ Migrate legacy flat files in implementation and planning artifacts into the new 
 `EE` and `SS` must be zero-padded two-digit values (`01`, `02`, etc.).
 
 ## Safety Rules
-- Run a dry run first and show a migration plan before changing files.
+
+- Run a dry run first and show a cleanup plan before changing files.
 - Never overwrite an existing destination file.
 - If a destination exists, keep source in place and record a conflict.
-- Preserve file contents exactly; this is a move-only migration.
+- Preserve file contents exactly; this is a move-only cleanup.
+- Reference updates must be deterministic:
+  - auto-update only exact old-path matches that map to one known moved file
+  - if one old path could map to multiple targets (or uncertain context), do not edit; record for manual review
 
 ## Inputs
+
 Load config from `{project-root}/_bmad/bmm/config.yaml` and resolve:
+
 - `implementation_artifacts`
 - `planning_artifacts`
 - `output_folder`
@@ -31,7 +39,8 @@ Load config from `{project-root}/_bmad/bmm/config.yaml` and resolve:
 If `implementation_artifacts` is unavailable, default to:
 `{output_folder}/implementation-artifacts`
 
-## Migration Heuristics
+## Cleanup Heuristics
+
 1. Story files in flat root:
    - Pattern: `{implementation_artifacts}/{story-key}.md`
    - Story key regex: `^([0-9]+)-[0-9]+.*\.md$`
@@ -52,8 +61,8 @@ If `implementation_artifacts` is unavailable, default to:
 
 4. Test evidence files in flat root:
    - Patterns include `*qa*.md`, `*test*.md`, `*verification*.md`
-   - Sprint-scoped test evidence → `{implementation_artifacts}/epic-{EE}/sprint-{SS}/tests/{filename}`
-   - Epic-level test evidence → `{implementation_artifacts}/epic-{EE}/tests/{filename}`
+   - Sprint-scoped test evidence -> `{implementation_artifacts}/epic-{EE}/sprint-{SS}/tests/{filename}`
+   - Epic-level test evidence -> `{implementation_artifacts}/epic-{EE}/tests/{filename}`
 
 5. Planning artifacts:
    - If planning files are in a flat planning root and epic number can be inferred, move to:
@@ -66,8 +75,9 @@ If `implementation_artifacts` is unavailable, default to:
    - Record as "unclassified" for user review
 
 ## Execution Sequence
+
 1. Scan and classify files
-2. Print dry-run migration table:
+2. Print dry-run cleanup table:
    - source path
    - destination path
    - classification
@@ -75,10 +85,19 @@ If `implementation_artifacts` is unavailable, default to:
 3. Ask for confirmation
 4. Create required destination directories
 5. Execute moves
-6. Print summary report
+6. Reconcile references to moved files:
+   - review files that commonly hold artifact paths (status files, story files, planning docs, closure/test reports)
+   - update exact old-path references using the confirmed move map from step 5
+   - record unresolved/ambiguous references for manual follow-up
+7. Review artifact state correctness across all epics/sprints:
+   - verify epic and sprint folder names are zero-padded (`epic-XX`, `sprint-YY`)
+   - verify story files are under `stories/`, closure outputs under `closure/`, and tests under `tests/`
+   - if status files exist (for example `sprint-status.yaml`), flag story states that reference missing story files
+   - flag any residual flat files that should have been organized
+8. Print summary report
 
 ## Required Last Output
-```
-DONE — Moved: N, Conflicts: N, Unclassified: N, Root: [implementation_artifacts]
-```
 
+```text
+DONE - Moved: N, Conflicts: N, Unclassified: N, Refs Updated: N, Ref Conflicts: N, State Issues: N, Root: [implementation_artifacts]
+```

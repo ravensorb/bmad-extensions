@@ -26,7 +26,7 @@
         "./bmad-sprint-execute",
         "./bmad-epic-execute",
         "./bmad-red-team",
-        "./bmad-migrate-artifacts"
+        "./bmad-cleanup-artifacts"
       ]
     }
   ],

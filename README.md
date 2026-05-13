@@ -9,7 +9,7 @@ AI-assisted development workflow extensions for sprint and epic execution with b
 | `bmad-sprint-execute` | Full sprint: story prep → dev → code review → QA → fix loop per story, then retrospective → adversarial review → red team at closure. Sprint does not close until all Critical/High issues resolved. |
 | `bmad-epic-execute` | Full epic: runs sprint(s), then epic-level retrospective → adversarial → red team → architecture drift analysis → functional completeness review. |
 | `bmad-red-team` | Security and resilience review from four adversarial perspectives: external attacker, malicious insider, chaos engineer, abusive legitimate user. |
-| `bmad-migrate-artifacts` | One-time migration utility for existing projects: reorganizes legacy flat artifact files into `epic-XX/sprint-YY` folders (with dry-run first). |
+| `bmad-cleanup-artifacts` | Artifact cleanup utility for existing projects: reorganizes legacy flat artifact files into `epic-XX/sprint-YY` folders, then reviews epic/sprint state consistency. |
 
 ## Install
 
@@ -25,8 +25,8 @@ npx bmad-method install \
 
 Or interactively: `npx bmad-method install` → Community modules → bmad-extensions
 
-Slash commands (`/bmad-sprint-execute`, `/bmad-epic-execute`, `/bmad-red-team`, `/bmad-migrate-artifacts`) are available immediately after install.
-Use `/bmad-migrate-artifacts` once in existing projects before running the updated orchestrators.
+Slash commands (`/bmad-sprint-execute`, `/bmad-epic-execute`, `/bmad-red-team`, `/bmad-cleanup-artifacts`) are available immediately after install.
+Use `/bmad-cleanup-artifacts` once in existing projects before running the updated orchestrators.
 
 ### Cursor
 
