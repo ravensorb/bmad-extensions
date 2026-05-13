@@ -92,6 +92,7 @@ This flow uses repo config in `.versionrc.cjs` and also bumps:
 
 - `.claude-plugin/marketplace.json` plugin version
 - `_bmad/_config/manifest.yaml` `bmad-extensions` module version
+- these two files are auto-synced during release via `postbump` hook (no manual second bump)
 
 ## Repo layout
 

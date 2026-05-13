@@ -3,6 +3,7 @@
   "version": "0.1.4",
   "private": true,
   "scripts": {
+    "postbump": "node scripts/sync-bmad-versions.mjs && git add .claude-plugin/marketplace.json _bmad/_config/manifest.yaml",
     "release": "commit-and-tag-version",
     "release:patch": "commit-and-tag-version --release-as patch",
     "release:minor": "commit-and-tag-version --release-as minor",
