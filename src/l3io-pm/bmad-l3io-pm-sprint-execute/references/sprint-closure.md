@@ -222,7 +222,29 @@ Wait for `{user_name}` decision before proceeding.
 
 ---
 
-## Step 10 — Sprint Sign-Off
+## Step 10 — Epic Backlog File
+
+If any items were deferred to backlog during this sprint (`{deferred_story_keys}` is non-empty), append them to a consolidated per-epic backlog file:
+
+```
+{implementation_artifacts}/epic-{target_epic_padded}/epic-backlog.md
+```
+
+Format — append under a sprint heading (create the file if it does not exist):
+```markdown
+## Sprint {target_sprint} — {date}
+
+| Story Key | Source | Severity | Title | Rationale |
+|-----------|--------|----------|-------|-----------|
+| {story_key} | adversarial | Medium | {title} | Auto-deferred after 10 fix iterations |
+| {story_key} | red-team | Low | {title} | Auto-deferred |
+```
+
+This file accumulates across all sprints in the epic, making it the single place to review outstanding deferred work before epic closure.
+
+---
+
+## Step 11 — Sprint Sign-Off
 
 Update `{status_file}`:
 - All sprint stories: verified `done`
@@ -242,7 +264,7 @@ Sprint Orchestrator: Sprint CLOSED — Epic {target_epic}, Sprint {target_sprint
   Red team:             {rt_critical+rt_high} critical/high resolved, {rt_medium} medium
   UX review:            {ux_critical+ux_high} critical/high resolved
   Arch drift:           {drift_undoc} undocumented deviations resolved, {drift_gaps} spec gaps documented
-  Deferred to backlog:  {deferred_story_keys}
+  Deferred to backlog:  {deferred_story_keys} → {implementation_artifacts}/epic-{target_epic_padded}/epic-backlog.md
 
   Est. time:            {est_time_low}–{est_time_high} min    Actual: ~{actual_elapsed_min} min
   Est. tokens:          {est_tokens_low}K–{est_tokens_high}K  Actual: not directly trackable
