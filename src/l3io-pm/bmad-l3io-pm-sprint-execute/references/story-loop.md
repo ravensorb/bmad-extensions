@@ -52,7 +52,7 @@ Print when done: DONE | BLOCKED: [reason]
 
 Halt on BLOCKED — report to `{user_name}` and wait for resolution before continuing.
 
-Present to `{user_name}`: story title + acceptance criteria count + task count (from file headers only). Wait for confirmation before development begins. Update status to `ready-for-dev` in `{status_file}`.
+Announce story prep complete to `{user_name}` (informational, no confirmation requested): story title + acceptance criteria count + task count (from file headers only). Update status to `ready-for-dev` in `{status_file}` and continue immediately to development.
 
 ---
 
@@ -140,15 +140,19 @@ Print when done: FIXED | PARTIAL: [what remains] | FAILED: [reason]
 
 Increment `{fix_iteration}`. After fix, re-run Step 2d (QA) to confirm all tests pass before marking the story done.
 
-**Max 3 iterations.** If `{fix_iteration}` ≥ 3 and issues remain, halt and present to `{user_name}`:
+**Max 10 iterations.** Keep looping fix → QA → re-check as long as issues remain and `{fix_iteration}` < 10. No interim prompts. Only halt and ask `{user_name}` if `{fix_iteration}` ≥ 10 and issues still remain:
 ```
-Sprint Orchestrator: HALT — Story {story_key} has had {fix_iteration} fix iterations.
+Sprint Orchestrator: HALT — Story {story_key} has reached the 10-iteration fix cap.
 Remaining issues: {story_issues}
 Options:
-1. Provide additional context or constraints for the fix approach
+1. Provide additional context or constraints for the fix approach (continue with reset counter)
+     Est: ~3–8 min × additional rounds, ~15–40K tokens per round
 2. Accept and create a tech-debt follow-up story
+     Est: ~2–5 min, ~10–25K tokens (single bmad-create-story call)
 3. Redesign the approach for this story
+     Est: ~20–35 min, ~100–200K tokens (full story prep + dev + review + QA cycle)
 4. Skip this story and continue the sprint
+     Est: 0 min, 0 tokens
 ```
 Wait for decision before proceeding.
 

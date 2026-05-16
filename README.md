@@ -65,7 +65,7 @@ This extension standardizes those patterns so teams can run a repeatable, audita
 
 | Slash command | What it does |
 |---------------|--------------|
-| `/bmad-l3io-pm-sprint-execute` | Full sprint: story prep → dev → code review → QA → fix loop per story, then retro → clean release → adversarial → red team → UX → arch drift → issue triage at closure. Sprint does not close until all Critical/High issues are resolved |
+| `/bmad-l3io-pm-sprint-execute` | Full sprint: story prep → dev → code review → QA → fix loop per story (max 10 iterations), then retro → clean release → adversarial → red team → UX → arch drift → auto-triage + closure fix loop (max 10 iterations) at closure. Sprint does not close until all Critical/High/Medium issues are resolved. Low findings auto-defer to backlog with no prompts |
 | `/bmad-l3io-pm-epic-execute` | Full epic: sprint execution loop (one `bmad-l3io-pm-sprint-execute` subagent per sprint), then epic-level retro → clean release → adversarial → red team → UX → arch drift → functional completeness → issue triage |
 | `/bmad-l3io-sec-agent-redteam` | Adversarial security review through five threat lenses — external attacker, malicious insider, chaos engineer, abusive legitimate user, and design/architecture red team — with AI poisoning cross-cut and live cloud/platform best practices research |
 | `/bmad-l3io-util-cleanup` | Reorganizes legacy flat artifact files into `epic-XX/sprint-YY` folders, reconciles references, and verifies state consistency |

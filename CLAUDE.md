@@ -78,7 +78,7 @@ BLOCKED: [one-line reason]
 FAILED: [one-line reason]
 ```
 
-**Quality gates**: Sprint and epic closure requires all Critical and High severity findings to be resolved.
+**Quality gates**: Sprint and epic closure require all Critical, High, and Medium severity findings to be resolved (plus undocumented architecture drift and functional AC gaps at epic level). Low severity findings auto-defer to backlog. The fix loop runs autonomously without per-item prompts and only halts after 10 iterations (per-story or closure-level) if items remain unresolved.
 
 **Adaptive parallelism**: Default sequential. Parallel subagents: default 2, hard cap 4.
 

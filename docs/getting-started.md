@@ -112,7 +112,7 @@ Pre-start estimate:
 Shall I begin?
 ```
 
-Confirm to start. The orchestrator delegates each story phase to a fresh subagent and reports progress. At closure, it presents all findings and asks for resolution decisions on any Critical or High items. The sprint signs off once all Critical/High findings are resolved.
+Confirm to start (interactive mode requires explicit `yes` before any subagent runs). The orchestrator delegates each story phase to a fresh subagent and reports progress. At closure, findings are auto-classified — Critical/High/Medium and undocumented drift route to the closure fix loop (auto-fix, max 10 iterations); Low findings auto-defer to backlog as new stories. The sprint signs off once all Critical/High/Medium issues are resolved. You are only prompted again if a fix loop (per-story or closure) hits its 10-iteration cap.
 
 ## First Epic Run
 
@@ -134,7 +134,7 @@ Default: all remaining stories as one sprint.
 To split: provide story key groups (e.g. Sprint 1: 1-0, 1-1 / Sprint 2: 1-2, 1-3)
 ```
 
-Confirm the grouping or provide a custom split. The epic orchestrator spawns one `bmad-l3io-pm-sprint-execute` subagent per sprint, then runs epic-level closure after all sprints complete. Between sprints, it asks whether to proceed or pause.
+Confirm the grouping or provide a custom split. The epic orchestrator spawns one `bmad-l3io-pm-sprint-execute` subagent per sprint (running headlessly — no per-sprint scope-confirmation prompt), then runs epic-level closure after all sprints complete. Between sprints, the orchestrator continues immediately to the next sprint without prompting. Epic closure auto-triages findings the same way sprints do; only halts if its closure fix loop hits the 10-iteration cap.
 
 ## Using l3io-sec
 

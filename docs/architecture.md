@@ -137,22 +137,22 @@ Story files may contain a `depends_on` field. A story cannot enter development u
 
 ### Sprint quality gate
 
-The sprint does not close (Step 10 sign-off does not execute) until all Critical/High findings from all closure phases are either:
+The sprint does not close (Step 10 sign-off does not execute) until all **Critical, High, and Medium** findings from all closure phases — plus all undocumented architecture drift — are either:
 
 - Fixed and verified (fix subagent + QA verification subagent confirms tests pass), or
-- Explicitly accepted by the user with documented rationale
+- Explicitly accepted by `{user_name}` with documented rationale (only after the closure fix loop hits its 10-iteration cap)
 
-"Fix now" deferred items trigger a `bmad-create-story` + status file update. The sprint signs off with the deferred story keys listed.
+Low findings are auto-deferred to backlog (one `bmad-create-story` per item, no prompt). The sprint signs off with the deferred story keys listed. The auto-triage step files findings to fix-now vs. defer-to-backlog without per-item user prompts; the closure fix loop iterates fix → QA → re-check up to 10 times before halting.
 
 ### Epic quality gate
 
 The epic does not close (Step 8 sign-off does not execute) until all of the following are resolved:
 
-- All Critical/High findings from all epic closure phases
-- All undocumented architecture drift findings (fix the code or document the rationale in the story Dev Agent Record)
+- All Critical, High, and Medium findings from all epic closure phases
+- All undocumented architecture drift findings (fix the code or document the rationale in the affected story's Dev Agent Record)
 - All functional completeness AC gaps (implement the missing AC or defer with documented rationale)
 
-Medium findings can be fixed now or deferred to backlog. Low findings can be accepted with rationale. Spec gaps (architecture or PRD was silent) require a documentation update but no code change.
+Low findings auto-defer to backlog. Spec gaps (architecture or PRD was silent) trigger an automatic documentation update under `{planning_epic_dir}` with no code change. The closure fix loop iterates fix → QA → re-check up to 10 times before halting for `{user_name}` input.
 
 ## Subagent Invocation
 

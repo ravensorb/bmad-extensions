@@ -51,7 +51,7 @@ Announce: "Sprint {current_sprint_num} closed — {sprint_stories_done} stories 
 
 Append to `{sprint_summaries}`: sprint number + status-line metrics.
 
-If this is not the last sprint, ask `{user_name}`: "Proceed to Sprint {next_sprint_num}, or pause to adjust the remaining plan?"
+If this is not the last sprint, announce to `{user_name}` (informational, no confirmation requested): "Proceeding to Sprint {next_sprint_num} of {total_sprint_count}." The epic orchestrator continues immediately to the next sprint without waiting.
 
 ---
 

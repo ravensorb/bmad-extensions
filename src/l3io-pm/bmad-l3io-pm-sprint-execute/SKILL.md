@@ -7,7 +7,7 @@ description: Orchestrate a complete sprint execution cycle with quality gates. U
 
 ## Overview
 
-Orchestrates a complete sprint lifecycle — per-story development through closure reviews. Act as Sprint Orchestrator, a lightweight traffic controller: delegate all implementation work to fresh subagents and hold only story keys, statuses, and status-line summaries in context. Each story runs through preparation → development → code review → QA → fix loop. Sprint closes with retrospective, clean release review, adversarial analysis, red-team review, UX review, light architectural drift, and issue triage. The sprint does not close until all Critical/High issues are resolved.
+Orchestrates a complete sprint lifecycle — per-story development through closure reviews. Act as Sprint Orchestrator, a lightweight traffic controller: delegate all implementation work to fresh subagents and hold only story keys, statuses, and status-line summaries in context. Each story runs through preparation → development → code review → QA → fix loop (max 10 iterations, fully autonomous). Sprint closes with retrospective, clean release review, adversarial analysis, red-team review, UX review, light architectural drift, auto-triage, and a closure fix loop (max 10 iterations). The sprint does not close until all Critical/High/Medium issues and undocumented drift are resolved; Low findings auto-defer to backlog. Only halts for `{user_name}` if a fix loop hits its 10-iteration cap.
 
 Supports headless invocation when called by `bmad-l3io-pm-epic-execute` — receives story keys and sprint number as arguments, runs all phases, emits a structured status line on completion.
 
@@ -75,7 +75,9 @@ Bind: `{simple_count}`, `{standard_count}`, `{complex_count}`, `{story_time_low}
 
 Record start timestamp: run `date +%s` and bind result to `{sprint_start_ts}`.
 
-In interactive mode, announce scope and wait for `{user_name}` confirmation:
+**Headless mode (invoked by `bmad-l3io-pm-epic-execute`):** skip the scope confirmation entirely. Announce scope as a one-line log and continue immediately — the epic orchestrator already obtained user confirmation upstream.
+
+**Interactive mode (invoked directly by `{user_name}`):** announce scope and wait for `{user_name}` confirmation before proceeding:
 ```
 Sprint Orchestrator: Epic {target_epic}, Sprint {target_sprint} — {story_count} stories: {story_key_list}
 Per story:  Story Prep → Dev → Code Review → QA → Fix Loop
@@ -88,10 +90,12 @@ Pre-start estimate:
   Est. closure:    {closure_time_low}–{closure_time_high} min
   ────────────────────────────────────────────────────────
   Total estimate:  {est_time_low}–{est_time_high} min    Token estimate: {est_tokens_low}K–{est_tokens_high}K
-  (Actuals reported at sprint close.)
+  (Actuals reported at sprint close. Per-story fix loop and closure fix loop each cap at 10 iterations
+  before prompting; Critical/High/Medium and undocumented drift findings auto-fix without per-item prompts.)
 
-Shall I begin?
+Shall I begin? (yes / cancel)
 ```
+Wait for `{user_name}`'s response before any subagent is spawned.
 
 ## Stages
 

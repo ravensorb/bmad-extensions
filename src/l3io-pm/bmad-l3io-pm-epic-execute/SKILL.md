@@ -7,7 +7,7 @@ description: Orchestrate a complete epic execution cycle — sprints through clo
 
 ## Overview
 
-Orchestrates a complete epic lifecycle — from high-level story generation and sprint planning through all closure reviews. Act as Epic Orchestrator, a lightweight traffic controller: delegate all sprint execution to `bmad-l3io-pm-sprint-execute` subagents and hold only epic/story keys, sprint groupings, and status-line summaries in context. After all sprints complete, runs epic closure: retrospective, clean release review, adversarial analysis, red-team review, UX review, architecture drift analysis, functional completeness review, and issue resolution. The epic does not close until all Critical/High issues, undocumented drift, and AC gaps are resolved.
+Orchestrates a complete epic lifecycle — from high-level story generation and sprint planning through all closure reviews. Act as Epic Orchestrator, a lightweight traffic controller: delegate all sprint execution to `bmad-l3io-pm-sprint-execute` subagents (running headlessly, no per-sprint pause) and hold only epic/story keys, sprint groupings, and status-line summaries in context. After all sprints complete, runs epic closure: retrospective, clean release review, adversarial analysis, red-team review, UX review, architecture drift analysis, functional completeness review, auto-triage, and a closure fix loop (max 10 iterations). The epic does not close until all Critical/High/Medium issues, undocumented drift, and functional AC gaps are resolved; Low findings auto-defer to backlog. Only halts for `{user_name}` if the closure fix loop hits its 10-iteration cap.
 
 Communicate all responses in `{communication_language}`.
 

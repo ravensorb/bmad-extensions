@@ -93,7 +93,7 @@ Print when done: DONE — Critical: N, High: N, Medium: N, Low: N | BLOCKED: [re
 ```
 
 ### 4d — UX Review (conditional)
-Search `{planning_artifacts}` for UX spec files matching `*ux*`, `*design*`, or similar (`{ux_specs_path}`). If none found, ask `{user_name}`: SKIP (default) or proceed with standard review. If SKIP, omit 4d.
+Search `{planning_artifacts}` for UX spec files matching `*ux*`, `*design*`, or similar (`{ux_specs_path}`). If none found, auto-SKIP this step — announce to `{user_name}` (informational): "Epic UX Review: skipped — no UX specs found under {planning_artifacts}." and omit 4d.
 
 If proceeding:
 ```
@@ -198,47 +198,66 @@ Architecture Drift:     {drift_undoc} undocumented, {drift_missing} missing, {dr
 Functional Completeness:{func_ac_gaps} AC gaps, {func_discrepancies} PRD discrepancies
 ```
 
-If any Critical/High counts are non-zero, or `drift_undoc` > 0, or `func_ac_gaps` > 0, spawn a detail-read subagent:
+If any Critical, High, or Medium counts are non-zero, or `drift_undoc` > 0, or `func_ac_gaps` > 0, spawn a detail-read subagent:
 ```
 Read the closure review files in {epic_closure_dir} created today.
-List all Critical and High findings: [SEVERITY] [SOURCE] [Title] — [one-sentence description]
-List Medium findings: title only.
+List all Critical, High, and Medium findings: [SEVERITY] [SOURCE] [Title] — [one-sentence description]
+List Low findings: title only.
 List undocumented drift findings: title only.
 List functional completeness gaps: AC or feature name.
+List spec gap findings: title only.
 Print the list. No other output.
 ```
 
-Present the full findings list to `{user_name}` and ask for a resolution plan per item:
-- **Critical/High:** MUST be resolved before epic closes
-- **Undocumented drift:** fix the code OR update the architecture doc
-- **Functional AC gaps:** implement the missing AC OR explicitly defer with documented rationale
-- **Medium:** fix now OR create a backlog story
-- **Low:** backlog or accept
-- **Spec gaps:** update the architecture or PRD doc (no code change needed)
+**Auto-classification (no per-finding prompt).** Bind `{fix_now_items}`, `{doc_update_items}`, and `{defer_items}` programmatically:
+- Critical → `{fix_now_items}` (must resolve before epic closes)
+- High → `{fix_now_items}` (must resolve before epic closes)
+- Medium → `{fix_now_items}` (must resolve before epic closes — same quality bar as Critical/High)
+- Low → `{defer_items}` (create backlog story, do not fix this epic)
+- Undocumented drift → `{fix_now_items}` (fix code; if implementation is intentional, document rationale in the affected story's Dev Agent Record instead)
+- Functional AC gaps → `{fix_now_items}` (implement the missing AC; ship-blocker)
+- Spec gaps → `{doc_update_items}` (update architecture or PRD doc, no code change)
 
-For each "fix now" item:
-1. Spawn fix subagent: invoke `bmad-create-story` if a new story is needed; otherwise invoke `bmad-dev-story` with the issue context
-2. Spawn verification subagent: invoke `bmad-qa-generate-e2e-tests` targeting the fix
-3. Write verification evidence to: `{epic_test_dir}/epic-{target_epic_padded}-fix-verification-{date}.md`
-4. Confirm tests pass from the verification status line
+Announce the auto-classification to `{user_name}` (informational, no confirmation requested):
+```
+Epic Orchestrator: Auto-triage — Fix now: {fix_now_count} (Critical+High+Medium+Drift+AC-gaps). Doc updates: {doc_update_count} (spec gaps). Defer to backlog: {defer_count} (Low). No user decision needed unless the closure fix cap is hit.
+```
 
-For each "doc update" (spec gaps, intentional drift documentation):
+### Closure Fix Loop
+
+Maintain `{closure_fix_iteration}` = 0. Iterate the fix-and-verify cycle below until `{fix_now_items}` is empty OR `{closure_fix_iteration}` ≥ 10.
+
+For each batch (per iteration):
+1. For each item in `{fix_now_items}`:
+   a. Spawn fix subagent: invoke `bmad-create-story` if a new story is needed; otherwise invoke `bmad-dev-story` with the issue context
+   b. Spawn verification subagent: invoke `bmad-qa-generate-e2e-tests` targeting the fix
+   c. Write verification evidence to: `{epic_test_dir}/epic-{target_epic_padded}-fix-verification-{date}.md`
+   d. If verification passes, remove from `{fix_now_items}`. If it fails, leave in the list for the next iteration.
+2. Increment `{closure_fix_iteration}`.
+
+For each item in `{doc_update_items}` (process once, not per iteration):
 1. Spawn subagent to update the architecture or PRD document (store new files under `{planning_epic_dir}`)
 2. Confirm from subagent status line
 
-For each "defer to backlog":
+For each item in `{defer_items}` (process once, not per iteration):
 1. Spawn `bmad-create-story` to create a backlog story
 2. Record the story key in `{deferred_story_keys}`
 3. Update `{status_file}` with the new story at `backlog`
 
-If any Critical/High issues remain unresolved after all fix attempts, halt:
+**Only halt and prompt `{user_name}` if `{closure_fix_iteration}` ≥ 10 and `{fix_now_items}` is non-empty:**
 ```
-Epic Orchestrator: HALT — {unresolved_count} Critical/High issue(s) remain unresolved.
-Epic cannot close. Options:
-1. Continue fixing (provide additional context)
-2. Accept risk — document rationale explicitly (requires acknowledgment)
-3. Escalate to architect
+Epic Orchestrator: HALT — Closure fix loop reached the 10-iteration cap.
+Unresolved (Critical/High/Medium/Drift/AC-gaps): {fix_now_items}
+Epic cannot close until these are fixed or explicitly accepted.
+Options:
+1. Continue fixing (provide additional context; counter resets)
+     Est: ~15–35 min per remaining item, ~80–150K tokens per item
+2. Accept risk — defer remaining items to backlog with documented rationale
+     Est: ~3–5 min per item, ~15–30K tokens per item (one bmad-create-story + rationale note per item)
+3. Escalate to architect (pauses the epic; sign-off blocked until decision is provided)
+     Est: 0 min / 0 tokens here (cost is offline)
 4. Split remaining issues into a follow-on hardening epic
+     Est: ~10–20 min, ~50–100K tokens total (epic-skeleton plus one backlog story per remaining item)
 ```
 Wait for `{user_name}` decision.
 

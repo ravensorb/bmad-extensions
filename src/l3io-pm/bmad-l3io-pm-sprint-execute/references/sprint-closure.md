@@ -103,13 +103,9 @@ Record `{rt_critical}`, `{rt_high}`, `{rt_medium}`, `{rt_low}`.
 
 Search `{planning_artifacts}` for UX spec files matching patterns `*ux*`, `*design*`, or similar (`{ux_specs_path}`).
 
-If no specs found, ask `{user_name}`:
-1. SKIP UX review for this sprint (default)
-2. Proceed with standard WCAG/usability review
+If no specs found, auto-SKIP this step (no prompt). Announce to `{user_name}` (informational): "UX Review: skipped — no UX specs found under {planning_artifacts}." Continue to Step 8.
 
-If SKIP, continue to Step 8.
-
-If specs found or standard review selected, spawn subagent:
+If specs found, spawn subagent:
 ```
 Load config from: {config_file}
 Load project context from: {context_file} (if it exists)
@@ -172,38 +168,55 @@ UX Review:      Critical {ux_critical}, High {ux_high}, Medium {ux_medium}, Low 
 Arch Drift:     {drift_undoc} undocumented deviations, {drift_gaps} spec gaps
 ```
 
-If any Critical or High counts are non-zero, spawn a detail-read subagent to extract finding titles:
+If any Critical, High, or Medium counts are non-zero, or `drift_undoc` > 0, spawn a detail-read subagent to extract finding titles:
 ```
 Read the closure review files in {closure_output_dir} created today.
-List all Critical and High findings: [SEVERITY] [SOURCE] [Title] — [one-sentence description]
-List Medium findings: title only.
+List all Critical, High, and Medium findings: [SEVERITY] [SOURCE] [Title] — [one-sentence description]
+List Low findings: title only.
+List undocumented drift findings: title only.
 Print the list. No other output.
 ```
 
-Present the full findings list to `{user_name}` and ask for a resolution plan:
-- **Critical/High:** MUST be resolved before sprint closes
-- **Medium:** fix now OR create a backlog story (decide per item)
-- **Low:** backlog or accept with rationale
-- **Undocumented drift:** fix the code or update the architecture doc
+**Auto-classification (no per-finding prompt).** Bind `{fix_now_items}` and `{defer_items}` programmatically:
+- Critical → `{fix_now_items}` (must resolve before sprint closes)
+- High → `{fix_now_items}` (must resolve before sprint closes)
+- Medium → `{fix_now_items}` (must resolve before sprint closes — same quality bar as Critical/High)
+- Low → `{defer_items}` (create backlog story, do not fix this sprint)
+- Undocumented drift → `{fix_now_items}` (fix code; if implementation is intentional, document rationale in the affected story's Dev Agent Record instead)
 
-For each "fix now" item:
-1. Spawn fix subagent: invoke `bmad-dev-story` with the issue description and relevant file context
-2. Spawn verification subagent: invoke `bmad-qa-generate-e2e-tests` targeting the fix
-3. Confirm tests pass from the verification status line
+Announce the auto-classification to `{user_name}` (informational, no confirmation requested):
+```
+Sprint Orchestrator: Auto-triage — Fix now: {fix_now_count} (Critical {clr_critical+adv_critical+rt_critical+ux_critical}, High {clr_high+adv_high+rt_high+ux_high}, Medium {adv_medium+rt_medium+ux_medium}, Drift {drift_undoc}). Defer to backlog: {defer_count} (Low). No user decision needed unless the closure fix cap is hit.
+```
 
-For each "defer to backlog":
+### Closure Fix Loop
+
+Maintain `{closure_fix_iteration}` = 0. Iterate the fix-and-verify cycle below until `{fix_now_items}` is empty OR `{closure_fix_iteration}` ≥ 10.
+
+For each batch (per iteration):
+1. For each item in `{fix_now_items}`:
+   a. Spawn fix subagent: invoke `bmad-dev-story` with the issue description and relevant file context
+   b. Spawn verification subagent: invoke `bmad-qa-generate-e2e-tests` targeting the fix
+   c. If verification passes, remove from `{fix_now_items}`. If it fails, leave in the list for the next iteration.
+2. Increment `{closure_fix_iteration}`.
+
+For each item in `{defer_items}` (process once, not per iteration):
 1. Spawn `bmad-create-story` to create a backlog story for the issue
 2. Record the created story key in `{deferred_story_keys}`
 3. Update `{status_file}` with the new story at `backlog`
 
-If any Critical/High issues remain unresolved after all fix attempts, halt:
+**Only halt and prompt `{user_name}` if `{closure_fix_iteration}` ≥ 10 and `{fix_now_items}` is non-empty:**
 ```
-Sprint Orchestrator: HALT — {unresolved_count} Critical/High issue(s) remain unresolved.
+Sprint Orchestrator: HALT — Closure fix loop reached the 10-iteration cap.
+Unresolved (Critical/High/Medium/Drift): {fix_now_items}
 Sprint cannot close until these are fixed or explicitly accepted.
 Options:
-1. Continue fixing (provide additional context or approach)
-2. Accept risk — document rationale explicitly (requires acknowledgment)
-3. Escalate to architect
+1. Continue fixing (provide additional context or approach; counter resets)
+     Est: ~10–25 min per remaining item, ~50–100K tokens per item
+2. Accept risk — defer remaining items to backlog with documented rationale
+     Est: ~3–5 min per item, ~15–30K tokens per item (one bmad-create-story + rationale note per item)
+3. Escalate to architect (pauses the sprint; sign-off blocked until decision is provided)
+     Est: 0 min / 0 tokens here (cost is offline)
 ```
 Wait for `{user_name}` decision before proceeding.
 
