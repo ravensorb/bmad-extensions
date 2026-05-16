@@ -1,9 +1,9 @@
 # bmad-l3io-extensions
 
 [![Commitizen friendly](https://img.shields.io/badge/commitizen-friendly-brightgreen.svg)](http://commitizen.github.io/cz-cli/)
-![GitHub issues](https://img.shields.io/github/issues/LiquidLogicLabs/bmad-l3io-extensions)
-![GitHub](https://img.shields.io/github/license/LiquidLogicLabs/bmad-l3io-extensions)
-![GitHub Repo stars](https://img.shields.io/github/stars/LiquidLogicLabs/bmad-l3io-extensions?style=social)
+![GitHub issues](https://img.shields.io/github/issues/ravensorb/bmad-extensions)
+![GitHub](https://img.shields.io/github/license/ravensorb/bmad-extensions)
+![GitHub Repo stars](https://img.shields.io/github/stars/ravensorb/bmad-extensions?style=social)
 [![Contributor Covenant](https://img.shields.io/badge/Contributor%20Covenant-2.1-4baaaa.svg)](https://www.contributor-covenant.org/)
 
 ## Overview
@@ -33,7 +33,7 @@ Install or upgrade in the current repo:
 ```bash
 npx bmad-method install \
   --directory . \
-  --custom-source https://github.com/LiquidLogicLabs/bmad-l3io-extensions \
+  --custom-source https://github.com/ravensorb/bmad-extensions \
   --tools claude-code \
   --yes
 ```
@@ -150,7 +150,7 @@ See [CHANGELOG.md](CHANGELOG.md) for release history.
 
 ## Contact
 
-Raise an issue on [GitHub](https://github.com/LiquidLogicLabs/bmad-l3io-extensions/issues), or see [SECURITY.md](SECURITY.md).
+Raise an issue on [GitHub](https://github.com/ravensorb/bmad-extensions/issues), or see [SECURITY.md](SECURITY.md).
 
 ## Contributing
 

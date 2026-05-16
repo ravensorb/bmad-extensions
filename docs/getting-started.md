@@ -29,7 +29,7 @@ Run in the project repo where you want to use the extension:
 ```bash
 npx bmad-method install \
   --directory . \
-  --custom-source https://github.com/LiquidLogicLabs/bmad-l3io-extensions \
+  --custom-source https://github.com/ravensorb/bmad-extensions \
   --tools claude-code \
   --yes
 ```
@@ -69,7 +69,7 @@ Re-run the same install command to pull the latest version:
 ```bash
 npx bmad-method install \
   --directory . \
-  --custom-source https://github.com/LiquidLogicLabs/bmad-l3io-extensions \
+  --custom-source https://github.com/ravensorb/bmad-extensions \
   --tools claude-code \
   --yes
 ```
