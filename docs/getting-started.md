@@ -54,13 +54,13 @@ To pre-configure these paths, create `{project-root}/_bmad/config.yaml` with the
 
 ### l3io-sec
 
-No explicit setup step. The first time you invoke `/l3io-sec-agent-redteam` (interactively or as a subagent), it detects the absence of its sanctum and runs initialization automatically. If no `l3io-sec` section exists in `config.yaml`, it runs module registration before proceeding.
+No explicit setup step. The first time you invoke `/bmad-l3io-sec-agent-redteam` (interactively or as a subagent), it detects the absence of its sanctum and runs initialization automatically. If no `l3io-sec` section exists in `config.yaml`, it runs module registration before proceeding.
 
 For WebSearch to work, ensure the `WebSearch` tool is allowed in your Claude Code permissions.
 
 ### l3io-util
 
-No explicit setup step. The first time `/l3io-util-cleanup` runs without an existing `l3io-util` section in `config.yaml`, it registers the module automatically before performing cleanup.
+No explicit setup step. The first time `/bmad-l3io-util-cleanup` runs without an existing `l3io-util` section in `config.yaml`, it registers the module automatically before performing cleanup.
 
 ## Upgrading
 
@@ -82,7 +82,7 @@ Before your first sprint or epic run, verify:
 
 1. `sprint-status.yaml` exists at `{implementation_artifacts}/sprint-status.yaml` and contains your stories with status `backlog`
 2. Planning docs (epics file, PRD, architecture spec) exist under `{planning_artifacts}`
-3. If you have existing flat artifacts from a prior layout, run `/l3io-util-cleanup` first
+3. If you have existing flat artifacts from a prior layout, run `/bmad-l3io-util-cleanup` first
 
 Story status values: `backlog` → `ready-for-dev` → `in-progress` → `review` → `done`.
 
@@ -91,7 +91,7 @@ Story status values: `backlog` → `ready-for-dev` → `in-progress` → `review
 Invoke:
 
 ```
-/l3io-pm-sprint-execute
+/bmad-l3io-pm-sprint-execute
 ```
 
 The skill loads config, reads `sprint-status.yaml`, identifies the first in-progress or backlog epic with non-done stories, and presents a scope confirmation:
@@ -119,7 +119,7 @@ Confirm to start. The orchestrator delegates each story phase to a fresh subagen
 Invoke:
 
 ```
-/l3io-pm-epic-execute
+/bmad-l3io-pm-epic-execute
 ```
 
 The skill reads `sprint-status.yaml`, identifies the target epic, and presents a sprint grouping step:
@@ -134,23 +134,23 @@ Default: all remaining stories as one sprint.
 To split: provide story key groups (e.g. Sprint 1: 1-0, 1-1 / Sprint 2: 1-2, 1-3)
 ```
 
-Confirm the grouping or provide a custom split. The epic orchestrator spawns one `l3io-pm-sprint-execute` subagent per sprint, then runs epic-level closure after all sprints complete. Between sprints, it asks whether to proceed or pause.
+Confirm the grouping or provide a custom split. The epic orchestrator spawns one `bmad-l3io-pm-sprint-execute` subagent per sprint, then runs epic-level closure after all sprints complete. Between sprints, it asks whether to proceed or pause.
 
 ## Using l3io-sec
 
 ### Automatic (inside l3io-pm)
 
-`l3io-sec-agent-redteam` runs automatically as Step 6 of sprint closure and Step 4c of epic closure — as long as the skill is installed. No separate invocation needed.
+`bmad-l3io-sec-agent-redteam` runs automatically as Step 6 of sprint closure and Step 4c of epic closure — as long as the skill is installed. No separate invocation needed.
 
 ### Standalone
 
 Invoke directly for ad hoc reviews:
 
 ```
-/l3io-sec-agent-redteam
+/bmad-l3io-sec-agent-redteam
 ```
 
-On first run it initializes its sanctum (persistent memory) at `{project-root}/_bmad/memory/l3io-sec-agent-redteam/`. On subsequent runs it loads its identity from the sanctum and asks for scope and target.
+On first run it initializes its sanctum (persistent memory) at `{project-root}/_bmad/memory/bmad-l3io-sec-agent-redteam/`. On subsequent runs it loads its identity from the sanctum and asks for scope and target.
 
 To run a scoped analysis against a specific sprint or epic, provide the scope when prompted. The skill loads relevant platform research cache topics, runs all five threat lenses, and writes a report.
 
@@ -159,7 +159,7 @@ To run a scoped analysis against a specific sprint or epic, provide the scope wh
 Run when you have legacy flat artifacts that need to be reorganized:
 
 ```
-/l3io-util-cleanup
+/bmad-l3io-util-cleanup
 ```
 
 The skill scans `{implementation_artifacts}` and `{planning_artifacts}` flat roots, classifies each file, and presents a dry-run move table before making any changes:
@@ -173,4 +173,4 @@ epic-1-sprint-1-retro.md   → epic-01/sprint-01/closure/...    sprint-closure  
 
 Confirm to execute. Ambiguous references are never auto-updated — they are flagged for manual review.
 
-Run `/l3io-util-cleanup` once per project. A second run on an already-clean layout produces zero moves.
+Run `/bmad-l3io-util-cleanup` once per project. A second run on an already-clean layout produces zero moves.

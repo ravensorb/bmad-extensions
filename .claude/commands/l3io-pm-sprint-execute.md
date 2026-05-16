@@ -1,1 +1,0 @@
-../../skills/l3io-pm-sprint-execute/SKILL.md

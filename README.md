@@ -20,9 +20,9 @@ It ships as three installable BMad modules. Teams can install all three or only 
 
 | Module | Skills | Description |
 |--------|--------|-------------|
-| **l3io-pm** | `l3io-pm-sprint-execute`, `l3io-pm-epic-execute` | Sprint and epic execution orchestration — full lifecycle from story preparation through closure reviews |
-| **l3io-sec** | `l3io-sec-agent-redteam` | Adversarial security analysis through five threat lenses with AI poisoning cross-cut and live cloud/platform best practices research |
-| **l3io-util** | `l3io-util-cleanup` | One-time utility to reorganize legacy flat artifacts into the standard epic/sprint folder structure |
+| **l3io-pm** | `bmad-l3io-pm-sprint-execute`, `bmad-l3io-pm-epic-execute` | Sprint and epic execution orchestration — full lifecycle from story preparation through closure reviews |
+| **l3io-sec** | `bmad-l3io-sec-agent-redteam` | Adversarial security analysis through five threat lenses with AI poisoning cross-cut and live cloud/platform best practices research |
+| **l3io-util** | `bmad-l3io-util-cleanup` | One-time utility to reorganize legacy flat artifacts into the standard epic/sprint folder structure |
 
 ## Quick Start
 
@@ -42,11 +42,11 @@ Interactive path: `npx bmad-method install` -> Community modules -> `bmad-l3io-e
 
 After install, each module handles its own first-run configuration:
 
-- `/l3io-pm-sprint-execute` or `/l3io-pm-epic-execute` — reads config on activation, uses sensible defaults if absent
-- `/l3io-sec-agent-redteam` — first run triggers its own setup automatically
-- `/l3io-util-cleanup` — first run registers the module automatically before cleanup
+- `/bmad-l3io-pm-sprint-execute` or `/bmad-l3io-pm-epic-execute` — reads config on activation, uses sensible defaults if absent
+- `/bmad-l3io-sec-agent-redteam` — first run triggers its own setup automatically
+- `/bmad-l3io-util-cleanup` — first run registers the module automatically before cleanup
 
-For projects upgrading from an older flat artifact layout, run `/l3io-util-cleanup` once before starting sprint or epic orchestration.
+For projects upgrading from an older flat artifact layout, run `/bmad-l3io-util-cleanup` once before starting sprint or epic orchestration.
 
 See [docs/getting-started.md](docs/getting-started.md) for a full installation and first-run walkthrough.
 
@@ -65,10 +65,10 @@ This extension standardizes those patterns so teams can run a repeatable, audita
 
 | Slash command | What it does |
 |---------------|--------------|
-| `/l3io-pm-sprint-execute` | Full sprint: story prep → dev → code review → QA → fix loop per story, then retro → clean release → adversarial → red team → UX → arch drift → issue triage at closure. Sprint does not close until all Critical/High issues are resolved |
-| `/l3io-pm-epic-execute` | Full epic: sprint execution loop (one `l3io-pm-sprint-execute` subagent per sprint), then epic-level retro → clean release → adversarial → red team → UX → arch drift → functional completeness → issue triage |
-| `/l3io-sec-agent-redteam` | Adversarial security review through five threat lenses — external attacker, malicious insider, chaos engineer, abusive legitimate user, and design/architecture red team — with AI poisoning cross-cut and live cloud/platform best practices research |
-| `/l3io-util-cleanup` | Reorganizes legacy flat artifact files into `epic-XX/sprint-YY` folders, reconciles references, and verifies state consistency |
+| `/bmad-l3io-pm-sprint-execute` | Full sprint: story prep → dev → code review → QA → fix loop per story, then retro → clean release → adversarial → red team → UX → arch drift → issue triage at closure. Sprint does not close until all Critical/High issues are resolved |
+| `/bmad-l3io-pm-epic-execute` | Full epic: sprint execution loop (one `bmad-l3io-pm-sprint-execute` subagent per sprint), then epic-level retro → clean release → adversarial → red team → UX → arch drift → functional completeness → issue triage |
+| `/bmad-l3io-sec-agent-redteam` | Adversarial security review through five threat lenses — external attacker, malicious insider, chaos engineer, abusive legitimate user, and design/architecture red team — with AI poisoning cross-cut and live cloud/platform best practices research |
+| `/bmad-l3io-util-cleanup` | Reorganizes legacy flat artifact files into `epic-XX/sprint-YY` folders, reconciles references, and verifies state consistency |
 
 ## Context Boundary Rule
 
@@ -106,13 +106,19 @@ Optional: `bmad-ux-review`
 ## Repo Layout
 
 ```
-skills/
-  l3io-pm-sprint-execute/    SKILL.md, references/, customize.toml
-  l3io-pm-epic-execute/      SKILL.md, references/, customize.toml
-  l3io-sec-agent-redteam/    SKILL.md, references/, assets/, scripts/, customize.toml
-  l3io-util-cleanup/         SKILL.md, references/, assets/, scripts/, customize.toml
-.claude/commands/            symlinks to skills/*/SKILL.md
-.claude-plugin/              marketplace.json
+src/
+  l3io-pm/
+    module.yaml, module-help.csv
+    bmad-l3io-pm-sprint-execute/   SKILL.md, references/, customize.toml
+    bmad-l3io-pm-epic-execute/     SKILL.md, references/, customize.toml
+  l3io-sec/
+    module.yaml, module-help.csv
+    bmad-l3io-sec-agent-redteam/   SKILL.md, references/, assets/, scripts/, customize.toml
+  l3io-util/
+    module.yaml, module-help.csv
+    bmad-l3io-util-cleanup/        SKILL.md, references/, assets/, scripts/, customize.toml
+.claude/commands/             symlinks to src/<module>/<skill>/SKILL.md
+.claude-plugin/               marketplace.json
 ```
 
 ## Documentation

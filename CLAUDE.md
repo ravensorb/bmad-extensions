@@ -9,21 +9,30 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ## Structure
 
 ```
-skills/
-  l3io-pm-sprint-execute/ ← sprint orchestration (SKILL.md, references/, customize.toml)
-  l3io-pm-epic-execute/   ← epic orchestration (SKILL.md, references/, customize.toml)
-  l3io-sec-agent-redteam/ ← red team memory agent (SKILL.md, references/, assets/, scripts/, customize.toml)
-  l3io-util-cleanup/      ← artifact cleanup workflow (SKILL.md, references/, assets/, scripts/, customize.toml)
-.claude/commands/         ← symlinks → skills/*/SKILL.md
-.claude-plugin/           ← marketplace.json (required for installation)
+src/
+  l3io-pm/
+    module.yaml                   ← module metadata (read by BMad installer)
+    module-help.csv               ← module-level command catalog
+    bmad-l3io-pm-sprint-execute/  ← sprint orchestration (SKILL.md, references/, customize.toml)
+    bmad-l3io-pm-epic-execute/    ← epic orchestration (SKILL.md, references/, customize.toml)
+  l3io-sec/
+    module.yaml
+    module-help.csv
+    bmad-l3io-sec-agent-redteam/  ← red team memory agent (SKILL.md, references/, assets/, scripts/, customize.toml)
+  l3io-util/
+    module.yaml
+    module-help.csv
+    bmad-l3io-util-cleanup/       ← artifact cleanup workflow (SKILL.md, references/, assets/, scripts/, customize.toml)
+.claude/commands/                 ← symlinks → src/<module>/<skill>/SKILL.md
+.claude-plugin/                   ← marketplace.json (required for installation)
 ```
 
 | Skill | Purpose |
 |-------|---------|
-| `skills/l3io-pm-sprint-execute/` | Full sprint lifecycle: story prep → dev → code review → QA → fix loop per story, then closure reviews |
-| `skills/l3io-pm-epic-execute/` | Full epic lifecycle: sprint grouping, sprint execution loop, then epic-level closure reviews |
-| `skills/l3io-sec-agent-redteam/` | Red team security analysis — five threat lenses (EXT/INS/CHA/ABU/DAR) + AI poisoning cross-cut, live cloud/platform best practices research |
-| `skills/l3io-util-cleanup/` | One-time artifact migration — reorganizes flat artifact files into `epic-XX/sprint-YY` folder structure |
+| `src/l3io-pm/bmad-l3io-pm-sprint-execute/` | Full sprint lifecycle: story prep → dev → code review → QA → fix loop per story, then closure reviews |
+| `src/l3io-pm/bmad-l3io-pm-epic-execute/` | Full epic lifecycle: sprint grouping, sprint execution loop, then epic-level closure reviews |
+| `src/l3io-sec/bmad-l3io-sec-agent-redteam/` | Red team security analysis — five threat lenses (EXT/INS/CHA/ABU/DAR) + AI poisoning cross-cut, live cloud/platform best practices research |
+| `src/l3io-util/bmad-l3io-util-cleanup/` | One-time artifact migration — reorganizes flat artifact files into `epic-XX/sprint-YY` folder structure |
 
 ## Commands
 

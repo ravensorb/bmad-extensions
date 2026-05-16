@@ -6,10 +6,10 @@ Full reference for the PM orchestration module — three skills that orchestrate
 
 | Skill | Role |
 |-------|------|
-| `l3io-pm-sprint-execute` | Orchestrates a single sprint: per-story phases plus sprint closure reviews |
-| `l3io-pm-epic-execute` | Orchestrates a full epic: delegates to `l3io-pm-sprint-execute` subagents, then runs epic closure |
+| `bmad-l3io-pm-sprint-execute` | Orchestrates a single sprint: per-story phases plus sprint closure reviews |
+| `bmad-l3io-pm-epic-execute` | Orchestrates a full epic: delegates to `bmad-l3io-pm-sprint-execute` subagents, then runs epic closure |
 
-`l3io-pm-epic-execute` is a wrapper around `l3io-pm-sprint-execute`. It handles sprint grouping, delegates each sprint headlessly, and runs a second level of closure reviews after all sprints complete.
+`bmad-l3io-pm-epic-execute` is a wrapper around `bmad-l3io-pm-sprint-execute`. It handles sprint grouping, delegates each sprint headlessly, and runs a second level of closure reviews after all sprints complete.
 
 ## Configuration
 
@@ -55,7 +55,7 @@ On activation, the skill:
 1. Resolves the workflow block from `customize.toml` (base → team → user)
 2. Loads config from `_bmad/config.yaml` and `_bmad/config.user.yaml`
 3. Reads `sprint-status.yaml` — extracts story keys and statuses only, never file contents
-4. If invoked headlessly (by `l3io-pm-epic-execute`), uses the provided epic number, sprint number, and story keys directly. Otherwise, identifies the first in-progress or backlog epic with non-done stories and confirms with the user
+4. If invoked headlessly (by `bmad-l3io-pm-epic-execute`), uses the provided epic number, sprint number, and story keys directly. Otherwise, identifies the first in-progress or backlog epic with non-done stories and confirms with the user
 5. Computes pre-start estimates automatically
 
 ### Pre-start estimates
@@ -73,7 +73,7 @@ Closure overhead is added on top of story totals:
 | Component | Time | Tokens |
 |-----------|------|--------|
 | Base closure (retro, clean release, adversarial, UX, arch drift, issue triage) | 25–50 min | 60–120K |
-| Red-team phase (when `l3io-sec-agent-redteam` is installed) | +15–25 min | +30–60K |
+| Red-team phase (when `bmad-l3io-sec-agent-redteam` is installed) | +15–25 min | +30–60K |
 
 Actuals are reported at sprint close.
 
@@ -98,7 +98,7 @@ All closure outputs go to `{sprint_root_dir}/closure/`. The closure sign-off req
 | 3 | Retrospective | `bmad-retrospective` subagent writes retro to `closure/epic-XX-sprint-YY-retro-{date}.md` |
 | 4 | Clean Release Review | Inline analysis — checks for YAGNI violations, added scope, premature abstractions |
 | 5 | Adversarial Review | `bmad-review-adversarial-general` subagent reviews the sprint increment as a whole |
-| 6 | Red-Team Review | `l3io-sec-agent-redteam` subagent (skipped gracefully if not installed) |
+| 6 | Red-Team Review | `bmad-l3io-sec-agent-redteam` subagent (skipped gracefully if not installed) |
 | 7 | UX Review | `bmad-ux-review` subagent (conditional — skipped if no UX specs found and user opts out) |
 | 8 | Light Arch Drift | Inline analysis across five dimensions: data model, API contracts, component boundaries, NFRs, technology/patterns |
 | 9 | Issue Triage | All severity counts presented; Critical/High must be fixed or explicitly accepted before continuing |
@@ -130,7 +130,7 @@ On activation, the skill:
 
 ### Sprint execution loop (Step 2)
 
-For each sprint in the plan, the epic orchestrator spawns an `l3io-pm-sprint-execute` subagent with a structured headless prompt containing the epic number, sprint number, story keys, and output root path. The sprint subagent runs all per-story phases and closure phases, then emits:
+For each sprint in the plan, the epic orchestrator spawns an `bmad-l3io-pm-sprint-execute` subagent with a structured headless prompt containing the epic number, sprint number, story keys, and output root path. The sprint subagent runs all per-story phases and closure phases, then emits:
 
 ```
 DONE — Stories: N, Issues resolved: N, Issues deferred: N, Retro: [path], Time: ~Nmin (est L–Hmin)
@@ -148,7 +148,7 @@ After all sprints complete, the following phases run in order:
 | 4 | Parallel Closure Batch | Up to `effective_parallel_subagents` concurrent subagents |
 | 4a | Clean Release Review | Full epic scope — all stories across all sprints |
 | 4b | Adversarial Review | `bmad-review-adversarial-general` — systemic issues across all stories |
-| 4c | Red-Team Review | `l3io-sec-agent-redteam` — full epic attack surface (skipped if not installed) |
+| 4c | Red-Team Review | `bmad-l3io-sec-agent-redteam` — full epic attack surface (skipped if not installed) |
 | 4d | UX Review | `bmad-ux-review` — conditional on UX specs or user opt-in |
 | 5 | Architecture Drift | Solution-scoped — four categories: INTENTIONAL, UNDOCUMENTED, SPEC GAP, MISSING |
 | 6 | Functional Completeness | PRD coverage check — each epic-level AC verified against stories and tests |
@@ -164,7 +164,7 @@ The epic does not close until all of the following are resolved:
 
 ## Headless Mode
 
-When `l3io-pm-epic-execute` calls `l3io-pm-sprint-execute`, it passes a structured prompt:
+When `bmad-l3io-pm-epic-execute` calls `bmad-l3io-pm-sprint-execute`, it passes a structured prompt:
 
 ```
 Load config from: {config_file}
@@ -173,7 +173,7 @@ Sprint status file: {status_file}
 Target: Epic {target_epic}, stories: {sprint_story_keys}
 Sprint number: {current_sprint_num} (two-digit: {current_sprint_padded})
 Expected sprint output root: {epic_root_dir}/sprint-{current_sprint_padded}
-Invoke skill: l3io-pm-sprint-execute
+Invoke skill: bmad-l3io-pm-sprint-execute
 Execute the complete sprint for the listed stories — all per-story phases and closure phases.
 ...
 Print when done:
@@ -233,6 +233,6 @@ Epic status lifecycle: `backlog → in-progress → done`
 | QA | `bmad-qa-generate-e2e-tests` |
 | Retrospective (sprint + epic) | `bmad-retrospective` |
 | Adversarial Review (sprint + epic) | `bmad-review-adversarial-general` |
-| Red-Team Review (sprint + epic) | `l3io-sec-agent-redteam` (optional) |
+| Red-Team Review (sprint + epic) | `bmad-l3io-sec-agent-redteam` (optional) |
 | UX Review (sprint + epic) | `bmad-ux-review` (optional) |
 | Clean Release, Arch Drift, Functional Completeness | Inline — no skill invoked |

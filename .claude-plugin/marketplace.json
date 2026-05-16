@@ -18,42 +18,42 @@
   "plugins": [
     {
       "name": "l3io-pm",
-      "source": "./",
+      "source": "./src/l3io-pm",
       "description": "Sprint and epic execution orchestration for LiquidLogicLabs delivery teams — full lifecycle from story preparation through closure reviews.",
-      "version": "1.0.0",
+      "version": "1.0.1",
       "author": {
         "name": "Shawn Anderson",
         "email": "shawn@eye-catcher.com"
       },
       "skills": [
-        "./skills/l3io-pm-sprint-execute",
-        "./skills/l3io-pm-epic-execute"
+        "./src/l3io-pm/bmad-l3io-pm-sprint-execute",
+        "./src/l3io-pm/bmad-l3io-pm-epic-execute"
       ]
     },
     {
       "name": "l3io-sec",
-      "source": "./",
+      "source": "./src/l3io-sec",
       "description": "Adversarial security analysis for LiquidLogicLabs projects — five threat lenses with AI poisoning cross-cut and live cloud/platform best practices research.",
-      "version": "1.0.0",
+      "version": "1.0.1",
       "author": {
         "name": "Shawn Anderson",
         "email": "shawn@eye-catcher.com"
       },
       "skills": [
-        "./skills/l3io-sec-agent-redteam"
+        "./src/l3io-sec/bmad-l3io-sec-agent-redteam"
       ]
     },
     {
       "name": "l3io-util",
-      "source": "./",
+      "source": "./src/l3io-util",
       "description": "Utility skills for LiquidLogicLabs BMad projects — one-time and housekeeping operations for artifact organization.",
-      "version": "1.0.0",
+      "version": "1.0.1",
       "author": {
         "name": "Shawn Anderson",
         "email": "shawn@eye-catcher.com"
       },
       "skills": [
-        "./skills/l3io-util-cleanup"
+        "./src/l3io-util/bmad-l3io-util-cleanup"
       ]
     }
   ],

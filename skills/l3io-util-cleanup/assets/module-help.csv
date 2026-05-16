@@ -1,2 +1,0 @@
-module,skill,display-name,menu-code,description,action,args,phase,after,before,required,output-location,outputs
-l3io-util,l3io-util-cleanup,Cleanup Artifacts,CL,One-time migration — reorganizes flat BMad artifact outputs into structured epic/sprint folder layout with zero-padded names,run,,anytime,,,false,implementation_artifacts,Reorganized artifact directory structure with summary report
