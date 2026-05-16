@@ -1,5 +1,5 @@
 module.exports = {
-  tagPrefix: "v",
+  tagPrefix: "",
   commitAll: true,
   types: [
     { type: "feat", section: "Features" },

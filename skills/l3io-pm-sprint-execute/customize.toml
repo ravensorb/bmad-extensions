@@ -1,0 +1,8 @@
+[workflow]
+activation_steps_prepend = []
+activation_steps_append  = []
+persistent_facts         = ["file:{project-root}/**/project-context.md"]
+
+# Parallelism controls
+parallel_mode            = "adaptive"   # "adaptive" | "off"
+max_parallel_subagents   = 2            # default 2; hard cap enforced at 4

@@ -1,0 +1,176 @@
+# Getting Started
+
+Installation and first-run guide for `bmad-l3io-extensions`.
+
+## Prerequisites
+
+- **Claude Code** installed and working
+- **BMad** installed in the target repo (`npx bmad-method install` or equivalent)
+- Required BMad skills present: `bmad-create-story`, `bmad-dev-story`, `bmad-code-review`, `bmad-qa-generate-e2e-tests`, `bmad-retrospective`, `bmad-review-adversarial-general`
+- Optional: `bmad-ux-review` (UX review phases are skipped gracefully when absent)
+- **WebSearch permission** granted in Claude Code if you plan to use `l3io-sec` (required for live cloud/platform best practices research)
+
+## Module Selection
+
+You can install all three modules or only the ones you need:
+
+| Module | Install if you want |
+|--------|---------------------|
+| **l3io-pm** | Sprint and epic orchestration |
+| **l3io-sec** | Adversarial security review (standalone or automatic inside l3io-pm closure) |
+| **l3io-util** | One-time cleanup of legacy flat artifact layouts |
+
+All three modules are installed by the same `npx bmad-method install` command. Each module handles its own first-run configuration — no separate setup step required.
+
+## Install
+
+Run in the project repo where you want to use the extension:
+
+```bash
+npx bmad-method install \
+  --directory . \
+  --custom-source https://github.com/LiquidLogicLabs/bmad-l3io-extensions \
+  --tools claude-code \
+  --yes
+```
+
+Interactive path: `npx bmad-method install` -> Community modules -> `bmad-l3io-extensions`.
+
+This installs all four skills and registers the three modules in `.claude-plugin/marketplace.json`.
+
+## First-Run Configuration
+
+Each module configures itself on first use. Config is written to `{project-root}/_bmad/config.yaml` (shared project settings) and `{project-root}/_bmad/config.user.yaml` (personal settings — add this to `.gitignore`).
+
+### l3io-pm
+
+No explicit setup step. The sprint and epic skills read config from `{project-root}/_bmad/config.yaml` on activation and use sensible defaults when it's absent:
+
+- `output_folder` — default: `{project-root}/_bmad-output`
+- `implementation_artifacts` — default: `{output_folder}/implementation-artifacts`
+- `planning_artifacts` — default: `{output_folder}/planning-artifacts`
+
+To pre-configure these paths, create `{project-root}/_bmad/config.yaml` with the schema described in [l3io-pm reference](l3io-pm-reference.md).
+
+### l3io-sec
+
+No explicit setup step. The first time you invoke `/l3io-sec-agent-redteam` (interactively or as a subagent), it detects the absence of its sanctum and runs initialization automatically. If no `l3io-sec` section exists in `config.yaml`, it runs module registration before proceeding.
+
+For WebSearch to work, ensure the `WebSearch` tool is allowed in your Claude Code permissions.
+
+### l3io-util
+
+No explicit setup step. The first time `/l3io-util-cleanup` runs without an existing `l3io-util` section in `config.yaml`, it registers the module automatically before performing cleanup.
+
+## Upgrading
+
+Re-run the same install command to pull the latest version:
+
+```bash
+npx bmad-method install \
+  --directory . \
+  --custom-source https://github.com/LiquidLogicLabs/bmad-l3io-extensions \
+  --tools claude-code \
+  --yes
+```
+
+After upgrading, your existing `_bmad/config.yaml` values are preserved — no re-configuration needed unless the upgrade notes call out schema changes.
+
+## Before Running l3io-pm
+
+Before your first sprint or epic run, verify:
+
+1. `sprint-status.yaml` exists at `{implementation_artifacts}/sprint-status.yaml` and contains your stories with status `backlog`
+2. Planning docs (epics file, PRD, architecture spec) exist under `{planning_artifacts}`
+3. If you have existing flat artifacts from a prior layout, run `/l3io-util-cleanup` first
+
+Story status values: `backlog` → `ready-for-dev` → `in-progress` → `review` → `done`.
+
+## First Sprint Run
+
+Invoke:
+
+```
+/l3io-pm-sprint-execute
+```
+
+The skill loads config, reads `sprint-status.yaml`, identifies the first in-progress or backlog epic with non-done stories, and presents a scope confirmation:
+
+```
+Sprint Orchestrator: Epic 01, Sprint 01 — 3 stories: 1-0, 1-1, 1-2
+Per story:  Story Prep → Dev → Code Review → QA → Fix Loop
+Closure:    Retrospective → Clean Release → Adversarial → Red Team → UX → Arch Drift → Issue Triage
+...
+Pre-start estimate:
+  Stories:         3 (0 simple, 3 standard, 0 complex)
+  Est. story time: 36–60 min
+  Est. closure:    25–50 min
+  ────────────────────────────────────────────────────────
+  Total estimate:  61–110 min    Token estimate: 270K–480K
+  (Actuals reported at sprint close.)
+
+Shall I begin?
+```
+
+Confirm to start. The orchestrator delegates each story phase to a fresh subagent and reports progress. At closure, it presents all findings and asks for resolution decisions on any Critical or High items. The sprint signs off once all Critical/High findings are resolved.
+
+## First Epic Run
+
+Invoke:
+
+```
+/l3io-pm-epic-execute
+```
+
+The skill reads `sprint-status.yaml`, identifies the target epic, and presents a sprint grouping step:
+
+```
+Epic 01: My Feature
+Total stories:  8
+Already done:   0
+Remaining:      8 — 1-0, 1-1, 1-2, 1-3, 1-4, 1-5, 1-6, 1-7
+
+Default: all remaining stories as one sprint.
+To split: provide story key groups (e.g. Sprint 1: 1-0, 1-1 / Sprint 2: 1-2, 1-3)
+```
+
+Confirm the grouping or provide a custom split. The epic orchestrator spawns one `l3io-pm-sprint-execute` subagent per sprint, then runs epic-level closure after all sprints complete. Between sprints, it asks whether to proceed or pause.
+
+## Using l3io-sec
+
+### Automatic (inside l3io-pm)
+
+`l3io-sec-agent-redteam` runs automatically as Step 6 of sprint closure and Step 4c of epic closure — as long as the skill is installed. No separate invocation needed.
+
+### Standalone
+
+Invoke directly for ad hoc reviews:
+
+```
+/l3io-sec-agent-redteam
+```
+
+On first run it initializes its sanctum (persistent memory) at `{project-root}/_bmad/memory/l3io-sec-agent-redteam/`. On subsequent runs it loads its identity from the sanctum and asks for scope and target.
+
+To run a scoped analysis against a specific sprint or epic, provide the scope when prompted. The skill loads relevant platform research cache topics, runs all five threat lenses, and writes a report.
+
+## Using l3io-util
+
+Run when you have legacy flat artifacts that need to be reorganized:
+
+```
+/l3io-util-cleanup
+```
+
+The skill scans `{implementation_artifacts}` and `{planning_artifacts}` flat roots, classifies each file, and presents a dry-run move table before making any changes:
+
+```
+DRY RUN — Artifact Cleanup
+Source                     → Destination                       Class           Status
+1-0-story.md               → epic-01/sprint-01/stories/...    story           move
+epic-1-sprint-1-retro.md   → epic-01/sprint-01/closure/...    sprint-closure  move
+```
+
+Confirm to execute. Ambiguous references are never auto-updated — they are flagged for manual review.
+
+Run `/l3io-util-cleanup` once per project. A second run on an already-clean layout produces zero moves.

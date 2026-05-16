@@ -1,9 +1,11 @@
 {
-  "name": "bmad-extensions",
-  "version": "0.1.4",
+  "name": "bmad-l3io-extensions",
+  "version": "1.0.1",
+  "description": "A set of BMad extensions tailored to LiquidLogicLabs AIDLC best practices.",
+  "author": "Shawn Anderson <shawn@eye-catcher.com>",
   "private": true,
   "scripts": {
-    "postbump": "node scripts/sync-bmad-versions.mjs && git add .claude-plugin/marketplace.json _bmad/_config/manifest.yaml",
+    "postbump": "node scripts/sync-bmad-versions.mjs && git add .claude-plugin/marketplace.json",
     "release": "commit-and-tag-version",
     "release:patch": "commit-and-tag-version --release-as patch",
     "release:minor": "commit-and-tag-version --release-as minor",

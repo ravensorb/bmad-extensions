@@ -1,32 +1,59 @@
 {
-  "name": "bmad-extensions",
+  "name": "bmad-l3io-extensions",
   "owner": {
-    "name": "ravensorb"
+    "name": "Shawn Anderson",
+    "email": "shawn@eye-catcher.com"
   },
   "license": "MIT",
-  "homepage": "https://github.com/ravensorb/bmad-extensions",
-  "repository": "https://github.com/ravensorb/bmad-extensions",
+  "homepage": "https://github.com/LiquidLogicLabs/bmad-l3io-extensions",
+  "repository": "https://github.com/LiquidLogicLabs/bmad-l3io-extensions",
   "keywords": [
     "bmad",
-    "workflow-orchestration",
+    "liquidlogiclabs",
     "sprint-execution",
     "epic-execution",
-    "red-team"
+    "red-team",
+    "security"
   ],
   "plugins": [
     {
-      "name": "bmad-extensions",
+      "name": "l3io-pm",
       "source": "./",
-      "description": "Sprint and epic execution orchestration with adversarial quality gates, including red team security review.",
-      "version": "0.1.4",
+      "description": "Sprint and epic execution orchestration for LiquidLogicLabs delivery teams — full lifecycle from story preparation through closure reviews.",
+      "version": "1.0.1",
       "author": {
-        "name": "ravensorb"
+        "name": "Shawn Anderson",
+        "email": "shawn@eye-catcher.com"
       },
       "skills": [
-        "./bmad-sprint-execute",
-        "./bmad-epic-execute",
-        "./bmad-red-team",
-        "./bmad-cleanup-artifacts"
+        "./skills/l3io-pm-sprint-execute",
+        "./skills/l3io-pm-epic-execute"
+      ]
+    },
+    {
+      "name": "l3io-sec",
+      "source": "./",
+      "description": "Adversarial security analysis for LiquidLogicLabs projects — five threat lenses with AI poisoning cross-cut and live cloud/platform best practices research.",
+      "version": "1.0.1",
+      "author": {
+        "name": "Shawn Anderson",
+        "email": "shawn@eye-catcher.com"
+      },
+      "skills": [
+        "./skills/l3io-sec-agent-redteam"
+      ]
+    },
+    {
+      "name": "l3io-util",
+      "source": "./",
+      "description": "Utility skills for LiquidLogicLabs BMad projects — one-time and housekeeping operations for artifact organization.",
+      "version": "1.0.1",
+      "author": {
+        "name": "Shawn Anderson",
+        "email": "shawn@eye-catcher.com"
+      },
+      "skills": [
+        "./skills/l3io-util-cleanup"
       ]
     }
   ],
@@ -39,6 +66,9 @@
       "bmad-qa-generate-e2e-tests",
       "bmad-retrospective",
       "bmad-review-adversarial-general"
+    ],
+    "optional-skills": [
+      "bmad-ux-review"
     ]
   }
 }
