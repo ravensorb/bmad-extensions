@@ -55,14 +55,27 @@ If `implementation_artifacts` is not set, default to `{output_folder}/implementa
 2. **Sprint closure files** (flat implementation root): patterns `epic-*-sprint-*-retro-*.md`, `*-sprint-*-adversarial-*.md`, `*-sprint-*-redteam-*.md`, `*-sprint-*-clean-release-*.md`, `*-sprint-*-ux-review-*.md`, `*-sprint-*-arch-drift-*.md`. Move to: `epic-{EE}/sprint-{SS}/closure/{filename}`
 3. **Epic closure files** (flat implementation root): patterns `epic-*-adversarial-*.md` (epic-scoped), `epic-*-redteam-*.md`, `epic-*-arch-drift-*.md`, `epic-*-functional-completeness-*.md`, `epic-*-clean-release-*.md`, `epic-*-ux-review-*.md`. Move to: `epic-{EE}/epic-closure/{filename}`
 4. **Test evidence files** (flat roots): patterns `*qa*.md`, `*test*.md`, `*verification*.md`. Sprint-scoped → `epic-{EE}/sprint-{SS}/tests/`. Epic-scoped → `epic-{EE}/tests/`.
-5. **Planning artifacts** (flat planning root): move to `planning_artifacts/epic-{EE}/` or `planning_artifacts/epic-{EE}/sprint-{SS}/` when epic number can be inferred.
+5. **Planning artifacts** (misplaced under `{planning_artifacts}` or `{implementation_artifacts}`): covers brainstorming, architecture, research, UX specs, and requirements docs — never story or epic tracking files (those are implementation artifacts). Classify by filename pattern:
+   - **Architecture**: `*architecture*`, `*arch-spec*`, `*system-design*`, `*tech-design*`
+   - **Requirements / PRD**: `*requirements*`, `*prd*`, `*brief*`, `*spec*` (excluding story files matched by heuristic 1)
+   - **UX spec**: `*ux-spec*`, `*ux-design*`, `*wireframe*`, `*mockup*`, `*ui-spec*`
+   - **Research / spike**: `*research*`, `*spike*`, `*investigation*`, `*discovery*`
+   - **Brainstorming**: `*brainstorm*`, `*ideation*`, `*mind-map*`
+   Determine placement scope from the filename: if `sprint-{SS}` or `sprintSS` is present → `{planning_artifacts}/epic-{EE}/sprint-{SS}/{filename}`; otherwise → `{planning_artifacts}/epic-{EE}/{filename}`. If epic cannot be inferred from the filename, ask for a mapping before proceeding.
 6. **Unknown files**: leave in place; record as "unclassified".
 
 ## Execution Sequence
 
 ### Step 1 — Scan and Classify
 
-Scan all files in `{implementation_artifacts}` flat root and `{planning_artifacts}` flat root. Apply classification heuristics. Build move map: source path → destination path + classification.
+Recursively scan **all files** under `{implementation_artifacts}` and `{planning_artifacts}` — including any subdirectories at any depth (flat roots, unusual subfolders, nested paths). Do not limit the scan to top-level files.
+
+For each file found, determine whether it is already correctly placed:
+- A file is **correctly placed** if its current path exactly matches the target path the heuristics would produce. Skip it — record as `already-placed`.
+- A file is **misplaced** if it is classifiable but lives outside its correct target location (flat root, wrong epic/sprint folder, unusual subfolder, etc.). Add it to the move map.
+- A file is **unclassified** if no heuristic can determine its destination. Leave in place and record.
+
+Apply classification heuristics to all misplaced files. Build move map: source path → destination path + classification.
 
 For files where epic/sprint cannot be reliably determined from filename alone, ask for a mapping before proceeding to Step 2.
 
@@ -78,9 +91,10 @@ Source                          → Destination                         Class   
 {source-path}                   → {dest-path}                        story            move
 {source-path}                   → {dest-path}                        sprint-closure   move
 {source-path}                   → {dest-path}                        story            conflict (dest exists)
+{source-path}                   → (already correct)                  story            already-placed
 {source-path}                   → (no destination found)             —                unclassified
 ===========================================================
-Summary: {move-count} to move, {conflict-count} conflicts, {unclassified-count} unclassified
+Summary: {move-count} to move, {already-placed-count} already correct, {conflict-count} conflicts, {unclassified-count} unclassified
 ```
 
 ### Step 3 — Confirmation
@@ -109,9 +123,57 @@ Verify post-move state:
 - If `sprint-status.yaml` exists: flag story state entries referencing missing story files
 - Flag any residual flat files that were not classified and remain in the root
 
-### Step 8 — Summary Report
+### Step 8 — Deferred Work Files
+
+For each epic that has conflicts, unclassified files, or manual-review reference items, write a consolidated deferred work file:
+
+```
+{implementation_artifacts}/epic-{EE}/cleanup-deferred.md
+```
+
+Format:
+```markdown
+# Cleanup Deferred Work — Epic {EE}
+Generated: {date}
+
+## Conflicts (destination already exists — not moved)
+- `{source-path}` → `{dest-path}` [{classification}]
+
+## Unclassified Files (no heuristic match — left in place)
+- `{source-path}`
+
+## Reference Updates Requiring Manual Review
+- File: `{reference-file}` — old path `{old-path}` matched multiple targets or context was ambiguous
+```
+
+Omit any section that has no entries. If an epic has no deferred items, do not write the file.
+
+If a `cleanup-deferred.md` already exists for an epic (from a prior run), append new findings under a dated `## Run {date}` heading rather than overwriting.
+
+### Step 9 — Summary Report
 
 Print:
 ```
-DONE - Moved: N, Conflicts: N, Unclassified: N, Refs Updated: N, Ref Conflicts: N, State Issues: N, Root: [{implementation_artifacts}]
+DONE - Moved: N, Conflicts: N, Unclassified: N, Refs Updated: N, Ref Conflicts: N, State Issues: N
+  Implementation root: {implementation_artifacts}
+  Planning root:       {planning_artifacts}
+  Deferred work files: {deferred_file_list} (or "none")
 ```
+
+### Step 10 — Completeness Verification Loop
+
+Maintain `{cleanup_iteration}` = 1 (incremented each time Step 1–8 runs).
+
+After Step 8, recursively re-scan all files under `{implementation_artifacts}` and `{planning_artifacts}` (same full-depth scan as Step 1) for any remaining misplaced classifiable files — excluding known conflicts, already-placed files, and intentionally unclassified files recorded in the previous pass.
+
+If no classifiable files remain: print `Cleanup complete — no residual files found after {cleanup_iteration} pass(es).` and exit.
+
+If classifiable files remain and `{cleanup_iteration}` < 4: announce the residual files found, then automatically loop back to Step 1 with only those files in scope. Increment `{cleanup_iteration}`.
+
+If `{cleanup_iteration}` ≥ 4 and classifiable files still remain, halt:
+```
+Cleanup HALT — {residual_count} classifiable file(s) remain after {cleanup_iteration} passes.
+Residual files: {residual_file_list}
+These may require manual mapping or indicate ambiguous filenames the heuristics cannot resolve.
+```
+Present the residual list and wait for `{user_name}` guidance before exiting.
