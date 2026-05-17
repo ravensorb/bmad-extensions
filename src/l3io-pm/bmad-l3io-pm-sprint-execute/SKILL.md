@@ -41,6 +41,7 @@ Load available config from `{project-root}/_bmad/config.yaml` and `{project-root
 - `status_file` = `{implementation_artifacts}/sprint-status.yaml`
 - `parallel_mode` = `{workflow.parallel_mode}`
 - `max_parallel_subagents` = min(`{workflow.max_parallel_subagents}`, 4)
+- `deferred_file_cleanup` = `{workflow.deferred_file_cleanup}` — default: `false`
 - `date` = current date (system-generated)
 
 ### Sprint Scope
@@ -57,6 +58,7 @@ Bind and create if missing:
 - `{closure_output_dir}` = `{sprint_root_dir}/closure`
 - `{test_output_dir}` = `{sprint_root_dir}/tests`
 - `{planning_sprint_dir}` = `{planning_artifacts}/epic-{target_epic_padded}/sprint-{target_sprint_padded}`
+- `{cleanup_script}` = `{sprint_root_dir}/cleanup-pending.sh` (only written when `{deferred_file_cleanup}` is `true`)
 
 Remove already-`done` stories from `{sprint_stories}`. Update the sprint to `in-progress` in `{status_file}`.
 

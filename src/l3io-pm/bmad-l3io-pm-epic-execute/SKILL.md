@@ -42,6 +42,7 @@ Load available config from `{project-root}/_bmad/config.yaml` and `{project-root
 - `epics_file` = `{planning_artifacts}/*epic*.md`
 - `parallel_mode` = `{workflow.parallel_mode}`
 - `max_parallel_subagents` = min(`{workflow.max_parallel_subagents}`, 4)
+- `deferred_file_cleanup` = `{workflow.deferred_file_cleanup}` — default: `false`
 - `date` = current date (system-generated)
 
 ### Epic Planning (Step 1)
@@ -55,6 +56,7 @@ Resolve `{target_epic_padded}` as a two-digit zero-padded value. Bind and create
 - `{epic_closure_dir}` = `{epic_root_dir}/epic-closure`
 - `{epic_test_dir}` = `{epic_root_dir}/tests`
 - `{planning_epic_dir}` = `{planning_artifacts}/epic-{target_epic_padded}`
+- `{epic_cleanup_script}` = `{epic_root_dir}/cleanup-pending.sh` (only written when `{deferred_file_cleanup}` is `true`)
 
 Count `{total_story_count}`, `{done_count}`, `{remaining_count}`. Build `{remaining_story_key_list}`.
 

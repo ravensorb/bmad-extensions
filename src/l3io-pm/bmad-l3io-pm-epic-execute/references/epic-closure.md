@@ -265,6 +265,13 @@ Wait for `{user_name}` decision.
 
 ## Step 8 — Epic Sign-Off
 
+### Deferred File Cleanup
+
+If `{deferred_file_cleanup}` is `true` and `{epic_cleanup_script}` exists with non-empty content:
+Execute `bash {epic_cleanup_script}` to process all deferred file deletions accumulated during epic closure in one batch.
+On success, execute `rm {epic_cleanup_script}`.
+If `{epic_cleanup_script}` does not exist or is empty, skip this step.
+
 Update `{status_file}`:
 - epic-`{target_epic}`: `done`
 - All epic stories: verified `done`

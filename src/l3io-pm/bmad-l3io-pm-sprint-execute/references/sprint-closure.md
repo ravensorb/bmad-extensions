@@ -246,6 +246,13 @@ This file accumulates across all sprints in the epic, making it the single place
 
 ## Step 11 — Sprint Sign-Off
 
+### Deferred File Cleanup
+
+If `{deferred_file_cleanup}` is `true` and `{cleanup_script}` exists with non-empty content:
+Execute `bash {cleanup_script}` to process all deferred file deletions accumulated during this sprint in one batch.
+On success, execute `rm {cleanup_script}`.
+If `{cleanup_script}` does not exist or is empty, skip this step.
+
 Update `{status_file}`:
 - All sprint stories: verified `done`
 - Sprint retrospective: `done`
