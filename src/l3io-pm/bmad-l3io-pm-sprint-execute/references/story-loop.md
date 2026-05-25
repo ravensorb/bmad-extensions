@@ -4,6 +4,8 @@ Communicate all responses in `{communication_language}`.
 
 Load `references/testing-guidelines.md` and keep its guidance in context for all development and QA phases.
 
+Load `references/cicd-guidelines.md` and keep it in context. Apply it to any dev subagent whose story involves CI/CD pipelines, GitHub Actions workflows, Gitea CI, or deployment automation.
+
 **Orchestrator role:** Traffic controller. Hold only story keys and statuses. Never read story file contents into context — pass paths to subagents and read only status lines plus targeted field checks from disk.
 
 **Subagent invocation:** Use the Agent tool with a self-contained prompt — never forward conversation history, pass only paths and the skill to invoke. Fallback when Agent tool is unavailable:
@@ -74,6 +76,7 @@ Invoke skill: bmad-dev-story
 All tasks and subtasks must be checked [x] before finishing.
 Update the story file Dev Agent Record and File List as the skill requires.
 Unit test guidance: {skill-root}/references/testing-guidelines.md — apply test quality review (coverage, relevance, parallelism) when writing or updating tests.
+CI/CD guidance: {skill-root}/references/cicd-guidelines.md — apply if this story involves CI/CD pipelines, GitHub Actions, Gitea workflows, or deployment automation. Follow all conventions (modular design, dual triggers, action pinning, multi-runner compatibility, nektos/act local config).
 Print when done: DONE | BLOCKED: [reason] | FAILED: [reason]
 ```
 

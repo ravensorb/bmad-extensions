@@ -112,3 +112,4 @@ Wait for `{user_name}`'s response before any subagent is spawned.
 | Reference | Purpose |
 |-----------|---------|
 | `references/testing-guidelines.md` | Unit test quality review and test output caching guidance for dev and QA subagents |
+| `references/cicd-guidelines.md` | CI/CD pipeline conventions (modular design, action pinning, multi-runner compatibility, nektos/act, LiquidLogicLabs) — passed to dev subagents when stories involve pipeline work |
