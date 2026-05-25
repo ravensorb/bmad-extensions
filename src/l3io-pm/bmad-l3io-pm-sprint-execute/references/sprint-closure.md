@@ -10,6 +10,11 @@ All stories are `done`. Execute the following closure phases in order. All outpu
 
 Build `{sprint_story_file_list}` — the paths of all story files for this sprint. Pass to subagents as paths only.
 
+**Deferred cleanup:** When `{deferred_file_cleanup}` is `true`, append the following instruction to every subagent prompt you spawn:
+```
+DEFERRED CLEANUP ACTIVE: Do not execute rm commands directly. Instead, append each rm command as its own line to {cleanup_script} (create with #!/bin/bash header if it does not exist). Continue all other work normally.
+```
+
 ---
 
 ## Step 3 — Retrospective

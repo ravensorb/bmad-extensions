@@ -8,6 +8,12 @@ All sprints complete. Execute closure phases in the order below. All outputs go 
 
 **Subagent invocation:** Agent tool preferred (self-contained prompt, no conversation history forwarded). Fallback: `claude --print`. Every subagent must end with: `DONE — [metrics] | BLOCKED: [reason] | FAILED: [reason]`
 
+**Deferred cleanup:** When `{deferred_file_cleanup}` is `true`, append the following instruction to every subagent prompt you spawn during epic closure:
+```
+DEFERRED CLEANUP ACTIVE: Do not execute rm commands directly. Instead, append each rm command as its own line to {epic_cleanup_script} (create with #!/bin/bash header if it does not exist). Continue all other work normally.
+```
+Note: each sprint's cleanup script was already executed at its own sign-off. This file collects only epic-level closure phase deletions.
+
 Announce: "All {total_sprint_count} sprint(s) complete. Beginning epic-level closure."
 
 ---

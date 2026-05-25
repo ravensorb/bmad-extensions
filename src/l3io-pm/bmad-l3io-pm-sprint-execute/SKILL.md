@@ -58,7 +58,7 @@ Bind and create if missing:
 - `{closure_output_dir}` = `{sprint_root_dir}/closure`
 - `{test_output_dir}` = `{sprint_root_dir}/tests`
 - `{planning_sprint_dir}` = `{planning_artifacts}/epic-{target_epic_padded}/sprint-{target_sprint_padded}`
-- `{cleanup_script}` = `{sprint_root_dir}/cleanup-pending.sh` (only written when `{deferred_file_cleanup}` is `true`)
+- `{cleanup_script}` = `{sprint_root_dir}/cleanup-pending.sh` (only written when `{deferred_file_cleanup}` is `true`; subagents create the file on first use — no pre-write needed)
 
 Remove already-`done` stories from `{sprint_stories}`. Update the sprint to `in-progress` in `{status_file}`.
 

@@ -20,6 +20,11 @@ BLOCKED: [one-line reason]
 FAILED: [one-line reason]
 ```
 
+**Deferred cleanup:** When `{deferred_file_cleanup}` is `true`, append the following instruction to every subagent prompt you spawn:
+```
+DEFERRED CLEANUP ACTIVE: Do not execute rm commands directly. Instead, append each rm command as its own line to {cleanup_script} (create with #!/bin/bash header if it does not exist). Continue all other work normally.
+```
+
 **Adaptive parallelism:** Stories may run in parallel — across stories only, never across phases within the same story. Before each parallel batch: verify no shared file path overlap between stories, no concurrent writes to `{status_file}`, no unresolved blocker that would invalidate siblings. If any check is uncertain, run sequentially. `effective_parallel_subagents` = min(`{max_parallel_subagents}`, 4, safe_batch_size). Force to 1 when `{parallel_mode}` = `off`.
 
 **Story ordering:** Before starting parallel execution, check story files or `{status_file}` for `depends_on` fields. A story cannot enter development until all declared dependencies are `done`. Process independent stories in parallel batches; dependent stories wait for their dependencies.
@@ -108,7 +113,7 @@ Story file: {story_file_path}
 Invoke skill: bmad-qa-generate-e2e-tests
 Target: the feature implemented in this story.
 Run all generated tests and verify they pass before finishing.
-Test output caching: pipe all test runs through `tee /tmp/test-run-$(date +%Y%m%d-%H%M%S).log` so failure details are available without re-running. After analysis: if `{deferred_file_cleanup}` is `true`, append `rm /tmp/test-run-*.log` to `{cleanup_script}` (create the script if absent) — do not delete inline; otherwise delete the log immediately.
+Test output caching: pipe all test runs through `tee /tmp/test-run-$(date +%Y%m%d-%H%M%S).log` so failure details are available without re-running. After analysis: if `{deferred_file_cleanup}` is `true`, append `rm /tmp/test-run-*.log` to `{cleanup_script}` (create with #!/bin/bash header if absent) — do not delete inline; otherwise delete the log immediately.
 Unit test guidance: {skill-root}/references/testing-guidelines.md — apply test quality review (coverage, relevance, parallelism) when reviewing generated tests.
 Write test results summary to the story file Dev Agent Record.
 Write QA evidence to: {test_output_dir}/epic-{target_epic_padded}-sprint-{target_sprint_padded}-{story_key}-qa-{date}.md
@@ -133,7 +138,7 @@ Story file: {story_file_path}
 Issue to fix: {issue_description}
 Invoke skill: bmad-dev-story
 Target the specific issue above. Read the story Dev Agent Record for full context.
-After fixing, re-run the affected tests to verify resolution. Cache test output: pipe through `tee /tmp/test-run-$(date +%Y%m%d-%H%M%S).log`. After analysis: if `{deferred_file_cleanup}` is `true`, append `rm /tmp/test-run-*.log` to `{cleanup_script}` (create the script if absent) — do not delete inline; otherwise delete the log.
+After fixing, re-run the affected tests to verify resolution. Cache test output: pipe through `tee /tmp/test-run-$(date +%Y%m%d-%H%M%S).log`. After analysis: if `{deferred_file_cleanup}` is `true`, append `rm /tmp/test-run-*.log` to `{cleanup_script}` (create with #!/bin/bash header if absent) — do not delete inline; otherwise delete the log.
 Update the story Dev Agent Record with fix notes.
 Print when done: FIXED | PARTIAL: [what remains] | FAILED: [reason]
 ```

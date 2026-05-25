@@ -56,7 +56,7 @@ Resolve `{target_epic_padded}` as a two-digit zero-padded value. Bind and create
 - `{epic_closure_dir}` = `{epic_root_dir}/epic-closure`
 - `{epic_test_dir}` = `{epic_root_dir}/tests`
 - `{planning_epic_dir}` = `{planning_artifacts}/epic-{target_epic_padded}`
-- `{epic_cleanup_script}` = `{epic_root_dir}/cleanup-pending.sh` (only written when `{deferred_file_cleanup}` is `true`)
+- `{epic_cleanup_script}` = `{epic_root_dir}/cleanup-pending.sh` (only written when `{deferred_file_cleanup}` is `true`; subagents create the file on first use — no pre-write needed. This file collects only epic-level closure phase deletions; each sprint manages its own `{cleanup_script}`)
 
 Count `{total_story_count}`, `{done_count}`, `{remaining_count}`. Build `{remaining_story_key_list}`.
 
