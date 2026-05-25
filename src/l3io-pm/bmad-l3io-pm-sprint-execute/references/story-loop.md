@@ -59,7 +59,9 @@ Print when done: DONE | BLOCKED: [reason]
 
 Halt on BLOCKED — report to `{user_name}` and wait for resolution before continuing.
 
-Announce story prep complete to `{user_name}` (informational, no confirmation requested): story title + acceptance criteria count + task count (from file headers only). Update status to `ready-for-dev` in `{status_file}` and continue immediately to development.
+Classify story complexity from the AC count: Simple (1–3 ACs), Standard (4–6 ACs), Complex (7+ ACs). Map to cost estimate: Simple ~$0.32–$0.56 · Standard ~$0.56–$0.96 · Complex ~$0.96–$1.60 (Sonnet ~$8/MTok blended). Bind `{story_complexity}` and `{story_cost_range}`.
+
+Announce story prep complete to `{user_name}` (informational, no confirmation requested): story title + acceptance criteria count + task count + complexity + cost estimate (from file headers only). Example: "Story {story_key} ready — {ac_count} ACs, {task_count} tasks · {story_complexity} · est. {story_cost_range}". Update status to `ready-for-dev` in `{status_file}` and continue immediately to development.
 
 ---
 

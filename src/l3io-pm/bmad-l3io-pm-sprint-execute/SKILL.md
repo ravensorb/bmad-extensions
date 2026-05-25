@@ -75,6 +75,15 @@ If story files are not yet available, classify all as Standard. Sum ranges acros
 
 Bind: `{simple_count}`, `{standard_count}`, `{complex_count}`, `{story_time_low}`, `{story_time_high}`, `{closure_time_low}`, `{closure_time_high}`, `{est_time_low}`, `{est_time_high}`, `{est_tokens_low}`, `{est_tokens_high}` (token values in K).
 
+Compute cost estimates using a blended rate of **$8/MTok** (Sonnet input ~$3/MTok, output ~$15/MTok, ~60/40 split):
+- `{est_cost_low}` = `{est_tokens_low}` × 0.008  (formatted as `$X.XX`)
+- `{est_cost_high}` = `{est_tokens_high}` × 0.008 (formatted as `$X.XX`)
+
+Per-story cost reference (for announcement):
+- Simple (40–70K tokens): ~$0.32–$0.56
+- Standard (70–120K tokens): ~$0.56–$0.96
+- Complex (120–200K tokens): ~$0.96–$1.60
+
 Record start timestamp: run `date +%s` and bind result to `{sprint_start_ts}`.
 
 **Headless mode (invoked by `bmad-l3io-pm-epic-execute`):** skip the scope confirmation entirely. Announce scope as a one-line log and continue immediately — the epic orchestrator already obtained user confirmation upstream.
@@ -87,11 +96,12 @@ Closure:    Retrospective → Clean Release → Adversarial → Red Team → UX 
 State passes through disk only. All phases use fresh subagents.
 
 Pre-start estimate:
-  Stories:         {story_count} ({simple_count} simple, {standard_count} standard, {complex_count} complex)
+  Stories:         {story_count} ({simple_count} simple · {standard_count} standard · {complex_count} complex)
+  Per-story cost:  Simple ~$0.32–$0.56 · Standard ~$0.56–$0.96 · Complex ~$0.96–$1.60  (Sonnet ~$8/MTok blended)
   Est. story time: {story_time_low}–{story_time_high} min
   Est. closure:    {closure_time_low}–{closure_time_high} min
-  ────────────────────────────────────────────────────────
-  Total estimate:  {est_time_low}–{est_time_high} min    Token estimate: {est_tokens_low}K–{est_tokens_high}K
+  ────────────────────────────────────────────────────────────────────────────────────
+  Total estimate:  {est_time_low}–{est_time_high} min    Tokens: {est_tokens_low}K–{est_tokens_high}K    Cost: ~{est_cost_low}–{est_cost_high}
   (Actuals reported at sprint close. Per-story fix loop and closure fix loop each cap at 10 iterations
   before prompting; Critical/High/Medium and undocumented drift findings auto-fix without per-item prompts.)
 

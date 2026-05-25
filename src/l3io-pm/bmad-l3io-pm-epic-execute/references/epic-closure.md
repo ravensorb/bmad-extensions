@@ -301,6 +301,8 @@ Epic Orchestrator: Epic {target_epic} — {epic_title} — CLOSED — {date}
   Functional completeness:      {func_ac_gaps} gaps resolved
   Deferred to backlog:          {deferred_story_keys}
 
-  Est. time:                    {epic_est_time_low}–{epic_est_time_high} min    Actual: ~{epic_actual_elapsed_min} min
-  Est. tokens:                  {epic_est_tokens_low}K–{epic_est_tokens_high}K  Actual: not directly trackable
+  ── Planned vs Actual ──────────────────────────────────────────────────────────────────────
+  Time:    planned {epic_est_time_low}–{epic_est_time_high} min        actual ~{epic_actual_elapsed_min} min
+  Tokens:  planned {epic_est_tokens_low}K–{epic_est_tokens_high}K      (actual not directly trackable)
+  Cost:    planned ~{epic_est_cost_low}–{epic_est_cost_high}            (Sonnet ~$8/MTok blended; actual not directly trackable)
 ```

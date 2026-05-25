@@ -89,6 +89,15 @@ If story files are not yet available, classify all as Standard. Sum story ranges
 
 Bind: `{simple_count}`, `{standard_count}`, `{complex_count}`, `{epic_est_time_low}`, `{epic_est_time_high}`, `{epic_est_tokens_low}`, `{epic_est_tokens_high}` (token values in K).
 
+Compute cost estimates using a blended rate of **$8/MTok** (Sonnet input ~$3/MTok, output ~$15/MTok, ~60/40 split):
+- `{epic_est_cost_low}` = `{epic_est_tokens_low}` × 0.008  (formatted as `$X.XX`)
+- `{epic_est_cost_high}` = `{epic_est_tokens_high}` × 0.008 (formatted as `$X.XX`)
+
+Per-story cost reference (for announcement):
+- Simple (40–70K tokens): ~$0.32–$0.56
+- Standard (70–120K tokens): ~$0.56–$0.96
+- Complex (120–200K tokens): ~$0.96–$1.60
+
 Record start timestamp: run `date +%s` and bind result to `{epic_start_ts}`.
 
 Announce confirmed execution plan:
@@ -100,8 +109,9 @@ Sprint outputs: {epic_root_dir}/sprint-XX/
 Epic closure outputs: {epic_closure_dir}/
 
 Pre-start estimate:
-  Stories:        {remaining_count} ({simple_count} simple, {standard_count} standard, {complex_count} complex)
-  Total estimate: {epic_est_time_low}–{epic_est_time_high} min    Token estimate: {epic_est_tokens_low}K–{epic_est_tokens_high}K
+  Stories:        {remaining_count} ({simple_count} simple · {standard_count} standard · {complex_count} complex)
+  Per-story cost: Simple ~$0.32–$0.56 · Standard ~$0.56–$0.96 · Complex ~$0.96–$1.60  (Sonnet ~$8/MTok blended)
+  Total estimate: {epic_est_time_low}–{epic_est_time_high} min    Tokens: {epic_est_tokens_low}K–{epic_est_tokens_high}K    Cost: ~{epic_est_cost_low}–{epic_est_cost_high}
   (Includes {total_sprint_count} sprint closure(s) + epic closure. Actuals reported at epic close.)
 
 Beginning Sprint 1 of {total_sprint_count}.

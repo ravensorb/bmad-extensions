@@ -278,11 +278,13 @@ Sprint Orchestrator: Sprint CLOSED — Epic {target_epic}, Sprint {target_sprint
   Arch drift:           {drift_undoc} undocumented deviations resolved, {drift_gaps} spec gaps documented
   Deferred to backlog:  {deferred_story_keys} → {implementation_artifacts}/epic-{target_epic_padded}/epic-backlog.md
 
-  Est. time:            {est_time_low}–{est_time_high} min    Actual: ~{actual_elapsed_min} min
-  Est. tokens:          {est_tokens_low}K–{est_tokens_high}K  Actual: not directly trackable
+  ── Planned vs Actual ──────────────────────────────────────────────────────────
+  Time:    planned {est_time_low}–{est_time_high} min        actual ~{actual_elapsed_min} min
+  Tokens:  planned {est_tokens_low}K–{est_tokens_high}K      (actual not directly trackable)
+  Cost:    planned ~{est_cost_low}–{est_cost_high}            (Sonnet ~$8/MTok blended; actual not directly trackable)
 ```
 
 In headless mode (called by `bmad-l3io-pm-epic-execute`), emit instead:
 ```
-DONE — Stories: {story_count}, Issues resolved: {total_resolved}, Issues deferred: {total_deferred}, Retro: {retro_file_path}, Time: ~{actual_elapsed_min}min (est {est_time_low}–{est_time_high}min)
+DONE — Stories: {story_count}, Issues resolved: {total_resolved}, Issues deferred: {total_deferred}, Retro: {retro_file_path}, Time: ~{actual_elapsed_min}min (planned {est_time_low}–{est_time_high}min), Cost: planned ~{est_cost_low}–{est_cost_high}
 ```
