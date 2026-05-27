@@ -60,7 +60,7 @@ Bind and create if missing:
 - `{planning_sprint_dir}` = `{planning_artifacts}/epic-{target_epic_padded}/sprint-{target_sprint_padded}`
 - `{cleanup_script}` = `{sprint_root_dir}/cleanup-pending.sh` (only written when `{deferred_file_cleanup}` is `true`; subagents create the file on first use — no pre-write needed)
 
-Remove already-`done` stories from `{sprint_stories}`. Update the sprint to `in-progress` in `{status_file}`.
+Remove already-`done` stories from `{sprint_stories}`. Derive `{sprint_title}` = "Sprint {target_sprint} — {theme}" where `{theme}` is a 2–4 word summary of the sprint's dominant concern (e.g. "Foundation", "Parsers", "API Layer"); fall back to "Sprint {target_sprint}" if no clear theme is identifiable. Update the sprint node in `{status_file}`: set `status: in-progress`, write `title: {sprint_title}` (create the field if absent).
 
 ### Pre-start Estimate
 
@@ -84,7 +84,30 @@ Per-story cost reference (for announcement):
 - Standard (70–120K tokens): ~$0.56–$0.96
 - Complex (120–200K tokens): ~$0.96–$1.60
 
+Compute traditional development equivalents — estimated person-hours a dev team would spend on the same scope without AI tooling (developer + code review + QA per story, plus manual closure overhead):
+- Simple story: 4–8 person-hours · Standard: 12–24 · Complex: 24–48
+- Closure overhead: 16–32 person-hours (retro, arch review, QA pass, security review)
+
+Bind:
+- `{man_hours_low}` = (`{simple_count}` × 4) + (`{standard_count}` × 12) + (`{complex_count}` × 24) + 16
+- `{man_hours_high}` = (`{simple_count}` × 8) + (`{standard_count}` × 24) + (`{complex_count}` × 48) + 32
+
 Record start timestamp: run `date +%s` and bind result to `{sprint_start_ts}`.
+
+Compute `{est_time_hours_low}` = round(`{est_time_low}` / 60, 1) and `{est_time_hours_high}` = round(`{est_time_high}` / 60, 1).
+
+Write the `estimate` block to the sprint node in `{status_file}`:
+```yaml
+estimate:
+  time_hours_low: {est_time_hours_low}    # AI-assisted wall-clock time (hours)
+  time_hours_high: {est_time_hours_high}
+  tokens_k_min: {est_tokens_low}
+  tokens_k_max: {est_tokens_high}
+  cost_low: '{est_cost_low}'
+  cost_high: '{est_cost_high}'
+  man_hours_low: {man_hours_low}          # traditional dev equivalent (person-hours)
+  man_hours_high: {man_hours_high}
+```
 
 **Headless mode (invoked by `bmad-l3io-pm-epic-execute`):** skip the scope confirmation entirely. Announce scope as a one-line log and continue immediately — the epic orchestrator already obtained user confirmation upstream.
 
@@ -101,7 +124,8 @@ Pre-start estimate:
   Est. story time: {story_time_low}–{story_time_high} min
   Est. closure:    {closure_time_low}–{closure_time_high} min
   ────────────────────────────────────────────────────────────────────────────────────
-  Total estimate:  {est_time_low}–{est_time_high} min    Tokens: {est_tokens_low}K–{est_tokens_high}K    Cost: ~{est_cost_low}–{est_cost_high}
+  Total estimate:  {est_time_hours_low}–{est_time_hours_high} hours    Tokens: {est_tokens_low}K–{est_tokens_high}K    Cost: ~{est_cost_low}–{est_cost_high}
+  Traditional est: ~{man_hours_low}–{man_hours_high} hours  (actual auto-computed at sprint close)
   (Actuals reported at sprint close. Per-story fix loop and closure fix loop each cap at 10 iterations
   before prompting; Critical/High/Medium and undocumented drift findings auto-fix without per-item prompts.)
 
@@ -116,6 +140,70 @@ Wait for `{user_name}`'s response before any subagent is spawned.
 | 1 | Activation | Config, paths, scope identification | SKILL.md (above) |
 | 2 | Per-story execution | Story prep → dev → code review → QA → fix loop, with adaptive parallelism | `references/story-loop.md` |
 | 3 | Sprint closure | Retro → clean release → adversarial → red team → UX → arch drift → issue triage → sign-off | `references/sprint-closure.md` |
+
+## Sprint Status File Schema
+
+The `{status_file}` uses the following structure. Fields marked *(written by sprint-execute)* are populated by this skill; all others are pre-existing or written by epic-execute.
+
+```yaml
+epics:
+- id: '01'
+  title: 'Epic 01 — ...'           # written by epic-execute
+  goal: '...'                       # written by epic-execute
+  status: in-progress               # written by epic-execute
+  closed: '2026-05-18'             # written by epic-execute at close
+  retrospective: path/to/retro.md  # written by epic-execute at close
+  estimate:                         # written by epic-execute after pre-start estimate
+    time_hours_low: 3.0
+    time_hours_high: 5.7
+    tokens_k_min: 800
+    tokens_k_max: 1600
+    cost_low: '$6.40'
+    cost_high: '$12.80'
+    man_hours_low: 120
+    man_hours_high: 240
+  actual:                           # written by epic-execute at close
+    elapsed_hours: 4.1
+    man_hours: 4.1                  # auto-computed: sum of sprint actual.man_hours + 12h epic closure
+  sprints:
+  - id: '01'
+    title: 'Sprint 01 — Foundation' # *(written by sprint-execute at in-progress)*
+    status: done                    # *(written by sprint-execute)*
+    closed: '2026-05-18'           # *(written by sprint-execute at sign-off)*
+    retrospective: path/to/retro.md # *(written by sprint-execute at sign-off)*
+    estimate:                       # *(written by sprint-execute after pre-start estimate)*
+      time_hours_low: 0.8           # AI-assisted wall-clock time (hours)
+      time_hours_high: 1.4
+      tokens_k_min: 250
+      tokens_k_max: 480
+      cost_low: '$2.00'
+      cost_high: '$3.84'
+      man_hours_low: 40             # traditional dev equivalent (person-hours)
+      man_hours_high: 80
+    actual:                         # *(written by sprint-execute at sign-off)*
+      elapsed_hours: 1.1            # AI-assisted wall-clock actual
+      man_hours: 52.5               # auto-computed: sum of (classification base × fix_factor) + 24h closure
+    stories:
+    - key: PROJ-E01-S01-ST01
+      title: 'Story title...'       # *(written by sprint-execute at ready-for-dev)*
+      status: done                  # *(written by sprint-execute)*
+      classification: complex       # *(written by sprint-execute at ready-for-dev)*
+      completion_evidence:          # *(written by sprint-execute at done)*
+        fix_iterations: 2
+        tests_passing: 42
+        files_changed: 8
+        bugs_fixed:                 # omitted when fix_iterations == 0
+        - 'Brief description of fix'
+  backlog:                          # *(appended by sprint-execute / epic-execute during issue triage)*
+  - key: PROJ-E01-BL-01
+    title: 'Issue title'
+    source: 'adversarial (ADV-L-01)'
+    severity: Low
+    status: backlog
+    description: 'One-sentence description of the deferred issue.'
+    resolved: '2026-05-19'        # added when a backlog item is later fixed
+    resolution: 'How it was fixed.' # added when a backlog item is later fixed
+```
 
 **Supporting references** (loaded by story-loop.md):
 

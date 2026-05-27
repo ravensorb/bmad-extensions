@@ -248,7 +248,15 @@ For each item in `{doc_update_items}` (process once, not per iteration):
 For each item in `{defer_items}` (process once, not per iteration):
 1. Spawn `bmad-create-story` to create a backlog story
 2. Record the story key in `{deferred_story_keys}`
-3. Update `{status_file}` with the new story at `backlog`
+3. Append to the epic's `backlog:` array in `{status_file}` (create the array under the epic node if absent):
+   ```yaml
+   - key: {new_story_key}
+     title: {issue_title}
+     source: {review_phase} ({finding_id})   # e.g. adversarial (ADV-L-01), red-team (RT-L-03), ux-review (UX-L02), arch-drift (ARCH-DM-01)
+     severity: Low
+     status: backlog
+     description: {one-sentence description of the issue}
+   ```
 
 **Only halt and prompt `{user_name}` if `{closure_fix_iteration}` ≥ 10 and `{fix_now_items}` is non-empty:**
 ```
@@ -278,13 +286,19 @@ Execute `bash {epic_cleanup_script}` to process all deferred file deletions accu
 On success, execute `rm {epic_cleanup_script}`.
 If `{epic_cleanup_script}` does not exist or is empty, skip this step.
 
-Update `{status_file}`:
-- epic-`{target_epic}`: `done`
-- All epic stories: verified `done`
-- epic-`{target_epic}`-retrospective: `done`
-- Closure comment with `{date}`
+Record end timestamp: run `date +%s`, subtract `{epic_start_ts}`, bind `{epic_actual_elapsed_min}` = round(elapsed seconds / 60), then bind `{epic_elapsed_hours}` = round(`{epic_actual_elapsed_min}` / 60, 1).
 
-Record end timestamp: run `date +%s`, subtract `{epic_start_ts}`, and bind `{epic_actual_elapsed_min}` = round(elapsed seconds / 60).
+Compute `{epic_actual_man_hours}` by reading `actual.man_hours` from each sprint node in `{status_file}` (targeted read only):
+- `{epic_actual_man_hours}` = round(sum of sprint `actual.man_hours` values + 12, 1)   ← 12h = epic closure overhead (epic retro, functional completeness, arch drift)
+
+Update the epic node in `{status_file}`:
+- `status: done`
+- All epic stories: verified `done`
+- `closed: {date}`
+- `retrospective: {epic_retro_file}`
+- `actual:`
+  - `elapsed_hours: {epic_elapsed_hours}`
+  - `man_hours: {epic_actual_man_hours}`
 
 Print:
 ```
@@ -302,7 +316,8 @@ Epic Orchestrator: Epic {target_epic} — {epic_title} — CLOSED — {date}
   Deferred to backlog:          {deferred_story_keys}
 
   ── Planned vs Actual ──────────────────────────────────────────────────────────────────────
-  Time:    planned {epic_est_time_low}–{epic_est_time_high} min        actual ~{epic_actual_elapsed_min} min
-  Tokens:  planned {epic_est_tokens_low}K–{epic_est_tokens_high}K      (actual not directly trackable)
-  Cost:    planned ~{epic_est_cost_low}–{epic_est_cost_high}            (Sonnet ~$8/MTok blended; actual not directly trackable)
+  AI time:         planned {epic_est_time_hours_low}–{epic_est_time_hours_high} hours    actual ~{epic_elapsed_hours} hours
+  Tokens:          planned {epic_est_tokens_low}K–{epic_est_tokens_high}K                (actual not directly trackable)
+  Cost:            planned ~{epic_est_cost_low}–{epic_est_cost_high}                     (Sonnet ~$8/MTok blended; actual not directly trackable)
+  Traditional:     estimated ~{epic_man_hours_low}–{epic_man_hours_high} hours    actual ~{epic_actual_man_hours} hours
 ```

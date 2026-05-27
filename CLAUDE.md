@@ -63,7 +63,15 @@ Valid scopes: `infra`, `ci-cd`, `custom`.
 
 **Context boundary**: Each phase runs in a fresh subagent. All state passes through disk — never through in-memory hand-off.
 
-**State file** (`sprint-status.yaml`): Located at `{implementation_artifacts}/sprint-status.yaml`. Story statuses: `backlog → ready-for-dev → in-progress → review → done`. Epic statuses: `backlog → in-progress → done`.
+**State file** (`sprint-status.yaml`): Located at `{implementation_artifacts}/sprint-status.yaml`.
+
+Story statuses: `backlog → ready-for-dev → in-progress → review → done`. Epic statuses: `backlog → in-progress → done`.
+
+Key fields written by the skills (see skill SKILL.md files for the full annotated schema):
+- **Stories**: `title`, `classification` (simple/standard/complex) at `ready-for-dev`; `completion_evidence` (fix_iterations, tests_passing, files_changed, bugs_fixed) at `done`
+- **Sprints**: `title`, `status`, `estimate` (time_min/max, tokens_k_min/max, cost_low/high) at start; `closed`, `retrospective`, `actual.elapsed_min` at sign-off
+- **Epics**: `title`, `goal`, `status`, `estimate` at start; `closed`, `retrospective`, `actual.elapsed_min` at sign-off
+- **Backlog items** (in epic-level `backlog:` array): `key`, `title`, `source`, `severity`, `status`, `description`; `resolved`/`resolution` added when fixed
 
 **Artifact paths** (zero-padded):
 - Stories: `{implementation_artifacts}/epic-XX/sprint-YY/stories/{story-key}.md`

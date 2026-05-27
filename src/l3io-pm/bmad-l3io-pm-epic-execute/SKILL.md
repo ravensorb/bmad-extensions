@@ -73,7 +73,7 @@ To split: provide story key groups (e.g. Sprint 1: 15-0, 15-1 / Sprint 2: 15-2, 
 
 Wait for `{user_name}` to confirm or provide groupings. Set `{sprint_plan}` and `{total_sprint_count}`.
 
-Update epic to `in-progress` in `{status_file}`.
+Extract `{epic_title}` and `{epic_goal}` from `{epics_file}` (read headers and goal/objective statement only). Update the epic node in `{status_file}`: set `status: in-progress`, write `title: {epic_title}` and `goal: {epic_goal}` (create fields if absent).
 
 ### Pre-start Estimate
 
@@ -98,7 +98,31 @@ Per-story cost reference (for announcement):
 - Standard (70–120K tokens): ~$0.56–$0.96
 - Complex (120–200K tokens): ~$0.96–$1.60
 
+Compute traditional development equivalents — estimated person-hours a dev team would spend on the same scope without AI tooling:
+- Simple story: 4–8 person-hours · Standard: 12–24 · Complex: 24–48
+- Sprint closure overhead: 16–32 person-hours per sprint (retro, arch review, QA pass, security)
+- Epic closure additional: 8–16 person-hours (epic retro, functional completeness, arch drift)
+
+Bind:
+- `{epic_man_hours_low}` = (`{simple_count}` × 4) + (`{standard_count}` × 12) + (`{complex_count}` × 24) + (`{total_sprint_count}` × 16) + 8
+- `{epic_man_hours_high}` = (`{simple_count}` × 8) + (`{standard_count}` × 24) + (`{complex_count}` × 48) + (`{total_sprint_count}` × 32) + 16
+
 Record start timestamp: run `date +%s` and bind result to `{epic_start_ts}`.
+
+Compute `{epic_est_time_hours_low}` = round(`{epic_est_time_low}` / 60, 1) and `{epic_est_time_hours_high}` = round(`{epic_est_time_high}` / 60, 1).
+
+Write the `estimate` block to the epic node in `{status_file}`:
+```yaml
+estimate:
+  time_hours_low: {epic_est_time_hours_low}    # AI-assisted wall-clock time (hours)
+  time_hours_high: {epic_est_time_hours_high}
+  tokens_k_min: {epic_est_tokens_low}
+  tokens_k_max: {epic_est_tokens_high}
+  cost_low: '{epic_est_cost_low}'
+  cost_high: '{epic_est_cost_high}'
+  man_hours_low: {epic_man_hours_low}           # traditional dev equivalent (person-hours)
+  man_hours_high: {epic_man_hours_high}
+```
 
 Announce confirmed execution plan:
 ```
@@ -111,10 +135,73 @@ Epic closure outputs: {epic_closure_dir}/
 Pre-start estimate:
   Stories:        {remaining_count} ({simple_count} simple · {standard_count} standard · {complex_count} complex)
   Per-story cost: Simple ~$0.32–$0.56 · Standard ~$0.56–$0.96 · Complex ~$0.96–$1.60  (Sonnet ~$8/MTok blended)
-  Total estimate: {epic_est_time_low}–{epic_est_time_high} min    Tokens: {epic_est_tokens_low}K–{epic_est_tokens_high}K    Cost: ~{epic_est_cost_low}–{epic_est_cost_high}
+  Total estimate: {epic_est_time_hours_low}–{epic_est_time_hours_high} hours    Tokens: {epic_est_tokens_low}K–{epic_est_tokens_high}K    Cost: ~{epic_est_cost_low}–{epic_est_cost_high}
+  Traditional est: ~{epic_man_hours_low}–{epic_man_hours_high} hours  (actual auto-computed at epic close)
   (Includes {total_sprint_count} sprint closure(s) + epic closure. Actuals reported at epic close.)
 
 Beginning Sprint 1 of {total_sprint_count}.
+```
+
+## Sprint Status File Schema
+
+The `{status_file}` uses the following structure. See `bmad-l3io-pm-sprint-execute` for full story and sprint-level fields. Epic-execute owns the top-level epic fields.
+
+```yaml
+epics:
+- id: '01'
+  title: 'Epic 01 — ...'           # written at in-progress
+  goal: '...'                       # written at in-progress (from epics_file)
+  status: done                      # backlog → in-progress → done
+  closed: '2026-05-18'             # written at epic sign-off
+  retrospective: path/to/retro.md  # written at epic sign-off
+  estimate:                         # written after pre-start estimate
+    time_hours_low: 3.0
+    time_hours_high: 5.7
+    tokens_k_min: 800
+    tokens_k_max: 1600
+    cost_low: '$6.40'
+    cost_high: '$12.80'
+    man_hours_low: 120
+    man_hours_high: 240
+  actual:                           # written at epic sign-off
+    elapsed_hours: 4.1
+    man_hours: 4.1                  # auto-computed: sum of sprint actual.man_hours + 12h epic closure
+  sprints:
+  - id: '01'
+    title: 'Sprint 01 — Foundation' # written by bmad-l3io-pm-sprint-execute
+    status: done
+    closed: '2026-05-18'
+    retrospective: path/to/sprint-retro.md
+    estimate:
+      time_hours_low: 0.8
+      time_hours_high: 1.4
+      tokens_k_min: 250
+      tokens_k_max: 480
+      cost_low: '$2.00'
+      cost_high: '$3.84'
+      man_hours_low: 40
+      man_hours_high: 80
+    actual:
+      elapsed_hours: 1.1
+      man_hours: 52.5               # auto-computed: sum of (classification base × fix_factor) + 24h closure
+    stories:
+    - key: PROJ-E01-S01-ST01
+      title: 'Story title...'
+      status: done
+      classification: complex
+      completion_evidence:
+        fix_iterations: 0
+        tests_passing: 42
+        files_changed: 8
+  backlog:                          # appended during sprint/epic issue triage
+  - key: PROJ-E01-BL-01
+    title: 'Issue title'
+    source: 'adversarial (ADV-L-01)'
+    severity: Low
+    status: backlog
+    description: 'One-sentence description.'
+    resolved: '2026-05-19'        # added when resolved
+    resolution: 'How it was fixed.'
 ```
 
 ## Stages

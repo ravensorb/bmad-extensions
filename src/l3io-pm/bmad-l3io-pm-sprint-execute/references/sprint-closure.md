@@ -208,7 +208,15 @@ For each batch (per iteration):
 For each item in `{defer_items}` (process once, not per iteration):
 1. Spawn `bmad-create-story` to create a backlog story for the issue
 2. Record the created story key in `{deferred_story_keys}`
-3. Update `{status_file}` with the new story at `backlog`
+3. Append to the epic's `backlog:` array in `{status_file}` (create the array under the epic node if absent):
+   ```yaml
+   - key: {new_story_key}
+     title: {issue_title}
+     source: {review_phase} ({finding_id})   # e.g. adversarial (ADV-L-01), red-team (RT-L-03), ux-review (UX-L02)
+     severity: Low
+     status: backlog
+     description: {one-sentence description of the issue}
+   ```
 
 **Only halt and prompt `{user_name}` if `{closure_fix_iteration}` ≥ 10 and `{fix_now_items}` is non-empty:**
 ```
@@ -258,12 +266,21 @@ Execute `bash {cleanup_script}` to process all deferred file deletions accumulat
 On success, execute `rm {cleanup_script}`.
 If `{cleanup_script}` does not exist or is empty, skip this step.
 
-Update `{status_file}`:
-- All sprint stories: verified `done`
-- Sprint retrospective: `done`
-- Sprint closure comment with `{date}`
+Record end timestamp: run `date +%s`, subtract `{sprint_start_ts}`, bind `{actual_elapsed_min}` = round(elapsed seconds / 60), then bind `{elapsed_hours}` = round(`{actual_elapsed_min}` / 60, 1).
 
-Record end timestamp: run `date +%s`, subtract `{sprint_start_ts}`, and bind `{actual_elapsed_min}` = round(elapsed seconds / 60).
+Compute `{actual_man_hours}` from the completed sprint stories in `{status_file}` (targeted read of `classification` and `completion_evidence.fix_iterations` only):
+- Base hours per classification: Simple = 6, Standard = 18, Complex = 36
+- Per-story fix factor = min(1.0 + (`fix_iterations` × 0.25), 2.0)
+- Per-story man-hours = base × fix_factor
+- `{actual_man_hours}` = round(sum of per-story man-hours + 24, 1)   ← 24h = closure overhead (retro, arch review, QA pass, security)
+
+Update the sprint node in `{status_file}`:
+- All sprint stories: verified `done`
+- `closed: {date}`
+- `retrospective: {retro_file_path}`
+- `actual:`
+  - `elapsed_hours: {elapsed_hours}`
+  - `man_hours: {actual_man_hours}`
 
 In interactive mode, print:
 ```
@@ -279,9 +296,10 @@ Sprint Orchestrator: Sprint CLOSED — Epic {target_epic}, Sprint {target_sprint
   Deferred to backlog:  {deferred_story_keys} → {implementation_artifacts}/epic-{target_epic_padded}/epic-backlog.md
 
   ── Planned vs Actual ──────────────────────────────────────────────────────────
-  Time:    planned {est_time_low}–{est_time_high} min        actual ~{actual_elapsed_min} min
-  Tokens:  planned {est_tokens_low}K–{est_tokens_high}K      (actual not directly trackable)
-  Cost:    planned ~{est_cost_low}–{est_cost_high}            (Sonnet ~$8/MTok blended; actual not directly trackable)
+  AI time:         planned {est_time_hours_low}–{est_time_hours_high} hours    actual ~{elapsed_hours} hours
+  Tokens:          planned {est_tokens_low}K–{est_tokens_high}K                (actual not directly trackable)
+  Cost:            planned ~{est_cost_low}–{est_cost_high}                     (Sonnet ~$8/MTok blended; actual not directly trackable)
+  Traditional:     estimated ~{man_hours_low}–{man_hours_high} hours    actual ~{actual_man_hours} hours
 ```
 
 In headless mode (called by `bmad-l3io-pm-epic-execute`), emit instead:

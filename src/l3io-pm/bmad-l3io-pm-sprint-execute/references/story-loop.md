@@ -59,9 +59,9 @@ Print when done: DONE | BLOCKED: [reason]
 
 Halt on BLOCKED — report to `{user_name}` and wait for resolution before continuing.
 
-Classify story complexity from the AC count: Simple (1–3 ACs), Standard (4–6 ACs), Complex (7+ ACs). Map to cost estimate: Simple ~$0.32–$0.56 · Standard ~$0.56–$0.96 · Complex ~$0.96–$1.60 (Sonnet ~$8/MTok blended). Bind `{story_complexity}` and `{story_cost_range}`.
+Classify story complexity from the AC count: Simple (1–3 ACs), Standard (4–6 ACs), Complex (7+ ACs). Map to cost estimate: Simple ~$0.32–$0.56 · Standard ~$0.56–$0.96 · Complex ~$0.96–$1.60 (Sonnet ~$8/MTok blended). Bind `{story_complexity}` and `{story_cost_range}`. Bind `{story_title}` from the story file header.
 
-Announce story prep complete to `{user_name}` (informational, no confirmation requested): story title + acceptance criteria count + task count + complexity + cost estimate (from file headers only). Example: "Story {story_key} ready — {ac_count} ACs, {task_count} tasks · {story_complexity} · est. {story_cost_range}". Update status to `ready-for-dev` in `{status_file}` and continue immediately to development.
+Announce story prep complete to `{user_name}` (informational, no confirmation requested): story title + acceptance criteria count + task count + complexity + cost estimate (from file headers only). Example: "Story {story_key} ready — {ac_count} ACs, {task_count} tasks · {story_complexity} · est. {story_cost_range}". Update the story entry in `{status_file}`: set `status: ready-for-dev`, write `title: {story_title}`, `classification: {story_complexity}`. Continue immediately to development.
 
 ---
 
@@ -125,7 +125,7 @@ Write QA evidence to: {test_output_dir}/epic-{target_epic_padded}-sprint-{target
 Print when done: DONE — Tests: N written, N passing | FAILURES: N tests failing — [brief description] | BLOCKED: [reason]
 ```
 
-If all tests pass: update status to `done` in `{status_file}`. Announce: "Story {story_key} — DONE." Move to the next story.
+If all tests pass: update the story entry in `{status_file}`: set `status: done`. Write a `completion_evidence` block: `fix_iterations: {fix_iteration}`, `tests_passing: {tests_passing}` (extract from QA status line), `files_changed: {files_changed}` (count from the story File List section via targeted read). Announce: "Story {story_key} — DONE." Move to the next story.
 
 If FAILURES: add to `{story_issues}` and route to Step 2e.
 
@@ -166,7 +166,7 @@ Options:
 ```
 Wait for decision before proceeding.
 
-When all issues are resolved and QA passes: update status to `done` in `{status_file}`. Announce: "Story {story_key} — DONE after {fix_iteration} fix iteration(s)."
+When all issues are resolved and QA passes: update the story entry in `{status_file}`: set `status: done`. Write a `completion_evidence` block: `fix_iterations: {fix_iteration}`, `tests_passing: {tests_passing}` (extract from final QA status line), `files_changed: {files_changed}` (count from the story File List section via targeted read), `bugs_fixed: [{one-line description per fix-loop iteration}]`. Announce: "Story {story_key} — DONE after {fix_iteration} fix iteration(s)."
 
 ---
 
