@@ -81,7 +81,7 @@ Print when done: DONE — Critical: N, High: N, Medium: N, Low: N | BLOCKED: [re
 ```
 
 ### 4c — Red-Team Review
-Check if `bmad-l3io-sec-agent-redteam` is installed (look for `.claude/commands/bmad-l3io-sec-agent-redteam.md` or equivalent). If absent, skip 4c and record the skip.
+Check if `bmad-l3io-sec-agent-redteam` is installed (look for `.claude/skills/bmad-l3io-sec-agent-redteam/SKILL.md` or `.claude/commands/bmad-l3io-sec-agent-redteam.md`). If absent, skip 4c and record the skip.
 
 If present:
 ```

@@ -83,7 +83,7 @@ Record `{adv_critical}`, `{adv_high}`, `{adv_medium}`, `{adv_low}`.
 
 ## Step 6 — Red-Team Review
 
-Check if `bmad-l3io-sec-agent-redteam` is installed (look for `.claude/commands/bmad-l3io-sec-agent-redteam.md` or equivalent). If absent: announce "bmad-l3io-sec-agent-redteam not installed — red-team phase skipped", record the skip in `{status_file}`, and continue to Step 7.
+Check if `bmad-l3io-sec-agent-redteam` is installed (look for `.claude/skills/bmad-l3io-sec-agent-redteam/SKILL.md` or `.claude/commands/bmad-l3io-sec-agent-redteam.md`). If absent: announce "bmad-l3io-sec-agent-redteam not installed — red-team phase skipped", record the skip in `{status_file}`, and continue to Step 7.
 
 If present, spawn subagent:
 ```

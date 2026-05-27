@@ -71,7 +71,7 @@ Compute automatically — no user prompt. For each story in `{sprint_stories}`, 
 
 If story files are not yet available, classify all as Standard. Sum ranges across all stories to get story subtotals. Then add closure overhead:
 - Base closure (retro, clean release, adversarial, UX, arch drift, issue triage): 25–50 min, 60–120K tokens
-- If `bmad-l3io-sec-agent-redteam` is installed (check `.claude/commands/bmad-l3io-sec-agent-redteam.md`): add 15–25 min, 30–60K tokens
+- If `bmad-l3io-sec-agent-redteam` is installed (check `.claude/skills/bmad-l3io-sec-agent-redteam/SKILL.md` or `.claude/commands/bmad-l3io-sec-agent-redteam.md`): add 15–25 min, 30–60K tokens
 
 Bind: `{simple_count}`, `{standard_count}`, `{complex_count}`, `{story_time_low}`, `{story_time_high}`, `{closure_time_low}`, `{closure_time_high}`, `{est_time_low}`, `{est_time_high}`, `{est_tokens_low}`, `{est_tokens_high}` (token values in K).
 

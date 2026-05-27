@@ -84,7 +84,7 @@ Compute automatically — no user prompt. For each story in `{remaining_story_ke
 
 If story files are not yet available, classify all as Standard. Sum story ranges, then add:
 - Per-sprint closure overhead × `{total_sprint_count}`: 25–50 min, 60–120K tokens per sprint
-- If `bmad-l3io-sec-agent-redteam` is installed (check `.claude/commands/bmad-l3io-sec-agent-redteam.md`): add 15–25 min, 30–60K tokens per sprint
+- If `bmad-l3io-sec-agent-redteam` is installed (check `.claude/skills/bmad-l3io-sec-agent-redteam/SKILL.md` or `.claude/commands/bmad-l3io-sec-agent-redteam.md`): add 15–25 min, 30–60K tokens per sprint
 - Epic-level closure (retro, parallel batch, arch drift, functional completeness, issue triage): 60–120 min, 100–200K tokens
 
 Bind: `{simple_count}`, `{standard_count}`, `{complex_count}`, `{epic_est_time_low}`, `{epic_est_time_high}`, `{epic_est_tokens_low}`, `{epic_est_tokens_high}` (token values in K).
