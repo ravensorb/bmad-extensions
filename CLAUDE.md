@@ -32,7 +32,7 @@ src/
 | `src/l3io-pm/bmad-l3io-pm-sprint-execute/` | Full sprint lifecycle: story prep → dev → code review → QA → fix loop per story, then closure reviews |
 | `src/l3io-pm/bmad-l3io-pm-epic-execute/` | Full epic lifecycle: sprint grouping, sprint execution loop, then epic-level closure reviews |
 | `src/l3io-sec/bmad-l3io-sec-agent-redteam/` | Red team security analysis — five threat lenses (EXT/INS/CHA/ABU/DAR) + AI poisoning cross-cut, live cloud/platform best practices research |
-| `src/l3io-util/bmad-l3io-util-cleanup/` | One-time artifact migration — reorganizes flat artifact files into `epic-XX/sprint-YY` folder structure |
+| `src/l3io-util/bmad-l3io-util-cleanup/` | Artifact migration utilities — reorganizes flat artifact files into `epic-XX/sprint-YY` folder structure; `migrate-schema` mode upgrades `sprint-status.yaml` to the current field schema |
 
 ## Commands
 
@@ -69,8 +69,8 @@ Story statuses: `backlog → ready-for-dev → in-progress → review → done`.
 
 Key fields written by the skills (see skill SKILL.md files for the full annotated schema):
 - **Stories**: `title`, `classification` (simple/standard/complex) at `ready-for-dev`; `completion_evidence` (fix_iterations, tests_passing, files_changed, bugs_fixed) at `done`
-- **Sprints**: `title`, `status`, `estimate` (time_min/max, tokens_k_min/max, cost_low/high) at start; `closed`, `retrospective`, `actual.elapsed_min` at sign-off
-- **Epics**: `title`, `goal`, `status`, `estimate` at start; `closed`, `retrospective`, `actual.elapsed_min` at sign-off
+- **Sprints**: `title`, `status`, `estimate` (time_hours_low/high, tokens_k_min/max, cost_low/high, man_hours_low/high) at start; `closed`, `retrospective`, `actual.elapsed_hours`, `actual.man_hours` at sign-off
+- **Epics**: `title`, `goal`, `status`, `estimate` at start; `closed`, `retrospective`, `actual.elapsed_hours`, `actual.man_hours` at sign-off
 - **Backlog items** (in epic-level `backlog:` array): `key`, `title`, `source`, `severity`, `status`, `description`; `resolved`/`resolution` added when fixed
 
 **Artifact paths** (zero-padded):

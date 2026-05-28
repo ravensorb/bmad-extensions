@@ -1,15 +1,18 @@
 ---
 name: bmad-l3io-util-cleanup
-description: One-time migration utility. Use when the user needs to reorganize legacy flat BMad artifact outputs into the structured epic/sprint folder layout with zero-padded names, reconcile file references, and verify state consistency.
+description: Migration utilities. Use when the user needs to reorganize legacy flat BMad artifact outputs into the structured epic/sprint folder layout, or migrate sprint-status.yaml to the current field schema.
 ---
 
 # Artifact Layout Cleanup
 
 ## Overview
 
-One-time migration utility. Reorganizes flat artifact outputs into a structured epic/sprint folder hierarchy with zero-padded names, reconciles file references, verifies state consistency, and produces a summary report. Run once to bring a legacy project into the standard layout.
+Migration utilities for BMad artifact housekeeping. Two modes:
 
-**One-time use:** Designed to be run once per project. Running again after a successful cleanup produces zero moves (everything already placed) or conflicts (for new flat files added since the first run).
+- **Default (layout cleanup):** Reorganizes flat artifact outputs into a structured epic/sprint folder hierarchy with zero-padded names, reconciles file references, verifies state consistency, and produces a summary report. Run once to bring a legacy project into the standard layout.
+- **`migrate-schema`:** Upgrades an existing `sprint-status.yaml` to the current field schema — adds missing fields with zero/empty defaults, never overwrites existing values.
+
+**One-time use (layout cleanup):** Designed to be run once per project. Running again after a successful cleanup produces zero moves (everything already placed) or conflicts (for new flat files added since the first run).
 
 ## Conventions
 
@@ -17,6 +20,8 @@ One-time migration utility. Reorganizes flat artifact outputs into a structured 
 - `{skill-name}` resolves to the skill directory's basename.
 
 ## On Activation
+
+If the user passes `migrate-schema` as an argument, skip to [Schema Migration Mode](#schema-migration-mode).
 
 If the user passes `setup`, `configure`, or `install` as an argument — or if `{project-root}/_bmad/config.yaml` does not have an `l3io-util` section — load `assets/module-setup.md` to register the module first, then continue.
 
@@ -177,3 +182,106 @@ Residual files: {residual_file_list}
 These may require manual mapping or indicate ambiguous filenames the heuristics cannot resolve.
 ```
 Present the residual list and wait for `{user_name}` guidance before exiting.
+
+---
+
+## Schema Migration Mode
+
+Invoked with `migrate-schema` argument. Upgrades an existing `sprint-status.yaml` to the current field schema. Adds missing fields with zero/empty defaults. Never overwrites existing non-null values. Never guesses at values — only mechanical defaults (zero for numbers, empty for strings, `'unknown'` for enums).
+
+### Default Values for Missing Fields
+
+| Field type | Default |
+|---|---|
+| Numeric (`time_hours_low/high`, `tokens_k_min/max`, `man_hours_low/high`, `elapsed_hours`, `man_hours`, `fix_iterations`, `tests_passing`, `files_changed`) | `0` |
+| Cost string (`cost_low`, `cost_high`) | `'$0.00'` |
+| `classification` enum | `'unknown'` |
+| `severity` enum | `'unknown'` |
+| `source`, `description`, `goal` | `''` |
+| Epic/sprint `title` | Derived mechanically: `'Epic {id}'` / `'Sprint {id}'` |
+| `bugs_fixed` list | Omit block entirely when `fix_iterations` defaults to `0` |
+| `closed`, `retrospective`, `resolved`, `resolution` | Omit — only present when the actual value is known |
+
+### Migration Steps
+
+**Step M1 — Load config and locate status file**
+
+Load config (same as layout cleanup). Resolve `{status_file}` = `{implementation_artifacts}/sprint-status.yaml`. If absent, print:
+```
+sprint-status.yaml not found at {status_file}
+```
+and exit.
+
+**Step M2 — Analyze**
+
+Parse `{status_file}`. For each node — epic, sprint, story, backlog item — collect every field that is absent from the current schema. Build a change list: node path + field name + proposed default value.
+
+Schema fields to verify (add if absent):
+
+*Epic node:*
+- `title` (derive: `'Epic {id}'`)
+- `goal`
+- `estimate` block: `time_hours_low`, `time_hours_high`, `tokens_k_min`, `tokens_k_max`, `cost_low`, `cost_high`, `man_hours_low`, `man_hours_high`
+- `actual` block (only when `status: done`): `elapsed_hours`, `man_hours`
+
+*Sprint node:*
+- `title` (derive: `'Sprint {id}'`)
+- `estimate` block: `time_hours_low`, `time_hours_high`, `tokens_k_min`, `tokens_k_max`, `cost_low`, `cost_high`, `man_hours_low`, `man_hours_high`
+- `actual` block (only when `status: done`): `elapsed_hours`, `man_hours`
+
+*Story node:*
+- `title` (derive from story `.md` file's first heading if the file exists; otherwise `''`)
+- `classification`
+- `completion_evidence` block (only when `status: done`): `fix_iterations`, `tests_passing`, `files_changed`
+
+*Backlog item node:*
+- `source`
+- `severity`
+- `description`
+
+**Step M3 — Dry-run table**
+
+```
+SCHEMA MIGRATION DRY RUN — {status_file}
+================================================================
+Node                                    Field                Value
+----------------------------------------------------------------
+epics[01]                               title                'Epic 01'
+epics[01]                               goal                 ''
+epics[01]                               estimate.time_hours_low  0
+...
+epics[01].sprints[01]                   title                'Sprint 01'
+epics[01].sprints[01].stories[ST01]     classification       'unknown'
+epics[01].backlog[BL-01]               source               ''
+================================================================
+Summary: {field_count} fields to add across {epic_count} epics,
+         {sprint_count} sprints, {story_count} stories, {backlog_count} backlog items
+No existing values will be changed.
+```
+
+If `{field_count}` is 0: print `sprint-status.yaml is already current — no fields to add.` and exit.
+
+**Step M4 — Confirm**
+
+Ask: "Proceed with schema migration? Existing values will not be changed."
+
+If no: print `Migration cancelled — no changes made.` and exit.
+
+**Step M5 — Write**
+
+Apply all changes to `{status_file}`. Preserve the existing field order within each node; append new fields after existing ones in their parent node. New blocks (`estimate`, `actual`, `completion_evidence`) are appended as a whole after existing peer fields.
+
+**Step M6 — Verify**
+
+Re-parse the written `{status_file}` as YAML. If parsing fails, restore the original content and print:
+```
+FAILED — Written file is not valid YAML. Original restored. Parse error: {error}
+```
+
+**Step M7 — Report**
+
+```
+DONE — Schema migration complete.
+  Fields added: {field_count}
+  File: {status_file}
+```
