@@ -286,6 +286,49 @@ epics:
 
 To upgrade a legacy `sprint-status.yaml` that is missing these fields, run `/bmad-l3io-util-cleanup migrate-schema`.
 
+## Estimation Calibration
+
+Sprint-execute learns from plan-vs-actual deltas and applies corrections to future estimates. No configuration required — it activates automatically once enough history exists.
+
+### How it works
+
+At each sprint close (Step 12), the skill computes:
+- `time_ratio` = `actual.elapsed_hours` ÷ midpoint of written estimate
+- `man_hours_ratio` = `actual.man_hours` ÷ midpoint of written estimate
+
+These are appended to `{project-root}/_bmad/pm-calibration.yaml`. At sprint 4 and beyond, the pre-start estimate multiplies the formula baseline by the weighted rolling average of past ratios (exponential decay, weight = 0.8^n, most recent sprint = 1.0).
+
+The system is self-correcting: if calibration overshoots (estimates become too high), the ratio drops below 1.0 and pulls the factor back down on subsequent sprints.
+
+### Calibration file
+
+`_bmad/pm-calibration.yaml` — project-scoped, add to `.gitignore` if you prefer not to commit it:
+
+```yaml
+version: 1
+last_updated: '2026-05-28'
+sprints_sampled: 4
+time_ratio: 1.23          # applied to time_hours estimates
+man_hours_ratio: 0.95     # applied to man_hours estimates
+history:
+- id: E01-S01
+  date: '2026-05-15'
+  time_ratio: 1.15
+  man_hours_ratio: 0.92
+  story_mix: { simple: 2, standard: 3, complex: 1 }
+```
+
+### Announcement format
+
+When calibration is active, the pre-start estimate line reads:
+```
+Calibration:  applied — 4 sprints sampled (time ×1.23, man-hours ×0.95)
+```
+Before 3 sprints are recorded:
+```
+Calibration:  none yet — estimates are formula baseline (calibration starts after sprint 3)
+```
+
 ## Dependency Skills by Phase
 
 | Phase | Skill invoked |

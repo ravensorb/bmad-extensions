@@ -306,3 +306,43 @@ In headless mode (called by `bmad-l3io-pm-epic-execute`), emit instead:
 ```
 DONE — Stories: {story_count}, Issues resolved: {total_resolved}, Issues deferred: {total_deferred}, Retro: {retro_file_path}, Time: ~{actual_elapsed_min}min (planned {est_time_low}–{est_time_high}min), Cost: planned ~{est_cost_low}–{est_cost_high}
 ```
+
+---
+
+## Step 12 — Calibration Update
+
+Update the project-level calibration file so future sprint estimates learn from this sprint's plan-vs-actual delta.
+
+**Compute ratios** (read `estimate` and `actual` from the sprint node in `{status_file}`):
+- `{cal_written_time_mid}` = (`estimate.time_hours_low` + `estimate.time_hours_high`) / 2
+- `{cal_written_man_mid}` = (`estimate.man_hours_low` + `estimate.man_hours_high`) / 2
+- `{sprint_time_ratio}` = round(`{elapsed_hours}` / `{cal_written_time_mid}`, 3) — skip if denominator is 0
+- `{sprint_man_ratio}` = round(`{actual_man_hours}` / `{cal_written_man_mid}`, 3) — skip if denominator is 0
+
+**Update history** — read `{project-root}/_bmad/pm-calibration.yaml` if it exists (create fresh if not). Append a new entry to `history`:
+```yaml
+- id: 'E{target_epic_padded}-S{target_sprint_padded}'
+  date: '{date}'
+  time_ratio: {sprint_time_ratio}
+  man_hours_ratio: {sprint_man_ratio}
+  story_mix: { simple: {simple_count}, standard: {standard_count}, complex: {complex_count} }
+```
+Keep only the most recent 10 entries; discard older ones.
+
+**Recompute weighted rolling averages** using exponential decay (decay = 0.8):
+- For N entries ordered oldest→newest, assign weight[i] = 0.8^(N−1−i) so the most recent entry has weight = 1.0
+- `{new_time_ratio}` = round(Σ(time_ratio[i] × weight[i]) / Σ(weight[i]), 3)
+- `{new_man_hours_ratio}` = round(Σ(man_hours_ratio[i] × weight[i]) / Σ(weight[i]), 3)
+
+**Write** `{project-root}/_bmad/pm-calibration.yaml`:
+```yaml
+version: 1
+last_updated: '{date}'
+sprints_sampled: {history_count}
+time_ratio: {new_time_ratio}          # weighted avg actual/estimate — applied to future time estimates
+man_hours_ratio: {new_man_hours_ratio} # weighted avg actual/estimate — applied to future man-hours estimates
+history:
+  {history_entries}
+```
+
+If either ratio cannot be computed (zero denominator for all entries), leave that field at 1.0 and note the skip.

@@ -111,17 +111,27 @@ Record start timestamp: run `date +%s` and bind result to `{epic_start_ts}`.
 
 Compute `{epic_est_time_hours_low}` = round(`{epic_est_time_low}` / 60, 1) and `{epic_est_time_hours_high}` = round(`{epic_est_time_high}` / 60, 1).
 
-Write the `estimate` block to the epic node in `{status_file}`:
+**Calibration:** Read `{project-root}/_bmad/pm-calibration.yaml` if it exists.
+- If `sprints_sampled >= 3`: bind `{cal_time_ratio}` = `time_ratio`, `{cal_man_hours_ratio}` = `man_hours_ratio`, `{cal_sprints}` = `sprints_sampled`.
+- Otherwise: bind `{cal_time_ratio}` = 1.0, `{cal_man_hours_ratio}` = 1.0, `{cal_sprints}` = 0.
+
+Apply calibration factors to time and man-hours:
+- `{cal_epic_time_hours_low}` = round(`{epic_est_time_hours_low}` × `{cal_time_ratio}`, 1)
+- `{cal_epic_time_hours_high}` = round(`{epic_est_time_hours_high}` × `{cal_time_ratio}`, 1)
+- `{cal_epic_man_hours_low}` = round(`{epic_man_hours_low}` × `{cal_man_hours_ratio}`)
+- `{cal_epic_man_hours_high}` = round(`{epic_man_hours_high}` × `{cal_man_hours_ratio}`)
+
+Write the `estimate` block to the epic node in `{status_file}` (calibrated values are the actual prediction):
 ```yaml
 estimate:
-  time_hours_low: {epic_est_time_hours_low}    # AI-assisted wall-clock time (hours)
-  time_hours_high: {epic_est_time_hours_high}
+  time_hours_low: {cal_epic_time_hours_low}    # AI-assisted wall-clock time (hours, calibration-adjusted)
+  time_hours_high: {cal_epic_time_hours_high}
   tokens_k_min: {epic_est_tokens_low}
   tokens_k_max: {epic_est_tokens_high}
   cost_low: '{epic_est_cost_low}'
   cost_high: '{epic_est_cost_high}'
-  man_hours_low: {epic_man_hours_low}           # traditional dev equivalent (person-hours)
-  man_hours_high: {epic_man_hours_high}
+  man_hours_low: {cal_epic_man_hours_low}       # traditional dev equivalent (person-hours, calibration-adjusted)
+  man_hours_high: {cal_epic_man_hours_high}
 ```
 
 Announce confirmed execution plan:
@@ -135,8 +145,9 @@ Epic closure outputs: {epic_closure_dir}/
 Pre-start estimate:
   Stories:        {remaining_count} ({simple_count} simple · {standard_count} standard · {complex_count} complex)
   Per-story cost: Simple ~$0.32–$0.56 · Standard ~$0.56–$0.96 · Complex ~$0.96–$1.60  (Sonnet ~$8/MTok blended)
-  Total estimate: {epic_est_time_hours_low}–{epic_est_time_hours_high} hours    Tokens: {epic_est_tokens_low}K–{epic_est_tokens_high}K    Cost: ~{epic_est_cost_low}–{epic_est_cost_high}
-  Traditional est: ~{epic_man_hours_low}–{epic_man_hours_high} hours  (actual auto-computed at epic close)
+  Total estimate: {cal_epic_time_hours_low}–{cal_epic_time_hours_high} hours    Tokens: {epic_est_tokens_low}K–{epic_est_tokens_high}K    Cost: ~{epic_est_cost_low}–{epic_est_cost_high}
+  Traditional est: ~{cal_epic_man_hours_low}–{cal_epic_man_hours_high} hours  (actual auto-computed at epic close)
+  Calibration:    {cal_sprints > 0 ? "applied — " + cal_sprints + " sprints sampled (time ×" + cal_time_ratio + ", man-hours ×" + cal_man_hours_ratio + ")" : "none yet — estimates are formula baseline (calibration starts after sprint 3)"}
   (Includes {total_sprint_count} sprint closure(s) + epic closure. Actuals reported at epic close.)
 
 Beginning Sprint 1 of {total_sprint_count}.

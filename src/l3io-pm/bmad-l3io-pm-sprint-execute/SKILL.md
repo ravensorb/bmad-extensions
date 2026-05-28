@@ -96,17 +96,27 @@ Record start timestamp: run `date +%s` and bind result to `{sprint_start_ts}`.
 
 Compute `{est_time_hours_low}` = round(`{est_time_low}` / 60, 1) and `{est_time_hours_high}` = round(`{est_time_high}` / 60, 1).
 
-Write the `estimate` block to the sprint node in `{status_file}`:
+**Calibration:** Read `{project-root}/_bmad/pm-calibration.yaml` if it exists.
+- If `sprints_sampled >= 3`: bind `{cal_time_ratio}` = `time_ratio`, `{cal_man_hours_ratio}` = `man_hours_ratio`, `{cal_sprints}` = `sprints_sampled`.
+- Otherwise: bind `{cal_time_ratio}` = 1.0, `{cal_man_hours_ratio}` = 1.0, `{cal_sprints}` = 0.
+
+Apply calibration factors to time and man-hours:
+- `{cal_time_hours_low}` = round(`{est_time_hours_low}` × `{cal_time_ratio}`, 1)
+- `{cal_time_hours_high}` = round(`{est_time_hours_high}` × `{cal_time_ratio}`, 1)
+- `{cal_man_hours_low}` = round(`{man_hours_low}` × `{cal_man_hours_ratio}`)
+- `{cal_man_hours_high}` = round(`{man_hours_high}` × `{cal_man_hours_ratio}`)
+
+Write the `estimate` block to the sprint node in `{status_file}` (calibrated values are the actual prediction):
 ```yaml
 estimate:
-  time_hours_low: {est_time_hours_low}    # AI-assisted wall-clock time (hours)
-  time_hours_high: {est_time_hours_high}
+  time_hours_low: {cal_time_hours_low}    # AI-assisted wall-clock time (hours, calibration-adjusted)
+  time_hours_high: {cal_time_hours_high}
   tokens_k_min: {est_tokens_low}
   tokens_k_max: {est_tokens_high}
   cost_low: '{est_cost_low}'
   cost_high: '{est_cost_high}'
-  man_hours_low: {man_hours_low}          # traditional dev equivalent (person-hours)
-  man_hours_high: {man_hours_high}
+  man_hours_low: {cal_man_hours_low}      # traditional dev equivalent (person-hours, calibration-adjusted)
+  man_hours_high: {cal_man_hours_high}
 ```
 
 **Headless mode (invoked by `bmad-l3io-pm-epic-execute`):** skip the scope confirmation entirely. Announce scope as a one-line log and continue immediately — the epic orchestrator already obtained user confirmation upstream.
@@ -124,8 +134,9 @@ Pre-start estimate:
   Est. story time: {story_time_low}–{story_time_high} min
   Est. closure:    {closure_time_low}–{closure_time_high} min
   ────────────────────────────────────────────────────────────────────────────────────
-  Total estimate:  {est_time_hours_low}–{est_time_hours_high} hours    Tokens: {est_tokens_low}K–{est_tokens_high}K    Cost: ~{est_cost_low}–{est_cost_high}
-  Traditional est: ~{man_hours_low}–{man_hours_high} hours  (actual auto-computed at sprint close)
+  Total estimate:  {cal_time_hours_low}–{cal_time_hours_high} hours    Tokens: {est_tokens_low}K–{est_tokens_high}K    Cost: ~{est_cost_low}–{est_cost_high}
+  Traditional est: ~{cal_man_hours_low}–{cal_man_hours_high} hours  (actual auto-computed at sprint close)
+  Calibration:     {cal_sprints > 0 ? "applied — " + cal_sprints + " sprints sampled (time ×" + cal_time_ratio + ", man-hours ×" + cal_man_hours_ratio + ")" : "none yet — estimates are formula baseline (calibration starts after sprint 3)"}
   (Actuals reported at sprint close. Per-story fix loop and closure fix loop each cap at 10 iterations
   before prompting; Critical/High/Medium and undocumented drift findings auto-fix without per-item prompts.)
 

@@ -90,6 +90,8 @@ FAILED: [one-line reason]
 
 **Adaptive parallelism**: Default sequential. Parallel subagents: default 2, hard cap 4.
 
+**Estimation calibration**: Sprint-execute writes plan-vs-actual ratios to `{project-root}/_bmad/pm-calibration.yaml` at each sprint close (Step 12). From sprint 4 onward, pre-start estimates are adjusted by the exponential-decay weighted average of past `time_ratio` and `man_hours_ratio` values. The calibration file is project-scoped and not committed to the repo by default.
+
 ## Dependencies (consumer repos)
 
 These BMad skills must be present in the target repo:
