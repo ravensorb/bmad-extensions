@@ -100,11 +100,16 @@ Compute `{est_time_hours_low}` = round(`{est_time_low}` / 60, 1) and `{est_time_
 - If `sprints_sampled >= 3`: bind `{cal_time_ratio}` = `time_ratio`, `{cal_man_hours_ratio}` = `man_hours_ratio`, `{cal_sprints}` = `sprints_sampled`.
 - Otherwise: bind `{cal_time_ratio}` = 1.0, `{cal_man_hours_ratio}` = 1.0, `{cal_sprints}` = 0.
 
-Apply calibration factors to time and man-hours:
+Apply calibration to time:
 - `{cal_time_hours_low}` = round(`{est_time_hours_low}` × `{cal_time_ratio}`, 1)
 - `{cal_time_hours_high}` = round(`{est_time_hours_high}` × `{cal_time_ratio}`, 1)
-- `{cal_man_hours_low}` = round(`{man_hours_low}` × `{cal_man_hours_ratio}`)
-- `{cal_man_hours_high}` = round(`{man_hours_high}` × `{cal_man_hours_ratio}`)
+
+Apply calibration to man-hours using per-classification ratios when available (sample_count ≥ 3), otherwise fall back to overall `{cal_man_hours_ratio}`:
+- `{cal_r_simple}` = `by_classification.simple.man_hours_ratio` if `sample_count >= 3`, else `{cal_man_hours_ratio}`
+- `{cal_r_standard}` = `by_classification.standard.man_hours_ratio` if `sample_count >= 3`, else `{cal_man_hours_ratio}`
+- `{cal_r_complex}` = `by_classification.complex.man_hours_ratio` if `sample_count >= 3`, else `{cal_man_hours_ratio}`
+- `{cal_man_hours_low}` = round((`{simple_count}` × 4 × `{cal_r_simple}`) + (`{standard_count}` × 12 × `{cal_r_standard}`) + (`{complex_count}` × 24 × `{cal_r_complex}`) + 16)
+- `{cal_man_hours_high}` = round((`{simple_count}` × 8 × `{cal_r_simple}`) + (`{standard_count}` × 24 × `{cal_r_standard}`) + (`{complex_count}` × 48 × `{cal_r_complex}`) + 32)
 
 Write the `estimate` block to the sprint node in `{status_file}` (calibrated values are the actual prediction):
 ```yaml

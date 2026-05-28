@@ -313,19 +313,27 @@ DONE — Stories: {story_count}, Issues resolved: {total_resolved}, Issues defer
 
 Update the project-level calibration file so future sprint estimates learn from this sprint's plan-vs-actual delta.
 
-**Compute ratios** (read `estimate` and `actual` from the sprint node in `{status_file}`):
+**Compute sprint-level ratios** (read `estimate` and `actual` from the sprint node in `{status_file}`):
 - `{cal_written_time_mid}` = (`estimate.time_hours_low` + `estimate.time_hours_high`) / 2
 - `{cal_written_man_mid}` = (`estimate.man_hours_low` + `estimate.man_hours_high`) / 2
 - `{sprint_time_ratio}` = round(`{elapsed_hours}` / `{cal_written_time_mid}`, 3) — skip if denominator is 0
 - `{sprint_man_ratio}` = round(`{actual_man_hours}` / `{cal_written_man_mid}`, 3) — skip if denominator is 0
 
-**Update history** — read `{project-root}/_bmad/pm-calibration.yaml` if it exists (create fresh if not). Append a new entry to `history`:
+**Compute per-classification man-hours ratios** (read `classification` and `completion_evidence.fix_iterations` from each story node in `{status_file}`; bases: simple=6, standard=18, complex=36):
+- For each story: `fix_factor` = min(1.0 + `fix_iterations` × 0.25, 2.0); `story_ratio` = `fix_factor` (actual man-hours = base × fix_factor; predicted = base × 1.0)
+- For each class c ∈ {simple, standard, complex}: `{class_ratio_c}` = round(avg(`story_ratio`) across done stories of class c, 3) — omit if no stories of that class
+
+**Update history** — read `{project-root}/_bmad/pm-calibration.yaml` if it exists (create fresh if not). Append:
 ```yaml
 - id: 'E{target_epic_padded}-S{target_sprint_padded}'
   date: '{date}'
   time_ratio: {sprint_time_ratio}
   man_hours_ratio: {sprint_man_ratio}
   story_mix: { simple: {simple_count}, standard: {standard_count}, complex: {complex_count} }
+  by_classification:                                    # omit class entry if count = 0
+    simple:   { man_hours_ratio: {class_ratio_simple},   count: {simple_count} }
+    standard: { man_hours_ratio: {class_ratio_standard}, count: {standard_count} }
+    complex:  { man_hours_ratio: {class_ratio_complex},  count: {complex_count} }
 ```
 Keep only the most recent 10 entries; discard older ones.
 
@@ -333,16 +341,21 @@ Keep only the most recent 10 entries; discard older ones.
 - For N entries ordered oldest→newest, assign weight[i] = 0.8^(N−1−i) so the most recent entry has weight = 1.0
 - `{new_time_ratio}` = round(Σ(time_ratio[i] × weight[i]) / Σ(weight[i]), 3)
 - `{new_man_hours_ratio}` = round(Σ(man_hours_ratio[i] × weight[i]) / Σ(weight[i]), 3)
+- For each class c: `{new_class_ratio_c}` = round(Σ(by_classification.c.man_hours_ratio[i] × weight[i]) / Σ(weight[i] for entries where c.count > 0), 3); `{new_class_count_c}` = total story count across those entries
 
 **Write** `{project-root}/_bmad/pm-calibration.yaml`:
 ```yaml
 version: 1
 last_updated: '{date}'
 sprints_sampled: {history_count}
-time_ratio: {new_time_ratio}          # weighted avg actual/estimate — applied to future time estimates
-man_hours_ratio: {new_man_hours_ratio} # weighted avg actual/estimate — applied to future man-hours estimates
+time_ratio: {new_time_ratio}           # weighted avg actual/estimate — applied to future time estimates
+man_hours_ratio: {new_man_hours_ratio} # weighted avg actual/estimate — overall fallback for man-hours
+by_classification:                     # per-class man-hours ratios; used when sample_count >= 3
+  simple:   { man_hours_ratio: {new_class_ratio_simple},   sample_count: {new_class_count_simple} }
+  standard: { man_hours_ratio: {new_class_ratio_standard}, sample_count: {new_class_count_standard} }
+  complex:  { man_hours_ratio: {new_class_ratio_complex},  sample_count: {new_class_count_complex} }
 history:
   {history_entries}
 ```
 
-If either ratio cannot be computed (zero denominator for all entries), leave that field at 1.0 and note the skip.
+If a ratio cannot be computed (zero denominator), leave that field at 1.0 and note the skip.

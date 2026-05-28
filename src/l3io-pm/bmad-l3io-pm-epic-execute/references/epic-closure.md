@@ -321,3 +321,33 @@ Epic Orchestrator: Epic {target_epic} — {epic_title} — CLOSED — {date}
   Cost:            planned ~{epic_est_cost_low}–{epic_est_cost_high}                     (Sonnet ~$8/MTok blended; actual not directly trackable)
   Traditional:     estimated ~{epic_man_hours_low}–{epic_man_hours_high} hours    actual ~{epic_actual_man_hours} hours
 ```
+
+---
+
+## Step 9 — Calibration Update
+
+Update the project-level calibration file with epic-level plan-vs-actual data.
+
+**Compute epic-level ratios** (read `estimate` and `actual` from the epic node in `{status_file}`):
+- `{cal_epic_time_mid}` = (`estimate.time_hours_low` + `estimate.time_hours_high`) / 2
+- `{cal_epic_man_mid}` = (`estimate.man_hours_low` + `estimate.man_hours_high`) / 2
+- `{epic_time_ratio}` = round(`{epic_elapsed_hours}` / `{cal_epic_time_mid}`, 3) — skip if denominator is 0
+- `{epic_man_ratio}` = round(`{epic_actual_man_hours}` / `{cal_epic_man_mid}`, 3) — skip if denominator is 0
+
+**Compute per-classification man-hours ratios** across all sprint stories in this epic (read `classification` and `completion_evidence.fix_iterations` from all story nodes; bases: simple=6, standard=18, complex=36):
+- For each story: `fix_factor` = min(1.0 + `fix_iterations` × 0.25, 2.0); `story_ratio` = `fix_factor`
+- For each class c ∈ {simple, standard, complex}: `{class_ratio_c}` = round(avg(`story_ratio`) across all done stories of class c, 3) — omit if no stories of that class
+
+**Append to history** in `{project-root}/_bmad/pm-calibration.yaml`:
+```yaml
+- id: 'E{target_epic_padded}-epic'
+  date: '{date}'
+  time_ratio: {epic_time_ratio}
+  man_hours_ratio: {epic_man_ratio}
+  story_mix: { simple: {total_simple_count}, standard: {total_standard_count}, complex: {total_complex_count} }
+  by_classification:
+    simple:   { man_hours_ratio: {class_ratio_simple},   count: {total_simple_count} }
+    standard: { man_hours_ratio: {class_ratio_standard}, count: {total_standard_count} }
+    complex:  { man_hours_ratio: {class_ratio_complex},  count: {total_complex_count} }
+```
+Keep only the most recent 10 entries. Recompute all weighted rolling averages (same decay=0.8 logic as sprint Step 12) and write the updated `pm-calibration.yaml`.
