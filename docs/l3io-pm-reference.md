@@ -222,6 +222,70 @@ backlog → ready-for-dev → in-progress → review → done
 
 Epic status lifecycle: `backlog → in-progress → done`
 
+### Full schema
+
+```yaml
+epics:
+- id: '01'
+  title: 'Epic 01 — ...'           # written at in-progress
+  goal: '...'                       # written at in-progress
+  status: done
+  closed: '2026-05-18'             # written at epic close
+  retrospective: path/to/retro.md  # written at epic close
+  estimate:                         # written after pre-start estimate
+    time_hours_low: 3.0
+    time_hours_high: 5.7
+    tokens_k_min: 800
+    tokens_k_max: 1600
+    cost_low: '$6.40'
+    cost_high: '$12.80'
+    man_hours_low: 120             # traditional dev equivalent (person-hours)
+    man_hours_high: 240
+  actual:                           # written at epic close
+    elapsed_hours: 4.1             # AI-assisted wall-clock actual
+    man_hours: 4.1                 # auto-computed: sum of sprint man_hours + 12h closure
+  sprints:
+  - id: '01'
+    title: 'Sprint 01 — Foundation'
+    status: done
+    closed: '2026-05-18'
+    retrospective: path/to/retro.md
+    estimate:
+      time_hours_low: 0.8
+      time_hours_high: 1.4
+      tokens_k_min: 250
+      tokens_k_max: 480
+      cost_low: '$2.00'
+      cost_high: '$3.84'
+      man_hours_low: 40
+      man_hours_high: 80
+    actual:
+      elapsed_hours: 1.1
+      man_hours: 52.5              # auto-computed: sum of (classification base × fix_factor) + 24h closure
+    stories:
+    - key: PROJ-E01-S01-ST01
+      title: 'Story title'
+      status: done
+      classification: complex      # simple | standard | complex — written at ready-for-dev
+      completion_evidence:         # written at done
+        fix_iterations: 2
+        tests_passing: 42
+        files_changed: 8
+        bugs_fixed:                # omitted when fix_iterations == 0
+        - 'Brief description of fix'
+  backlog:
+  - key: PROJ-E01-BL-01
+    title: 'Issue title'
+    source: 'adversarial (ADV-L-01)'
+    severity: Low                  # Critical | High | Medium | Low
+    status: backlog
+    description: 'One-sentence description.'
+    resolved: '2026-05-19'        # added when fixed
+    resolution: 'How it was fixed.'
+```
+
+To upgrade a legacy `sprint-status.yaml` that is missing these fields, run `/bmad-l3io-util-cleanup migrate-schema`.
+
 ## Dependency Skills by Phase
 
 | Phase | Skill invoked |

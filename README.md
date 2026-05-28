@@ -22,7 +22,7 @@ It ships as three installable BMad modules. Teams can install all three or only 
 |--------|--------|-------------|
 | **l3io-pm** | `bmad-l3io-pm-sprint-execute`, `bmad-l3io-pm-epic-execute` | Sprint and epic execution orchestration — full lifecycle from story preparation through closure reviews |
 | **l3io-sec** | `bmad-l3io-sec-agent-redteam` | Adversarial security analysis through five threat lenses with AI poisoning cross-cut and live cloud/platform best practices research |
-| **l3io-util** | `bmad-l3io-util-cleanup` | One-time utility to reorganize legacy flat artifacts into the standard epic/sprint folder structure |
+| **l3io-util** | `bmad-l3io-util-cleanup` | Artifact migration utilities — reorganize legacy flat artifacts into the standard epic/sprint folder structure; migrate `sprint-status.yaml` to the current field schema |
 
 ## Quick Start
 
@@ -68,7 +68,7 @@ This extension standardizes those patterns so teams can run a repeatable, audita
 | `/bmad-l3io-pm-sprint-execute` | Full sprint: story prep → dev → code review → QA → fix loop per story (max 10 iterations), then retro → clean release → adversarial → red team → UX → arch drift → auto-triage + closure fix loop (max 10 iterations) at closure. Sprint does not close until all Critical/High/Medium issues are resolved. Low findings auto-defer to backlog with no prompts |
 | `/bmad-l3io-pm-epic-execute` | Full epic: sprint execution loop (one `bmad-l3io-pm-sprint-execute` subagent per sprint), then epic-level retro → clean release → adversarial → red team → UX → arch drift → functional completeness → issue triage |
 | `/bmad-l3io-sec-agent-redteam` | Adversarial security review through five threat lenses — external attacker, malicious insider, chaos engineer, abusive legitimate user, and design/architecture red team — with AI poisoning cross-cut and live cloud/platform best practices research |
-| `/bmad-l3io-util-cleanup` | Reorganizes legacy flat artifact files into `epic-XX/sprint-YY` folders, reconciles references, and verifies state consistency |
+| `/bmad-l3io-util-cleanup` | Reorganizes legacy flat artifact files into `epic-XX/sprint-YY` folders, reconciles references, and verifies state consistency. Run with `migrate-schema` to upgrade an existing `sprint-status.yaml` to the current field schema |
 
 ## Context Boundary Rule
 

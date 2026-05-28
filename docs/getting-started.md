@@ -174,3 +174,9 @@ epic-1-sprint-1-retro.md   → epic-01/sprint-01/closure/...    sprint-closure  
 Confirm to execute. Ambiguous references are never auto-updated — they are flagged for manual review.
 
 Run `/bmad-l3io-util-cleanup` once per project. A second run on an already-clean layout produces zero moves.
+
+To upgrade an existing `sprint-status.yaml` to the current field schema (adds missing estimate, actual, classification, and completion_evidence fields with zero/empty defaults):
+
+```
+/bmad-l3io-util-cleanup migrate-schema
+```
