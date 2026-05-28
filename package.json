@@ -1,6 +1,6 @@
 {
   "name": "bmad-l3io-extensions",
-  "version": "1.0.8",
+  "version": "1.0.9",
   "description": "A set of BMad extensions tailored to LiquidLogicLabs AIDLC best practices.",
   "author": "Shawn Anderson <shawn@eye-catcher.com>",
   "private": true,
