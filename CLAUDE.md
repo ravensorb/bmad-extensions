@@ -57,7 +57,7 @@ The `postbump` hook auto-syncs the new version into `.claude-plugin/marketplace.
 Conventional Commits are required (enforced via Commitizen). All commits must include a DCO sign-off (`git commit -s`).
 
 Valid types: `feat`, `fix`, `docs`, `style`, `refactor`, `perf`, `test`, `chore`, `revert`, `WIP`.
-Valid scopes: `infra`, `ci-cd`, `custom`.
+Suggested scopes: `l3io-pm`, `l3io-sec`, `l3io-util` (module changes), plus `infra` and `ci-cd` (tooling/pipeline). Custom scopes are also permitted (`allowCustomScopes: true` in `.cz-config.js`); there is no commit-msg hook enforcing the list, so these are conventions, not hard gates.
 
 ## Key Execution Contracts
 

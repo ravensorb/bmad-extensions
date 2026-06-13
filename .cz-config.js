@@ -24,7 +24,13 @@ module.exports = {
       { value: "WIP", name: "WIP:      Work in progress" },
     ],
 
-    scopes: [{ name: "infra" }, { name: "ci-cd" }, { name: "your-scope-1" }],
+    scopes: [
+      { name: "l3io-pm" },
+      { name: "l3io-sec" },
+      { name: "l3io-util" },
+      { name: "infra" },
+      { name: "ci-cd" },
+    ],
 
     allowTicketNumber: false,
     isTicketNumberRequired: false,
