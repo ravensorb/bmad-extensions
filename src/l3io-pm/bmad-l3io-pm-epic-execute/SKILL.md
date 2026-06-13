@@ -11,6 +11,10 @@ Orchestrates a complete epic lifecycle — from high-level story generation and 
 
 Communicate all responses in `{communication_language}`.
 
+## HARD RULE — Estimates & Actuals
+
+Every closeout this skill performs — **epic and the epic retrospective**, plus the sprint-level closeouts delegated to `bmad-l3io-pm-sprint-execute` — MUST record both an `estimate` and an `actual` for all four metrics: **man-hours, compute (AI wall-clock) hours, tokens, and token cost.** This is non-negotiable. Token/cost actuals are captured **exactly** when running under Claude and as `N/A` (never guessed) under other runtimes. The full rule, runtime detection, and the exact token/cost capture procedure live in `references/metrics-contract.md` — load it at activation and follow it. Do not sign off the epic with a missing estimate block, a missing actual block, a missing metric, or a guessed token/cost actual.
+
 ## Conventions
 
 - Bare paths (e.g. `references/sprint-execution-loop.md`) resolve from the skill root.
@@ -44,6 +48,10 @@ Load available config from `{project-root}/_bmad/config.yaml` and `{project-root
 - `max_parallel_subagents` = min(`{workflow.max_parallel_subagents}`, 4)
 - `deferred_file_cleanup` = `{workflow.deferred_file_cleanup}` — default: `false`
 - `date` = current date (system-generated)
+
+### Load the Metrics Contract
+
+Load `references/metrics-contract.md` and keep its rules in context for the whole run. Determine `{runtime}` (`claude` or `other`) using the detection in that file and bind it now — it governs how token/cost actuals are captured at epic close.
 
 ### Epic Planning (Step 1)
 
@@ -107,17 +115,23 @@ Bind:
 - `{epic_man_hours_low}` = (`{simple_count}` × 4) + (`{standard_count}` × 12) + (`{complex_count}` × 24) + (`{total_sprint_count}` × 16) + 8
 - `{epic_man_hours_high}` = (`{simple_count}` × 8) + (`{standard_count}` × 24) + (`{complex_count}` × 48) + (`{total_sprint_count}` × 32) + 16
 
-Record start timestamp: run `date +%s` and bind result to `{epic_start_ts}`.
+Record start timestamp: run `date +%s` and bind result to `{epic_start_ts}` (OS-aware — on a PowerShell harness use `[DateTimeOffset]::UtcNow.ToUnixTimeSeconds()` instead; see `references/metrics-contract.md` → Recording timestamps).
 
 Compute `{epic_est_time_hours_low}` = round(`{epic_est_time_low}` / 60, 1) and `{epic_est_time_hours_high}` = round(`{epic_est_time_high}` / 60, 1).
 
 **Calibration:** Read `{project-root}/_bmad/pm-calibration.yaml` if it exists.
-- If `sprints_sampled >= 3`: bind `{cal_time_ratio}` = `time_ratio`, `{cal_man_hours_ratio}` = `man_hours_ratio`, `{cal_sprints}` = `sprints_sampled`.
-- Otherwise: bind `{cal_time_ratio}` = 1.0, `{cal_man_hours_ratio}` = 1.0, `{cal_sprints}` = 0.
+- If `sprints_sampled >= 3`: bind `{cal_time_ratio}` = `time_ratio`, `{cal_man_hours_ratio}` = `man_hours_ratio`, `{cal_token_ratio}` = `token_ratio` (default 1.0 if absent), `{cal_cost_ratio}` = `cost_ratio` (default 1.0 if absent), `{cal_sprints}` = `sprints_sampled`.
+- Otherwise: bind `{cal_time_ratio}` = 1.0, `{cal_man_hours_ratio}` = 1.0, `{cal_token_ratio}` = 1.0, `{cal_cost_ratio}` = 1.0, `{cal_sprints}` = 0.
 
 Apply calibration to time:
 - `{cal_epic_time_hours_low}` = round(`{epic_est_time_hours_low}` × `{cal_time_ratio}`, 1)
 - `{cal_epic_time_hours_high}` = round(`{epic_est_time_hours_high}` × `{cal_time_ratio}`, 1)
+
+Apply calibration to tokens and cost (token/cost calibration learns only from Claude runs; ratio is 1.0 until ≥3 sampled):
+- `{cal_epic_tokens_low}` = round(`{epic_est_tokens_low}` × `{cal_token_ratio}`)
+- `{cal_epic_tokens_high}` = round(`{epic_est_tokens_high}` × `{cal_token_ratio}`)
+- `{cal_epic_cost_low}` = `{cal_epic_tokens_low}` × 0.008 (then × `{cal_cost_ratio}`, formatted `$X.XX`)
+- `{cal_epic_cost_high}` = `{cal_epic_tokens_high}` × 0.008 (then × `{cal_cost_ratio}`, formatted `$X.XX`)
 
 Apply calibration to man-hours using per-classification ratios when available (sample_count ≥ 3), otherwise fall back to overall `{cal_man_hours_ratio}`:
 - `{cal_r_simple}` = `by_classification.simple.man_hours_ratio` if `sample_count >= 3`, else `{cal_man_hours_ratio}`
@@ -131,10 +145,10 @@ Write the `estimate` block to the epic node in `{status_file}` (calibrated value
 estimate:
   time_hours_low: {cal_epic_time_hours_low}    # AI-assisted wall-clock time (hours, calibration-adjusted)
   time_hours_high: {cal_epic_time_hours_high}
-  tokens_k_min: {epic_est_tokens_low}
-  tokens_k_max: {epic_est_tokens_high}
-  cost_low: '{epic_est_cost_low}'
-  cost_high: '{epic_est_cost_high}'
+  tokens_k_min: {cal_epic_tokens_low}          # calibration-adjusted (token_ratio)
+  tokens_k_max: {cal_epic_tokens_high}
+  cost_low: '{cal_epic_cost_low}'              # calibration-adjusted (cost_ratio)
+  cost_high: '{cal_epic_cost_high}'
   man_hours_low: {cal_epic_man_hours_low}       # traditional dev equivalent (person-hours, calibration-adjusted)
   man_hours_high: {cal_epic_man_hours_high}
 ```
@@ -179,9 +193,11 @@ epics:
     cost_high: '$12.80'
     man_hours_low: 120
     man_hours_high: 240
-  actual:                           # written at epic sign-off
+  actual:                           # written at epic sign-off (ALL FOUR metrics, HARD RULE)
     elapsed_hours: 4.1
     man_hours: 4.1                  # auto-computed: sum of sprint actual.man_hours + 12h epic closure
+    tokens_k: 1180                  # exact under Claude (epic transcript window); 'N/A' under other runtimes
+    cost: '$7.85'                   # derived from real tokens × model rate; 'N/A' when tokens_k is N/A
   sprints:
   - id: '01'
     title: 'Sprint 01 — Foundation' # written by bmad-l3io-pm-sprint-execute
@@ -197,14 +213,30 @@ epics:
       cost_high: '$3.84'
       man_hours_low: 40
       man_hours_high: 80
-    actual:
+    actual:                         # written by sprint-execute (ALL FOUR metrics, HARD RULE)
       elapsed_hours: 1.1
       man_hours: 52.5               # auto-computed: sum of (classification base × fix_factor) + 24h closure
+      tokens_k: 312                 # exact under Claude; 'N/A' under other runtimes
+      cost: '$2.05'                 # derived from real tokens; 'N/A' when tokens_k is N/A
     stories:
     - key: PROJ-E01-S01-ST01
       title: 'Story title...'
       status: done
       classification: complex
+      estimate:                     # written by sprint-execute at ready-for-dev (HARD RULE)
+        time_hours_low: 0.3
+        time_hours_high: 0.6
+        tokens_k_min: 120
+        tokens_k_max: 200
+        cost_low: '$0.96'
+        cost_high: '$1.60'
+        man_hours_low: 24
+        man_hours_high: 48
+      actual:                       # written by sprint-execute at done (ALL FOUR metrics, HARD RULE)
+        elapsed_hours: 0.4
+        man_hours: 30
+        tokens_k: 168               # exact under Claude; 'N/A' under other runtimes
+        cost: '$1.10'               # 'N/A' when tokens_k is N/A
       completion_evidence:
         fix_iterations: 0
         tests_passing: 42
@@ -227,3 +259,5 @@ epics:
 | 1 | Epic planning | Config, paths, story keys, sprint grouping confirmation | SKILL.md (above) |
 | 2 | Sprint execution loop | Execute each sprint as bmad-l3io-pm-sprint-execute subagent | `references/sprint-execution-loop.md` |
 | 3 | Epic closure | Retro → clean release → adversarial → red team → UX → arch drift → functional completeness → issue triage → sign-off | `references/epic-closure.md` |
+
+**Cross-cutting reference:** `references/metrics-contract.md` — the **HARD RULE** for estimates + actuals (all four metrics at epic/retro level), runtime detection, and the exact token/cost capture procedure. Loaded at activation; governs every estimate and closeout.

@@ -286,19 +286,25 @@ Execute `bash {epic_cleanup_script}` to process all deferred file deletions accu
 On success, execute `rm {epic_cleanup_script}`.
 If `{epic_cleanup_script}` does not exist or is empty, skip this step.
 
-Record end timestamp: run `date +%s`, subtract `{epic_start_ts}`, bind `{epic_actual_elapsed_min}` = round(elapsed seconds / 60), then bind `{epic_elapsed_hours}` = round(`{epic_actual_elapsed_min}` / 60, 1).
+Record end timestamp: run `date +%s` (OS-aware — on a PowerShell harness use `[DateTimeOffset]::UtcNow.ToUnixTimeSeconds()`; see `references/metrics-contract.md` → Recording timestamps), subtract `{epic_start_ts}`, bind `{epic_actual_elapsed_min}` = round(elapsed seconds / 60), then bind `{epic_elapsed_hours}` = round(`{epic_actual_elapsed_min}` / 60, 1).
 
 Compute `{epic_actual_man_hours}` by reading `actual.man_hours` from each sprint node in `{status_file}` (targeted read only):
 - `{epic_actual_man_hours}` = round(sum of sprint `actual.man_hours` values + 12, 1)   ← 12h = epic closure overhead (epic retro, functional completeness, arch drift)
+
+**Token & cost actuals (HARD RULE — see `references/metrics-contract.md`):**
+- If `{runtime}` == `claude`: compute **exactly** using the token/cost capture procedure with `{epic_start_ts}` as the start (the whole-epic transcript window, covering all sprints and epic closure). Bind `{epic_actual_tokens_k}` and `{epic_actual_cost}` (format `$X.XX`). Capturing from the epic window is preferred to summing sprint values (it covers epic-closure subagents and avoids gaps); if the transcript is unreadable, fall back to summing the sprints' numeric `actual.tokens_k` / `actual.cost`, and bind `N/A` if no sprint reported a numeric value.
+- If `{runtime}` == `other`: sum the sprints' numeric `actual.tokens_k` / `actual.cost` if any exist; otherwise bind `{epic_actual_tokens_k}` = `N/A` and `{epic_actual_cost}` = `N/A`. **Never guess.**
 
 Update the epic node in `{status_file}`:
 - `status: done`
 - All epic stories: verified `done`
 - `closed: {date}`
 - `retrospective: {epic_retro_file}`
-- `actual:`
+- `actual:` (all four metrics — required)
   - `elapsed_hours: {epic_elapsed_hours}`
   - `man_hours: {epic_actual_man_hours}`
+  - `tokens_k: {epic_actual_tokens_k}`
+  - `cost: '{epic_actual_cost}'`
 
 Print:
 ```
@@ -317,9 +323,10 @@ Epic Orchestrator: Epic {target_epic} — {epic_title} — CLOSED — {date}
 
   ── Planned vs Actual ──────────────────────────────────────────────────────────────────────
   AI time:         planned {epic_est_time_hours_low}–{epic_est_time_hours_high} hours    actual ~{epic_elapsed_hours} hours
-  Tokens:          planned {epic_est_tokens_low}K–{epic_est_tokens_high}K                (actual not directly trackable)
-  Cost:            planned ~{epic_est_cost_low}–{epic_est_cost_high}                     (Sonnet ~$8/MTok blended; actual not directly trackable)
+  Tokens:          planned {epic_est_tokens_low}K–{epic_est_tokens_high}K                actual {epic_actual_tokens_k}K
+  Cost:            planned ~{epic_est_cost_low}–{epic_est_cost_high}                     actual {epic_actual_cost}
   Traditional:     estimated ~{epic_man_hours_low}–{epic_man_hours_high} hours    actual ~{epic_actual_man_hours} hours
+  (Token/cost actuals are exact under Claude; shown as N/A under other runtimes — never estimated.)
 ```
 
 ---
@@ -331,8 +338,12 @@ Update the project-level calibration file with epic-level plan-vs-actual data.
 **Compute epic-level ratios** (read `estimate` and `actual` from the epic node in `{status_file}`):
 - `{cal_epic_time_mid}` = (`estimate.time_hours_low` + `estimate.time_hours_high`) / 2
 - `{cal_epic_man_mid}` = (`estimate.man_hours_low` + `estimate.man_hours_high`) / 2
+- `{cal_epic_tokens_mid}` = (`estimate.tokens_k_min` + `estimate.tokens_k_max`) / 2
+- `{cal_epic_cost_mid}` = (`estimate.cost_low` + `estimate.cost_high`) / 2   (parse the `$X.XX` strings to numbers)
 - `{epic_time_ratio}` = round(`{epic_elapsed_hours}` / `{cal_epic_time_mid}`, 3) — skip if denominator is 0
 - `{epic_man_ratio}` = round(`{epic_actual_man_hours}` / `{cal_epic_man_mid}`, 3) — skip if denominator is 0
+- `{epic_token_ratio}` = round(`actual.tokens_k` / `{cal_epic_tokens_mid}`, 3) — **skip if `actual.tokens_k` is `N/A`** or the denominator is 0 (never feed a guessed or N/A value into calibration)
+- `{epic_cost_ratio}` = round(`actual.cost` / `{cal_epic_cost_mid}`, 3) — **skip if `actual.cost` is `N/A`** or the denominator is 0
 
 **Compute per-classification man-hours ratios** across all sprint stories in this epic (read `classification` and `completion_evidence.fix_iterations` from all story nodes; bases: simple=6, standard=18, complex=36):
 - For each story: `fix_factor` = min(1.0 + `fix_iterations` × 0.25, 2.0); `story_ratio` = `fix_factor`
@@ -344,10 +355,12 @@ Update the project-level calibration file with epic-level plan-vs-actual data.
   date: '{date}'
   time_ratio: {epic_time_ratio}
   man_hours_ratio: {epic_man_ratio}
+  token_ratio: {epic_token_ratio}       # omit this key when actual.tokens_k was N/A
+  cost_ratio: {epic_cost_ratio}         # omit this key when actual.cost was N/A
   story_mix: { simple: {total_simple_count}, standard: {total_standard_count}, complex: {total_complex_count} }
   by_classification:
     simple:   { man_hours_ratio: {class_ratio_simple},   count: {total_simple_count} }
     standard: { man_hours_ratio: {class_ratio_standard}, count: {total_standard_count} }
     complex:  { man_hours_ratio: {class_ratio_complex},  count: {total_complex_count} }
 ```
-Keep only the most recent 10 entries. Recompute all weighted rolling averages (same decay=0.8 logic as sprint Step 12) and write the updated `pm-calibration.yaml`.
+Keep only the most recent 10 entries. Recompute all weighted rolling averages — `time_ratio`, `man_hours_ratio`, `token_ratio`, `cost_ratio`, and per-classification ratios — using the same decay=0.8 logic as sprint Step 12 (and the same rule: `token_ratio`/`cost_ratio` average over only the entries that carry one, leaving the rolling value at 1.0 when none do). Write the updated `pm-calibration.yaml`.

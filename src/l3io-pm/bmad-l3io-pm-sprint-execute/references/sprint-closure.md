@@ -266,7 +266,7 @@ Execute `bash {cleanup_script}` to process all deferred file deletions accumulat
 On success, execute `rm {cleanup_script}`.
 If `{cleanup_script}` does not exist or is empty, skip this step.
 
-Record end timestamp: run `date +%s`, subtract `{sprint_start_ts}`, bind `{actual_elapsed_min}` = round(elapsed seconds / 60), then bind `{elapsed_hours}` = round(`{actual_elapsed_min}` / 60, 1).
+Record end timestamp: run `date +%s` (OS-aware — on a PowerShell harness use `[DateTimeOffset]::UtcNow.ToUnixTimeSeconds()`; see `references/metrics-contract.md` → Recording timestamps), subtract `{sprint_start_ts}`, bind `{actual_elapsed_min}` = round(elapsed seconds / 60), then bind `{elapsed_hours}` = round(`{actual_elapsed_min}` / 60, 1).
 
 Compute `{actual_man_hours}` from the completed sprint stories in `{status_file}` (targeted read of `classification` and `completion_evidence.fix_iterations` only):
 - Base hours per classification: Simple = 6, Standard = 18, Complex = 36
@@ -274,13 +274,19 @@ Compute `{actual_man_hours}` from the completed sprint stories in `{status_file}
 - Per-story man-hours = base × fix_factor
 - `{actual_man_hours}` = round(sum of per-story man-hours + 24, 1)   ← 24h = closure overhead (retro, arch review, QA pass, security)
 
+**Token & cost actuals (HARD RULE — see `references/metrics-contract.md`):**
+- If `{runtime}` == `claude`: compute **exactly** using the token/cost capture procedure with `{sprint_start_ts}` as the start (the whole-sprint transcript window, including closure subagents). Bind `{actual_tokens_k}` and `{actual_cost}` (format `$X.XX`).
+- If `{runtime}` == `other`: read the runtime's usage source if one exists; otherwise bind `{actual_tokens_k}` = `N/A` and `{actual_cost}` = `N/A`. **Never guess.**
+
 Update the sprint node in `{status_file}`:
 - All sprint stories: verified `done`
 - `closed: {date}`
 - `retrospective: {retro_file_path}`
-- `actual:`
+- `actual:` (all four metrics — required)
   - `elapsed_hours: {elapsed_hours}`
   - `man_hours: {actual_man_hours}`
+  - `tokens_k: {actual_tokens_k}`
+  - `cost: '{actual_cost}'`
 
 In interactive mode, print:
 ```
@@ -297,14 +303,15 @@ Sprint Orchestrator: Sprint CLOSED — Epic {target_epic}, Sprint {target_sprint
 
   ── Planned vs Actual ──────────────────────────────────────────────────────────
   AI time:         planned {est_time_hours_low}–{est_time_hours_high} hours    actual ~{elapsed_hours} hours
-  Tokens:          planned {est_tokens_low}K–{est_tokens_high}K                (actual not directly trackable)
-  Cost:            planned ~{est_cost_low}–{est_cost_high}                     (Sonnet ~$8/MTok blended; actual not directly trackable)
+  Tokens:          planned {est_tokens_low}K–{est_tokens_high}K                actual {actual_tokens_k}K
+  Cost:            planned ~{est_cost_low}–{est_cost_high}                     actual {actual_cost}
   Traditional:     estimated ~{man_hours_low}–{man_hours_high} hours    actual ~{actual_man_hours} hours
+  (Token/cost actuals are exact under Claude; shown as N/A under other runtimes — never estimated.)
 ```
 
 In headless mode (called by `bmad-l3io-pm-epic-execute`), emit instead:
 ```
-DONE — Stories: {story_count}, Issues resolved: {total_resolved}, Issues deferred: {total_deferred}, Retro: {retro_file_path}, Time: ~{actual_elapsed_min}min (planned {est_time_low}–{est_time_high}min), Cost: planned ~{est_cost_low}–{est_cost_high}
+DONE — Stories: {story_count}, Issues resolved: {total_resolved}, Issues deferred: {total_deferred}, Retro: {retro_file_path}, Time: ~{actual_elapsed_min}min (planned {est_time_low}–{est_time_high}min), Tokens: {actual_tokens_k}K, Cost: {actual_cost} (planned ~{est_cost_low}–{est_cost_high})
 ```
 
 ---
@@ -316,8 +323,12 @@ Update the project-level calibration file so future sprint estimates learn from 
 **Compute sprint-level ratios** (read `estimate` and `actual` from the sprint node in `{status_file}`):
 - `{cal_written_time_mid}` = (`estimate.time_hours_low` + `estimate.time_hours_high`) / 2
 - `{cal_written_man_mid}` = (`estimate.man_hours_low` + `estimate.man_hours_high`) / 2
+- `{cal_written_tokens_mid}` = (`estimate.tokens_k_min` + `estimate.tokens_k_max`) / 2
+- `{cal_written_cost_mid}` = (`estimate.cost_low` + `estimate.cost_high`) / 2   (parse the `$X.XX` strings to numbers)
 - `{sprint_time_ratio}` = round(`{elapsed_hours}` / `{cal_written_time_mid}`, 3) — skip if denominator is 0
 - `{sprint_man_ratio}` = round(`{actual_man_hours}` / `{cal_written_man_mid}`, 3) — skip if denominator is 0
+- `{sprint_token_ratio}` = round(`actual.tokens_k` / `{cal_written_tokens_mid}`, 3) — **skip if `actual.tokens_k` is `N/A`** or the denominator is 0 (never feed a guessed or N/A value into calibration)
+- `{sprint_cost_ratio}` = round(`actual.cost` / `{cal_written_cost_mid}`, 3) — **skip if `actual.cost` is `N/A`** or the denominator is 0
 
 **Compute per-classification man-hours ratios** (read `classification` and `completion_evidence.fix_iterations` from each story node in `{status_file}`; bases: simple=6, standard=18, complex=36):
 - For each story: `fix_factor` = min(1.0 + `fix_iterations` × 0.25, 2.0); `story_ratio` = `fix_factor` (actual man-hours = base × fix_factor; predicted = base × 1.0)
@@ -329,6 +340,8 @@ Update the project-level calibration file so future sprint estimates learn from 
   date: '{date}'
   time_ratio: {sprint_time_ratio}
   man_hours_ratio: {sprint_man_ratio}
+  token_ratio: {sprint_token_ratio}     # omit this key when actual.tokens_k was N/A
+  cost_ratio: {sprint_cost_ratio}       # omit this key when actual.cost was N/A
   story_mix: { simple: {simple_count}, standard: {standard_count}, complex: {complex_count} }
   by_classification:                                    # omit class entry if count = 0
     simple:   { man_hours_ratio: {class_ratio_simple},   count: {simple_count} }
@@ -341,6 +354,8 @@ Keep only the most recent 10 entries; discard older ones.
 - For N entries ordered oldest→newest, assign weight[i] = 0.8^(N−1−i) so the most recent entry has weight = 1.0
 - `{new_time_ratio}` = round(Σ(time_ratio[i] × weight[i]) / Σ(weight[i]), 3)
 - `{new_man_hours_ratio}` = round(Σ(man_hours_ratio[i] × weight[i]) / Σ(weight[i]), 3)
+- `{new_token_ratio}` = round(Σ(token_ratio[i] × weight[i]) / Σ(weight[i]), 3) — **over only the entries that have a `token_ratio`** (entries where it was N/A are excluded from both sums); leave at 1.0 if no entry has one
+- `{new_cost_ratio}` = round(Σ(cost_ratio[i] × weight[i]) / Σ(weight[i]), 3) — same: only entries that carry a `cost_ratio`
 - For each class c: `{new_class_ratio_c}` = round(Σ(by_classification.c.man_hours_ratio[i] × weight[i]) / Σ(weight[i] for entries where c.count > 0), 3); `{new_class_count_c}` = total story count across those entries
 
 **Write** `{project-root}/_bmad/pm-calibration.yaml`:
@@ -350,6 +365,8 @@ last_updated: '{date}'
 sprints_sampled: {history_count}
 time_ratio: {new_time_ratio}           # weighted avg actual/estimate — applied to future time estimates
 man_hours_ratio: {new_man_hours_ratio} # weighted avg actual/estimate — overall fallback for man-hours
+token_ratio: {new_token_ratio}         # weighted avg actual/estimate — applied to future token estimates (Claude runs only)
+cost_ratio: {new_cost_ratio}           # weighted avg actual/estimate — applied to future cost estimates (Claude runs only)
 by_classification:                     # per-class man-hours ratios; used when sample_count >= 3
   simple:   { man_hours_ratio: {new_class_ratio_simple},   sample_count: {new_class_count_simple} }
   standard: { man_hours_ratio: {new_class_ratio_standard}, sample_count: {new_class_count_standard} }

@@ -59,15 +59,23 @@ Print when done: DONE | BLOCKED: [reason]
 
 Halt on BLOCKED — report to `{user_name}` and wait for resolution before continuing.
 
-Classify story complexity from the AC count: Simple (1–3 ACs), Standard (4–6 ACs), Complex (7+ ACs). Map to cost estimate: Simple ~$0.32–$0.56 · Standard ~$0.56–$0.96 · Complex ~$0.96–$1.60 (Sonnet ~$8/MTok blended). Bind `{story_complexity}` and `{story_cost_range}`. Bind `{story_title}` from the story file header.
+Classify story complexity from the AC count: Simple (1–3 ACs), Standard (4–6 ACs), Complex (7+ ACs). Bind `{story_complexity}` and `{story_title}` (from the story file header). Map to the per-classification estimate (HARD RULE — see `references/metrics-contract.md`):
 
-Announce story prep complete to `{user_name}` (informational, no confirmation requested): story title + acceptance criteria count + task count + complexity + cost estimate (from file headers only). Example: "Story {story_key} ready — {ac_count} ACs, {task_count} tasks · {story_complexity} · est. {story_cost_range}". Update the story entry in `{status_file}`: set `status: ready-for-dev`, write `title: {story_title}`, `classification: {story_complexity}`. Continue immediately to development.
+| Classification | time_hours_low/high | tokens_k_min/max | cost_low/high | man_hours_low/high |
+|----------------|---------------------|------------------|---------------|--------------------|
+| Simple   | 0.13 / 0.20 | 40 / 70   | '$0.32' / '$0.56' | 4 / 8   |
+| Standard | 0.20 / 0.33 | 70 / 120  | '$0.56' / '$0.96' | 12 / 24 |
+| Complex  | 0.33 / 0.58 | 120 / 200 | '$0.96' / '$1.60' | 24 / 48 |
+
+Bind `{story_cost_range}` = the `cost_low–cost_high` for `{story_complexity}`.
+
+Announce story prep complete to `{user_name}` (informational, no confirmation requested): story title + acceptance criteria count + task count + complexity + cost estimate (from file headers only). Example: "Story {story_key} ready — {ac_count} ACs, {task_count} tasks · {story_complexity} · est. {story_cost_range}". Update the story entry in `{status_file}`: set `status: ready-for-dev`, write `title: {story_title}`, `classification: {story_complexity}`, and write the full `estimate` block (all four metrics) using the row above for `{story_complexity}`. Continue immediately to development.
 
 ---
 
 ## 2b — Development
 
-Announce start. Update status to `in-progress` in `{status_file}`.
+Announce start. Record the story start timestamp: run `date +%s` and bind to `{story_start_ts}` (used to compute the story's compute-hours and token/cost actuals at done; OS-aware — on a PowerShell harness use `[DateTimeOffset]::UtcNow.ToUnixTimeSeconds()`, see `references/metrics-contract.md` → Recording timestamps). Update status to `in-progress` in `{status_file}`.
 
 Spawn subagent:
 ```
@@ -125,7 +133,7 @@ Write QA evidence to: {test_output_dir}/epic-{target_epic_padded}-sprint-{target
 Print when done: DONE — Tests: N written, N passing | FAILURES: N tests failing — [brief description] | BLOCKED: [reason]
 ```
 
-If all tests pass: update the story entry in `{status_file}`: set `status: done`. Write a `completion_evidence` block: `fix_iterations: {fix_iteration}`, `tests_passing: {tests_passing}` (extract from QA status line), `files_changed: {files_changed}` (count from the story File List section via targeted read). Announce: "Story {story_key} — DONE." Move to the next story.
+If all tests pass: update the story entry in `{status_file}`: set `status: done`. Write a `completion_evidence` block: `fix_iterations: {fix_iteration}`, `tests_passing: {tests_passing}` (extract from QA status line), `files_changed: {files_changed}` (count from the story File List section via targeted read). Write the story `actual` block per **Story Actuals** below. Announce: "Story {story_key} — DONE." Move to the next story.
 
 If FAILURES: add to `{story_issues}` and route to Step 2e.
 
@@ -166,7 +174,27 @@ Options:
 ```
 Wait for decision before proceeding.
 
-When all issues are resolved and QA passes: update the story entry in `{status_file}`: set `status: done`. Write a `completion_evidence` block: `fix_iterations: {fix_iteration}`, `tests_passing: {tests_passing}` (extract from final QA status line), `files_changed: {files_changed}` (count from the story File List section via targeted read), `bugs_fixed: [{one-line description per fix-loop iteration}]`. Announce: "Story {story_key} — DONE after {fix_iteration} fix iteration(s)."
+When all issues are resolved and QA passes: update the story entry in `{status_file}`: set `status: done`. Write a `completion_evidence` block: `fix_iterations: {fix_iteration}`, `tests_passing: {tests_passing}` (extract from final QA status line), `files_changed: {files_changed}` (count from the story File List section via targeted read), `bugs_fixed: [{one-line description per fix-loop iteration}]`. Write the story `actual` block per **Story Actuals** below. Announce: "Story {story_key} — DONE after {fix_iteration} fix iteration(s)."
+
+---
+
+## Story Actuals (HARD RULE — written at `done`)
+
+When a story reaches `done`, write its `actual` block to the story entry in `{status_file}` with all four metrics (see `references/metrics-contract.md`):
+
+- `elapsed_hours` = round((`date +%s` − `{story_start_ts}`) / 3600, 2) — measured compute (wall-clock) hours (OS-aware — on a PowerShell harness use `[DateTimeOffset]::UtcNow.ToUnixTimeSeconds()` for the end timestamp; see `references/metrics-contract.md` → Recording timestamps).
+- `man_hours` = `base × fix_factor`, where `base` = {simple: 6, standard: 18, complex: 36} by `classification`, and `fix_factor` = min(1.0 + `fix_iterations` × 0.25, 2.0). Round to 1 decimal.
+- `tokens_k` and `cost`:
+  - If `{runtime}` == `claude`: compute **exactly** using the token/cost capture procedure in `references/metrics-contract.md` with `{story_start_ts}` as the start (this story's transcript window). Bind `{story_tokens_k}` and `{story_cost}` (format `$X.XX`).
+  - If `{runtime}` == `other`: read the runtime's usage source if one exists; otherwise write `tokens_k: N/A` and `cost: N/A` — **never guess.**
+
+```yaml
+actual:
+  elapsed_hours: 0.4
+  man_hours: 30
+  tokens_k: 168        # or N/A under a non-Claude runtime with no usage source
+  cost: '$1.10'        # or N/A when tokens_k is N/A
+```
 
 ---
 

@@ -67,10 +67,12 @@ Valid scopes: `infra`, `ci-cd`, `custom`.
 
 Story statuses: `backlog → ready-for-dev → in-progress → review → done`. Epic statuses: `backlog → in-progress → done`.
 
+**HARD RULE — estimates & actuals.** Every planning point and every closeout — at **story, sprint, epic, and retrospective** level — must record both an `estimate` and an `actual` for all four metrics: **man-hours, compute (AI wall-clock) hours, tokens, and token cost.** This is enforced, not optional. Token/cost actuals are captured **exactly** under Claude (read from the session transcript `usage` fields) and as `N/A` (never guessed) under other runtimes (e.g. Copilot — capture what's exposed, else `N/A`/`0`). The rule, runtime detection, and the exact capture procedure live in each PM skill's `references/metrics-contract.md`.
+
 Key fields written by the skills (see skill SKILL.md files for the full annotated schema):
-- **Stories**: `title`, `classification` (simple/standard/complex) at `ready-for-dev`; `completion_evidence` (fix_iterations, tests_passing, files_changed, bugs_fixed) at `done`
-- **Sprints**: `title`, `status`, `estimate` (time_hours_low/high, tokens_k_min/max, cost_low/high, man_hours_low/high) at start; `closed`, `retrospective`, `actual.elapsed_hours`, `actual.man_hours` at sign-off
-- **Epics**: `title`, `goal`, `status`, `estimate` at start; `closed`, `retrospective`, `actual.elapsed_hours`, `actual.man_hours` at sign-off
+- **Stories**: `title`, `classification` (simple/standard/complex) and a full `estimate` block (time_hours, tokens_k, cost, man_hours) at `ready-for-dev`; `completion_evidence` (fix_iterations, tests_passing, files_changed, bugs_fixed) and a full `actual` block (elapsed_hours, man_hours, tokens_k, cost) at `done`
+- **Sprints**: `title`, `status`, `estimate` (time_hours_low/high, tokens_k_min/max, cost_low/high, man_hours_low/high) at start; `closed`, `retrospective`, `actual` (elapsed_hours, man_hours, tokens_k, cost) at sign-off
+- **Epics**: `title`, `goal`, `status`, `estimate` at start; `closed`, `retrospective`, `actual` (elapsed_hours, man_hours, tokens_k, cost) at sign-off
 - **Backlog items** (in epic-level `backlog:` array): `key`, `title`, `source`, `severity`, `status`, `description`; `resolved`/`resolution` added when fixed
 
 **Artifact paths** (zero-padded):
@@ -90,7 +92,7 @@ FAILED: [one-line reason]
 
 **Adaptive parallelism**: Default sequential. Parallel subagents: default 2, hard cap 4.
 
-**Estimation calibration**: Sprint-execute writes plan-vs-actual ratios to `{project-root}/_bmad/pm-calibration.yaml` at each sprint close (Step 12). From sprint 4 onward, pre-start estimates are adjusted by the exponential-decay weighted average of past `time_ratio` and `man_hours_ratio` values. The calibration file is project-scoped and not committed to the repo by default.
+**Estimation calibration**: Sprint-execute (and epic-execute at epic close) writes plan-vs-actual ratios to `{project-root}/_bmad/pm-calibration.yaml`. It learns all four metrics — `time_ratio`, `man_hours_ratio`, `token_ratio`, `cost_ratio` (plus per-classification man-hours ratios). From sprint 4 onward, pre-start estimates are adjusted by the exponential-decay weighted average of past ratios. `token_ratio`/`cost_ratio` only accumulate from runs with **real** token/cost actuals (Claude runs); entries whose token/cost actual was `N/A` are skipped — a guessed value is never fed into calibration. The calibration file is project-scoped and not committed to the repo by default.
 
 ## Dependencies (consumer repos)
 
