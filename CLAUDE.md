@@ -32,7 +32,7 @@ src/
 | `src/l3io-pm/bmad-l3io-pm-sprint-execute/` | Full sprint lifecycle: story prep → dev → code review → QA → fix loop per story, then closure reviews |
 | `src/l3io-pm/bmad-l3io-pm-epic-execute/` | Full epic lifecycle: sprint grouping, sprint execution loop, then epic-level closure reviews |
 | `src/l3io-sec/bmad-l3io-sec-agent-redteam/` | Red team security analysis — five threat lenses (EXT/INS/CHA/ABU/DAR) + AI poisoning cross-cut, live cloud/platform best practices research |
-| `src/l3io-util/bmad-l3io-util-cleanup/` | Artifact migration utilities — reorganizes flat artifact files into `epic-XX/sprint-YY` folder structure; `migrate-schema` mode upgrades `sprint-status.yaml` to the current field schema |
+| `src/l3io-util/bmad-l3io-util-cleanup/` | Artifact migration utilities — reorganizes flat artifact files into `epic-XX/sprint-YY` folder structure; `migrate-schema` mode upgrades `sprint-status.yaml` to the current field schema; `split-status` mode splits it into the three-file active/backlog/archived layout |
 
 ## Commands
 
@@ -63,7 +63,13 @@ Suggested scopes: `l3io-pm`, `l3io-sec`, `l3io-util` (module changes), plus `inf
 
 **Context boundary**: Each phase runs in a fresh subagent. All state passes through disk — never through in-memory hand-off.
 
-**State file** (`sprint-status.yaml`): Located at `{implementation_artifacts}/sprint-status.yaml`.
+**State files** (split layout, in `{implementation_artifacts}/`):
+
+- `sprint-status-active.yaml` — epics with `status: in-progress` (their in-progress + done sprints and all stories).
+- `sprint-status-backlog.yaml` — not-yet-started work (whole `backlog` epics + backlog sprints of active epics as shells), plus a consolidated top-level `backlog:` deferred-issue list across all epics.
+- `sprint-status-archived.yaml` — epics with `status: done`, moved here wholesale at epic close.
+
+Placement is **epic + sprint** granularity (stories travel with their sprint); archive happens **only at epic close**. The placement rule, node-move operations, and read/auto-fallback procedure live in each PM skill's `references/status-files.md` (the single source of truth). A legacy single `sprint-status.yaml` is auto-split on first PM-skill run, or migrate explicitly with `/bmad-l3io-util-cleanup split-status` (original preserved as `sprint-status.yaml.legacy`).
 
 Story statuses: `backlog → ready-for-dev → in-progress → review → done`. Epic statuses: `backlog → in-progress → done`.
 
@@ -73,9 +79,10 @@ Key fields written by the skills (see skill SKILL.md files for the full annotate
 - **Stories**: `title`, `classification` (simple/standard/complex) and a full `estimate` block (time_hours, tokens_k, cost, man_hours) at `ready-for-dev`; `completion_evidence` (fix_iterations, tests_passing, files_changed, bugs_fixed) and a full `actual` block (elapsed_hours, man_hours, tokens_k, cost) at `done`
 - **Sprints**: `title`, `status`, `estimate` (time_hours_low/high, tokens_k_min/max, cost_low/high, man_hours_low/high) at start; `closed`, `retrospective`, `actual` (elapsed_hours, man_hours, tokens_k, cost) at sign-off
 - **Epics**: `title`, `goal`, `status`, `estimate` at start; `closed`, `retrospective`, `actual` (elapsed_hours, man_hours, tokens_k, cost) at sign-off
-- **Backlog items** (in epic-level `backlog:` array): `key`, `title`, `source`, `severity`, `status`, `description`; `resolved`/`resolution` added when fixed
+- **Backlog items** (consolidated top-level `backlog:` list in `sprint-status-backlog.yaml`): `key`, `epic`, `sprint`, `title`, `source`, `severity`, `status`, `description`; `resolved`/`resolution` added when fixed
 
 **Artifact paths** (zero-padded):
+
 - Stories: `{implementation_artifacts}/epic-XX/sprint-YY/stories/{story-key}.md`
 - Closure outputs: `{implementation_artifacts}/epic-XX/sprint-YY/closure/`
 - QA tests: `{implementation_artifacts}/epic-XX/sprint-YY/tests/` and `{implementation_artifacts}/epic-XX/tests/`

@@ -30,13 +30,13 @@ Spawn subagent:
 ```
 Load config from: {config_file}
 Load project context from: {context_file} (if it exists)
-Sprint status file: {status_file}
+State files: split layout under {implementation_artifacts} (sprint-status-active.yaml / -backlog.yaml / -archived.yaml) — resolve per references/status-files.md
 Target: Epic {target_epic}, stories: {sprint_story_keys}
 Sprint number: {current_sprint_num} (two-digit: {current_sprint_padded})
 Expected sprint output root: {epic_root_dir}/sprint-{current_sprint_padded}
 Invoke skill: bmad-l3io-pm-sprint-execute
 Execute the complete sprint for the listed stories — all per-story phases and closure phases.
-Update {status_file} as stories complete.
+Promote the sprint to the active state file and update it as stories complete, per references/status-files.md.
 Print when done:
   DONE — Stories: N, Issues resolved: N, Issues deferred: N, Retro: [path]
   BLOCKED: [reason]

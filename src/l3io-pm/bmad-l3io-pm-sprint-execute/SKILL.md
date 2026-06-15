@@ -42,7 +42,10 @@ Load available config from `{project-root}/_bmad/config.yaml` and `{project-root
 - `planning_artifacts` — default: `{output_folder}/planning-artifacts`
 - `config_file` = `{project-root}/_bmad/config.yaml`
 - `context_file` = `{project-root}/**/project-context.md`
-- `status_file` = `{implementation_artifacts}/sprint-status.yaml`
+- State files (split layout — see `references/status-files.md`):
+  - `status_active` = `{implementation_artifacts}/sprint-status-active.yaml`
+  - `status_backlog` = `{implementation_artifacts}/sprint-status-backlog.yaml`
+  - `status_archived` = `{implementation_artifacts}/sprint-status-archived.yaml`
 - `parallel_mode` = `{workflow.parallel_mode}`
 - `max_parallel_subagents` = min(`{workflow.max_parallel_subagents}`, 4)
 - `deferred_file_cleanup` = `{workflow.deferred_file_cleanup}` — default: `false`
@@ -52,11 +55,13 @@ Load available config from `{project-root}/_bmad/config.yaml` and `{project-root
 
 Load `references/metrics-contract.md` and keep its rules in context for the whole run. Determine `{runtime}` (`claude` or `other`) using the detection in that file and bind it now — it governs how token/cost actuals are captured at every closeout.
 
+Also load `references/status-files.md` and keep its rules in context. It governs the split state layout — which of the three files (`{status_active}`, `{status_backlog}`, `{status_archived}`) each node is read from and written to, and the node-move operations. Run its **read resolution + auto-fallback** procedure now: bind the three paths, and if only a legacy `sprint-status.yaml` exists, perform the one-time split before proceeding.
+
 ### Sprint Scope
 
-Load `{status_file}` — extract story keys and statuses only, never file contents.
+Resolve the status files per `references/status-files.md`. Load `{status_active}` and `{status_backlog}` — extract story keys and statuses only, never file contents.
 
-If invoked headlessly (epic number, sprint number, and story keys passed as arguments), use those directly. Otherwise, find the first in-progress or backlog epic with non-done stories and confirm with `{user_name}` before proceeding.
+If invoked headlessly (epic number, sprint number, and story keys passed as arguments), use those directly. Otherwise, find the first in-progress or backlog epic with non-done stories (search `{status_active}` first, then `{status_backlog}`) and confirm with `{user_name}` before proceeding.
 
 Resolve as two-digit zero-padded values: `{target_epic_padded}` (e.g. `01`, `15`) and `{target_sprint_padded}` (e.g. `01`, `02`).
 
@@ -68,7 +73,9 @@ Bind and create if missing:
 - `{planning_sprint_dir}` = `{planning_artifacts}/epic-{target_epic_padded}/sprint-{target_sprint_padded}`
 - `{cleanup_script}` = `{sprint_root_dir}/cleanup-pending.sh` (only written when `{deferred_file_cleanup}` is `true`; subagents create the file on first use — no pre-write needed)
 
-Remove already-`done` stories from `{sprint_stories}`. Derive `{sprint_title}` = "Sprint {target_sprint} — {theme}" where `{theme}` is a 2–4 word summary of the sprint's dominant concern (e.g. "Foundation", "Parsers", "API Layer"); fall back to "Sprint {target_sprint}" if no clear theme is identifiable. Update the sprint node in `{status_file}`: set `status: in-progress`, write `title: {sprint_title}` (create the field if absent).
+Remove already-`done` stories from `{sprint_stories}`. Derive `{sprint_title}` = "Sprint {target_sprint} — {theme}" where `{theme}` is a 2–4 word summary of the sprint's dominant concern (e.g. "Foundation", "Parsers", "API Layer"); fall back to "Sprint {target_sprint}" if no clear theme is identifiable.
+
+**Promote the sprint to active** (per `references/status-files.md` → Move operations): move the sprint node from the `{status_backlog}` epic shell into the epic node in `{status_active}` (creating the epic node in `{status_active}` if this is the first sprint to start under it), set `status: in-progress`, write `title: {sprint_title}` (create the field if absent), and drop the `{status_backlog}` shell once its `sprints:` list is empty. All subsequent sprint/story reads and writes target this node in `{status_active}`.
 
 ### Pre-start Estimate
 
@@ -125,7 +132,7 @@ Apply calibration to man-hours using per-classification ratios when available (s
 - `{cal_man_hours_low}` = round((`{simple_count}` × 4 × `{cal_r_simple}`) + (`{standard_count}` × 12 × `{cal_r_standard}`) + (`{complex_count}` × 24 × `{cal_r_complex}`) + 16)
 - `{cal_man_hours_high}` = round((`{simple_count}` × 8 × `{cal_r_simple}`) + (`{standard_count}` × 24 × `{cal_r_standard}`) + (`{complex_count}` × 48 × `{cal_r_complex}`) + 32)
 
-Write the `estimate` block to the sprint node in `{status_file}` (calibrated values are the actual prediction):
+Write the `estimate` block to the sprint node in `{status_active}` (calibrated values are the actual prediction):
 ```yaml
 estimate:
   time_hours_low: {cal_time_hours_low}    # AI-assisted wall-clock time (hours, calibration-adjusted)
@@ -173,7 +180,7 @@ Wait for `{user_name}`'s response before any subagent is spawned.
 
 ## Sprint Status File Schema
 
-The `{status_file}` uses the following structure. Fields marked *(written by sprint-execute)* are populated by this skill; all others are pre-existing or written by epic-execute.
+State is split across three files — `{status_active}`, `{status_backlog}`, `{status_archived}` — see `references/status-files.md` for **which file** each node lives in and the move operations. Every node uses the **same per-node structure** below regardless of which file it currently lives in; the split changes placement, not field shape. Fields marked *(written by sprint-execute)* are populated by this skill; all others are pre-existing or written by epic-execute.
 
 ```yaml
 epics:
@@ -242,16 +249,11 @@ epics:
         files_changed: 8
         bugs_fixed:                 # omitted when fix_iterations == 0
         - 'Brief description of fix'
-  backlog:                          # *(appended by sprint-execute / epic-execute during issue triage)*
-  - key: PROJ-E01-BL-01
-    title: 'Issue title'
-    source: 'adversarial (ADV-L-01)'
-    severity: Low
-    status: backlog
-    description: 'One-sentence description of the deferred issue.'
-    resolved: '2026-05-19'        # added when a backlog item is later fixed
-    resolution: 'How it was fixed.' # added when a backlog item is later fixed
 ```
+
+Deferred issues are **not** nested under the epic anymore. They go to the consolidated
+`backlog:` list at the top level of `{status_backlog}` (tagged with `epic`/`sprint`) —
+see `references/status-files.md` → Consolidated backlog item schema.
 
 **Supporting references** (loaded by story-loop.md):
 

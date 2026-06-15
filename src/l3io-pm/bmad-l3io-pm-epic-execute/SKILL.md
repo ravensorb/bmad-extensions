@@ -40,7 +40,10 @@ Load available config from `{project-root}/_bmad/config.yaml` and `{project-root
 - `planning_artifacts` — default: `{output_folder}/planning-artifacts`
 - `config_file` = `{project-root}/_bmad/config.yaml`
 - `context_file` = `{project-root}/**/project-context.md`
-- `status_file` = `{implementation_artifacts}/sprint-status.yaml`
+- State files (split layout — see `references/status-files.md`):
+  - `status_active` = `{implementation_artifacts}/sprint-status-active.yaml`
+  - `status_backlog` = `{implementation_artifacts}/sprint-status-backlog.yaml`
+  - `status_archived` = `{implementation_artifacts}/sprint-status-archived.yaml`
 - `arch_file` = `{planning_artifacts}/*architecture*.md`
 - `prd_file` = `{planning_artifacts}/*prd*.md`
 - `epics_file` = `{planning_artifacts}/*epic*.md`
@@ -53,11 +56,13 @@ Load available config from `{project-root}/_bmad/config.yaml` and `{project-root
 
 Load `references/metrics-contract.md` and keep its rules in context for the whole run. Determine `{runtime}` (`claude` or `other`) using the detection in that file and bind it now — it governs how token/cost actuals are captured at epic close.
 
+Also load `references/status-files.md` and keep its rules in context. It governs the split state layout — which of the three files (`{status_active}`, `{status_backlog}`, `{status_archived}`) each node is read from and written to, and the node-move operations. Run its **read resolution + auto-fallback** procedure now: bind the three paths, and if only a legacy `sprint-status.yaml` exists, perform the one-time split before proceeding.
+
 ### Epic Planning (Step 1)
 
-Load `{status_file}` — extract epic and story keys with statuses only (not story content). Skim `{epics_file}` headers only — extract story keys and titles, not full content.
+Load `{status_active}` and `{status_backlog}` — extract epic and story keys with statuses only (not story content). Skim `{epics_file}` headers only — extract story keys and titles, not full content.
 
-If the user provided an epic number, use it. Otherwise find the first epic with `in-progress` or `backlog` status that has non-done stories and confirm with `{user_name}`.
+If the user provided an epic number, use it. Otherwise find the first epic with `in-progress` or `backlog` status that has non-done stories (search `{status_active}` first, then `{status_backlog}`) and confirm with `{user_name}`.
 
 Resolve `{target_epic_padded}` as a two-digit zero-padded value. Bind and create if missing:
 - `{epic_root_dir}` = `{implementation_artifacts}/epic-{target_epic_padded}`
@@ -81,7 +86,9 @@ To split: provide story key groups (e.g. Sprint 1: 15-0, 15-1 / Sprint 2: 15-2, 
 
 Wait for `{user_name}` to confirm or provide groupings. Set `{sprint_plan}` and `{total_sprint_count}`.
 
-Extract `{epic_title}` and `{epic_goal}` from `{epics_file}` (read headers and goal/objective statement only). Update the epic node in `{status_file}`: set `status: in-progress`, write `title: {epic_title}` and `goal: {epic_goal}` (create fields if absent).
+Extract `{epic_title}` and `{epic_goal}` from `{epics_file}` (read headers and goal/objective statement only).
+
+**Promote the epic to active** (per `references/status-files.md` → Move operations): move the epic identity into `{status_active}` with `status: in-progress`, writing `title: {epic_title}` and `goal: {epic_goal}` (create fields if absent). Its not-yet-started (`backlog`) sprints remain in `{status_backlog}` under the epic shell until each sprint starts; sprint-execute promotes them on start.
 
 ### Pre-start Estimate
 
@@ -140,7 +147,7 @@ Apply calibration to man-hours using per-classification ratios when available (s
 - `{cal_epic_man_hours_low}` = round((`{simple_count}` × 4 × `{cal_r_simple}`) + (`{standard_count}` × 12 × `{cal_r_standard}`) + (`{complex_count}` × 24 × `{cal_r_complex}`) + (`{total_sprint_count}` × 16) + 8)
 - `{cal_epic_man_hours_high}` = round((`{simple_count}` × 8 × `{cal_r_simple}`) + (`{standard_count}` × 24 × `{cal_r_standard}`) + (`{complex_count}` × 48 × `{cal_r_complex}`) + (`{total_sprint_count}` × 32) + 16)
 
-Write the `estimate` block to the epic node in `{status_file}` (calibrated values are the actual prediction):
+Write the `estimate` block to the epic node in `{status_active}` (calibrated values are the actual prediction):
 ```yaml
 estimate:
   time_hours_low: {cal_epic_time_hours_low}    # AI-assisted wall-clock time (hours, calibration-adjusted)
@@ -174,7 +181,7 @@ Beginning Sprint 1 of {total_sprint_count}.
 
 ## Sprint Status File Schema
 
-The `{status_file}` uses the following structure. See `bmad-l3io-pm-sprint-execute` for full story and sprint-level fields. Epic-execute owns the top-level epic fields.
+State is split across three files — `{status_active}`, `{status_backlog}`, `{status_archived}` — see `references/status-files.md` for **which file** each node lives in and the move operations. Every node uses the **same per-node structure** below regardless of which file it currently lives in. See `bmad-l3io-pm-sprint-execute` for full story and sprint-level fields. Epic-execute owns the top-level epic fields.
 
 ```yaml
 epics:
@@ -241,16 +248,11 @@ epics:
         fix_iterations: 0
         tests_passing: 42
         files_changed: 8
-  backlog:                          # appended during sprint/epic issue triage
-  - key: PROJ-E01-BL-01
-    title: 'Issue title'
-    source: 'adversarial (ADV-L-01)'
-    severity: Low
-    status: backlog
-    description: 'One-sentence description.'
-    resolved: '2026-05-19'        # added when resolved
-    resolution: 'How it was fixed.'
 ```
+
+Deferred issues are **not** nested under the epic. They go to the consolidated `backlog:`
+list at the top level of `{status_backlog}` (tagged with `epic`/`sprint`) — see
+`references/status-files.md` → Consolidated backlog item schema.
 
 ## Stages
 

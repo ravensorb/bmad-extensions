@@ -61,7 +61,7 @@ None — standalone, no subagents.
 | User confirmation | Explicit go/no-go before any file moves | Dry-run table | Confirmed move map |
 | File moves | All classified files moved to structured paths; conflicts kept in place and recorded | Confirmed move map | Moved files at new paths |
 | Reference reconciliation | Exact old-path references in status files, story files, planning docs, closure/test reports updated to new paths | Confirmed move map, reference-holding files | Updated file references |
-| State verification | Folder names zero-padded, files in correct subdirs, sprint-status.yaml consistency, residual flat files flagged | Post-move filesystem state | Issues list |
+| State verification | Folder names zero-padded, files in correct subdirs, sprint status file consistency (the split sprint-status-active/backlog/archived set, or a legacy single sprint-status.yaml), residual flat files flagged | Post-move filesystem state | Issues list |
 | Summary report | Final tally printed | All operation results | `DONE - Moved: N, Conflicts: N, Unclassified: N, Refs Updated: N, Ref Conflicts: N, State Issues: N, Root: [path]` |
 
 **Memory:** None.
@@ -154,7 +154,7 @@ None.
 4. Create required destination directories
 5. Execute moves
 6. Reconcile references in status files, story files, planning docs, closure/test reports
-7. Verify artifact state: zero-padding, correct subdirectory placement, sprint-status.yaml consistency, residual flat files
+7. Verify artifact state: zero-padding, correct subdirectory placement, sprint status file consistency (the split sprint-status-active/backlog/archived set, or a legacy single sprint-status.yaml), residual flat files
 8. Print summary report
 
 ### Required Output Format

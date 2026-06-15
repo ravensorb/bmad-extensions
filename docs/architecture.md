@@ -33,7 +33,7 @@ bmad-l3io-util-cleanup       (standalone only — no orchestrator relationship)
 
 The orchestrators (`bmad-l3io-pm-sprint-execute`, `bmad-l3io-pm-epic-execute`) act as traffic controllers, not implementers. Their context holds only:
 
-- Story keys and statuses from `sprint-status.yaml`
+- Story keys and statuses from the sprint status files (`sprint-status-active.yaml` and `sprint-status-backlog.yaml`)
 - Status-line summaries returned by subagents
 - Path bindings (no file contents)
 
@@ -43,13 +43,19 @@ Subagent prompts are self-contained: they include config file paths, relevant ar
 
 ## State Contract
 
-`sprint-status.yaml` is the single source of truth for story and epic lifecycle.
+The sprint status is the single source of truth for story and epic lifecycle, split across three files in `{implementation_artifacts}/`:
 
-**Who reads it:** Both execute skills read it on activation to identify scope and current state.
+- `sprint-status-active.yaml` — epics with `status: in-progress` only, carrying their in-progress and done sprints and all their stories.
+- `sprint-status-backlog.yaml` — all not-yet-started work (whole `backlog`-status epics, plus the not-yet-started sprints of in-progress epics held under an epic "shell"), plus a consolidated top-level `backlog:` deferred-issue list across all epics (each item tagged with `epic` and `sprint` keys).
+- `sprint-status-archived.yaml` — epics with `status: done`, moved here wholesale at epic close.
 
-**Who writes it:** The orchestrator writes to it after each status transition. Subagents do not write to the status file — they notify the orchestrator via status line, and the orchestrator updates the file.
+Placement granularity is epic + sprint (stories always travel inside their owning sprint node); archiving happens only at epic close (done sprints stay in the active file until their whole epic closes). The single source of truth for the placement rule, node-move operations, and read/auto-fallback procedure is each PM skill's `references/status-files.md`. A legacy single `sprint-status.yaml` is auto-detected and split on first run (the original is renamed to `sprint-status.yaml.legacy`).
 
-**Concurrency rule:** No two subagents write to `sprint-status.yaml` concurrently. Before each parallel batch, the orchestrator verifies this constraint; if uncertain, it runs sequentially.
+**Who reads it:** Both execute skills read the active + backlog files on activation to identify scope and current state.
+
+**Who writes it:** The orchestrator writes to the status files after each status transition. Subagents do not write to the status files — they notify the orchestrator via status line, and the orchestrator updates the files.
+
+**Concurrency rule:** No two subagents write to the sprint status files concurrently. Before each parallel batch, the orchestrator verifies this constraint; if uncertain, it runs sequentially.
 
 Story status lifecycle:
 
@@ -67,7 +73,9 @@ All runtime artifacts use zero-padded two-digit epic/sprint numbers. The full ca
 
 ```
 {implementation_artifacts}/
-  sprint-status.yaml
+  sprint-status-active.yaml
+  sprint-status-backlog.yaml
+  sprint-status-archived.yaml
   epic-01/
     sprint-01/
       stories/
@@ -118,7 +126,7 @@ Default execution is sequential. Parallelism is used only when safe.
 Before each parallel batch, the orchestrator verifies:
 
 1. **No shared file paths** — no two concurrent subagents write to the same file path
-2. **No concurrent status file writes** — `sprint-status.yaml` is written only by the orchestrator, not subagents, but the orchestrator must not merge conflicting updates
+2. **No concurrent status file writes** — the sprint status files (`sprint-status-active.yaml`, `sprint-status-backlog.yaml`, `sprint-status-archived.yaml`) are written only by the orchestrator, not subagents, but the orchestrator must not merge conflicting updates
 3. **No unresolved blockers** — a blocker in one subagent could invalidate the work of its siblings
 
 If any check is uncertain, the orchestrator runs sequentially.

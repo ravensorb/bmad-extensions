@@ -25,7 +25,7 @@ Sprint and epic orchestration for LiquidLogicLabs projects. Covers the full life
 
 ## Architecture
 
-**Two workflows:** `bmad-l3io-pm-sprint-execute` and `bmad-l3io-pm-epic-execute`. Workflows (not agents) — no persistent persona is needed between invocations. Each phase runs in a fresh subagent; all state passes through disk. The epic workflow calls the sprint workflow as a subworkflow. No agent memory — purely file-based state via sprint-status.yaml and artifact files.
+**Two workflows:** `bmad-l3io-pm-sprint-execute` and `bmad-l3io-pm-epic-execute`. Workflows (not agents) — no persistent persona is needed between invocations. Each phase runs in a fresh subagent; all state passes through disk. The epic workflow calls the sprint workflow as a subworkflow. No agent memory — purely file-based state via the split sprint status files (sprint-status-active.yaml, sprint-status-backlog.yaml, sprint-status-archived.yaml) and artifact files.
 
 **Rationale:** Sprint and epic are genuinely different journeys with different phase sets, different quality gates, and different closure outputs. Separate workflows keep each coherent and independently invocable. A single agent would add unnecessary persona overhead for what are essentially orchestration pipelines.
 
@@ -67,7 +67,7 @@ Sprint and epic orchestration for LiquidLogicLabs projects. Covers the full life
 ### Memory Architecture
 
 **No agent memory.** All state is file-based:
-- `{artifacts}/sprint-status.yaml` — story statuses and epic/sprint state
+- `{artifacts}/sprint-status-active.yaml`, `{artifacts}/sprint-status-backlog.yaml`, `{artifacts}/sprint-status-archived.yaml` — story statuses and epic/sprint state, split into active (in-progress epics), backlog (not-yet-started work + consolidated deferred-issue list), and archived (done epics, moved at epic close); a legacy single `sprint-status.yaml` is auto-split on first run
 - `{artifacts}/epic-XX/sprint-YY/stories/{story-key}.md` — story artifacts
 - `{artifacts}/epic-XX/sprint-YY/closure/` — sprint closure outputs (retro, adversarial, redteam, etc.)
 - `{artifacts}/epic-XX/sprint-YY/tests/` — QA test artifacts
@@ -85,7 +85,7 @@ N/A — file-based state only. See artifact paths above.
 - **Subagent invocation:** Agent tool preferred (self-contained prompt, no conversation history forwarded); Bash CLI fallback (`claude --print`).
 - **Progress reporting:** ETA ranges (not exact timestamps); parallel batch size and queue position reported; elapsed time refreshed after each completion.
 - **User escalation:** Fix loop escalates after 3 iterations; grave concerns from retrospective surfaced directly to user; epic/sprint cannot close with unresolved Critical/High without explicit user acknowledgment.
-- **Parallel safety gate:** Before each parallel batch — verify no shared output file collisions, no concurrent sprint-status.yaml writes, no unresolved blocker that invalidates siblings. If uncertain → force sequential.
+- **Parallel safety gate:** Before each parallel batch — verify no shared output file collisions, no concurrent writes to the sprint status files (sprint-status-active.yaml / sprint-status-backlog.yaml / sprint-status-archived.yaml), no unresolved blocker that invalidates siblings. If uncertain → force sequential.
 
 ## Skills
 
@@ -110,9 +110,9 @@ N/A — file-based state only. See artifact paths above.
 | Fix loop | All issues resolved within max 3 iterations | Issue description, story file | Updated story, re-verified QA |
 | Sprint closure reviews | Retro, clean release, adversarial, red team, UX (conditional), light arch drift | All story files, closure output dir | Closure docs in `closure/` |
 | Issue triage | All Critical/High resolved; Medium/Low deferred or fixed | Findings from closure reviews | Deferred backlog stories, updated status file |
-| Sprint sign-off | Status updated, closure report printed | All closure artifacts | Updated sprint-status.yaml, closure report |
+| Sprint sign-off | Status updated, closure report printed | All closure artifacts | Updated sprint status files, closure report |
 
-**Memory:** None — file-based state only via sprint-status.yaml and artifact files.
+**Memory:** None — file-based state only via the split sprint status files (sprint-status-active.yaml, sprint-status-backlog.yaml, sprint-status-archived.yaml) and artifact files.
 
 **Init Responsibility:** Creates sprint directory structure if missing: `stories/`, `closure/`, `tests/`, `planning_sprint_dir`.
 
@@ -159,7 +159,7 @@ N/A — file-based state only. See artifact paths above.
 | Architecture drift analysis | 5-dimension drift check (inline, no skill wrapper) | Architecture spec, all story files | Arch drift report in `epic-closure/` |
 | Functional completeness review | PRD AC coverage and feature alignment (inline) | PRD file, epic section, all story files | Completeness report in `epic-closure/` |
 | Issue triage and resolution | All Critical/High + AC gaps resolved; deferred items backlogged | All closure findings | Fix verification in `epic_test_dir/`, backlog stories |
-| Epic sign-off | Status updated, final report printed | All closure artifacts | Updated sprint-status.yaml, epic closure report |
+| Epic sign-off | Status updated, final report printed | All closure artifacts | Updated sprint status files (epic archived to sprint-status-archived.yaml at close), epic closure report |
 
 **Memory:** None — file-based state only.
 
@@ -249,7 +249,7 @@ No setup extensions beyond config collection. The workflows create required dire
 - Stories may declare dependencies on other stories within the sprint
 - Orchestrator must resolve a dependency order before starting parallel execution
 - A story cannot enter development until all its dependencies reach 'done'
-- Need to decide: how are dependencies declared? (in story file, in sprint-status.yaml, or inferred?)
+- Need to decide: how are dependencies declared? (in story file, in the sprint status files, or inferred?)
 
 ### Sprint — Additional Learnings from Legacy Workflow
 - Story prep presents title + AC count to user for confirmation before dev starts

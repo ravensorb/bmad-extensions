@@ -80,7 +80,7 @@ After upgrading, your existing `_bmad/config.yaml` values are preserved — no r
 
 Before your first sprint or epic run, verify:
 
-1. `sprint-status.yaml` exists at `{implementation_artifacts}/sprint-status.yaml` and contains your stories with status `backlog`
+1. The sprint status files exist under `{implementation_artifacts}/` — the split layout is `sprint-status-active.yaml` (in-progress epics), `sprint-status-backlog.yaml` (not-yet-started work plus the consolidated deferred-issue backlog), and `sprint-status-archived.yaml` (done epics) — and your stories are present with status `backlog`. If you only have a legacy single `sprint-status.yaml`, the PM skills auto-split it on first run (renaming the original to `sprint-status.yaml.legacy`); you can also split it explicitly with `/bmad-l3io-util-cleanup split-status`
 2. Planning docs (epics file, PRD, architecture spec) exist under `{planning_artifacts}`
 3. If you have existing flat artifacts from a prior layout, run `/bmad-l3io-util-cleanup` first
 
@@ -94,7 +94,7 @@ Invoke:
 /bmad-l3io-pm-sprint-execute
 ```
 
-The skill loads config, reads `sprint-status.yaml`, identifies the first in-progress or backlog epic with non-done stories, and presents a scope confirmation:
+The skill loads config, reads the sprint status (the active + backlog split files; a legacy single `sprint-status.yaml` is auto-split on first run), identifies the first in-progress or backlog epic with non-done stories, and presents a scope confirmation:
 
 ```
 Sprint Orchestrator: Epic 01, Sprint 01 — 3 stories: 1-0, 1-1, 1-2
@@ -122,7 +122,7 @@ Invoke:
 /bmad-l3io-pm-epic-execute
 ```
 
-The skill reads `sprint-status.yaml`, identifies the target epic, and presents a sprint grouping step:
+The skill reads the sprint status (the active + backlog split files; a legacy single `sprint-status.yaml` is auto-split on first run), identifies the target epic, and presents a sprint grouping step:
 
 ```
 Epic 01: My Feature
@@ -175,8 +175,16 @@ Confirm to execute. Ambiguous references are never auto-updated — they are fla
 
 Run `/bmad-l3io-util-cleanup` once per project. A second run on an already-clean layout produces zero moves.
 
-To upgrade an existing `sprint-status.yaml` to the current field schema (adds missing estimate, actual, classification, and completion_evidence fields with zero/empty defaults):
+To upgrade an existing sprint status file to the current field schema (adds missing estimate, actual, classification, and completion_evidence fields with zero/empty defaults):
 
 ```
 /bmad-l3io-util-cleanup migrate-schema
 ```
+
+To split a legacy single `sprint-status.yaml` into the active/backlog/archived three-file layout as a one-time explicit migration (the original is preserved as `sprint-status.yaml.legacy`):
+
+```
+/bmad-l3io-util-cleanup split-status
+```
+
+The PM skills also auto-split a legacy single `sprint-status.yaml` on first run, so this explicit step is optional.

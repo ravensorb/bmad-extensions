@@ -27,9 +27,9 @@ FAILED: [one-line reason]
 DEFERRED CLEANUP ACTIVE: Do not execute rm commands directly. Instead, append each rm command as its own line to {cleanup_script} (create with #!/bin/bash header if it does not exist). Continue all other work normally.
 ```
 
-**Adaptive parallelism:** Stories may run in parallel — across stories only, never across phases within the same story. Before each parallel batch: verify no shared file path overlap between stories, no concurrent writes to `{status_file}`, no unresolved blocker that would invalidate siblings. If any check is uncertain, run sequentially. `effective_parallel_subagents` = min(`{max_parallel_subagents}`, 4, safe_batch_size). Force to 1 when `{parallel_mode}` = `off`.
+**Adaptive parallelism:** Stories may run in parallel — across stories only, never across phases within the same story. Before each parallel batch: verify no shared file path overlap between stories, no concurrent writes to `{status_active}`, no unresolved blocker that would invalidate siblings. If any check is uncertain, run sequentially. `effective_parallel_subagents` = min(`{max_parallel_subagents}`, 4, safe_batch_size). Force to 1 when `{parallel_mode}` = `off`.
 
-**Story ordering:** Before starting parallel execution, check story files or `{status_file}` for `depends_on` fields. A story cannot enter development until all declared dependencies are `done`. Process independent stories in parallel batches; dependent stories wait for their dependencies.
+**Story ordering:** Before starting parallel execution, check story files or `{status_active}` for `depends_on` fields. A story cannot enter development until all declared dependencies are `done`. Process independent stories in parallel batches; dependent stories wait for their dependencies.
 
 **Progress reporting:** Use ETA ranges (`~2-5 min`), not exact timestamps. Report position (`N/M`) and batch size for parallel runs. Refresh ETA after each completion.
 
@@ -69,13 +69,13 @@ Classify story complexity from the AC count: Simple (1–3 ACs), Standard (4–6
 
 Bind `{story_cost_range}` = the `cost_low–cost_high` for `{story_complexity}`.
 
-Announce story prep complete to `{user_name}` (informational, no confirmation requested): story title + acceptance criteria count + task count + complexity + cost estimate (from file headers only). Example: "Story {story_key} ready — {ac_count} ACs, {task_count} tasks · {story_complexity} · est. {story_cost_range}". Update the story entry in `{status_file}`: set `status: ready-for-dev`, write `title: {story_title}`, `classification: {story_complexity}`, and write the full `estimate` block (all four metrics) using the row above for `{story_complexity}`. Continue immediately to development.
+Announce story prep complete to `{user_name}` (informational, no confirmation requested): story title + acceptance criteria count + task count + complexity + cost estimate (from file headers only). Example: "Story {story_key} ready — {ac_count} ACs, {task_count} tasks · {story_complexity} · est. {story_cost_range}". Update the story entry in `{status_active}`: set `status: ready-for-dev`, write `title: {story_title}`, `classification: {story_complexity}`, and write the full `estimate` block (all four metrics) using the row above for `{story_complexity}`. Continue immediately to development.
 
 ---
 
 ## 2b — Development
 
-Announce start. Record the story start timestamp: run `date +%s` and bind to `{story_start_ts}` (used to compute the story's compute-hours and token/cost actuals at done; OS-aware — on a PowerShell harness use `[DateTimeOffset]::UtcNow.ToUnixTimeSeconds()`, see `references/metrics-contract.md` → Recording timestamps). Update status to `in-progress` in `{status_file}`.
+Announce start. Record the story start timestamp: run `date +%s` and bind to `{story_start_ts}` (used to compute the story's compute-hours and token/cost actuals at done; OS-aware — on a PowerShell harness use `[DateTimeOffset]::UtcNow.ToUnixTimeSeconds()`, see `references/metrics-contract.md` → Recording timestamps). Update status to `in-progress` in `{status_active}`.
 
 Spawn subagent:
 ```
@@ -92,7 +92,7 @@ Print when done: DONE | BLOCKED: [reason] | FAILED: [reason]
 
 After completion, verify from `{story_file_path}`: all task checkboxes [x], Dev Agent Record populated, File List populated. Halt on failure — report to `{user_name}` and wait for guidance.
 
-Update status to `review` in `{status_file}`.
+Update status to `review` in `{status_active}`.
 
 ---
 
@@ -133,7 +133,7 @@ Write QA evidence to: {test_output_dir}/epic-{target_epic_padded}-sprint-{target
 Print when done: DONE — Tests: N written, N passing | FAILURES: N tests failing — [brief description] | BLOCKED: [reason]
 ```
 
-If all tests pass: update the story entry in `{status_file}`: set `status: done`. Write a `completion_evidence` block: `fix_iterations: {fix_iteration}`, `tests_passing: {tests_passing}` (extract from QA status line), `files_changed: {files_changed}` (count from the story File List section via targeted read). Write the story `actual` block per **Story Actuals** below. Announce: "Story {story_key} — DONE." Move to the next story.
+If all tests pass: update the story entry in `{status_active}`: set `status: done`. Write a `completion_evidence` block: `fix_iterations: {fix_iteration}`, `tests_passing: {tests_passing}` (extract from QA status line), `files_changed: {files_changed}` (count from the story File List section via targeted read). Write the story `actual` block per **Story Actuals** below. Announce: "Story {story_key} — DONE." Move to the next story.
 
 If FAILURES: add to `{story_issues}` and route to Step 2e.
 
@@ -174,13 +174,13 @@ Options:
 ```
 Wait for decision before proceeding.
 
-When all issues are resolved and QA passes: update the story entry in `{status_file}`: set `status: done`. Write a `completion_evidence` block: `fix_iterations: {fix_iteration}`, `tests_passing: {tests_passing}` (extract from final QA status line), `files_changed: {files_changed}` (count from the story File List section via targeted read), `bugs_fixed: [{one-line description per fix-loop iteration}]`. Write the story `actual` block per **Story Actuals** below. Announce: "Story {story_key} — DONE after {fix_iteration} fix iteration(s)."
+When all issues are resolved and QA passes: update the story entry in `{status_active}`: set `status: done`. Write a `completion_evidence` block: `fix_iterations: {fix_iteration}`, `tests_passing: {tests_passing}` (extract from final QA status line), `files_changed: {files_changed}` (count from the story File List section via targeted read), `bugs_fixed: [{one-line description per fix-loop iteration}]`. Write the story `actual` block per **Story Actuals** below. Announce: "Story {story_key} — DONE after {fix_iteration} fix iteration(s)."
 
 ---
 
 ## Story Actuals (HARD RULE — written at `done`)
 
-When a story reaches `done`, write its `actual` block to the story entry in `{status_file}` with all four metrics (see `references/metrics-contract.md`):
+When a story reaches `done`, write its `actual` block to the story entry in `{status_active}` with all four metrics (see `references/metrics-contract.md`):
 
 - `elapsed_hours` = round((`date +%s` − `{story_start_ts}`) / 3600, 2) — measured compute (wall-clock) hours (OS-aware — on a PowerShell harness use `[DateTimeOffset]::UtcNow.ToUnixTimeSeconds()` for the end timestamp; see `references/metrics-contract.md` → Recording timestamps).
 - `man_hours` = `base × fix_factor`, where `base` = {simple: 6, standard: 18, complex: 36} by `classification`, and `fix_factor` = min(1.0 + `fix_iterations` × 0.25, 2.0). Round to 1 decimal.

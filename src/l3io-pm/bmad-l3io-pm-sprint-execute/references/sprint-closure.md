@@ -23,7 +23,7 @@ Spawn subagent:
 ```
 Load config from: {config_file}
 Load project context from: {context_file} (if it exists)
-Sprint status file: {status_file}
+Sprint status file: {status_active}
 Target epic: {target_epic}, Sprint: {target_sprint}
 Invoke skill: bmad-retrospective
 Execute the full sprint retrospective scoped to Epic {target_epic}, Sprint {target_sprint}.
@@ -33,7 +33,7 @@ Print when done: DONE — Retro: [path], Action items: N | BLOCKED: [reason]
 
 Record `{retro_file_path}` and `{retro_action_count}`. If the status line contains any grave concerns (critical blockers, significant risks), surface them directly to `{user_name}` — do not bury them in the report alone.
 
-Update retro status to `done` in `{status_file}`.
+Update retro status to `done` in `{status_active}`.
 
 ---
 
@@ -83,7 +83,7 @@ Record `{adv_critical}`, `{adv_high}`, `{adv_medium}`, `{adv_low}`.
 
 ## Step 6 — Red-Team Review
 
-Check if `bmad-l3io-sec-agent-redteam` is installed (look for `.claude/skills/bmad-l3io-sec-agent-redteam/SKILL.md` or `.claude/commands/bmad-l3io-sec-agent-redteam.md`). If absent: announce "bmad-l3io-sec-agent-redteam not installed — red-team phase skipped", record the skip in `{status_file}`, and continue to Step 7.
+Check if `bmad-l3io-sec-agent-redteam` is installed (look for `.claude/skills/bmad-l3io-sec-agent-redteam/SKILL.md` or `.claude/commands/bmad-l3io-sec-agent-redteam.md`). If absent: announce "bmad-l3io-sec-agent-redteam not installed — red-team phase skipped", record the skip in `{status_active}`, and continue to Step 7.
 
 If present, spawn subagent:
 ```
@@ -208,9 +208,11 @@ For each batch (per iteration):
 For each item in `{defer_items}` (process once, not per iteration):
 1. Spawn `bmad-create-story` to create a backlog story for the issue
 2. Record the created story key in `{deferred_story_keys}`
-3. Append to the epic's `backlog:` array in `{status_file}` (create the array under the epic node if absent):
+3. Append to the consolidated `backlog:` list at the top level of `{status_backlog}` (create the list if absent), tagged with `epic`/`sprint` per `references/status-files.md`:
    ```yaml
    - key: {new_story_key}
+     epic: '{target_epic_padded}'
+     sprint: '{target_sprint_padded}'
      title: {issue_title}
      source: {review_phase} ({finding_id})   # e.g. adversarial (ADV-L-01), red-team (RT-L-03), ux-review (UX-L02)
      severity: Low
@@ -268,7 +270,7 @@ If `{cleanup_script}` does not exist or is empty, skip this step.
 
 Record end timestamp: run `date +%s` (OS-aware — on a PowerShell harness use `[DateTimeOffset]::UtcNow.ToUnixTimeSeconds()`; see `references/metrics-contract.md` → Recording timestamps), subtract `{sprint_start_ts}`, bind `{actual_elapsed_min}` = round(elapsed seconds / 60), then bind `{elapsed_hours}` = round(`{actual_elapsed_min}` / 60, 1).
 
-Compute `{actual_man_hours}` from the completed sprint stories in `{status_file}` (targeted read of `classification` and `completion_evidence.fix_iterations` only):
+Compute `{actual_man_hours}` from the completed sprint stories in `{status_active}` (targeted read of `classification` and `completion_evidence.fix_iterations` only):
 - Base hours per classification: Simple = 6, Standard = 18, Complex = 36
 - Per-story fix factor = min(1.0 + (`fix_iterations` × 0.25), 2.0)
 - Per-story man-hours = base × fix_factor
@@ -278,7 +280,7 @@ Compute `{actual_man_hours}` from the completed sprint stories in `{status_file}
 - If `{runtime}` == `claude`: compute **exactly** using the token/cost capture procedure with `{sprint_start_ts}` as the start (the whole-sprint transcript window, including closure subagents). Bind `{actual_tokens_k}` and `{actual_cost}` (format `$X.XX`).
 - If `{runtime}` == `other`: read the runtime's usage source if one exists; otherwise bind `{actual_tokens_k}` = `N/A` and `{actual_cost}` = `N/A`. **Never guess.**
 
-Update the sprint node in `{status_file}`:
+Update the sprint node in `{status_active}`:
 - All sprint stories: verified `done`
 - `closed: {date}`
 - `retrospective: {retro_file_path}`
@@ -320,7 +322,7 @@ DONE — Stories: {story_count}, Issues resolved: {total_resolved}, Issues defer
 
 Update the project-level calibration file so future sprint estimates learn from this sprint's plan-vs-actual delta.
 
-**Compute sprint-level ratios** (read `estimate` and `actual` from the sprint node in `{status_file}`):
+**Compute sprint-level ratios** (read `estimate` and `actual` from the sprint node in `{status_active}`):
 - `{cal_written_time_mid}` = (`estimate.time_hours_low` + `estimate.time_hours_high`) / 2
 - `{cal_written_man_mid}` = (`estimate.man_hours_low` + `estimate.man_hours_high`) / 2
 - `{cal_written_tokens_mid}` = (`estimate.tokens_k_min` + `estimate.tokens_k_max`) / 2
@@ -330,7 +332,7 @@ Update the project-level calibration file so future sprint estimates learn from 
 - `{sprint_token_ratio}` = round(`actual.tokens_k` / `{cal_written_tokens_mid}`, 3) — **skip if `actual.tokens_k` is `N/A`** or the denominator is 0 (never feed a guessed or N/A value into calibration)
 - `{sprint_cost_ratio}` = round(`actual.cost` / `{cal_written_cost_mid}`, 3) — **skip if `actual.cost` is `N/A`** or the denominator is 0
 
-**Compute per-classification man-hours ratios** (read `classification` and `completion_evidence.fix_iterations` from each story node in `{status_file}`; bases: simple=6, standard=18, complex=36):
+**Compute per-classification man-hours ratios** (read `classification` and `completion_evidence.fix_iterations` from each story node in `{status_active}`; bases: simple=6, standard=18, complex=36):
 - For each story: `fix_factor` = min(1.0 + `fix_iterations` × 0.25, 2.0); `story_ratio` = `fix_factor` (actual man-hours = base × fix_factor; predicted = base × 1.0)
 - For each class c ∈ {simple, standard, complex}: `{class_ratio_c}` = round(avg(`story_ratio`) across done stories of class c, 3) — omit if no stories of that class
 

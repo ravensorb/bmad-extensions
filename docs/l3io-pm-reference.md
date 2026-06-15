@@ -54,7 +54,7 @@ On activation, the skill:
 
 1. Resolves the workflow block from `customize.toml` (base → team → user)
 2. Loads config from `_bmad/config.yaml` and `_bmad/config.user.yaml`
-3. Reads `sprint-status.yaml` — extracts story keys and statuses only, never file contents
+3. Reads the sprint status (the active + backlog split files; a legacy single `sprint-status.yaml` is auto-split on first run) — extracts story keys and statuses only, never file contents
 4. If invoked headlessly (by `bmad-l3io-pm-epic-execute`), uses the provided epic number, sprint number, and story keys directly. Otherwise, identifies the first in-progress or backlog epic with non-done stories and confirms with the user
 5. Computes pre-start estimates automatically
 
@@ -116,7 +116,7 @@ On activation, the skill:
 
 1. Resolves the workflow block from `customize.toml`
 2. Loads config and resolves all paths including `arch_file` and `prd_file`
-3. Reads `sprint-status.yaml` — extracts epic and story keys with statuses only
+3. Reads the sprint status (the active + backlog split files; a legacy single `sprint-status.yaml` is auto-split on first run) — extracts epic and story keys with statuses only
 4. Presents sprint grouping proposal and waits for user confirmation
 5. Computes pre-start estimates across all sprints plus epic closure overhead
 
@@ -188,7 +188,9 @@ All paths use zero-padded two-digit epic/sprint numbers.
 
 | Path | Description |
 |------|-------------|
-| `{implementation_artifacts}/sprint-status.yaml` | Story and epic status — single source of truth |
+| `{implementation_artifacts}/sprint-status-active.yaml` | Story and epic status for in-progress epics — part of the single source of truth |
+| `{implementation_artifacts}/sprint-status-backlog.yaml` | Not-yet-started work plus the consolidated deferred-issue backlog — part of the single source of truth |
+| `{implementation_artifacts}/sprint-status-archived.yaml` | Done epics, moved here wholesale at epic close — part of the single source of truth |
 | `{implementation_artifacts}/epic-XX/sprint-YY/stories/{story-key}.md` | Story file |
 | `{implementation_artifacts}/epic-XX/sprint-YY/closure/` | Sprint closure outputs (retro, adversarial, etc.) |
 | `{implementation_artifacts}/epic-XX/sprint-YY/tests/` | Sprint-scoped QA evidence |
@@ -204,7 +206,7 @@ Types: `retro`, `clean-release`, `adversarial`, `redteam`, `ux-review`, `arch-dr
 
 ## Status File Schema
 
-`sprint-status.yaml` tracks story and epic lifecycle. Only the orchestrator writes to it; subagents pass paths but do not write directly.
+The sprint status tracks story and epic lifecycle, split across three files in `{implementation_artifacts}/`: `sprint-status-active.yaml` (in-progress epics), `sprint-status-backlog.yaml` (not-yet-started work plus the consolidated top-level deferred-issue `backlog:` list, each item tagged with `epic` and `sprint` keys), and `sprint-status-archived.yaml` (done epics, moved here wholesale at epic close). Placement granularity is epic + sprint — stories always travel inside their owning sprint node, and archiving happens only at epic close. The placement rule, node-move operations, and read/auto-fallback procedure are defined in each PM skill's `references/status-files.md`. Only the orchestrator writes to these files; subagents pass paths but do not write directly. The schema below shows the per-epic node shape that lives in whichever of the three files currently holds that epic.
 
 Story status lifecycle:
 
@@ -284,7 +286,7 @@ epics:
     resolution: 'How it was fixed.'
 ```
 
-To upgrade a legacy `sprint-status.yaml` that is missing these fields, run `/bmad-l3io-util-cleanup migrate-schema`.
+To upgrade a sprint status file that is missing these fields, run `/bmad-l3io-util-cleanup migrate-schema`. To split a legacy single `sprint-status.yaml` into the active/backlog/archived three-file layout (the original is preserved as `sprint-status.yaml.legacy`), run `/bmad-l3io-util-cleanup split-status`; the PM skills also auto-split a legacy file on first run.
 
 ## Estimation Calibration
 

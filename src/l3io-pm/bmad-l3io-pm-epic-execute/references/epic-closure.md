@@ -26,7 +26,7 @@ Spawn subagent:
 ```
 Load config from: {config_file}
 Load project context from: {context_file} (if it exists)
-Sprint status file: {status_file}
+Sprint status file: {status_active}
 Target epic: {target_epic}
 Sprint summaries (cross-sprint context): {sprint_summaries}
 Invoke skill: bmad-retrospective
@@ -37,13 +37,13 @@ Print when done: DONE — Retro: [path], Action items: N | BLOCKED: [reason]
 
 Record `{epic_retro_file}` and `{epic_retro_action_count}`. Surface any grave concerns directly to `{user_name}`.
 
-Update epic retrospective to `done` in `{status_file}`.
+Update epic retrospective to `done` in `{status_active}`.
 
 ---
 
 ## Step 4 — Parallel Closure Batch
 
-Before launching the parallel batch, verify: no shared output file paths, no concurrent `{status_file}` writes, no unresolved blocker from Step 3. If any check is uncertain, run sequentially.
+Before launching the parallel batch, verify: no shared output file paths, no concurrent `{status_active}` writes, no unresolved blocker from Step 3. If any check is uncertain, run sequentially.
 
 Spawn the following subagents in parallel (up to `effective_parallel_subagents` = min(`{max_parallel_subagents}`, 4)):
 
@@ -248,9 +248,11 @@ For each item in `{doc_update_items}` (process once, not per iteration):
 For each item in `{defer_items}` (process once, not per iteration):
 1. Spawn `bmad-create-story` to create a backlog story
 2. Record the story key in `{deferred_story_keys}`
-3. Append to the epic's `backlog:` array in `{status_file}` (create the array under the epic node if absent):
+3. Append to the consolidated `backlog:` list at the top level of `{status_backlog}` (create the list if absent), tagged with `epic`/`sprint` per `references/status-files.md` (use `sprint: ''` for an epic-level deferral):
    ```yaml
    - key: {new_story_key}
+     epic: '{target_epic_padded}'
+     sprint: ''
      title: {issue_title}
      source: {review_phase} ({finding_id})   # e.g. adversarial (ADV-L-01), red-team (RT-L-03), ux-review (UX-L02), arch-drift (ARCH-DM-01)
      severity: Low
@@ -288,14 +290,14 @@ If `{epic_cleanup_script}` does not exist or is empty, skip this step.
 
 Record end timestamp: run `date +%s` (OS-aware — on a PowerShell harness use `[DateTimeOffset]::UtcNow.ToUnixTimeSeconds()`; see `references/metrics-contract.md` → Recording timestamps), subtract `{epic_start_ts}`, bind `{epic_actual_elapsed_min}` = round(elapsed seconds / 60), then bind `{epic_elapsed_hours}` = round(`{epic_actual_elapsed_min}` / 60, 1).
 
-Compute `{epic_actual_man_hours}` by reading `actual.man_hours` from each sprint node in `{status_file}` (targeted read only):
+Compute `{epic_actual_man_hours}` by reading `actual.man_hours` from each sprint node in `{status_active}` (targeted read only):
 - `{epic_actual_man_hours}` = round(sum of sprint `actual.man_hours` values + 12, 1)   ← 12h = epic closure overhead (epic retro, functional completeness, arch drift)
 
 **Token & cost actuals (HARD RULE — see `references/metrics-contract.md`):**
 - If `{runtime}` == `claude`: compute **exactly** using the token/cost capture procedure with `{epic_start_ts}` as the start (the whole-epic transcript window, covering all sprints and epic closure). Bind `{epic_actual_tokens_k}` and `{epic_actual_cost}` (format `$X.XX`). Capturing from the epic window is preferred to summing sprint values (it covers epic-closure subagents and avoids gaps); if the transcript is unreadable, fall back to summing the sprints' numeric `actual.tokens_k` / `actual.cost`, and bind `N/A` if no sprint reported a numeric value.
 - If `{runtime}` == `other`: sum the sprints' numeric `actual.tokens_k` / `actual.cost` if any exist; otherwise bind `{epic_actual_tokens_k}` = `N/A` and `{epic_actual_cost}` = `N/A`. **Never guess.**
 
-Update the epic node in `{status_file}`:
+Update the epic node in `{status_active}`:
 - `status: done`
 - All epic stories: verified `done`
 - `closed: {date}`
@@ -335,7 +337,7 @@ Epic Orchestrator: Epic {target_epic} — {epic_title} — CLOSED — {date}
 
 Update the project-level calibration file with epic-level plan-vs-actual data.
 
-**Compute epic-level ratios** (read `estimate` and `actual` from the epic node in `{status_file}`):
+**Compute epic-level ratios** (read `estimate` and `actual` from the epic node in `{status_active}`):
 - `{cal_epic_time_mid}` = (`estimate.time_hours_low` + `estimate.time_hours_high`) / 2
 - `{cal_epic_man_mid}` = (`estimate.man_hours_low` + `estimate.man_hours_high`) / 2
 - `{cal_epic_tokens_mid}` = (`estimate.tokens_k_min` + `estimate.tokens_k_max`) / 2
@@ -364,3 +366,14 @@ Update the project-level calibration file with epic-level plan-vs-actual data.
     complex:  { man_hours_ratio: {class_ratio_complex},  count: {total_complex_count} }
 ```
 Keep only the most recent 10 entries. Recompute all weighted rolling averages — `time_ratio`, `man_hours_ratio`, `token_ratio`, `cost_ratio`, and per-classification ratios — using the same decay=0.8 logic as sprint Step 12 (and the same rule: `token_ratio`/`cost_ratio` average over only the entries that carry one, leaving the rolling value at 1.0 when none do). Write the updated `pm-calibration.yaml`.
+
+---
+
+## Step 10 — Archive the Epic
+
+All sign-off writes (Step 8) and calibration reads (Step 9) are now complete against the
+epic node in `{status_active}`. As the final action, **move the epic node** (its full
+subtree — all done sprints and stories) from `{status_active}` to `{status_archived}` per
+`references/status-files.md` → Move operations, and remove any leftover shell for this epic
+from `{status_backlog}`. Re-parse `{status_active}` and `{status_archived}` to confirm both
+are valid YAML and the epic now appears only in `{status_archived}`.

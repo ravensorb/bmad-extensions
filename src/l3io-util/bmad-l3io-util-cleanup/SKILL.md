@@ -7,10 +7,11 @@ description: Migration utilities. Use when the user needs to reorganize legacy f
 
 ## Overview
 
-Migration utilities for BMad artifact housekeeping. Two modes:
+Migration utilities for BMad artifact housekeeping. Three modes:
 
 - **Default (layout cleanup):** Reorganizes flat artifact outputs into a structured epic/sprint folder hierarchy with zero-padded names, reconciles file references, verifies state consistency, and produces a summary report. Run once to bring a legacy project into the standard layout.
 - **`migrate-schema`:** Upgrades an existing `sprint-status.yaml` to the current field schema — adds missing fields with zero/empty defaults, never overwrites existing values.
+- **`split-status`:** Splits a single `sprint-status.yaml` into the three-file layout the PM skills now use — `sprint-status-active.yaml`, `sprint-status-backlog.yaml`, `sprint-status-archived.yaml` — partitioning every epic/sprint by status. One-time migration; the original is preserved as `sprint-status.yaml.legacy`. (Run `migrate-schema` first if the file predates the current field schema.)
 
 **One-time use (layout cleanup):** Designed to be run once per project. Running again after a successful cleanup produces zero moves (everything already placed) or conflicts (for new flat files added since the first run).
 
@@ -22,6 +23,8 @@ Migration utilities for BMad artifact housekeeping. Two modes:
 ## On Activation
 
 If the user passes `migrate-schema` as an argument, skip to [Schema Migration Mode](#schema-migration-mode).
+
+If the user passes `split-status` as an argument, skip to [Split Status Mode](#split-status-mode).
 
 If the user passes `setup`, `configure`, or `install` as an argument — or if `{project-root}/_bmad/config.yaml` does not have an `l3io-util` section — load `assets/module-setup.md` to register the module first, then continue.
 
@@ -284,4 +287,104 @@ FAILED — Written file is not valid YAML. Original restored. Parse error: {erro
 DONE — Schema migration complete.
   Fields added: {field_count}
   File: {status_file}
+```
+
+---
+
+## Split Status Mode
+
+Invoked with `split-status` argument. Splits a single `sprint-status.yaml` into the
+three-file layout the PM skills (`bmad-l3io-pm-sprint-execute`, `bmad-l3io-pm-epic-execute`)
+now read and write. One-time, one-way migration. The original is never deleted — it is
+renamed to `sprint-status.yaml.legacy` as the rollback. All [Safety Rules](#safety-rules)
+apply: dry-run first, never overwrite an existing destination, preserve node contents
+exactly.
+
+This is the same partition the PM skills perform automatically on first run when they find
+only a legacy file (see their `references/status-files.md`); running it here is the explicit,
+reviewed path.
+
+### Target files
+
+In `{implementation_artifacts}/`:
+- `sprint-status-active.yaml` — `epics:` with `status: in-progress`.
+- `sprint-status-backlog.yaml` — `epics:` = not-yet-started work; `backlog:` = consolidated deferred-issue list.
+- `sprint-status-archived.yaml` — `epics:` with `status: done`.
+
+### Placement rule (partition)
+
+Granularity is **epic + sprint**; stories always travel inside their owning sprint node.
+
+| Source node | Destination |
+|---|---|
+| Epic with `status: done` | `archived` — whole epic subtree, unchanged. |
+| Epic with `status: in-progress` | `active` — epic node carrying only its `in-progress` and `done` sprints (with all their stories). |
+| Backlog (not-yet-started) sprints of an in-progress epic | `backlog` — under an epic **shell** (`id`, `title`, `goal`, and a `sprints:` list of just those sprints). |
+| Epic with `status: backlog` | `backlog` — whole epic subtree, unchanged. |
+| Each item in any epic's nested `backlog:` array | `backlog` top-level `backlog:` list, flattened, each tagged with `epic:` (the owning epic id) and `sprint:` (the owning sprint id if the item names one, else `''`). |
+
+A node lands in exactly one file. Files with no content are not written (a missing file is
+treated as empty by the readers).
+
+### Steps
+
+**Step S1 — Load config and locate status file**
+
+Load config (same as layout cleanup). Resolve `{status_file}` = `{implementation_artifacts}/sprint-status.yaml`. If absent, print:
+```
+sprint-status.yaml not found at {status_file} — nothing to split.
+```
+and exit. If any of the three target files already exists, print a conflict warning and exit
+(the split has likely already been run); do not overwrite.
+
+**Step S2 — Partition**
+
+Parse `{status_file}`. Walk every epic, sprint, and nested `backlog:` array and assign each
+node to `active`, `backlog`, or `archived` per the placement rule. Build the three in-memory
+documents plus the flattened consolidated `backlog:` list.
+
+**Step S3 — Dry-run table**
+
+```
+SPLIT STATUS DRY RUN — {status_file}
+================================================================
+Target file                       Epics  Sprints  Stories  Backlog
+----------------------------------------------------------------
+sprint-status-active.yaml           {a_e}   {a_s}    {a_st}      —
+sprint-status-backlog.yaml          {b_e}   {b_s}    {b_st}   {bl_count}
+sprint-status-archived.yaml         {r_e}   {r_s}    {r_st}      —
+================================================================
+Original preserved as: sprint-status.yaml.legacy
+No node contents are modified — placement only.
+```
+
+**Step S4 — Confirm**
+
+Ask: "Proceed with the split? The original is kept as sprint-status.yaml.legacy."
+
+If no: print `Split cancelled — no changes made.` and exit.
+
+**Step S5 — Write**
+
+Write each non-empty target document to its file. Then rename `{status_file}` →
+`{status_file}.legacy` (rename, never delete).
+
+**Step S6 — Verify**
+
+Re-parse each written target file as YAML. Confirm every epic/sprint/story from the original
+appears in exactly one target file and no node was dropped or duplicated. If any check fails,
+restore by renaming `.legacy` back to `sprint-status.yaml`, remove the partial target files,
+and print:
+```
+FAILED — {reason}. Original restored to sprint-status.yaml; target files removed.
+```
+
+**Step S7 — Report**
+
+```
+DONE — Split complete.
+  Active:   {a_e} epics / {a_s} sprints / {a_st} stories
+  Backlog:  {b_e} epics / {b_s} sprints / {b_st} stories / {bl_count} deferred items
+  Archived: {r_e} epics / {r_s} sprints / {r_st} stories
+  Original: {status_file}.legacy
 ```
