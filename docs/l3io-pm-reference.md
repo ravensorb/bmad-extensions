@@ -87,7 +87,7 @@ Stories run through phases sequentially (by default). Parallel execution is allo
 | Development | 2b | `bmad-dev-story` subagent implements all tasks. Story status set to `in-progress`. Verified complete when all task checkboxes are checked and Dev Agent Record is populated |
 | Code Review | 2c | `bmad-code-review` subagent reviews all changed files. Status set to `review`. Critical/High findings route immediately to Fix Loop |
 | QA | 2d | `bmad-qa-generate-e2e-tests` subagent generates and runs tests. Test evidence written to `{test_output_dir}`. All tests must pass before story is marked `done`. Failures route to Fix Loop |
-| Fix Loop | 2e | `bmad-dev-story` subagent addresses each issue. QA re-runs after each fix. Max 3 iterations before the orchestrator halts and presents options to the user |
+| Fix Loop | 2e | `bmad-dev-story` subagent addresses each issue (Critical/High/Medium auto-fixed without per-item prompts). QA re-runs after each fix. Max 10 iterations before the orchestrator halts and presents options to the user |
 
 ### Sprint closure phases
 
@@ -288,17 +288,35 @@ epics:
 
 To upgrade a sprint status file that is missing these fields, run `/bmad-l3io-util-cleanup migrate-schema`. To split a legacy single `sprint-status.yaml` into the active/backlog/archived three-file layout (the original is preserved as `sprint-status.yaml.legacy`), run `/bmad-l3io-util-cleanup split-status`; the PM skills also auto-split a legacy file on first run.
 
+## Metrics Contract (estimates & actuals)
+
+Every planning point and every closeout — at **story, sprint, epic, and retrospective** level — records both an `estimate` and an `actual` for all **four** metrics: man-hours, compute (AI wall-clock) hours, tokens, and token cost. This is a hard rule: a sprint or epic does not sign off with any estimate block, actual block, or individual metric missing. The authoritative procedure lives in each PM skill's `references/metrics-contract.md`.
+
+**Runtime-aware token/cost capture.** How the token and cost *actuals* are captured depends on the runtime, detected via the `CLAUDECODE=1` environment variable:
+
+- **Under Claude** — tokens and cost are captured **exactly** from the session transcript `usage` fields (the run is scoped by session id, covering the orchestrator and all subagent transcripts). Never estimated.
+- **Under other runtimes** (e.g. Copilot) — if the runtime exposes a usage source it is read; otherwise tokens and cost are recorded as **`N/A`**, never guessed or back-filled. Seeing `N/A` for tokens/cost under a non-Claude runtime is expected behavior, not an error.
+
+Compute hours (measured wall-clock) and man-hours (a modeled traditional-dev-equivalent formula) are always captured in both runtimes.
+
 ## Estimation Calibration
 
 Sprint-execute learns from plan-vs-actual deltas and applies corrections to future estimates. No configuration required — it activates automatically once enough history exists.
 
 ### How it works
 
-At each sprint close (Step 12), the skill computes:
-- `time_ratio` = `actual.elapsed_hours` ÷ midpoint of written estimate
-- `man_hours_ratio` = `actual.man_hours` ÷ midpoint of written estimate
+At each sprint close (Step 12), and again at epic close, the skill computes four ratios, each = actual ÷ midpoint of the written estimate:
+
+- `time_ratio` — from `actual.elapsed_hours`
+- `man_hours_ratio` — from `actual.man_hours`
+- `token_ratio` — from `actual.tokens_k`
+- `cost_ratio` — from `actual.cost`
+
+It also computes **per-classification man-hours ratios** (separate factors for simple / standard / complex stories), so the model corrects each story class independently.
 
 These are appended to `{project-root}/_bmad/pm-calibration.yaml`. At sprint 4 and beyond, the pre-start estimate multiplies the formula baseline by the weighted rolling average of past ratios (exponential decay, weight = 0.8^n, most recent sprint = 1.0).
+
+**`token_ratio` and `cost_ratio` only accumulate from runs with real token/cost actuals** (Claude runs). When a run's token/cost actual was `N/A` (non-Claude runtime, or unreadable transcript), that entry is skipped for those two ratios — a guessed value is never fed into calibration. `time_ratio` and `man_hours_ratio` accumulate from every run.
 
 The system is self-correcting: if calibration overshoots (estimates become too high), the ratio drops below 1.0 and pulls the factor back down on subsequent sprints.
 
@@ -312,11 +330,19 @@ last_updated: '2026-05-28'
 sprints_sampled: 4
 time_ratio: 1.23          # applied to time_hours estimates
 man_hours_ratio: 0.95     # applied to man_hours estimates
+token_ratio: 1.10         # applied to token estimates (Claude runs only)
+cost_ratio: 1.10          # applied to cost estimates (Claude runs only)
+by_classification:        # per-class man-hours factors
+  simple:   { man_hours_ratio: 1.05, count: 6 }
+  standard: { man_hours_ratio: 0.92, count: 9 }
+  complex:  { man_hours_ratio: 1.30, count: 3 }
 history:
 - id: E01-S01
   date: '2026-05-15'
   time_ratio: 1.15
   man_hours_ratio: 0.92
+  token_ratio: 1.08       # omitted for the entry when actual tokens were N/A (non-Claude run)
+  cost_ratio: 1.08        # omitted likewise
   story_mix: { simple: 2, standard: 3, complex: 1 }
 ```
 

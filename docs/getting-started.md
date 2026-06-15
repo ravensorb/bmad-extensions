@@ -114,6 +114,8 @@ Shall I begin?
 
 Confirm to start (interactive mode requires explicit `yes` before any subagent runs). The orchestrator delegates each story phase to a fresh subagent and reports progress. At closure, findings are auto-classified — Critical/High/Medium and undocumented drift route to the closure fix loop (auto-fix, max 10 iterations); Low findings auto-defer to backlog as new stories. The sprint signs off once all Critical/High/Medium issues are resolved. You are only prompted again if a fix loop (per-story or closure) hits its 10-iteration cap.
 
+At sign-off the orchestrator records **actuals** alongside the estimate for all four metrics — compute (wall-clock) hours, man-hours, tokens, and token cost. Under Claude, tokens and cost are captured exactly from the session transcript; under other runtimes (e.g. Copilot) they show as `N/A` rather than a guess. From the fourth sprint onward, estimates self-calibrate from this plan-vs-actual history — no setup needed. See the [PM reference](l3io-pm-reference.md#metrics-contract-estimates--actuals) for the full metrics contract and calibration details.
+
 ## First Epic Run
 
 Invoke:
