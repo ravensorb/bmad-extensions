@@ -32,7 +32,7 @@ src/
 | `src/l3io-pm/bmad-l3io-pm-sprint-execute/` | Full sprint lifecycle: story prep → dev → code review → QA → fix loop per story, then closure reviews |
 | `src/l3io-pm/bmad-l3io-pm-epic-execute/` | Full epic lifecycle: sprint grouping, sprint execution loop, then epic-level closure reviews |
 | `src/l3io-sec/bmad-l3io-sec-agent-redteam/` | Red team security analysis — five threat lenses (EXT/INS/CHA/ABU/DAR) + AI poisoning cross-cut, live cloud/platform best practices research |
-| `src/l3io-util/bmad-l3io-util-cleanup/` | Artifact migration utilities — reorganizes flat artifact files into `epic-XX/sprint-YY` folder structure; `migrate-schema` mode upgrades `sprint-status.yaml` to the current field schema; `split-status` mode splits it into the three-file active/backlog/archived layout |
+| `src/l3io-util/bmad-l3io-util-cleanup/` | Artifact migration & housekeeping utilities — reorganizes flat artifact files into `epic-XX/sprint-YY` folder structure; `migrate-schema` mode upgrades `sprint-status.yaml` to the current field schema; `split-status` mode splits it into the three-file active/backlog/archived layout; `harvest-debt` mode sweeps `bmad-defer:` deferred-shortcut code markers into the consolidated backlog |
 
 ## Commands
 

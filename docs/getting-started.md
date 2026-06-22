@@ -190,3 +190,11 @@ To split a legacy single `sprint-status.yaml` into the active/backlog/archived t
 ```
 
 The PM skills also auto-split a legacy single `sprint-status.yaml` on first run, so this explicit step is optional.
+
+To sweep the source tree for `bmad-defer:` deferred-shortcut markers and harvest them into the backlog (report-only until you confirm the merge):
+
+```
+/bmad-l3io-util-cleanup harvest-debt
+```
+
+A `bmad-defer:` marker is a one-line comment a developer (or a dev subagent) leaves on a deliberate simplification — `// bmad-defer: <what was simplified>. ceiling: <limit>. upgrade: <trigger>.` — recognized across every common language's comment syntax. Harvesting turns those crumbs into tracked backlog items so they don't rot silently; markers that name no upgrade trigger are flagged at a higher severity. Sprint closure also harvests the markers in each sprint's changed files automatically, so this command is for whole-tree or on-demand sweeps.

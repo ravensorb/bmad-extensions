@@ -96,7 +96,7 @@ All closure outputs go to `{sprint_root_dir}/closure/`. The closure sign-off req
 | Step | Phase | What happens |
 |------|-------|--------------|
 | 3 | Retrospective | `bmad-retrospective` subagent writes retro to `closure/epic-XX-sprint-YY-retro-{date}.md` |
-| 4 | Clean Release Review | Inline analysis — checks for YAGNI violations, added scope, premature abstractions |
+| 4 | Clean Release Review | Inline analysis — flags added scope and over-engineering as a concrete `{file}:{line} — {tag} {cut}` list (tags: delete / stdlib / native / yagni / shrink) with a removable-line count; never flags validation, error handling, security, or accessibility. Also harvests `bmad-defer:` shortcut markers in the sprint's changed files straight to the backlog |
 | 5 | Adversarial Review | `bmad-review-adversarial-general` subagent reviews the sprint increment as a whole |
 | 6 | Red-Team Review | `bmad-l3io-sec-agent-redteam` subagent (skipped gracefully if not installed) |
 | 7 | UX Review | `bmad-ux-review` subagent (conditional — skipped if no UX specs found and user opts out) |

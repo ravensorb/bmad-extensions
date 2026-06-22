@@ -39,7 +39,7 @@ Update retro status to `done` in `{status_active}`.
 
 ## Step 4 — Clean Release Review
 
-Spawn subagent to verify the sprint implemented exactly what was specified — no more, no less:
+Spawn subagent to verify the sprint implemented exactly what was specified — no more, no less — and to produce a concrete, line-level cut list:
 ```
 Load config from: {config_file}
 Load project context from: {context_file} (if it exists)
@@ -54,11 +54,23 @@ For each story in this sprint, read its acceptance criteria and the File List of
 3. Are there premature abstractions or unnecessary complexity beyond what the stories required?
 4. Are there simplification opportunities that would not reduce functionality?
 
+Report each finding as a concrete, actionable cut — `{file}:{line} — {tag} {what to cut}. {leaner replacement}.` — using exactly one of these tags:
+- delete — unused code, dead branches, or speculative features no acceptance criterion requires
+- stdlib — a hand-rolled reimplementation of something the language standard library already provides
+- native — a dependency or custom layer duplicating a platform/framework capability already available
+- yagni — an abstraction (interface, factory, config knob, generic) with exactly one implementation/caller
+- shrink — identical behavior achievable in materially fewer lines
+NEVER flag as a cut: validation at trust boundaries, error/data-loss handling, security controls, accessibility, or anything an acceptance criterion explicitly requires — these are out of scope for this review even when they look heavy.
+End the report with the total count of removable lines, or the single line "Lean already. Ship." if there are no cuts.
+Assign severity by leanness impact: a whole speculative subsystem or new dependency that should not exist = High; a premature abstraction or duplicated-platform layer = Medium; a local shrink/tidy = Low.
+
+Also scan the changed files for `bmad-defer:` shortcut markers — `<comment-leader> bmad-defer: <what>. ceiling: <limit>. upgrade: <trigger>.` Each marker is an intentional, recorded deferral, NOT a cut — do not flag the shortcut itself. List each as: DEFER {file}:{line} — {what} (upgrade: {trigger}, or NO-TRIGGER if none stated). These route to the backlog in triage, not to the fix loop.
+
 Write a findings report to: {closure_output_dir}/epic-{target_epic_padded}-sprint-{target_sprint_padded}-clean-release-{date}.md
-Print when done: DONE — Findings: N (Critical: N, High: N, Medium: N) | BLOCKED: [reason]
+Print when done: DONE — Findings: N (Critical: N, High: N, Medium: N, Low: N), Removable lines: N, Defer markers: N | BLOCKED: [reason]
 ```
 
-Record `{clr_critical}` and `{clr_high}` from the status line.
+Record `{clr_critical}` and `{clr_high}` from the status line. Also record `{clr_defer_count}` (the `bmad-defer:` markers found): in Step 9 triage, route every deferral marker to `{defer_items}` (backlog), independent of severity — a recorded deferral is accepted debt, not a closure blocker.
 
 ---
 
@@ -187,6 +199,7 @@ Print the list. No other output.
 - High → `{fix_now_items}` (must resolve before sprint closes)
 - Medium → `{fix_now_items}` (must resolve before sprint closes — same quality bar as Critical/High)
 - Low → `{defer_items}` (create backlog story, do not fix this sprint)
+- `bmad-defer:` markers ({clr_defer_count}) → `{defer_items}` (already-recorded, intentional debt — straight to backlog, never the fix loop, regardless of count)
 - Undocumented drift → `{fix_now_items}` (fix code; if implementation is intentional, document rationale in the affected story's Dev Agent Record instead)
 
 Announce the auto-classification to `{user_name}` (informational, no confirmation requested):
@@ -205,7 +218,7 @@ For each batch (per iteration):
    c. If verification passes, remove from `{fix_now_items}`. If it fails, leave in the list for the next iteration.
 2. Increment `{closure_fix_iteration}`.
 
-For each item in `{defer_items}` (process once, not per iteration):
+For each **review-finding** item in `{defer_items}` (process once, not per iteration):
 1. Spawn `bmad-create-story` to create a backlog story for the issue
 2. Record the created story key in `{deferred_story_keys}`
 3. Append to the consolidated `backlog:` list at the top level of `{status_backlog}` (create the list if absent), tagged with `epic`/`sprint` per `references/status-files.md`:
@@ -219,6 +232,19 @@ For each item in `{defer_items}` (process once, not per iteration):
      status: backlog
      description: {one-sentence description of the issue}
    ```
+
+For each **`bmad-defer:` marker** item in `{defer_items}` (process once): do **not** spawn `bmad-create-story` — a marker is already self-describing in code. Append directly to the same `backlog:` list, deduping by `{file}:{line}` so re-running closure never double-records a marker:
+   ```yaml
+   - key: {new_story_key}                  # next free DEBT-NN across the backlog
+     epic: '{target_epic_padded}'
+     sprint: '{target_sprint_padded}'
+     title: {what}                         # the marker's first clause
+     source: 'clean-release (code-marker {file}:{line})'
+     severity: Low                         # Medium when the marker named NO upgrade trigger (rots silently)
+     status: backlog
+     description: '{what} (ceiling: {ceiling | none}; upgrade: {upgrade | NONE — no revisit trigger}).'
+   ```
+This is the inline, sprint-scoped twin of `bmad-l3io-util-cleanup harvest-debt` (which sweeps the whole tree on demand); both write the same backlog shape under the same dedupe key, so running either — or both — converges rather than duplicates.
 
 **Only halt and prompt `{user_name}` if `{closure_fix_iteration}` ≥ 10 and `{fix_now_items}` is non-empty:**
 ```

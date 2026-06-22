@@ -84,6 +84,8 @@ Load project context from: {context_file} (if it exists)
 Story file: {story_file_path}
 Invoke skill: bmad-dev-story
 All tasks and subtasks must be checked [x] before finishing.
+Prefer the smallest solution that satisfies the acceptance criteria: skip unneeded abstractions, reach for the standard library and already-installed dependencies before adding new ones, and do not build speculative features. Validation at trust boundaries, error/data-loss handling, security, and accessibility are never simplified away.
+When you take a deliberate shortcut, mark it with a one-line `bmad-defer:` comment so it can be harvested later: `<comment-leader> bmad-defer: <what was simplified>. ceiling: <the limit this assumes>. upgrade: <the trigger to revisit>.` Always name an upgrade trigger — a marker with none is flagged as silently rotting debt.
 Update the story file Dev Agent Record and File List as the skill requires.
 Unit test guidance: {skill-root}/references/testing-guidelines.md — apply test quality review (coverage, relevance, parallelism) when writing or updating tests.
 CI/CD guidance: {skill-root}/references/cicd-guidelines.md — apply if this story involves CI/CD pipelines, GitHub Actions, Gitea workflows, or deployment automation. Follow all conventions (modular design, dual triggers, action pinning, multi-runner compatibility, nektos/act local config).
