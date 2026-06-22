@@ -1,17 +1,18 @@
 ---
 name: bmad-l3io-util-cleanup
-description: Migration utilities. Use when the user needs to reorganize legacy flat BMad artifact outputs into the structured epic/sprint folder layout, or migrate sprint-status.yaml to the current field schema.
+description: Migration utilities. Use when the user needs to reorganize legacy flat BMad artifact outputs into the structured epic/sprint folder layout, migrate sprint-status.yaml to the current field schema, split it into the three-file layout, or harvest deferred-shortcut code markers into the backlog.
 ---
 
 # Artifact Layout Cleanup
 
 ## Overview
 
-Migration utilities for BMad artifact housekeeping. Three modes:
+Migration and housekeeping utilities for BMad artifacts. Four modes:
 
 - **Default (layout cleanup):** Reorganizes flat artifact outputs into a structured epic/sprint folder hierarchy with zero-padded names, reconciles file references, verifies state consistency, and produces a summary report. Run once to bring a legacy project into the standard layout.
 - **`migrate-schema`:** Upgrades an existing `sprint-status.yaml` to the current field schema — adds missing fields with zero/empty defaults, never overwrites existing values.
 - **`split-status`:** Splits a single `sprint-status.yaml` into the three-file layout the PM skills now use — `sprint-status-active.yaml`, `sprint-status-backlog.yaml`, `sprint-status-archived.yaml` — partitioning every epic/sprint by status. One-time migration; the original is preserved as `sprint-status.yaml.legacy`. (Run `migrate-schema` first if the file predates the current field schema.)
+- **`harvest-debt`:** Greps the whole source tree for `bmad-defer:` deferred-shortcut markers (the comment crumbs developers and dev subagents leave when they take an intentional simplification) and harvests them into the consolidated `backlog:` list so deferrals do not rot into "later means never." Language-generic — recognizes the comment syntax of every common language. Re-runnable: dedupes against already-harvested markers. Report-only by default; backlog merge is confirmed.
 
 **One-time use (layout cleanup):** Designed to be run once per project. Running again after a successful cleanup produces zero moves (everything already placed) or conflicts (for new flat files added since the first run).
 
@@ -25,6 +26,8 @@ Migration utilities for BMad artifact housekeeping. Three modes:
 If the user passes `migrate-schema` as an argument, skip to [Schema Migration Mode](#schema-migration-mode).
 
 If the user passes `split-status` as an argument, skip to [Split Status Mode](#split-status-mode).
+
+If the user passes `harvest-debt` as an argument, skip to [Harvest Debt Mode](#harvest-debt-mode).
 
 If the user passes `setup`, `configure`, or `install` as an argument — or if `{project-root}/_bmad/config.yaml` does not have an `l3io-util` section — load `assets/module-setup.md` to register the module first, then continue.
 
@@ -388,3 +391,158 @@ DONE — Split complete.
   Archived: {r_e} epics / {r_s} sprints / {r_st} stories
   Original: {status_file}.legacy
 ```
+
+---
+
+## Harvest Debt Mode
+
+Invoked with `harvest-debt` argument. Sweeps the source tree for `bmad-defer:` deferred-shortcut
+markers and harvests them into the consolidated `backlog:` list so intentional simplifications stay
+visible instead of rotting into "later means never." Report-only by default; the backlog merge is a
+separate confirmed step. All [Safety Rules](#safety-rules) apply — dry-run first, never overwrite,
+never guess. Re-runnable: a marker already harvested is not added twice.
+
+### The deferral marker contract (the shared source of truth)
+
+A deferral marker is a single source-code comment in this form (the comment leader varies by
+language; everything after `bmad-defer:` is the payload):
+
+```
+<comment-leader> bmad-defer: <what was simplified>. ceiling: <the limit this assumes>. upgrade: <the trigger to revisit>.
+```
+
+Examples across languages (all matched):
+
+```python
+# bmad-defer: linear scan over the cache. ceiling: <500 entries. upgrade: switch to an index past that.
+```
+```go
+// bmad-defer: in-memory rate limit. ceiling: single instance. upgrade: move to Redis when horizontally scaled.
+```
+```sql
+-- bmad-defer: full-table count. ceiling: <100k rows. upgrade: maintain a counter table beyond that.
+```
+
+- **Recognized comment leaders** (so the sweep is language-generic): `#`, `//`, `--`, `;`, `%`,
+  `/*` (C-style block open), `<!--` (HTML/XML/Markdown), `'` (VB/VBScript). The marker keyword
+  `bmad-defer:` is matched **case-insensitively**.
+- **Payload parsing:** the text after `bmad-defer:` up to `ceiling:` is `<what>`; the text after
+  `ceiling:` up to `upgrade:` is the `<ceiling>`; the text after `upgrade:` is the `<upgrade>`
+  trigger. `ceiling`/`upgrade` are optional in the text — a marker that names **no** `upgrade:`
+  trigger is tagged **`no-trigger`** (these rot silently and are escalated; see severity below).
+- This is the same marker the PM dev and clean-release phases write and read — keep the keyword and
+  field names stable; other skills depend on this exact contract.
+
+### Grep contract
+
+Search the whole tree from `{project-root}`, **case-insensitive**, with line numbers, skipping
+vendored/build/VCS output:
+
+```bash
+grep -rniE '(#|//|--|;|%|/\*|<!--|'\'') ?bmad-defer:' . \
+  --exclude-dir=node_modules --exclude-dir=.git --exclude-dir=dist --exclude-dir=build \
+  --exclude-dir=vendor --exclude-dir=.venv --exclude-dir=target --exclude-dir=out \
+  --exclude-dir='{implementation_artifacts}' --exclude-dir='{planning_artifacts}'
+```
+
+Artifact directories are excluded — markers are a **source-code** convention, not an artifact one,
+and a marker quoted inside a backlog description must never re-harvest itself.
+
+### Steps
+
+**Step H1 — Load config and resolve the backlog file**
+
+Load config (same as layout cleanup). Resolve the harvest target using the same read-resolution the
+PM skills use (split layout is authoritative):
+
+1. If `{implementation_artifacts}/sprint-status-backlog.yaml` exists → bind `{status_backlog}` to it.
+2. Else if a legacy `{implementation_artifacts}/sprint-status.yaml` exists → print:
+   ```
+   Found legacy sprint-status.yaml but no split layout. Run `split-status` first, then re-run harvest-debt.
+   ```
+   and exit (do not write into a legacy file; harvest only targets the split `backlog:` list).
+3. Else → no state yet. The backlog file will be created lazily in Step H5 containing only a
+   top-level `backlog:` list (a valid, readers-tolerated shape).
+
+**Step H2 — Sweep and parse**
+
+Run the [Grep contract](#grep-contract). For each hit, parse one marker record:
+`{file}` (path relative to `{project-root}`), `{line}`, `{what}`, `{ceiling}` (or empty),
+`{upgrade}` (or empty), and `no_trigger` = true when `{upgrade}` is empty. If the sweep finds
+nothing, print `No bmad-defer: markers found. Clean tree — nothing to harvest.` and exit.
+
+**Step H3 — Dedupe against the existing backlog**
+
+Read the `backlog:` list from `{status_backlog}` (empty if the file or list is absent). A marker is
+**already harvested** if an existing item has `source` starting `code-marker` and the same
+`{file}:{line}` recorded in that `source`. Partition the swept markers:
+- `new` — not present in the backlog.
+- `existing` — already harvested (skip; do not duplicate or re-key).
+
+**Step H4 — Dry-run ledger**
+
+Group `new` markers by file and print the ledger (this is also the report-only output — a user who
+declines Step H5 still gets this):
+
+```
+DEBT HARVEST DRY RUN — bmad-defer: markers
+================================================================
+{file}
+  L{line} — {what}
+            ceiling: {ceiling | '(none)'}   upgrade: {upgrade | 'NO-TRIGGER — rots silently'}
+...
+================================================================
+Markers found: {total}  ·  new: {new_count}  ·  already harvested: {existing_count}  ·  no-trigger: {no_trigger_count}
+Backlog target: {status_backlog}
+```
+
+If `{new_count}` is 0: print `All {total} marker(s) already harvested — backlog is current.` and exit.
+
+**Step H5 — Confirm merge**
+
+Ask: "Harvest {new_count} new marker(s) into the backlog at {status_backlog}? Existing entries are untouched."
+
+If no: print `Harvest cancelled — report only, no changes made.` and exit.
+
+**Step H6 — Merge into the backlog**
+
+Append one item per `new` marker to the top-level `backlog:` list of `{status_backlog}`, following
+the consolidated backlog schema (the PM skills' `references/status-files.md` is the schema source of
+truth). Generate keys by continuing the highest existing `DEBT-NN` suffix (zero-padded, repo-global —
+code markers are not tied to one epic/sprint):
+
+```yaml
+- key: DEBT-{NN}                       # next free DEBT-NN across the existing backlog
+  epic: ''                             # markers are repo-global, not epic-scoped
+  sprint: ''
+  title: {what}                        # first clause of the marker, trimmed
+  source: 'code-marker ({file}:{line})'
+  severity: Low                        # Medium when no_trigger — a deferral with no revisit trigger rots silently
+  status: backlog
+  description: '{what} (ceiling: {ceiling | none}; upgrade: {upgrade | NONE — no revisit trigger}).'
+```
+
+Severity rule: a marker that names an `upgrade:` trigger is `Low`; a `no-trigger` marker is `Medium`
+(it has no built-in escape from rotting, so it earns a higher gate). Never invent a ceiling or
+upgrade the comment did not state — record `none`/`NONE`.
+
+**Step H7 — Verify**
+
+Re-parse `{status_backlog}` as YAML. If parsing fails, restore the pre-merge content and print:
+```
+FAILED — Written backlog is not valid YAML. Original restored. Parse error: {error}
+```
+
+**Step H8 — Report**
+
+```
+DONE — Debt harvest complete.
+  Markers swept:     {total}
+  Harvested (new):   {new_count}  (Low: {low_count}, Medium/no-trigger: {no_trigger_count})
+  Already harvested: {existing_count}
+  Backlog:           {status_backlog}
+```
+
+Markers stay in the source until the developer removes them when the shortcut is upgraded; harvest
+records them, it never edits source. A future run re-sweeps and dedupes, so removing a marker simply
+stops it reappearing (the backlog item it created persists until triaged like any other).
