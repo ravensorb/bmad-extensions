@@ -26,8 +26,8 @@
         "email": "shawn@eye-catcher.com"
       },
       "skills": [
-        "./src/l3io-pm/bmad-l3io-pm-sprint-execute",
-        "./src/l3io-pm/bmad-l3io-pm-epic-execute"
+        "./src/l3io-pm/l3io-pm-sprint-execute",
+        "./src/l3io-pm/l3io-pm-epic-execute"
       ]
     },
     {
@@ -40,7 +40,7 @@
         "email": "shawn@eye-catcher.com"
       },
       "skills": [
-        "./src/l3io-sec/bmad-l3io-sec-agent-redteam"
+        "./src/l3io-sec/l3io-sec-agent-redteam"
       ]
     },
     {
@@ -53,7 +53,7 @@
         "email": "shawn@eye-catcher.com"
       },
       "skills": [
-        "./src/l3io-util/bmad-l3io-util-cleanup"
+        "./src/l3io-util/l3io-util-cleanup"
       ]
     }
   ],

@@ -4,7 +4,7 @@ Full reference for the security module — a red team specialist agent that perf
 
 ## Overview
 
-`bmad-l3io-sec-agent-redteam` is a memory-backed agent, not a stateless skill. It maintains a sanctum — a set of persistent identity and memory files at `{project-root}/_bmad/memory/bmad-l3io-sec-agent-redteam/`. The sanctum holds the agent's persona, research cache, session logs, and accumulated knowledge about the project. Each session loads the sanctum and picks up where the previous one left off.
+`l3io-sec-agent-redteam` is a memory-backed agent, not a stateless skill. It maintains a sanctum — a set of persistent identity and memory files at `{project-root}/_bmad/memory/l3io-sec-agent-redteam/`. The sanctum holds the agent's persona, research cache, session logs, and accumulated knowledge about the project. Each session loads the sanctum and picks up where the previous one left off.
 
 The agent works across three activation modes: called automatically by `l3io-pm`, invoked interactively by the user, or invoked as a subagent with explicit scope from another orchestrator.
 
@@ -20,7 +20,7 @@ Config is read from `{project-root}/_bmad/config.yaml` and `{project-root}/_bmad
 
 ### Mode 1 — Orchestrator invocation
 
-Triggered when the activation prompt contains an explicit scope, artifact paths, and output path — i.e., when called headlessly by `bmad-l3io-pm-sprint-execute` (Step 6) or `bmad-l3io-pm-epic-execute` (Step 4c).
+Triggered when the activation prompt contains an explicit scope, artifact paths, and output path — i.e., when called headlessly by `l3io-pm-sprint-execute` (Step 6) or `l3io-pm-epic-execute` (Step 4c).
 
 Behavior:
 1. If sanctum is absent, initialize it automatically
@@ -32,7 +32,7 @@ Behavior:
 
 ### Mode 2 — First run / no sanctum
 
-Triggered when invoked interactively and no sanctum exists at `{project-root}/_bmad/memory/bmad-l3io-sec-agent-redteam/`.
+Triggered when invoked interactively and no sanctum exists at `{project-root}/_bmad/memory/l3io-sec-agent-redteam/`.
 
 Behavior:
 1. Run `python3 {skill-root}/scripts/init-sanctum.py {project-root} {skill-root}` to create the sanctum
@@ -132,7 +132,7 @@ Three conditions require the agent to stop analysis and surface a problem before
 
 ### Research cache
 
-The agent maintains a cache of curated cloud and platform best practices at `{project-root}/_bmad/memory/bmad-l3io-sec-agent-redteam/research-cache/`.
+The agent maintains a cache of curated cloud and platform best practices at `{project-root}/_bmad/memory/l3io-sec-agent-redteam/research-cache/`.
 
 Cache topics are created on demand to match whatever platforms appear in scope. Examples:
 

@@ -36,31 +36,35 @@ npx bmad-method install \
 
 Interactive path: `npx bmad-method install` -> Community modules -> `bmad-l3io-extensions`.
 
-This installs all four skills and registers the three modules in `.claude-plugin/marketplace.json`.
+This installs all seven skills and registers the three modules in `.claude-plugin/marketplace.json`.
 
 ## First-Run Configuration
 
-Each module configures itself on first use. Config is written to `{project-root}/_bmad/config.yaml` (shared project settings) and `{project-root}/_bmad/config.user.yaml` (personal settings — add this to `.gitignore`).
+Config is written to `{project-root}/_bmad/config.yaml` (shared project settings) and `{project-root}/_bmad/config.user.yaml` (personal settings — add this to `.gitignore`).
+
+Each module auto-configures on first use — no explicit setup step required.
 
 ### l3io-pm
 
-No explicit setup step. The sprint and epic skills read config from `{project-root}/_bmad/config.yaml` on activation and use sensible defaults when it's absent:
+No explicit setup step. The sprint and epic skills read config from `{project-root}/_bmad/config.yaml` on activation and use sensible defaults when the `l3io-pm` section is absent. On first run, module registration happens automatically.
+
+Key settings (with defaults):
 
 - `output_folder` — default: `{project-root}/_bmad-output`
 - `implementation_artifacts` — default: `{output_folder}/implementation-artifacts`
 - `planning_artifacts` — default: `{output_folder}/planning-artifacts`
 
-To pre-configure these paths, create `{project-root}/_bmad/config.yaml` with the schema described in [l3io-pm reference](l3io-pm-reference.md).
+See [l3io-pm reference](l3io-pm-reference.md) for the full config schema.
 
 ### l3io-sec
 
-No explicit setup step. The first time you invoke `/bmad-l3io-sec-agent-redteam` (interactively or as a subagent), it detects the absence of its sanctum and runs initialization automatically. If no `l3io-sec` section exists in `config.yaml`, it runs module registration before proceeding.
+No explicit setup step. The first time you invoke `/l3io-sec-agent-redteam` it initializes its sanctum and, if no `l3io-sec` section exists in config, runs module registration automatically.
 
 For WebSearch to work, ensure the `WebSearch` tool is allowed in your Claude Code permissions.
 
 ### l3io-util
 
-No explicit setup step. The first time `/bmad-l3io-util-cleanup` runs without an existing `l3io-util` section in `config.yaml`, it registers the module automatically before performing cleanup.
+No explicit setup step. The first time `/l3io-util-cleanup` runs it registers the module automatically before performing cleanup.
 
 ## Upgrading
 
@@ -80,9 +84,9 @@ After upgrading, your existing `_bmad/config.yaml` values are preserved — no r
 
 Before your first sprint or epic run, verify:
 
-1. The sprint status files exist under `{implementation_artifacts}/` — the split layout is `sprint-status-active.yaml` (in-progress epics), `sprint-status-backlog.yaml` (not-yet-started work plus the consolidated deferred-issue backlog), and `sprint-status-archived.yaml` (done epics) — and your stories are present with status `backlog`. If you only have a legacy single `sprint-status.yaml`, the PM skills auto-split it on first run (renaming the original to `sprint-status.yaml.legacy`); you can also split it explicitly with `/bmad-l3io-util-cleanup split-status`
+1. The sprint status files exist under `{implementation_artifacts}/` — the split layout is `sprint-status-active.yaml` (in-progress epics), `sprint-status-backlog.yaml` (not-yet-started work plus the consolidated deferred-issue backlog), and `sprint-status-archived.yaml` (done epics) — and your stories are present with status `backlog`. If you only have a legacy single `sprint-status.yaml`, the PM skills auto-split it on first run (renaming the original to `sprint-status.yaml.legacy`); you can also split it explicitly with `/l3io-util-cleanup split-status`
 2. Planning docs (epics file, PRD, architecture spec) exist under `{planning_artifacts}`
-3. If you have existing flat artifacts from a prior layout, run `/bmad-l3io-util-cleanup` first
+3. If you have existing flat artifacts from a prior layout, run `/l3io-util-cleanup` first
 
 Story status values: `backlog` → `ready-for-dev` → `in-progress` → `review` → `done`.
 
@@ -91,7 +95,7 @@ Story status values: `backlog` → `ready-for-dev` → `in-progress` → `review
 Invoke:
 
 ```
-/bmad-l3io-pm-sprint-execute
+/l3io-pm-sprint-execute
 ```
 
 The skill loads config, reads the sprint status (the active + backlog split files; a legacy single `sprint-status.yaml` is auto-split on first run), identifies the first in-progress or backlog epic with non-done stories, and presents a scope confirmation:
@@ -121,7 +125,7 @@ At sign-off the orchestrator records **actuals** alongside the estimate for all 
 Invoke:
 
 ```
-/bmad-l3io-pm-epic-execute
+/l3io-pm-epic-execute
 ```
 
 The skill reads the sprint status (the active + backlog split files; a legacy single `sprint-status.yaml` is auto-split on first run), identifies the target epic, and presents a sprint grouping step:
@@ -136,23 +140,23 @@ Default: all remaining stories as one sprint.
 To split: provide story key groups (e.g. Sprint 1: 1-0, 1-1 / Sprint 2: 1-2, 1-3)
 ```
 
-Confirm the grouping or provide a custom split. The epic orchestrator spawns one `bmad-l3io-pm-sprint-execute` subagent per sprint (running headlessly — no per-sprint scope-confirmation prompt), then runs epic-level closure after all sprints complete. Between sprints, the orchestrator continues immediately to the next sprint without prompting. Epic closure auto-triages findings the same way sprints do; only halts if its closure fix loop hits the 10-iteration cap.
+Confirm the grouping or provide a custom split. The epic orchestrator spawns one `l3io-pm-sprint-execute` subagent per sprint (running headlessly — no per-sprint scope-confirmation prompt), then runs epic-level closure after all sprints complete. Between sprints, the orchestrator continues immediately to the next sprint without prompting. Epic closure auto-triages findings the same way sprints do; only halts if its closure fix loop hits the 10-iteration cap.
 
 ## Using l3io-sec
 
 ### Automatic (inside l3io-pm)
 
-`bmad-l3io-sec-agent-redteam` runs automatically as Step 6 of sprint closure and Step 4c of epic closure — as long as the skill is installed. No separate invocation needed.
+`l3io-sec-agent-redteam` runs automatically as Step 6 of sprint closure and Step 4c of epic closure — as long as the skill is installed. No separate invocation needed.
 
 ### Standalone
 
 Invoke directly for ad hoc reviews:
 
 ```
-/bmad-l3io-sec-agent-redteam
+/l3io-sec-agent-redteam
 ```
 
-On first run it initializes its sanctum (persistent memory) at `{project-root}/_bmad/memory/bmad-l3io-sec-agent-redteam/`. On subsequent runs it loads its identity from the sanctum and asks for scope and target.
+On first run it initializes its sanctum (persistent memory) at `{project-root}/_bmad/memory/l3io-sec-agent-redteam/`. On subsequent runs it loads its identity from the sanctum and asks for scope and target.
 
 To run a scoped analysis against a specific sprint or epic, provide the scope when prompted. The skill loads relevant platform research cache topics, runs all five threat lenses, and writes a report.
 
@@ -161,7 +165,7 @@ To run a scoped analysis against a specific sprint or epic, provide the scope wh
 Run when you have legacy flat artifacts that need to be reorganized:
 
 ```
-/bmad-l3io-util-cleanup
+/l3io-util-cleanup
 ```
 
 The skill scans `{implementation_artifacts}` and `{planning_artifacts}` flat roots, classifies each file, and presents a dry-run move table before making any changes:
@@ -175,18 +179,18 @@ epic-1-sprint-1-retro.md   → epic-01/sprint-01/closure/...    sprint-closure  
 
 Confirm to execute. Ambiguous references are never auto-updated — they are flagged for manual review.
 
-Run `/bmad-l3io-util-cleanup` once per project. A second run on an already-clean layout produces zero moves.
+Run `/l3io-util-cleanup` once per project. A second run on an already-clean layout produces zero moves.
 
 To upgrade an existing sprint status file to the current field schema (adds missing estimate, actual, classification, and completion_evidence fields with zero/empty defaults):
 
 ```
-/bmad-l3io-util-cleanup migrate-schema
+/l3io-util-cleanup migrate-schema
 ```
 
 To split a legacy single `sprint-status.yaml` into the active/backlog/archived three-file layout as a one-time explicit migration (the original is preserved as `sprint-status.yaml.legacy`):
 
 ```
-/bmad-l3io-util-cleanup split-status
+/l3io-util-cleanup split-status
 ```
 
 The PM skills also auto-split a legacy single `sprint-status.yaml` on first run, so this explicit step is optional.
@@ -194,7 +198,7 @@ The PM skills also auto-split a legacy single `sprint-status.yaml` on first run,
 To sweep the source tree for `bmad-defer:` deferred-shortcut markers and harvest them into the backlog (report-only until you confirm the merge):
 
 ```
-/bmad-l3io-util-cleanup harvest-debt
+/l3io-util-cleanup harvest-debt
 ```
 
 A `bmad-defer:` marker is a one-line comment a developer (or a dev subagent) leaves on a deliberate simplification — `// bmad-defer: <what was simplified>. ceiling: <limit>. upgrade: <trigger>.` — recognized across every common language's comment syntax. Harvesting turns those crumbs into tracked backlog items so they don't rot silently; markers that name no upgrade trigger are flagged at a higher severity. Sprint closure also harvests the markers in each sprint's changed files automatically, so this command is for whole-tree or on-demand sweeps.

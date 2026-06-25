@@ -15,23 +15,23 @@ The same principle applies to `l3io-sec`: the agent's memory is disk-based (its 
 ## Module Relationships
 
 ```
-bmad-l3io-pm-epic-execute
+l3io-pm-epic-execute
     |
-    |-- spawns --> bmad-l3io-pm-sprint-execute (one per sprint, headless)
+    |-- spawns --> l3io-pm-sprint-execute (one per sprint, headless)
                        |
-                       |-- spawns --> bmad-l3io-sec-agent-redteam (closure Step 6, if installed)
+                       |-- spawns --> l3io-sec-agent-redteam (closure Step 6, if installed)
                        |-- spawns --> bmad-* skills (per phase)
 
-bmad-l3io-sec-agent-redteam  (also invocable standalone)
+l3io-sec-agent-redteam  (also invocable standalone)
 
-bmad-l3io-util-cleanup       (standalone only — no orchestrator relationship)
+l3io-util-cleanup       (standalone only — no orchestrator relationship)
 ```
 
 `l3io-sec` is optionally dependent on `l3io-pm` at runtime (called during closure), but has no build-time or config dependency. It runs standalone and only uses the l3io-pm config section if l3io-pm has already been configured.
 
 ## Orchestrator Pattern
 
-The orchestrators (`bmad-l3io-pm-sprint-execute`, `bmad-l3io-pm-epic-execute`) act as traffic controllers, not implementers. Their context holds only:
+The orchestrators (`l3io-pm-sprint-execute`, `l3io-pm-epic-execute`) act as traffic controllers, not implementers. Their context holds only:
 
 - Story keys and statuses from the sprint status files (`sprint-status-active.yaml` and `sprint-status-backlog.yaml`)
 - Status-line summaries returned by subagents
@@ -110,7 +110,7 @@ All runtime artifacts use zero-padded two-digit epic/sprint numbers. The full ca
     epic-name-epics.md
 ```
 
-This structure is enforced by the orchestrators (they create missing directories on activation) and verified by `bmad-l3io-util-cleanup` (which migrates legacy flat layouts into it).
+This structure is enforced by the orchestrators (they create missing directories on activation) and verified by `l3io-util-cleanup` (which migrates legacy flat layouts into it).
 
 ## Adaptive Parallelism
 
@@ -118,8 +118,8 @@ Default execution is sequential. Parallelism is used only when safe.
 
 ### When parallel execution is used
 
-- `bmad-l3io-pm-sprint-execute`: stories within a sprint can run in parallel across independent stories
-- `bmad-l3io-pm-epic-execute`: sprints can run in parallel when sprint groups are independent; closure Step 4 (clean release, adversarial, red team, UX) runs as a parallel batch after the sequential retrospective
+- `l3io-pm-sprint-execute`: stories within a sprint can run in parallel across independent stories
+- `l3io-pm-epic-execute`: sprints can run in parallel when sprint groups are independent; closure Step 4 (clean release, adversarial, red team, UX) runs as a parallel batch after the sequential retrospective
 
 ### Three pre-flight checks
 
@@ -202,7 +202,7 @@ The `resolve_customization.py` script handles the merge on activation. If the sc
 
 **Team override example** — set a shared parallel mode for the whole project:
 
-`_bmad/custom/bmad-l3io-pm-sprint-execute.toml`:
+`_bmad/custom/l3io-pm-sprint-execute.toml`:
 ```toml
 [workflow]
 parallel_mode = "off"
@@ -210,7 +210,7 @@ parallel_mode = "off"
 
 **Personal override example** — increase parallelism for a fast local machine:
 
-`_bmad/custom/bmad-l3io-pm-sprint-execute.user.toml`:
+`_bmad/custom/l3io-pm-sprint-execute.user.toml`:
 ```toml
 [workflow]
 max_parallel_subagents = 3

@@ -11,28 +11,28 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ```
 src/
   l3io-pm/
-    module.yaml                   ← module metadata (read by BMad installer)
-    module-help.csv               ← module-level command catalog
-    bmad-l3io-pm-sprint-execute/  ← sprint orchestration (SKILL.md, references/, customize.toml)
-    bmad-l3io-pm-epic-execute/    ← epic orchestration (SKILL.md, references/, customize.toml)
+    l3io-pm-setup/          ← module setup (SKILL.md, assets/, scripts/)
+    l3io-pm-sprint-execute/ ← sprint orchestration (SKILL.md, references/, customize.toml)
+    l3io-pm-epic-execute/   ← epic orchestration (SKILL.md, references/, customize.toml)
   l3io-sec/
-    module.yaml
-    module-help.csv
-    bmad-l3io-sec-agent-redteam/  ← red team memory agent (SKILL.md, references/, assets/, scripts/, customize.toml)
+    l3io-sec-setup/         ← module setup (SKILL.md, assets/, scripts/)
+    l3io-sec-agent-redteam/ ← red team memory agent (SKILL.md, references/, assets/, scripts/, customize.toml)
   l3io-util/
-    module.yaml
-    module-help.csv
-    bmad-l3io-util-cleanup/       ← artifact cleanup workflow (SKILL.md, references/, assets/, scripts/, customize.toml)
-.claude/commands/                 ← symlinks → src/<module>/<skill>/SKILL.md
-.claude-plugin/                   ← marketplace.json (required for installation)
+    l3io-util-setup/        ← module setup (SKILL.md, assets/, scripts/)
+    l3io-util-cleanup/      ← artifact cleanup workflow (SKILL.md, references/, assets/, scripts/, customize.toml)
+.claude/commands/           ← symlinks → src/<module>/<skill>/SKILL.md
+.claude-plugin/             ← marketplace.json (required for installation)
 ```
 
 | Skill | Purpose |
 |-------|---------|
-| `src/l3io-pm/bmad-l3io-pm-sprint-execute/` | Full sprint lifecycle: story prep → dev → code review → QA → fix loop per story, then closure reviews |
-| `src/l3io-pm/bmad-l3io-pm-epic-execute/` | Full epic lifecycle: sprint grouping, sprint execution loop, then epic-level closure reviews |
-| `src/l3io-sec/bmad-l3io-sec-agent-redteam/` | Red team security analysis — five threat lenses (EXT/INS/CHA/ABU/DAR) + AI poisoning cross-cut, live cloud/platform best practices research |
-| `src/l3io-util/bmad-l3io-util-cleanup/` | Artifact migration & housekeeping utilities — reorganizes flat artifact files into `epic-XX/sprint-YY` folder structure; `migrate-schema` mode upgrades `sprint-status.yaml` to the current field schema; `split-status` mode splits it into the three-file active/backlog/archived layout; `harvest-debt` mode sweeps `bmad-defer:` deferred-shortcut code markers into the consolidated backlog |
+| `src/l3io-pm/l3io-pm-setup/` | Installs and configures the l3io-pm module — writes config.yaml, config.user.yaml, and module-help.csv |
+| `src/l3io-pm/l3io-pm-sprint-execute/` | Full sprint lifecycle: story prep → dev → code review → QA → fix loop per story, then closure reviews |
+| `src/l3io-pm/l3io-pm-epic-execute/` | Full epic lifecycle: sprint grouping, sprint execution loop, then epic-level closure reviews |
+| `src/l3io-sec/l3io-sec-setup/` | Installs and configures the l3io-sec module — writes config.yaml, config.user.yaml, and module-help.csv |
+| `src/l3io-sec/l3io-sec-agent-redteam/` | Red team security analysis — five threat lenses (EXT/INS/CHA/ABU/DAR) + AI poisoning cross-cut, live cloud/platform best practices research |
+| `src/l3io-util/l3io-util-setup/` | Installs and configures the l3io-util module — writes config.yaml, config.user.yaml, and module-help.csv |
+| `src/l3io-util/l3io-util-cleanup/` | Artifact migration & housekeeping utilities — reorganizes flat artifact files into `epic-XX/sprint-YY` folder structure; `migrate-schema` mode upgrades `sprint-status.yaml` to the current field schema; `split-status` mode splits it into the three-file active/backlog/archived layout; `harvest-debt` mode sweeps `bmad-defer:` deferred-shortcut code markers into the consolidated backlog |
 
 ## Commands
 
@@ -69,7 +69,7 @@ Suggested scopes: `l3io-pm`, `l3io-sec`, `l3io-util` (module changes), plus `inf
 - `sprint-status-backlog.yaml` — not-yet-started work (whole `backlog` epics + backlog sprints of active epics as shells), plus a consolidated top-level `backlog:` deferred-issue list across all epics.
 - `sprint-status-archived.yaml` — epics with `status: done`, moved here wholesale at epic close.
 
-Placement is **epic + sprint** granularity (stories travel with their sprint); archive happens **only at epic close**. The placement rule, node-move operations, and read/auto-fallback procedure live in each PM skill's `references/status-files.md` (the single source of truth). A legacy single `sprint-status.yaml` is auto-split on first PM-skill run, or migrate explicitly with `/bmad-l3io-util-cleanup split-status` (original preserved as `sprint-status.yaml.legacy`).
+Placement is **epic + sprint** granularity (stories travel with their sprint); archive happens **only at epic close**. The placement rule, node-move operations, and read/auto-fallback procedure live in each PM skill's `references/status-files.md` (the single source of truth). A legacy single `sprint-status.yaml` is auto-split on first PM-skill run, or migrate explicitly with `/l3io-util-cleanup split-status` (original preserved as `sprint-status.yaml.legacy`).
 
 Story statuses: `backlog → ready-for-dev → in-progress → review → done`. Epic statuses: `backlog → in-progress → done`.
 

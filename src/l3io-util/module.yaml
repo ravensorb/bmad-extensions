@@ -1,8 +1,0 @@
-code: l3io-util
-name: "LiquidLogicLabs Utilities"
-description: "Utility skills for LiquidLogicLabs BMad projects — one-time and housekeeping operations for artifact organization."
-module_version: 1.0.3
-default_selected: false
-module_greeting: >
-  LiquidLogicLabs Utilities module is configured!
-  Use /bmad-l3io-util-cleanup to reorganize flat artifact outputs into the structured epic/sprint folder layout.

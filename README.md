@@ -20,9 +20,9 @@ It ships as three installable BMad modules. Teams can install all three or only 
 
 | Module | Skills | Description |
 |--------|--------|-------------|
-| **l3io-pm** | `bmad-l3io-pm-sprint-execute`, `bmad-l3io-pm-epic-execute` | Sprint and epic execution orchestration — full lifecycle from story preparation through closure reviews |
-| **l3io-sec** | `bmad-l3io-sec-agent-redteam` | Adversarial security analysis through five threat lenses with AI poisoning cross-cut and live cloud/platform best practices research |
-| **l3io-util** | `bmad-l3io-util-cleanup` | Artifact migration & housekeeping utilities — reorganize legacy flat artifacts into the standard epic/sprint folder structure; migrate the sprint status file to the current field schema; split a legacy single `sprint-status.yaml` into the active/backlog/archived layout; harvest `bmad-defer:` deferred-shortcut code markers into the backlog |
+| **l3io-pm** | `l3io-pm-setup`, `l3io-pm-sprint-execute`, `l3io-pm-epic-execute` | Sprint and epic execution orchestration — full lifecycle from story preparation through closure reviews |
+| **l3io-sec** | `l3io-sec-setup`, `l3io-sec-agent-redteam` | Adversarial security analysis through five threat lenses with AI poisoning cross-cut and live cloud/platform best practices research |
+| **l3io-util** | `l3io-util-setup`, `l3io-util-cleanup` | Artifact migration & housekeeping utilities — reorganize legacy flat artifacts into the standard epic/sprint folder structure; migrate the sprint status file to the current field schema; split a legacy single `sprint-status.yaml` into the active/backlog/archived layout; harvest `bmad-defer:` deferred-shortcut code markers into the backlog |
 
 ## Quick Start
 
@@ -40,13 +40,9 @@ npx bmad-method install \
 
 Interactive path: `npx bmad-method install` -> Community modules -> `bmad-l3io-extensions`.
 
-After install, each module handles its own first-run configuration:
+After install, each module auto-configures on first use — no explicit setup step required.
 
-- `/bmad-l3io-pm-sprint-execute` or `/bmad-l3io-pm-epic-execute` — reads config on activation, uses sensible defaults if absent
-- `/bmad-l3io-sec-agent-redteam` — first run triggers its own setup automatically
-- `/bmad-l3io-util-cleanup` — first run registers the module automatically before cleanup
-
-For projects upgrading from an older flat artifact layout, run `/bmad-l3io-util-cleanup` once before starting sprint or epic orchestration.
+For projects upgrading from an older flat artifact layout, run `/l3io-util-cleanup` once before starting sprint or epic orchestration.
 
 See [docs/getting-started.md](docs/getting-started.md) for a full installation and first-run walkthrough.
 
@@ -65,10 +61,10 @@ This extension standardizes those patterns so teams can run a repeatable, audita
 
 | Slash command | What it does |
 |---------------|--------------|
-| `/bmad-l3io-pm-sprint-execute` | Full sprint: story prep → dev → code review → QA → fix loop per story (max 10 iterations), then retro → clean release → adversarial → red team → UX → arch drift → auto-triage + closure fix loop (max 10 iterations) at closure. Sprint does not close until all Critical/High/Medium issues are resolved. Low findings auto-defer to backlog with no prompts |
-| `/bmad-l3io-pm-epic-execute` | Full epic: sprint execution loop (one `bmad-l3io-pm-sprint-execute` subagent per sprint), then epic-level retro → clean release → adversarial → red team → UX → arch drift → functional completeness → issue triage |
-| `/bmad-l3io-sec-agent-redteam` | Adversarial security review through five threat lenses — external attacker, malicious insider, chaos engineer, abusive legitimate user, and design/architecture red team — with AI poisoning cross-cut and live cloud/platform best practices research |
-| `/bmad-l3io-util-cleanup` | Reorganizes legacy flat artifact files into `epic-XX/sprint-YY` folders, reconciles references, and verifies state consistency. Run with `migrate-schema` to upgrade an existing sprint status file to the current field schema, `split-status` to split a legacy single `sprint-status.yaml` into the active/backlog/archived three-file layout (preserving the original as `sprint-status.yaml.legacy`), or `harvest-debt` to sweep the source tree for `bmad-defer:` deferred-shortcut markers and harvest them into the backlog |
+| `/l3io-pm-sprint-execute` | Full sprint: story prep → dev → code review → QA → fix loop per story (max 10 iterations), then retro → clean release → adversarial → red team → UX → arch drift → auto-triage + closure fix loop (max 10 iterations) at closure. Sprint does not close until all Critical/High/Medium issues are resolved. Low findings auto-defer to backlog with no prompts |
+| `/l3io-pm-epic-execute` | Full epic: sprint execution loop (one `l3io-pm-sprint-execute` subagent per sprint), then epic-level retro → clean release → adversarial → red team → UX → arch drift → functional completeness → issue triage |
+| `/l3io-sec-agent-redteam` | Adversarial security review through five threat lenses — external attacker, malicious insider, chaos engineer, abusive legitimate user, and design/architecture red team — with AI poisoning cross-cut and live cloud/platform best practices research |
+| `/l3io-util-cleanup` | Reorganizes legacy flat artifact files into `epic-XX/sprint-YY` folders, reconciles references, and verifies state consistency. Run with `migrate-schema` to upgrade an existing sprint status file to the current field schema, `split-status` to split a legacy single `sprint-status.yaml` into the active/backlog/archived three-file layout (preserving the original as `sprint-status.yaml.legacy`), or `harvest-debt` to sweep the source tree for `bmad-defer:` deferred-shortcut markers and harvest them into the backlog |
 
 ## Context Boundary Rule
 
@@ -108,17 +104,17 @@ Optional: `bmad-ux-review`
 ```
 src/
   l3io-pm/
-    module.yaml, module-help.csv
-    bmad-l3io-pm-sprint-execute/   SKILL.md, references/, customize.toml
-    bmad-l3io-pm-epic-execute/     SKILL.md, references/, customize.toml
+    l3io-pm-setup/          SKILL.md, assets/, scripts/
+    l3io-pm-sprint-execute/ SKILL.md, references/, customize.toml
+    l3io-pm-epic-execute/   SKILL.md, references/, customize.toml
   l3io-sec/
-    module.yaml, module-help.csv
-    bmad-l3io-sec-agent-redteam/   SKILL.md, references/, assets/, scripts/, customize.toml
+    l3io-sec-setup/         SKILL.md, assets/, scripts/
+    l3io-sec-agent-redteam/ SKILL.md, references/, assets/, scripts/, customize.toml
   l3io-util/
-    module.yaml, module-help.csv
-    bmad-l3io-util-cleanup/        SKILL.md, references/, assets/, scripts/, customize.toml
-.claude/commands/             symlinks to src/<module>/<skill>/SKILL.md
-.claude-plugin/               marketplace.json
+    l3io-util-setup/        SKILL.md, assets/, scripts/
+    l3io-util-cleanup/      SKILL.md, references/, assets/, scripts/, customize.toml
+.claude/commands/           symlinks to src/<module>/<skill>/SKILL.md
+.claude-plugin/             marketplace.json
 ```
 
 ## Documentation
