@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file. See [commit-and-tag-version](https://github.com/absolute-version/commit-and-tag-version) for commit guidelines.
 
+## [1.0.16](https://github.com/ravensorb/bmad-extensions/compare/1.0.15...1.0.16) (2026-06-25)
+
+
+### Features
+
+* **l3io-pm:** bottom-up estimate roll-up + decomposed scope/closure/fix calibration ([b0f4df5](https://github.com/ravensorb/bmad-extensions/commit/b0f4df5000d4f4082818bf5ceee94eaa1ec6e596))
+
 ## [1.0.15](https://github.com/ravensorb/bmad-extensions/compare/1.0.14...1.0.15) (2026-06-25)
 
 
