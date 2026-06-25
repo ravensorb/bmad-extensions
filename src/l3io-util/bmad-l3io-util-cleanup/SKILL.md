@@ -461,7 +461,7 @@ PM skills use (split layout is authoritative):
    Found legacy sprint-status.yaml but no split layout. Run `split-status` first, then re-run harvest-debt.
    ```
    and exit (do not write into a legacy file; harvest only targets the split `backlog:` list).
-3. Else → no state yet. The backlog file will be created lazily in Step H5 containing only a
+3. Else → no state yet. The backlog file will be created lazily in Step H6 containing only a
    top-level `backlog:` list (a valid, readers-tolerated shape).
 
 **Step H2 — Sweep and parse**
@@ -474,8 +474,7 @@ nothing, print `No bmad-defer: markers found. Clean tree — nothing to harvest.
 **Step H3 — Dedupe against the existing backlog**
 
 Read the `backlog:` list from `{status_backlog}` (empty if the file or list is absent). A marker is
-**already harvested** if an existing item has `source` starting `code-marker` and the same
-`{file}:{line}` recorded in that `source`. Partition the swept markers:
+**already harvested** if an existing item has `source` containing `code-marker ({file}:{line})` — this matches both entries written by `harvest-debt` itself (`source: 'code-marker ({file}:{line})'`) and entries written by sprint closure Step 9 (`source: 'clean-release (code-marker {file}:{line})'`), so running either tool first does not produce duplicates when the other runs later. Partition the swept markers:
 - `new` — not present in the backlog.
 - `existing` — already harvested (skip; do not duplicate or re-key).
 

@@ -204,7 +204,7 @@ Print the list. No other output.
 
 Announce the auto-classification to `{user_name}` (informational, no confirmation requested):
 ```
-Sprint Orchestrator: Auto-triage — Fix now: {fix_now_count} (Critical {clr_critical+adv_critical+rt_critical+ux_critical}, High {clr_high+adv_high+rt_high+ux_high}, Medium {adv_medium+rt_medium+ux_medium}, Drift {drift_undoc}). Defer to backlog: {defer_count} (Low). No user decision needed unless the closure fix cap is hit.
+Sprint Orchestrator: Auto-triage — Fix now: {fix_now_count} (Critical {clr_critical+adv_critical+rt_critical+ux_critical}, High {clr_high+adv_high+rt_high+ux_high}, Medium {adv_medium+rt_medium+ux_medium}, Drift {drift_undoc}). Defer to backlog: {defer_count} (Low review findings: {low_count}, bmad-defer markers: {clr_defer_count}). No user decision needed unless the closure fix cap is hit.
 ```
 
 ### Closure Fix Loop
@@ -217,6 +217,8 @@ For each batch (per iteration):
    b. Spawn verification subagent: invoke `bmad-qa-generate-e2e-tests` targeting the fix
    c. If verification passes, remove from `{fix_now_items}`. If it fails, leave in the list for the next iteration.
 2. Increment `{closure_fix_iteration}`.
+
+**Post-loop: Defer processing (run once, after all fix iterations complete):**
 
 For each **review-finding** item in `{defer_items}` (process once, not per iteration):
 1. Spawn `bmad-create-story` to create a backlog story for the issue
