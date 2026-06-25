@@ -75,7 +75,7 @@ Closure overhead is added on top of story totals:
 | Base closure (retro, clean release, adversarial, UX, arch drift, issue triage) | 25–50 min | 60–120K |
 | Red-team phase (when `l3io-sec-agent-redteam` is installed) | +15–25 min | +30–60K |
 
-Actuals are reported at sprint close.
+Estimates are a **bottom-up roll-up**: each story estimate = `base_band × scope_ratio × fix_mult`, the sprint estimate = Σ story estimates + the calibrated closure band, and (at epic level) the epic estimate = Σ sprint estimates + the epic-closure band. Sprint/epic estimates are *defined as* the sum of their children + closure, so they reconcile exactly. Story estimates are written **up front at the pre-start estimate** and read (not recomputed) during the story loop. A fix reserve (`F`, default 1.25 ≈ one fix pass) is applied as a cold-start prior until calibration has enough samples — see [Estimation Calibration](#estimation-calibration). Actuals are reported at sprint close.
 
 ### Per-story phases
 
@@ -234,7 +234,7 @@ epics:
   status: done
   closed: '2026-05-18'             # written at epic close
   retrospective: path/to/retro.md  # written at epic close
-  estimate:                         # written after pre-start estimate
+  estimate:                         # roll-up: Σ sprint.estimate + calibrated epic-closure band
     time_hours_low: 3.0
     time_hours_high: 5.7
     tokens_k_min: 800
@@ -301,60 +301,61 @@ Compute hours (measured wall-clock) and man-hours (a modeled traditional-dev-equ
 
 ## Estimation Calibration
 
-Sprint-execute learns from plan-vs-actual deltas and applies corrections to future estimates. No configuration required — it activates automatically once enough history exists.
+Sprint-execute (and epic-execute at epic close) learns from plan-vs-actual deltas and applies corrections to future estimates. No configuration required — it activates automatically, per component, once enough history exists.
 
-### How it works
+### How it works (decomposed)
 
-At each sprint close (Step 12), and again at epic close, the skill computes four ratios, each = actual ÷ midpoint of the written estimate:
+Calibration is **decomposed into three independent components**, each learned per metric, so a miss can be attributed to story sizing vs closure overhead vs fix churn rather than one blended number:
 
-- `time_ratio` — from `actual.elapsed_hours`
-- `man_hours_ratio` — from `actual.man_hours`
-- `token_ratio` — from `actual.tokens_k`
-- `cost_ratio` — from `actual.cost`
+- **`scope`** — per classification (simple / standard / complex) × per metric: how story-sizing estimates compare to **fix-excluded** actuals.
+- **`closure`** — per level (sprint, epic) × per metric: how the static closure bands compare to real closure consumption. (Closure was previously never calibrated — a blind spot this closes.)
+- **`fix`** — per classification: the observed average fix multiplier (`avg_fix_factor`), which **replaces** the static fix reserve once learned.
 
-It also computes **per-classification man-hours ratios** (separate factors for simple / standard / complex stories), so the model corrects each story class independently.
+Each component activates once it has **≥3 samples** (independently), using an exponential-decay weighted rolling average (weight = 0.8^n, most recent = 1.0). Until then it uses a cold-start prior: ratio 1.0, or fix reserve `F` = 1.25.
 
-These are appended to `{project-root}/_bmad/pm-calibration.yaml`. At sprint 4 and beyond, the pre-start estimate multiplies the formula baseline by the weighted rolling average of past ratios (exponential decay, weight = 0.8^n, most recent sprint = 1.0).
+> **Why the fix reserve is only a cold-start prior:** actuals are captured *after* the fix loop while estimates are written *before* it, so every learned ratio already encodes real fix overhead. Multiplying a learned ratio by a static reserve would **double-count** fixes — so `F` retires as soon as the `fix` component has ≥3 samples.
 
-**`token_ratio` and `cost_ratio` only accumulate from runs with real token/cost actuals** (Claude runs). When a run's token/cost actual was `N/A` (non-Claude runtime, or unreadable transcript), that entry is skipped for those two ratios — a guessed value is never fed into calibration. `time_ratio` and `man_hours_ratio` accumulate from every run.
+**Sampling granularity** is controlled by `calibration_granularity` in `customize.toml` (`"story"` default — each done story emits a scope/fix sample, so the model converges after ~3 *stories* — or `"sprint"` for coarser per-sprint aggregation). Closure samples are always emitted per sprint / epic. The scope-vs-fix split of measured time/token/cost actuals is computed by backing the fix portion out via `fix_factor` (approach A).
 
-The system is self-correcting: if calibration overshoots (estimates become too high), the ratio drops below 1.0 and pulls the factor back down on subsequent sprints.
+**`token` and `cost` ratios only accumulate from runs with real actuals** (Claude runs); `N/A` entries (non-Claude runtime or unreadable transcript) are skipped — a guessed value is never fed into calibration. `time` and `man_hours` accumulate from every run.
+
+The system is self-correcting: if a component overshoots, its ratio drops below 1.0 and pulls subsequent estimates back down.
 
 ### Calibration file
 
-`_bmad/pm-calibration.yaml` — project-scoped, add to `.gitignore` if you prefer not to commit it:
+`_bmad/pm-calibration.yaml` (`version: 2`) — project-scoped, add to `.gitignore` if you prefer not to commit it. A legacy `version: 1` file is auto-migrated on first write (original kept as `pm-calibration.yaml.v1`):
 
 ```yaml
-version: 1
+version: 2
 last_updated: '2026-05-28'
+stories_sampled: 12
 sprints_sampled: 4
-time_ratio: 1.23          # applied to time_hours estimates
-man_hours_ratio: 0.95     # applied to man_hours estimates
-token_ratio: 1.10         # applied to token estimates (Claude runs only)
-cost_ratio: 1.10          # applied to cost estimates (Claude runs only)
-by_classification:        # per-class man-hours factors
-  simple:   { man_hours_ratio: 1.05, count: 6 }
-  standard: { man_hours_ratio: 0.92, count: 9 }
-  complex:  { man_hours_ratio: 1.30, count: 3 }
-history:
-- id: E01-S01
-  date: '2026-05-15'
-  time_ratio: 1.15
-  man_hours_ratio: 0.92
-  token_ratio: 1.08       # omitted for the entry when actual tokens were N/A (non-Claude run)
-  cost_ratio: 1.08        # omitted likewise
-  story_mix: { simple: 2, standard: 3, complex: 1 }
+epics_sampled: 1
+scope:                    # per class × per metric (fix-excluded story sizing)
+  simple:   { time_ratio: 1.10, token_ratio: 1.05, cost_ratio: 1.05, man_hours_ratio: 1.0, sample_count: 6 }
+  standard: { time_ratio: 1.20, token_ratio: 1.12, cost_ratio: 1.12, man_hours_ratio: 1.0, sample_count: 9 }
+  complex:  { time_ratio: 1.35, token_ratio: 1.28, cost_ratio: 1.28, man_hours_ratio: 1.0, sample_count: 3 }
+closure:                  # per level × per metric (NEW)
+  sprint: { time_ratio: 0.95, token_ratio: 1.08, cost_ratio: 1.08, man_hours_ratio: 1.0, sample_count: 4 }
+  epic:   { time_ratio: 1.0,  token_ratio: 1.0,  cost_ratio: 1.0,  man_hours_ratio: 1.0, sample_count: 1 }
+fix:                      # per class; supersedes the cold-start reserve at ≥3 samples
+  simple:   { avg_fix_factor: 1.10, sample_count: 6 }
+  standard: { avg_fix_factor: 1.30, sample_count: 9 }
+  complex:  { avg_fix_factor: 1.50, sample_count: 3 }
+history:                  # most recent 30 entries
+- { kind: story, id: 'E01-S01-ST01', class: complex, date: '2026-05-15', scope: { time_ratio: 1.3, token_ratio: 1.25, cost_ratio: 1.25, man_hours_ratio: 1.0 }, fix_factor: 1.5 }
+- { kind: sprint-closure, id: 'E01-S01', date: '2026-05-15', closure: { time_ratio: 0.9, token_ratio: 1.1, cost_ratio: 1.1, man_hours_ratio: 1.0 } }
 ```
 
 ### Announcement format
 
-When calibration is active, the pre-start estimate line reads:
+When any component is calibrated, the pre-start estimate line summarizes which are active:
 ```
-Calibration:  applied — 4 sprints sampled (time ×1.23, man-hours ×0.95)
+Calibration:  scope.complex ×1.35 (n=3) · fix.complex ×1.50 (n=3) · closure.sprint ×0.95 (n=4)
 ```
-Before 3 sprints are recorded:
+Before any component reaches 3 samples:
 ```
-Calibration:  none yet — estimates are formula baseline (calibration starts after sprint 3)
+Calibration:  none yet — formula baseline (components calibrate at ≥3 samples)
 ```
 
 ## Dependency Skills by Phase

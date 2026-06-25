@@ -186,6 +186,105 @@ Each phase records its start as epoch seconds (`{sprint_start_ts}`, `{epic_start
 
 Where the closure/story steps say `date +%s`, substitute the PowerShell form when the harness shell is PowerShell. The token/cost capture above consumes the same epoch `{start_ts}`, so it stays correct regardless of which shell recorded it.
 
-## Calibration feedback (all four metrics)
+## Estimate roll-up — the invariant (enforced)
 
-`{project-root}/_bmad/pm-calibration.yaml` must learn `token_ratio` and `cost_ratio` in addition to `time_ratio` and `man_hours_ratio` — but **only feed a ratio when the actual is a real number.** When a token/cost actual is `N/A` (non-Claude runtime, or unreadable transcript), **skip** that ratio for the entry (omit it); never feed `N/A` or a guessed value into the rolling average. The ratio fields are computed and applied exactly like `time_ratio` (mid-estimate divisor, exponential-decay weighting).
+Estimates are a **true bottom-up roll-up**: a sprint estimate is *defined as* the sum of its story estimates plus its closure band, and an epic estimate is *defined as* the sum of its sprint estimates plus its epic-closure band. They therefore reconcile exactly (no parallel formulas that can drift). For every metric `m` ∈ {`time_hours`, `man_hours`, `tokens_k`, `cost`}, and each of `_low` / `_high`:
+
+```
+story.estimate[m]  = base_band(class)[m] × scope_ratio(class, m) × fix_mult(class)
+sprint.estimate[m] = Σ_stories  story.estimate[m]   + sprint_closure_band[m] × closure_ratio.sprint[m]
+epic.estimate[m]   = Σ_sprints  sprint.estimate[m]  + epic_closure_band[m]   × closure_ratio.epic[m]
+```
+
+`cost` is always derived from the metric's `tokens_k` at the blended estimate rate **$8/MTok** (`cost = tokens_k × 0.008`, formatted `$X.XX`), so cost rolls up automatically with tokens.
+
+**Reconciliation is a hard check:** at sprint close, `sprint.estimate[m]` must equal `Σ story.estimate[m] + (written sprint_closure term)`; at epic close, `epic.estimate[m]` must equal `Σ sprint.estimate[m] + (written epic_closure term)`. A mismatch beyond rounding is a contract violation.
+
+### Base bands (single source of truth)
+
+Per-story base bands by `classification` (identical numbers everywhere — story-loop and both SKILLs read them here):
+
+| class    | time_hours low/high | tokens_k min/max | man_hours low/high |
+|----------|---------------------|------------------|--------------------|
+| simple   | 0.13 / 0.20         | 40 / 70          | 4 / 8              |
+| standard | 0.20 / 0.33         | 70 / 120         | 12 / 24            |
+| complex  | 0.33 / 0.58         | 120 / 200        | 24 / 48            |
+
+Closure bands (the closure term added once at each level):
+
+| band                         | time_hours low/high | tokens_k min/max | man_hours low/high |
+|------------------------------|---------------------|------------------|--------------------|
+| `sprint_closure_band`        | 0.42 / 0.83         | 60 / 120         | 16 / 32            |
+| `sprint_closure` + red-team¹ | +0.25 / +0.42       | +30 / +60        | +0 / +0            |
+| `epic_closure_band`          | 1.0 / 2.0           | 100 / 200        | 8 / 16             |
+
+¹ Add the red-team row to the sprint closure band only when `l3io-sec-agent-redteam` is installed. Closure-band midpoints equal the closure constants used by **actuals** (sprint man-hours +24 = mid of 16–32; epic man-hours +12 = mid of 8–16), so estimate and actual stay symmetric.
+
+`base_band_mid(class, m)` = (low + high) / 2; `closure_band_mid(level, m)` likewise. These mids are the divisors when computing calibration ratios (below).
+
+## Decomposed calibration — `pm-calibration.yaml` (version 2)
+
+Calibration learns **three independent components**, so a miss can be attributed to *story sizing* vs *closure overhead* vs *fix churn* instead of one blended number:
+
+- **`scope`** — per `classification` × per metric: how story-sizing estimates compare to fix-excluded actuals.
+- **`closure`** — per level (`sprint`, `epic`) × per metric: how the static closure bands compare to real closure consumption. **This is new — closure was previously never calibrated (a blind spot).**
+- **`fix`** — per `classification`: the observed average fix multiplier (`avg_fix_factor`). This replaces the static fix reserve once learned.
+
+```yaml
+version: 2
+last_updated: '{date}'
+stories_sampled: {N}            # scope/fix samples emitted at story granularity
+sprints_sampled: {M}            # scope/fix samples emitted at sprint granularity + closure.sprint samples
+epics_sampled: {K}              # closure.epic samples
+scope:                          # per class × per metric; sample_count gates cold-start (≥3)
+  simple:   { time_ratio: 1.0, token_ratio: 1.0, cost_ratio: 1.0, man_hours_ratio: 1.0, sample_count: 0 }
+  standard: { time_ratio: 1.0, token_ratio: 1.0, cost_ratio: 1.0, man_hours_ratio: 1.0, sample_count: 0 }
+  complex:  { time_ratio: 1.0, token_ratio: 1.0, cost_ratio: 1.0, man_hours_ratio: 1.0, sample_count: 0 }
+closure:                        # per level × per metric (NEW); always per-sprint / per-epic
+  sprint: { time_ratio: 1.0, token_ratio: 1.0, cost_ratio: 1.0, man_hours_ratio: 1.0, sample_count: 0 }
+  epic:   { time_ratio: 1.0, token_ratio: 1.0, cost_ratio: 1.0, man_hours_ratio: 1.0, sample_count: 0 }
+fix:                            # per class; avg_fix_factor supersedes the cold-start reserve at ≥3
+  simple:   { avg_fix_factor: 1.25, sample_count: 0 }
+  standard: { avg_fix_factor: 1.25, sample_count: 0 }
+  complex:  { avg_fix_factor: 1.25, sample_count: 0 }
+history:                        # keep most recent 30 entries (story granularity emits more)
+  - { kind: story, id: 'E01-S01-story-key', class: complex, date: '...', scope: { time_ratio: 1.1, token_ratio: 1.2, cost_ratio: 1.2, man_hours_ratio: 1.0 }, fix_factor: 1.5 }
+  - { kind: sprint-closure, id: 'E01-S01', date: '...', closure: { time_ratio: 0.9, token_ratio: 1.1, cost_ratio: 1.1, man_hours_ratio: 1.0 } }
+  - { kind: epic-closure, id: 'E01', date: '...', closure: { time_ratio: 1.0, token_ratio: 1.0, cost_ratio: 1.0, man_hours_ratio: 1.0 } }
+```
+
+**The fix reserve `F` is a cold-start prior only.** Default `F = 1.25` (≈ one fix pass). It is used **only while a component is under-sampled**; it never stacks on a learned value. Concretely, `fix_mult(class)` = `fix.{class}.avg_fix_factor` when `fix.{class}.sample_count ≥ 3`, else `F` (1.25). Likewise `scope_ratio(class, m)` = the learned ratio when `scope.{class}.sample_count ≥ 3`, else `1.0`; and `closure_ratio.level[m]` = the learned ratio when `closure.{level}.sample_count ≥ 3`, else `1.0`.
+
+> Why `F` must be a prior, not a standing factor: actuals are captured **after** the fix loop while estimates are written **before** it, so every learned ratio already encodes real fix overhead. Multiplying a learned ratio by a static reserve would **double-count** fixes. The ≥3 gate hands off from `F` to the learned `avg_fix_factor` exactly once enough data exists.
+
+## Applying calibration at estimate time
+
+1. Classify every story up front (read AC counts; fall back to Standard only when a file is genuinely absent).
+2. For each story and each metric, compute `story.estimate[m]_low/high = base_band(class)[m] × scope_ratio(class, m) × fix_mult(class)`. Write the four-metric `estimate` block + `classification` to the story node now (it is read, not recomputed, later in the story loop).
+3. `sprint.estimate[m] = Σ story.estimate[m] + sprint_closure_band[m] × closure_ratio.sprint[m]` (add the red-team row when installed). Write the sprint `estimate` block as this sum.
+4. (Epic) `epic.estimate[m] = Σ sprint.estimate[m] + epic_closure_band[m] × closure_ratio.epic[m]`. The epic pre-start estimate computes each planned sprint's estimate the same way and sums them — it does not re-derive from story bases.
+
+`man_hours` scope_ratio stays structurally ≈ 1.0 (man-hours is a modeled formula, not a measurement); its variance is carried by `fix_mult`. That is expected and is not a bug.
+
+## Emitting calibration samples at close (approach A)
+
+At **sprint close**, for each done story compute `fix_factor = min(1.0 + fix_iterations × 0.25, 2.0)` and split its actuals into scope vs fix by **backing the fix portion out of the measured actual** (approach A — no extra instrumentation):
+
+- Measured metrics (`time_hours`, `tokens_k`, `cost`): `scope_actual[m] = story.actual[m] / fix_factor`. **Skip** any metric whose actual is `N/A` (never feed `N/A`/guessed values).
+- `man_hours`: `scope_actual = base(class)` exactly (it is the formula sans fix), so its `scope.man_hours_ratio` sample = 1.0.
+- `scope_ratio_sample(class, m) = scope_actual[m] / base_band_mid(class, m)`; `fix_factor_sample(class) = fix_factor`.
+
+Closure sample (always per level, independent of granularity): `closure_actual[m] = sprint.actual[m] − Σ_stories story.actual[m]`; `closure_ratio_sample.sprint[m] = closure_actual[m] / closure_band_mid(sprint, m)` (skip metrics that are `N/A`). At **epic close**, `closure_actual.epic[m] = epic.actual[m] − Σ_sprints sprint.actual[m]`, ratio vs `epic_closure_band_mid`.
+
+**Granularity** (`{calibration_granularity}` from `customize.toml`) controls only how many scope/fix samples a sprint emits:
+- `"story"` → emit one `kind: story` history entry per done story; each adds 1 to `scope.{class}.sample_count` and `fix.{class}.sample_count`, and increments `stories_sampled`.
+- `"sprint"` → average the per-class scope ratios and fix_factors across the sprint's stories; emit one aggregated entry per touched class; each adds 1 to the relevant `sample_count`s and increments `sprints_sampled`.
+
+Closure samples (`kind: sprint-closure` / `kind: epic-closure`) are emitted once per sprint / epic regardless of the setting, incrementing `closure.sprint.sample_count` / `closure.epic.sample_count`.
+
+## Rolling averages, retention, N/A, and migration
+
+- **Rolling average:** recompute each ratio (and `avg_fix_factor`) as the exponential-decay weighted mean (decay = 0.8) over that component's history entries: for the component's entries ordered oldest→newest, `weight[i] = 0.8^(n−1−i)` (newest weight 1.0), value = `round(Σ(v[i]·weight[i]) / Σ(weight[i]), 3)`.
+- **N/A:** a metric whose actual is `N/A` (non-Claude runtime, unreadable transcript) is **omitted** from that entry and excluded from both sums for that ratio; the rolling value stays at its prior (1.0 if never sampled). Never feed `N/A` or a guessed value.
+- **Retention:** keep the most recent **30** history entries (raised from 10 because story granularity emits more); recompute `sample_count`s from the retained entries per component.
+- **v1 → v2 migration:** if the file has `version: 1` (or no `version`), upgrade in place on first write: set `version: 2`; map old `by_classification.{c}.man_hours_ratio` → `fix.{c}.avg_fix_factor` with its `sample_count` (they measure the same quantity); seed `scope.{c}.{time,token,cost}_ratio` from the old overall `time_ratio`/`token_ratio`/`cost_ratio` (coarse prior) and `scope.{c}.man_hours_ratio = 1.0`, carrying the old class `sample_count`; start `closure.*` cold (`sample_count: 0`, ratios 1.0) since v1 never measured closure. Preserve the original as `pm-calibration.yaml.v1` on first upgrade.

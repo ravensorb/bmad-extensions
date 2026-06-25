@@ -53,6 +53,7 @@ Load available config from `{project-root}/_bmad/config.yaml` and `{project-root
 - `parallel_mode` = `{workflow.parallel_mode}`
 - `max_parallel_subagents` = min(`{workflow.max_parallel_subagents}`, 4)
 - `deferred_file_cleanup` = `{workflow.deferred_file_cleanup}` — default: `false`
+- `calibration_granularity` = `{workflow.calibration_granularity}` — default: `"story"` (`"story"` | `"sprint"`; see `references/metrics-contract.md`)
 - `date` = current date (system-generated)
 
 ### Load the Metrics Contract
@@ -83,71 +84,28 @@ Remove already-`done` stories from `{sprint_stories}`. Derive `{sprint_title}` =
 
 ### Pre-start Estimate
 
-Compute automatically — no user prompt. For each story in `{sprint_stories}`, attempt to read its file from `{planning_sprint_dir}` or `{story_output_dir}`. Count acceptance criteria items and classify:
-- **Simple** (1–3 ACs): ~8–12 min, ~40–70K tokens
-- **Standard** (4–6 ACs): ~12–20 min, ~70–120K tokens
-- **Complex** (7+ ACs or story explicitly marked as deep integration): ~20–35 min, ~120–200K tokens
+Compute automatically — no user prompt. Estimates follow the **bottom-up roll-up** and **decomposed calibration** defined in `references/metrics-contract.md` (the single source of truth for base bands, closure bands, the `scope`/`closure`/`fix` ratios, and the cold-start fix reserve `F`). Procedure:
 
-If story files are not yet available, classify all as Standard. Sum ranges across all stories to get story subtotals. Then add closure overhead:
-- Base closure (retro, clean release, adversarial, UX, arch drift, issue triage): 25–50 min, 60–120K tokens
-- If `l3io-sec-agent-redteam` is installed (check `.claude/skills/l3io-sec-agent-redteam/SKILL.md` or `.claude/commands/l3io-sec-agent-redteam.md`): add 15–25 min, 30–60K tokens
+1. **Classify every story up front.** For each story in `{sprint_stories}`, read its file from `{planning_sprint_dir}` or `{story_output_dir}`, count acceptance criteria, and classify: **Simple** (1–3 ACs), **Standard** (4–6 ACs), **Complex** (7+ ACs or explicit deep integration). Fall back to Standard only when a file is genuinely absent. Bind `{simple_count}`, `{standard_count}`, `{complex_count}`.
 
-Bind: `{simple_count}`, `{standard_count}`, `{complex_count}`, `{story_time_low}`, `{story_time_high}`, `{closure_time_low}`, `{closure_time_high}`, `{est_time_low}`, `{est_time_high}`, `{est_tokens_low}`, `{est_tokens_high}` (token values in K).
+2. **Load calibration.** Read `{project-root}/_bmad/pm-calibration.yaml` if it exists; upgrade `version: 1` → `2` in place per `references/metrics-contract.md` → *migration*. Bind the `scope`, `closure`, and `fix` components. For any component with `sample_count < 3`, use cold-start defaults: `scope_ratio = 1.0`, `closure_ratio = 1.0`, `fix_mult = F = 1.25`. Bind `{cal_status}` = a short readiness string listing the components with `sample_count ≥ 3` and their ratios (e.g. `"scope.complex ×1.2 (n=4) · fix.complex ×1.5 (n=4) · closure.sprint ×1.1 (n=3)"`), or `"none yet — formula baseline (components calibrate at ≥3 samples)"` when none are ready.
 
-Compute cost estimates using a blended rate of **$8/MTok** (Sonnet input ~$3/MTok, output ~$15/MTok, ~60/40 split):
-- `{est_cost_low}` = `{est_tokens_low}` × 0.008  (formatted as `$X.XX`)
-- `{est_cost_high}` = `{est_tokens_high}` × 0.008 (formatted as `$X.XX`)
+3. **Per-story estimates.** For each story and each metric `m` ∈ {time_hours, man_hours, tokens_k, cost}: `story.estimate[m] = base_band(class)[m] × scope_ratio(class, m) × fix_mult(class)` (bands and `cost = tokens_k × 0.008` per metrics-contract). Write the four-metric `estimate` block + `classification` to each story node in `{status_active}` **now** — the story loop reads these, it does not recompute them. Bind `{story_time_low/high}` = Σ story `time_hours`, and the story-subtotal of each other metric, for the announcement.
 
-Per-story cost reference (for announcement):
-- Simple (40–70K tokens): ~$0.32–$0.56
-- Standard (70–120K tokens): ~$0.56–$0.96
-- Complex (120–200K tokens): ~$0.96–$1.60
-
-Compute traditional development equivalents — estimated person-hours a dev team would spend on the same scope without AI tooling (developer + code review + QA per story, plus manual closure overhead):
-- Simple story: 4–8 person-hours · Standard: 12–24 · Complex: 24–48
-- Closure overhead: 16–32 person-hours (retro, arch review, QA pass, security review)
-
-Bind:
-- `{man_hours_low}` = (`{simple_count}` × 4) + (`{standard_count}` × 12) + (`{complex_count}` × 24) + 16
-- `{man_hours_high}` = (`{simple_count}` × 8) + (`{standard_count}` × 24) + (`{complex_count}` × 48) + 32
-
-Record start timestamp: run `date +%s` and bind result to `{sprint_start_ts}` (OS-aware — on a PowerShell harness use `[DateTimeOffset]::UtcNow.ToUnixTimeSeconds()` instead; see `references/metrics-contract.md` → Recording timestamps).
-
-Compute `{est_time_hours_low}` = round(`{est_time_low}` / 60, 1) and `{est_time_hours_high}` = round(`{est_time_high}` / 60, 1).
-
-**Calibration:** Read `{project-root}/_bmad/pm-calibration.yaml` if it exists.
-- If `sprints_sampled >= 3`: bind `{cal_time_ratio}` = `time_ratio`, `{cal_man_hours_ratio}` = `man_hours_ratio`, `{cal_token_ratio}` = `token_ratio` (default 1.0 if absent), `{cal_cost_ratio}` = `cost_ratio` (default 1.0 if absent), `{cal_sprints}` = `sprints_sampled`.
-- Otherwise: bind `{cal_time_ratio}` = 1.0, `{cal_man_hours_ratio}` = 1.0, `{cal_token_ratio}` = 1.0, `{cal_cost_ratio}` = 1.0, `{cal_sprints}` = 0.
-
-Apply calibration to time:
-- `{cal_time_hours_low}` = round(`{est_time_hours_low}` × `{cal_time_ratio}`, 1)
-- `{cal_time_hours_high}` = round(`{est_time_hours_high}` × `{cal_time_ratio}`, 1)
-
-Apply calibration to tokens and cost (token/cost calibration learns only from Claude runs; ratio is 1.0 until ≥3 sampled):
-- `{cal_tokens_low}` = round(`{est_tokens_low}` × `{cal_token_ratio}`)
-- `{cal_tokens_high}` = round(`{est_tokens_high}` × `{cal_token_ratio}`)
-- `{cal_cost_low}` = `{cal_tokens_low}` × 0.008 (recompute `$X.XX` from calibrated tokens, then × `{cal_cost_ratio}`)
-- `{cal_cost_high}` = `{cal_tokens_high}` × 0.008 (then × `{cal_cost_ratio}`)
-
-Apply calibration to man-hours using per-classification ratios when available (sample_count ≥ 3), otherwise fall back to overall `{cal_man_hours_ratio}`:
-- `{cal_r_simple}` = `by_classification.simple.man_hours_ratio` if `sample_count >= 3`, else `{cal_man_hours_ratio}`
-- `{cal_r_standard}` = `by_classification.standard.man_hours_ratio` if `sample_count >= 3`, else `{cal_man_hours_ratio}`
-- `{cal_r_complex}` = `by_classification.complex.man_hours_ratio` if `sample_count >= 3`, else `{cal_man_hours_ratio}`
-- `{cal_man_hours_low}` = round((`{simple_count}` × 4 × `{cal_r_simple}`) + (`{standard_count}` × 12 × `{cal_r_standard}`) + (`{complex_count}` × 24 × `{cal_r_complex}`) + 16)
-- `{cal_man_hours_high}` = round((`{simple_count}` × 8 × `{cal_r_simple}`) + (`{standard_count}` × 24 × `{cal_r_standard}`) + (`{complex_count}` × 48 × `{cal_r_complex}`) + 32)
-
-Write the `estimate` block to the sprint node in `{status_active}` (calibrated values are the actual prediction):
+4. **Sprint estimate = roll-up.** `sprint.estimate[m] = Σ story.estimate[m] + sprint_closure_band[m] × closure_ratio.sprint[m]`, adding the red-team closure row when `l3io-sec-agent-redteam` is installed (check `.claude/skills/l3io-sec-agent-redteam/SKILL.md` or `.claude/commands/l3io-sec-agent-redteam.md`). Bind `{closure_time_low/high}` = the calibrated sprint-closure time term. Write the sprint `estimate` block as this exact sum (it must reconcile to Σ stories + closure):
 ```yaml
 estimate:
-  time_hours_low: {cal_time_hours_low}    # AI-assisted wall-clock time (hours, calibration-adjusted)
-  time_hours_high: {cal_time_hours_high}
-  tokens_k_min: {cal_tokens_low}          # calibration-adjusted (token_ratio)
-  tokens_k_max: {cal_tokens_high}
-  cost_low: '{cal_cost_low}'              # calibration-adjusted (cost_ratio)
-  cost_high: '{cal_cost_high}'
-  man_hours_low: {cal_man_hours_low}      # traditional dev equivalent (person-hours, calibration-adjusted)
-  man_hours_high: {cal_man_hours_high}
+  time_hours_low: {sprint_est_time_low}     # Σ story time + calibrated sprint-closure band (hours)
+  time_hours_high: {sprint_est_time_high}
+  tokens_k_min: {sprint_est_tokens_low}     # Σ story tokens + calibrated closure (K)
+  tokens_k_max: {sprint_est_tokens_high}
+  cost_low: '{sprint_est_cost_low}'         # derived from tokens at $8/MTok
+  cost_high: '{sprint_est_cost_high}'
+  man_hours_low: {sprint_est_man_low}       # traditional dev equivalent (person-hours)
+  man_hours_high: {sprint_est_man_high}
 ```
+
+5. **Record start timestamp:** run `date +%s` and bind `{sprint_start_ts}` (OS-aware — on a PowerShell harness use `[DateTimeOffset]::UtcNow.ToUnixTimeSeconds()`; see `references/metrics-contract.md` → Recording timestamps).
 
 **Headless mode (invoked by `l3io-pm-epic-execute`):** skip the scope confirmation entirely. Announce scope as a one-line log and continue immediately — the epic orchestrator already obtained user confirmation upstream.
 
@@ -161,12 +119,12 @@ State passes through disk only. All phases use fresh subagents.
 Pre-start estimate:
   Stories:         {story_count} ({simple_count} simple · {standard_count} standard · {complex_count} complex)
   Per-story cost:  Simple ~$0.32–$0.56 · Standard ~$0.56–$0.96 · Complex ~$0.96–$1.60  (Sonnet ~$8/MTok blended)
-  Est. story time: {story_time_low}–{story_time_high} min
-  Est. closure:    {closure_time_low}–{closure_time_high} min
+  Est. story work: {story_time_low}–{story_time_high} h   (Σ stories, fix reserve included)
+  Est. closure:    {closure_time_low}–{closure_time_high} h
   ────────────────────────────────────────────────────────────────────────────────────
-  Total estimate:  {cal_time_hours_low}–{cal_time_hours_high} hours    Tokens: {est_tokens_low}K–{est_tokens_high}K    Cost: ~{est_cost_low}–{est_cost_high}
-  Traditional est: ~{cal_man_hours_low}–{cal_man_hours_high} hours  (actual auto-computed at sprint close)
-  Calibration:     {cal_sprints > 0 ? "applied — " + cal_sprints + " sprints sampled (time ×" + cal_time_ratio + ", man-hours ×" + cal_man_hours_ratio + ")" : "none yet — estimates are formula baseline (calibration starts after sprint 3)"}
+  Total estimate:  {sprint_est_time_low}–{sprint_est_time_high} hours    Tokens: {sprint_est_tokens_low}K–{sprint_est_tokens_high}K    Cost: ~{sprint_est_cost_low}–{sprint_est_cost_high}
+  Traditional est: ~{sprint_est_man_low}–{sprint_est_man_high} hours  (actual auto-computed at sprint close)
+  Calibration:     {cal_status}
   (Actuals reported at sprint close. Per-story fix loop and closure fix loop each cap at 10 iterations
   before prompting; Critical/High/Medium and undocumented drift findings auto-fix without per-item prompts.)
 
@@ -194,7 +152,7 @@ epics:
   status: in-progress               # written by epic-execute
   closed: '2026-05-18'             # written by epic-execute at close
   retrospective: path/to/retro.md  # written by epic-execute at close
-  estimate:                         # written by epic-execute after pre-start estimate
+  estimate:                         # written by epic-execute — roll-up: Σ sprint.estimate + calibrated epic-closure band
     time_hours_low: 3.0
     time_hours_high: 5.7
     tokens_k_min: 800
@@ -214,7 +172,7 @@ epics:
     status: done                    # *(written by sprint-execute)*
     closed: '2026-05-18'           # *(written by sprint-execute at sign-off)*
     retrospective: path/to/retro.md # *(written by sprint-execute at sign-off)*
-    estimate:                       # *(written by sprint-execute after pre-start estimate)*
+    estimate:                       # *(written by sprint-execute — roll-up: Σ story.estimate + calibrated closure band)*
       time_hours_low: 0.8           # AI-assisted wall-clock time (hours)
       time_hours_high: 1.4
       tokens_k_min: 250
@@ -232,8 +190,8 @@ epics:
     - key: PROJ-E01-S01-ST01
       title: 'Story title...'       # *(written by sprint-execute at ready-for-dev)*
       status: done                  # *(written by sprint-execute)*
-      classification: complex       # *(written by sprint-execute at ready-for-dev)*
-      estimate:                     # *(written by sprint-execute at ready-for-dev — HARD RULE)*
+      classification: complex       # *(written by sprint-execute at pre-start classification)*
+      estimate:                     # *(written at pre-start: base_band × scope_ratio × fix reserve, per metrics-contract — HARD RULE)*
         time_hours_low: 0.3
         time_hours_high: 0.6
         tokens_k_min: 120

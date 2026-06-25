@@ -332,77 +332,39 @@ Sprint Orchestrator: Sprint CLOSED — Epic {target_epic}, Sprint {target_sprint
   Deferred to backlog:  {deferred_story_keys} → {implementation_artifacts}/epic-{target_epic_padded}/epic-backlog.md
 
   ── Planned vs Actual ──────────────────────────────────────────────────────────
-  AI time:         planned {est_time_hours_low}–{est_time_hours_high} hours    actual ~{elapsed_hours} hours
-  Tokens:          planned {est_tokens_low}K–{est_tokens_high}K                actual {actual_tokens_k}K
-  Cost:            planned ~{est_cost_low}–{est_cost_high}                     actual {actual_cost}
-  Traditional:     estimated ~{man_hours_low}–{man_hours_high} hours    actual ~{actual_man_hours} hours
+  AI time:         planned {estimate.time_hours_low}–{estimate.time_hours_high} hours    actual ~{elapsed_hours} hours
+  Tokens:          planned {estimate.tokens_k_min}K–{estimate.tokens_k_max}K              actual {actual_tokens_k}K
+  Cost:            planned ~{estimate.cost_low}–{estimate.cost_high}                      actual {actual_cost}
+  Traditional:     estimated ~{estimate.man_hours_low}–{estimate.man_hours_high} hours    actual ~{actual_man_hours} hours
   (Token/cost actuals are exact under Claude; shown as N/A under other runtimes — never estimated.)
 ```
 
 In headless mode (called by `l3io-pm-epic-execute`), emit instead:
 ```
-DONE — Stories: {story_count}, Issues resolved: {total_resolved}, Issues deferred: {total_deferred}, Retro: {retro_file_path}, Time: ~{actual_elapsed_min}min (planned {est_time_low}–{est_time_high}min), Tokens: {actual_tokens_k}K, Cost: {actual_cost} (planned ~{est_cost_low}–{est_cost_high})
+DONE — Stories: {story_count}, Issues resolved: {total_resolved}, Issues deferred: {total_deferred}, Retro: {retro_file_path}, Time: ~{elapsed_hours}h (planned {estimate.time_hours_low}–{estimate.time_hours_high}h), Tokens: {actual_tokens_k}K, Cost: {actual_cost} (planned ~{estimate.cost_low}–{estimate.cost_high})
 ```
 
 ---
 
-## Step 12 — Calibration Update
+## Step 12 — Calibration Update (decomposed)
 
-Update the project-level calibration file so future sprint estimates learn from this sprint's plan-vs-actual delta.
+Update `{project-root}/_bmad/pm-calibration.yaml` so future estimates learn from this sprint. Calibration is **decomposed into `scope` / `closure` / `fix`** — `references/metrics-contract.md` → *Decomposed calibration*, *Emitting calibration samples at close (approach A)*, and *Rolling averages, retention, N/A, and migration* hold the authoritative formulas. This step binds the sprint-specific inputs and writes the file.
 
-**Compute sprint-level ratios** (read `estimate` and `actual` from the sprint node in `{status_active}`):
-- `{cal_written_time_mid}` = (`estimate.time_hours_low` + `estimate.time_hours_high`) / 2
-- `{cal_written_man_mid}` = (`estimate.man_hours_low` + `estimate.man_hours_high`) / 2
-- `{cal_written_tokens_mid}` = (`estimate.tokens_k_min` + `estimate.tokens_k_max`) / 2
-- `{cal_written_cost_mid}` = (`estimate.cost_low` + `estimate.cost_high`) / 2   (parse the `$X.XX` strings to numbers)
-- `{sprint_time_ratio}` = round(`{elapsed_hours}` / `{cal_written_time_mid}`, 3) — skip if denominator is 0
-- `{sprint_man_ratio}` = round(`{actual_man_hours}` / `{cal_written_man_mid}`, 3) — skip if denominator is 0
-- `{sprint_token_ratio}` = round(`actual.tokens_k` / `{cal_written_tokens_mid}`, 3) — **skip if `actual.tokens_k` is `N/A`** or the denominator is 0 (never feed a guessed or N/A value into calibration)
-- `{sprint_cost_ratio}` = round(`actual.cost` / `{cal_written_cost_mid}`, 3) — **skip if `actual.cost` is `N/A`** or the denominator is 0
+**Read** the sprint node's `estimate` + `actual`, and every done story node's `classification`, `completion_evidence.fix_iterations`, and `actual` block ({elapsed_hours, tokens_k, cost, man_hours}). If the file is `version: 1` (or has no `version`), migrate to v2 first (per metrics-contract → *migration*; preserve the original as `pm-calibration.yaml.v1`).
 
-**Compute per-classification man-hours ratios** (read `classification` and `completion_evidence.fix_iterations` from each story node in `{status_active}`; bases: simple=6, standard=18, complex=36):
-- For each story: `fix_factor` = min(1.0 + `fix_iterations` × 0.25, 2.0); `story_ratio` = `fix_factor` (actual man-hours = base × fix_factor; predicted = base × 1.0)
-- For each class c ∈ {simple, standard, complex}: `{class_ratio_c}` = round(avg(`story_ratio`) across done stories of class c, 3) — omit if no stories of that class
+**Scope + fix samples (per done story, approach A).** For each story with class `c` and `fix_factor = min(1.0 + fix_iterations × 0.25, 2.0)`:
+- `scope_actual.time = actual.elapsed_hours / fix_factor`; `scope_actual.tokens = actual.tokens_k / fix_factor`; `scope_actual.cost = parse(actual.cost) / fix_factor` — **skip any metric whose story actual is `N/A`**; `scope_actual.man_hours = base(c)` exactly, so its scope ratio sample = 1.0.
+- `scope_ratio_sample(c, m) = scope_actual[m] / base_band_mid(c, m)` (base-band mids per metrics-contract).
+- `fix_factor_sample(c) = fix_factor`.
 
-**Update history** — read `{project-root}/_bmad/pm-calibration.yaml` if it exists (create fresh if not). Append:
-```yaml
-- id: 'E{target_epic_padded}-S{target_sprint_padded}'
-  date: '{date}'
-  time_ratio: {sprint_time_ratio}
-  man_hours_ratio: {sprint_man_ratio}
-  token_ratio: {sprint_token_ratio}     # omit this key when actual.tokens_k was N/A
-  cost_ratio: {sprint_cost_ratio}       # omit this key when actual.cost was N/A
-  story_mix: { simple: {simple_count}, standard: {standard_count}, complex: {complex_count} }
-  by_classification:                                    # omit class entry if count = 0
-    simple:   { man_hours_ratio: {class_ratio_simple},   count: {simple_count} }
-    standard: { man_hours_ratio: {class_ratio_standard}, count: {standard_count} }
-    complex:  { man_hours_ratio: {class_ratio_complex},  count: {complex_count} }
-```
-Keep only the most recent 10 entries; discard older ones.
+**Closure sample (always, per sprint).** `closure_actual[m] = sprint.actual[m] − Σ story.actual[m]` for `m` ∈ {time, tokens, cost} (skip if any contributing actual is `N/A`); `man_hours` closure is the fixed +24 constant → `closure.sprint.man_hours_ratio` sample = 1.0. `closure_ratio_sample.sprint[m] = closure_actual[m] / closure_band_mid(sprint, m)`, using the **same** sprint-closure band the estimate used (include the red-team row when `l3io-sec-agent-redteam` is installed).
 
-**Recompute weighted rolling averages** using exponential decay (decay = 0.8):
-- For N entries ordered oldest→newest, assign weight[i] = 0.8^(N−1−i) so the most recent entry has weight = 1.0
-- `{new_time_ratio}` = round(Σ(time_ratio[i] × weight[i]) / Σ(weight[i]), 3)
-- `{new_man_hours_ratio}` = round(Σ(man_hours_ratio[i] × weight[i]) / Σ(weight[i]), 3)
-- `{new_token_ratio}` = round(Σ(token_ratio[i] × weight[i]) / Σ(weight[i]), 3) — **over only the entries that have a `token_ratio`** (entries where it was N/A are excluded from both sums); leave at 1.0 if no entry has one
-- `{new_cost_ratio}` = round(Σ(cost_ratio[i] × weight[i]) / Σ(weight[i]), 3) — same: only entries that carry a `cost_ratio`
-- For each class c: `{new_class_ratio_c}` = round(Σ(by_classification.c.man_hours_ratio[i] × weight[i]) / Σ(weight[i] for entries where c.count > 0), 3); `{new_class_count_c}` = total story count across those entries
+**Append history** per `{calibration_granularity}`:
+- `"story"` → one entry per done story: `{ kind: story, id: '{story_key}', class: c, date: '{date}', scope: {time_ratio, token_ratio, cost_ratio, man_hours_ratio}, fix_factor }`; each increments `scope.c.sample_count`, `fix.c.sample_count`, and `stories_sampled`.
+- `"sprint"` → average the per-class scope ratios and fix_factors across this sprint's done stories; emit one aggregated entry per touched class: `{ kind: sprint-scope, id: 'E{target_epic_padded}-S{target_sprint_padded}', class: c, date: '{date}', scope: {…}, fix_factor }`; each increments the relevant `sample_count`s and `sprints_sampled`.
 
-**Write** `{project-root}/_bmad/pm-calibration.yaml`:
-```yaml
-version: 1
-last_updated: '{date}'
-sprints_sampled: {history_count}
-time_ratio: {new_time_ratio}           # weighted avg actual/estimate — applied to future time estimates
-man_hours_ratio: {new_man_hours_ratio} # weighted avg actual/estimate — overall fallback for man-hours
-token_ratio: {new_token_ratio}         # weighted avg actual/estimate — applied to future token estimates (Claude runs only)
-cost_ratio: {new_cost_ratio}           # weighted avg actual/estimate — applied to future cost estimates (Claude runs only)
-by_classification:                     # per-class man-hours ratios; used when sample_count >= 3
-  simple:   { man_hours_ratio: {new_class_ratio_simple},   sample_count: {new_class_count_simple} }
-  standard: { man_hours_ratio: {new_class_ratio_standard}, sample_count: {new_class_count_standard} }
-  complex:  { man_hours_ratio: {new_class_ratio_complex},  sample_count: {new_class_count_complex} }
-history:
-  {history_entries}
-```
+Always also append the closure entry: `{ kind: sprint-closure, id: 'E{target_epic_padded}-S{target_sprint_padded}', date: '{date}', closure: {time_ratio, token_ratio, cost_ratio, man_hours_ratio} }`; increment `closure.sprint.sample_count`. Omit any ratio key whose metric was `N/A`/skipped.
 
-If a ratio cannot be computed (zero denominator), leave that field at 1.0 and note the skip.
+**Recompute & write.** Keep the most recent **30** history entries; recompute every component ratio (and each `fix.c.avg_fix_factor`) as the decay-0.8 weighted mean over that component's entries, and each `sample_count` from the retained entries (all per metrics-contract → *Rolling averages*; a metric with no real sample keeps its prior of 1.0). Write the v2 file: `version: 2`, `last_updated: '{date}'`, `stories_sampled`, `sprints_sampled`, `epics_sampled` (carry through), and the `scope` / `closure` / `fix` / `history` blocks (schema in metrics-contract → *Decomposed calibration*).
+
+If a ratio cannot be computed (zero denominator or `N/A`), leave that component at its prior (1.0) and note the skip.

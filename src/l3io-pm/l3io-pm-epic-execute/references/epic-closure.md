@@ -324,48 +324,28 @@ Epic Orchestrator: Epic {target_epic} — {epic_title} — CLOSED — {date}
   Deferred to backlog:          {deferred_story_keys}
 
   ── Planned vs Actual ──────────────────────────────────────────────────────────────────────
-  AI time:         planned {epic_est_time_hours_low}–{epic_est_time_hours_high} hours    actual ~{epic_elapsed_hours} hours
-  Tokens:          planned {epic_est_tokens_low}K–{epic_est_tokens_high}K                actual {epic_actual_tokens_k}K
-  Cost:            planned ~{epic_est_cost_low}–{epic_est_cost_high}                     actual {epic_actual_cost}
-  Traditional:     estimated ~{epic_man_hours_low}–{epic_man_hours_high} hours    actual ~{epic_actual_man_hours} hours
+  AI time:         planned {estimate.time_hours_low}–{estimate.time_hours_high} hours    actual ~{epic_elapsed_hours} hours
+  Tokens:          planned {estimate.tokens_k_min}K–{estimate.tokens_k_max}K              actual {epic_actual_tokens_k}K
+  Cost:            planned ~{estimate.cost_low}–{estimate.cost_high}                      actual {epic_actual_cost}
+  Traditional:     estimated ~{estimate.man_hours_low}–{estimate.man_hours_high} hours    actual ~{epic_actual_man_hours} hours
   (Token/cost actuals are exact under Claude; shown as N/A under other runtimes — never estimated.)
 ```
 
 ---
 
-## Step 9 — Calibration Update
+## Step 9 — Calibration Update (epic-closure sample)
 
-Update the project-level calibration file with epic-level plan-vs-actual data.
+Update the project-level decomposed calibration file (`references/metrics-contract.md` → *Decomposed calibration* / *Emitting calibration samples at close* / *Rolling averages*). **Scope and fix samples, and the per-sprint `sprint-closure` samples, were already emitted by each `l3io-pm-sprint-execute` subagent at its own close** — do **not** re-sample them here (that would double-count the same stories). This step emits only the **epic-closure** sample.
 
-**Compute epic-level ratios** (read `estimate` and `actual` from the epic node in `{status_active}`):
-- `{cal_epic_time_mid}` = (`estimate.time_hours_low` + `estimate.time_hours_high`) / 2
-- `{cal_epic_man_mid}` = (`estimate.man_hours_low` + `estimate.man_hours_high`) / 2
-- `{cal_epic_tokens_mid}` = (`estimate.tokens_k_min` + `estimate.tokens_k_max`) / 2
-- `{cal_epic_cost_mid}` = (`estimate.cost_low` + `estimate.cost_high`) / 2   (parse the `$X.XX` strings to numbers)
-- `{epic_time_ratio}` = round(`{epic_elapsed_hours}` / `{cal_epic_time_mid}`, 3) — skip if denominator is 0
-- `{epic_man_ratio}` = round(`{epic_actual_man_hours}` / `{cal_epic_man_mid}`, 3) — skip if denominator is 0
-- `{epic_token_ratio}` = round(`actual.tokens_k` / `{cal_epic_tokens_mid}`, 3) — **skip if `actual.tokens_k` is `N/A`** or the denominator is 0 (never feed a guessed or N/A value into calibration)
-- `{epic_cost_ratio}` = round(`actual.cost` / `{cal_epic_cost_mid}`, 3) — **skip if `actual.cost` is `N/A`** or the denominator is 0
+**Read** the epic node's `estimate` + `actual`, and each sprint node's `actual` block. If the file is `version: 1` (or has no `version`), migrate to v2 first (per metrics-contract → *migration*).
 
-**Compute per-classification man-hours ratios** across all sprint stories in this epic (read `classification` and `completion_evidence.fix_iterations` from all story nodes; bases: simple=6, standard=18, complex=36):
-- For each story: `fix_factor` = min(1.0 + `fix_iterations` × 0.25, 2.0); `story_ratio` = `fix_factor`
-- For each class c ∈ {simple, standard, complex}: `{class_ratio_c}` = round(avg(`story_ratio`) across all done stories of class c, 3) — omit if no stories of that class
+**Epic-closure sample.** `closure_actual.epic[m] = epic.actual[m] − Σ sprint.actual[m]` for `m` ∈ {time, tokens, cost} (skip if any contributing actual is `N/A`); `man_hours` epic closure is the fixed +12 constant → `closure.epic.man_hours_ratio` sample = 1.0. `closure_ratio_sample.epic[m] = closure_actual.epic[m] / epic_closure_band_mid(m)` (band mids per metrics-contract).
 
-**Append to history** in `{project-root}/_bmad/pm-calibration.yaml`:
-```yaml
-- id: 'E{target_epic_padded}-epic'
-  date: '{date}'
-  time_ratio: {epic_time_ratio}
-  man_hours_ratio: {epic_man_ratio}
-  token_ratio: {epic_token_ratio}       # omit this key when actual.tokens_k was N/A
-  cost_ratio: {epic_cost_ratio}         # omit this key when actual.cost was N/A
-  story_mix: { simple: {total_simple_count}, standard: {total_standard_count}, complex: {total_complex_count} }
-  by_classification:
-    simple:   { man_hours_ratio: {class_ratio_simple},   count: {total_simple_count} }
-    standard: { man_hours_ratio: {class_ratio_standard}, count: {total_standard_count} }
-    complex:  { man_hours_ratio: {class_ratio_complex},  count: {total_complex_count} }
-```
-Keep only the most recent 10 entries. Recompute all weighted rolling averages — `time_ratio`, `man_hours_ratio`, `token_ratio`, `cost_ratio`, and per-classification ratios — using the same decay=0.8 logic as sprint Step 12 (and the same rule: `token_ratio`/`cost_ratio` average over only the entries that carry one, leaving the rolling value at 1.0 when none do). Write the updated `pm-calibration.yaml`.
+**Append** one history entry: `{ kind: epic-closure, id: 'E{target_epic_padded}', date: '{date}', closure: {time_ratio, token_ratio, cost_ratio, man_hours_ratio} }` (omit any ratio whose metric was `N/A`/skipped); increment `closure.epic.sample_count` and `epics_sampled`.
+
+**Recompute & write.** Keep the most recent **30** history entries; recompute the `closure.epic` component ratios as the decay-0.8 weighted mean over its `epic-closure` entries (per metrics-contract → *Rolling averages*; a metric with no real sample keeps its prior of 1.0). Leave the `scope` / `closure.sprint` / `fix` components as the sprints left them. Write the v2 file (`scope` / `closure` / `fix` / `history`, with `epics_sampled` updated).
+
+If a ratio cannot be computed (zero denominator or `N/A`), leave `closure.epic` at its prior (1.0) and note the skip.
 
 ---
 

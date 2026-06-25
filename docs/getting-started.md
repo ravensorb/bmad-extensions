@@ -107,10 +107,11 @@ Closure:    Retrospective → Clean Release → Adversarial → Red Team → UX 
 ...
 Pre-start estimate:
   Stories:         3 (0 simple, 3 standard, 0 complex)
-  Est. story time: 36–60 min
-  Est. closure:    25–50 min
+  Est. story work: 0.6–1.0 h   (Σ stories, fix reserve included)
+  Est. closure:    0.4–0.8 h
   ────────────────────────────────────────────────────────
-  Total estimate:  61–110 min    Token estimate: 270K–480K
+  Total estimate:  1.0–1.8 hours    Tokens: 270K–480K    Cost: ~$2.16–$3.84
+  Calibration:     none yet — formula baseline (components calibrate at ≥3 samples)
   (Actuals reported at sprint close.)
 
 Shall I begin?
@@ -118,7 +119,7 @@ Shall I begin?
 
 Confirm to start (interactive mode requires explicit `yes` before any subagent runs). The orchestrator delegates each story phase to a fresh subagent and reports progress. At closure, findings are auto-classified — Critical/High/Medium and undocumented drift route to the closure fix loop (auto-fix, max 10 iterations); Low findings auto-defer to backlog as new stories. The sprint signs off once all Critical/High/Medium issues are resolved. You are only prompted again if a fix loop (per-story or closure) hits its 10-iteration cap.
 
-At sign-off the orchestrator records **actuals** alongside the estimate for all four metrics — compute (wall-clock) hours, man-hours, tokens, and token cost. Under Claude, tokens and cost are captured exactly from the session transcript; under other runtimes (e.g. Copilot) they show as `N/A` rather than a guess. From the fourth sprint onward, estimates self-calibrate from this plan-vs-actual history — no setup needed. See the [PM reference](l3io-pm-reference.md#metrics-contract-estimates--actuals) for the full metrics contract and calibration details.
+At sign-off the orchestrator records **actuals** alongside the estimate for all four metrics — compute (wall-clock) hours, man-hours, tokens, and token cost. Under Claude, tokens and cost are captured exactly from the session transcript; under other runtimes (e.g. Copilot) they show as `N/A` rather than a guess. Estimates self-calibrate from this plan-vs-actual history — decomposed into story-scope, closure, and fix components that each activate once they have ≥3 samples — with no setup needed. See the [PM reference](l3io-pm-reference.md#metrics-contract-estimates--actuals) for the full metrics contract and calibration details.
 
 ## First Epic Run
 

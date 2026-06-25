@@ -59,17 +59,11 @@ Print when done: DONE | BLOCKED: [reason]
 
 Halt on BLOCKED — report to `{user_name}` and wait for resolution before continuing.
 
-Classify story complexity from the AC count: Simple (1–3 ACs), Standard (4–6 ACs), Complex (7+ ACs). Bind `{story_complexity}` and `{story_title}` (from the story file header). Map to the per-classification estimate (HARD RULE — see `references/metrics-contract.md`):
+The story's `classification` and four-metric `estimate` block were already written up front at the sprint **Pre-start Estimate** (per `references/metrics-contract.md` → *Applying calibration at estimate time* — `story.estimate[m] = base_band(class)[m] × scope_ratio(class, m) × fix_mult(class)`). **Read** them from the story node in `{status_active}` — do **not** recompute. Bind `{story_complexity}` = the node's `classification`, `{story_cost_range}` = `cost_low`–`cost_high` from its `estimate`, and `{story_title}` from the story file header.
 
-| Classification | time_hours_low/high | tokens_k_min/max | cost_low/high | man_hours_low/high |
-|----------------|---------------------|------------------|---------------|--------------------|
-| Simple   | 0.13 / 0.20 | 40 / 70   | '$0.32' / '$0.56' | 4 / 8   |
-| Standard | 0.20 / 0.33 | 70 / 120  | '$0.56' / '$0.96' | 12 / 24 |
-| Complex  | 0.33 / 0.58 | 120 / 200 | '$0.96' / '$1.60' | 24 / 48 |
+**Fallback only if the node has no `estimate`/`classification`** (e.g. a story added after pre-start): classify from the AC count — Simple (1–3 ACs), Standard (4–6 ACs), Complex (7+ ACs) — compute the four-metric estimate via the metrics-contract formula above (HARD RULE — all four metrics), and write `classification` + the `estimate` block to the node now.
 
-Bind `{story_cost_range}` = the `cost_low–cost_high` for `{story_complexity}`.
-
-Announce story prep complete to `{user_name}` (informational, no confirmation requested): story title + acceptance criteria count + task count + complexity + cost estimate (from file headers only). Example: "Story {story_key} ready — {ac_count} ACs, {task_count} tasks · {story_complexity} · est. {story_cost_range}". Update the story entry in `{status_active}`: set `status: ready-for-dev`, write `title: {story_title}`, `classification: {story_complexity}`, and write the full `estimate` block (all four metrics) using the row above for `{story_complexity}`. Continue immediately to development.
+Announce story prep complete to `{user_name}` (informational, no confirmation requested): story title + acceptance criteria count + task count + complexity + cost estimate. Example: "Story {story_key} ready — {ac_count} ACs, {task_count} tasks · {story_complexity} · est. {story_cost_range}". Update the story entry in `{status_active}`: set `status: ready-for-dev`, write `title: {story_title}` (and `classification` + `estimate` only if they were just computed in the fallback). Continue immediately to development.
 
 ---
 
