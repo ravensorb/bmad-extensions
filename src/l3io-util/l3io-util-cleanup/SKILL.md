@@ -1,6 +1,6 @@
 ---
 name: l3io-util-cleanup
-description: Migration utilities. Use when the user needs to reorganize legacy flat BMad artifact outputs into the structured epic/sprint folder layout, migrate sprint-status.yaml to the current field schema, split it into the three-file layout, harvest deferred-shortcut code markers into the backlog, or validate and sort the ordering of epics, sprints, and backlog entries in the status files.
+description: Migration utilities. Use when the user needs to reorganize legacy flat BMad artifact outputs into the structured epic/sprint folder layout, migrate sprint-status.yaml to the current field schema, split it into the three-file layout, harvest deferred-shortcut code markers into the backlog, validate and sort the ordering of epics and sprints in the status files, or update AI system instruction files with the current status file layout.
 ---
 
 # Artifact Layout Cleanup
@@ -14,6 +14,7 @@ Migration and housekeeping utilities for BMad artifacts. Four modes:
 - **`split-status`:** Splits a single `sprint-status.yaml` into the three-file layout the PM skills now use — `sprint-status-active.yaml`, `sprint-status-backlog.yaml`, `sprint-status-archived.yaml` — partitioning every epic/sprint by status. One-time migration; the original is preserved as `sprint-status.yaml.legacy`. (Run `migrate-schema` first if the file predates the current field schema.)
 - **`harvest-debt`:** Greps the whole source tree for `bmad-defer:` deferred-shortcut markers (the comment crumbs developers and dev subagents leave when they take an intentional simplification) and harvests them into the consolidated `backlog:` list so deferrals do not rot into "later means never." Language-generic — recognizes the comment syntax of every common language. Re-runnable: dedupes against already-harvested markers. Report-only by default; backlog merge is confirmed.
 - **`sort-status`:** Validates that epics, sprints, stories, and backlog items in all three split status files are in the expected sort order, and applies sorting if needed. Dry-run first; confirms before writing. Safe to run at any time — never edits field values, only reorders nodes.
+- **`update-ai-rules`:** Scans for AI system instruction files in the project (`CLAUDE.md`, `.github/copilot-instructions.md`, `GEMINI.md`, `AGENTS.md`, `.cursorrules`, and others) and updates any references to the legacy `sprint-status.yaml` to document the current three-file split layout. For files that already exist: updates existing references. For the currently running AI system's file if it does not exist: creates it with a status layout section. Never creates files for other AI systems. Also auto-invoked after a successful `split-status` run. Safe to run repeatedly.
 
 **One-time use (layout cleanup):** Designed to be run once per project. Running again after a successful cleanup produces zero moves (everything already placed) or conflicts (for new flat files added since the first run).
 
@@ -31,6 +32,8 @@ If the user passes `split-status` as an argument, skip to [Split Status Mode](#s
 If the user passes `harvest-debt` as an argument, skip to [Harvest Debt Mode](#harvest-debt-mode).
 
 If the user passes `sort-status` as an argument, skip to [Sort Status Mode](#sort-status-mode).
+
+If the user passes `update-ai-rules` as an argument, skip to [Update AI Rules Mode](#update-ai-rules-mode).
 
 If the user passes `setup`, `configure`, or `install` as an argument — or if `{project-root}/_bmad/config.yaml` does not have an `l3io-util` section — load `assets/module-setup.md` to register the module first, then continue.
 
@@ -127,14 +130,14 @@ Move each confirmed file to its destination. On conflict (destination already ex
 
 ### Step 6 — Reference Reconciliation
 
-Search reference-holding files: `sprint-status.yaml`, story `.md` files, planning docs, closure and test reports. For each moved file, replace exact old-path occurrences with the new path. If one old path could match multiple targets or context is ambiguous, record for manual review — do not auto-update.
+Search reference-holding files: the split status files (`sprint-status-active.yaml`, `sprint-status-backlog.yaml`, `sprint-status-archived.yaml`) or legacy `sprint-status.yaml` (whichever are present), story `.md` files, planning docs, closure and test reports. For each moved file, replace exact old-path occurrences with the new path. If one old path could match multiple targets or context is ambiguous, record for manual review — do not auto-update.
 
 ### Step 7 — State Verification
 
 Verify post-move state:
 - Epic and sprint folder names are zero-padded (`epic-01` not `epic-1`, `sprint-02` not `sprint-2`)
 - Story files under `stories/`, closure outputs under `closure/`, tests under `tests/`
-- If `sprint-status.yaml` exists: flag story state entries referencing missing story files
+- Check story state entries in whichever status files are present (split layout or legacy `sprint-status.yaml`) for references to missing story files
 - Flag any residual flat files that were not classified and remain in the root
 
 **Ordering check (status files):** If the split layout exists (`sprint-status-active.yaml`, `sprint-status-backlog.yaml`, or `sprint-status-archived.yaml`), check their sort order:
@@ -228,17 +231,19 @@ Invoked with `migrate-schema` argument. Upgrades an existing `sprint-status.yaml
 
 ### Migration Steps
 
-**Step M1 — Load config and locate status file**
+**Step M1 — Load config and locate status files**
 
-Load config (same as layout cleanup). Resolve `{status_file}` = `{implementation_artifacts}/sprint-status.yaml`. If absent, print:
-```
-sprint-status.yaml not found at {status_file}
-```
-and exit.
+Load config (same as layout cleanup). Detect which layout is present:
+
+1. If `{implementation_artifacts}/sprint-status-active.yaml` exists → **split layout**: bind `{status_files}` to all present split files: `sprint-status-active.yaml`, `sprint-status-backlog.yaml`, `sprint-status-archived.yaml` (include only those that exist).
+2. Else if `{implementation_artifacts}/sprint-status.yaml` exists → **legacy single-file**: bind `{status_files}` = `[ sprint-status.yaml ]`.
+3. Else: print `No status files found at {implementation_artifacts} — nothing to migrate.` and exit.
+
+Steps M2–M7 operate on each file in `{status_files}`. The dry-run table (Step M3) groups all files; confirmation (Step M4) covers all at once.
 
 **Step M2 — Analyze**
 
-Parse `{status_file}`. For each node — epic, sprint, story, backlog item — collect every field that is absent from the current schema. Build a change list: node path + field name + proposed default value.
+Parse each file in `{status_files}`. For each node — epic, sprint, story, backlog item — collect every field that is absent from the current schema. Build a change list: file + node path + field name + proposed default value.
 
 Schema fields to verify (add if absent):
 
@@ -266,24 +271,25 @@ Schema fields to verify (add if absent):
 **Step M3 — Dry-run table**
 
 ```
-SCHEMA MIGRATION DRY RUN — {status_file}
+SCHEMA MIGRATION DRY RUN — {status_files}
 ================================================================
-Node                                    Field                Value
+File                          Node                              Field                Value
 ----------------------------------------------------------------
-epics[01]                               title                'Epic 01'
-epics[01]                               goal                 ''
-epics[01]                               estimate.time_hours_low  0
+sprint-status-active.yaml     epics[01]                         title                'Epic 01'
+sprint-status-active.yaml     epics[01]                         goal                 ''
+sprint-status-active.yaml     epics[01]                         estimate.time_hours_low  0
+sprint-status-active.yaml     epics[01].sprints[01]             title                'Sprint 01'
+sprint-status-active.yaml     epics[01].sprints[01].stories[ST01]  classification    'unknown'
+sprint-status-backlog.yaml    epics[02].backlog[BL-01]          source               ''
 ...
-epics[01].sprints[01]                   title                'Sprint 01'
-epics[01].sprints[01].stories[ST01]     classification       'unknown'
-epics[01].backlog[BL-01]               source               ''
 ================================================================
 Summary: {field_count} fields to add across {epic_count} epics,
          {sprint_count} sprints, {story_count} stories, {backlog_count} backlog items
+         ({file_count} file(s) affected)
 No existing values will be changed.
 ```
 
-If `{field_count}` is 0: print `sprint-status.yaml is already current — no fields to add.` and exit.
+If `{field_count}` is 0 across all files: print `Status files are already current — no fields to add.` and exit.
 
 **Step M4 — Confirm**
 
@@ -293,13 +299,13 @@ If no: print `Migration cancelled — no changes made.` and exit.
 
 **Step M5 — Write**
 
-Apply all changes to `{status_file}`. Preserve the existing field order within each node; append new fields after existing ones in their parent node. New blocks (`estimate`, `actual`, `completion_evidence`) are appended as a whole after existing peer fields.
+Apply all changes to each file in `{status_files}`. Preserve the existing field order within each node; append new fields after existing ones in their parent node. New blocks (`estimate`, `actual`, `completion_evidence`) are appended as a whole after existing peer fields.
 
 **Step M6 — Verify**
 
-Re-parse the written `{status_file}` as YAML. If parsing fails, restore the original content and print:
+Re-parse each written file in `{status_files}` as YAML. If any file fails to parse, restore its original content and print:
 ```
-FAILED — Written file is not valid YAML. Original restored. Parse error: {error}
+FAILED — {file} is not valid YAML. Original restored. Parse error: {error}
 ```
 
 **Step M7 — Report**
@@ -307,7 +313,7 @@ FAILED — Written file is not valid YAML. Original restored. Parse error: {erro
 ```
 DONE — Schema migration complete.
   Fields added: {field_count}
-  File: {status_file}
+  Files: {status_files}
 ```
 
 ---
@@ -415,6 +421,10 @@ DONE — Split complete.
 After a successful split the nodes are placed correctly but may not be sorted within their files (the original file's order is preserved exactly during the split). Automatically run the ordering validation from [Sort Status Mode](#sort-status-mode) now:
 - If all files are already in order: append `Ordering: ✓ all files sorted correctly` to the report and exit.
 - If ordering issues are found: present the dry-run table (Step SO3) and ask: "Sort the {N} ordering issue(s) now?" If yes, proceed through Steps SO5–SO7. If no, print `Ordering issues recorded — run /l3io-util-cleanup sort-status to fix later.` and exit.
+
+**Step S9 — AI Rules Update**
+
+After the split (and optional sort), automatically run Step AR1 of [Update AI Rules Mode](#update-ai-rules-mode) to scan for AI instruction files that reference the old `sprint-status.yaml`. If any are found, display the findings and ask: "Update {N} AI instruction file reference(s) now?" If yes, proceed through Steps AR2–AR6. If no, print: `Run /l3io-util-cleanup update-ai-rules to update AI instruction files later.` and exit.
 
 ---
 
@@ -667,4 +677,103 @@ DONE — Status sort complete.
   sprint-status-active.yaml:   {a_changes} list(s) reordered  (or "✓ already sorted")
   sprint-status-backlog.yaml:  {b_changes} list(s) reordered, {bl_changes} backlog items reordered  (or "✓ already sorted")
   sprint-status-archived.yaml: {r_changes} list(s) reordered  (or "✓ already sorted")
+```
+
+---
+
+## Update AI Rules Mode
+
+Invoked with `update-ai-rules` argument, or automatically from [Split Status Mode](#split-status-mode) Step S9. Scans for AI system instruction files in the project and updates any references to the legacy `sprint-status.yaml` to document the current three-file split layout. For instruction files that already exist: updates existing references. For the currently running AI system's file that does not yet exist: creates it with a status layout section. Never creates instruction files for other AI systems. Safe to run repeatedly — already-updated files are skipped.
+
+### Supported AI instruction file locations
+
+| AI System | Instruction file |
+|---|---|
+| Claude Code | `{project-root}/CLAUDE.md` |
+| GitHub Copilot | `{project-root}/.github/copilot-instructions.md` |
+| Google Gemini | `{project-root}/GEMINI.md` |
+| Generic agents | `{project-root}/AGENTS.md` |
+| Cursor | `{project-root}/.cursorrules` or `{project-root}/cursor.md` |
+| Cline | `{project-root}/.clinerules` or `{project-root}/CLINE.md` |
+
+### Detection rule
+
+A `sprint-status.yaml` reference is flagged for update if it is NOT immediately followed by `.legacy` and the same paragraph or section does not already mention `sprint-status-active.yaml`. References that are already updated (mention the split layout) are skipped.
+
+### Steps
+
+**Step AR1 — Scan**
+
+Check each well-known instruction file location. For each file that exists, grep for `sprint-status\.yaml` (case-sensitive) and collect all matches with surrounding context (2 lines before/after). Apply the detection rule. Build a findings list: `{file}` + `{line}` + `{context}`.
+
+Also determine the current AI runtime (Claude, Copilot, Gemini, etc.) from execution context. If the current runtime's instruction file does not exist and was not found above, add it to a `{to_create}` list.
+
+If no existing instruction files found AND `{to_create}` is empty: print `No AI instruction files found — nothing to update.` and exit.
+
+If existing files found but no flagged references AND `{to_create}` is empty: print `AI instruction files are already current — no sprint-status.yaml references detected.` listing files checked, and exit.
+
+**Step AR2 — Dry-run**
+
+```
+AI RULES DRY RUN
+================================================================
+Existing files to update:
+  File                                  Line   Current reference
+  ─────────────────────────────────────────────────────────────
+  CLAUDE.md                              42    sprint-status.yaml
+  .github/copilot-instructions.md        17    _bmad-output/sprint-status.yaml
+
+Files to create (current AI runtime):
+  {file} — new section: PM state file layout
+
+Files checked (no changes needed):
+  {files_with_no_hits}
+================================================================
+{N} reference(s) to update across {M} existing file(s). {C} file(s) to create.
+```
+
+**Step AR3 — Confirm**
+
+Ask: "Update {N} reference(s) in {M} file(s) and create {C} new file(s)?"
+
+If no: print `Update cancelled — no changes made.` and exit.
+
+**Step AR4 — Apply updates to existing files**
+
+For each file in the findings list, read the full content. For each flagged reference, construct a contextually appropriate replacement:
+
+- **Inline path** (e.g., `some/path/sprint-status.yaml`): replace `sprint-status.yaml` → `sprint-status-active.yaml` and append ` (split layout: sprint-status-active.yaml / sprint-status-backlog.yaml / sprint-status-archived.yaml)` as a trailing inline note.
+- **Standalone keyword** (e.g., "reads sprint-status.yaml"): replace with a brief description: "`sprint-status-active.yaml` (in-progress epics), `sprint-status-backlog.yaml` (backlog), `sprint-status-archived.yaml` (archived)".
+- **Section or block** describing the state file: replace the entire description block with the three-file layout explanation, preserving surrounding format.
+
+Read 3 lines of surrounding context before choosing the replacement strategy. Write the updated content to disk.
+
+**Step AR5 — Create new file for current runtime**
+
+For each file in `{to_create}`, create the file (and any parent directories, e.g. `.github/`) and write a minimal AI instruction section covering the PM state file layout:
+
+```markdown
+## BMad PM — State File Layout
+
+Sprint and epic state is tracked in three split status files under `{implementation_artifacts}/`:
+
+- `sprint-status-active.yaml` — epics currently in-progress, with their active and done sprints and all stories
+- `sprint-status-backlog.yaml` — not-yet-started epics and sprints, plus the consolidated deferred-issue backlog list
+- `sprint-status-archived.yaml` — completed epics (moved here wholesale at epic close)
+
+A legacy single `sprint-status.yaml` is auto-split on first PM skill run, or explicitly with `/l3io-util-cleanup split-status`.
+```
+
+Adapt the heading style and surrounding content to match the existing file format for that AI system.
+
+**Step AR6 — Verify and report**
+
+Re-read each updated and created file. Confirm no `sprint-status.yaml` (non-legacy) references remain. If any remain, list them as unresolved.
+
+```
+DONE — AI rules update complete.
+  References updated: {N} across {M} file(s)
+  Files created:      {C}
+  Unresolved:         {U} (list if > 0)
+  Files checked (no changes needed): {files}
 ```
