@@ -20,7 +20,7 @@
       "name": "l3io-pm",
       "source": "./src/l3io-pm",
       "description": "Sprint and epic execution orchestration for LiquidLogicLabs delivery teams — full lifecycle from story preparation through closure reviews.",
-      "version": "1.0.18",
+      "version": "1.0.19",
       "author": {
         "name": "Shawn Anderson",
         "email": "shawn@eye-catcher.com"
@@ -35,7 +35,7 @@
       "name": "l3io-sec",
       "source": "./src/l3io-sec",
       "description": "Adversarial security analysis for LiquidLogicLabs projects — five threat lenses with AI poisoning cross-cut and live cloud/platform best practices research.",
-      "version": "1.0.18",
+      "version": "1.0.19",
       "author": {
         "name": "Shawn Anderson",
         "email": "shawn@eye-catcher.com"
@@ -48,7 +48,7 @@
       "name": "l3io-util",
       "source": "./src/l3io-util",
       "description": "Utility skills for LiquidLogicLabs BMad projects — one-time and housekeeping operations for artifact organization.",
-      "version": "1.0.18",
+      "version": "1.0.19",
       "author": {
         "name": "Shawn Anderson",
         "email": "shawn@eye-catcher.com"

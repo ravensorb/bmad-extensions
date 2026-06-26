@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file. See [commit-and-tag-version](https://github.com/absolute-version/commit-and-tag-version) for commit guidelines.
 
+## [1.0.19](https://github.com/ravensorb/bmad-extensions/compare/1.0.18...1.0.19) (2026-06-26)
+
+
+### Features
+
+* **l3io-util:** update-ai-rules mode + migrate-schema split layout + Step 6/7 fixes ([17f8f22](https://github.com/ravensorb/bmad-extensions/commit/17f8f22b4f712dbb780af20eef08b8dc889b3704))
+
 ## [1.0.18](https://github.com/ravensorb/bmad-extensions/compare/1.0.17...1.0.18) (2026-06-26)
 
 
