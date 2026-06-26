@@ -1,6 +1,6 @@
 ---
 name: l3io-util-cleanup
-description: Migration utilities. Use when the user needs to reorganize legacy flat BMad artifact outputs into the structured epic/sprint folder layout, migrate sprint-status.yaml to the current field schema, split it into the three-file layout, or harvest deferred-shortcut code markers into the backlog.
+description: Migration utilities. Use when the user needs to reorganize legacy flat BMad artifact outputs into the structured epic/sprint folder layout, migrate sprint-status.yaml to the current field schema, split it into the three-file layout, harvest deferred-shortcut code markers into the backlog, or validate and sort the ordering of epics, sprints, and backlog entries in the status files.
 ---
 
 # Artifact Layout Cleanup
@@ -13,6 +13,7 @@ Migration and housekeeping utilities for BMad artifacts. Four modes:
 - **`migrate-schema`:** Upgrades an existing `sprint-status.yaml` to the current field schema — adds missing fields with zero/empty defaults, never overwrites existing values.
 - **`split-status`:** Splits a single `sprint-status.yaml` into the three-file layout the PM skills now use — `sprint-status-active.yaml`, `sprint-status-backlog.yaml`, `sprint-status-archived.yaml` — partitioning every epic/sprint by status. One-time migration; the original is preserved as `sprint-status.yaml.legacy`. (Run `migrate-schema` first if the file predates the current field schema.)
 - **`harvest-debt`:** Greps the whole source tree for `bmad-defer:` deferred-shortcut markers (the comment crumbs developers and dev subagents leave when they take an intentional simplification) and harvests them into the consolidated `backlog:` list so deferrals do not rot into "later means never." Language-generic — recognizes the comment syntax of every common language. Re-runnable: dedupes against already-harvested markers. Report-only by default; backlog merge is confirmed.
+- **`sort-status`:** Validates that epics, sprints, stories, and backlog items in all three split status files are in the expected sort order, and applies sorting if needed. Dry-run first; confirms before writing. Safe to run at any time — never edits field values, only reorders nodes.
 
 **One-time use (layout cleanup):** Designed to be run once per project. Running again after a successful cleanup produces zero moves (everything already placed) or conflicts (for new flat files added since the first run).
 
@@ -28,6 +29,8 @@ If the user passes `migrate-schema` as an argument, skip to [Schema Migration Mo
 If the user passes `split-status` as an argument, skip to [Split Status Mode](#split-status-mode).
 
 If the user passes `harvest-debt` as an argument, skip to [Harvest Debt Mode](#harvest-debt-mode).
+
+If the user passes `sort-status` as an argument, skip to [Sort Status Mode](#sort-status-mode).
 
 If the user passes `setup`, `configure`, or `install` as an argument — or if `{project-root}/_bmad/config.yaml` does not have an `l3io-util` section — load `assets/module-setup.md` to register the module first, then continue.
 
@@ -133,6 +136,21 @@ Verify post-move state:
 - Story files under `stories/`, closure outputs under `closure/`, tests under `tests/`
 - If `sprint-status.yaml` exists: flag story state entries referencing missing story files
 - Flag any residual flat files that were not classified and remain in the root
+
+**Ordering check (status files):** If the split layout exists (`sprint-status-active.yaml`, `sprint-status-backlog.yaml`, or `sprint-status-archived.yaml`), check their sort order:
+- Epics ordered ascending by `id` (numeric) in each file
+- Sprints ordered ascending by `id` (numeric) within each epic
+- Stories ordered ascending by `key` (lexicographic) within each sprint
+- Backlog items in `sprint-status-backlog.yaml` ordered by `epic` ascending (numeric; blank entries last), then `sprint`, then `key`
+
+If any ordering issue is found, include it in the State Issues count and append to the summary:
+```
+Status file ordering: {N} issue(s) detected in {files} — run `/l3io-util-cleanup sort-status` to fix
+```
+If all files are in order, append:
+```
+Status file ordering: ✓ all files sorted correctly
+```
 
 ### Step 8 — Deferred Work Files
 
@@ -392,6 +410,12 @@ DONE — Split complete.
   Original: {status_file}.legacy
 ```
 
+**Step S8 — Post-split ordering validation**
+
+After a successful split the nodes are placed correctly but may not be sorted within their files (the original file's order is preserved exactly during the split). Automatically run the ordering validation from [Sort Status Mode](#sort-status-mode) now:
+- If all files are already in order: append `Ordering: ✓ all files sorted correctly` to the report and exit.
+- If ordering issues are found: present the dry-run table (Step SO3) and ask: "Sort the {N} ordering issue(s) now?" If yes, proceed through Steps SO5–SO7. If no, print `Ordering issues recorded — run /l3io-util-cleanup sort-status to fix later.` and exit.
+
 ---
 
 ## Harvest Debt Mode
@@ -545,3 +569,102 @@ DONE — Debt harvest complete.
 Markers stay in the source until the developer removes them when the shortcut is upgraded; harvest
 records them, it never edits source. A future run re-sweeps and dedupes, so removing a marker simply
 stops it reappearing (the backlog item it created persists until triaged like any other).
+
+---
+
+## Sort Status Mode
+
+Invoked with `sort-status` argument. Validates that epics, sprints, stories, and backlog items in the three split status files are in the expected sort order and applies sorting where needed. Safe to run at any time — never modifies field values, only reorders list nodes. Dry-run first; confirms before writing.
+
+**Expected sort order:**
+
+| Scope | Key | Direction |
+|---|---|---|
+| Epics within each status file | `id` parsed as integer | Ascending |
+| Sprints within each epic | `id` parsed as integer | Ascending |
+| Stories within each sprint | `key` lexicographic | Ascending |
+| Backlog items in `sprint-status-backlog.yaml` | `epic` (int, blank → 9999) then `sprint` (int, blank → 9999) then `key` | Ascending |
+
+### Steps
+
+**Step SO1 — Load config and resolve status files**
+
+Load config (same as layout cleanup). Resolve the split layout files:
+- `{status_active}` = `{implementation_artifacts}/sprint-status-active.yaml`
+- `{status_backlog}` = `{implementation_artifacts}/sprint-status-backlog.yaml`
+- `{status_archived}` = `{implementation_artifacts}/sprint-status-archived.yaml`
+
+Process only files that exist; silently skip absent ones. If no split-layout files exist but a legacy `sprint-status.yaml` is present, print:
+```
+No split layout found. Run /l3io-util-cleanup split-status first, then re-run sort-status.
+```
+and exit.
+
+**Step SO2 — Validate ordering**
+
+Parse each present file. For each file check:
+1. Epics list: is each epic's `id` (parsed as int) ≥ the previous epic's `id`? If not, record the file and the out-of-order `id` pair.
+2. Within each epic, sprints list: same check by `id`.
+3. Within each sprint, stories list: is each story's `key` ≥ the previous key (lexicographic)? Record out-of-order pairs.
+4. In `{status_backlog}`, top-level `backlog:` list: sort key = (`epic` as int with blank → 9999, `sprint` as int with blank → 9999, `key`). Record any pair that violates this order.
+
+Accumulate all findings as `{ordering_issues}`.
+
+**Step SO3 — Dry-run report**
+
+If `{ordering_issues}` is empty:
+```
+STATUS ORDER CHECK — all files in order.
+  sprint-status-active.yaml:   {a_epics} epics, {a_sprints} sprints, {a_stories} stories — ✓ sorted
+  sprint-status-backlog.yaml:  {b_epics} epics, {b_sprints} sprints, {b_stories} stories, {bl_count} backlog items — ✓ sorted
+  sprint-status-archived.yaml: {r_epics} epics, {r_sprints} sprints, {r_stories} stories — ✓ sorted
+```
+Exit.
+
+Otherwise:
+```
+STATUS ORDER DRY RUN
+================================================================
+File                              Scope                           Issue
+----------------------------------------------------------------
+sprint-status-active.yaml         epics                           id 03 appears before id 02
+sprint-status-active.yaml         epic 01 → sprints               id 02 appears before id 01
+sprint-status-backlog.yaml        backlog items                   DEBT-03 appears before DEBT-01
+...
+================================================================
+{N} ordering issue(s) found across {M} file(s).
+Proposed: epics by id ↑, sprints by id ↑ within epic, stories by key ↑ within sprint,
+          backlog by epic ↑ → sprint ↑ → key ↑ (blank epic/sprint sort last).
+```
+
+**Step SO4 — Confirm**
+
+Ask: "Sort {N} issue(s) across {M} file(s)? Field values are not changed — list order only."
+
+If no: print `Sort cancelled — no changes made.` and exit.
+
+**Step SO5 — Sort and write**
+
+For each file with ordering issues:
+1. Sort the top-level `epics:` list by `int(id)` ascending.
+2. Within each epic node, sort its `sprints:` list by `int(id)` ascending.
+3. Within each sprint node, sort its `stories:` list by `key` ascending (lexicographic).
+4. In `{status_backlog}` only: sort the top-level `backlog:` list by the composite key (`epic` as int with `''` → 9999, `sprint` as int with `''` → 9999, `key` lexicographic).
+5. Preserve all field values exactly — ordering changes only.
+6. Write the reordered file to disk.
+
+**Step SO6 — Verify**
+
+Re-parse each rewritten file as YAML. If any file fails to parse, restore its pre-sort content and print:
+```
+FAILED — {file} is not valid YAML after sort. Original restored. Parse error: {error}
+```
+
+**Step SO7 — Report**
+
+```
+DONE — Status sort complete.
+  sprint-status-active.yaml:   {a_changes} list(s) reordered  (or "✓ already sorted")
+  sprint-status-backlog.yaml:  {b_changes} list(s) reordered, {bl_changes} backlog items reordered  (or "✓ already sorted")
+  sprint-status-archived.yaml: {r_changes} list(s) reordered  (or "✓ already sorted")
+```

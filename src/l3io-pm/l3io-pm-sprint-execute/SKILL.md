@@ -82,6 +82,24 @@ Remove already-`done` stories from `{sprint_stories}`. Derive `{sprint_title}` =
 
 **Promote the sprint to active** (per `references/status-files.md` → Move operations): move the sprint node from the `{status_backlog}` epic shell into the epic node in `{status_active}` (creating the epic node in `{status_active}` if this is the first sprint to start under it), set `status: in-progress`, write `title: {sprint_title}` (create the field if absent), and drop the `{status_backlog}` shell once its `sprints:` list is empty. All subsequent sprint/story reads and writes target this node in `{status_active}`.
 
+### Status Pre-check
+
+After promoting the sprint to active, validate the current state of each story node in `{status_active}` before performing any work:
+
+| Story status found | Action |
+|---|---|
+| `backlog` or `ready-for-dev` | Expected — continue normally |
+| `in-progress` | Warn `{user_name}` (informational): "Story {story_key} found in-progress from a prior run — will resume from current state." Continue. |
+| `done` | Already filtered out above — if it still appears in `{sprint_stories}`, remove it and log the anomaly. |
+| Any other value | **Halt**: report the story key and unexpected status to `{user_name}` — wait for resolution before continuing. |
+
+Also confirm the sprint node itself is present in `{status_active}` with `status: in-progress`. If the sprint node is missing or has a different status, halt and report to `{user_name}` before proceeding.
+
+Log a brief pre-check summary (informational):
+```
+Sprint pre-check: Epic {target_epic}, Sprint {target_sprint} — status: in-progress ✓  Stories: {story_count} ({ready_count} ready, {in_progress_count} resuming)
+```
+
 ### Pre-start Estimate
 
 Compute automatically — no user prompt. Estimates follow the **bottom-up roll-up** and **decomposed calibration** defined in `references/metrics-contract.md` (the single source of truth for base bands, closure bands, the `scope`/`closure`/`fix` ratios, and the cold-start fix reserve `F`). Procedure:

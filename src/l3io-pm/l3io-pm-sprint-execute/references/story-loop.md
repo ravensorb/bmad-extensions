@@ -194,4 +194,26 @@ actual:
 
 ---
 
-When all stories in `{sprint_stories}` are `done`, continue to `references/sprint-closure.md`.
+## Pre-Closure Story Verification
+
+Before continuing to `references/sprint-closure.md`, perform a targeted read of all story nodes for this sprint in `{status_active}` and verify:
+
+| Check | Expected |
+|---|---|
+| Every story `status` | `done` |
+| Every story `actual.elapsed_hours` | numeric, non-null |
+| Every story `actual.man_hours` | numeric, non-null |
+| Every story `actual.tokens_k` | present (`N/A` is acceptable under non-Claude runtime; absence is not) |
+| Every story `actual.cost` | present (`N/A` is acceptable under non-Claude runtime; absence is not) |
+| Every story `completion_evidence` block | present |
+
+If any story is not `done`: halt and report the story key and its current status to `{user_name}` — do not proceed to closure with incomplete work.
+
+If a story's `actual` block is missing or a field is absent (not `N/A` — literally absent): re-write the missing fields now per `references/metrics-contract.md`. If a metric is genuinely unresolvable, write `N/A` — never omit the field.
+
+Log the verification result:
+```
+Story verification — Epic {target_epic}, Sprint {target_sprint}: {story_count} stories done ✓ | WARN: [list any gaps corrected]
+```
+
+When all stories in `{sprint_stories}` are `done` and verified, continue to `references/sprint-closure.md`.

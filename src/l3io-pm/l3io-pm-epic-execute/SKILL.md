@@ -95,6 +95,24 @@ Extract `{epic_title}` and `{epic_goal}` from `{epics_file}` (read headers and g
 
 **Promote the epic to active** (per `references/status-files.md` → Move operations): move the epic identity into `{status_active}` with `status: in-progress`, writing `title: {epic_title}` and `goal: {epic_goal}` (create fields if absent). Its not-yet-started (`backlog`) sprints remain in `{status_backlog}` under the epic shell until each sprint starts; sprint-execute promotes them on start.
 
+### Status Pre-check
+
+After promoting the epic to active, validate the current state of all epic, sprint, and story nodes before spawning any sprint subagents:
+
+**Epic node:** Confirm `status: in-progress` is present in `{status_active}`. If missing or incorrect, halt and report to `{user_name}`.
+
+**Story statuses:** For each story in `{remaining_story_key_list}`, expected statuses are `backlog`, `ready-for-dev`, or `in-progress` (from a prior partial run). If a story is already `done` (prior run), remove it from `{remaining_story_key_list}`, decrement `{remaining_count}`, and log the anomaly. If any story has an unrecognized status, warn `{user_name}` (informational) and continue.
+
+**Sprint statuses (partial runs):** For any sprint already in `{status_active}` under this epic, check its status:
+- `done` → fully complete; exclude from `{sprint_plan}` (do not re-execute)
+- `in-progress` → will be resumed by its sprint subagent; warn `{user_name}` (informational)
+- Sprint in `{status_backlog}` → expected, not yet started
+
+Log a brief pre-check summary (informational):
+```
+Epic pre-check: Epic {target_epic} — status: in-progress ✓  Sprints: {sprint_count} ({done_sprint_count} already done, {pending_sprint_count} to execute)  Stories: {remaining_count} remaining
+```
+
 ### Pre-start Estimate
 
 Compute automatically — no user prompt. The epic estimate is a **true roll-up of its sprint estimates** plus the epic-closure band, using the **decomposed calibration** defined in `references/metrics-contract.md` (single source of truth for base bands, closure bands, `scope`/`closure`/`fix` ratios, and the cold-start fix reserve `F`). Procedure:

@@ -344,6 +344,28 @@ In headless mode (called by `l3io-pm-epic-execute`), emit instead:
 DONE — Stories: {story_count}, Issues resolved: {total_resolved}, Issues deferred: {total_deferred}, Retro: {retro_file_path}, Time: ~{elapsed_hours}h (planned {estimate.time_hours_low}–{estimate.time_hours_high}h), Tokens: {actual_tokens_k}K, Cost: {actual_cost} (planned ~{estimate.cost_low}–{estimate.cost_high})
 ```
 
+### Post-Sign-Off Status Verification
+
+After writing the sprint node, perform a targeted read of the sprint node and all its story nodes in `{status_active}` to confirm the writes succeeded and all fields are populated:
+
+| Field | Expected |
+|---|---|
+| Sprint `status` | `done` |
+| Sprint `closed` | non-empty date string |
+| Sprint `actual.elapsed_hours` | numeric, non-null |
+| Sprint `actual.man_hours` | numeric, non-null |
+| Sprint `actual.tokens_k` | numeric or `N/A` — field must exist (not absent) |
+| Sprint `actual.cost` | `$X.XX` or `N/A` — field must exist (not absent) |
+| Every story `status` | `done` |
+| Every story `actual` block | present with all 4 metrics |
+
+If any sprint-level field is missing or null: re-write the corrected value before continuing. If a story `actual` block is missing: attempt to reconstruct from available data per `references/metrics-contract.md`; if unresolvable, write `N/A` for the missing metrics and log the gap explicitly — never leave a field absent.
+
+Log the verification result:
+```
+Sprint sign-off verification — Epic {target_epic}, Sprint {target_sprint}: PASS | WARN [list any gaps corrected]
+```
+
 ---
 
 ## Step 12 — Calibration Update (decomposed)
