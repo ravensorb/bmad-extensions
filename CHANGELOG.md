@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file. See [commit-and-tag-version](https://github.com/absolute-version/commit-and-tag-version) for commit guidelines.
 
+## [1.0.18](https://github.com/ravensorb/bmad-extensions/compare/1.0.17...1.0.18) (2026-06-26)
+
+
+### Fixes
+
+* **l3io-pm:** consolidate module registry into setup skill to fix sprint install ([358b670](https://github.com/ravensorb/bmad-extensions/commit/358b6704a7a094485e28a7e6af0e2148d15fbace))
+
 ## [1.0.17](https://github.com/ravensorb/bmad-extensions/compare/1.0.16...1.0.17) (2026-06-26)
 
 
