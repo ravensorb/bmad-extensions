@@ -32,7 +32,7 @@ If the script fails, resolve the `workflow` block yourself by reading `{skill-ro
 
 ### First-Run Check
 
-If `{project-root}/_bmad/config.yaml` does not have an `l3io-pm` section — or if the user passes `setup`, `configure`, or `install` as an argument — load `assets/module-setup.md` to register the module first, then continue with the resolved config values.
+If `{project-root}/_bmad/config.yaml` does not have an `l3io-pm` section — or if the user passes `setup`, `configure`, or `install` as an argument — load `{skill-root}/../l3io-pm-setup/assets/module-setup.md` to register the module first, then continue with the resolved config values.
 
 ### Load Config
 
