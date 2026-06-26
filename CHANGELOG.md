@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file. See [commit-and-tag-version](https://github.com/absolute-version/commit-and-tag-version) for commit guidelines.
 
+## [1.0.17](https://github.com/ravensorb/bmad-extensions/compare/1.0.16...1.0.17) (2026-06-26)
+
+
+### Features
+
+* **l3io-pm,l3io-util:** status validation gates + sort-status mode ([7f41d07](https://github.com/ravensorb/bmad-extensions/commit/7f41d073f966948988a9a618902533ce3903d493))
+
 ## [1.0.16](https://github.com/ravensorb/bmad-extensions/compare/1.0.15...1.0.16) (2026-06-25)
 
 
