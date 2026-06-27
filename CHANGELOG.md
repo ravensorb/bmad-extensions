@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file. See [commit-and-tag-version](https://github.com/absolute-version/commit-and-tag-version) for commit guidelines.
 
+## [1.0.22](https://github.com/ravensorb/bmad-extensions/compare/1.0.21...1.0.22) (2026-06-27)
+
+
+### Features
+
+* **l3io-pm,l3io-util:** redesign backlog item lifecycle and key format ([38c9ccf](https://github.com/ravensorb/bmad-extensions/commit/38c9ccf272f387b77d42d54575ec2fb0574f5b13))
+
 ## [1.0.21](https://github.com/ravensorb/bmad-extensions/compare/1.0.20...1.0.21) (2026-06-27)
 
 
