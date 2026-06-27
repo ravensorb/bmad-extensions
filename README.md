@@ -42,6 +42,22 @@ Interactive path: `npx bmad-method install` -> Community modules -> `bmad-l3io-e
 
 After install, each module auto-configures on first use — no explicit setup step required.
 
+### Upgrading the Extension Only
+
+To pull the latest extension skills without reinstalling BMad core modules, run the install command without `--modules`:
+
+```bash
+npx bmad-method install \
+  --directory . \
+  --custom-source https://github.com/ravensorb/bmad-extensions \
+  --tools claude-code \
+  --yes
+```
+
+Safe to re-run at any time — existing config (`_bmad/config.yaml`) is preserved and skills are refreshed in place.
+
+If upgrading from a version before 1.0.20 and you have an existing `sprint-status-active.yaml`, run `/l3io-util-cleanup rename-active` once after upgrading to migrate the file to the new name.
+
 For projects upgrading from an older flat artifact layout, run `/l3io-util-cleanup` once before starting sprint or epic orchestration.
 
 See [docs/getting-started.md](docs/getting-started.md) for a full installation and first-run walkthrough.
@@ -89,7 +105,7 @@ Runtime artifacts are organized with zero-padded epic/sprint folders:
 - closure outputs: `{implementation_artifacts}/epic-XX/sprint-YY/closure/`
 - tests: `{implementation_artifacts}/epic-XX/sprint-YY/tests/` and `{implementation_artifacts}/epic-XX/tests/`
 - planning artifacts: `{planning_artifacts}/epic-XX/` and `{planning_artifacts}/epic-XX/sprint-YY/`
-- sprint status (three-file split layout): `{implementation_artifacts}/sprint-status-active.yaml` (in-progress epics), `{implementation_artifacts}/sprint-status-backlog.yaml` (not-yet-started work + consolidated deferred-issue backlog), `{implementation_artifacts}/sprint-status-archived.yaml` (done epics)
+- sprint status (three-file split layout): `{implementation_artifacts}/sprint-status.yaml` (in-progress epics), `{implementation_artifacts}/sprint-status-backlog.yaml` (not-yet-started work + consolidated deferred-issue backlog), `{implementation_artifacts}/sprint-status-archived.yaml` (done epics)
 
 ## Dependencies
 

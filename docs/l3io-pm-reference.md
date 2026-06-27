@@ -188,7 +188,7 @@ All paths use zero-padded two-digit epic/sprint numbers.
 
 | Path | Description |
 |------|-------------|
-| `{implementation_artifacts}/sprint-status-active.yaml` | Story and epic status for in-progress epics — part of the single source of truth |
+| `{implementation_artifacts}/sprint-status.yaml` | Story and epic status for in-progress epics — part of the single source of truth |
 | `{implementation_artifacts}/sprint-status-backlog.yaml` | Not-yet-started work plus the consolidated deferred-issue backlog — part of the single source of truth |
 | `{implementation_artifacts}/sprint-status-archived.yaml` | Done epics, moved here wholesale at epic close — part of the single source of truth |
 | `{implementation_artifacts}/epic-XX/sprint-YY/stories/{story-key}.md` | Story file |
@@ -206,7 +206,7 @@ Types: `retro`, `clean-release`, `adversarial`, `redteam`, `ux-review`, `arch-dr
 
 ## Status File Schema
 
-The sprint status tracks story and epic lifecycle, split across three files in `{implementation_artifacts}/`: `sprint-status-active.yaml` (in-progress epics), `sprint-status-backlog.yaml` (not-yet-started work plus the consolidated top-level deferred-issue `backlog:` list, each item tagged with `epic` and `sprint` keys), and `sprint-status-archived.yaml` (done epics, moved here wholesale at epic close). Placement granularity is epic + sprint — stories always travel inside their owning sprint node, and archiving happens only at epic close. The placement rule, node-move operations, and read/auto-fallback procedure are defined in each PM skill's `references/status-files.md`. Only the orchestrator writes to these files; subagents pass paths but do not write directly. The schema below shows the per-epic node shape that lives in whichever of the three files currently holds that epic.
+The sprint status tracks story and epic lifecycle, split across three files in `{implementation_artifacts}/`: `sprint-status.yaml` (in-progress epics), `sprint-status-backlog.yaml` (not-yet-started work plus the consolidated top-level deferred-issue `backlog:` list, each item tagged with `epic` and `sprint` keys), and `sprint-status-archived.yaml` (done epics, moved here wholesale at epic close). Placement granularity is epic + sprint — stories always travel inside their owning sprint node, and archiving happens only at epic close. The placement rule, node-move operations, and read/auto-fallback procedure are defined in each PM skill's `references/status-files.md`. Only the orchestrator writes to these files; subagents pass paths but do not write directly. The schema below shows the per-epic node shape that lives in whichever of the three files currently holds that epic.
 
 Story status lifecycle:
 

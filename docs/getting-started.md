@@ -84,7 +84,7 @@ After upgrading, your existing `_bmad/config.yaml` values are preserved — no r
 
 Before your first sprint or epic run, verify:
 
-1. The sprint status files exist under `{implementation_artifacts}/` — the split layout is `sprint-status-active.yaml` (in-progress epics), `sprint-status-backlog.yaml` (not-yet-started work plus the consolidated deferred-issue backlog), and `sprint-status-archived.yaml` (done epics) — and your stories are present with status `backlog`. If you only have a legacy single `sprint-status.yaml`, the PM skills auto-split it on first run (renaming the original to `sprint-status.yaml.legacy`); you can also split it explicitly with `/l3io-util-cleanup split-status`
+1. The sprint status files exist under `{implementation_artifacts}/` — the split layout is `sprint-status.yaml` (in-progress epics), `sprint-status-backlog.yaml` (not-yet-started work plus the consolidated deferred-issue backlog), and `sprint-status-archived.yaml` (done epics) — and your stories are present with status `backlog`. If you only have a legacy single `sprint-status.yaml`, the PM skills auto-split it on first run (renaming the original to `sprint-status.yaml.legacy`); you can also split it explicitly with `/l3io-util-cleanup split-status`
 2. Planning docs (epics file, PRD, architecture spec) exist under `{planning_artifacts}`
 3. If you have existing flat artifacts from a prior layout, run `/l3io-util-cleanup` first
 
