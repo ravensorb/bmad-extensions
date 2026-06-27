@@ -15,7 +15,7 @@ file that does not yet exist is treated as empty, not an error):
 | Binding | File | Holds |
 |---------|------|-------|
 | `{status_active}` | `sprint-status.yaml` | `epics:` with `status: in-progress` only. Each carries its `in-progress` and `done` sprints (and all their stories). |
-| `{status_backlog}` | `sprint-status-backlog.yaml` | `epics:` = not-yet-started work; `backlog:` = consolidated deferred-issue tracker across all epics. |
+| `{status_backlog}` | `sprint-status-backlog.yaml` | `epics:` = not-yet-started work (shells for in-progress epics + whole backlog epics); `backlog:` = flat list of pending deferred issues — only `status: backlog` items; resolved or promoted items are removed from this list. |
 | `{status_archived}` | `sprint-status-archived.yaml` | `epics:` with `status: done` — full subtree, moved here at epic close. |
 
 All three share the **same node schema** as the legacy single `sprint-status.yaml` (epic →
@@ -79,25 +79,28 @@ A "move" = remove the node from its source file and write it into the destinatio
 | **Sprint close** | sprint-closure sign-off | **No file move** — the sprint stays `done` in `{status_active}` until its epic closes (archive is epic-close-only). |
 | **Epic close** | epic-closure sign-off | Do all metric/calibration reads from `{status_active}` **first**, then move the whole epic node (all done sprints + stories) `{status_active}` → `{status_archived}`. Remove any leftover shell for that epic from `{status_backlog}`. |
 | **Issue triage** | sprint-closure / epic-closure triage | Append deferred items to the `backlog:` section of `{status_backlog}` (tagged with `epic`/`sprint`) — **not** a per-epic nested `backlog:` array. |
+| **Backlog item promoted to story** | sprint planning / triage | Remove item from `backlog:` list in `{status_backlog}`. Create a story node in the target sprint in `{status_active}` with `title` and `classification` pre-populated, `status: backlog`. The story archives with its epic at epic close. |
+| **Backlog item resolved inline** | sprint work / closure triage | Remove item from `backlog:` list in `{status_backlog}`. Items are deleted when resolved — never kept with a resolved status. |
 
 ## Consolidated backlog item schema
 
 The `backlog:` list lives at the top level of `{status_backlog}` (one flat list across all
-epics, replacing the old per-epic nested `backlog:` arrays). Each item gains `epic` and
-`sprint` keys so its origin is unambiguous once flattened:
+epics). Key format: `BL-E{epic}-{nn}` where both epic and nn are zero-padded two-digit values (e.g. `BL-E01-01`, `BL-E02-37`). For repo-global items not tied to a specific epic (e.g. harvest-debt code markers), use `BL-E00-{nn}`.
+
+**Lifecycle:** Only `status: backlog` items appear in this list. When an item is resolved inline or promoted to a story, it is **removed** from the list — done items are never kept with a resolved status.
+
+**Promotion to story:** Remove the item from `{status_backlog}`. Create a story node in the target sprint in `{status_active}` with `title` and `classification` pre-populated from the backlog item, `status: backlog`. The story then follows the normal story lifecycle and archives with its epic at epic close.
 
 ```yaml
 backlog:
-- key: PROJ-E01-BL-01
-  epic: '01'                     # zero-padded epic id
-  sprint: '02'                   # zero-padded sprint id; '' for an epic-level deferral
+- key: BL-E01-01                         # BL-E{epic}-{nn}, both zero-padded
+  epic: '01'                             # zero-padded epic id; '00' for repo-global items
+  sprint: '02'                           # zero-padded sprint id; '' for an epic-level deferral
   title: 'Issue title'
-  source: 'adversarial (ADV-L-01)'   # review phase + finding id
+  source: 'adversarial (ADV-L-01)'       # review phase + finding id
   severity: Low
   status: backlog
   description: 'One-sentence description of the deferred issue.'
-  resolved: '2026-05-19'         # added when the item is later fixed
-  resolution: 'How it was fixed.' # added when the item is later fixed
 ```
 
 ## Notes

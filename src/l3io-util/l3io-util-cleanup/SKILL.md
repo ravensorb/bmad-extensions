@@ -370,7 +370,7 @@ Invoked with `migrate-schema` argument. Upgrades an existing `sprint-status.yaml
 | `source`, `description`, `goal` | `''` |
 | Epic/sprint `title` | Derived mechanically: `'Epic {id}'` / `'Sprint {id}'` |
 | `bugs_fixed` list | Omit block entirely when `fix_iterations` defaults to `0` |
-| `closed`, `retrospective`, `resolved`, `resolution` | Omit — only present when the actual value is known |
+| `closed`, `retrospective` | Omit — only present when the actual value is known |
 
 ### Migration Steps
 
@@ -407,9 +407,9 @@ Schema fields to verify (add if absent):
 - `completion_evidence` block (only when `status: done`): `fix_iterations`, `tests_passing`, `files_changed`
 
 *Backlog item node:*
-- `source`
-- `severity`
-- `description`
+- `source` (verify/add if absent)
+- `severity` (verify/add if absent)
+- `description` (verify/add if absent)
 
 **Step M3 — Dry-run table**
 
@@ -651,7 +651,7 @@ nothing, print `No bmad-defer: markers found. Clean tree — nothing to harvest.
 **Step H3 — Dedupe against the existing backlog**
 
 Read the `backlog:` list from `{status_backlog}` (empty if the file or list is absent). A marker is
-**already harvested** if an existing item has `source` containing `code-marker ({file}:{line})` — this matches both entries written by `harvest-debt` itself (`source: 'code-marker ({file}:{line})'`) and entries written by sprint closure Step 9 (`source: 'clean-release (code-marker {file}:{line})'`), so running either tool first does not produce duplicates when the other runs later. Partition the swept markers:
+**already harvested** if an existing item has `source` containing `code-marker ({file}:{line})` — this matches both entries written by `harvest-debt` itself (`source: 'code-marker ({file}:{line})'`) and entries written by sprint closure Step 9 (`source: 'clean-release (code-marker {file}:{line})'`), so running either tool first does not produce duplicates when the other runs later. Dedupe is matched by `source` field, not by key — so legacy `DEBT-NN` keyed entries from prior runs are also correctly deduped by their source field. Partition the swept markers:
 - `new` — not present in the backlog.
 - `existing` — already harvested (skip; do not duplicate or re-key).
 
@@ -684,12 +684,11 @@ If no: print `Harvest cancelled — report only, no changes made.` and exit.
 
 Append one item per `new` marker to the top-level `backlog:` list of `{status_backlog}`, following
 the consolidated backlog schema (the PM skills' `references/status-files.md` is the schema source of
-truth). Generate keys by continuing the highest existing `DEBT-NN` suffix (zero-padded, repo-global —
-code markers are not tied to one epic/sprint):
+truth). Generate keys by continuing the highest existing `BL-E00-NN` suffix (check existing items with `epic: '00'`; also check for any legacy `DEBT-NN` items to avoid gap collisions):
 
 ```yaml
-- key: DEBT-{NN}                       # next free DEBT-NN across the existing backlog
-  epic: ''                             # markers are repo-global, not epic-scoped
+- key: BL-E00-01                       # BL-E00-{nn} — repo-global, not epic-scoped
+  epic: '00'                           # '00' = repo-global marker
   sprint: ''
   title: {what}                        # first clause of the marker, trimmed
   source: 'code-marker ({file}:{line})'
@@ -782,7 +781,7 @@ File                              Scope                           Issue
 ----------------------------------------------------------------
 sprint-status.yaml                epics                           id 03 appears before id 02
 sprint-status.yaml                epic 01 → sprints               id 02 appears before id 01
-sprint-status-backlog.yaml        backlog items                   DEBT-03 appears before DEBT-01
+sprint-status-backlog.yaml        backlog items                   BL-E00-03 appears before BL-E00-01
 ...
 ================================================================
 {N} ordering issue(s) found across {M} file(s).

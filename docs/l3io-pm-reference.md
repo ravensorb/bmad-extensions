@@ -275,16 +275,18 @@ epics:
         files_changed: 8
         bugs_fixed:                # omitted when fix_iterations == 0
         - 'Brief description of fix'
-  backlog:
-  - key: PROJ-E01-BL-01
-    title: 'Issue title'
-    source: 'adversarial (ADV-L-01)'
-    severity: Low                  # Critical | High | Medium | Low
-    status: backlog
-    description: 'One-sentence description.'
-    resolved: '2026-05-19'        # added when fixed
-    resolution: 'How it was fixed.'
+backlog:
+- key: BL-E01-01                       # BL-E{epic}-{nn}, both zero-padded; BL-E00-{nn} for repo-global
+  epic: '01'                           # zero-padded epic id; '00' for repo-global items
+  sprint: '02'                         # zero-padded sprint id; '' for an epic-level deferral
+  title: 'Issue title'
+  source: 'adversarial (ADV-L-01)'     # review phase + finding id
+  severity: Low                        # Critical | High | Medium | Low
+  status: backlog
+  description: 'One-sentence description.'
 ```
+
+The `backlog:` list is backlog-only — only `status: backlog` items appear. When an item is resolved inline or promoted to a story, it is **removed** from the list. There are no `resolved` or `resolution` fields — done items simply don't exist in this list. When promoted to a story, a story node is created in the target sprint in `sprint-status.yaml` with `title` and `classification` pre-populated; the story then follows the normal lifecycle and archives with its epic at epic close.
 
 To upgrade a sprint status file that is missing these fields, run `/l3io-util-cleanup migrate-schema`. To split a legacy single `sprint-status.yaml` into the active/backlog/archived three-file layout (the original is preserved as `sprint-status.yaml.legacy`), run `/l3io-util-cleanup split-status`; the PM skills also auto-split a legacy file on first run.
 
