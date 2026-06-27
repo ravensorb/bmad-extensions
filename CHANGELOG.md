@@ -2,6 +2,18 @@
 
 All notable changes to this project will be documented in this file. See [commit-and-tag-version](https://github.com/absolute-version/commit-and-tag-version) for commit guidelines.
 
+## [1.0.21](https://github.com/ravensorb/bmad-extensions/compare/1.0.20...1.0.21) (2026-06-27)
+
+
+### Features
+
+* **l3io-util:** health-check default mode for l3io-util-cleanup ([3877483](https://github.com/ravensorb/bmad-extensions/commit/38774832ae0c0d78e2db5fb9f0851efbcaf0cdfe))
+
+
+### Documentation
+
+* update README with upgrade section and fix sprint-status naming ([feea90d](https://github.com/ravensorb/bmad-extensions/commit/feea90d50fc2dd444629c4bfb10177c211d167aa))
+
 ## [1.0.20](https://github.com/ravensorb/bmad-extensions/compare/1.0.19...1.0.20) (2026-06-27)
 
 
