@@ -1,15 +1,20 @@
 ---
 name: l3io-util-cleanup
-description: Migration utilities. Use when the user needs to reorganize legacy flat BMad artifact outputs into the structured epic/sprint folder layout, migrate sprint-status.yaml to the current field schema, split it into the three-file layout, harvest deferred-shortcut code markers into the backlog, validate and sort the ordering of epics and sprints in the status files, or update AI system instruction files with the current status file layout.
+description: Migration utilities. Use when the user needs to reorganize legacy flat BMad artifact outputs into the structured epic/sprint folder layout, migrate sprint-status.yaml to the current field schema, split it into the three-file layout, harvest deferred-shortcut code markers into the backlog, validate and sort the ordering of epics and sprints in the status files, or update AI system instruction files with the current status file layout. Run without arguments for an auto-diagnostic that scans project state and proposes the right actions.
 ---
 
 # Artifact Layout Cleanup
 
 ## Overview
 
-Migration and housekeeping utilities for BMad artifacts. Four modes:
+Migration and housekeeping utilities for BMad artifacts.
 
-- **Default (layout cleanup):** Reorganizes flat artifact outputs into a structured epic/sprint folder hierarchy with zero-padded names, reconciles file references, verifies state consistency, and produces a summary report. Run once to bring a legacy project into the standard layout.
+**Default behavior (no argument or unrecognized text):** Runs a project health check — scans for all known issues, reports findings in a priority table, and proposes the right actions in the correct execution order. One confirmation runs them all.
+
+Modes (pass as argument to skip directly to that mode):
+
+- **`check` / `status`:** Read-only health check — same diagnostic scan as the default but prints the findings table and exits without prompting to make changes.
+- **`layout-cleanup`:** Runs only the artifact layout reorganization (the original default behavior) — reorganizes flat artifact outputs into the structured epic/sprint folder hierarchy, reconciles references, verifies state consistency.
 - **`migrate-schema`:** Upgrades an existing `sprint-status.yaml` to the current field schema — adds missing fields with zero/empty defaults, never overwrites existing values.
 - **`split-status`:** Splits a single `sprint-status.yaml` into the three-file layout the PM skills now use — `sprint-status.yaml` (active/in-progress epics), `sprint-status-backlog.yaml`, `sprint-status-archived.yaml` — partitioning every epic/sprint by status. One-time migration; the original is preserved as `sprint-status.yaml.legacy`. (Run `migrate-schema` first if the file predates the current field schema.)
 - **`rename-active`:** One-time migration for projects using the old `sprint-status-active.yaml` naming. Renames `sprint-status-active.yaml` → `sprint-status.yaml`. Dry-run first; confirms before renaming. No-op if `sprint-status.yaml` already exists.
@@ -26,19 +31,23 @@ Migration and housekeeping utilities for BMad artifacts. Four modes:
 
 ## On Activation
 
-If the user passes `migrate-schema` as an argument, skip to [Schema Migration Mode](#schema-migration-mode).
+**Recognized keywords** — if the user's argument exactly matches any of these, skip directly to that mode:
 
-If the user passes `split-status` as an argument, skip to [Split Status Mode](#split-status-mode).
+| Keyword | Mode |
+|---|---|
+| `check` or `status` | [Project Health Check](#project-health-check) (read-only — scan only, no changes) |
+| `layout-cleanup` | [Execution Sequence](#execution-sequence) (layout reorganization only) |
+| `migrate-schema` | [Schema Migration Mode](#schema-migration-mode) |
+| `split-status` | [Split Status Mode](#split-status-mode) |
+| `harvest-debt` | [Harvest Debt Mode](#harvest-debt-mode) |
+| `sort-status` | [Sort Status Mode](#sort-status-mode) |
+| `rename-active` | [Rename Active Mode](#rename-active-mode) |
+| `update-ai-rules` | [Update AI Rules Mode](#update-ai-rules-mode) |
+| `setup`, `configure`, `install` | Load `assets/module-setup.md`, then continue to [Project Health Check](#project-health-check) |
 
-If the user passes `harvest-debt` as an argument, skip to [Harvest Debt Mode](#harvest-debt-mode).
+**Everything else** (no argument, unrecognized text, or a natural-language description) → skip to [Project Health Check](#project-health-check).
 
-If the user passes `sort-status` as an argument, skip to [Sort Status Mode](#sort-status-mode).
-
-If the user passes `rename-active` as an argument, skip to [Rename Active Mode](#rename-active-mode).
-
-If the user passes `update-ai-rules` as an argument, skip to [Update AI Rules Mode](#update-ai-rules-mode).
-
-If the user passes `setup`, `configure`, or `install` as an argument — or if `{project-root}/_bmad/config.yaml` does not have an `l3io-util` section — load `assets/module-setup.md` to register the module first, then continue.
+If `{project-root}/_bmad/config.yaml` does not have an `l3io-util` section, load `assets/module-setup.md` to register the module first.
 
 Load config from `{project-root}/_bmad/config.yaml` and `{project-root}/_bmad/config.user.yaml` (root level and `l3io-util` section). Resolve:
 - `implementation_artifacts`
@@ -46,6 +55,137 @@ Load config from `{project-root}/_bmad/config.yaml` and `{project-root}/_bmad/co
 - `output_folder`
 
 If `implementation_artifacts` is not set, default to `{output_folder}/implementation-artifacts`.
+
+## Project Health Check
+
+The default mode — runs when no recognized keyword is passed, or when `check`/`status` is passed. Scans the project and reports what needs attention in a structured table. When not in read-only mode (`check`/`status`), proposes the ordered set of actions and executes them after a single confirmation.
+
+### Step HC1 — Load config
+
+Load config same as described above under On Activation.
+
+### Step HC2 — Scan (7 checks, read-only)
+
+Run all checks. No files are changed at this step.
+
+**Check 1 — Status file naming**
+Does `{implementation_artifacts}/sprint-status-active.yaml` exist?
+- Yes → flag `rename-active` · Priority: Critical (must run before any other status-file action)
+- No → ✓
+
+**Check 2 — Status file layout**
+Do `sprint-status-backlog.yaml` OR `sprint-status-archived.yaml` exist in `{implementation_artifacts}/`?
+- Neither exists, but `sprint-status.yaml` is present with content that includes done or backlog epics → flag `split-status` · Priority: High
+- Neither exists and no `sprint-status.yaml` → new project, no status-file action needed
+- At least one split file exists → split layout in use, ✓
+
+**Check 3 — Status file schema**
+For each present status file, spot-check the first epic node and first sprint node for missing required fields (the full field list is in Schema Migration Mode Step M2). If any required field is absent, the full `migrate-schema` analysis is needed.
+- Gaps detected → flag `migrate-schema` · Priority: Medium (run before `split-status` if both are needed)
+- No gaps → ✓
+
+**Check 4 — Artifact layout**
+Scan the top level of `{implementation_artifacts}` and `{planning_artifacts}` for flat classifiable files (story files matching heuristic 1, sprint/epic closure files matching heuristics 2–3, test files matching heuristic 4, misplaced planning docs matching heuristic 5 — all from [File Classification Heuristics](#file-classification-heuristics)).
+- Flat classifiable files found → flag `layout-cleanup` · Priority: Medium · note count
+- None → ✓
+
+**Check 5 — Status file ordering**
+If split layout exists, run the ordering validation from Sort Status Mode Step SO2 on each present split file.
+- Out-of-order nodes found → flag `sort-status` · Priority: Low
+- In order → ✓
+
+**Check 6 — Deferred code markers**
+Run the `bmad-defer:` grep from Harvest Debt Mode (Step H2 grep command). Dedupe against the existing `backlog:` list (Step H3 logic). Count new (unharvested) markers.
+- New markers found → flag `harvest-debt` · Priority: Low · note count
+- None or all already harvested → ✓
+
+**Check 7 — AI instruction references**
+Run the scan from Update AI Rules Mode Step AR1 across all well-known instruction file locations.
+- Stale `sprint-status.yaml` references found → flag `update-ai-rules` · Priority: Low · list files
+- All current or absent → ✓
+
+### Step HC3 — Report findings
+
+Print the health check table. Use ✓ for passing checks, ⚠ for flagged items:
+
+```
+PROJECT HEALTH CHECK — {implementation_artifacts}
+================================================================
+Check                       Status                         Action
+----------------------------------------------------------------
+Status file naming          ⚠ sprint-status-active.yaml    rename-active
+Status file layout          ✓ Split layout in use          —
+Status file schema          ✓ All fields current           —
+Artifact layout             ⚠ 3 flat file(s) detected     layout-cleanup
+Status file ordering        ✓ All sorted                   —
+Deferred code markers       ⚠ 2 new marker(s)             harvest-debt
+AI instruction references   ✓ Current                      —
+================================================================
+```
+
+If flagged items exist, append the recommended execution sequence:
+```
+Recommended actions (in order): rename-active → layout-cleanup → harvest-debt
+```
+
+If nothing is flagged:
+```
+✓ Project is healthy — no actions needed.
+```
+
+### Step HC4 — Exit if read-only
+
+If invoked with `check` or `status`: print the report above and exit. No further steps.
+
+### Step HC5 — Propose and confirm
+
+If no items are flagged: print "✓ Nothing to do." and exit.
+
+Otherwise ask:
+```
+Run {N} recommended action(s) in sequence?
+  Y — run all ({action_list})
+  n — exit, no changes
+```
+
+If `n`: print "Exiting — no changes made." and exit.
+
+### Step HC6 — Execute in order
+
+Run each approved action in this fixed priority sequence (skip any that were not flagged):
+
+1. `rename-active`
+2. `migrate-schema`
+3. `split-status`
+4. `layout-cleanup`
+5. `sort-status`
+6. `harvest-debt`
+7. `update-ai-rules`
+
+Before each action, print a separator header:
+```
+─── Running: {action-name} ──────────────────────────────────
+```
+
+Each action runs its full mode implementation from its own section. **Suppress the per-mode confirmation prompts** — the user already confirmed in HC5; proceed as if they answered yes at each mode's own confirm step. The per-mode dry-run output and verify steps still run and are shown.
+
+If any action fails (exits with FAILED), stop and report — do not run remaining actions.
+
+### Step HC7 — Final summary
+
+```
+HEALTH CHECK COMPLETE
+================================================================
+  Ran:     {comma-separated list with ✓ or ✗ per action}
+  Clean:   {comma-separated list of checks that passed with ✓}
+================================================================
+{overall status line}
+```
+
+If all actions succeeded: "Project is now healthy."
+If any action failed: "One or more actions failed — see output above for details."
+
+---
 
 ## Target Folder Structure
 
