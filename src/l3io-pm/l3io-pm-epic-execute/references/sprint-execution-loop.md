@@ -30,7 +30,7 @@ Spawn subagent:
 ```
 Load config from: {config_file}
 Load project context from: {context_file} (if it exists)
-State files: split layout under {implementation_artifacts} (sprint-status-active.yaml / -backlog.yaml / -archived.yaml) — resolve per references/status-files.md
+State files: split layout under {implementation_artifacts} (sprint-status.yaml / -backlog.yaml / -archived.yaml) — resolve per references/status-files.md
 Target: Epic {target_epic}, stories: {sprint_story_keys}
 Sprint number: {current_sprint_num} (two-digit: {current_sprint_padded})
 Expected sprint output root: {epic_root_dir}/sprint-{current_sprint_padded}

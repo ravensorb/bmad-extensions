@@ -11,7 +11,8 @@ Migration and housekeeping utilities for BMad artifacts. Four modes:
 
 - **Default (layout cleanup):** Reorganizes flat artifact outputs into a structured epic/sprint folder hierarchy with zero-padded names, reconciles file references, verifies state consistency, and produces a summary report. Run once to bring a legacy project into the standard layout.
 - **`migrate-schema`:** Upgrades an existing `sprint-status.yaml` to the current field schema — adds missing fields with zero/empty defaults, never overwrites existing values.
-- **`split-status`:** Splits a single `sprint-status.yaml` into the three-file layout the PM skills now use — `sprint-status-active.yaml`, `sprint-status-backlog.yaml`, `sprint-status-archived.yaml` — partitioning every epic/sprint by status. One-time migration; the original is preserved as `sprint-status.yaml.legacy`. (Run `migrate-schema` first if the file predates the current field schema.)
+- **`split-status`:** Splits a single `sprint-status.yaml` into the three-file layout the PM skills now use — `sprint-status.yaml` (active/in-progress epics), `sprint-status-backlog.yaml`, `sprint-status-archived.yaml` — partitioning every epic/sprint by status. One-time migration; the original is preserved as `sprint-status.yaml.legacy`. (Run `migrate-schema` first if the file predates the current field schema.)
+- **`rename-active`:** One-time migration for projects using the old `sprint-status-active.yaml` naming. Renames `sprint-status-active.yaml` → `sprint-status.yaml`. Dry-run first; confirms before renaming. No-op if `sprint-status.yaml` already exists.
 - **`harvest-debt`:** Greps the whole source tree for `bmad-defer:` deferred-shortcut markers (the comment crumbs developers and dev subagents leave when they take an intentional simplification) and harvests them into the consolidated `backlog:` list so deferrals do not rot into "later means never." Language-generic — recognizes the comment syntax of every common language. Re-runnable: dedupes against already-harvested markers. Report-only by default; backlog merge is confirmed.
 - **`sort-status`:** Validates that epics, sprints, stories, and backlog items in all three split status files are in the expected sort order, and applies sorting if needed. Dry-run first; confirms before writing. Safe to run at any time — never edits field values, only reorders nodes.
 - **`update-ai-rules`:** Scans for AI system instruction files in the project (`CLAUDE.md`, `.github/copilot-instructions.md`, `GEMINI.md`, `AGENTS.md`, `.cursorrules`, and others) and updates any references to the legacy `sprint-status.yaml` to document the current three-file split layout. For files that already exist: updates existing references. For the currently running AI system's file if it does not exist: creates it with a status layout section. Never creates files for other AI systems. Also auto-invoked after a successful `split-status` run. Safe to run repeatedly.
@@ -32,6 +33,8 @@ If the user passes `split-status` as an argument, skip to [Split Status Mode](#s
 If the user passes `harvest-debt` as an argument, skip to [Harvest Debt Mode](#harvest-debt-mode).
 
 If the user passes `sort-status` as an argument, skip to [Sort Status Mode](#sort-status-mode).
+
+If the user passes `rename-active` as an argument, skip to [Rename Active Mode](#rename-active-mode).
 
 If the user passes `update-ai-rules` as an argument, skip to [Update AI Rules Mode](#update-ai-rules-mode).
 
@@ -130,7 +133,7 @@ Move each confirmed file to its destination. On conflict (destination already ex
 
 ### Step 6 — Reference Reconciliation
 
-Search reference-holding files: the split status files (`sprint-status-active.yaml`, `sprint-status-backlog.yaml`, `sprint-status-archived.yaml`) or legacy `sprint-status.yaml` (whichever are present), story `.md` files, planning docs, closure and test reports. For each moved file, replace exact old-path occurrences with the new path. If one old path could match multiple targets or context is ambiguous, record for manual review — do not auto-update.
+Search reference-holding files: the split status files (`sprint-status.yaml`, `sprint-status-backlog.yaml`, `sprint-status-archived.yaml`) or legacy `sprint-status.yaml.legacy` (whichever are present), story `.md` files, planning docs, closure and test reports. For each moved file, replace exact old-path occurrences with the new path. If one old path could match multiple targets or context is ambiguous, record for manual review — do not auto-update.
 
 ### Step 7 — State Verification
 
@@ -140,7 +143,7 @@ Verify post-move state:
 - Check story state entries in whichever status files are present (split layout or legacy `sprint-status.yaml`) for references to missing story files
 - Flag any residual flat files that were not classified and remain in the root
 
-**Ordering check (status files):** If the split layout exists (`sprint-status-active.yaml`, `sprint-status-backlog.yaml`, or `sprint-status-archived.yaml`), check their sort order:
+**Ordering check (status files):** If the split layout exists (`sprint-status.yaml`, `sprint-status-backlog.yaml`, or `sprint-status-archived.yaml`), check their sort order:
 - Epics ordered ascending by `id` (numeric) in each file
 - Sprints ordered ascending by `id` (numeric) within each epic
 - Stories ordered ascending by `key` (lexicographic) within each sprint
@@ -235,7 +238,7 @@ Invoked with `migrate-schema` argument. Upgrades an existing `sprint-status.yaml
 
 Load config (same as layout cleanup). Detect which layout is present:
 
-1. If `{implementation_artifacts}/sprint-status-active.yaml` exists → **split layout**: bind `{status_files}` to all present split files: `sprint-status-active.yaml`, `sprint-status-backlog.yaml`, `sprint-status-archived.yaml` (include only those that exist).
+1. If `{implementation_artifacts}/sprint-status-backlog.yaml` OR `{implementation_artifacts}/sprint-status-archived.yaml` exists → **split layout**: bind `{status_files}` to all present split files: `sprint-status.yaml`, `sprint-status-backlog.yaml`, `sprint-status-archived.yaml` (include only those that exist; also include `sprint-status-active.yaml` if present and `sprint-status.yaml` is absent, for backward compatibility).
 2. Else if `{implementation_artifacts}/sprint-status.yaml` exists → **legacy single-file**: bind `{status_files}` = `[ sprint-status.yaml ]`.
 3. Else: print `No status files found at {implementation_artifacts} — nothing to migrate.` and exit.
 
@@ -275,11 +278,11 @@ SCHEMA MIGRATION DRY RUN — {status_files}
 ================================================================
 File                          Node                              Field                Value
 ----------------------------------------------------------------
-sprint-status-active.yaml     epics[01]                         title                'Epic 01'
-sprint-status-active.yaml     epics[01]                         goal                 ''
-sprint-status-active.yaml     epics[01]                         estimate.time_hours_low  0
-sprint-status-active.yaml     epics[01].sprints[01]             title                'Sprint 01'
-sprint-status-active.yaml     epics[01].sprints[01].stories[ST01]  classification    'unknown'
+sprint-status.yaml            epics[01]                         title                'Epic 01'
+sprint-status.yaml            epics[01]                         goal                 ''
+sprint-status.yaml            epics[01]                         estimate.time_hours_low  0
+sprint-status.yaml            epics[01].sprints[01]             title                'Sprint 01'
+sprint-status.yaml            epics[01].sprints[01].stories[ST01]  classification    'unknown'
 sprint-status-backlog.yaml    epics[02].backlog[BL-01]          source               ''
 ...
 ================================================================
@@ -334,7 +337,7 @@ reviewed path.
 ### Target files
 
 In `{implementation_artifacts}/`:
-- `sprint-status-active.yaml` — `epics:` with `status: in-progress`.
+- `sprint-status.yaml` — `epics:` with `status: in-progress`.
 - `sprint-status-backlog.yaml` — `epics:` = not-yet-started work; `backlog:` = consolidated deferred-issue list.
 - `sprint-status-archived.yaml` — `epics:` with `status: done`.
 
@@ -377,7 +380,7 @@ SPLIT STATUS DRY RUN — {status_file}
 ================================================================
 Target file                       Epics  Sprints  Stories  Backlog
 ----------------------------------------------------------------
-sprint-status-active.yaml           {a_e}   {a_s}    {a_st}      —
+sprint-status.yaml                  {a_e}   {a_s}    {a_st}      —
 sprint-status-backlog.yaml          {b_e}   {b_s}    {b_st}   {bl_count}
 sprint-status-archived.yaml         {r_e}   {r_s}    {r_st}      —
 ================================================================
@@ -600,11 +603,11 @@ Invoked with `sort-status` argument. Validates that epics, sprints, stories, and
 **Step SO1 — Load config and resolve status files**
 
 Load config (same as layout cleanup). Resolve the split layout files:
-- `{status_active}` = `{implementation_artifacts}/sprint-status-active.yaml`
+- `{status_active}` = `{implementation_artifacts}/sprint-status.yaml`
 - `{status_backlog}` = `{implementation_artifacts}/sprint-status-backlog.yaml`
 - `{status_archived}` = `{implementation_artifacts}/sprint-status-archived.yaml`
 
-Process only files that exist; silently skip absent ones. If no split-layout files exist but a legacy `sprint-status.yaml` is present, print:
+Process only files that exist; silently skip absent ones. If no split-layout files exist (no backlog or archived files) but `sprint-status.yaml` exists alone (full-content, not yet split), print:
 ```
 No split layout found. Run /l3io-util-cleanup split-status first, then re-run sort-status.
 ```
@@ -625,7 +628,7 @@ Accumulate all findings as `{ordering_issues}`.
 If `{ordering_issues}` is empty:
 ```
 STATUS ORDER CHECK — all files in order.
-  sprint-status-active.yaml:   {a_epics} epics, {a_sprints} sprints, {a_stories} stories — ✓ sorted
+  sprint-status.yaml:          {a_epics} epics, {a_sprints} sprints, {a_stories} stories — ✓ sorted
   sprint-status-backlog.yaml:  {b_epics} epics, {b_sprints} sprints, {b_stories} stories, {bl_count} backlog items — ✓ sorted
   sprint-status-archived.yaml: {r_epics} epics, {r_sprints} sprints, {r_stories} stories — ✓ sorted
 ```
@@ -637,8 +640,8 @@ STATUS ORDER DRY RUN
 ================================================================
 File                              Scope                           Issue
 ----------------------------------------------------------------
-sprint-status-active.yaml         epics                           id 03 appears before id 02
-sprint-status-active.yaml         epic 01 → sprints               id 02 appears before id 01
+sprint-status.yaml                epics                           id 03 appears before id 02
+sprint-status.yaml                epic 01 → sprints               id 02 appears before id 01
 sprint-status-backlog.yaml        backlog items                   DEBT-03 appears before DEBT-01
 ...
 ================================================================
@@ -674,9 +677,72 @@ FAILED — {file} is not valid YAML after sort. Original restored. Parse error: 
 
 ```
 DONE — Status sort complete.
-  sprint-status-active.yaml:   {a_changes} list(s) reordered  (or "✓ already sorted")
+  sprint-status.yaml:          {a_changes} list(s) reordered  (or "✓ already sorted")
   sprint-status-backlog.yaml:  {b_changes} list(s) reordered, {bl_changes} backlog items reordered  (or "✓ already sorted")
   sprint-status-archived.yaml: {r_changes} list(s) reordered  (or "✓ already sorted")
+```
+
+---
+
+## Rename Active Mode
+
+Invoked with `rename-active` argument. One-time migration for projects using the old
+`sprint-status-active.yaml` filename. Renames the file to `sprint-status.yaml` so the PM
+skills and the core BMad framework skills find the right file without overrides. Content is
+not changed — placement only.
+
+### Steps
+
+**Step RA1 — Load config and check preconditions**
+
+Load config (same as layout cleanup). Resolve paths:
+- Old name: `{implementation_artifacts}/sprint-status-active.yaml`
+- New name: `{implementation_artifacts}/sprint-status.yaml`
+
+If `sprint-status-active.yaml` does NOT exist:
+```
+sprint-status-active.yaml not found at {implementation_artifacts} — nothing to rename.
+```
+Exit.
+
+If `sprint-status.yaml` already exists:
+```
+Conflict: sprint-status.yaml already exists at {implementation_artifacts}. Cannot rename sprint-status-active.yaml — resolve manually (e.g. remove or merge the existing sprint-status.yaml first).
+```
+Exit.
+
+**Step RA2 — Dry-run**
+
+```
+RENAME ACTIVE DRY RUN
+Will rename: {implementation_artifacts}/sprint-status-active.yaml
+         → {implementation_artifacts}/sprint-status.yaml
+Content unchanged — filename only.
+```
+
+**Step RA3 — Confirm**
+
+Ask: "Rename sprint-status-active.yaml → sprint-status.yaml?"
+
+If no: print `Rename cancelled — no changes made.` and exit.
+
+**Step RA4 — Rename**
+
+Rename `sprint-status-active.yaml` → `sprint-status.yaml`.
+
+**Step RA5 — Verify**
+
+Re-parse `sprint-status.yaml` as YAML to confirm the file is valid. Confirm the old name
+`sprint-status-active.yaml` no longer exists at that path. If YAML parse fails, rename the
+file back and print:
+```
+FAILED — sprint-status.yaml is not valid YAML after rename. Restored to sprint-status-active.yaml. Parse error: {error}
+```
+
+**Step RA6 — Report**
+
+```
+DONE — Renamed sprint-status-active.yaml → sprint-status.yaml. No content changed.
 ```
 
 ---
@@ -698,7 +764,7 @@ Invoked with `update-ai-rules` argument, or automatically from [Split Status Mod
 
 ### Detection rule
 
-A `sprint-status.yaml` reference is flagged for update if it is NOT immediately followed by `.legacy` and the same paragraph or section does not already mention `sprint-status-active.yaml`. References that are already updated (mention the split layout) are skipped.
+A `sprint-status.yaml` reference is flagged for update if it is NOT immediately followed by `.legacy` and the same paragraph or section does not already mention `sprint-status-backlog.yaml` or `sprint-status-archived.yaml`. References that are already updated (mention the split layout) are skipped.
 
 ### Steps
 
@@ -742,8 +808,8 @@ If no: print `Update cancelled — no changes made.` and exit.
 
 For each file in the findings list, read the full content. For each flagged reference, construct a contextually appropriate replacement:
 
-- **Inline path** (e.g., `some/path/sprint-status.yaml`): replace `sprint-status.yaml` → `sprint-status-active.yaml` and append ` (split layout: sprint-status-active.yaml / sprint-status-backlog.yaml / sprint-status-archived.yaml)` as a trailing inline note.
-- **Standalone keyword** (e.g., "reads sprint-status.yaml"): replace with a brief description: "`sprint-status-active.yaml` (in-progress epics), `sprint-status-backlog.yaml` (backlog), `sprint-status-archived.yaml` (archived)".
+- **Inline path** (e.g., `some/path/sprint-status.yaml`): append ` (split layout: sprint-status.yaml / sprint-status-backlog.yaml / sprint-status-archived.yaml)` as a trailing inline note.
+- **Standalone keyword** (e.g., "reads sprint-status.yaml"): replace with a brief description: "`sprint-status.yaml` (in-progress epics), `sprint-status-backlog.yaml` (backlog), `sprint-status-archived.yaml` (archived)".
 - **Section or block** describing the state file: replace the entire description block with the three-file layout explanation, preserving surrounding format.
 
 Read 3 lines of surrounding context before choosing the replacement strategy. Write the updated content to disk.
@@ -757,11 +823,11 @@ For each file in `{to_create}`, create the file (and any parent directories, e.g
 
 Sprint and epic state is tracked in three split status files under `{implementation_artifacts}/`:
 
-- `sprint-status-active.yaml` — epics currently in-progress, with their active and done sprints and all stories
+- `sprint-status.yaml` — epics currently in-progress, with their active and done sprints and all stories
 - `sprint-status-backlog.yaml` — not-yet-started epics and sprints, plus the consolidated deferred-issue backlog list
 - `sprint-status-archived.yaml` — completed epics (moved here wholesale at epic close)
 
-A legacy single `sprint-status.yaml` is auto-split on first PM skill run, or explicitly with `/l3io-util-cleanup split-status`.
+A legacy single `sprint-status.yaml` (full-content, pre-split) is auto-split on first PM skill run, or explicitly with `/l3io-util-cleanup split-status`.
 ```
 
 Adapt the heading style and surrounding content to match the existing file format for that AI system.

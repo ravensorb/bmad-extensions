@@ -45,7 +45,7 @@ Load available config from `{project-root}/_bmad/config.yaml` and `{project-root
 - `config_file` = `{project-root}/_bmad/config.yaml`
 - `context_file` = `{project-root}/**/project-context.md`
 - State files (split layout — see `references/status-files.md`):
-  - `status_active` = `{implementation_artifacts}/sprint-status-active.yaml`
+  - `status_active` = `{implementation_artifacts}/sprint-status.yaml`
   - `status_backlog` = `{implementation_artifacts}/sprint-status-backlog.yaml`
   - `status_archived` = `{implementation_artifacts}/sprint-status-archived.yaml`
 - `arch_file` = `{planning_artifacts}/*architecture*.md`

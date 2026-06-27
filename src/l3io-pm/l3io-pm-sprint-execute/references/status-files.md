@@ -14,7 +14,7 @@ file that does not yet exist is treated as empty, not an error):
 
 | Binding | File | Holds |
 |---------|------|-------|
-| `{status_active}` | `sprint-status-active.yaml` | `epics:` with `status: in-progress` only. Each carries its `in-progress` and `done` sprints (and all their stories). |
+| `{status_active}` | `sprint-status.yaml` | `epics:` with `status: in-progress` only. Each carries its `in-progress` and `done` sprints (and all their stories). |
 | `{status_backlog}` | `sprint-status-backlog.yaml` | `epics:` = not-yet-started work; `backlog:` = consolidated deferred-issue tracker across all epics. |
 | `{status_archived}` | `sprint-status-archived.yaml` | `epics:` with `status: done` — full subtree, moved here at epic close. |
 
@@ -38,15 +38,28 @@ field shape.
 
 ## Read resolution + auto-fallback (run once at activation)
 
-1. If any of the three split files exists → the split layout is in use. Bind the three
-   paths; a missing member is an empty set.
-2. Else if a legacy `{implementation_artifacts}/sprint-status.yaml` exists → perform the
-   one-time split **inline** (partition every epic/sprint per the placement rule above into
-   the three files), then rename the legacy file to `sprint-status.yaml.legacy` (never
-   delete it — it is the rollback). This is the same partition the
-   `l3io-util-cleanup split-status` mode performs; doing it here makes adoption
-   automatic on first run.
-3. Else → no state yet. Create files lazily as the first node of each kind is written.
+Resolve in order — stop at the first matching case:
+
+1. **Split layout detected** — if `sprint-status-backlog.yaml` OR `sprint-status-archived.yaml`
+   exists in `{implementation_artifacts}/`:
+   - If `sprint-status.yaml` also exists → bind `{status_active}` to it and proceed. A missing
+     backlog or archived file is an empty set (not an error).
+   - Else if `sprint-status-active.yaml` exists → rename it to `sprint-status.yaml`
+     (auto-migrate old naming — content is unchanged), then bind `{status_active}` to the
+     renamed path. Alert: "Renamed sprint-status-active.yaml → sprint-status.yaml
+     (one-time naming migration)."
+   - Else → `{status_active}` is absent (treat as empty, create lazily on first write).
+
+2. **Legacy full-content file** — if only `sprint-status.yaml` exists (no backlog or archived
+   files): perform the one-time split **inline** — rename `sprint-status.yaml` →
+   `sprint-status.yaml.legacy` (never delete — it is the rollback), write active content to
+   `sprint-status.yaml`, backlog content to `sprint-status-backlog.yaml`, archived content to
+   `sprint-status-archived.yaml`, partitioning every epic/sprint per the placement rule above.
+   This is the same partition the `l3io-util-cleanup split-status` mode performs; doing it here
+   makes adoption automatic on first run.
+
+3. **No state** → no files exist yet. Create files lazily as the first node of each kind is
+   written.
 
 Bind `{status_active}`, `{status_backlog}`, `{status_archived}` to the three paths.
 
