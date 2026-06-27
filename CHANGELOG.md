@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file. See [commit-and-tag-version](https://github.com/absolute-version/commit-and-tag-version) for commit guidelines.
 
+## [1.0.20](https://github.com/ravensorb/bmad-extensions/compare/1.0.19...1.0.20) (2026-06-27)
+
+
+### Features
+
+* **l3io-pm,l3io-util:** rename sprint-status-active.yaml → sprint-status.yaml ([8682833](https://github.com/ravensorb/bmad-extensions/commit/8682833648319dd1f852a2f8d8f84d2874ff4c05))
+
 ## [1.0.19](https://github.com/ravensorb/bmad-extensions/compare/1.0.18...1.0.19) (2026-06-26)
 
 
