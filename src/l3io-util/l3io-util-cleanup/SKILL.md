@@ -744,10 +744,9 @@ Invoked with `reconcile-status` argument. Audits the three split status files fo
 
 ### What it fixes
 
-1. **Misplaced epics** — an epic's placement file must match its `status`:
+1. **Misplaced epics** — `sprint-status.yaml` is the home for all non-done epics regardless of status (in-progress, backlog, pending, deferred, not-started, or any other status). Only `status: done` epics belong in `sprint-status-archived.yaml`. The backlog file holds the flat deferred-issues list and epic shells only — no full epic nodes.
    - `status: done` epic found in `sprint-status.yaml` or `sprint-status-backlog.yaml` → move to `sprint-status-archived.yaml`
-   - `status: in-progress` epic found in `sprint-status-backlog.yaml` or `sprint-status-archived.yaml` → move to `sprint-status.yaml`
-   - `status: backlog` epic found in `sprint-status.yaml` or `sprint-status-archived.yaml` → move to `sprint-status-backlog.yaml`
+   - Any non-`done` epic (in-progress, backlog, pending, deferred, or any other status) found as a full epic node in `sprint-status-backlog.yaml` or `sprint-status-archived.yaml` → move to `sprint-status.yaml`
 
 2. **Nested backlog arrays** — nested `backlog:` arrays inside epic nodes (the `epics[N].backlog:` key in any of the three files) must be flattened into the top-level `backlog:` list in `sprint-status-backlog.yaml`. New items are deduped against the existing list (by `source` field first, then by `key`). The per-epic nested `backlog:` key is removed from the epic node after the items are merged.
 
@@ -774,13 +773,13 @@ Parse all present files. Collect four finding sets:
 
 **A — Misplaced epics**
 
-For each epic node in each file, compare its `status` to the file it was found in:
+For each epic node in each file, compare its `status` to the file it was found in. `sprint-status.yaml` is the home for **all non-done epics** regardless of status — in-progress, backlog, pending, deferred, not-started, or any other status. `sprint-status-backlog.yaml` holds shells and the flat deferred-issues list only; no full epic nodes belong there.
 
-| File | Expected status | Misplaced if |
+| File | Correct placement | Misplaced if |
 |---|---|---|
-| `sprint-status.yaml` | `in-progress` | `status: done` or `status: backlog` |
-| `sprint-status-backlog.yaml` (full epic, not shell) | `backlog` | `status: in-progress` or `status: done` |
-| `sprint-status-archived.yaml` | `done` | `status: in-progress` or `status: backlog` |
+| `sprint-status.yaml` | any epic with `status ≠ done` | has `status: done` → move to `sprint-status-archived.yaml` |
+| `sprint-status-backlog.yaml` (full epic, not shell) | (no full epics belong here) | has any `status` field → move to `sprint-status.yaml` (unless `status: done`, then move to archived) |
+| `sprint-status-archived.yaml` | `status: done` only | `status ≠ done` → move to `sprint-status.yaml` |
 
 Note: epic shells in `sprint-status-backlog.yaml` (identified by having no `status` field — they carry only `id`, `title`, `goal`, and `sprints:`) are not misplaced epics; they are handled by finding set D.
 
