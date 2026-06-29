@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file. See [commit-and-tag-version](https://github.com/absolute-version/commit-and-tag-version) for commit guidelines.
 
+## [1.0.23](https://github.com/ravensorb/bmad-extensions/compare/1.0.22...1.0.23) (2026-06-29)
+
+
+### Features
+
+* **l3io-util:** add reconcile-status mode to l3io-util-cleanup ([9244bd8](https://github.com/ravensorb/bmad-extensions/commit/9244bd851b710297b5b4961a908ad76cdfee773e))
+
 ## [1.0.22](https://github.com/ravensorb/bmad-extensions/compare/1.0.21...1.0.22) (2026-06-27)
 
 
