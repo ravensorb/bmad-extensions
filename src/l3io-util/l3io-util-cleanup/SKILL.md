@@ -1,6 +1,6 @@
 ---
 name: l3io-util-cleanup
-description: Migration utilities. Use when the user needs to reorganize legacy flat BMad artifact outputs into the structured epic/sprint folder layout, migrate sprint-status.yaml to the current field schema, split it into the three-file layout, harvest deferred-shortcut code markers into the backlog, validate and sort the ordering of epics and sprints in the status files, or update AI system instruction files with the current status file layout. Run without arguments for an auto-diagnostic that scans project state and proposes the right actions.
+description: Migration utilities. Use when the user needs to reorganize legacy flat BMad artifact outputs into the structured epic/sprint folder layout, migrate sprint-status.yaml to the current field schema, split it into the three-file layout, reconcile epic placement across the three split files and normalize the backlog to a flat list, harvest deferred-shortcut code markers into the backlog, validate and sort the ordering of epics and sprints in the status files, or update AI system instruction files with the current status file layout. Run without arguments for an auto-diagnostic that scans project state and proposes the right actions.
 ---
 
 # Artifact Layout Cleanup
@@ -19,6 +19,7 @@ Modes (pass as argument to skip directly to that mode):
 - **`split-status`:** Splits a single `sprint-status.yaml` into the three-file layout the PM skills now use — `sprint-status.yaml` (active/in-progress epics), `sprint-status-backlog.yaml`, `sprint-status-archived.yaml` — partitioning every epic/sprint by status. One-time migration; the original is preserved as `sprint-status.yaml.legacy`. (Run `migrate-schema` first if the file predates the current field schema.)
 - **`rename-active`:** One-time migration for projects using the old `sprint-status-active.yaml` naming. Renames `sprint-status-active.yaml` → `sprint-status.yaml`. Dry-run first; confirms before renaming. No-op if `sprint-status.yaml` already exists.
 - **`harvest-debt`:** Greps the whole source tree for `bmad-defer:` deferred-shortcut markers (the comment crumbs developers and dev subagents leave when they take an intentional simplification) and harvests them into the consolidated `backlog:` list so deferrals do not rot into "later means never." Language-generic — recognizes the comment syntax of every common language. Re-runnable: dedupes against already-harvested markers. Report-only by default; backlog merge is confirmed.
+- **`reconcile-status`:** Audits the three split status files for placement and structure issues: epics in the wrong file for their `status`, nested per-epic `backlog:` arrays that should be flattened into the consolidated top-level list, stale backlog items whose status is no longer `backlog`, and empty epic shells in the backlog file. Dry-run first; confirms before writing. Safe to run at any time.
 - **`sort-status`:** Validates that epics, sprints, stories, and backlog items in all three split status files are in the expected sort order, and applies sorting if needed. Dry-run first; confirms before writing. Safe to run at any time — never edits field values, only reorders nodes.
 - **`update-ai-rules`:** Scans for AI system instruction files in the project (`CLAUDE.md`, `.github/copilot-instructions.md`, `GEMINI.md`, `AGENTS.md`, `.cursorrules`, and others) and updates any references to the legacy `sprint-status.yaml` to document the current three-file split layout. For files that already exist: updates existing references. For the currently running AI system's file if it does not exist: creates it with a status layout section. Never creates files for other AI systems. Also auto-invoked after a successful `split-status` run. Safe to run repeatedly.
 
@@ -40,6 +41,7 @@ Modes (pass as argument to skip directly to that mode):
 | `migrate-schema` | [Schema Migration Mode](#schema-migration-mode) |
 | `split-status` | [Split Status Mode](#split-status-mode) |
 | `harvest-debt` | [Harvest Debt Mode](#harvest-debt-mode) |
+| `reconcile-status` | [Reconcile Status Mode](#reconcile-status-mode) |
 | `sort-status` | [Sort Status Mode](#sort-status-mode) |
 | `rename-active` | [Rename Active Mode](#rename-active-mode) |
 | `update-ai-rules` | [Update AI Rules Mode](#update-ai-rules-mode) |
@@ -104,6 +106,16 @@ Run the scan from Update AI Rules Mode Step AR1 across all well-known instructio
 - Stale `sprint-status.yaml` references found → flag `update-ai-rules` · Priority: Low · list files
 - All current or absent → ✓
 
+**Check 8 — Status file placement and backlog structure**
+Only runs if the split layout is present. Parse all three split files and check:
+1. Any epic whose placement file does not match its `status` (e.g., `status: done` in `sprint-status.yaml`)?
+2. Any nested per-epic `backlog:` arrays inside `epics[N].backlog:` in any of the three files (should be in the flat top-level `backlog:` list only)?
+3. Any items in the top-level `backlog:` list with `status` other than `backlog` (stale resolved/promoted items)?
+4. Any epic shells in `sprint-status-backlog.yaml` with an empty or absent `sprints:` list where that epic is already in-progress in `sprint-status.yaml` (empty shells with no remaining backlog sprints)?
+- Any issue found → flag `reconcile-status` · Priority: High · note count per category
+- Split layout absent → skip (not applicable until after `split-status`)
+- No issues → ✓
+
 ### Step HC3 — Report findings
 
 Print the health check table. Use ✓ for passing checks, ⚠ for flagged items:
@@ -111,21 +123,22 @@ Print the health check table. Use ✓ for passing checks, ⚠ for flagged items:
 ```
 PROJECT HEALTH CHECK — {implementation_artifacts}
 ================================================================
-Check                       Status                         Action
+Check                           Status                         Action
 ----------------------------------------------------------------
-Status file naming          ⚠ sprint-status-active.yaml    rename-active
-Status file layout          ✓ Split layout in use          —
-Status file schema          ✓ All fields current           —
-Artifact layout             ⚠ 3 flat file(s) detected     layout-cleanup
-Status file ordering        ✓ All sorted                   —
-Deferred code markers       ⚠ 2 new marker(s)             harvest-debt
-AI instruction references   ✓ Current                      —
+Status file naming              ⚠ sprint-status-active.yaml    rename-active
+Status file layout              ✓ Split layout in use          —
+Status file schema              ✓ All fields current           —
+Status placement & backlog      ⚠ 1 misplaced epic, 3 nested  reconcile-status
+Artifact layout                 ⚠ 3 flat file(s) detected     layout-cleanup
+Status file ordering            ✓ All sorted                   —
+Deferred code markers           ⚠ 2 new marker(s)             harvest-debt
+AI instruction references       ✓ Current                      —
 ================================================================
 ```
 
-If flagged items exist, append the recommended execution sequence:
+If flagged items exist, append the recommended execution sequence (only flagged actions shown, in priority order):
 ```
-Recommended actions (in order): rename-active → layout-cleanup → harvest-debt
+Recommended actions (in order): rename-active → reconcile-status → layout-cleanup → harvest-debt
 ```
 
 If nothing is flagged:
@@ -157,10 +170,11 @@ Run each approved action in this fixed priority sequence (skip any that were not
 1. `rename-active`
 2. `migrate-schema`
 3. `split-status`
-4. `layout-cleanup`
-5. `sort-status`
-6. `harvest-debt`
-7. `update-ai-rules`
+4. `reconcile-status`
+5. `layout-cleanup`
+6. `sort-status`
+7. `harvest-debt`
+8. `update-ai-rules`
 
 Before each action, print a separator header:
 ```
@@ -721,6 +735,159 @@ DONE — Debt harvest complete.
 Markers stay in the source until the developer removes them when the shortcut is upgraded; harvest
 records them, it never edits source. A future run re-sweeps and dedupes, so removing a marker simply
 stops it reappearing (the backlog item it created persists until triaged like any other).
+
+---
+
+## Reconcile Status Mode
+
+Invoked with `reconcile-status` argument. Audits the three split status files for four categories of drift and fixes them in one confirmed pass. Dry-run first; confirms before any writes. Safe to run at any time — re-runnable with no side effects when everything is already correct.
+
+### What it fixes
+
+1. **Misplaced epics** — an epic's placement file must match its `status`:
+   - `status: done` epic found in `sprint-status.yaml` or `sprint-status-backlog.yaml` → move to `sprint-status-archived.yaml`
+   - `status: in-progress` epic found in `sprint-status-backlog.yaml` or `sprint-status-archived.yaml` → move to `sprint-status.yaml`
+   - `status: backlog` epic found in `sprint-status.yaml` or `sprint-status-archived.yaml` → move to `sprint-status-backlog.yaml`
+
+2. **Nested backlog arrays** — nested `backlog:` arrays inside epic nodes (the `epics[N].backlog:` key in any of the three files) must be flattened into the top-level `backlog:` list in `sprint-status-backlog.yaml`. New items are deduped against the existing list (by `source` field first, then by `key`). The per-epic nested `backlog:` key is removed from the epic node after the items are merged.
+
+3. **Stale resolved/promoted items** — items in the top-level `backlog:` list of `sprint-status-backlog.yaml` with `status` other than `backlog` should not remain in the list. Per the schema contract, resolved and promoted items are removed immediately; this step catches any that were left behind.
+
+4. **Empty epic shells** — an epic shell in `sprint-status-backlog.yaml` is a partial epic node (`id`, `title`, `goal`, `sprints:`) that tracks backlog sprints of an in-progress epic. If the shell's `sprints:` list is empty (or absent) AND the corresponding epic is already in `sprint-status.yaml` as `in-progress`, the shell is stale and should be removed.
+
+### Steps
+
+**Step RC1 — Load config and resolve status files**
+
+Load config (same as layout cleanup). Check for the split layout:
+- If neither `sprint-status-backlog.yaml` nor `sprint-status-archived.yaml` exists in `{implementation_artifacts}/`:
+  ```
+  No split layout found. Run /l3io-util-cleanup split-status first, then re-run reconcile-status.
+  ```
+  Exit.
+
+Bind `{status_active}` = `sprint-status.yaml`, `{status_backlog}` = `sprint-status-backlog.yaml`, `{status_archived}` = `sprint-status-archived.yaml`. Process only files that exist; treat absent files as empty.
+
+**Step RC2 — Audit**
+
+Parse all present files. Collect four finding sets:
+
+**A — Misplaced epics**
+
+For each epic node in each file, compare its `status` to the file it was found in:
+
+| File | Expected status | Misplaced if |
+|---|---|---|
+| `sprint-status.yaml` | `in-progress` | `status: done` or `status: backlog` |
+| `sprint-status-backlog.yaml` (full epic, not shell) | `backlog` | `status: in-progress` or `status: done` |
+| `sprint-status-archived.yaml` | `done` | `status: in-progress` or `status: backlog` |
+
+Note: epic shells in `sprint-status-backlog.yaml` (identified by having no `status` field — they carry only `id`, `title`, `goal`, and `sprints:`) are not misplaced epics; they are handled by finding set D.
+
+Record each misplaced epic as `{ epic_id, title, current_status, current_file, correct_file }`.
+
+**B — Nested backlog arrays**
+
+For each epic node in all three files, check whether the node has a `backlog:` key (a per-epic nested backlog array). Collect every item in those arrays. For each item, check against the existing top-level `backlog:` list in `{status_backlog}`:
+- Match by `source` field (same value → duplicate)
+- If no `source`, match by `key` (same key → duplicate)
+- Partition items into `new` and `duplicate`.
+
+Record each finding as `{ epic_id, found_in_file, item_count, new_count, duplicate_count }`.
+
+**C — Stale backlog items**
+
+In the top-level `backlog:` list of `{status_backlog}`, collect every item where `status` is not `backlog`. Record each as `{ key, epic, title, current_status }`.
+
+**D — Empty epic shells**
+
+In `{status_backlog}`, identify epic nodes that are shells (no `status` field, has `sprints:` key). For each shell, check whether its `sprints:` list is empty or absent AND whether the corresponding epic id appears in `{status_active}` as `in-progress`. If both conditions are true, record as an empty shell `{ epic_id, title }`.
+
+**Step RC3 — Dry-run report**
+
+Print a consolidated findings table:
+
+```
+RECONCILE STATUS DRY RUN — {implementation_artifacts}
+================================================================
+
+A. Misplaced Epics: {A_count}
+  Epic {id} "{title}" — status: {status} found in {current_file}
+                      → move to {correct_file}
+  ...
+
+B. Nested Backlog Arrays: {B_total} item(s) across {B_epics} epic(s)
+  {current_file} epics[{id}].backlog: {item_count} item(s) → flatten to top-level backlog:
+    {new_count} new, {duplicate_count} duplicate(s) (skipped)
+  ...
+
+C. Stale Backlog Items: {C_count}
+  {key} (status: {current_status}) — "{title}" → remove from backlog:
+  ...
+
+D. Empty Epic Shells: {D_count}
+  Epic {id} shell in sprint-status-backlog.yaml — sprints: [] and epic is in-progress → remove shell
+  ...
+
+================================================================
+Total changes: {total} across {file_count} file(s).
+Nothing will be modified until confirmed.
+```
+
+If all four sets are empty:
+```
+✓ Status files are reconciled — no placement or backlog structure issues found.
+```
+Exit.
+
+**Step RC4 — Confirm**
+
+Ask: "Apply {total} reconciliation change(s) shown above?"
+
+If no: print `Reconcile cancelled — no changes made.` and exit.
+
+**Step RC5 — Execute**
+
+Apply changes in this order to minimize intermediate invalid state. After each file write, re-parse as YAML; on any parse failure, restore that file's pre-reconcile content and print:
+```
+FAILED — {file} is not valid YAML after reconcile step {letter}. File restored. Remaining steps not applied.
+```
+Stop on any failure; do not apply further changes.
+
+1. **A — Misplaced epics**: For each misplaced epic, read the full epic node from its current file, append it to the correct file (maintaining ascending `id` order within the `epics:` list), then remove it from the source file. Write both affected files.
+
+2. **B — Nested backlog arrays**: For each epic node with a nested `backlog:` array, append the `new` items to the top-level `backlog:` list in `{status_backlog}`. Assign new keys for any item that lacks a `BL-E{epic}-{nn}` formatted key by continuing from the highest existing suffix for that epic (check all existing items in the top-level list with the same `epic` value). Remove the `backlog:` key from the epic node. Write `{status_backlog}` and the source file containing the epic node.
+
+3. **C — Stale items**: Remove each stale item from the top-level `backlog:` list in `{status_backlog}`. Write `{status_backlog}`.
+
+4. **D — Empty shells**: Remove each empty shell epic node from the `epics:` list in `{status_backlog}`. Write `{status_backlog}`.
+
+**Step RC6 — Verify**
+
+Re-parse all three files. Confirm:
+- No epic appears in more than one file.
+- Every epic's placement file matches its `status` (shells in `{status_backlog}` are exempt — they have no `status` field).
+- No `epics[N].backlog:` keys remain in any file.
+- No items with `status != backlog` remain in the top-level `backlog:` list.
+- No empty shells remain in `{status_backlog}`.
+
+If any check fails, list the remaining issues as warnings rather than errors (the file state is safe — the verify step is informational after a successful write).
+
+**Step RC7 — Report**
+
+```
+DONE — Status reconciliation complete.
+  Epics moved:              {A_count}  (to archived: {to_arch}, to active: {to_act}, to backlog: {to_bl})
+  Backlog items flattened:  {B_new} new  ({B_dup} duplicate(s) skipped)
+  Stale items removed:      {C_count}
+  Empty shells removed:     {D_count}
+  Files modified:           {file_list}
+```
+
+If `{A_count + B_new + C_count + D_count}` = 0 (nothing to do):
+```
+DONE — No reconciliation needed. Status files are already consistent.
+```
 
 ---
 
