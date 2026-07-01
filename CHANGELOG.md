@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file. See [commit-and-tag-version](https://github.com/absolute-version/commit-and-tag-version) for commit guidelines.
 
+## [1.0.24](https://github.com/ravensorb/bmad-extensions/compare/1.0.23...1.0.24) (2026-07-01)
+
+
+### Features
+
+* **l3io-util:** add help, stats, backlog, normalize, clean-legacy modes; reorganize command structure ([a35bee9](https://github.com/ravensorb/bmad-extensions/commit/a35bee9d76fd27475b1c2b22faf60f8fbee520b3))
+
 ## [1.0.23](https://github.com/ravensorb/bmad-extensions/compare/1.0.22...1.0.23) (2026-06-29)
 
 
