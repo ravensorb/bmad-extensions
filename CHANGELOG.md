@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file. See [commit-and-tag-version](https://github.com/absolute-version/commit-and-tag-version) for commit guidelines.
 
+## [1.0.25](https://github.com/ravensorb/bmad-extensions/compare/1.0.24...1.0.25) (2026-07-01)
+
+
+### Refactoring
+
+* embed module setup in operational skills; remove standalone setup skills ([8ce9a23](https://github.com/ravensorb/bmad-extensions/commit/8ce9a23fed6656a8fc189239c683d1a8e58773d1))
+
 ## [1.0.24](https://github.com/ravensorb/bmad-extensions/compare/1.0.23...1.0.24) (2026-07-01)
 
 
