@@ -13,15 +13,28 @@ Migration and housekeeping utilities for BMad artifacts.
 
 Modes (pass as argument to skip directly to that mode):
 
+**Diagnostic (read-only)**
 - **`check` / `status`:** Read-only health check — same diagnostic scan as the default but prints the findings table and exits without prompting to make changes.
-- **`layout-cleanup`:** Runs only the artifact layout reorganization (the original default behavior) — reorganizes flat artifact outputs into the structured epic/sprint folder hierarchy, reconciles references, verifies state consistency.
+- **`stats`:** Project state dashboard — counts of epics, sprints, and stories by status, backlog size by severity, and last closed sprint/epic. No files changed.
+- **`backlog`:** Lists all items in the consolidated `backlog:` list in a readable table grouped by severity. No files changed.
+
+**One-time migrations (run in this order)**
 - **`migrate-schema`:** Upgrades an existing `sprint-status.yaml` to the current field schema — adds missing fields with zero/empty defaults, never overwrites existing values.
 - **`split-status`:** Splits a single `sprint-status.yaml` into the three-file layout the PM skills now use — `sprint-status.yaml` (active/in-progress epics), `sprint-status-backlog.yaml`, `sprint-status-archived.yaml` — partitioning every epic/sprint by status. One-time migration; the original is preserved as `sprint-status.yaml.legacy`. (Run `migrate-schema` first if the file predates the current field schema.)
-- **`rename-active`:** One-time migration for projects using the old `sprint-status-active.yaml` naming. Renames `sprint-status-active.yaml` → `sprint-status.yaml`. Dry-run first; confirms before renaming. No-op if `sprint-status.yaml` already exists.
-- **`harvest-debt`:** Greps the whole source tree for `bmad-defer:` deferred-shortcut markers (the comment crumbs developers and dev subagents leave when they take an intentional simplification) and harvests them into the consolidated `backlog:` list so deferrals do not rot into "later means never." Language-generic — recognizes the comment syntax of every common language. Re-runnable: dedupes against already-harvested markers. Report-only by default; backlog merge is confirmed.
+
+**Ongoing maintenance (safe to repeat)**
+- **`normalize`:** Convenience shortcut — runs `reconcile-status` then `sort-status` in one confirmed pass. Use for routine maintenance instead of running two commands separately.
 - **`reconcile-status`:** Audits the three split status files for placement and structure issues: epics in the wrong file for their `status`, nested per-epic `backlog:` arrays that should be flattened into the consolidated top-level list, stale backlog items whose status is no longer `backlog`, and empty epic shells in the backlog file. Dry-run first; confirms before writing. Safe to run at any time.
 - **`sort-status`:** Validates that epics, sprints, stories, and backlog items in all three split status files are in the expected sort order, and applies sorting if needed. Dry-run first; confirms before writing. Safe to run at any time — never edits field values, only reorders nodes.
+- **`layout-cleanup`:** Runs only the artifact layout reorganization (the original default behavior) — reorganizes flat artifact outputs into the structured epic/sprint folder hierarchy, reconciles references, verifies state consistency.
+
+**Source & external sync**
+- **`harvest-debt`:** Greps the whole source tree for `bmad-defer:` deferred-shortcut markers (the comment crumbs developers and dev subagents leave when they take an intentional simplification) and harvests them into the consolidated `backlog:` list so deferrals do not rot into "later means never." Language-generic — recognizes the comment syntax of every common language. Re-runnable: dedupes against already-harvested markers. Report-only by default; backlog merge is confirmed. Respects `harvest_exclude_dirs` in the `l3io-util` config section for additional exclusions beyond the built-in list.
 - **`update-ai-rules`:** Scans for AI system instruction files in the project (`CLAUDE.md`, `.github/copilot-instructions.md`, `GEMINI.md`, `AGENTS.md`, `.cursorrules`, and others) and updates any references to the legacy `sprint-status.yaml` to document the current three-file split layout. For files that already exist: updates existing references. For the currently running AI system's file if it does not exist: creates it with a status layout section. Never creates files for other AI systems. Also auto-invoked after a successful `split-status` run. Safe to run repeatedly.
+
+**Setup & housekeeping**
+- **`clean-legacy`:** Removes `.yaml.legacy` migration backup files and `.yaml.v1` calibration backup files left behind by one-time migration commands. Dry-run first; confirms before deleting. Safe to run once migrations have been verified.
+- **`rename-active`:** Renames `sprint-status-active.yaml` → `sprint-status.yaml`. Rarely needed directly — the health check detects and runs this automatically when the old naming is found.
 
 **One-time use (layout cleanup):** Designed to be run once per project. Running again after a successful cleanup produces zero moves (everything already placed) or conflicts (for new flat files added since the first run).
 
@@ -36,7 +49,11 @@ Modes (pass as argument to skip directly to that mode):
 
 | Keyword | Mode |
 |---|---|
+| `help` or `?` | Print the command list below and exit — no project scan. |
 | `check` or `status` | [Project Health Check](#project-health-check) (read-only — scan only, no changes) |
+| `stats` | [Stats Mode](#stats-mode) (read-only — project state dashboard) |
+| `backlog` | [Backlog Mode](#backlog-mode) (read-only — list consolidated backlog items) |
+| `normalize` | [Normalize Mode](#normalize-mode) — reconcile-status then sort-status in one confirmed pass |
 | `layout-cleanup` | [Execution Sequence](#execution-sequence) (layout reorganization only) |
 | `migrate-schema` | [Schema Migration Mode](#schema-migration-mode) |
 | `split-status` | [Split Status Mode](#split-status-mode) |
@@ -45,9 +62,46 @@ Modes (pass as argument to skip directly to that mode):
 | `sort-status` | [Sort Status Mode](#sort-status-mode) |
 | `rename-active` | [Rename Active Mode](#rename-active-mode) |
 | `update-ai-rules` | [Update AI Rules Mode](#update-ai-rules-mode) |
+| `clean-legacy` | [Clean Legacy Mode](#clean-legacy-mode) — remove migration backup files |
 | `setup`, `configure`, `install` | Load `assets/module-setup.md`, then continue to [Project Health Check](#project-health-check) |
 
 **Everything else** (no argument, unrecognized text, or a natural-language description) → skip to [Project Health Check](#project-health-check).
+
+**Help output** — when `help` or `?` is passed, print exactly this and exit:
+
+```
+l3io-util-cleanup — Artifact & Status File Utilities
+====================================================
+Usage: /l3io-util-cleanup [command]
+
+Diagnostic (read-only)
+  (no argument)      Project health check — scan and propose all needed actions
+  check / status     Read-only health check — report findings, no changes
+  stats              Project state dashboard — epic/sprint/story/backlog counts
+  backlog            List consolidated backlog items grouped by severity
+
+One-time migrations (run in this order)
+  migrate-schema     Add missing fields to sprint-status.yaml (zero/empty defaults)
+  split-status       Split sprint-status.yaml into 3-file layout (active/backlog/archived)
+
+Ongoing maintenance (safe to repeat)
+  normalize          Reconcile then sort all status files in one pass
+  reconcile-status   Fix misplaced epics, nested backlogs, stale items, empty shells
+  sort-status        Sort epics, sprints, stories, and backlog items in all status files
+  layout-cleanup     Reorganize flat artifact files into epic/sprint folder structure
+
+Source & external sync
+  harvest-debt       Sweep source for bmad-defer: markers and harvest into backlog
+  update-ai-rules    Update AI instruction files to reference the 3-file status layout
+
+Setup & housekeeping
+  setup              Register l3io-util module config for this project
+  clean-legacy       Remove .legacy and .v1 migration backup files after confirmation
+  rename-active      (Rarely needed) Rename sprint-status-active.yaml → sprint-status.yaml;
+                     the health check detects and runs this automatically when needed.
+
+Run without arguments to let the health check decide what's needed.
+```
 
 If `{project-root}/_bmad/config.yaml` does not have an `l3io-util` section, load `assets/module-setup.md` to register the module first.
 
@@ -66,7 +120,7 @@ The default mode — runs when no recognized keyword is passed, or when `check`/
 
 Load config same as described above under On Activation.
 
-### Step HC2 — Scan (7 checks, read-only)
+### Step HC2 — Scan (8 checks, read-only)
 
 Run all checks. No files are changed at this step.
 
@@ -116,6 +170,11 @@ Only runs if the split layout is present. Parse all three split files and check:
 - Split layout absent → skip (not applicable until after `split-status`)
 - No issues → ✓
 
+**Check 9 — Migration backup files**
+Scan `{implementation_artifacts}/` for `*.yaml.legacy` files (e.g., `sprint-status.yaml.legacy`) and `{project-root}/_bmad/` for `*.yaml.v1` calibration backups (e.g., `pm-calibration.yaml.v1`).
+- Any found → flag `clean-legacy` · Priority: Low · note count
+- None → ✓
+
 ### Step HC3 — Report findings
 
 Print the health check table. Use ✓ for passing checks, ⚠ for flagged items:
@@ -133,6 +192,7 @@ Artifact layout                 ⚠ 3 flat file(s) detected     layout-cleanup
 Status file ordering            ✓ All sorted                   —
 Deferred code markers           ⚠ 2 new marker(s)             harvest-debt
 AI instruction references       ✓ Current                      —
+Migration backup files          ⚠ 1 .legacy file found         clean-legacy
 ================================================================
 ```
 
@@ -175,6 +235,7 @@ Run each approved action in this fixed priority sequence (skip any that were not
 6. `sort-status`
 7. `harvest-debt`
 8. `update-ai-rules`
+9. `clean-legacy`
 
 Before each action, print a separator header:
 ```
@@ -636,6 +697,8 @@ grep -rniE '(#|//|--|;|%|/\*|<!--|'\'') ?bmad-defer:' . \
   --exclude-dir='{implementation_artifacts}' --exclude-dir='{planning_artifacts}'
 ```
 
+Append `--exclude-dir={dir}` for each directory listed in `harvest_exclude_dirs` (resolved in Step H1).
+
 Artifact directories are excluded — markers are a **source-code** convention, not an artifact one,
 and a marker quoted inside a backlog description must never re-harvest itself.
 
@@ -643,8 +706,10 @@ and a marker quoted inside a backlog description must never re-harvest itself.
 
 **Step H1 — Load config and resolve the backlog file**
 
-Load config (same as layout cleanup). Resolve the harvest target using the same read-resolution the
-PM skills use (split layout is authoritative):
+Load config (same as layout cleanup). Also resolve:
+- `harvest_exclude_dirs` — from the `l3io-util` section; default `[]`. Additional directories to exclude from the sweep on top of the built-in exclusion list. Each entry is passed as an additional `--exclude-dir` argument in the [Grep contract](#grep-contract).
+
+Resolve the harvest target using the same read-resolution the PM skills use (split layout is authoritative):
 
 1. If `{implementation_artifacts}/sprint-status-backlog.yaml` exists → bind `{status_backlog}` to it.
 2. Else if a legacy `{implementation_artifacts}/sprint-status.yaml` exists → print:
@@ -1147,4 +1212,207 @@ DONE — AI rules update complete.
   Files created:      {C}
   Unresolved:         {U} (list if > 0)
   Files checked (no changes needed): {files}
+```
+
+---
+
+## Normalize Mode
+
+Invoked with `normalize` argument. Convenience shortcut that runs [Reconcile Status Mode](#reconcile-status-mode) followed by [Sort Status Mode](#sort-status-mode) in a single confirmed pass. Use for routine maintenance instead of running two separate commands.
+
+### Steps
+
+**Step NM1 — Load config**
+
+Load config (same as layout cleanup). Check for the split layout — if neither `sprint-status-backlog.yaml` nor `sprint-status-archived.yaml` exists, print:
+```
+No split layout found. Run /l3io-util-cleanup split-status first, then re-run normalize.
+```
+Exit.
+
+**Step NM2 — Reconcile**
+
+Run the full Reconcile Status Mode (Steps RC1–RC7) with one modification: **present the dry-run report but defer confirmation** — print the reconcile findings and the sort findings together in Step NM3 before asking to proceed.
+
+If reconcile finds nothing to fix (`total` = 0), note that and proceed directly to the sort analysis.
+
+**Step NM3 — Sort analysis**
+
+Run the ordering validation from Sort Status Mode (Step SO2) on each present split file. Collect `{ordering_issues}`.
+
+If sort finds nothing to fix, note that.
+
+**Step NM4 — Combined dry-run and confirm**
+
+Print the reconcile dry-run output (or "✓ Nothing to reconcile") followed by the sort dry-run output (or "✓ Nothing to sort"), then ask:
+
+```
+Apply {reconcile_total} reconciliation change(s) and {sort_issues} sort fix(es)?
+  Y — proceed
+  n — exit, no changes
+```
+
+If `n`: print `Normalize cancelled — no changes made.` and exit.
+
+If both totals are 0: print `✓ Status files are already normalized — nothing to do.` and exit.
+
+**Step NM5 — Execute reconcile**
+
+If reconcile has changes: apply Steps RC5–RC7 (execute, verify, report). On failure, stop and report — do not proceed to sort.
+
+**Step NM6 — Execute sort**
+
+If sort has changes: apply Steps SO5–SO7 (sort and write, verify, report). On failure, report.
+
+**Step NM7 — Summary**
+
+```
+DONE — Normalize complete.
+  Reconcile: {reconcile summary line or "nothing to do"}
+  Sort:      {sort summary line or "nothing to do"}
+```
+
+---
+
+## Stats Mode
+
+Invoked with `stats` argument. Read-only project state dashboard — parses all three split status files and prints counts. No files are changed.
+
+### Steps
+
+**Step ST1 — Load config**
+
+Load config (same as layout cleanup). Detect which layout is present:
+- Split layout (any of the three files exist) → parse all present files.
+- Legacy single `sprint-status.yaml` only → parse it; note that split layout has not been applied.
+- No status files → print `No status files found at {implementation_artifacts}.` and exit.
+
+**Step ST2 — Parse and count**
+
+Parse all present files. Accumulate:
+
+- **Epics** by `status` (backlog, in-progress, done) — count per status, total.
+- **Sprints** by `status` (backlog, in-progress, done) — count per status, total.
+- **Stories** by `status` (backlog, ready-for-dev, in-progress, review, done) — count per status, total.
+- **Backlog items** (top-level `backlog:` list in `sprint-status-backlog.yaml`) — count by severity (Critical, High, Medium, Low, unknown), total.
+- **Last closed sprint** — the sprint with the highest `id` across all epics where `status: done`; note its epic and sprint id.
+- **Last closed epic** — the epic with the highest `id` in `sprint-status-archived.yaml`; note its id and title.
+- **Calibration file** — check if `{project-root}/_bmad/pm-calibration.yaml` exists; if so, note its version and the number of scope/closure/fix sample entries.
+
+**Step ST3 — Print dashboard**
+
+```
+PROJECT STATE — {implementation_artifacts}
+================================================================
+Epics
+  in-progress:  {n}    backlog: {n}    done: {n}    total: {n}
+Sprints
+  in-progress:  {n}    backlog: {n}    done: {n}    total: {n}
+Stories
+  done:         {n}    in-progress: {n}    review: {n}
+  ready-for-dev:{n}    backlog: {n}         total: {n}
+Backlog items
+  Critical: {n}  High: {n}  Medium: {n}  Low: {n}  total: {n}
+----------------------------------------------------------------
+Last sprint closed:  Epic {EE} / Sprint {SS}  (or "none")
+Last epic closed:    Epic {EE} — {title}      (or "none")
+Calibration file:    {version}, {n} scope samples  (or "not found")
+Layout:              {Split (3-file) | Legacy (single file)}
+================================================================
+```
+
+---
+
+## Backlog Mode
+
+Invoked with `backlog` argument. Read-only — lists all items in the consolidated `backlog:` list from `sprint-status-backlog.yaml` in a readable table grouped by severity. No files are changed.
+
+### Steps
+
+**Step BL1 — Load config and resolve backlog file**
+
+Load config (same as layout cleanup). If `{implementation_artifacts}/sprint-status-backlog.yaml` does not exist, print:
+```
+No backlog file found at {implementation_artifacts}/sprint-status-backlog.yaml.
+Run /l3io-util-cleanup split-status to create the split layout first.
+```
+Exit.
+
+**Step BL2 — Parse**
+
+Read the top-level `backlog:` list. If the list is absent or empty, print `Backlog is empty — no items found.` and exit.
+
+**Step BL3 — Print table**
+
+Group items by severity (Critical → High → Medium → Low → unknown). Within each group, sort by `epic` ascending then `key` ascending. Print:
+
+```
+BACKLOG — {implementation_artifacts}/sprint-status-backlog.yaml
+================================================================
+Sev      Key           Epic  Sprint  Title
+----------------------------------------------------------------
+Critical
+  CRIT   BL-E01-01     01    02      {title (truncated to 50 chars)}
+  ...
+High
+  HIGH   BL-E01-02     01    —       {title}
+  ...
+Medium
+  MED    BL-E00-01     00    —       {title}
+  ...
+Low
+  LOW    BL-E02-01     02    03      {title}
+  ...
+================================================================
+Total: {n} item(s)  (Critical: {n}  High: {n}  Medium: {n}  Low: {n})
+```
+
+Truncate titles at 50 characters with `…`. Sprint shown as `—` when blank.
+
+---
+
+## Clean Legacy Mode
+
+Invoked with `clean-legacy` argument. Removes migration backup files left behind by one-time migration commands: `.yaml.legacy` files in `{implementation_artifacts}/` and `.yaml.v1` calibration backup files in `{project-root}/_bmad/`. Dry-run first; confirms before deleting. Safe to run once migrations have been verified.
+
+### Steps
+
+**Step CL1 — Load config and scan**
+
+Load config (same as layout cleanup). Scan for:
+1. `*.yaml.legacy` files anywhere under `{implementation_artifacts}/` (e.g., `sprint-status.yaml.legacy`).
+2. `*.yaml.v1` files in `{project-root}/_bmad/` (e.g., `pm-calibration.yaml.v1`).
+
+If nothing found: print `No legacy backup files found — nothing to clean.` and exit.
+
+**Step CL2 — Dry-run**
+
+```
+CLEAN LEGACY DRY RUN
+================================================================
+File                                                    Size
+----------------------------------------------------------------
+{implementation_artifacts}/sprint-status.yaml.legacy   {size}
+{project-root}/_bmad/pm-calibration.yaml.v1            {size}
+...
+================================================================
+{N} file(s) to delete. These are migration backups — the live files are unaffected.
+```
+
+**Step CL3 — Confirm**
+
+Ask: "Delete {N} backup file(s)? This cannot be undone."
+
+If no: print `Clean cancelled — no files deleted.` and exit.
+
+**Step CL4 — Delete**
+
+Delete each file. Log each deletion. If any deletion fails (permissions, locked file), record and continue — do not abort the entire run.
+
+**Step CL5 — Report**
+
+```
+DONE — Clean legacy complete.
+  Deleted: {n} file(s)
+  Failed:  {n} file(s) (list if > 0)
 ```
