@@ -26,7 +26,6 @@
         "email": "shawn@eye-catcher.com"
       },
       "skills": [
-        "./src/l3io-pm/l3io-pm-setup",
         "./src/l3io-pm/l3io-pm-sprint-execute",
         "./src/l3io-pm/l3io-pm-epic-execute"
       ]

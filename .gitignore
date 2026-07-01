@@ -755,3 +755,4 @@ _bmad/
 # Installed BMad builder tooling — installed externally, not module source
 .agents/
 .claude/skills/
+.github/agents/
