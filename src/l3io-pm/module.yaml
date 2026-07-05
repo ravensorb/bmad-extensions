@@ -1,7 +1,7 @@
 code: l3io-pm
 name: "LiquidLogicLabs PM Orchestration"
 description: "Sprint and epic execution orchestration for LiquidLogicLabs delivery teams — full lifecycle from story preparation through closure reviews."
-module_version: 1.0.25
+module_version: 1.0.26
 default_selected: false
 module_greeting: >
   LiquidLogicLabs PM Orchestration module is configured!

@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file. See [commit-and-tag-version](https://github.com/absolute-version/commit-and-tag-version) for commit guidelines.
 
+## [1.0.26](https://github.com/ravensorb/bmad-extensions/compare/1.0.25...1.0.26) (2026-07-05)
+
+
+### Fixes
+
+* **l3io-pm,l3io-sec,l3io-util:** add top-level module.yaml for installer discovery ([5fb58fa](https://github.com/ravensorb/bmad-extensions/commit/5fb58fa5a832a6ab60984063f4e80595a24d1bec))
+
 ## [1.0.25](https://github.com/ravensorb/bmad-extensions/compare/1.0.24...1.0.25) (2026-07-01)
 
 
