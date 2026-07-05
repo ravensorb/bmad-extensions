@@ -55,6 +55,19 @@
       "skills": [
         "./src/l3io-util/l3io-util-cleanup"
       ]
+    },
+    {
+      "name": "l3io-arch",
+      "source": "./src/l3io-arch",
+      "description": "Engineering-standards architecture guardrails and review for LiquidLogicLabs projects — universal best practices plus per-stack overlays (Python, Node.js, .NET, GitHub Actions).",
+      "version": "1.0.26",
+      "author": {
+        "name": "Shawn Anderson",
+        "email": "shawn@eye-catcher.com"
+      },
+      "skills": [
+        "./src/l3io-arch/l3io-arch-review"
+      ]
     }
   ],
   "dependencies": {
