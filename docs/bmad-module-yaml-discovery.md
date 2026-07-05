@@ -115,10 +115,12 @@ This hits the supported `src/<dir>/module.yaml` (one-level) discovery path and i
   across **every** `src/**/module.yaml` on each release (`postbump`), so this specific
   field no longer drifts — but the other fields (`description`, `module_greeting`,
   `agents:`) are still hand-duplicated and must be edited in lockstep.
-- **`.github/agents/*.agent.md`** (e.g. `l3io-sec-agent-redteam.agent.md`) is an IDE agent
-  stub. In this repo it is a **gitignored install-time artifact** (this repo dogfoods its
-  own modules) — the installer generates it on the *consumer* side from the module's
-  `agents:` block, so it is deliberately not committed here.
+- **`.github/agents/*.agent.md`** (e.g. `l3io-sec-agent-redteam.agent.md`) is the **GitHub
+  Copilot** custom-agent stub (the parallel to the Claude Code slash-command surface). In
+  this repo it is a **gitignored install-time artifact** (this repo dogfoods its own
+  modules) — the installer generates it on the *consumer* side from the module's `agents:`
+  block for whichever IDEs are enabled (Claude Code and/or GitHub Copilot), so it is
+  deliberately not committed here.
 
 ## How to verify a fix landed
 
