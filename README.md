@@ -10,7 +10,7 @@
 
 `bmad-l3io-extensions` adds a LiquidLogicLabs-oriented operating model on top of [BMad](https://docs.bmad-method.org/) for sprint and epic execution, quality closure, and security/resilience review.
 
-It ships as three installable BMad modules. Teams can install all three or only the ones they need.
+It ships as four installable BMad modules. Teams can install all four or only the ones they need.
 
 **Owner:** Shawn Anderson (shawn@eye-catcher.com)
 
@@ -23,6 +23,7 @@ It ships as three installable BMad modules. Teams can install all three or only 
 | **l3io-pm** | `l3io-pm-setup`, `l3io-pm-sprint-execute`, `l3io-pm-epic-execute` | Sprint and epic execution orchestration — full lifecycle from story preparation through closure reviews |
 | **l3io-sec** | `l3io-sec-setup`, `l3io-sec-agent-redteam` | Adversarial security analysis through five threat lenses with AI poisoning cross-cut and live cloud/platform best practices research |
 | **l3io-util** | `l3io-util-setup`, `l3io-util-cleanup` | Artifact migration & housekeeping utilities — reorganize legacy flat artifacts into the standard epic/sprint folder structure; migrate the sprint status file to the current field schema; split a legacy single `sprint-status.yaml` into the active/backlog/archived layout; harvest `bmad-defer:` deferred-shortcut code markers into the backlog |
+| **l3io-arch** | `l3io-arch-setup`, `l3io-arch-review` | Engineering-standards architecture guardrails and review — applies universal best practices (separation of concerns, reuse, design-by-contract, testability, dependency/GA policy, unified correlated logging, documentation with diagrams) plus per-stack overlays (Python, Node.js, .NET, GitHub Actions) at new-project design time, during an architectural review, or when recording an architecture/technology decision (ADR) |
 
 ## Quick Start
 
@@ -81,6 +82,7 @@ This extension standardizes those patterns so teams can run a repeatable, audita
 | `/l3io-pm-epic-execute` | Full epic: sprint execution loop (one `l3io-pm-sprint-execute` subagent per sprint), then epic-level retro → clean release → adversarial → red team → UX → arch drift → functional completeness → issue triage |
 | `/l3io-sec-agent-redteam` | Adversarial security review through five threat lenses — external attacker, malicious insider, chaos engineer, abusive legitimate user, and design/architecture red team — with AI poisoning cross-cut and live cloud/platform best practices research |
 | `/l3io-util-cleanup` | **Run without arguments** for a project health check — scans for all known issues (stale file naming, unsplit status, schema gaps, flat artifacts, sort order, untracked debt markers, AI instruction references) and proposes the right actions in order with a single confirmation. Or pass a keyword to skip directly to a specific mode: `layout-cleanup` (reorganize flat artifacts), `migrate-schema` (upgrade status file schema), `split-status` (split legacy single file into three), `rename-active` (migrate old sprint-status-active.yaml naming), `harvest-debt` (sweep for `bmad-defer:` markers), `sort-status` (reorder status file nodes), `update-ai-rules` (update AI instruction files), `check` (read-only diagnostic only) |
+| `/l3io-arch-review` | Apply engineering standards in one of three modes: **design** (new-project guardrails — boundaries, initial ADRs, docs skeleton), **review** (audit a design/component/diff → severity-graded findings against every principle, with a BLOCKER/MAJOR gate), or **decision** (weigh options against the standards and record an ADR). Auto-detects the stack and loads the matching overlay (Python, Node.js, .NET, GitHub Actions). Wire it into core `bmad-architect` / `bmad-code-review` via `bmad-customize` for automatic application |
 
 ## Context Boundary Rule
 
@@ -120,24 +122,29 @@ Optional: `bmad-ux-review`
 ```
 src/
   l3io-pm/
-    l3io-pm-setup/          SKILL.md, assets/, scripts/
-    l3io-pm-sprint-execute/ SKILL.md, references/, customize.toml
-    l3io-pm-epic-execute/   SKILL.md, references/, customize.toml
+    l3io-pm-sprint-execute/ SKILL.md, references/, assets/, scripts/, customize.toml
+    l3io-pm-epic-execute/   SKILL.md, references/, assets/, scripts/, customize.toml
   l3io-sec/
-    l3io-sec-setup/         SKILL.md, assets/, scripts/
     l3io-sec-agent-redteam/ SKILL.md, references/, assets/, scripts/, customize.toml
   l3io-util/
-    l3io-util-setup/        SKILL.md, assets/, scripts/
     l3io-util-cleanup/      SKILL.md, references/, assets/, scripts/, customize.toml
+  l3io-arch/
+    l3io-arch-review/       SKILL.md, references/, assets/, scripts/, module.yaml
 .claude/commands/           symlinks to src/<module>/<skill>/SKILL.md
 .claude-plugin/             marketplace.json
 ```
+
+Each operational skill embeds its own module setup (`assets/module-setup.md` +
+config `scripts/`) — there are no standalone `*-setup` skill directories. Setup
+runs automatically on first use, or on demand via the module's `configure` action.
 
 ## Documentation
 
 - [Getting started](docs/getting-started.md)
 - [l3io-pm reference](docs/l3io-pm-reference.md)
 - [l3io-sec reference](docs/l3io-sec-reference.md)
+- [l3io-util reference](docs/l3io-util-reference.md)
+- [l3io-arch reference](docs/l3io-arch-reference.md)
 - [Architecture and execution model](docs/architecture.md)
 - [Contributing](CONTRIBUTING.md)
 

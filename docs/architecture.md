@@ -25,9 +25,13 @@ l3io-pm-epic-execute
 l3io-sec-agent-redteam  (also invocable standalone)
 
 l3io-util-cleanup       (standalone only — no orchestrator relationship)
+
+l3io-arch-review        (standalone only — new-project design, review audits, ADR decisions)
 ```
 
 `l3io-sec` is optionally dependent on `l3io-pm` at runtime (called during closure), but has no build-time or config dependency. It runs standalone and only uses the l3io-pm config section if l3io-pm has already been configured.
+
+`l3io-arch` is fully standalone — no orchestrator relationship and no runtime dependency on the other modules. It carries the engineering-standards charter (`references/standards-*.md`) and is designed to also be wired into core `bmad-architect` and `bmad-code-review` via `bmad-customize`, so the standards apply automatically during design and review without forking those core skills.
 
 ## Orchestrator Pattern
 

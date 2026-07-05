@@ -12,15 +12,16 @@ Installation and first-run guide for `bmad-l3io-extensions`.
 
 ## Module Selection
 
-You can install all three modules or only the ones you need:
+You can install all four modules or only the ones you need:
 
 | Module | Install if you want |
 |--------|---------------------|
 | **l3io-pm** | Sprint and epic orchestration |
 | **l3io-sec** | Adversarial security review (standalone or automatic inside l3io-pm closure) |
 | **l3io-util** | One-time cleanup of legacy flat artifact layouts |
+| **l3io-arch** | Engineering-standards architecture guardrails and review (new-project design, review audits, and ADR-recorded decisions) |
 
-All three modules are installed by the same `npx bmad-method install` command. Each module handles its own first-run configuration — no separate setup step required.
+All four modules are installed by the same `npx bmad-method install` command. Each module handles its own first-run configuration — no separate setup step required.
 
 ## Install
 
@@ -36,7 +37,7 @@ npx bmad-method install \
 
 Interactive path: `npx bmad-method install` -> Community modules -> `bmad-l3io-extensions`.
 
-This installs all seven skills and registers the three modules in `.claude-plugin/marketplace.json`.
+This installs all five skills and registers the four modules in `.claude-plugin/marketplace.json`.
 
 ## First-Run Configuration
 
@@ -65,6 +66,12 @@ For WebSearch to work, ensure the `WebSearch` tool is allowed in your Claude Cod
 ### l3io-util
 
 No explicit setup step. The first time `/l3io-util-cleanup` runs it registers the module automatically before performing cleanup.
+
+### l3io-arch
+
+No explicit setup step. The first time you invoke `/l3io-arch-review` it registers the module automatically (if no `l3io-arch` section exists in config), then runs. The standards themselves live in the skill's `references/standards-*.md` files — a universal `standards-core.md` plus per-stack overlays that load automatically based on the detected stack. To apply the standards automatically inside core `bmad-architect` and `bmad-code-review`, run `/bmad-customize` in your project and add the overlays documented in the skill's `assets/customize-architect.md`.
+
+See [l3io-arch reference](l3io-arch-reference.md) for the standards catalog, the three modes, and the customization wiring.
 
 ## Upgrading
 

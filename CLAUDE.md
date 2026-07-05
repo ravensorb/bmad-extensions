@@ -4,35 +4,34 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Repository Purpose
 
-`bmad-l3io-extensions` is a BMad community module package with three modules: `l3io-pm` (sprint/epic orchestration), `l3io-sec` (red team security agent), and `l3io-util` (artifact utilities). It ships as installable Claude Code slash commands.
+`bmad-l3io-extensions` is a BMad community module package with four modules: `l3io-pm` (sprint/epic orchestration), `l3io-sec` (red team security agent), `l3io-util` (artifact utilities), and `l3io-arch` (engineering-standards architecture guardrails & review). It ships as installable Claude Code slash commands.
 
 ## Structure
 
 ```
 src/
   l3io-pm/
-    l3io-pm-setup/          ← module setup (SKILL.md, assets/, scripts/)
-    l3io-pm-sprint-execute/ ← sprint orchestration (SKILL.md, references/, customize.toml)
-    l3io-pm-epic-execute/   ← epic orchestration (SKILL.md, references/, customize.toml)
+    l3io-pm-sprint-execute/ ← sprint orchestration (SKILL.md, references/, assets/, scripts/, customize.toml)
+    l3io-pm-epic-execute/   ← epic orchestration (SKILL.md, references/, assets/, scripts/, customize.toml)
   l3io-sec/
-    l3io-sec-setup/         ← module setup (SKILL.md, assets/, scripts/)
     l3io-sec-agent-redteam/ ← red team memory agent (SKILL.md, references/, assets/, scripts/, customize.toml)
   l3io-util/
-    l3io-util-setup/        ← module setup (SKILL.md, assets/, scripts/)
     l3io-util-cleanup/      ← artifact cleanup workflow (SKILL.md, references/, assets/, scripts/, customize.toml)
+  l3io-arch/
+    l3io-arch-review/       ← architecture standards & review (SKILL.md, references/, assets/, scripts/, module.yaml)
 .claude/commands/           ← symlinks → src/<module>/<skill>/SKILL.md
 .claude-plugin/             ← marketplace.json (required for installation)
 ```
 
+Module setup is **embedded** in each operational skill (`assets/module-setup.md` + config `scripts/`); there are no standalone `*-setup/` skill directories. Setup runs on first use or via the module's `configure` action.
+
 | Skill | Purpose |
 |-------|---------|
-| `src/l3io-pm/l3io-pm-setup/` | Installs and configures the l3io-pm module — writes config.yaml, config.user.yaml, and module-help.csv |
 | `src/l3io-pm/l3io-pm-sprint-execute/` | Full sprint lifecycle: story prep → dev → code review → QA → fix loop per story, then closure reviews |
 | `src/l3io-pm/l3io-pm-epic-execute/` | Full epic lifecycle: sprint grouping, sprint execution loop, then epic-level closure reviews |
-| `src/l3io-sec/l3io-sec-setup/` | Installs and configures the l3io-sec module — writes config.yaml, config.user.yaml, and module-help.csv |
 | `src/l3io-sec/l3io-sec-agent-redteam/` | Red team security analysis — five threat lenses (EXT/INS/CHA/ABU/DAR) + AI poisoning cross-cut, live cloud/platform best practices research |
-| `src/l3io-util/l3io-util-setup/` | Installs and configures the l3io-util module — writes config.yaml, config.user.yaml, and module-help.csv |
 | `src/l3io-util/l3io-util-cleanup/` | Artifact migration & housekeeping utilities — reorganizes flat artifact files into `epic-XX/sprint-YY` folder structure; `migrate-schema` mode upgrades `sprint-status.yaml` to the current field schema; `split-status` mode splits it into the three-file active/backlog/archived layout; `harvest-debt` mode sweeps `bmad-defer:` deferred-shortcut code markers into the consolidated backlog |
+| `src/l3io-arch/l3io-arch-review/` | Engineering-standards architecture guardrails & review — three modes (design guardrails / review audit / decision + ADR); universal principles in `references/standards-core.md` plus per-stack overlays (Python, Node.js, .NET, GitHub Actions; Docker/PowerShell/shell stubbed); wires into core `bmad-architect`/`bmad-code-review` via `bmad-customize` (`assets/customize-architect.md`) |
 
 ## Commands
 
@@ -57,7 +56,7 @@ The `postbump` hook auto-syncs the new version into `.claude-plugin/marketplace.
 Conventional Commits are required (enforced via Commitizen). All commits must include a DCO sign-off (`git commit -s`).
 
 Valid types: `feat`, `fix`, `docs`, `style`, `refactor`, `perf`, `test`, `chore`, `revert`, `WIP`.
-Suggested scopes: `l3io-pm`, `l3io-sec`, `l3io-util` (module changes), plus `infra` and `ci-cd` (tooling/pipeline). Custom scopes are also permitted (`allowCustomScopes: true` in `.cz-config.js`); there is no commit-msg hook enforcing the list, so these are conventions, not hard gates.
+Suggested scopes: `l3io-pm`, `l3io-sec`, `l3io-util`, `l3io-arch` (module changes), plus `infra` and `ci-cd` (tooling/pipeline). Custom scopes are also permitted (`allowCustomScopes: true` in `.cz-config.js`); there is no commit-msg hook enforcing the list, so these are conventions, not hard gates.
 
 ## Key Execution Contracts
 
