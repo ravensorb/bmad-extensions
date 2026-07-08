@@ -272,10 +272,10 @@ Options:
      Est: ~3–5 min per item, ~15–30K tokens per item (one bmad-create-story + rationale note per item)
 3. Escalate to architect (pauses the epic; sign-off blocked until decision is provided)
      Est: 0 min / 0 tokens here (cost is offline)
-4. Split remaining issues into a follow-on hardening epic
+4. Declare epic done with known gaps — generate an epic skeleton for remaining work
      Est: ~10–20 min, ~50–100K tokens total (epic-skeleton plus one backlog story per remaining item)
 ```
-Wait for `{user_name}` decision.
+Wait for `{user_name}` decision before proceeding.
 
 ---
 

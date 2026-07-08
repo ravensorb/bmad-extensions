@@ -32,8 +32,7 @@ field shape.
   `status: in-progress`; in `{status_backlog}` iff `status: backlog`.
 - For an **in-progress epic**, its `in-progress` and `done` sprints live in `{status_active}`
   under the epic node. Its not-yet-started (`backlog`) sprints live in `{status_backlog}`
-  under an epic **shell** — `id`, `title`, `goal` only, plus a `sprints:` list of the
-  backlog sprints — so they stay locatable. A node appears in exactly one file at a time.
+  under an epic **shell** — `id`, `title`, `goal`, and a `sprints:` list of the backlog sprints only (no `estimate`, `actual`, or `status` fields) — so they stay locatable. A node appears in exactly one file at a time.
 - The consolidated `backlog:` deferred-issue list lives only in `{status_backlog}`.
 
 ## Read resolution + auto-fallback (run once at activation)
@@ -74,11 +73,11 @@ A "move" = remove the node from its source file and write it into the destinatio
 
 | Trigger | Step | Move |
 |---------|------|------|
-| **Epic start** | epic-execute "Epic Planning" | Epic identity → `{status_active}` as `status: in-progress`. Its not-yet-started sprints remain in `{status_backlog}` under the epic shell. (If the epic was a whole `backlog` epic, split it: epic header → active, backlog sprints → shell.) |
+| **Epic start** | epic-execute "Epic Planning" | Epic identity → `{status_active}` as `status: in-progress`. Its not-yet-started sprints remain in `{status_backlog}` under the epic shell. (If the epic was a whole `backlog` epic, split it: epic header → active, backlog sprints → shell.) If there are no not-yet-started sprints, no shell is created. |
 | **Sprint start** | sprint-execute "Sprint Scope" | Move that sprint node from the `{status_backlog}` epic shell → the epic node in `{status_active}`, set `status: in-progress`. Remove the shell once its `sprints:` list is empty. |
 | **Sprint close** | sprint-closure sign-off | **No file move** — the sprint stays `done` in `{status_active}` until its epic closes (archive is epic-close-only). |
 | **Epic close** | epic-closure sign-off | Do all metric/calibration reads from `{status_active}` **first**, then move the whole epic node (all done sprints + stories) `{status_active}` → `{status_archived}`. Remove any leftover shell for that epic from `{status_backlog}`. |
-| **Issue triage** | sprint-closure / epic-closure triage | Append deferred items to the `backlog:` section of `{status_backlog}` (tagged with `epic`/`sprint`) — **not** a per-epic nested `backlog:` array. |
+| **Issue triage** | sprint-closure / epic-closure triage | Append deferred items to the `backlog:` section of `{status_backlog}` (tagged with `epic`/`sprint`) — **not** a per-epic nested `backlog:` array. Items are appended only; nothing is removed from the sprint node. |
 | **Backlog item promoted to story** | sprint planning / triage | Remove item from `backlog:` list in `{status_backlog}`. Create a story node in the target sprint in `{status_active}` with `title` and `classification` pre-populated, `status: backlog`. The story archives with its epic at epic close. |
 | **Backlog item resolved inline** | sprint work / closure triage | Remove item from `backlog:` list in `{status_backlog}`. Items are deleted when resolved — never kept with a resolved status. |
 

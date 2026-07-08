@@ -54,6 +54,7 @@ Load available config from `{project-root}/_bmad/config.yaml` and `{project-root
 - `max_parallel_subagents` = min(`{workflow.max_parallel_subagents}`, 4)
 - `deferred_file_cleanup` = `{workflow.deferred_file_cleanup}` — default: `false`
 - `calibration_granularity` = `{workflow.calibration_granularity}` — default: `"story"` (`"story"` | `"sprint"`; see `references/metrics-contract.md`)
+- `atdd_enabled` = `{workflow.atdd_enabled}` — default: `true`; also requires `bmad-testarch-atdd` to be installed (checked at runtime in the story loop)
 - `date` = current date (system-generated)
 
 ### Load the Metrics Contract
@@ -155,7 +156,7 @@ Wait for `{user_name}`'s response before any subagent is spawned.
 | # | Stage | Purpose | Location |
 |---|-------|---------|----------|
 | 1 | Activation | Config, paths, scope identification | SKILL.md (above) |
-| 2 | Per-story execution | Story prep → dev → code review → QA → fix loop, with adaptive parallelism | `references/story-loop.md` |
+| 2 | Per-story execution | Story prep → ATDD scaffolds (optional) → dev → code review → QA → fix loop, with adaptive parallelism | `references/story-loop.md` |
 | 3 | Sprint closure | Retro → clean release → adversarial → red team → UX → arch drift → issue triage → sign-off | `references/sprint-closure.md` |
 
 ## Sprint Status File Schema

@@ -206,7 +206,7 @@ epics:
       title: 'Story title...'
       status: done
       classification: complex
-      estimate:                     # written by sprint-execute at ready-for-dev (HARD RULE)
+      estimate:                     # written by sprint-execute at pre-start (HARD RULE)
         time_hours_low: 0.3
         time_hours_high: 0.6
         tokens_k_min: 120

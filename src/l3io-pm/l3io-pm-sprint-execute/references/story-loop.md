@@ -67,6 +67,29 @@ Announce story prep complete to `{user_name}` (informational, no confirmation re
 
 ---
 
+## 2a.5 — ATDD (Acceptance Test Scaffolds)
+
+Skip this section when either `{atdd_enabled}` is `false` or `bmad-testarch-atdd` is not installed — check `.claude/skills/bmad-testarch-atdd/SKILL.md` or `.claude/commands/bmad-testarch-atdd.md`; if neither path exists, skip silently.
+
+Before spawning, check whether an `atdd-checklist-{story_key}.md` file already exists anywhere under `{test_output_dir}/`. If found, bind `{atdd_checklist_path}` to that path, announce: "ATDD scaffolds already present for {story_key} — reusing.", and proceed to 2b.
+
+Otherwise, spawn a subagent:
+```
+Load config from: {config_file}
+Load project context from: {context_file} (if it exists)
+Story file: {story_file_path}
+Invoke skill: bmad-testarch-atdd
+Select Create mode immediately — do not pause to ask for mode selection.
+All generated tests must be in failing (red) state — do not implement any production code.
+Print when done: DONE — checklist:{absolute_path_to_checklist_file} | {N} test file(s) generated | SKIPPED: [reason] | BLOCKED: [reason]
+```
+
+On DONE: parse `{atdd_checklist_path}` from the `checklist:` field in the status line. Proceed to 2b with `{atdd_checklist_path}` set.
+On SKIPPED (e.g. test framework not configured): log the reason, leave `{atdd_checklist_path}` unset, and continue to 2b.
+On BLOCKED: report to `{user_name}` and wait for resolution before continuing.
+
+---
+
 ## 2b — Development
 
 Announce start. Record the story start timestamp: run `date +%s` and bind to `{story_start_ts}` (used to compute the story's compute-hours and token/cost actuals at done; OS-aware — on a PowerShell harness use `[DateTimeOffset]::UtcNow.ToUnixTimeSeconds()`, see `references/metrics-contract.md` → Recording timestamps). Update status to `in-progress` in `{status_active}`.
@@ -76,8 +99,10 @@ Spawn subagent:
 Load config from: {config_file}
 Load project context from: {context_file} (if it exists)
 Story file: {story_file_path}
+ATDD scaffolds: {atdd_checklist_path} (omit this line when {atdd_checklist_path} is unset — acceptance tests were not generated for this story)
 Invoke skill: bmad-dev-story
 All tasks and subtasks must be checked [x] before finishing.
+When ATDD scaffolds are present, treat them as the acceptance contract: implementation is complete only when those tests pass green.
 Prefer the smallest solution that satisfies the acceptance criteria: skip unneeded abstractions, reach for the standard library and already-installed dependencies before adding new ones, and do not build speculative features. Validation at trust boundaries, error/data-loss handling, security, and accessibility are never simplified away.
 When you take a deliberate shortcut, mark it with a one-line `bmad-defer:` comment so it can be harvested later: `<comment-leader> bmad-defer: <what was simplified>. ceiling: <the limit this assumes>. upgrade: <the trigger to revisit>.` Always name an upgrade trigger — a marker with none is flagged as silently rotting debt.
 Update the story file Dev Agent Record and File List as the skill requires.

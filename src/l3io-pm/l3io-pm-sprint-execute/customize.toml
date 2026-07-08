@@ -16,3 +16,8 @@ deferred_file_cleanup    = false        # true | false
 # "sprint" — scope/fix learned in aggregate per sprint; converges after ~3 sprints (fewer, coarser samples)
 # Closure calibration is always per-sprint / per-epic regardless (closure only happens at those levels).
 calibration_granularity  = "story"      # "story" | "sprint"
+
+# ATDD: generate red-phase acceptance test scaffolds (via bmad-testarch-atdd) between story prep and dev.
+# Skipped automatically when bmad-testarch-atdd is not installed, regardless of this flag.
+# Set to false to disable even when the skill is present.
+atdd_enabled             = true         # true | false
