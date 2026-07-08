@@ -2,6 +2,22 @@
 
 All notable changes to this project will be documented in this file. See [commit-and-tag-version](https://github.com/absolute-version/commit-and-tag-version) for commit guidelines.
 
+## [1.0.27](https://github.com/ravensorb/bmad-extensions/compare/1.0.26...1.0.27) (2026-07-08)
+
+
+### Features
+
+* **l3io-arch:** add architecture standards module ([86643c1](https://github.com/ravensorb/bmad-extensions/commit/86643c1ef5090acaa681e112212fa1bdb0b0dccf))
+* **l3io-pm:** add optional ATDD scaffold phase to sprint story loop ([5f7b1f6](https://github.com/ravensorb/bmad-extensions/commit/5f7b1f65107cbf8b27bf9e503ca842adb1c988e1))
+
+
+### Documentation
+
+* cover both Claude Code and GitHub Copilot in install/upgrade ([1ec91e0](https://github.com/ravensorb/bmad-extensions/commit/1ec91e0323464c150dcee01e12fafe2f14111f42))
+* drop folded-in *-setup skills from Modules table ([4355698](https://github.com/ravensorb/bmad-extensions/commit/43556984aac7047eb02da209aa4cf942158d9857))
+* **l3io-arch:** document new module and fix stale module docs ([fa217c1](https://github.com/ravensorb/bmad-extensions/commit/fa217c156f8f4e34c7e7db0c32b945da13c4929b))
+* **l3io-sec:** name GitHub Copilot explicitly in module.yaml discovery note ([e6f6bdb](https://github.com/ravensorb/bmad-extensions/commit/e6f6bdb3a2e3eaec57ebc46b38fd47100c6f3c2b))
+
 ## [1.0.26](https://github.com/ravensorb/bmad-extensions/compare/1.0.25...1.0.26) (2026-07-05)
 
 
