@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file. See [commit-and-tag-version](https://github.com/absolute-version/commit-and-tag-version) for commit guidelines.
 
+## [1.1.1](https://github.com/ravensorb/bmad-extensions/compare/1.1.0...1.1.1) (2026-07-31)
+
+
+### Features
+
+* **infra,l3io-pm:** move _shared/ to repo-level src/_shared/ and align with avanade ([f47e7f3](https://github.com/ravensorb/bmad-extensions/commit/f47e7f39526c3d71a443c05f3f462bf04171e32b))
+
 ## [1.1.0](https://github.com/ravensorb/bmad-extensions/compare/1.0.28...1.1.0) (2026-07-31)
 
 ## [1.0.28](https://github.com/ravensorb/bmad-extensions/compare/1.0.27...1.0.28) (2026-07-31)
