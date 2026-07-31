@@ -48,11 +48,13 @@ Load available config from `{project-root}/_bmad/config.yaml` and `{project-root
   - `status_active` = `{implementation_artifacts}/sprint-status.yaml`
   - `status_backlog` = `{implementation_artifacts}/sprint-status-backlog.yaml`
   - `status_archived` = `{implementation_artifacts}/sprint-status-archived.yaml`
+- `status_script` = `{project-root}/_bmad/scripts/pm-status.py` — the shared deterministic status/ledger writer, installed once per project (see **Load the Status Helper** below)
 - `arch_file` = `{planning_artifacts}/*architecture*.md`
 - `prd_file` = `{planning_artifacts}/*prd*.md`
 - `epics_file` = `{planning_artifacts}/*epic*.md`
-- `parallel_mode` = `{workflow.parallel_mode}`
-- `max_parallel_subagents` = min(`{workflow.max_parallel_subagents}`, 4)
+- `parallel_mode` = `{workflow.parallel_mode}` (`"auto"` | `"adaptive"` | `"off"`)
+- `parallel_ceiling` = `{workflow.parallel_ceiling}` — default `12`; the hard upper bound on any batch
+- `max_parallel_subagents` = min(`{workflow.max_parallel_subagents}`, `{parallel_ceiling}`)
 - `deferred_file_cleanup` = `{workflow.deferred_file_cleanup}` — default: `false`
 - `calibration_granularity` = `{workflow.calibration_granularity}` — default: `"story"` (`"story"` | `"sprint"`; see `references/metrics-contract.md`). Each sprint-execute subagent reads its own copy of this setting; keep the two skills' values in sync for consistent sampling.
 - `date` = current date (system-generated)
@@ -62,6 +64,17 @@ Load available config from `{project-root}/_bmad/config.yaml` and `{project-root
 Load `references/metrics-contract.md` and keep its rules in context for the whole run. Determine `{runtime}` (`claude` or `other`) using the detection in that file and bind it now — it governs how token/cost actuals are captured at epic close.
 
 Also load `references/status-files.md` and keep its rules in context. It governs the split state layout — which of the three files (`{status_active}`, `{status_backlog}`, `{status_archived}`) each node is read from and written to, and the node-move operations. Run its **read resolution + auto-fallback** procedure now: bind the three paths, and if only a legacy `sprint-status.yaml` exists, perform the one-time split before proceeding.
+
+### Load the Status Helper
+
+`{status_script}` (`{project-root}/_bmad/scripts/pm-status.py`, run via `uv run`) performs every **single-node** status transition, `actual`-block write, progress-ledger append, and read-back verify as one atomic, round-trip-safe operation. It is a **shared, project-level utility** installed once (like `resolve_customization.py`). **Ensure it is installed (self-heal):** if `{status_script}` is absent, install it from this skill's bundled copy — `uv run {skill-root}/scripts/pm-status.py self-install --dest {status_script}` (version-guarded; module setup does this too). Use it for all in-place epic/sprint node updates this skill owns (epic promotion status, epic sign-off `actual` + `done`, verify), and bind `{progress_ledger}` = `{epic_root_dir}/progress.log`. The commands mirror those in `l3io-pm-sprint-execute` → *Load the Status Helper*:
+
+- `uv run {status_script} set-status --file {status_active} --epic {target_epic_padded} --status in-progress|done --ledger {progress_ledger} --scope E{target_epic_padded}`
+- `uv run {status_script} set-actual --file {status_active} --node epic --epic {target_epic_padded} --elapsed-hours … --man-hours … --tokens-k … --cost '$X.XX' --runtime {runtime} --ledger {progress_ledger}`
+- `uv run {status_script} verify … --runtime {runtime}` (exit `4` = a required field is missing/invalid)
+- `uv run {status_script} progress --ledger {progress_ledger} --msg "..." --scope <label>`
+
+**Multi-node moves** (epic promotion into `{status_active}`, archive at epic close) still follow `references/status-files.md`. Each spawned `l3io-pm-sprint-execute` subagent owns its own sprint/story transitions via its own copy of the helper. **Fallback** (helper absent/errors): manual YAML edit per the schema, as before.
 
 ### Epic Planning (Step 1)
 
@@ -155,6 +168,10 @@ Pre-start estimate:
 Beginning Sprint 1 of {total_sprint_count}.
 ```
 
+### Epic Architecture Gate (Step 1b)
+
+Before entering the sprint execution loop, run the pre-execution architecture gate: load `references/epic-arch-gate.md` and follow it. Bind `epic_arch_gate` = `{workflow.epic_arch_gate}` (default `true`); when `false`, or when `l3io-arch-review` is not installed, the gate self-skips with a one-line announcement. Otherwise it reviews the whole epic's design (`l3io-arch-review` Mode B), blocks on BLOCKER/MAJOR findings — resolving each with an ADR and patching the affected story files with the technical acceptance criteria the decision implies — and defers MINOR to backlog. Only enter the sprint loop once the gate reports PASS (or self-skips).
+
 ## Sprint Status File Schema
 
 State is split across three files — `{status_active}`, `{status_backlog}`, `{status_archived}` — see `references/status-files.md` for **which file** each node lives in and the move operations. Every node uses the **same per-node structure** below regardless of which file it currently lives in. See `l3io-pm-sprint-execute` for full story and sprint-level fields. Epic-execute owns the top-level epic fields.
@@ -235,6 +252,7 @@ list at the top level of `{status_backlog}` (tagged with `epic`/`sprint`) — se
 | # | Stage | Purpose | Location |
 |---|-------|---------|----------|
 | 1 | Epic planning | Config, paths, story keys, sprint grouping confirmation | SKILL.md (above) |
+| 1b | Epic architecture gate | Pre-execution arch review (l3io-arch-review Mode B); block on Blocker/Major, record ADRs, patch stories with technical ACs | `references/epic-arch-gate.md` |
 | 2 | Sprint execution loop | Execute each sprint as l3io-pm-sprint-execute subagent | `references/sprint-execution-loop.md` |
 | 3 | Epic closure | Retro → clean release → adversarial → red team → UX → arch drift → functional completeness → issue triage → sign-off | `references/epic-closure.md` |
 

@@ -11,7 +11,7 @@ BLOCKED: [one-line reason]
 FAILED: [one-line reason]
 ```
 
-**Adaptive parallelism for sprints:** Sequential by default. Parallel sprint batches only when sprint groups are proven independent (no shared story files, no cross-sprint dependencies) and status merges are serialized. `effective_parallel_subagents` = min(`{max_parallel_subagents}`, 4, safe_batch_size). Force to 1 when `{parallel_mode}` = `off` or any safety check is uncertain.
+**Adaptive parallelism for sprints:** Parallel sprint batches only when sprint groups are proven independent (no shared story files, no cross-sprint dependencies) and status writes go through `{status_script}` (atomic, so distinct-node writes across parallel sprints are safe). Compute `safe_batch_size` = the count of sprints in the batch passing all those checks; a sprint that fails any check (or is uncertain) drops to the next batch. Then by `{parallel_mode}`: `auto` → `min({max_parallel_subagents}, {parallel_ceiling}, safe_batch_size)` (safe_batch_size governs); `adaptive` → same but never exceeding `{max_parallel_subagents}`; `off` → `1`.
 
 **Progress reporting:** ETA ranges (`~3-8 min`), not exact timestamps. Report sprint position (`N/M`) and batch size. Refresh ETA after each sprint completes.
 
@@ -47,7 +47,7 @@ Wait for the subagent to complete. Read its status line — record `{sprint_stor
 
 If BLOCKED or FAILED: halt and report the status line to `{user_name}`. Wait for resolution before continuing.
 
-Announce: "Sprint {current_sprint_num} closed — {sprint_stories_done} stories delivered."
+Announce: "Sprint {current_sprint_num} closed — {sprint_stories_done} stories delivered." Also append it to the epic progress ledger: `{status_script} progress --ledger {progress_ledger} --msg "Sprint {current_sprint_num}/{total_sprint_count} closed — {sprint_stories_done} stories" --scope E{target_epic_padded}/S{current_sprint_padded}`.
 
 Append to `{sprint_summaries}`: sprint number + status-line metrics.
 

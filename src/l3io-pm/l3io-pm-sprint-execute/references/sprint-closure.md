@@ -310,13 +310,14 @@ Compute `{actual_man_hours}` from the completed sprint stories in `{status_activ
 
 Update the sprint node in `{status_active}`:
 - All sprint stories: verified `done`
-- `closed: {date}`
-- `retrospective: {retro_file_path}`
-- `actual:` (all four metrics — required)
-  - `elapsed_hours: {elapsed_hours}`
-  - `man_hours: {actual_man_hours}`
-  - `tokens_k: {actual_tokens_k}`
-  - `cost: '{actual_cost}'`
+- `closed: {date}` and `retrospective: {retro_file_path}` — multi-field, edit per schema
+- `actual:` (all four metrics — required) — write via the helper, which rejects an `N/A` tokens/cost under `--runtime claude`:
+  ```
+  {status_script} set-actual --file {status_active} --node sprint --epic {target_epic_padded} --sprint {target_sprint_padded} \
+    --elapsed-hours {elapsed_hours} --man-hours {actual_man_hours} \
+    --tokens-k {actual_tokens_k} --cost '{actual_cost}' --runtime {runtime} --ledger {progress_ledger}
+  ```
+- Sprint status → done: `{status_script} set-status --file {status_active} --epic {target_epic_padded} --sprint {target_sprint_padded} --status done --ledger {progress_ledger} --scope E{target_epic_padded}/S{target_sprint_padded}`
 
 In interactive mode, print:
 ```
@@ -346,7 +347,7 @@ DONE — Stories: {story_count}, Issues resolved: {total_resolved}, Issues defer
 
 ### Post-Sign-Off Status Verification
 
-After writing the sprint node, perform a targeted read of the sprint node and all its story nodes in `{status_active}` to confirm the writes succeeded and all fields are populated:
+After writing the sprint node, run `{status_script} verify --file {status_active} --scope sprint --epic {target_epic_padded} --sprint {target_sprint_padded} --runtime {runtime}` (exit `0` = the sprint `actual` block is complete and valid; exit `4` = the printed `FAIL` line names the gap). Then perform a targeted read of the sprint node and all its story nodes in `{status_active}` to confirm all fields are populated:
 
 | Field | Expected |
 |---|---|

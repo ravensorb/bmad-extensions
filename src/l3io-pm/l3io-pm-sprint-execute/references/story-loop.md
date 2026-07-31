@@ -22,16 +22,27 @@ BLOCKED: [one-line reason]
 FAILED: [one-line reason]
 ```
 
+**Token/cost self-report (append to the DONE line).** So actuals survive nested runs (see `references/metrics-contract.md` → *Subagent self-report handoff*), append every dev/QA/fix subagent prompt with: `Before your final status line, capture this run's own token/cost per references/metrics-contract.md and append to DONE: "tokens_k=<n|N/A> cost=<$X.XX|N/A>".` The orchestrator reads these and, at story `done`, takes the **larger** of (its own per-story window scrape) and (the summed child self-reports) — a smaller value means rows were missed — then writes the story `actual` via `{status_script} set-actual --runtime {runtime}` (which fails loud on an `N/A` under Claude).
+
 **Deferred cleanup:** When `{deferred_file_cleanup}` is `true`, append the following instruction to every subagent prompt you spawn:
 ```
 DEFERRED CLEANUP ACTIVE: Do not execute rm commands directly. Instead, append each rm command as its own line to {cleanup_script} (create with #!/bin/bash header if it does not exist). Continue all other work normally.
 ```
 
-**Adaptive parallelism:** Stories may run in parallel — across stories only, never across phases within the same story. Before each parallel batch: verify no shared file path overlap between stories, no concurrent writes to `{status_active}`, no unresolved blocker that would invalidate siblings. If any check is uncertain, run sequentially. `effective_parallel_subagents` = min(`{max_parallel_subagents}`, 4, safe_batch_size). Force to 1 when `{parallel_mode}` = `off`.
+**Adaptive parallelism:** Stories may run in parallel — across stories only, never across phases within the same story. Before each parallel batch compute `safe_batch_size`: the number of stories in the batch that pass **all** safety checks — no shared file-path overlap between them, no unresolved blocker that would invalidate siblings, and no concurrent write to the same `{status_active}` node (status writes go through `{status_script}`, which is atomic, so distinct-node writes across parallel stories are safe; same-node contention is not). If any check is uncertain for a story, it drops to the next (sequential) batch.
+
+`effective_parallel_subagents` by `{parallel_mode}`:
+- `auto` → `min({max_parallel_subagents}, {parallel_ceiling}, safe_batch_size)` — `safe_batch_size` governs; the orchestrator sizes the batch to the independent work available, capped only by `{parallel_ceiling}`.
+- `adaptive` → `min({max_parallel_subagents}, {parallel_ceiling}, safe_batch_size)` as well, but do not exceed `{max_parallel_subagents}` even when more independent work exists (conservative).
+- `off` → `1` (force sequential).
 
 **Story ordering:** Before starting parallel execution, check story files or `{status_active}` for `depends_on` fields. A story cannot enter development until all declared dependencies are `done`. Process independent stories in parallel batches; dependent stories wait for their dependencies.
 
 **Progress reporting:** Use ETA ranges (`~2-5 min`), not exact timestamps. Report position (`N/M`) and batch size for parallel runs. Refresh ETA after each completion.
+
+**Status & progress contract (pm-status.py):** Every story-node status transition and every `actual`-block write in this loop goes through `{status_script}` (bound at activation — see SKILL.md → *Load the Status Helper*), which is atomic and round-trip-safe. At **each phase boundary** (prep→dev→review→qa→done, and every fix iteration) do two things: (1) transition the node with `{status_script} set-status … --ledger {progress_ledger}`, and (2) if the phase is long-running, the subagent also emits live `PROGRESS:` markers (below). This keeps `{status_active}` current at every step and leaves a tailable trail in `{progress_ledger}` that survives context compaction — the two failure modes this loop previously had (stale status, silent long phases). If `{status_script}` is absent/errors, fall back to a manual YAML edit per the schema — never skip the transition.
+
+**Long-phase progress markers:** Every dev, QA, and fix subagent prompt below carries the instruction: `Emit a one-line "PROGRESS: <what> (<n>/<m>)" to stdout after each completed task/subtask/test file.` These stream back live so a multi-minute phase is never opaque.
 
 ---
 
@@ -63,7 +74,34 @@ The story's `classification` and four-metric `estimate` block were already writt
 
 **Fallback only if the node has no `estimate`/`classification`** (e.g. a story added after pre-start): classify from the AC count — Simple (1–3 ACs), Standard (4–6 ACs), Complex (7+ ACs) — compute the four-metric estimate via the metrics-contract formula above (HARD RULE — all four metrics), and write `classification` + the `estimate` block to the node now.
 
-Announce story prep complete to `{user_name}` (informational, no confirmation requested): story title + acceptance criteria count + task count + complexity + cost estimate. Example: "Story {story_key} ready — {ac_count} ACs, {task_count} tasks · {story_complexity} · est. {story_cost_range}". Update the story entry in `{status_active}`: set `status: ready-for-dev`, write `title: {story_title}` (and `classification` + `estimate` only if they were just computed in the fallback). Continue immediately to development.
+### 2a.1 — Technical Acceptance Criteria Gate
+
+Bind `story_technical_ac_gate` at activation (default `"block"`). When `"off"`, skip this gate. Otherwise, before the story reaches `ready-for-dev`, ensure it carries **technical** acceptance criteria — not just functional ones — so implementation is not left to each dev agent's discretion (the recurring "stories lack technical ACs" gap).
+
+Spawn a validation subagent:
+```
+Load config from: {config_file}
+Load project context from: {context_file} (if it exists)
+Story file: {story_file_path}
+If l3io-arch-review is installed (.claude/skills/l3io-arch-review/SKILL.md or .claude/commands/l3io-arch-review.md): invoke it in review mode against this story and drive the checklist from its references/standards-core.md. Otherwise apply this built-in technical-AC checklist directly.
+Verify the story's acceptance criteria specify, where applicable to what the story builds:
+  - Interfaces / API contracts (signatures, request/response shapes, status/error codes)
+  - Data model (entities, fields, types, persistence/migration expectations)
+  - Error, edge-case, and failure/data-loss handling expectations
+  - Observability (logging/metrics/tracing the story must emit)
+  - Security controls (authz/authn, input validation at trust boundaries, secrets handling)
+  - Testability / measurable NFRs (performance or resource targets, how acceptance is verified)
+For each dimension that is applicable but unspecified, ADD a concrete technical acceptance criterion to the story file (edit in place; keep functional ACs intact). Do not invent scope beyond the story's intent — only make the implied technical contract explicit.
+Print when done: DONE — technical ACs: present {list} / added {list} / n-a {list} | BLOCKED: [reason]
+```
+
+Parse the added/present/n-a lists from the status line. Then by `story_technical_ac_gate`:
+- `"block"` — if any **applicable** dimension could not be specified (subagent reports it still missing, or BLOCKED), do **not** advance to `ready-for-dev`: report the gap to `{user_name}` and wait for input. Otherwise continue.
+- `"warn"` — log any residual gaps as an informational warning and continue regardless.
+
+Log the outcome to `{progress_ledger}` via `{status_script} progress`.
+
+Announce story prep complete to `{user_name}` (informational, no confirmation requested): story title + acceptance criteria count + task count + complexity + cost estimate. Example: "Story {story_key} ready — {ac_count} ACs, {task_count} tasks · {story_complexity} · est. {story_cost_range}". Transition the story: `{status_script} set-status --file {status_active} --story {story_key} --status ready-for-dev --title "{story_title}" --ledger {progress_ledger} --scope {story_key}`. (Write `classification` + the `estimate` block separately only if they were just computed in the fallback — those are multi-field blocks, edit them per the schema.) Continue immediately to development.
 
 ---
 
@@ -92,7 +130,7 @@ On BLOCKED: report to `{user_name}` and wait for resolution before continuing.
 
 ## 2b — Development
 
-Announce start. Record the story start timestamp: run `date +%s` and bind to `{story_start_ts}` (used to compute the story's compute-hours and token/cost actuals at done; OS-aware — on a PowerShell harness use `[DateTimeOffset]::UtcNow.ToUnixTimeSeconds()`, see `references/metrics-contract.md` → Recording timestamps). Update status to `in-progress` in `{status_active}`.
+Announce start. Record the story start timestamp: run `date +%s` and bind to `{story_start_ts}` (used to compute the story's compute-hours and token/cost actuals at done; OS-aware — on a PowerShell harness use `[DateTimeOffset]::UtcNow.ToUnixTimeSeconds()`, see `references/metrics-contract.md` → Recording timestamps). Transition: `{status_script} set-status --file {status_active} --story {story_key} --status in-progress --ledger {progress_ledger} --scope {story_key}`.
 
 Spawn subagent:
 ```
@@ -106,6 +144,7 @@ When ATDD scaffolds are present, treat them as the acceptance contract: implemen
 Prefer the smallest solution that satisfies the acceptance criteria: skip unneeded abstractions, reach for the standard library and already-installed dependencies before adding new ones, and do not build speculative features. Validation at trust boundaries, error/data-loss handling, security, and accessibility are never simplified away.
 When you take a deliberate shortcut, mark it with a one-line `bmad-defer:` comment so it can be harvested later: `<comment-leader> bmad-defer: <what was simplified>. ceiling: <the limit this assumes>. upgrade: <the trigger to revisit>.` Always name an upgrade trigger — a marker with none is flagged as silently rotting debt.
 Update the story file Dev Agent Record and File List as the skill requires.
+Emit a one-line "PROGRESS: <task> (<n>/<m>)" to stdout after each completed task/subtask so the orchestrator can surface live progress during this multi-minute phase.
 Unit test guidance: {skill-root}/references/testing-guidelines.md — apply test quality review (coverage, relevance, parallelism) when writing or updating tests.
 CI/CD guidance: {skill-root}/references/cicd-guidelines.md — apply if this story involves CI/CD pipelines, GitHub Actions, Gitea workflows, or deployment automation. Follow all conventions (modular design, dual triggers, action pinning, multi-runner compatibility, nektos/act local config).
 Print when done: DONE | BLOCKED: [reason] | FAILED: [reason]
@@ -113,7 +152,7 @@ Print when done: DONE | BLOCKED: [reason] | FAILED: [reason]
 
 After completion, verify from `{story_file_path}`: all task checkboxes [x], Dev Agent Record populated, File List populated. Halt on failure — report to `{user_name}` and wait for guidance.
 
-Update status to `review` in `{status_active}`.
+Transition: `{status_script} set-status --file {status_active} --story {story_key} --status review --ledger {progress_ledger} --scope {story_key}`.
 
 ---
 
@@ -147,6 +186,7 @@ Story file: {story_file_path}
 Invoke skill: bmad-qa-generate-e2e-tests
 Target: the feature implemented in this story.
 Run all generated tests and verify they pass before finishing.
+Emit a one-line "PROGRESS: <test file> (<n>/<m>)" to stdout after each test file written or run so the orchestrator can surface live progress.
 Test output caching: pipe all test runs through `tee /tmp/test-run-$(date +%Y%m%d-%H%M%S).log` so failure details are available without re-running. After analysis: if `{deferred_file_cleanup}` is `true`, append `rm /tmp/test-run-*.log` to `{cleanup_script}` (create with #!/bin/bash header if absent) — do not delete inline; otherwise delete the log immediately.
 Unit test guidance: {skill-root}/references/testing-guidelines.md — apply test quality review (coverage, relevance, parallelism) when reviewing generated tests.
 Write test results summary to the story file Dev Agent Record.
@@ -154,7 +194,7 @@ Write QA evidence to: {test_output_dir}/epic-{target_epic_padded}-sprint-{target
 Print when done: DONE — Tests: N written, N passing | FAILURES: N tests failing — [brief description] | BLOCKED: [reason]
 ```
 
-If all tests pass: update the story entry in `{status_active}`: set `status: done`. Write a `completion_evidence` block: `fix_iterations: {fix_iteration}`, `tests_passing: {tests_passing}` (extract from QA status line), `files_changed: {files_changed}` (count from the story File List section via targeted read). Write the story `actual` block per **Story Actuals** below. Announce: "Story {story_key} — DONE." Move to the next story.
+If all tests pass: write the `completion_evidence` block to the story node (multi-field — edit per schema: `fix_iterations: {fix_iteration}`, `tests_passing: {tests_passing}` from the QA status line, `files_changed: {files_changed}` counted from the story File List via targeted read). Write the story `actual` block per **Story Actuals** below (via `{status_script} set-actual`). Then transition to done: `{status_script} set-status --file {status_active} --story {story_key} --status done --ledger {progress_ledger} --scope {story_key}`, and confirm it: `{status_script} verify --file {status_active} --scope story --story {story_key} --runtime {runtime}` (exit 4 → a required actual/evidence field is missing; fill it before continuing). Announce: "Story {story_key} — DONE." Move to the next story.
 
 If FAILURES: add to `{story_issues}` and route to Step 2e.
 
@@ -174,6 +214,7 @@ Invoke skill: bmad-dev-story
 Target the specific issue above. Read the story Dev Agent Record for full context.
 After fixing, re-run the affected tests to verify resolution. Cache test output: pipe through `tee /tmp/test-run-$(date +%Y%m%d-%H%M%S).log`. After analysis: if `{deferred_file_cleanup}` is `true`, append `rm /tmp/test-run-*.log` to `{cleanup_script}` (create with #!/bin/bash header if absent) — do not delete inline; otherwise delete the log.
 Update the story Dev Agent Record with fix notes.
+Emit a one-line "PROGRESS: <fix step>" to stdout at each meaningful step (diagnosis, patch, re-test) so the phase is not opaque.
 Print when done: FIXED | PARTIAL: [what remains] | FAILED: [reason]
 ```
 
@@ -195,13 +236,21 @@ Options:
 ```
 Wait for decision before proceeding.
 
-When all issues are resolved and QA passes: update the story entry in `{status_active}`: set `status: done`. Write a `completion_evidence` block: `fix_iterations: {fix_iteration}`, `tests_passing: {tests_passing}` (extract from final QA status line), `files_changed: {files_changed}` (count from the story File List section via targeted read), `bugs_fixed: [{one-line description per fix-loop iteration}]`. Write the story `actual` block per **Story Actuals** below. Announce: "Story {story_key} — DONE after {fix_iteration} fix iteration(s)."
+When all issues are resolved and QA passes: write the `completion_evidence` block to the story node (multi-field — edit per schema: `fix_iterations: {fix_iteration}`, `tests_passing: {tests_passing}` from the final QA status line, `files_changed: {files_changed}` counted from the story File List, `bugs_fixed: [{one-line description per fix-loop iteration}]`). Write the story `actual` block per **Story Actuals** below (via `{status_script} set-actual`). Then transition to done and confirm: `{status_script} set-status --file {status_active} --story {story_key} --status done --ledger {progress_ledger} --scope {story_key}` followed by `{status_script} verify --file {status_active} --scope story --story {story_key} --runtime {runtime}`. Announce: "Story {story_key} — DONE after {fix_iteration} fix iteration(s)."
 
 ---
 
 ## Story Actuals (HARD RULE — written at `done`)
 
-When a story reaches `done`, write its `actual` block to the story entry in `{status_active}` with all four metrics (see `references/metrics-contract.md`):
+When a story reaches `done`, write its `actual` block to the story entry in `{status_active}` with all four metrics (see `references/metrics-contract.md`). Write it with the helper — under `--runtime claude` it **rejects** an `N/A` tokens/cost, enforcing the HARD RULE at write time:
+
+```
+{status_script} set-actual --file {status_active} --node story --story {story_key} \
+  --elapsed-hours {elapsed_hours} --man-hours {man_hours} \
+  --tokens-k {story_tokens_k} --cost '{story_cost}' --runtime {runtime} --ledger {progress_ledger}
+```
+
+Values (see `references/metrics-contract.md`):
 
 - `elapsed_hours` = round((`date +%s` − `{story_start_ts}`) / 3600, 2) — measured compute (wall-clock) hours (OS-aware — on a PowerShell harness use `[DateTimeOffset]::UtcNow.ToUnixTimeSeconds()` for the end timestamp; see `references/metrics-contract.md` → Recording timestamps).
 - `man_hours` = `base × fix_factor`, where `base` = {simple: 6, standard: 18, complex: 36} by `classification`, and `fix_factor` = min(1.0 + `fix_iterations` × 0.25, 2.0). Round to 1 decimal.
@@ -221,7 +270,7 @@ actual:
 
 ## Pre-Closure Story Verification
 
-Before continuing to `references/sprint-closure.md`, perform a targeted read of all story nodes for this sprint in `{status_active}` and verify:
+Before continuing to `references/sprint-closure.md`, run `{status_script} verify --file {status_active} --scope story --story {story_key} --runtime {runtime}` for every story in `{sprint_stories}` (exit `0` = all fields present and valid; exit `4` = a gap — the printed `FAIL` line names the missing/invalid field). The helper checks the same conditions listed below; the table remains the spec for what a pass means:
 
 | Check | Expected |
 |---|---|

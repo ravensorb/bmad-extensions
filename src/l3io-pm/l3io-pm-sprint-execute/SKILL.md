@@ -50,11 +50,14 @@ Load available config from `{project-root}/_bmad/config.yaml` and `{project-root
   - `status_active` = `{implementation_artifacts}/sprint-status.yaml`
   - `status_backlog` = `{implementation_artifacts}/sprint-status-backlog.yaml`
   - `status_archived` = `{implementation_artifacts}/sprint-status-archived.yaml`
-- `parallel_mode` = `{workflow.parallel_mode}`
-- `max_parallel_subagents` = min(`{workflow.max_parallel_subagents}`, 4)
+- `status_script` = `{project-root}/_bmad/scripts/pm-status.py` — the shared deterministic status/ledger writer, installed once per project (see **Load the Status Helper** below)
+- `parallel_mode` = `{workflow.parallel_mode}` (`"auto"` | `"adaptive"` | `"off"`)
+- `parallel_ceiling` = `{workflow.parallel_ceiling}` — default `12`; the hard upper bound on any batch
+- `max_parallel_subagents` = min(`{workflow.max_parallel_subagents}`, `{parallel_ceiling}`)
 - `deferred_file_cleanup` = `{workflow.deferred_file_cleanup}` — default: `false`
 - `calibration_granularity` = `{workflow.calibration_granularity}` — default: `"story"` (`"story"` | `"sprint"`; see `references/metrics-contract.md`)
 - `atdd_enabled` = `{workflow.atdd_enabled}` — default: `true`; also requires `bmad-testarch-atdd` to be installed (checked at runtime in the story loop)
+- `story_technical_ac_gate` = `{workflow.story_technical_ac_gate}` — default: `"block"` (`"block"` | `"warn"` | `"off"`); verifies/enriches technical acceptance criteria at story prep (see `references/story-loop.md` → 2a.1)
 - `date` = current date (system-generated)
 
 ### Load the Metrics Contract
@@ -62,6 +65,23 @@ Load available config from `{project-root}/_bmad/config.yaml` and `{project-root
 Load `references/metrics-contract.md` and keep its rules in context for the whole run. Determine `{runtime}` (`claude` or `other`) using the detection in that file and bind it now — it governs how token/cost actuals are captured at every closeout.
 
 Also load `references/status-files.md` and keep its rules in context. It governs the split state layout — which of the three files (`{status_active}`, `{status_backlog}`, `{status_archived}`) each node is read from and written to, and the node-move operations. Run its **read resolution + auto-fallback** procedure now: bind the three paths, and if only a legacy `sprint-status.yaml` exists, perform the one-time split before proceeding.
+
+### Load the Status Helper
+
+`{status_script}` (`{project-root}/_bmad/scripts/pm-status.py`, run via `uv run`) performs every **single-node** status transition, `actual`-block write, progress-ledger append, and read-back verify as one atomic, round-trip-safe operation — the free-form YAML edits it replaces were the source of dropped/malformed status updates under load and parallelism. It is a **shared, project-level utility** (installed once, like `resolve_customization.py`), not a per-skill script.
+
+**Ensure it is installed (self-heal):** if `{status_script}` does not exist, install it from this skill's bundled copy — `uv run {skill-root}/scripts/pm-status.py self-install --dest {status_script}` (version-guarded; a no-op if an equal/newer copy is already there). Module setup does this too, so this only fires when the skill is used before/without setup. If neither the installed path nor the bundled copy exists, use the manual-edit fallback below.
+
+**Use it for all in-place node updates** throughout this run:
+
+- `uv run {status_script} set-status --file <status file> (--story KEY | --epic ID [--sprint ID]) --status S [--title T] --ledger {progress_ledger} --scope <label>`
+- `uv run {status_script} set-actual --file <status file> --node {story|sprint|epic} (--story KEY | --epic ID [--sprint ID]) --elapsed-hours H --man-hours H --tokens-k K --cost '$X.XX' --runtime {runtime} --ledger {progress_ledger}`
+- `uv run {status_script} verify --file <status file> --scope {story|sprint} (--story KEY | --epic ID [--sprint ID]) [--require-tokens] --runtime {runtime}` — exit `0` = pass, `4` = a required field is missing/invalid; branch on the exit code.
+- `uv run {status_script} progress --ledger {progress_ledger} --msg "..." --scope <label>`
+
+**Multi-node moves** (epic/sprint promotion, archive at epic close) still follow `references/status-files.md` — the helper edits a node in place, it does not move nodes between the three files.
+
+**Fallback (only if the helper is absent or errors):** perform the edit manually per the schema and `references/status-files.md`, exactly as before. The helper is a reliability upgrade, never a hard dependency.
 
 ### Sprint Scope
 
@@ -77,6 +97,7 @@ Bind and create if missing:
 - `{closure_output_dir}` = `{sprint_root_dir}/closure`
 - `{test_output_dir}` = `{sprint_root_dir}/tests`
 - `{planning_sprint_dir}` = `{planning_artifacts}/epic-{target_epic_padded}/sprint-{target_sprint_padded}`
+- `{progress_ledger}` = `{sprint_root_dir}/progress.log` — append-only human-readable progress trail (written via `{status_script} progress`); survives context compaction and is the single file to tail for live status
 - `{cleanup_script}` = `{sprint_root_dir}/cleanup-pending.sh` (only written when `{deferred_file_cleanup}` is `true`; subagents create the file on first use — no pre-write needed)
 
 Remove already-`done` stories from `{sprint_stories}`. Derive `{sprint_title}` = "Sprint {target_sprint} — {theme}" where `{theme}` is a 2–4 word summary of the sprint's dominant concern (e.g. "Foundation", "Parsers", "API Layer"); fall back to "Sprint {target_sprint}" if no clear theme is identifiable.
