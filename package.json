@@ -7,7 +7,7 @@
   "scripts": {
     "sync:scripts": "node scripts/sync-shared-scripts.mjs",
     "check:scripts": "node scripts/sync-shared-scripts.mjs --check",
-    "postbump": "node scripts/sync-bmad-versions.mjs && node scripts/sync-shared-scripts.mjs && git add .claude-plugin/marketplace.json",
+    "postbump": "node scripts/sync-bmad-versions.mjs && node scripts/sync-shared-scripts.mjs && git add -u",
     "release": "commit-and-tag-version",
     "release:patch": "commit-and-tag-version --release-as patch",
     "release:minor": "commit-and-tag-version --release-as minor",

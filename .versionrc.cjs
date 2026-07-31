@@ -2,7 +2,7 @@ module.exports = {
   tagPrefix: "",
   commitAll: true,
   scripts: {
-    postbump: "node scripts/sync-bmad-versions.mjs && git add -u"
+    postbump: "node scripts/sync-bmad-versions.mjs && node scripts/sync-shared-scripts.mjs && git add -u"
   },
   types: [
     { type: "feat", section: "Features" },
