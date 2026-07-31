@@ -294,19 +294,20 @@ Compute `{epic_actual_man_hours}` by reading `actual.man_hours` from each sprint
 - `{epic_actual_man_hours}` = round(sum of sprint `actual.man_hours` values + 12, 1)   ← 12h = epic closure overhead (epic retro, functional completeness, arch drift)
 
 **Token & cost actuals (HARD RULE — see `references/metrics-contract.md`):**
-- If `{runtime}` == `claude`: compute **exactly** using the token/cost capture procedure with `{epic_start_ts}` as the start (the whole-epic transcript window, covering all sprints and epic closure). Bind `{epic_actual_tokens_k}` and `{epic_actual_cost}` (format `$X.XX`). Capturing from the epic window is preferred to summing sprint values (it covers epic-closure subagents and avoids gaps); if the transcript is unreadable, fall back to summing the sprints' numeric `actual.tokens_k` / `actual.cost`, and bind `N/A` if no sprint reported a numeric value.
-- If `{runtime}` == `other`: sum the sprints' numeric `actual.tokens_k` / `actual.cost` if any exist; otherwise bind `{epic_actual_tokens_k}` = `N/A` and `{epic_actual_cost}` = `N/A`. **Never guess.**
+- If `{runtime}` == `claude`: the **primary** source is the **sum of the sprints' reported `actual.tokens_k` / `actual.cost`** (each sprint subagent captured these exactly over its own session and reported them in its DONE line — see `references/metrics-contract.md` → *Subagent self-report handoff*). Summing crosses the session-id boundary that an epic-level transcript glob cannot, which is where nested-run actuals were being lost. Add the epic-closure phases' own consumption: scrape the epic window from `{epic_start_ts}` **for the epic-closure subagents only** and add it to the sprint sum. As a **cross-check**, also scrape the full epic window; if it exceeds the sum, take the larger and log the delta. Bind `{epic_actual_tokens_k}` and `{epic_actual_cost}` (format `$X.XX`). If the sum is empty *and* the scrape is empty, apply **Fail-loud** (retry once, then halt) — never write `$0.00` or a silent `N/A`.
+- If `{runtime}` == `other`: sum the sprints' numeric `actual.tokens_k` / `actual.cost` if any exist; otherwise bind `{epic_actual_tokens_k}` = `N/A` and `{epic_actual_cost}` = `N/A` with the platform annotation (metrics-contract → *Copilot / non-Claude runtime*). **Never guess.** `elapsed_hours` and `man_hours` are always required regardless.
 
-Update the epic node in `{status_active}`:
-- `status: done`
+Update the epic node in `{status_active}` (it is still in `{status_active}` at this point — the archive move to `{status_archived}` happens after all metric/calibration reads, per `references/status-files.md`):
 - All epic stories: verified `done`
-- `closed: {date}`
-- `retrospective: {epic_retro_file}`
-- `actual:` (all four metrics — required)
-  - `elapsed_hours: {epic_elapsed_hours}`
-  - `man_hours: {epic_actual_man_hours}`
-  - `tokens_k: {epic_actual_tokens_k}`
-  - `cost: '{epic_actual_cost}'`
+- `closed: {date}` and `retrospective: {epic_retro_file}` — multi-field, edit per schema
+- `actual:` (all four metrics — required) — write via the helper, which rejects an `N/A` tokens/cost under `--runtime claude`:
+  ```
+  {status_script} set-actual --file {status_active} --node epic --epic {target_epic_padded} \
+    --elapsed-hours {epic_elapsed_hours} --man-hours {epic_actual_man_hours} \
+    --tokens-k {epic_actual_tokens_k} --cost '{epic_actual_cost}' --runtime {runtime} --ledger {progress_ledger}
+  ```
+- Epic status → done: `{status_script} set-status --file {status_active} --epic {target_epic_padded} --status done --ledger {progress_ledger} --scope E{target_epic_padded}`
+- Confirm: `{status_script} verify --file {status_active} --scope epic --epic {target_epic_padded} --runtime {runtime}` (exit `4` = a required field is missing/invalid — fix before the archive move).
 
 Print:
 ```

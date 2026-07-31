@@ -42,6 +42,15 @@ Bind `{runtime}` = `claude` or `other`.
 
 Compute hours (`elapsed_hours`) and man-hours (`man_hours`) are captured identically in both runtimes — they do not depend on the transcript.
 
+## Subagent self-report handoff (primary path — fixes nested-run loss)
+
+Transcript scraping (below) captures every usage row **within one session id**. But an orchestrator that is itself a subagent — `l3io-pm-sprint-execute` running under `l3io-pm-epic-execute`, whose own dev/QA/fix subagents may not share the parent's session id — cannot reliably glob its descendants' transcripts across that boundary. Relying on the scrape alone is exactly how token/cost actuals go missing in nested runs. The robust, runtime-agnostic fix is **bottom-up self-report**: each level measures its own window and reports it up; each parent **sums the children it spawned** rather than re-scraping across a session boundary.
+
+1. **Every work-performing subagent** ends its DONE line with its own usage, over its own window: `… tokens_k=<n|N/A> cost=<$X.XX|N/A>`. Under Claude it runs the capture below with its own start ts (it shares a session id with its *own* direct sub-subagents, so its scrape is complete at its level); under a non-Claude runtime it reports what the platform exposes, else `N/A`.
+2. **Each orchestrator sums its spawned children as the PRIMARY source.** A sprint's story + closure actuals roll up from the reported child values; an epic's actual = Σ the `tokens_k=`/`cost=` values parsed from each sprint subagent's DONE line. Summing crosses the session-id boundary that a glob cannot.
+3. **Transcript scrape is reconciliation, not the sole source.** Where the orchestrator shares a session id with its direct subagents (the common in-session case — the Agent tool writes them under `<sid>/subagents/`), scrape and sum should agree; if they diverge, take the **larger** (a smaller value means rows were missed) and log the delta.
+4. **Never silently lose a value under Claude.** If both the child-sum and the scrape yield nothing, that is a FAILURE, not a `$0.00` and not a silent `N/A` — see *Fail-loud* at the end of this file.
+
 ## Token & cost capture under Claude (EXACT)
 
 Each orchestration phase records an epoch start timestamp (e.g. `{sprint_start_ts}`, `{epic_start_ts}`, `{story_start_ts}`). At close, sum the real `usage` fields from the session transcript JSONL entries for **this run** at/after that start. Discovery is anchored on the session id (`$CLAUDE_CODE_SESSION_ID`, exported by Claude Code into every subprocess) — it reads the main transcript `<sid>.jsonl` **and** every subagent transcript under `<sid>/subagents/`, honoring `CLAUDE_CONFIG_DIR` and remaining independent of the undocumented project-dir name encoding (it globs by id, not by path).
@@ -174,6 +183,30 @@ if (-not $rows) { 'N/A' } else {
 ```
 
 Bind to `{actual_cost}`. (Null usage fields coerce to 0 in the arithmetic; `InvariantCulture` keeps the `.` decimal separator regardless of system locale.) The `$rows` filter is shared between the two blocks — run the token block first so `$rows` is in scope.
+
+## Fail-loud under Claude (tokens/cost must be real)
+
+Under `{runtime}` == `claude`, a missing or `N/A` `tokens_k`/`cost` at a closeout is a **contract violation, not an acceptable state** — it means capture failed, and a false `N/A` hides real spend. Enforce, in order:
+
+1. **Retry capture** once: re-run the child-sum and the transcript scrape (the transcript may not have flushed on the first read).
+2. If a value is now available, write it.
+3. If still nothing, **halt and report** to `{user_name}` — name the phase and the window — rather than signing off. Do not write `$0.00`; do not write a silent `N/A`.
+
+`{status_script} set-actual --runtime claude` and `{status_script} verify --runtime claude` (or `--require-tokens`) enforce this at write/verify time: they reject an `N/A` tokens/cost and exit non-zero, so a nested-run capture miss surfaces as a failed gate instead of a silent hole in the metrics.
+
+## Copilot / non-Claude runtime (explicit, never silent)
+
+Under `{runtime}` == `other`, `elapsed_hours` and `man_hours` are always captured (they don't depend on a transcript) and are **required** — they must never be lost. For tokens/cost: read any usage source the runtime exposes; when the platform genuinely does not expose per-run token usage (GitHub Copilot today), write the literal `N/A` **with a visible annotation** so it reads as a platform limitation, not a capture bug:
+
+```yaml
+actual:
+  elapsed_hours: 1.1
+  man_hours: 52.5
+  tokens_k: N/A   # copilot: per-run token usage not exposed by the platform — not a capture failure
+  cost: N/A       # derived from tokens_k; N/A follows
+```
+
+Never guess, approximate, or back-fill from a throughput model. A guessed number is worse than an honest `N/A`. This is the one runtime where `N/A` is correct — the annotation makes clear it is a known limit, and the wall-clock + man-hours still land.
 
 ## Recording timestamps (OS-aware)
 
