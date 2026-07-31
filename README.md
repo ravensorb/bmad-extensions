@@ -57,13 +57,13 @@ After install, each module auto-configures on first use — no explicit setup st
 
 ### Upgrading
 
-Run the fully explicit upgrade command in the project root — no prompts, no questions:
+Run in the project root — no prompts, no questions:
 
 ```bash
-npx bmad-method install --directory . --custom-source https://github.com/ravensorb/bmad-extensions --tools claude-code,github-copilot --yes
+npx bmad-method install --directory . --action quick-update --yes
 ```
 
-Drop any `--tools` codes you didn't install with. Omitting `--modules` leaves core BMad skills untouched. Existing config (`_bmad/config.yaml`) is preserved and skills are refreshed in place.
+Reads the stored install config (tools, custom source) so nothing needs to be re-specified. Omitting `--modules` leaves core BMad skills untouched. Existing config (`_bmad/config.yaml`) is preserved and skills are refreshed in place.
 
 If upgrading from a version before 1.0.20 and you have an existing `sprint-status-active.yaml`, run `/l3io-util-cleanup rename-active` once after upgrading to migrate the file to the new name.
 
