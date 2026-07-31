@@ -97,6 +97,24 @@ Before your first sprint or epic run, verify:
 
 Story status values: `backlog` → `ready-for-dev` → `in-progress` → `review` → `done`.
 
+### Optional: generate an execution plan first
+
+If you have multiple epics, run `/l3io-pm-plan-execution` before starting execution. It reads `depends_on` declarations from the status files and produces a phased, parallel-optimized plan — which epics to run first, which can run in parallel, and the critical path. The output includes ready-to-run `/l3io-pm-epic-execute` dispatch commands.
+
+To declare dependencies, add `depends_on` to epic or story nodes in your sprint status files:
+
+```yaml
+# Epic-level: epic E03 cannot start until E01 and E02 are done
+epics:
+  - key: 'E03'
+    depends_on: ['E01', 'E02']
+
+# Story-level: this story blocks on a story in another epic
+stories:
+  - key: E03-S01-001
+    depends_on: ['E01-S02-003']
+```
+
 ## First Sprint Run
 
 Invoke:

@@ -20,7 +20,8 @@ file that does not yet exist is treated as empty, not an error):
 
 All three share the **same node schema** as the legacy single `sprint-status.yaml` (epic →
 sprints → stories, with `estimate`/`actual`/`completion_evidence` blocks). The only schema
-addition is the consolidated `backlog:` item (see below). The split changes *placement*, not
+additions are the consolidated `backlog:` item (see below) and the optional `depends_on`
+fields (see [Dependency fields](#dependency-fields)). The split changes *placement*, not
 field shape.
 
 ## Placement rule (the single source of truth)
@@ -101,6 +102,28 @@ backlog:
   status: backlog
   description: 'One-sentence description of the deferred issue.'
 ```
+
+## Dependency fields
+
+Two optional `depends_on` fields extend the node schema. Both are written during story/planning phases and read by `l3io-pm-plan-execution` to produce a phased parallel execution plan. They have no effect on the sprint/epic execution skills.
+
+**Epic-level** — list of epic keys that must reach `status: done` before this epic starts:
+
+```yaml
+epics:
+  - key: 'E03'
+    depends_on: ['E01', 'E02']   # E03 cannot start until E01 and E02 are done
+```
+
+**Story-level** — list of globally-unique story keys (cross-epic keys are supported) that must be `status: done` before this story starts. When a story depends on a story in a different epic, `l3io-pm-plan-execution` rolls this up to an epic-level edge:
+
+```yaml
+stories:
+  - key: E03-S01-001
+    depends_on: ['E01-S02-003']  # cross-epic: E01 must complete before E03 starts
+```
+
+Both fields default to `[]` (empty — no dependencies) and may be omitted entirely.
 
 ## Notes
 

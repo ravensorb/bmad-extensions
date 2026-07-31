@@ -25,17 +25,19 @@ Suggested scopes: `l3io-pm`, `l3io-sec`, `l3io-util`, `l3io-arch` (module change
 
 **State files** (split layout, in `{implementation_artifacts}/`):
 
-- `sprint-status-active.yaml` — epics with `status: in-progress` (their in-progress + done sprints and all stories).
+- `sprint-status.yaml` — epics with `status: in-progress` (their in-progress + done sprints and all stories). Old repos using `sprint-status-active.yaml` are auto-renamed on first PM-skill run.
 - `sprint-status-backlog.yaml` — not-yet-started work (whole `backlog` epics + backlog sprints of active epics as shells), plus a consolidated top-level `backlog:` deferred-issue list across all epics.
 - `sprint-status-archived.yaml` — epics with `status: done`, moved here wholesale at epic close.
 
-Placement is **epic + sprint** granularity (stories travel with their sprint); archive happens **only at epic close**. The placement rule, node-move operations, and read/auto-fallback procedure live in each PM skill's `references/status-files.md` (the single source of truth). A legacy single `sprint-status.yaml` is auto-split on first PM-skill run, or migrate explicitly with `/l3io-util-cleanup split-status` (original preserved as `sprint-status.yaml.legacy`).
+Placement is **epic + sprint** granularity (stories travel with their sprint); archive happens **only at epic close**. The placement rule, node-move operations, read/auto-fallback procedure, and the optional `depends_on` fields used by `l3io-pm-plan-execution` live in each PM skill's `references/status-files.md` (the single source of truth). A legacy single `sprint-status.yaml` is auto-split on first PM-skill run, or migrate explicitly with `/l3io-util-cleanup split-status` (original preserved as `sprint-status.yaml.legacy`).
 
 Story statuses: `backlog → ready-for-dev → in-progress → review → done`. Epic statuses: `backlog → in-progress → done`.
 
 **Status writes go through the shared `pm-status.py`** (run via `uv run`; deps auto-provisioned from its PEP-723 header). It performs every single-node status transition, `actual`-block write, progress-ledger append, and read-back `verify` as one atomic, `ruamel`-round-trip-safe operation (preserves comments + key order) — this replaced free-form YAML edits that were dropped/malformed under load and parallelism. Multi-node moves between the three files still follow `references/status-files.md`. Each PM skill activates it in a *Load the Status Helper* step and writes a per-run progress trail to `{sprint|epic_root_dir}/progress.log`. Under `--runtime claude`, `set-actual`/`verify` **reject** an `N/A` tokens/cost (enforces the estimates-&-actuals HARD RULE at write time).
 
 `pm-status.py` is a **shared runtime utility** (the `resolve_customization.py` category, not the per-skill `merge-config.py` bootstrap category). It is authored **once** in `src/l3io-pm/_shared/` (with its `tests/`); `npm run sync:scripts` (also chained into `postbump`) generates the per-skill `scripts/` payload copies — **never hand-edit those**. At module setup each PM skill runs `pm-status.py self-install --dest {project-root}/_bmad/scripts/pm-status.py` (version-guarded, self-healing on first use), so there is exactly **one runtime copy per project**, referenced by both skills as `{project-root}/_bmad/scripts/pm-status.py`. CI runs `npm run check:scripts` to fail on payload drift from the `_shared/` source.
+
+`status-files.md` is also shared from `src/l3io-pm/_shared/` — it is the canonical split-state contract (placement rules, `depends_on` schema, read/auto-fallback). `npm run sync:scripts` keeps all three PM skill `references/status-files.md` copies in sync. Never edit per-skill copies directly.
 
 **HARD RULE — estimates & actuals.** Every planning point and every closeout — at **story, sprint, epic, and retrospective** level — must record both an `estimate` and an `actual` for all four metrics: **man-hours, compute (AI wall-clock) hours, tokens, and token cost.** This is enforced, not optional. Token/cost actuals are captured **exactly** under Claude (read from the session transcript `usage` fields) and as `N/A` (never guessed) under other runtimes (e.g. Copilot — capture what's exposed, else `N/A`/`0`). The rule, runtime detection, and the exact capture procedure live in each PM skill's `references/metrics-contract.md`.
 

@@ -20,7 +20,7 @@ It ships as four installable BMad modules. Teams can install all four or only th
 
 | Module | Skills | Description |
 |--------|--------|-------------|
-| **l3io-pm** | `l3io-pm-sprint-execute`, `l3io-pm-epic-execute` | Sprint and epic execution orchestration — full lifecycle from story preparation through closure reviews |
+| **l3io-pm** | `l3io-pm-plan-execution`, `l3io-pm-sprint-execute`, `l3io-pm-epic-execute` | Sprint and epic execution orchestration — dependency-aware phased planning, full lifecycle from story preparation through closure reviews |
 | **l3io-sec** | `l3io-sec-agent-redteam` | Adversarial security analysis through five threat lenses with AI poisoning cross-cut and live cloud/platform best practices research |
 | **l3io-util** | `l3io-util-cleanup` | Artifact migration & housekeeping utilities — reorganize legacy flat artifacts into the standard epic/sprint folder structure; migrate the sprint status file to the current field schema; split a legacy single `sprint-status.yaml` into the active/backlog/archived layout; harvest `bmad-defer:` deferred-shortcut code markers into the backlog |
 | **l3io-arch** | `l3io-arch-review` | Engineering-standards architecture guardrails and review — applies universal best practices (separation of concerns, reuse, design-by-contract, testability, dependency/GA policy, unified correlated logging, documentation with diagrams) plus per-stack overlays (Python, Node.js, .NET, GitHub Actions) at new-project design time, during an architectural review, or when recording an architecture/technology decision (ADR) |
@@ -93,6 +93,7 @@ This extension standardizes those patterns so teams can run a repeatable, audita
 
 | Slash command | What it does |
 |---------------|--------------|
+| `/l3io-pm-plan-execution` | Analyze epic `depends_on` declarations and produce a phased, parallel-optimized execution plan — critical path, wall-clock estimates, and ready-to-run `/l3io-pm-epic-execute` dispatch commands. Pass `--epics` or `--stories` to scope the plan |
 | `/l3io-pm-sprint-execute` | Full sprint: story prep → dev → code review → QA → fix loop per story (max 10 iterations), then retro → clean release → adversarial → red team → UX → arch drift → auto-triage + closure fix loop (max 10 iterations) at closure. Sprint does not close until all Critical/High/Medium issues are resolved. Low findings auto-defer to backlog with no prompts |
 | `/l3io-pm-epic-execute` | Full epic: sprint execution loop (one `l3io-pm-sprint-execute` subagent per sprint), then epic-level retro → clean release → adversarial → red team → UX → arch drift → functional completeness → issue triage |
 | `/l3io-sec-agent-redteam` | Adversarial security review through five threat lenses — external attacker, malicious insider, chaos engineer, abusive legitimate user, and design/architecture red team — with AI poisoning cross-cut and live cloud/platform best practices research |
@@ -137,6 +138,8 @@ Optional: `bmad-ux-review`
 ```
 src/
   l3io-pm/
+    _shared/                status-files.md (canonical), pm-status.py (canonical) + tests/
+    l3io-pm-plan-execution/ SKILL.md, references/, assets/, customize.toml
     l3io-pm-sprint-execute/ SKILL.md, references/, assets/, scripts/, customize.toml
     l3io-pm-epic-execute/   SKILL.md, references/, assets/, scripts/, customize.toml
   l3io-sec/

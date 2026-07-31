@@ -1,11 +1,12 @@
 # l3io-pm Reference
 
-Full reference for the PM orchestration module — three skills that orchestrate a complete delivery lifecycle from story preparation through epic closure.
+Full reference for the PM orchestration module — four skills that orchestrate a complete delivery lifecycle from execution planning through epic closure.
 
 ## Skills Overview
 
 | Skill | Role |
 |-------|------|
+| `l3io-pm-plan-execution` | Analyzes epic dependencies and produces a phased, parallel-optimized execution plan |
 | `l3io-pm-sprint-execute` | Orchestrates a single sprint: per-story phases plus sprint closure reviews |
 | `l3io-pm-epic-execute` | Orchestrates a full epic: delegates to `l3io-pm-sprint-execute` subagents, then runs epic closure |
 
@@ -35,7 +36,7 @@ Both execute skills read config from `{project-root}/_bmad/config.yaml` and `{pr
 
 ### Workflow customization
 
-Each execute skill ships with a `customize.toml` at `{skill-root}/customize.toml`. Override values are layered in this order (last wins):
+All three orchestration skills ship with a `customize.toml` at `{skill-root}/customize.toml`. Override values are layered in this order (last wins):
 
 1. `{skill-root}/customize.toml` — base defaults shipped with the skill
 2. `{project-root}/_bmad/custom/{skill-name}.toml` — team overrides (commit to repo)
@@ -358,6 +359,48 @@ Calibration:  scope.complex ×1.35 (n=3) · fix.complex ×1.50 (n=3) · closure.
 Before any component reaches 3 samples:
 ```
 Calibration:  none yet — formula baseline (components calibrate at ≥3 samples)
+```
+
+## Plan Execution Reference
+
+`l3io-pm-plan-execution` analyzes the dependency graph across your epics and produces a phased, parallel-optimized execution plan. It is a read-only planning skill — it does not execute any work.
+
+### Scope arguments
+
+| Argument | Effect |
+|----------|--------|
+| *(none)* | All non-done epics in the split status files |
+| `--epics E01,E02` | Only the named epic keys (comma- or space-separated) |
+| `--stories E01-S01-001,E02-S01-003` | Derives owning epics from the story keys; scopes to those epics |
+
+### Output
+
+Saves a markdown plan to `{planning_artifacts}/execution-plan-{date}.md` (configurable). The plan contains one section per phase with parallel/sequential labeling, per-epic story counts and wall-clock estimates, the critical path chain, and ready-to-run `/l3io-pm-epic-execute` dispatch commands.
+
+### customize.toml keys
+
+| Key | Default | Description |
+|-----|---------|-------------|
+| `plan_output` | `"markdown"` | `"markdown"` saves to `planning_artifacts`; `"console"` displays only |
+| `include_dispatch_lines` | `true` | Whether to include `/l3io-pm-epic-execute` dispatch lines in the plan |
+| `include_estimates` | `true` | Whether to include per-phase wall-clock estimates and critical path |
+
+### Declaring dependencies
+
+Add `depends_on` to epic or story nodes in the sprint status files. Both fields are optional and default to `[]`.
+
+**Epic-level** — prerequisite epic keys that must be `status: done` before this epic starts:
+```yaml
+epics:
+  - key: 'E03'
+    depends_on: ['E01', 'E02']
+```
+
+**Story-level** — prerequisite story keys (cross-epic supported); the skill rolls cross-epic story deps up to epic-level edges:
+```yaml
+stories:
+  - key: E03-S01-001
+    depends_on: ['E01-S02-003']
 ```
 
 ## Dependency Skills by Phase
