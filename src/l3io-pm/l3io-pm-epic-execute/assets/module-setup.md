@@ -62,6 +62,16 @@ Both scripts output JSON to stdout with results. If either exits non-zero, surfa
 
 Run `scripts/merge-config.py --help` or `scripts/merge-help-csv.py --help` for full usage.
 
+## Install the Shared Status Helper
+
+Install the shared runtime status/ledger writer into the project's shared scripts directory (one copy per project, referenced by both PM skills as `{project-root}/_bmad/scripts/pm-status.py` — the same pattern as `resolve_customization.py`):
+
+```bash
+uv run scripts/pm-status.py self-install --dest "{project-root}/_bmad/scripts/pm-status.py"
+```
+
+This is version-guarded — it no-ops when an equal or newer copy is already present, so it is safe to run on every setup and when either PM skill is installed independently. If `uv` is unavailable, a plain `cp scripts/pm-status.py "{project-root}/_bmad/scripts/pm-status.py"` (creating the directory first) is an acceptable fallback.
+
 ## Create Output Directories
 
 After writing config, create any output directories that were configured. For filesystem operations only (such as creating directories), resolve the `{project-root}` token to the actual project root and create each path-type value from `config.yaml` that does not yet exist — this includes `output_folder` and any module variable whose value starts with `{project-root}/`. The paths stored in the config files must continue to use the literal `{project-root}` token; only the directories on disk should use the resolved paths. Use `mkdir -p` or equivalent to create the full path.

@@ -5,7 +5,9 @@
   "author": "Shawn Anderson <shawn@eye-catcher.com>",
   "private": true,
   "scripts": {
-    "postbump": "node scripts/sync-bmad-versions.mjs && git add .claude-plugin/marketplace.json",
+    "sync:scripts": "node scripts/sync-shared-scripts.mjs",
+    "check:scripts": "node scripts/sync-shared-scripts.mjs --check",
+    "postbump": "node scripts/sync-bmad-versions.mjs && node scripts/sync-shared-scripts.mjs && git add .claude-plugin/marketplace.json",
     "release": "commit-and-tag-version",
     "release:patch": "commit-and-tag-version --release-as patch",
     "release:minor": "commit-and-tag-version --release-as minor",
