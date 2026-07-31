@@ -18,6 +18,18 @@ instruction block equivalent to the following.
 > using the l3io-arch ADR template. Produce at least a C4 context + one flow diagram (Mermaid
 > preferred). Ensure the docs skeleton covers architectural / developer / operational axes.
 
+## Overlay for `bmad-create-story` (technical acceptance criteria)
+
+> When drafting a story's acceptance criteria, additionally load
+> `l3io-arch-review/references/standards-core.md` (plus the overlay(s) matching the story's
+> stack) and ensure the ACs make the **technical contract** explicit wherever the story implies
+> one — interfaces / API contracts, data model, error/edge/failure handling, observability
+> (logging/metrics/tracing), security controls (authz/authn, input validation at trust
+> boundaries, secrets), and testability / measurable NFRs. Add a concrete technical AC for each
+> applicable dimension; do not expand scope beyond the story's intent. This makes the
+> implementation contract unambiguous before development, rather than leaving it to each dev
+> agent — and it is what `l3io-pm-sprint-execute`'s story technical-AC gate checks for.
+
 ## Overlay for `bmad-code-review` (and/or l3io-sec-agent-redteam)
 
 > During review, additionally check compliance with `l3io-arch-review/references/standards-core.md`
