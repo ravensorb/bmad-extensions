@@ -1,10 +1,10 @@
 #!/usr/bin/env node
-// Sync shared files from src/l3io-pm/_shared/ into each PM skill's payload directories.
+// Sync shared files from src/_shared/ into each PM skill's payload directories.
 //
 // Why: pm-status.py is a *shared runtime utility* (like _bmad/scripts/resolve_customization.py),
 // but BMad installs skills independently, so each PM skill must ship a copy to install from.
 // status-files.md is the canonical split-state contract shared across all three PM skills.
-// The authored source of truth is src/l3io-pm/_shared/; the per-skill copies are GENERATED —
+// The authored source of truth is src/_shared/; the per-skill copies are GENERATED —
 // never hand-edit them. At module setup each script copy self-installs to
 // {project-root}/_bmad/scripts/pm-status.py, so there is exactly one runtime copy per project.
 //
@@ -17,7 +17,7 @@ import { execFileSync } from "node:child_process";
 
 const repoRoot = process.cwd();
 const check = process.argv.includes("--check");
-const sharedDir = path.join(repoRoot, "src", "l3io-pm", "_shared");
+const sharedDir = path.join(repoRoot, "src", "_shared");
 
 // Scripts synced to sprint-execute and epic-execute only (plan-execution has no runtime scripts)
 const pmScriptFiles = [
@@ -81,7 +81,7 @@ if (check) {
     console.error(`\n${drift} shared file copy/copies out of sync — run: npm run sync:scripts`);
     process.exit(1);
   }
-  console.log("Shared file payload copies are in sync with src/l3io-pm/_shared/.");
+  console.log("Shared file payload copies are in sync with src/_shared/.");
 } else {
   console.log(`Shared file sync complete (${written} file(s) written).`);
 }

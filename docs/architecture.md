@@ -37,7 +37,7 @@ l3io-arch-review        (standalone only — new-project design, review audits, 
 
 The orchestrators (`l3io-pm-sprint-execute`, `l3io-pm-epic-execute`) act as traffic controllers, not implementers. Their context holds only:
 
-- Story keys and statuses from the sprint status files (`sprint-status-active.yaml` and `sprint-status-backlog.yaml`)
+- Story keys and statuses from the sprint status files (`sprint-status.yaml` and `sprint-status-backlog.yaml`)
 - Status-line summaries returned by subagents
 - Path bindings (no file contents)
 
@@ -49,7 +49,7 @@ Subagent prompts are self-contained: they include config file paths, relevant ar
 
 The sprint status is the single source of truth for story and epic lifecycle, split across three files in `{implementation_artifacts}/`:
 
-- `sprint-status-active.yaml` — epics with `status: in-progress` only, carrying their in-progress and done sprints and all their stories.
+- `sprint-status.yaml` — epics with `status: in-progress` only, carrying their in-progress and done sprints and all their stories. (Old repos using `sprint-status-active.yaml` are auto-renamed on first PM-skill run.)
 - `sprint-status-backlog.yaml` — all not-yet-started work (whole `backlog`-status epics, plus the not-yet-started sprints of in-progress epics held under an epic "shell"), plus a consolidated top-level `backlog:` deferred-issue list across all epics (each item tagged with `epic` and `sprint` keys).
 - `sprint-status-archived.yaml` — epics with `status: done`, moved here wholesale at epic close.
 
@@ -77,7 +77,7 @@ All runtime artifacts use zero-padded two-digit epic/sprint numbers. The full ca
 
 ```
 {implementation_artifacts}/
-  sprint-status-active.yaml
+  sprint-status.yaml
   sprint-status-backlog.yaml
   sprint-status-archived.yaml
   epic-01/
@@ -130,7 +130,7 @@ Default execution is sequential. Parallelism is used only when safe.
 Before each parallel batch, the orchestrator verifies:
 
 1. **No shared file paths** — no two concurrent subagents write to the same file path
-2. **No concurrent status file writes** — the sprint status files (`sprint-status-active.yaml`, `sprint-status-backlog.yaml`, `sprint-status-archived.yaml`) are written only by the orchestrator, not subagents, but the orchestrator must not merge conflicting updates
+2. **No concurrent status file writes** — the sprint status files (`sprint-status.yaml`, `sprint-status-backlog.yaml`, `sprint-status-archived.yaml`) are written only by the orchestrator, not subagents, but the orchestrator must not merge conflicting updates
 3. **No unresolved blockers** — a blocker in one subagent could invalidate the work of its siblings
 
 If any check is uncertain, the orchestrator runs sequentially.

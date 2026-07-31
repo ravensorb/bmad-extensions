@@ -110,9 +110,9 @@ Fresh context means better focus, no context window exhaustion, and restartable 
 
 Execution defaults to sequential and only parallelizes when work is independent and safe.
 
-- default parallel subagents: `2`
-- hard cap: `4`
-- safety fallback: force sequential (`1`) when independence or state safety is unclear
+- `parallel_mode = "auto"` (default) — orchestrator sizes each batch from provably-independent items; `"adaptive"` caps at `max_parallel_subagents`; `"off"` forces sequential
+- `max_parallel_subagents = 4` (default); `parallel_ceiling = 12` (hard upper bound regardless of setting)
+- safety fallback: force sequential when independence or state safety is unclear
 - per-story dependencies respected: a story cannot enter development until all declared dependencies are `done`
 
 ## Artifact Conventions
@@ -137,8 +137,8 @@ Optional: `bmad-ux-review`
 
 ```
 src/
+  _shared/                  status-files.md (canonical), pm-status.py (canonical) + tests/
   l3io-pm/
-    _shared/                status-files.md (canonical), pm-status.py (canonical) + tests/
     l3io-pm-plan-execution/ SKILL.md, references/, assets/, customize.toml
     l3io-pm-sprint-execute/ SKILL.md, references/, assets/, scripts/, customize.toml
     l3io-pm-epic-execute/   SKILL.md, references/, assets/, scripts/, customize.toml
