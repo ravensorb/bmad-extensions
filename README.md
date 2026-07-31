@@ -57,20 +57,13 @@ After install, each module auto-configures on first use — no explicit setup st
 
 ### Upgrading
 
-Two ways to pull the latest extension, both safe to re-run — existing config
-(`_bmad/config.yaml`) is preserved and skills/agents are refreshed in place:
+Run the fully explicit upgrade command in the project root — no prompts, no questions:
 
-- **Re-run the install command** above (same `--tools` codes you installed with). Omit
-  `--modules` so BMad core modules are left untouched.
-- **Quick update** — refreshes every module from its original source (re-fetches this
-  Git-hosted extension) and regenerates the IDE agent manifests:
+```bash
+npx bmad-method install --directory . --custom-source https://github.com/ravensorb/bmad-extensions --tools claude-code --yes
+```
 
-  ```bash
-  npx bmad-method install --action quick-update --yes
-  ```
-
-  Use this if a prior install is stale — it re-clones the custom source and re-runs
-  manifest generation for all configured IDEs (Claude Code and/or GitHub Copilot).
+Replace `claude-code` with the `--tools` codes you installed with (e.g. `claude-code,github-copilot`). Omitting `--modules` leaves core BMad skills untouched. Existing config (`_bmad/config.yaml`) is preserved and skills are refreshed in place.
 
 If upgrading from a version before 1.0.20 and you have an existing `sprint-status-active.yaml`, run `/l3io-util-cleanup rename-active` once after upgrading to migrate the file to the new name.
 
