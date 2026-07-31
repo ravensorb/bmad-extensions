@@ -2,6 +2,25 @@
 
 All notable changes to this project will be documented in this file. See [commit-and-tag-version](https://github.com/absolute-version/commit-and-tag-version) for commit guidelines.
 
+## [1.0.28](https://github.com/ravensorb/bmad-extensions/compare/1.0.27...1.0.28) (2026-07-31)
+
+
+### Features
+
+* **l3io-pm,l3io-arch:** pre-execution epic arch gate + story technical-AC gate ([542e092](https://github.com/ravensorb/bmad-extensions/commit/542e092a1e77a7de98cc472ff9db0ddcff008c25))
+* **l3io-pm:** add shared atomic pm-status.py status/progress helper ([2beab1e](https://github.com/ravensorb/bmad-extensions/commit/2beab1e30f488aff928e51508853ca6eb8cabc30))
+* **l3io-pm:** route status/actuals/progress through pm-status.py; auto parallelism ([a66c433](https://github.com/ravensorb/bmad-extensions/commit/a66c433ec05bfb6654c8a4ff97febdc47c5dac4e))
+
+
+### Fixes
+
+* **l3io-pm:** harden token/cost capture across nested subagent runs ([a583a8e](https://github.com/ravensorb/bmad-extensions/commit/a583a8eba2c1b1468a2d8eee395091885eadea36))
+
+
+### Documentation
+
+* **l3io-pm:** document reliability/quality changes and shared-helper model ([bfb402a](https://github.com/ravensorb/bmad-extensions/commit/bfb402a7a379740d495dae346b542ae2e5d6e474))
+
 ## [1.0.27](https://github.com/ravensorb/bmad-extensions/compare/1.0.26...1.0.27) (2026-07-08)
 
 
