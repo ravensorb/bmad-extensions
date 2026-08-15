@@ -30,6 +30,20 @@
 
 - All new skills live at `skills/<skill-name>/` (flat — no module subdirectory)
 - Before `npm run release:major`: `git add` all new files explicitly (`postbump` uses `git add -u` only)
+- **Source reference is now at 2.0.4** — copy from HEAD, not the 2.0.0 tag. All post-2.0.0 fixes are incorporated automatically when copying step files and assets from the reference.
+
+## Post-2.0.0 Fixes Incorporated by Copying from HEAD
+
+The following fixes landed after 2.0.0 and are **automatically picked up** by copying from REF HEAD. No extra steps required unless noted:
+
+| Commit | Scope | What changed | Plan impact |
+|---|---|---|---|
+| `51d8cef` | step files (all) | Skill detection: `l3io-arch`/`l3io-sec` now check `_bmad/config.yaml` not `.claude/commands/`; user-level skills fall back to `~/.claude/commands` | Task 4 sed covers this — `ava-arch:` → `l3io-arch:` in grep patterns ✓ |
+| `21cc22f` | util-cleanup SKILL.md + migrate-state.md | Health Check 2b detects migrate-state need; HC6 sequence gains `migrate-state` after `split-status`; legacy status normalization in migrate-state | Task 11 merge description already accounts for this ✓ |
+| `ca202a8` | migrate-state.md | Epic-level normalization: deferred epic with ≥1 done sprint → in-progress; superseded epic → done (archived) | Covered by copy of migrate-state.md from HEAD ✓ |
+| `6dbfc94` | migrate-state.md | Clear originals after backup; reorder load/normalize before write; Steps 2-6 restructured | Covered by copy of migrate-state.md from HEAD ✓ |
+| `cc8f287` | migrate-state.md | Step 6 prompts user: move to `_bmad/migration-backup/` (default) / delete / keep legacy backups | Covered by copy of migrate-state.md from HEAD ✓ |
+| `00f828e` | package-lock.json | brace-expansion DoS vulnerability patched (1.1.14 → 1.1.18) | **Requires `npm install` in Task 14 to update our own lockfile** |
 
 ---
 
@@ -764,13 +778,21 @@ grep -r "Avanade\|ava-pm\|ava-sec\|ava-util\|ava-arch\|ava-" skills/ .claude-plu
   && echo "FAIL: external references remain" || echo "PASS"
 ```
 
-- [ ] **Step 8: Release**
+- [ ] **Step 8: Fix brace-expansion vulnerability (npm install)**
+```bash
+npm install
+git add package-lock.json
+git commit -s -m "fix(infra): patch brace-expansion DoS vulnerability in lockfile"
+```
+Verify: `npm audit` should report no brace-expansion advisory.
+
+- [ ] **Step 9: Release**
 ```bash
 npm run release:major
 ```
 Expected: creates `2.0.0` git tag, updates `CHANGELOG.md`, syncs version into all `module.yaml` files and `marketplace.json` via `postbump`.
 
-- [ ] **Step 9: Verify release**
+- [ ] **Step 10: Verify release**
 ```bash
 git log --oneline -3
 node -e "const p=require('./.claude-plugin/marketplace.json'); console.log(p.plugins[0].version)"
