@@ -25,12 +25,12 @@ spec.loader.exec_module(pm)
 SAMPLE = """\
 # active status file — comments must survive round-trips
 epics:
-- id: '01'
+- key: 'E01'
   title: 'Epic 01 — Foundation'
   goal: 'Stand up the core'
   status: in-progress
   sprints:
-  - id: '01'
+  - key: 'S01'
     title: 'Sprint 01 — Foundation'
     status: in-progress
     stories:
@@ -41,6 +41,23 @@ epics:
     - key: PROJ-E01-S01-ST02
       title: 'Story two'
       status: backlog
+"""
+
+SAMPLE_LEGACY = """\
+# legacy status file with id-based schema (backward compat)
+epics:
+- id: '01'
+  title: 'Epic 01'
+  status: in-progress
+  sprints:
+  - id: '01'
+    title: 'Sprint 01'
+    status: in-progress
+    stories:
+    - key: PROJ-E01-S01-ST01
+      title: 'Story one'
+      status: ready-for-dev
+      classification: complex
 """
 
 SAMPLE_V2 = """\
@@ -105,12 +122,12 @@ class TestSetStatus(Base):
         self.assertLess(text.index("goal:"), text.index("status: in-progress"))
 
     def test_sprint_addressing_with_padding(self):
-        # bare "1" must resolve to zero-padded '01'
+        # key-based addressing: epic key "E01", sprint key "S01"
         code, out = self.run_main(["set-status", "--file", self.f,
-                                   "--epic", "1", "--sprint", "1", "--status", "done"])
+                                   "--epic", "E01", "--sprint", "S01", "--status", "done"])
         self.assertEqual(code, 0, out)
         y, data = pm._load(self.f)
-        sp = pm.find_sprint(data, "01", "01")
+        sp = pm.find_sprint(data, "E01", "S01")
         self.assertEqual(sp["status"], "done")
 
     def test_invalid_status_rejected(self):
@@ -261,6 +278,9 @@ class TestKeyLookup(Base):
         self.f2 = os.path.join(self.d, "active-E001.yaml")
         with open(self.f2, "w", encoding="utf-8") as fh:
             fh.write(SAMPLE_V2)
+        self.f_legacy = os.path.join(self.d, "legacy-status.yaml")
+        with open(self.f_legacy, "w", encoding="utf-8") as fh:
+            fh.write(SAMPLE_LEGACY)
 
     def test_find_epic_by_key(self):
         _, data = pm._load(self.f2)
@@ -280,8 +300,8 @@ class TestKeyLookup(Base):
         self.assertIsNotNone(st)
 
     def test_id_fallback_still_works(self):
-        # Original SAMPLE uses 'id' — must not break
-        _, data = pm._load(self.f)
+        # Legacy SAMPLE_LEGACY uses 'id' — must not break
+        _, data = pm._load(self.f_legacy)
         e = pm.find_epic(data, "01")
         self.assertIsNotNone(e)
 
@@ -366,7 +386,7 @@ class TestFlock(Base):
     def test_set_estimate_with_flock_flag_succeeds(self):
         code, out = self.run_main([
             "set-estimate", "--file", self.f,
-            "--epic", "01",
+            "--epic", "E01",
             "--man-hours-low", "10", "--man-hours-high", "16",
             "--flock",
         ])
