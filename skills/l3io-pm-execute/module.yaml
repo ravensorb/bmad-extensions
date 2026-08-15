@@ -1,0 +1,14 @@
+code: l3io-pm
+name: "LiquidLogicLabs PM"
+description: "Executes the l3io-pm plan — runs epics in phase order, dispatches sprint subagents with full context injection, and closes epics with actuals and calibration."
+module_version: 2.0.4
+default_selected: false
+module_greeting: >
+  LiquidLogicLabs PM module is configured!
+  Use /l3io-pm-plan to build the execution plan.
+  Use /l3io-pm-execute to run the plan.
+  Use /l3io-pm-help to get a state-aware next-action recommendation.
+post-install-notes: >
+  Required BMad skills: bmad-dev-story, bmad-code-review, bmad-qa-generate-e2e-tests,
+  bmad-retrospective, bmad-review-adversarial-general.
+  Optional: l3io-arch-review, bmad-agent-architect, bmad-testarch-atdd, l3io-sec-redteam.

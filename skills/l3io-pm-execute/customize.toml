@@ -1,0 +1,8 @@
+[workflow]
+activation_steps_prepend = []
+activation_steps_append  = []
+persistent_facts         = ["file:{project-root}/**/project-context.md"]
+
+# Concurrency
+max_parallel_subagents   = 4    # max sprint subagents in flight concurrently
+epic_lock_ttl_minutes    = 30   # TTL for epic ownership lock; stale locks can be reclaimed
