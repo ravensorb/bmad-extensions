@@ -10,7 +10,7 @@ If step-03 reported conflicts (local status != external status for the same item
 
 For each conflict, present to user:
 ```
-Conflict: {ava_key}
+Conflict: {story_key}
   Local status:    {local_status}
   External status: {external_status} (last synced: {synced_at})
   Resolution: [local-wins | external-wins | skip]
@@ -20,7 +20,7 @@ Default resolution: `local-wins` — l3io-pm is the authoritative source.
 
 Apply resolutions:
 - `local-wins`: update external item status to match local
-- `external-wins`: run `python3 {pm_status} set-status --file ... --story {ava_key} --status {external_mapped_status}`
+- `external-wins`: run `python3 {pm_status} set-status --file ... --story {story_key} --status {external_mapped_status}`
 - `skip`: log as unresolved, do not update either side
 
 ## 2. Update sync-mapping.yaml timestamps
