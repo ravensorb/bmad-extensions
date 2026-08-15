@@ -1,0 +1,82 @@
+# Sprint Step 04: Sprint Closure
+
+Communicate all responses in `{communication_language}`.
+
+Run closure phases gated by `{work_type}` and `{skip_phases}`. Write sprint actuals, mark sprint
+done, and emit the required status line.
+
+## 1. Load sprint-closure workflow
+
+```
+{execute_skill_root}/steps/closure/sprint-closure.md
+```
+
+Execute it fully. It returns: issues found (with severities), retrospective text, carry_over count.
+
+## 2. Sum story actuals → write sprint actual
+
+Read `{epic_status_file}`. Sum `actual.*` across all stories in `{sprint_num}` with `status: done`.
+Add sprint orchestration overhead (0.2 man-hours, proportional elapsed).
+
+```bash
+python3 {pm_status} set-actual \
+  --file {epic_status_file} \
+  --node sprint \
+  --epic {epic_key} \
+  --sprint {sprint_num} \
+  --runtime {runtime} \
+  --elapsed-hours {total_elapsed} \
+  --man-hours {total_man_hours} \
+  --tokens-k {total_tokens_k} \
+  --cost {total_cost}
+```
+
+## 3. Write sprint closed + retrospective
+
+```bash
+python3 {pm_status} set-field \
+  --file {epic_status_file} \
+  --node sprint.{epic_key}.{sprint_num} \
+  --field closed.date \
+  --value {today_iso}
+
+python3 {pm_status} set-field \
+  --file {epic_status_file} \
+  --node sprint.{epic_key}.{sprint_num} \
+  --field retrospective.summary \
+  --value "{retrospective_summary}"
+
+python3 {pm_status} set-field \
+  --file {epic_status_file} \
+  --node sprint.{epic_key}.{sprint_num} \
+  --field retrospective.velocity \
+  --value {stories_done}
+
+python3 {pm_status} set-field \
+  --file {epic_status_file} \
+  --node sprint.{epic_key}.{sprint_num} \
+  --field retrospective.carry_over \
+  --value {carry_over_count}
+```
+
+## 4. Mark sprint done
+
+```bash
+python3 {pm_status} set-status \
+  --file {epic_status_file} \
+  --epic {epic_key} \
+  --sprint {sprint_num} \
+  --status done
+```
+
+## 5. Update per-epic calibration
+
+Append sprint closure sample to `{project-root}/_bmad/pm-calibration-{epic_key}.yaml`:
+- `level: sprint`, metric estimated vs actual for `man_hours`, `time_hours`, `tokens_k`, `cost`
+- Omit `tokens_k`/`cost` ratio if runtime is not Claude
+
+## 6. Required exit status line
+
+```
+DONE — Stories: {N}, Issues resolved: {N_resolved}, Issues deferred: {N_deferred}
+```
