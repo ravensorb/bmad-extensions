@@ -1,0 +1,12 @@
+code: l3io-pm
+name: "LiquidLogicLabs PM"
+description: "Push l3io-pm state to GitHub Issues, pull status updates back."
+module_version: 2.0.4
+default_selected: false
+module_greeting: >
+  LiquidLogicLabs PM module is configured!
+  Use /l3io-pm-plan to build the execution plan.
+  Use /l3io-pm-execute to run the plan.
+  Use /l3io-pm-help to get a state-aware next-action recommendation.
+post-install-notes: >
+  Required: authenticated GitHub CLI (gh) or GitHub MCP server configured.
