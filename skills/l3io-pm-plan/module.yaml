@@ -1,0 +1,15 @@
+code: l3io-pm
+name: "LiquidLogicLabs PM"
+description: "Validates readiness, elaborates stories, builds the dependency graph, and produces an executable phased plan for l3io-pm projects."
+module_version: 2.0.4
+default_selected: false
+module_greeting: >
+  LiquidLogicLabs PM module is configured!
+  Use /l3io-pm-plan to build the execution plan.
+  Use /l3io-pm-execute to run the plan.
+  Use /l3io-pm-help to get a state-aware next-action recommendation.
+post-install-notes: >
+  Required BMad skills (must be installed in target repo):
+  bmad-create-story.
+  Optional: l3io-arch-review (epic architecture gate), bmad-agent-architect (additional arch reviewer),
+  bmad-check-implementation-readiness (readiness integration).
