@@ -1,0 +1,4 @@
+[workflow]
+activation_steps_prepend = []
+activation_steps_append  = []
+persistent_facts         = ["file:{project-root}/**/project-context.md"]

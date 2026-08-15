@@ -1,0 +1,10 @@
+code: l3io-pm
+name: "LiquidLogicLabs PM"
+description: "Reads project state and recommends the exact next l3io-pm action."
+module_version: 2.0.4
+default_selected: false
+module_greeting: >
+  LiquidLogicLabs PM module is configured!
+  Use /l3io-pm-plan to build the execution plan.
+  Use /l3io-pm-execute to run the plan.
+  Use /l3io-pm-help to get a state-aware next-action recommendation.
