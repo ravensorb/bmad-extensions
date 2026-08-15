@@ -20,4 +20,4 @@ jobs:
     - name: pm-status.py unit tests
       run: |
         python3 -m pip install --quiet 'ruamel.yaml>=0.18'
-        python3 src/l3io-pm/_shared/tests/test-pm-status.py
+        python3 skills/_shared/tests/test-pm-status.py
