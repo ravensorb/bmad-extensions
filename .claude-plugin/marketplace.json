@@ -7,14 +7,25 @@
   "license": "MIT",
   "homepage": "https://github.com/ravensorb/bmad-extensions",
   "repository": "https://github.com/ravensorb/bmad-extensions",
-  "keywords": ["bmad", "liquidlogiclabs", "sprint-execution", "epic-execution", "red-team", "security", "sync"],
+  "keywords": [
+    "bmad",
+    "liquidlogiclabs",
+    "sprint-execution",
+    "epic-execution",
+    "red-team",
+    "security",
+    "sync"
+  ],
   "plugins": [
     {
       "name": "l3io-pm",
       "source": "./skills",
       "description": "PM orchestration for LiquidLogicLabs delivery teams — plan, execute, help, and sync.",
       "version": "2.0.0",
-      "author": { "name": "Shawn Anderson", "email": "shawn@eye-catcher.com" },
+      "author": {
+        "name": "Shawn Anderson",
+        "email": "shawn@eye-catcher.com"
+      },
       "skills": [
         "./skills/l3io-pm-execute",
         "./skills/l3io-pm-plan",
@@ -27,32 +38,55 @@
       "source": "./skills",
       "description": "Adversarial security analysis — five threat lenses with AI poisoning cross-cut.",
       "version": "2.0.0",
-      "author": { "name": "Shawn Anderson", "email": "shawn@eye-catcher.com" },
-      "skills": ["./skills/l3io-sec-redteam"]
+      "author": {
+        "name": "Shawn Anderson",
+        "email": "shawn@eye-catcher.com"
+      },
+      "skills": [
+        "./skills/l3io-sec-redteam"
+      ]
     },
     {
       "name": "l3io-util",
       "source": "./skills",
       "description": "Utility skills for BMad projects — artifact organization and state migration.",
       "version": "2.0.0",
-      "author": { "name": "Shawn Anderson", "email": "shawn@eye-catcher.com" },
-      "skills": ["./skills/l3io-util-cleanup"]
+      "author": {
+        "name": "Shawn Anderson",
+        "email": "shawn@eye-catcher.com"
+      },
+      "skills": [
+        "./skills/l3io-util-cleanup"
+      ]
     },
     {
       "name": "l3io-arch",
       "source": "./skills",
       "description": "Engineering-standards architecture guardrails — universal best practices plus per-stack overlays.",
       "version": "2.0.0",
-      "author": { "name": "Shawn Anderson", "email": "shawn@eye-catcher.com" },
-      "skills": ["./skills/l3io-arch-review"]
+      "author": {
+        "name": "Shawn Anderson",
+        "email": "shawn@eye-catcher.com"
+      },
+      "skills": [
+        "./skills/l3io-arch-review"
+      ]
     }
   ],
   "dependencies": {
     "bmad-module": "bmm",
     "required-skills": [
-      "bmad-create-story", "bmad-dev-story", "bmad-code-review",
-      "bmad-qa-generate-e2e-tests", "bmad-retrospective", "bmad-review-adversarial-general"
+      "bmad-create-story",
+      "bmad-dev-story",
+      "bmad-code-review",
+      "bmad-qa-generate-e2e-tests",
+      "bmad-retrospective",
+      "bmad-review-adversarial-general"
     ],
-    "optional-skills": ["bmad-ux-review", "l3io-arch-review", "bmad-testarch-atdd"]
+    "optional-skills": [
+      "bmad-ux-review",
+      "l3io-arch-review",
+      "bmad-testarch-atdd"
+    ]
   }
 }

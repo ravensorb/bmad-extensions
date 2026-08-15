@@ -26,18 +26,27 @@ ruamel.yaml is already importable.
 
 Subcommands
 -----------
-  set-status  --file F  (--story KEY | --epic ID [--sprint ID])  --status S
-              [--title T] [--ledger L]
-  set-actual  --file F   --node {story,sprint,epic}  (--story KEY | --epic ID [--sprint ID])
-              [--elapsed-hours H] [--man-hours H] [--tokens-k K] [--cost C]
-              [--runtime {claude,other}] [--ledger L]
-  progress    --ledger L  --msg "..."  [--scope "E01/S02/ST03"]
-  verify      --file F  --scope {story,sprint}  (--story KEY | --epic ID [--sprint ID])
-              [--require-tokens] [--runtime {claude,other}]
+  set-status    --file F  (--story KEY | --epic ID [--sprint ID])  --status S
+                [--title T] [--ledger L]
+  set-actual    --file F   --node {story,sprint,epic}  (--story KEY | --epic ID [--sprint ID])
+                [--elapsed-hours H] [--man-hours H] [--tokens-k K] [--cost C]
+                [--runtime {claude,other}] [--ledger L]
+  set-estimate  --file F  --node {story,sprint,epic}  (--story KEY | --epic ID [--sprint ID])
+                [--man-hours H] [--compute-hours H] [--tokens-k K] [--cost C]
+  set-field     --file F  (--story KEY | --epic ID [--sprint ID])  --field NAME --value V
+  progress      --ledger L  --msg "..."  [--scope "E01/S02/ST03"]
+  verify        --file F  --scope {story,sprint}  (--story KEY | --epic ID [--sprint ID])
+                [--require-tokens] [--runtime {claude,other}]
+  set-lock      --file F  --epic ID  --session-id S  [--ttl-minutes N]
+  clear-lock    --file F  --epic ID
+  check-lock    --file F  --epic ID
+  append-issue  --file F  --epic ID  --issue TEXT
+  archive-epic  --active-file F  --archive-file A  --epic ID
+  self-install  --dest PATH  [--force]
 
 Exit codes: 0 = success/verified, 2 = usage error, 3 = node not found,
-4 = verification failure (missing/invalid field). Errors go to stderr; machine
-output (verify summaries) goes to stdout.
+4 = verification failure (missing/invalid field), 5 = epic locked. Errors go
+to stderr; machine output (verify summaries) goes to stdout.
 """
 from __future__ import annotations
 

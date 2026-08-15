@@ -11,7 +11,7 @@ cat {project-root}/_bmad/sync-mapping.yaml 2>/dev/null || echo "(absent)"
 ```
 
 If present, read and bind:
-- `{sync_platform}` — `github` or `ado` (from `mappings[0].external_system`)
+- `{sync_platform}` — `github` (from `mappings[0].external_system`)
 - `{sync_mapping_file}` = `{project-root}/_bmad/sync-mapping.yaml`
 
 If absent and `{sync_mode}` is not `setup`:
@@ -31,12 +31,12 @@ python3 {skill-root}/scripts/detect-platform.py \
   --auth-method {github_auth_method}
 ```
 
-The script probes for GitHub MCP tools and ADO PAT token availability.
-Bind `{sync_platform}` from the script output (`github` or `ado`).
+The script probes for GitHub MCP tools availability.
+Bind `{sync_platform}` from the script output (`github`).
 
 If detection fails:
 ```
-Could not detect a sync platform. Ensure GitHub MCP or ADO PAT is configured.
+Could not detect a sync platform. Ensure GitHub MCP is configured.
 ```
 BLOCKED: platform detection failed.
 
@@ -46,7 +46,6 @@ BLOCKED: platform detection failed.
 |---|---|---|
 | `github` | `{github_auth_method}` = `mcp` | GitHub MCP tools available |
 | `github` | `{github_auth_method}` = `pat` | `GITHUB_TOKEN` env var set |
-| `ado` | `{ado_auth_method}` = `pat` | `ADO_PAT` env var set |
 
 Bind `{auth_method}` = resolved auth method.
 

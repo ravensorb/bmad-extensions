@@ -2,6 +2,51 @@
 
 All notable changes to this project will be documented in this file. See [commit-and-tag-version](https://github.com/absolute-version/commit-and-tag-version) for commit guidelines.
 
+## [2.0.0](https://github.com/ravensorb/bmad-extensions/compare/1.1.1...2.0.0) (2026-08-15)
+
+
+### Features
+
+* **infra:** add pm-status.py v2.0.0 with lock, field, issue, and archive subcommands ([6ea1be7](https://github.com/ravensorb/bmad-extensions/commit/6ea1be7fc3b3a86620581b8d2fbc5e090f88cdb5))
+* **infra:** add resolve_config.py and memlog.py runtime scripts ([957bb45](https://github.com/ravensorb/bmad-extensions/commit/957bb4552e4bc5755754d93bd5cabfa9a7e8eff3))
+* **infra:** add shared step files for all PM skill categories ([d3af128](https://github.com/ravensorb/bmad-extensions/commit/d3af128a46bb6c6a3918c0711d6846d225b6593d))
+* **infra:** add updated status-files.md for _bmad/state/ layout ([61301f5](https://github.com/ravensorb/bmad-extensions/commit/61301f571d27a5ee312ce9969d0fcc9157dda381))
+* **infra:** rewrite sync-shared-scripts.mjs for skills/ flat layout and new script manifest ([64b9a78](https://github.com/ravensorb/bmad-extensions/commit/64b9a782c8f88649556e2b1a89717765cef3a1d3))
+* **l3io-pm:** add l3io-pm-execute skill (merged sprint+epic execution) ([7576731](https://github.com/ravensorb/bmad-extensions/commit/7576731a625990851ada84a18fd6715a72a56eb3))
+* **l3io-pm:** add l3io-pm-help skill (state snapshot + next-action recommendation) ([db75104](https://github.com/ravensorb/bmad-extensions/commit/db75104279749c6528136ade6d3c4b5d621bdb18))
+* **l3io-pm:** add l3io-pm-plan skill (renamed from plan-execution, steps architecture) ([1dd2383](https://github.com/ravensorb/bmad-extensions/commit/1dd238322f143f8238c5be92a6e3c8454a55efa3))
+* **l3io-pm:** add l3io-pm-sync skill (GitHub Issues bidirectional sync) ([15c42f9](https://github.com/ravensorb/bmad-extensions/commit/15c42f9b884ef88f4f8403162538f8972a44b351))
+* **l3io-sec:** rename l3io-sec-agent-redteam → l3io-sec-redteam (flat layout) ([5ac4870](https://github.com/ravensorb/bmad-extensions/commit/5ac487019308bf73240e1a0534def6576dad765a))
+* **l3io-util:** add migrate-state mode and 9-check health check to util-cleanup ([8653080](https://github.com/ravensorb/bmad-extensions/commit/865308096f627ec844aa5efd7c30f7536ab76605))
+
+
+### Fixes
+
+* **infra:** patch brace-expansion DoS vulnerability in lockfile ([de2eaf5](https://github.com/ravensorb/bmad-extensions/commit/de2eaf50ba210ac8594c978b0e0518d631b80ef4))
+* **infra:** rename {ava_key} → {story_key} in sync step-04-resolve.md ([eb53540](https://github.com/ravensorb/bmad-extensions/commit/eb53540e0fa9c98ca5073214222675d25e59f299))
+* **infra:** update stale sprint-execute/epic-execute refs in CLAUDE.md to l3io-pm-execute ([c3bf2f3](https://github.com/ravensorb/bmad-extensions/commit/c3bf2f34359c6c134257bf68be8df7d45e0fa1d2))
+* **infra:** use key: schema in primary SAMPLE fixture for pm-status tests ([72ae464](https://github.com/ravensorb/bmad-extensions/commit/72ae464de0d8c7010eb72e78be4a21b88a52773b))
+* **l3io-pm:** remove ADO reference from sync module-help.csv description ([1373d82](https://github.com/ravensorb/bmad-extensions/commit/1373d82c0b99e5852fcb93a89cdb3906494bc000))
+* **l3io-sec:** correct SKILL_NAME in init-sanctum.py (remove bmad- prefix) ([1aed23d](https://github.com/ravensorb/bmad-extensions/commit/1aed23db23fac8128e36e209f0a3e469e02e5958))
+
+
+### Documentation
+
+* add v2.0.0 migration design spec ([f272419](https://github.com/ravensorb/bmad-extensions/commit/f2724196acfab6530f25aaf9e6051e887b27b143))
+* add v2.0.0 migration implementation plan (14 tasks) ([6651997](https://github.com/ravensorb/bmad-extensions/commit/66519976a774990cf334dd5a39120e6f41c906ee))
+* complete v2.0.0 design spec with full gap analysis ([0e3ae74](https://github.com/ravensorb/bmad-extensions/commit/0e3ae747af9db6a61ba1ccd70350a98f27ca468c))
+* show full tools list in upgrade command ([93a40ad](https://github.com/ravensorb/bmad-extensions/commit/93a40ad0ad947f0a73497a4b67c52f22fd409c8d))
+* simplify upgrade to a single explicit one-liner with no prompts ([9c138f3](https://github.com/ravensorb/bmad-extensions/commit/9c138f3e1b9247106f76520fb38388cf455091da))
+* simplify upgrade to quick-update one-liner ([0adbd85](https://github.com/ravensorb/bmad-extensions/commit/0adbd8598aa711cc4df2dd34485c44f4241eb369))
+* update migration plan with post-2.0.0 fixes from reference (2.0.1-2.0.4) ([3361f8c](https://github.com/ravensorb/bmad-extensions/commit/3361f8c619930075dc243d879e4b07387aa35122))
+
+
+### Maintenance
+
+* **infra:** update symlinks, marketplace.json, and CLAUDE.md for flat skills/ layout ([62a2def](https://github.com/ravensorb/bmad-extensions/commit/62a2def534feabd3d7a83d187069abf169b4fa55))
+* **l3io-arch:** move l3io-arch-review to flat skills/ layout ([cd61296](https://github.com/ravensorb/bmad-extensions/commit/cd61296da459f2caec6532f62f3e436343aa7102))
+* remove src/ — all skills migrated to flat skills/ layout ([1a23e74](https://github.com/ravensorb/bmad-extensions/commit/1a23e749923fb308a8fe0dfc55e5bd527f69bf2d))
+
 ## [1.1.1](https://github.com/ravensorb/bmad-extensions/compare/1.1.0...1.1.1) (2026-07-31)
 
 

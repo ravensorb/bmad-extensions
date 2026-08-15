@@ -21,7 +21,7 @@ Test the connection and report: platform reachable, auth valid, mapping file cre
 ## Mode: push
 
 Read all active epics and planned epics. For each story not yet mapped:
-1. Create an external work item (GitHub Issue or ADO work item)
+1. Create a GitHub Issue
 2. Append mapping entry to `{project-root}/_bmad/sync-mapping.yaml`
 
 ```bash
