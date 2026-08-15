@@ -3,7 +3,7 @@
 # requires-python = ">=3.9"
 # ///
 """
-First Breath — Deterministic sanctum scaffolding for bmad-l3io-sec-redteam.
+First Breath — Deterministic sanctum scaffolding for l3io-sec-redteam.
 
 Creates the sanctum folder structure, copies template files with config values
 substituted, copies capability reference files into the sanctum, auto-generates
@@ -24,7 +24,7 @@ from pathlib import Path
 
 # --- Agent-specific configuration ---
 
-SKILL_NAME = "bmad-l3io-sec-redteam"
+SKILL_NAME = "l3io-sec-redteam"
 SANCTUM_DIR = SKILL_NAME
 
 # Files that stay in the skill bundle (only used during First Breath, not copied to sanctum)
@@ -153,7 +153,7 @@ def substitute_vars(content: str, variables: dict) -> str:
 
 def main():
     parser = argparse.ArgumentParser(
-        description="First Breath — create sanctum structure for bmad-l3io-sec-redteam.",
+        description="First Breath — create sanctum structure for l3io-sec-redteam.",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="After this runs, start the agent to begin the First Breath conversation.",
     )
