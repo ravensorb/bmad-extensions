@@ -1,1 +1,1 @@
-../../src/l3io-util/l3io-util-cleanup/SKILL.md
+../../skills/l3io-util-cleanup/SKILL.md

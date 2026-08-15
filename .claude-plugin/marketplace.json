@@ -7,82 +7,52 @@
   "license": "MIT",
   "homepage": "https://github.com/ravensorb/bmad-extensions",
   "repository": "https://github.com/ravensorb/bmad-extensions",
-  "keywords": [
-    "bmad",
-    "liquidlogiclabs",
-    "sprint-execution",
-    "epic-execution",
-    "red-team",
-    "security"
-  ],
+  "keywords": ["bmad", "liquidlogiclabs", "sprint-execution", "epic-execution", "red-team", "security", "sync"],
   "plugins": [
     {
       "name": "l3io-pm",
-      "source": "./src/l3io-pm",
-      "description": "Sprint and epic execution orchestration for LiquidLogicLabs delivery teams — full lifecycle from story preparation through closure reviews.",
-      "version": "1.1.1",
-      "author": {
-        "name": "Shawn Anderson",
-        "email": "shawn@eye-catcher.com"
-      },
+      "source": "./skills",
+      "description": "PM orchestration for LiquidLogicLabs delivery teams — plan, execute, help, and sync.",
+      "version": "2.0.0",
+      "author": { "name": "Shawn Anderson", "email": "shawn@eye-catcher.com" },
       "skills": [
-        "./src/l3io-pm/l3io-pm-plan-execution",
-        "./src/l3io-pm/l3io-pm-sprint-execute",
-        "./src/l3io-pm/l3io-pm-epic-execute"
+        "./skills/l3io-pm-execute",
+        "./skills/l3io-pm-plan",
+        "./skills/l3io-pm-help",
+        "./skills/l3io-pm-sync"
       ]
     },
     {
       "name": "l3io-sec",
-      "source": "./src/l3io-sec",
-      "description": "Adversarial security analysis for LiquidLogicLabs projects — five threat lenses with AI poisoning cross-cut and live cloud/platform best practices research.",
-      "version": "1.1.1",
-      "author": {
-        "name": "Shawn Anderson",
-        "email": "shawn@eye-catcher.com"
-      },
-      "skills": [
-        "./src/l3io-sec/l3io-sec-agent-redteam"
-      ]
+      "source": "./skills",
+      "description": "Adversarial security analysis — five threat lenses with AI poisoning cross-cut.",
+      "version": "2.0.0",
+      "author": { "name": "Shawn Anderson", "email": "shawn@eye-catcher.com" },
+      "skills": ["./skills/l3io-sec-redteam"]
     },
     {
       "name": "l3io-util",
-      "source": "./src/l3io-util",
-      "description": "Utility skills for LiquidLogicLabs BMad projects — one-time and housekeeping operations for artifact organization.",
-      "version": "1.1.1",
-      "author": {
-        "name": "Shawn Anderson",
-        "email": "shawn@eye-catcher.com"
-      },
-      "skills": [
-        "./src/l3io-util/l3io-util-cleanup"
-      ]
+      "source": "./skills",
+      "description": "Utility skills for BMad projects — artifact organization and state migration.",
+      "version": "2.0.0",
+      "author": { "name": "Shawn Anderson", "email": "shawn@eye-catcher.com" },
+      "skills": ["./skills/l3io-util-cleanup"]
     },
     {
       "name": "l3io-arch",
-      "source": "./src/l3io-arch",
-      "description": "Engineering-standards architecture guardrails and review for LiquidLogicLabs projects — universal best practices plus per-stack overlays (Python, Node.js, .NET, GitHub Actions).",
-      "version": "1.1.1",
-      "author": {
-        "name": "Shawn Anderson",
-        "email": "shawn@eye-catcher.com"
-      },
-      "skills": [
-        "./src/l3io-arch/l3io-arch-review"
-      ]
+      "source": "./skills",
+      "description": "Engineering-standards architecture guardrails — universal best practices plus per-stack overlays.",
+      "version": "2.0.0",
+      "author": { "name": "Shawn Anderson", "email": "shawn@eye-catcher.com" },
+      "skills": ["./skills/l3io-arch-review"]
     }
   ],
   "dependencies": {
     "bmad-module": "bmm",
     "required-skills": [
-      "bmad-create-story",
-      "bmad-dev-story",
-      "bmad-code-review",
-      "bmad-qa-generate-e2e-tests",
-      "bmad-retrospective",
-      "bmad-review-adversarial-general"
+      "bmad-create-story", "bmad-dev-story", "bmad-code-review",
+      "bmad-qa-generate-e2e-tests", "bmad-retrospective", "bmad-review-adversarial-general"
     ],
-    "optional-skills": [
-      "bmad-ux-review"
-    ]
+    "optional-skills": ["bmad-ux-review", "l3io-arch-review", "bmad-testarch-atdd"]
   }
 }

@@ -1,1 +1,0 @@
-../../src/l3io-sec/l3io-sec-agent-redteam/SKILL.md

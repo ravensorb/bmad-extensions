@@ -11,45 +11,47 @@ Module setup is **embedded** in each operational skill (`assets/module-setup.md`
 ## Skill Directory
 
 ```
-src/
-  _shared/                   ← canonical shared files (pm-status.py, status-files.md) — NEVER edit per-skill copies
-  l3io-pm/
-    l3io-pm-plan-execution/  SKILL.md, references/, assets/, customize.toml
-    l3io-pm-sprint-execute/  SKILL.md, references/, assets/, scripts/, customize.toml
-    l3io-pm-epic-execute/    SKILL.md, references/, assets/, scripts/, customize.toml
-  l3io-sec/
-    l3io-sec-agent-redteam/  SKILL.md, references/, assets/, scripts/, customize.toml
-  l3io-util/
-    l3io-util-cleanup/       SKILL.md, references/, assets/, scripts/, customize.toml
-  l3io-arch/
-    l3io-arch-review/        SKILL.md, references/, assets/, scripts/, module.yaml
-.claude/commands/            symlinks → src/<module>/<skill>/SKILL.md
-.claude-plugin/              marketplace.json (required for installation)
+skills/
+  _shared/                ← canonical shared files (pm-status.py, resolve_config.py, memlog.py,
+  |                          status-files.md, steps/) — NEVER edit per-skill copies
+  l3io-pm-execute/        SKILL.md, customize.toml, scripts/, assets/, steps/, module.yaml
+  l3io-pm-plan/           SKILL.md, customize.toml, scripts/, assets/, steps/, module.yaml
+  l3io-pm-help/           SKILL.md, customize.toml, assets/, module.yaml
+  l3io-pm-sync/           SKILL.md, customize.toml, scripts/, assets/, module.yaml
+  l3io-sec-redteam/       SKILL.md, customize.toml, scripts/, assets/, references/, module.yaml
+  l3io-util-cleanup/      SKILL.md, customize.toml, scripts/, assets/, module.yaml
+  l3io-arch-review/       SKILL.md, customize.toml, scripts/, assets/, references/, module.yaml
+.claude/commands/         symlinks → ../../skills/<skill>/SKILL.md
+.claude-plugin/           marketplace.json (required for installation)
 ```
 
 | Skill | Purpose |
 |-------|---------|
-| `l3io-pm-plan-execution` | Cross-epic execution planning — analyzes `depends_on` declarations to produce a phased, parallel-optimized plan with critical path estimates and ready-to-run dispatch commands |
-| `l3io-pm-sprint-execute` | Full sprint lifecycle: story prep → dev → code review → QA → fix loop per story, then closure reviews. Includes first-run module setup |
-| `l3io-pm-epic-execute` | Full epic lifecycle: sprint grouping, sprint execution loop, then epic-level closure reviews. Includes first-run module setup |
-| `l3io-sec-agent-redteam` | Red team security analysis — five threat lenses + AI poisoning cross-cut, live cloud/platform best practices research |
-| `l3io-util-cleanup` | Artifact migration utilities — reorganizes flat artifacts into `epic-XX/sprint-YY` folder structure; `migrate-schema`, `split-status`, `rename-active`, `harvest-debt`, `sort-status`, `update-ai-rules` modes |
+| `l3io-pm-execute` | Full epic + sprint lifecycle: elaboration → dev → code review → QA → fix loop, then sprint and epic closure reviews. Includes first-run module setup |
+| `l3io-pm-plan` | Cross-epic planning — validates readiness, elaborates stories, estimates, builds dependency graph, and produces a phased parallel-optimized execution plan |
+| `l3io-pm-help` | Reads project state and recommends the exact next l3io-pm action |
+| `l3io-pm-sync` | Bidirectional sync between l3io-pm state and GitHub Issues — setup, push, pull, sync, and status modes |
+| `l3io-sec-redteam` | Red team security analysis — five threat lenses + AI poisoning cross-cut, live cloud/platform best practices research |
+| `l3io-util-cleanup` | Artifact migration utilities — reorganizes legacy flat artifacts into structured epic/sprint layout; `migrate-state`, `split-status`, `harvest-debt`, `sort-status`, `update-ai-rules` modes |
 | `l3io-arch-review` | Engineering-standards architecture guardrails and review — three modes: design guardrails (new project), architectural review (audit), decision support + ADR recording |
 
 ## Shared Files
 
-Two types of files in `src/_shared/` are the canonical sources for content shared across PM skills. Do not edit the per-skill copies directly — they are auto-generated.
+Files in `skills/_shared/` are the canonical sources for content shared across PM skills. Do not edit the per-skill copies directly — they are auto-generated.
 
 | Canonical source | Per-skill destination | Skills |
 |---|---|---|
-| `src/_shared/pm-status.py` | `scripts/pm-status.py` | sprint-execute, epic-execute |
-| `src/_shared/tests/test-pm-status.py` | `scripts/tests/test-pm-status.py` | sprint-execute, epic-execute |
-| `src/_shared/status-files.md` | `references/status-files.md` | sprint-execute, epic-execute, plan-execution |
+| `skills/_shared/pm-status.py` | `scripts/pm-status.py` | pm-execute, pm-plan, pm-sync |
+| `skills/_shared/tests/test-pm-status.py` | `scripts/tests/test-pm-status.py` | pm-execute, pm-plan, pm-sync |
+| `skills/_shared/resolve_config.py` | `scripts/resolve_config.py` | pm-execute, pm-plan, pm-sync |
+| `skills/_shared/memlog.py` | `scripts/memlog.py` | pm-execute, pm-plan, pm-sync |
+| `skills/_shared/status-files.md` | `references/status-files.md` | pm-execute, pm-plan, pm-sync |
+| `skills/_shared/steps/**` | `steps/**` | pm-execute, pm-plan, pm-sync |
 
 Sync commands:
 
 ```bash
-npm run sync:scripts    # regenerate payload copies from src/_shared/ source
+npm run sync:scripts    # regenerate payload copies from skills/_shared/ source
 npm run check:scripts   # verify payload copies match source (CI also runs this)
 ```
 
@@ -59,7 +61,7 @@ The `postbump` hook chains sync automatically, so every release keeps the payloa
 
 The `postbump` hook auto-syncs the new version into `.claude-plugin/marketplace.json` and all `module.yaml` files — do not manually bump those files.
 
-> **Staging warning**: `postbump` uses `git add -u` (only stages already-tracked files). When adding new skills or new files in `src/_shared/`, always `git add` those untracked files **before** running `npm run release:*`, or they will be silently excluded from the release commit.
+> **Staging warning**: `postbump` uses `git add -u` (only stages already-tracked files). When adding new skills or new files in `skills/_shared/`, always `git add` those untracked files **before** running `npm run release:*`, or they will be silently excluded from the release commit.
 
 ## Skill Authoring Conventions
 
@@ -69,8 +71,8 @@ Every skill has a `customize.toml`. Use the correct root key:
 
 | Skill type | Root key | When to use |
 |---|---|---|
-| Workflow / utility skill | `[workflow]` | Any skill that is not a persistent memory agent (sprint-execute, epic-execute, plan-execution, cleanup, arch-review) |
-| Memory agent | `[agent]` | Skills with a named persona, sanctum, and First Breath (l3io-sec-agent-redteam) |
+| Workflow / utility skill | `[workflow]` | Any skill that is not a persistent memory agent (pm-execute, pm-plan, pm-help, pm-sync, util-cleanup, arch-review) |
+| Memory agent | `[agent]` | Skills with a named persona, sanctum, and First Breath (l3io-sec-redteam) |
 
 The BMad resolver (`resolve_customization.py`) is called with `--key workflow` or `--key agent` to match. Using the wrong key means team/user overrides are ignored silently.
 
@@ -85,21 +87,22 @@ Suggested scopes: `l3io-pm`, `l3io-sec`, `l3io-util`, `l3io-arch` (module change
 
 **Context boundary**: Each phase runs in a fresh subagent. All state passes through disk — never through in-memory hand-off.
 
-**State files** (split layout, in `{implementation_artifacts}/`):
+**State files** (v2 layout, under `{project-root}/_bmad/state/`):
 
-- `sprint-status.yaml` — epics with `status: in-progress` (their in-progress + done sprints and all stories). Old repos using `sprint-status-active.yaml` are auto-renamed on first PM-skill run.
-- `sprint-status-backlog.yaml` — not-yet-started work (whole `backlog` epics + backlog sprints of active epics as shells), plus a consolidated top-level `backlog:` deferred-issue list across all epics.
-- `sprint-status-archived.yaml` — epics with `status: done`, moved here wholesale at epic close.
+- `_bmad/state/active/E{nnn}-status.yaml` — one file per active epic (`status: in-progress`). Contains ALL that epic's sprints (backlog, in-progress, done) and all their stories.
+- `_bmad/state/sprint-status-planned.yaml` — future epics (`status: backlog` or `status: deferred`), including `depends_on` edges and full sprint/story subtrees.
+- `_bmad/state/sprint-status-issues.yaml` — deferred issues flat list (`BL-E{nnn}-{nnn}`); items removed when resolved.
+- `_bmad/state/sprint-status-archived.yaml` — done epics, moved here wholesale at epic close. Append-only.
 
-Placement is **epic + sprint** granularity (stories travel with their sprint); archive happens **only at epic close**. The placement rule, node-move operations, read/auto-fallback procedure, and the optional `depends_on` fields used by `l3io-pm-plan-execution` live in each PM skill's `references/status-files.md` (the single source of truth). A legacy single `sprint-status.yaml` is auto-split on first PM-skill run, or migrate explicitly with `/l3io-util-cleanup split-status` (original preserved as `sprint-status.yaml.legacy`).
+Placement is **epic-file** granularity for active epics; archive happens **only at epic close**. The placement rule, node-move operations, read/auto-fallback procedure, and the optional `depends_on` fields used by `l3io-pm-plan` live in each PM skill's `references/status-files.md` (the single source of truth). Legacy `{implementation_artifacts}/sprint-status.yaml` repos are detected automatically; run `/l3io-util-cleanup migrate-state` to upgrade (original preserved as `.legacy`).
 
 Story statuses: `backlog → ready-for-dev → in-progress → review → done`. Epic statuses: `backlog → in-progress → done`.
 
 **Status writes go through the shared `pm-status.py`** (run via `uv run`; deps auto-provisioned from its PEP-723 header). It performs every single-node status transition, `actual`-block write, progress-ledger append, and read-back `verify` as one atomic, `ruamel`-round-trip-safe operation (preserves comments + key order) — this replaced free-form YAML edits that were dropped/malformed under load and parallelism. Multi-node moves between the three files still follow `references/status-files.md`. Each PM skill activates it in a *Load the Status Helper* step and writes a per-run progress trail to `{sprint|epic_root_dir}/progress.log`. Under `--runtime claude`, `set-actual`/`verify` **reject** an `N/A` tokens/cost (enforces the estimates-&-actuals HARD RULE at write time).
 
-`pm-status.py` is a **shared runtime utility** (the `resolve_customization.py` category, not the per-skill `merge-config.py` bootstrap category). It is authored **once** in `src/_shared/` (with its `tests/`); `npm run sync:scripts` (also chained into `postbump`) generates the per-skill `scripts/` payload copies — **never hand-edit those**. At module setup each PM skill runs `pm-status.py self-install --dest {project-root}/_bmad/scripts/pm-status.py` (version-guarded, self-healing on first use), so there is exactly **one runtime copy per project**, referenced by both skills as `{project-root}/_bmad/scripts/pm-status.py`. CI runs `npm run check:scripts` to fail on payload drift from the `_shared/` source.
+`pm-status.py` is a **shared runtime utility** authored once in `skills/_shared/` (with its `tests/`); `npm run sync:scripts` (also chained into `postbump`) generates the per-skill `scripts/` payload copies — **never hand-edit those**. At module setup each PM skill runs `pm-status.py self-install --dest {project-root}/_bmad/scripts/pm-status.py` (version-guarded, self-healing on first use), so there is exactly **one runtime copy per project**, referenced by all PM skills as `{project-root}/_bmad/scripts/pm-status.py`. CI runs `npm run check:scripts` to fail on payload drift from the `skills/_shared/` source.
 
-`status-files.md` is also shared from `src/_shared/` — it is the canonical split-state contract (placement rules, `depends_on` schema, read/auto-fallback). `npm run sync:scripts` keeps all three PM skill `references/status-files.md` copies in sync. Never edit per-skill copies directly.
+`status-files.md` is also shared from `skills/_shared/` — it is the canonical state-layout contract (placement rules, `depends_on` schema, read/auto-fallback). `npm run sync:scripts` keeps all PM skill `references/status-files.md` copies in sync. Never edit per-skill copies directly.
 
 **HARD RULE — estimates & actuals.** Every planning point and every closeout — at **story, sprint, epic, and retrospective** level — must record both an `estimate` and an `actual` for all four metrics: **man-hours, compute (AI wall-clock) hours, tokens, and token cost.** This is enforced, not optional. Token/cost actuals are captured **exactly** under Claude (read from the session transcript `usage` fields) and as `N/A` (never guessed) under other runtimes (e.g. Copilot — capture what's exposed, else `N/A`/`0`). The rule, runtime detection, and the exact capture procedure live in each PM skill's `references/metrics-contract.md`.
 
@@ -123,7 +126,7 @@ FAILED: [one-line reason]
 
 **Quality gates**: Sprint and epic closure require all Critical, High, and Medium severity findings to be resolved (plus undocumented architecture drift and functional AC gaps at epic level). Low severity findings auto-defer to backlog. The fix loop runs autonomously without per-item prompts and only halts after 10 iterations (per-story or closure-level) if items remain unresolved.
 
-**Pre-execution gates (shift-left)**: Two gates catch architecture/spec gaps *before* development instead of at closure. (1) **Epic architecture gate** (`epic_arch_gate`, epic-execute) — before any sprint runs, `l3io-arch-review` Mode B reviews the whole epic's design; BLOCKER/MAJOR block execution, each resolved with an ADR and by patching the affected story files with the technical ACs the decision implies; MINOR defers to backlog. (2) **Story technical-AC gate** (`story_technical_ac_gate`, sprint-execute story prep) — verifies each story carries technical ACs (interfaces, data model, error/edge handling, observability, security, testability) and enriches when missing, before `ready-for-dev`; `"block"` (default) prevents advancement on an unfilled applicable dimension. Both self-skip when `l3io-arch-review` is not installed; the story gate then falls back to a built-in checklist. `assets/customize-architect.md` also wires the standards into core `bmad-create-story`/`bmad-architect`/`bmad-code-review` in the consuming repo.
+**Pre-execution gates (shift-left)**: Two gates catch architecture/spec gaps *before* development instead of at closure. (1) **Epic architecture gate** (`epic_arch_gate`, pm-execute) — before any sprint runs, `l3io-arch-review` Mode B reviews the whole epic's design; BLOCKER/MAJOR block execution, each resolved with an ADR and by patching the affected story files with the technical ACs the decision implies; MINOR defers to backlog. (2) **Story technical-AC gate** (`story_technical_ac_gate`, pm-execute story prep) — verifies each story carries technical ACs (interfaces, data model, error/edge handling, observability, security, testability) and enriches when missing, before `ready-for-dev`; `"block"` (default) prevents advancement on an unfilled applicable dimension. Both self-skip when `l3io-arch-review` is not installed; the story gate then falls back to a built-in checklist. `assets/customize-architect.md` also wires the standards into core `bmad-create-story`/`bmad-architect`/`bmad-code-review` in the consuming repo.
 
 **Adaptive parallelism**: `parallel_mode = "auto"` (default) lets the orchestrator size each batch itself — `effective = min(max_parallel_subagents, parallel_ceiling, safe_batch_size)`, where `safe_batch_size` is the count of provably-independent items (no shared files, no cross-dependency, no same-node status contention) and governs in `auto`. Defaults: `max_parallel_subagents = 4`, `parallel_ceiling = 12` (the hard upper bound). `"adaptive"` keeps the same safety checks but never exceeds `max_parallel_subagents`; `"off"` forces sequential. Atomic status writes via `pm-status.py` are what make higher concurrency safe.
 
