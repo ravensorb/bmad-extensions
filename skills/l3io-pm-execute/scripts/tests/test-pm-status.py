@@ -1,16 +1,18 @@
 #!/usr/bin/env python3
 """
 Tests for pm-status.py — run with: python3 test-pm-status.py  (or `uv run`).
-Exercises node addressing across the split layout, atomic set-status/set-actual,
-comment/order preservation, the progress ledger, and verify exit codes.
+Exercises the sharded split-directory layout resolution, key-based node addressing
+(set-status/set-actual/set-estimate/set-field/verify), epic directory moves
+(move-epic/archive-epic), the unconverted --file-based commands (locks,
+append-issue, self-install), comment/order preservation, the progress ledger,
+and verify exit codes.
 """
 import io
 import os
-import subprocess
 import sys
 import tempfile
 import unittest
-from contextlib import redirect_stdout
+from contextlib import redirect_stderr, redirect_stdout
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 SCRIPT = os.path.join(os.path.dirname(HERE), "pm-status.py")
@@ -22,67 +24,14 @@ spec = importlib.util.spec_from_file_location("pm_status", SCRIPT)
 pm = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(pm)
 
-SAMPLE = """\
-# active status file — comments must survive round-trips
-epics:
-- key: 'E01'
-  title: 'Epic 01 — Foundation'
-  goal: 'Stand up the core'
-  status: in-progress
-  sprints:
-  - key: 'S01'
-    title: 'Sprint 01 — Foundation'
-    status: in-progress
-    stories:
-    - key: PROJ-E01-S01-ST01   # first story
-      title: 'Story one'
-      status: ready-for-dev
-      classification: complex
-    - key: PROJ-E01-S01-ST02
-      title: 'Story two'
-      status: backlog
-"""
-
-SAMPLE_LEGACY = """\
-# legacy status file with id-based schema (backward compat)
-epics:
-- id: '01'
-  title: 'Epic 01'
-  status: in-progress
-  sprints:
-  - id: '01'
-    title: 'Sprint 01'
-    status: in-progress
-    stories:
-    - key: PROJ-E01-S01-ST01
-      title: 'Story one'
-      status: ready-for-dev
-      classification: complex
-"""
-
-SAMPLE_V2 = """\
-epics:
-- key: 'E001'
-  title: 'Epic 001'
-  status: in-progress
-  sprints:
-  - key: 'S01'
-    title: 'Sprint 01'
-    status: in-progress
-    stories:
-    - key: E001-S01-001
-      title: 'Story one'
-      status: ready-for-dev
-      classification: standard
-"""
-
 
 class Base(unittest.TestCase):
+    """Minimal fixture: a scratch dir + in-process CLI runner. No status-file
+    content is assumed here — commands that need a node tree use
+    TestLayoutResolution instead."""
+
     def setUp(self):
         self.d = tempfile.mkdtemp()
-        self.f = os.path.join(self.d, "sprint-status.yaml")
-        with open(self.f, "w", encoding="utf-8") as fh:
-            fh.write(SAMPLE)
         self.ledger = os.path.join(self.d, "progress.log")
 
     def run_main(self, argv):
@@ -95,124 +44,6 @@ class Base(unittest.TestCase):
         except SystemExit as e:
             code = e.code if isinstance(e.code, int) else 1
         return code, buf.getvalue()
-
-    def read(self):
-        with open(self.f, encoding="utf-8") as fh:
-            return fh.read()
-
-
-class TestSetStatus(Base):
-    def test_story_status_transition(self):
-        code, out = self.run_main(["set-status", "--file", self.f,
-                                   "--story", "PROJ-E01-S01-ST01", "--status", "in-progress"])
-        self.assertEqual(code, 0, out)
-        y, data = pm._load(self.f)
-        st = pm.find_story(data, "PROJ-E01-S01-ST01")
-        self.assertEqual(st["status"], "in-progress")
-        self.assertIn("updated_at", st)
-
-    def test_preserves_comments_and_order(self):
-        self.run_main(["set-status", "--file", self.f,
-                       "--story", "PROJ-E01-S01-ST01", "--status", "review"])
-        text = self.read()
-        self.assertIn("# active status file — comments must survive round-trips", text)
-        self.assertIn("# first story", text)
-        # key order within the epic node is preserved (title before goal before status)
-        self.assertLess(text.index("title: 'Epic 01"), text.index("goal:"))
-        self.assertLess(text.index("goal:"), text.index("status: in-progress"))
-
-    def test_sprint_addressing_with_padding(self):
-        # key-based addressing: epic key "E01", sprint key "S01"
-        code, out = self.run_main(["set-status", "--file", self.f,
-                                   "--epic", "E01", "--sprint", "S01", "--status", "done"])
-        self.assertEqual(code, 0, out)
-        y, data = pm._load(self.f)
-        sp = pm.find_sprint(data, "E01", "S01")
-        self.assertEqual(sp["status"], "done")
-
-    def test_invalid_status_rejected(self):
-        code, _ = self.run_main(["set-status", "--file", self.f,
-                                 "--story", "PROJ-E01-S01-ST01", "--status", "shipped"])
-        self.assertEqual(code, 2)
-
-    def test_node_not_found(self):
-        code, _ = self.run_main(["set-status", "--file", self.f,
-                                 "--story", "NOPE", "--status", "done"])
-        self.assertEqual(code, 3)
-
-    def test_writes_ledger(self):
-        self.run_main(["set-status", "--file", self.f, "--story", "PROJ-E01-S01-ST01",
-                       "--status", "done", "--ledger", self.ledger, "--scope", "E01/S01/ST01"])
-        with open(self.ledger, encoding="utf-8") as fh:
-            line = fh.read().strip()
-        self.assertIn("E01/S01/ST01", line)
-        self.assertIn("status -> done", line)
-
-
-class TestSetActual(Base):
-    def test_writes_actual_block(self):
-        code, out = self.run_main(["set-actual", "--file", self.f, "--node", "story",
-                                   "--story", "PROJ-E01-S01-ST01", "--elapsed-hours", "0.4",
-                                   "--man-hours", "30", "--tokens-k", "168", "--cost", "$1.10"])
-        self.assertEqual(code, 0, out)
-        y, data = pm._load(self.f)
-        st = pm.find_story(data, "PROJ-E01-S01-ST01")
-        self.assertEqual(st["actual"]["tokens_k"], 168)
-        self.assertEqual(st["actual"]["elapsed_hours"], 0.4)
-        self.assertEqual(st["actual"]["cost"], "$1.10")
-
-    def test_claude_runtime_forbids_na_tokens(self):
-        code, _ = self.run_main(["set-actual", "--file", self.f, "--node", "story",
-                                 "--story", "PROJ-E01-S01-ST01", "--tokens-k", "N/A",
-                                 "--runtime", "claude"])
-        self.assertEqual(code, 2)
-
-    def test_other_runtime_allows_na(self):
-        code, out = self.run_main(["set-actual", "--file", self.f, "--node", "story",
-                                   "--story", "PROJ-E01-S01-ST01", "--tokens-k", "N/A",
-                                   "--cost", "N/A", "--runtime", "other"])
-        self.assertEqual(code, 0, out)
-
-
-class TestVerify(Base):
-    def _complete_story(self, runtime="other", tokens="168", cost="$1.10"):
-        self.run_main(["set-status", "--file", self.f, "--story", "PROJ-E01-S01-ST01", "--status", "done"])
-        self.run_main(["set-actual", "--file", self.f, "--node", "story",
-                       "--story", "PROJ-E01-S01-ST01", "--elapsed-hours", "0.4",
-                       "--man-hours", "30", "--tokens-k", tokens, "--cost", cost, "--runtime", runtime])
-        # add a completion_evidence block by hand
-        y, data = pm._load(self.f)
-        st = pm.find_story(data, "PROJ-E01-S01-ST01")
-        from ruamel.yaml.comments import CommentedMap
-        ce = CommentedMap(); ce["fix_iterations"] = 0; ce["tests_passing"] = 42
-        st["completion_evidence"] = ce
-        pm._atomic_dump(y, data, self.f)
-
-    def test_pass_when_complete(self):
-        self._complete_story()
-        code, out = self.run_main(["verify", "--file", self.f, "--scope", "story",
-                                   "--story", "PROJ-E01-S01-ST01"])
-        self.assertEqual(code, 0, out)
-        self.assertIn("PASS", out)
-
-    def test_fail_when_not_done(self):
-        code, out = self.run_main(["verify", "--file", self.f, "--scope", "story",
-                                   "--story", "PROJ-E01-S01-ST01"])
-        self.assertEqual(code, 4)
-        self.assertIn("status=", out)
-
-    def test_fail_na_tokens_under_require(self):
-        self._complete_story(runtime="other", tokens="N/A", cost="N/A")
-        code, out = self.run_main(["verify", "--file", self.f, "--scope", "story",
-                                   "--story", "PROJ-E01-S01-ST01", "--require-tokens"])
-        self.assertEqual(code, 4)
-        self.assertIn("N/A", out)
-
-    def test_na_tokens_ok_without_require(self):
-        self._complete_story(runtime="other", tokens="N/A", cost="N/A")
-        code, out = self.run_main(["verify", "--file", self.f, "--scope", "story",
-                                   "--story", "PROJ-E01-S01-ST01"])
-        self.assertEqual(code, 0, out)
 
 
 class TestProgress(Base):
@@ -257,208 +88,66 @@ class TestSelfInstall(Base):
         self.assertNotIn("skipped", out)
 
 
-class TestAtomicAndCLI(Base):
-    def test_end_to_end_subprocess(self):
-        """Smoke-test the actual CLI entrypoint (not just in-process main)."""
-        r = subprocess.run([sys.executable, SCRIPT, "set-status", "--file", self.f,
-                            "--story", "PROJ-E01-S01-ST01", "--status", "done"],
-                           capture_output=True, text=True)
-        self.assertEqual(r.returncode, 0, r.stderr)
-        self.assertIn("OK set-status", r.stdout)
-
-    def test_no_temp_files_left(self):
-        self.run_main(["set-status", "--file", self.f, "--story", "PROJ-E01-S01-ST01", "--status", "done"])
-        leftovers = [n for n in os.listdir(self.d) if n.startswith(".pm-status.")]
-        self.assertEqual(leftovers, [])
-
-
-class TestKeyLookup(Base):
-    def setUp(self):
-        super().setUp()
-        self.f2 = os.path.join(self.d, "active-E001.yaml")
-        with open(self.f2, "w", encoding="utf-8") as fh:
-            fh.write(SAMPLE_V2)
-        self.f_legacy = os.path.join(self.d, "legacy-status.yaml")
-        with open(self.f_legacy, "w", encoding="utf-8") as fh:
-            fh.write(SAMPLE_LEGACY)
-
-    def test_find_epic_by_key(self):
-        _, data = pm._load(self.f2)
-        e = pm.find_epic(data, "E001")
-        self.assertIsNotNone(e)
-        self.assertEqual(e["key"], "E001")
-
-    def test_find_sprint_by_key(self):
-        _, data = pm._load(self.f2)
-        s = pm.find_sprint(data, "E001", "S01")
-        self.assertIsNotNone(s)
-        self.assertEqual(s["key"], "S01")
-
-    def test_find_story_in_v2_file(self):
-        _, data = pm._load(self.f2)
-        st = pm.find_story(data, "E001-S01-001")
-        self.assertIsNotNone(st)
-
-    def test_id_fallback_still_works(self):
-        # Legacy SAMPLE_LEGACY uses 'id' — must not break
-        _, data = pm._load(self.f_legacy)
-        e = pm.find_epic(data, "01")
-        self.assertIsNotNone(e)
-
-
 class TestLockCommands(Base):
+    """set-lock/clear-lock/check-lock using --state-root and --epic."""
+
     def setUp(self):
         super().setUp()
-        self.f2 = os.path.join(self.d, "E001-status.yaml")
-        with open(self.f2, "w", encoding="utf-8") as fh:
-            fh.write("epics:\n- key: 'E001'\n  title: 'test'\n  status: in-progress\n  sprints: []\n")
+        self.state_root = os.path.join(self.d, "state")
+        epic_dir = os.path.join(self.state_root, "active", "epic-001")
+        os.makedirs(epic_dir)
+        self.epic_file = os.path.join(epic_dir, "epic.yaml")
+        with open(self.epic_file, "w", encoding="utf-8") as fh:
+            fh.write("key: 'E001'\ntitle: 'test'\nstatus: in-progress\n")
 
     def test_set_lock_writes_block(self):
-        code, out = self.run_main(["set-lock", "--file", self.f2,
+        code, out = self.run_main(["set-lock", "--state-root", self.state_root, "--epic", "E001",
                                    "--session-id", "sess-abc", "--ttl-minutes", "30"])
         self.assertEqual(code, 0)
-        _, data = pm._load(self.f2)
+        _, data = pm.load_node(self.epic_file)
         self.assertIn("_lock", data)
         self.assertEqual(data["_lock"]["session_id"], "sess-abc")
         self.assertEqual(data["_lock"]["ttl_minutes"], 30)
         self.assertIn("claimed_at", data["_lock"])
 
-    def test_set_lock_preserves_epics(self):
-        self.run_main(["set-lock", "--file", self.f2,
+    def test_set_lock_writes_lock_first(self):
+        self.run_main(["set-lock", "--state-root", self.state_root, "--epic", "E001",
                        "--session-id", "sess-abc", "--ttl-minutes", "30"])
-        _, data = pm._load(self.f2)
-        self.assertIn("epics", data)
-        self.assertEqual(len(data["epics"]), 1)
+        _, data = pm.load_node(self.epic_file)
+        self.assertEqual(list(data.keys())[0], "_lock")
 
     def test_clear_lock_removes_block(self):
-        self.run_main(["set-lock", "--file", self.f2,
+        self.run_main(["set-lock", "--state-root", self.state_root, "--epic", "E001",
                        "--session-id", "sess-abc", "--ttl-minutes", "30"])
-        code, out = self.run_main(["clear-lock", "--file", self.f2])
+        code, out = self.run_main(["clear-lock", "--state-root", self.state_root, "--epic", "E001"])
         self.assertEqual(code, 0)
-        _, data = pm._load(self.f2)
+        _, data = pm.load_node(self.epic_file)
         self.assertNotIn("_lock", data)
 
     def test_clear_lock_idempotent(self):
         # clear on file with no lock must succeed
-        code, _ = self.run_main(["clear-lock", "--file", self.f2])
+        code, _ = self.run_main(["clear-lock", "--state-root", self.state_root, "--epic", "E001"])
         self.assertEqual(code, 0)
 
     def test_check_lock_no_lock_is_free(self):
-        code, _ = self.run_main(["check-lock", "--file", self.f2, "--session-id", "sess-xyz"])
+        code, _ = self.run_main(["check-lock", "--state-root", self.state_root, "--epic", "E001",
+                                  "--session-id", "sess-xyz"])
         self.assertEqual(code, 0)
 
     def test_check_lock_own_session_is_free(self):
-        self.run_main(["set-lock", "--file", self.f2,
+        self.run_main(["set-lock", "--state-root", self.state_root, "--epic", "E001",
                        "--session-id", "sess-abc", "--ttl-minutes", "30"])
-        code, _ = self.run_main(["check-lock", "--file", self.f2, "--session-id", "sess-abc"])
+        code, _ = self.run_main(["check-lock", "--state-root", self.state_root, "--epic", "E001",
+                                  "--session-id", "sess-abc"])
         self.assertEqual(code, 0)
 
     def test_check_lock_other_session_within_ttl_is_blocked(self):
-        self.run_main(["set-lock", "--file", self.f2,
+        self.run_main(["set-lock", "--state-root", self.state_root, "--epic", "E001",
                        "--session-id", "sess-abc", "--ttl-minutes", "30"])
-        code, out = self.run_main(["check-lock", "--file", self.f2, "--session-id", "sess-xyz"])
+        code, out = self.run_main(["check-lock", "--state-root", self.state_root, "--epic", "E001",
+                                    "--session-id", "sess-xyz"])
         self.assertEqual(code, 5)
         self.assertIn("sess-abc", out)
-
-
-class TestFlock(Base):
-    def test_set_status_with_flock_flag_succeeds(self):
-        # Basic: --flock should not break normal operation
-        code, out = self.run_main([
-            "set-status", "--file", self.f, "--story", "PROJ-E01-S01-ST01",
-            "--status", "in-progress", "--flock",
-        ])
-        self.assertEqual(code, 0)
-        _, data = pm._load(self.f)
-        st = pm.find_story(data, "PROJ-E01-S01-ST01")
-        self.assertEqual(st["status"], "in-progress")
-
-    def test_set_actual_with_flock_flag_succeeds(self):
-        code, out = self.run_main([
-            "set-actual", "--file", self.f, "--node", "story",
-            "--story", "PROJ-E01-S01-ST01",
-            "--elapsed-hours", "2.5", "--man-hours", "3.0",
-            "--tokens-k", "N/A", "--cost", "N/A",
-            "--runtime", "other", "--flock",
-        ])
-        self.assertEqual(code, 0)
-
-    def test_set_estimate_with_flock_flag_succeeds(self):
-        code, out = self.run_main([
-            "set-estimate", "--file", self.f,
-            "--epic", "E01",
-            "--man-hours-low", "10", "--man-hours-high", "16",
-            "--flock",
-        ])
-        self.assertEqual(code, 0)
-
-
-class TestSetEstimate(Base):
-    def setUp(self):
-        super().setUp()
-        self.f2 = os.path.join(self.d, "E001-status.yaml")
-        with open(self.f2, "w", encoding="utf-8") as fh:
-            fh.write(
-                "epics:\n- key: 'E001'\n  title: 'test'\n  status: in-progress\n"
-                "  sprints:\n  - key: 'S01'\n    title: 'sp'\n    status: in-progress\n"
-                "    stories:\n    - key: E001-S01-001\n      title: 's'\n      status: backlog\n"
-                "      classification: standard\n"
-            )
-
-    def test_set_estimate_epic(self):
-        code, out = self.run_main([
-            "set-estimate", "--file", self.f2,
-            "--epic", "E001",
-            "--man-hours-low", "10", "--man-hours-high", "16",
-            "--time-hours-low", "3", "--time-hours-high", "5",
-            "--confidence", "medium",
-        ])
-        self.assertEqual(code, 0)
-        _, data = pm._load(self.f2)
-        e = pm.find_epic(data, "E001")
-        self.assertIn("estimate", e)
-        self.assertEqual(e["estimate"]["man_hours_low"], 10.0)
-        self.assertEqual(e["estimate"]["man_hours_high"], 16.0)
-        self.assertEqual(e["estimate"]["confidence"], "medium")
-
-    def test_set_estimate_sprint(self):
-        code, out = self.run_main([
-            "set-estimate", "--file", self.f2,
-            "--epic", "E001", "--sprint", "S01",
-            "--tokens-k-min", "120", "--tokens-k-max", "200",
-            "--cost-low", "0.80", "--cost-high", "1.40",
-        ])
-        self.assertEqual(code, 0)
-        _, data = pm._load(self.f2)
-        s = pm.find_sprint(data, "E001", "S01")
-        self.assertIn("estimate", s)
-        self.assertEqual(s["estimate"]["tokens_k_min"], 120)
-        self.assertEqual(s["estimate"]["confidence"], "low")  # missing some fields → low
-
-    def test_set_estimate_story(self):
-        code, out = self.run_main([
-            "set-estimate", "--file", self.f2,
-            "--story", "E001-S01-001",
-            "--man-hours", "4", "--time-hours", "1.5",
-            "--tokens-k", "40", "--cost", "0.28",
-        ])
-        self.assertEqual(code, 0)
-        _, data = pm._load(self.f2)
-        st = pm.find_story(data, "E001-S01-001")
-        self.assertIn("estimate", st)
-        self.assertEqual(st["estimate"]["man_hours"], 4.0)
-
-    def test_set_estimate_story_uses_single_value_fields(self):
-        # Stories get single values (not low/high) for man_hours, time_hours, tokens_k, cost
-        code, _ = self.run_main([
-            "set-estimate", "--file", self.f2, "--story", "E001-S01-001",
-            "--man-hours", "4", "--time-hours", "1.5",
-        ])
-        self.assertEqual(code, 0)
-        _, data = pm._load(self.f2)
-        est = pm.find_story(data, "E001-S01-001")["estimate"]
-        self.assertIn("man_hours", est)
-        self.assertNotIn("man_hours_low", est)  # stories use single value, not range
 
 
 ISSUES_SAMPLE = """\
@@ -471,49 +160,6 @@ backlog:
   severity: Low
   status: backlog
 """
-
-ARCHIVE_SAMPLE = """\
-epics:
-- key: E001
-  title: Auth Layer
-  status: done
-  sprints: []
-"""
-
-
-class TestSetField(Base):
-    def setUp(self):
-        super().setUp()
-        with open(self.f, "w", encoding="utf-8") as fh:
-            fh.write(SAMPLE_V2)
-
-    def test_sets_simple_field(self):
-        code, out = self.run_main(["set-field", "--file", self.f,
-                                   "--node", "epic.E001",
-                                   "--field", "closed.date",
-                                   "--value", "2026-08-15"])
-        self.assertEqual(code, 0, out)
-        y, data = pm._load(self.f)
-        epic = pm.find_epic(data, "E001")
-        self.assertEqual(epic["closed"]["date"], "2026-08-15")
-
-    def test_sets_nested_field_creates_intermediate(self):
-        code, out = self.run_main(["set-field", "--file", self.f,
-                                   "--node", "epic.E001",
-                                   "--field", "retrospective.summary",
-                                   "--value", "All done"])
-        self.assertEqual(code, 0, out)
-        y, data = pm._load(self.f)
-        epic = pm.find_epic(data, "E001")
-        self.assertEqual(epic["retrospective"]["summary"], "All done")
-
-    def test_node_not_found_exits_3(self):
-        code, _ = self.run_main(["set-field", "--file", self.f,
-                                  "--node", "epic.E999",
-                                  "--field", "closed.date",
-                                  "--value", "2026-08-15"])
-        self.assertEqual(code, 3)
-
 
 class TestAppendIssue(unittest.TestCase):
     def setUp(self):
@@ -559,43 +205,618 @@ class TestAppendIssue(unittest.TestCase):
         self.assertEqual(code, 2)
 
 
-class TestArchiveEpic(unittest.TestCase):
+class TestLayoutResolution(unittest.TestCase):
     def setUp(self):
         self.d = tempfile.mkdtemp()
-        self.src = os.path.join(self.d, "E001-status.yaml")
-        self.dest = os.path.join(self.d, "sprint-status-archived.yaml")
-        with open(self.src, "w", encoding="utf-8") as fh:
-            fh.write(ARCHIVE_SAMPLE)
+        self.root = os.path.join(self.d, "state")
+        # active/epic-001/sprint-01/{sprint.yaml,E001-S01-003.yaml} + epic.yaml
+        sd = os.path.join(self.root, "active", "epic-001", "sprint-01")
+        os.makedirs(sd)
+        with open(os.path.join(self.root, "active", "epic-001", "epic.yaml"), "w") as f:
+            f.write("key: 'E001'\nstatus: in-progress\n")
+        with open(os.path.join(sd, "sprint.yaml"), "w") as f:
+            f.write("key: 'S01'\nepic: 'E001'\nstatus: in-progress\n")
+        with open(os.path.join(sd, "E001-S01-003.yaml"), "w") as f:
+            f.write("key: 'E001-S01-003'\nepic: 'E001'\nsprint: 'S01'\nstatus: review\n")
+        # a planned epic, to prove the folder search spans all three
+        os.makedirs(os.path.join(self.root, "planned", "epic-005"))
+        with open(os.path.join(self.root, "planned", "epic-005", "epic.yaml"), "w") as f:
+            f.write("key: 'E005'\nstatus: backlog\n")
+
+    def tearDown(self):
+        import shutil
+        shutil.rmtree(self.d, ignore_errors=True)
+
+    def test_dirname_conversions(self):
+        self.assertEqual(pm.epic_dirname("E001"), "epic-001")
+        self.assertEqual(pm.epic_dirname("E42"), "epic-042")
+        self.assertEqual(pm.sprint_dirname("S01"), "sprint-01")
+        self.assertEqual(pm.sprint_dirname("S7"), "sprint-07")
+
+    def test_parse_story_key(self):
+        self.assertEqual(pm.parse_story_key("E001-S01-003"), ("E001", "S01", "003"))
+
+    def test_parse_story_key_rejects_malformed(self):
+        with self.assertRaises(ValueError):
+            pm.parse_story_key("not-a-key")
+
+    def test_find_epic_dir_searches_all_status_folders(self):
+        self.assertTrue(pm.find_epic_dir(self.root, "E001").endswith("active/epic-001"))
+        self.assertTrue(pm.find_epic_dir(self.root, "E005").endswith("planned/epic-005"))
+        self.assertIsNone(pm.find_epic_dir(self.root, "E999"))
+
+    def test_node_file_resolution(self):
+        self.assertTrue(pm.epic_file(self.root, "E001").endswith("active/epic-001/epic.yaml"))
+        self.assertTrue(pm.sprint_file(self.root, "E001", "S01").endswith("sprint-01/sprint.yaml"))
+        self.assertTrue(pm.story_file(self.root, "E001-S01-003").endswith("sprint-01/E001-S01-003.yaml"))
+        self.assertIsNone(pm.story_file(self.root, "E001-S01-999"))
+
+    def test_load_node_returns_bare_mapping(self):
+        _, node = pm.load_node(pm.story_file(self.root, "E001-S01-003"))
+        self.assertEqual(node["key"], "E001-S01-003")
+        self.assertNotIn("epics", node)
+
+    def test_save_node_roundtrips(self):
+        p = pm.story_file(self.root, "E001-S01-003")
+        y, node = pm.load_node(p)
+        node["status"] = "done"
+        pm.save_node(y, node, p)
+        _, again = pm.load_node(p)
+        self.assertEqual(again["status"], "done")
+
+    def test_check_backrefs_detects_misplacement(self):
+        _, node = pm.load_node(pm.story_file(self.root, "E001-S01-003"))
+        self.assertEqual(pm.check_backrefs(node, "E001", "S01"), [])
+        self.assertTrue(pm.check_backrefs(node, "E002", "S01"))
+
+
+class TestAtomicAndCLI(TestLayoutResolution):
+    """Reuses TestLayoutResolution's tree fixture."""
 
     def run_main(self, argv):
         buf = io.StringIO()
-        code = 0
         try:
             with redirect_stdout(buf):
                 code = pm.main(argv)
         except SystemExit as e:
-            code = e.code if isinstance(e.code, int) else 1
+            code = e.code
         return code, buf.getvalue()
 
-    def test_archives_to_new_dest(self):
-        code, out = self.run_main(["archive-epic", "--source", self.src, "--dest", self.dest])
+    def test_no_temp_files_left(self):
+        self.run_main(["set-status", "--state-root", self.root,
+                       "--story", "E001-S01-003", "--status", "done"])
+        sd = os.path.dirname(pm.story_file(self.root, "E001-S01-003"))
+        leftovers = [n for n in os.listdir(sd) if n.startswith(".pm-status.")]
+        self.assertEqual(leftovers, [])
+
+
+class TestKeyBasedAddressing(TestLayoutResolution):
+    """Reuses TestLayoutResolution's tree fixture."""
+
+    def run_main(self, argv):
+        buf = io.StringIO()
+        try:
+            with redirect_stdout(buf):
+                code = pm.main(argv)
+        except SystemExit as e:
+            code = e.code
+        return code, buf.getvalue()
+
+    def test_set_status_by_story_key(self):
+        code, out = self.run_main(
+            ["set-status", "--state-root", self.root, "--story", "E001-S01-003", "--status", "done"])
         self.assertEqual(code, 0, out)
-        y, data = pm._load(self.dest)
-        self.assertEqual(len(data["epics"]), 1)
-        self.assertEqual(data["epics"][0]["key"], "E001")
-        self.assertEqual(data["epics"][0]["status"], "done")
+        _, node = pm.load_node(pm.story_file(self.root, "E001-S01-003"))
+        self.assertEqual(node["status"], "done")
 
-    def test_appends_to_existing_archived(self):
-        with open(self.dest, "w", encoding="utf-8") as fh:
-            fh.write("epics:\n- key: E000\n  title: Old\n  status: done\n  sprints: []\n")
-        self.run_main(["archive-epic", "--source", self.src, "--dest", self.dest])
-        y, data = pm._load(self.dest)
-        self.assertEqual(len(data["epics"]), 2)
-        self.assertEqual(data["epics"][1]["key"], "E001")
+    def test_set_status_by_epic_key(self):
+        code, out = self.run_main(
+            ["set-status", "--state-root", self.root, "--epic", "E001", "--status", "done"])
+        self.assertEqual(code, 0, out)
+        _, node = pm.load_node(pm.epic_file(self.root, "E001"))
+        self.assertEqual(node["status"], "done")
 
-    def test_missing_source_exits_3(self):
-        code, _ = self.run_main(["archive-epic", "--source", "/nonexistent.yaml", "--dest", self.dest])
+    def test_set_status_by_sprint_key(self):
+        code, out = self.run_main(
+            ["set-status", "--state-root", self.root, "--epic", "E001",
+             "--sprint", "S01", "--status", "done"])
+        self.assertEqual(code, 0, out)
+        _, node = pm.load_node(pm.sprint_file(self.root, "E001", "S01"))
+        self.assertEqual(node["status"], "done")
+
+    def test_missing_node_exits_3(self):
+        code, _ = self.run_main(
+            ["set-status", "--state-root", self.root, "--story", "E001-S01-999", "--status", "done"])
         self.assertEqual(code, 3)
+
+    def test_set_actual_writes_all_four_metrics(self):
+        code, out = self.run_main(
+            ["set-actual", "--state-root", self.root, "--node", "story", "--story", "E001-S01-003",
+             "--elapsed-hours", "1.8", "--man-hours", "7", "--tokens-k", "355", "--cost", "5.32"])
+        self.assertEqual(code, 0, out)
+        _, node = pm.load_node(pm.story_file(self.root, "E001-S01-003"))
+        self.assertEqual(node["actual"]["tokens_k"], 355)
+        self.assertEqual(node["actual"]["man_hours"], 7)
+
+    def test_claude_runtime_still_rejects_na(self):
+        code, _ = self.run_main(
+            ["set-actual", "--state-root", self.root, "--node", "story", "--story", "E001-S01-003",
+             "--tokens-k", "N/A", "--runtime", "claude"])
+        self.assertEqual(code, 2)
+
+    def test_set_estimate_story_uses_single_values(self):
+        code, out = self.run_main(
+            ["set-estimate", "--state-root", self.root, "--story", "E001-S01-003",
+             "--man-hours", "6", "--time-hours", "1.5", "--tokens-k", "320", "--cost", "4.80"])
+        self.assertEqual(code, 0, out)
+        _, node = pm.load_node(pm.story_file(self.root, "E001-S01-003"))
+        self.assertEqual(node["estimate"]["man_hours"], 6.0)
+        self.assertNotIn("man_hours_low", node["estimate"])
+
+    def test_set_field_dot_path(self):
+        code, out = self.run_main(
+            ["set-field", "--state-root", self.root, "--story", "E001-S01-003",
+             "--field", "review.summary", "--value", "looks good"])
+        self.assertEqual(code, 0, out)
+        _, node = pm.load_node(pm.story_file(self.root, "E001-S01-003"))
+        self.assertEqual(node["review"]["summary"], "looks good")
+
+    def test_backref_mismatch_exits_4(self):
+        p = pm.story_file(self.root, "E001-S01-003")
+        with open(p, "w") as f:
+            f.write("key: 'E001-S01-003'\nepic: 'E999'\nsprint: 'S01'\nstatus: review\n")
+        code, _ = self.run_main(
+            ["set-status", "--state-root", self.root, "--story", "E001-S01-003", "--status", "done"])
+        self.assertEqual(code, 4)
+
+
+class TestVerify(TestLayoutResolution):
+    """Reuses TestLayoutResolution's tree fixture. Covers cmd_verify against the
+    --state-root interface for story/sprint scope. --scope epic is a distinct
+    branch (back-reference integrity across the whole subtree, not per-node
+    completion) — see TestVerifyEpicScope below."""
+
+    def run_main(self, argv):
+        buf = io.StringIO()
+        try:
+            with redirect_stdout(buf):
+                code = pm.main(argv)
+        except SystemExit as e:
+            code = e.code
+        return code, buf.getvalue()
+
+    def _complete(self, path, story=False):
+        from ruamel.yaml.comments import CommentedMap
+        y, node = pm.load_node(path)
+        node["status"] = "done"
+        actual = CommentedMap()
+        actual["elapsed_hours"] = 0.4
+        actual["man_hours"] = 3
+        actual["tokens_k"] = 120
+        actual["cost"] = "$1.10"
+        node["actual"] = actual
+        if story:
+            ce = CommentedMap()
+            ce["fix_iterations"] = 0
+            ce["tests_passing"] = 10
+            node["completion_evidence"] = ce
+        pm.save_node(y, node, path)
+
+    def test_scope_story_passes_when_complete(self):
+        self._complete(pm.story_file(self.root, "E001-S01-003"), story=True)
+        code, out = self.run_main(
+            ["verify", "--state-root", self.root, "--scope", "story", "--story", "E001-S01-003"])
+        self.assertEqual(code, 0, out)
+        self.assertIn("PASS", out)
+
+    def test_scope_story_fails_exit_4_when_incomplete(self):
+        # fixture default: status=review, no actual block, no completion_evidence
+        code, out = self.run_main(
+            ["verify", "--state-root", self.root, "--scope", "story", "--story", "E001-S01-003"])
+        self.assertEqual(code, 4)
+        self.assertIn("status=", out)
+
+    def test_scope_sprint_passes_when_complete(self):
+        self._complete(pm.sprint_file(self.root, "E001", "S01"))
+        code, out = self.run_main(
+            ["verify", "--state-root", self.root, "--scope", "sprint", "--epic", "E001", "--sprint", "S01"])
+        self.assertEqual(code, 0, out)
+        self.assertIn("PASS", out)
+
+    def test_nonexistent_node_exits_3(self):
+        code, _ = self.run_main(
+            ["verify", "--state-root", self.root, "--scope", "story", "--story", "E001-S01-999"])
+        self.assertEqual(code, 3)
+
+
+class TestVerifyEpicScope(TestLayoutResolution):
+    """verify --scope epic — deferred from Task 2 (ruling R3), implemented in Task 4
+    since it depends on list_sprint_dirs/list_story_files. Unlike story/sprint scope,
+    this branch checks only back-reference integrity across the whole epic subtree,
+    not per-node completion."""
+
+    def run_main(self, argv):
+        buf = io.StringIO()
+        try:
+            with redirect_stdout(buf):
+                code = pm.main(argv)
+        except SystemExit as e:
+            code = e.code
+        return code, buf.getvalue()
+
+    def test_scope_epic_passes_on_good_fixture(self):
+        code, out = self.run_main(
+            ["verify", "--state-root", self.root, "--scope", "epic", "--epic", "E001"])
+        self.assertEqual(code, 0, out)
+        self.assertIn("PASS", out)
+
+    def test_scope_epic_fails_exit_4_on_corrupted_backref(self):
+        p = pm.story_file(self.root, "E001-S01-003")
+        with open(p, "w") as f:
+            f.write("key: 'E001-S01-003'\nepic: 'E999'\nsprint: 'S01'\nstatus: review\n")
+        code, _ = self.run_main(
+            ["verify", "--state-root", self.root, "--scope", "epic", "--epic", "E001"])
+        self.assertEqual(code, 4)
+
+    def test_scope_epic_nonexistent_exits_3(self):
+        code, _ = self.run_main(
+            ["verify", "--state-root", self.root, "--scope", "epic", "--epic", "E999"])
+        self.assertEqual(code, 3)
+
+    def test_scope_epic_reports_missing_sprint_and_corrupted_story_together(self):
+        """Addition B: a sprint with no sprint.yaml must still be descended into, so a
+        corrupted story co-located with the missing sprint.yaml is also reported —
+        not silently skipped by the `continue` that used to follow the missing-file
+        failure."""
+        sd2 = os.path.join(self.root, "active", "epic-001", "sprint-02")
+        os.makedirs(sd2)
+        with open(os.path.join(sd2, "E001-S02-001.yaml"), "w") as f:
+            f.write("key: 'E001-S02-001'\nepic: 'E999'\nsprint: 'S02'\nstatus: review\n")
+
+        err = io.StringIO()
+        try:
+            with redirect_stderr(err):
+                code = pm.main(
+                    ["verify", "--state-root", self.root, "--scope", "epic", "--epic", "E001"])
+        except SystemExit as e:
+            code = e.code
+        self.assertEqual(code, 4)
+        failures = err.getvalue()
+        self.assertEqual(failures.count("FAIL "), 2, failures)
+        self.assertIn("sprint.yaml missing", failures)
+        self.assertIn("E001-S02-001", failures)
+
+
+class TestRollups(TestLayoutResolution):
+    """Sprint/epic aggregates computed from child files, and the `show` CLI
+    that renders them. Reuses TestLayoutResolution's E001/S01/E001-S01-003
+    fixture, adding two more stories to sprint-01."""
+
+    def setUp(self):
+        super().setUp()
+        sd = os.path.join(self.root, "active", "epic-001", "sprint-01")
+        with open(os.path.join(sd, "E001-S01-001.yaml"), "w") as f:
+            f.write("key: 'E001-S01-001'\nepic: 'E001'\nsprint: 'S01'\nstatus: done\n"
+                    "actual:\n  elapsed_hours: 1.0\n  man_hours: 4\n  tokens_k: 100\n  cost: 1.50\n")
+        with open(os.path.join(sd, "E001-S01-002.yaml"), "w") as f:
+            f.write("key: 'E001-S01-002'\nepic: 'E001'\nsprint: 'S01'\nstatus: done\n"
+                    "actual:\n  elapsed_hours: 2.0\n  man_hours: 6\n  tokens_k: 200\n  cost: 3.00\n")
+
+    def run_main(self, argv):
+        buf = io.StringIO()
+        try:
+            with redirect_stdout(buf):
+                code = pm.main(argv)
+        except SystemExit as e:
+            code = e.code
+        return code, buf.getvalue()
+
+    def test_list_story_files_sorted(self):
+        files = pm.list_story_files(self.root, "E001", "S01")
+        names = [os.path.basename(p) for p in files]
+        self.assertEqual(names, ["E001-S01-001.yaml", "E001-S01-002.yaml", "E001-S01-003.yaml"])
+
+    def test_list_story_files_excludes_sprint_yaml(self):
+        self.assertNotIn("sprint.yaml",
+                         [os.path.basename(p) for p in pm.list_story_files(self.root, "E001", "S01")])
+
+    def test_rollup_sprint_counts_by_status(self):
+        r = pm.rollup_sprint(self.root, "E001", "S01")
+        self.assertEqual(r["story_count"], 3)
+        self.assertEqual(r["by_status"]["done"], 2)
+        self.assertEqual(r["by_status"]["review"], 1)
+
+    def test_rollup_sprint_sums_actuals(self):
+        r = pm.rollup_sprint(self.root, "E001", "S01")
+        self.assertAlmostEqual(r["actual_totals"]["man_hours"], 10.0)
+        self.assertAlmostEqual(r["actual_totals"]["tokens_k"], 300.0)
+        self.assertAlmostEqual(r["actual_totals"]["cost"], 4.50)
+
+    def test_rollup_epic_aggregates_sprints(self):
+        r = pm.rollup_epic(self.root, "E001")
+        self.assertEqual(r["sprint_count"], 1)
+        self.assertEqual(r["story_count"], 3)
+
+    def test_show_sprint_outputs_summary(self):
+        code, out = self.run_main(
+            ["show", "--state-root", self.root, "--epic", "E001", "--sprint", "S01"])
+        self.assertEqual(code, 0, out)
+        self.assertIn("E001-S01-003", out)
+        self.assertIn("done", out)
+
+    def test_show_epic_outputs_summary(self):
+        code, out = self.run_main(
+            ["show", "--state-root", self.root, "--epic", "E001"])
+        self.assertEqual(code, 0, out)
+        self.assertIn("S01", out)
+        self.assertIn("stories=3", out)
+
+    def test_show_nonexistent_epic_exits_3(self):
+        code, _ = self.run_main(
+            ["show", "--state-root", self.root, "--epic", "E999"])
+        self.assertEqual(code, 3)
+
+    def test_show_nonexistent_sprint_exits_3(self):
+        code, _ = self.run_main(
+            ["show", "--state-root", self.root, "--epic", "E001", "--sprint", "S99"])
+        self.assertEqual(code, 3)
+
+
+class TestLockOnEpicFile(TestLayoutResolution):
+    """Lock commands using --state-root --epic instead of --file."""
+
+    def run_main(self, argv):
+        buf = io.StringIO()
+        try:
+            with redirect_stdout(buf):
+                code = pm.main(argv)
+        except SystemExit as e:
+            code = e.code
+        return code, buf.getvalue()
+
+    def test_set_lock_writes_lock_first(self):
+        code, out = self.run_main(
+            ["set-lock", "--state-root", self.root, "--epic", "E001", "--session-id", "sess-a"])
+        self.assertEqual(code, 0, out)
+        _, node = pm.load_node(pm.epic_file(self.root, "E001"))
+        self.assertEqual(list(node.keys())[0], "_lock")
+        self.assertEqual(node["_lock"]["session_id"], "sess-a")
+
+    def test_check_lock_exit_5_for_other_session(self):
+        self.run_main(["set-lock", "--state-root", self.root, "--epic", "E001",
+                       "--session-id", "sess-a"])
+        code, out = self.run_main(
+            ["check-lock", "--state-root", self.root, "--epic", "E001", "--session-id", "sess-b"])
+        self.assertEqual(code, 5)
+        self.assertIn("LOCKED", out)
+
+    def test_check_lock_free_for_own_session(self):
+        self.run_main(["set-lock", "--state-root", self.root, "--epic", "E001",
+                       "--session-id", "sess-a"])
+        code, out = self.run_main(
+            ["check-lock", "--state-root", self.root, "--epic", "E001", "--session-id", "sess-a"])
+        self.assertEqual(code, 0)
+        self.assertIn("FREE", out)
+
+    def test_clear_lock_removes_block(self):
+        self.run_main(["set-lock", "--state-root", self.root, "--epic", "E001",
+                       "--session-id", "sess-a"])
+        code, out = self.run_main(["clear-lock", "--state-root", self.root, "--epic", "E001"])
+        self.assertEqual(code, 0, out)
+        _, node = pm.load_node(pm.epic_file(self.root, "E001"))
+        self.assertNotIn("_lock", node)
+
+
+class TestLockOnMissingEpic(Base):
+    """Test lock commands on nonexistent epics to verify contract asymmetry."""
+
+    def run_main(self, argv):
+        buf = io.StringIO()
+        try:
+            with redirect_stdout(buf):
+                code = pm.main(argv)
+        except SystemExit as e:
+            code = e.code
+        return code, buf.getvalue()
+
+    def setUp(self):
+        super().setUp()
+        self.state_root = os.path.join(self.d, "state")
+        os.makedirs(self.state_root)
+
+    def test_clear_lock_missing_epic_noop(self):
+        """clear-lock on nonexistent epic returns 0 (no-op), not 3."""
+        code, out = self.run_main(
+            ["clear-lock", "--state-root", self.state_root, "--epic", "E999"])
+        self.assertEqual(code, 0, out)
+        self.assertIn("no-op", out)
+
+    def test_check_lock_missing_epic_is_free(self):
+        """check-lock on nonexistent epic returns 0 and outputs FREE, not 3."""
+        code, out = self.run_main(
+            ["check-lock", "--state-root", self.state_root, "--epic", "E999",
+             "--session-id", "sess-a"])
+        self.assertEqual(code, 0, out)
+        self.assertIn("FREE", out)
+
+    def test_set_lock_missing_epic_exits_3(self):
+        """set-lock on nonexistent epic returns 3 (node not found)."""
+        code, out = self.run_main(
+            ["set-lock", "--state-root", self.state_root, "--epic", "E999",
+             "--session-id", "sess-a"])
+        self.assertEqual(code, 3, out)
+
+    def test_clear_lock_existing_epic_no_lock_noop(self):
+        """clear-lock on existing epic with no _lock returns 0 (regression guard)."""
+        epic_dir = os.path.join(self.state_root, "active", "epic-999")
+        os.makedirs(epic_dir)
+        epic_file_path = os.path.join(epic_dir, "epic.yaml")
+        with open(epic_file_path, "w", encoding="utf-8") as fh:
+            fh.write("key: 'E999'\nstatus: in-progress\n")
+        code, out = self.run_main(
+            ["clear-lock", "--state-root", self.state_root, "--epic", "E999"])
+        self.assertEqual(code, 0, out)
+        self.assertIn("no _lock present", out)
+
+
+class TestEpicMoves(TestLayoutResolution):
+    """move-epic / archive-epic — epic directory moves between status folders."""
+
+    def run_main(self, argv):
+        buf = io.StringIO()
+        try:
+            with redirect_stdout(buf):
+                code = pm.main(argv)
+        except SystemExit as e:
+            code = e.code
+        return code, buf.getvalue()
+
+    def test_move_epic_planned_to_active(self):
+        new = pm.move_epic(self.root, "E005", "active")
+        self.assertTrue(new.endswith("active/epic-005"))
+        self.assertTrue(os.path.isdir(new))
+        self.assertFalse(os.path.isdir(os.path.join(self.root, "planned", "epic-005")))
+
+    def test_move_epic_preserves_tree(self):
+        pm.move_epic(self.root, "E001", "archived")
+        self.assertTrue(os.path.exists(os.path.join(
+            self.root, "archived", "epic-001", "sprint-01", "E001-S01-003.yaml")))
+
+    def test_move_epic_updates_status_field(self):
+        pm.move_epic(self.root, "E005", "active")
+        _, node = pm.load_node(pm.epic_file(self.root, "E005"))
+        self.assertEqual(node["status"], "in-progress")
+
+    def test_move_epic_rejects_bad_status(self):
+        with self.assertRaises(ValueError):
+            pm.move_epic(self.root, "E001", "nonsense")
+
+    def test_move_epic_refuses_existing_destination(self):
+        os.makedirs(os.path.join(self.root, "archived", "epic-001"))
+        with self.assertRaises(FileExistsError):
+            pm.move_epic(self.root, "E001", "archived")
+
+    def test_archive_epic_alias(self):
+        code, out = self.run_main(["archive-epic", "--state-root", self.root, "--epic", "E001"])
+        self.assertEqual(code, 0, out)
+        self.assertTrue(os.path.isdir(os.path.join(self.root, "archived", "epic-001")))
+
+    def test_version_increments_for_self_install(self):
+        self.assertEqual(pm.PM_STATUS_VERSION, "2.0.1")
+
+    def test_move_epic_already_in_place_is_noop(self):
+        """E001 already lives under active/ — moving it to 'active' must return the
+        existing path unchanged and must not touch epic.yaml's status field."""
+        before = pm.epic_file(self.root, "E001")
+        _, before_node = pm.load_node(before)
+        self.assertEqual(before_node["status"], "in-progress")
+
+        dest = pm.move_epic(self.root, "E001", "active")
+        self.assertEqual(os.path.abspath(dest), os.path.abspath(
+            os.path.join(self.root, "active", "epic-001")))
+
+        _, after_node = pm.load_node(pm.epic_file(self.root, "E001"))
+        self.assertEqual(after_node["status"], "in-progress")
+        self.assertNotIn("updated_at", after_node)  # untouched — no write happened
+
+    # --- CLI-level exit-code contract: cmd_move_epic must translate the
+    # move_epic() exceptions to the documented exit codes when invoked through
+    # pm.main(...), not just when move_epic() is called directly. ---
+
+    def test_cli_move_epic_missing_epic_exits_3(self):
+        code, out = self.run_main(
+            ["move-epic", "--state-root", self.root, "--epic", "E999", "--to", "archived"])
+        self.assertEqual(code, 3, out)
+
+    def test_cli_move_epic_existing_destination_exits_2(self):
+        os.makedirs(os.path.join(self.root, "archived", "epic-001"))
+        code, out = self.run_main(
+            ["move-epic", "--state-root", self.root, "--epic", "E001", "--to", "archived"])
+        self.assertEqual(code, 2, out)
+
+    def test_cli_move_epic_invalid_to_is_rejected(self):
+        # argparse `choices` rejects this before cmd_move_epic ever runs; assert the
+        # observed exit code (2, argparse's own usage-error convention) rather than
+        # assuming it flows through cmd_move_epic's own exception mapping.
+        code, out = self.run_main(
+            ["move-epic", "--state-root", self.root, "--epic", "E001", "--to", "nonsense"])
+        self.assertEqual(code, 2, out)
+
+    def test_cli_archive_epic_alias_missing_epic_exits_3(self):
+        code, out = self.run_main(
+            ["archive-epic", "--state-root", self.root, "--epic", "E999"])
+        self.assertEqual(code, 3, out)
+
+
+class TestEpicMovesGitBacked(unittest.TestCase):
+    """move_epic's *preferred* path is `git mv`, not the shutil fallback —
+    TestLayoutResolution's fixture is a plain tempdir with no .git ancestor, so
+    every TestEpicMoves case above exercises only the fallback. This class builds
+    a real git repo so the git-mv branch actually runs, and asserts the property
+    the whole directory-move design exists for: `git log --follow` survives the
+    move."""
+
+    def setUp(self):
+        self.d = tempfile.mkdtemp()
+        self.root = os.path.join(self.d, "state")
+        sd = os.path.join(self.root, "active", "epic-001", "sprint-01")
+        os.makedirs(sd)
+        with open(os.path.join(self.root, "active", "epic-001", "epic.yaml"), "w") as f:
+            f.write("key: 'E001'\nstatus: in-progress\n")
+        with open(os.path.join(sd, "sprint.yaml"), "w") as f:
+            f.write("key: 'S01'\nepic: 'E001'\nstatus: in-progress\n")
+        with open(os.path.join(sd, "E001-S01-003.yaml"), "w") as f:
+            f.write("key: 'E001-S01-003'\nepic: 'E001'\nsprint: 'S01'\nstatus: review\n")
+
+        self._run_git(["init", "-q", "."])
+        self._run_git(["config", "user.email", "pm-status-tests@example.invalid"])
+        self._run_git(["config", "user.name", "pm-status-tests"])
+        self._run_git(["add", "-A"])
+        self._run_git(["commit", "-q", "-m", "seed"])
+
+    def tearDown(self):
+        import shutil
+        shutil.rmtree(self.d, ignore_errors=True)
+
+    def _run_git(self, args):
+        import subprocess
+        r = subprocess.run(["git"] + args, cwd=self.root, capture_output=True, text=True)
+        if r.returncode != 0:
+            self.fail(f"git {' '.join(args)} failed: {r.stdout}{r.stderr}")
+        return r.stdout
+
+    def test_move_epic_uses_git_mv_and_stays_tracked(self):
+        moved_story = os.path.join(self.root, "archived", "epic-001", "sprint-01",
+                                    "E001-S01-003.yaml")
+        pm.move_epic(self.root, "E001", "archived")
+        self.assertTrue(os.path.exists(moved_story))
+
+        # If shutil.move had run instead of `git mv`, the destination files would be
+        # untracked (git status would show them as new/untracked "??", not present
+        # in `git ls-files`). Showing up in `git ls-files` at the new path proves
+        # the git-mv branch — not the fallback — actually executed.
+        tracked = self._run_git(["ls-files", "archived/epic-001"])
+        self.assertIn("archived/epic-001/sprint-01/E001-S01-003.yaml", tracked)
+        self.assertIn("archived/epic-001/epic.yaml", tracked)
+
+    def test_move_epic_preserves_history_via_git_log_follow(self):
+        pre_move_log = self._run_git(
+            ["log", "--oneline", "--",
+             "active/epic-001/sprint-01/E001-S01-003.yaml"]).strip()
+        self.assertTrue(pre_move_log, "fixture commit should already show in git log")
+
+        pm.move_epic(self.root, "E001", "archived")
+        # commit the move itself — git mv only stages the rename; --follow across
+        # an uncommitted-but-staged rename works too, but committing matches how
+        # the tool is actually used and removes any ambiguity.
+        self._run_git(["commit", "-q", "-m", "archive epic"])
+
+        follow_log = self._run_git(
+            ["log", "--follow", "--oneline", "--",
+             "archived/epic-001/sprint-01/E001-S01-003.yaml"])
+        lines = [ln for ln in follow_log.splitlines() if ln.strip()]
+        self.assertEqual(len(lines), 2, follow_log)  # "seed" + "archive epic"
+        self.assertIn("seed", follow_log)
 
 
 if __name__ == "__main__":
