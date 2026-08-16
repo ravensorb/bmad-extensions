@@ -466,6 +466,117 @@ def active_fix_factor(cal, classification: str):
     return float(rm) / float(cm)
 
 
+# The four metrics do NOT pair by name: an estimate's time_hours is an
+# actual's elapsed_hours. Zipping keys naively produces a silently wrong
+# wall-clock ratio, so the pairing is explicit. Sibling map: CLOSURE_ACTUAL_KEYS
+# (range-form parent estimates) encodes the same time_hours -> elapsed_hours
+# pairing for a different schema — kept separate deliberately, but if one
+# changes, check the other.
+ESTIMATE_TO_ACTUAL = {
+    "man_hours": "man_hours",
+    "time_hours": "elapsed_hours",
+    "tokens_k": "tokens_k",
+    "cost": "cost",
+}
+
+
+def derive_story_sample(node):
+    """Compute a story's scope samples and its fix cohort. None when not derivable."""
+    if not node:
+        return None
+    est, act = node.get("estimate") or {}, node.get("actual") or {}
+    if not est or not act:
+        return None
+
+    iters = ((node.get("completion_evidence") or {}).get("fix_iterations"))
+    has_factors = _is_number(est.get("fix_factor"))
+    fix_factor = float(est["fix_factor"]) if has_factors else 1.0
+
+    if not has_factors:
+        provenance = "legacy"
+    elif _is_number(iters) and int(iters) == 0:
+        provenance = "exact"
+    else:
+        provenance = "backout"
+
+    ratios = {}
+    for e_key, a_key in ESTIMATE_TO_ACTUAL.items():
+        e_val, a_val = est.get(e_key), act.get(a_key)
+        if e_val is None or a_val is None:
+            continue
+        if _is_na(e_val) or _is_na(a_val):
+            continue          # never coerce N/A to zero
+        if not _is_number(e_val) or not _is_number(a_val):
+            continue
+        e_num = float(str(e_val).lstrip("$"))
+        a_num = float(str(a_val).lstrip("$"))
+        if e_num == 0:
+            continue
+        # Both paths multiply by the applied fix factor: a pure-scope actual is
+        # still compared against an estimate that had fix baked in.
+        ratios[e_key] = a_num * fix_factor / e_num
+
+    if not ratios:
+        return None
+    return {
+        "classification": str(node.get("classification", "standard")),
+        "provenance": provenance,
+        "fix_iterations": int(iters) if _is_number(iters) else None,
+        "scope_ratios": ratios,
+        "actual_man_hours": float(act["man_hours"]) if _is_number(act.get("man_hours")) else None,
+    }
+
+
+def _bump_cohort(entry, cohort: str, man_hours):
+    """Running mean over a cohort, so a full sample history is not needed."""
+    from ruamel.yaml.comments import CommentedMap
+    c = entry.get(cohort)
+    if c is None:
+        c = CommentedMap()
+        c["mean_man_hours"] = 0.0
+        c["samples"] = 0
+        entry[cohort] = c
+    if man_hours is None:
+        return
+    n = int(c.get("samples", 0))
+    mean = float(c.get("mean_man_hours", 0.0))
+    c["mean_man_hours"] = round((mean * n + man_hours) / (n + 1), 4)
+    c["samples"] = n + 1
+
+
+def record_story_sample(state_root: str, node) -> str:
+    """Derive a story's calibration sample and append it to the shared file.
+
+    A write path, unlike load_calibration: migrates a stale schema version
+    before appending, so a v1 file is never mistaken for v2 and corrupted by
+    samples landing in a structure that doesn't exist there yet.
+    """
+    sample = derive_story_sample(node)
+    if sample is None:
+        return "no sample (missing estimate or actual)"
+    from ruamel.yaml.comments import CommentedMap
+    y, cal = load_calibration(state_root)
+    if cal.get("version") != CALIBRATION_SCHEMA_VERSION:
+        cal = migrate_calibration(y, cal, state_root)
+    cls = sample["classification"]
+
+    bucket = cal["scope"].setdefault(cls, CommentedMap())
+    for metric, ratio in sample["scope_ratios"].items():
+        entry = bucket.setdefault(metric, CommentedMap())
+        entry.setdefault("samples", [])
+        entry["samples"].append(round(ratio, 4))
+
+    fix_entry = cal["fix"].setdefault(cls, CommentedMap())
+    iters = sample["fix_iterations"]
+    if iters is not None:
+        _bump_cohort(fix_entry, "clean" if iters == 0 else "reworked",
+                     sample["actual_man_hours"])
+
+    save_calibration(y, cal, state_root)
+    return (f"scope+{len(sample['scope_ratios'])} metrics, "
+            f"provenance={sample['provenance']}, class={cls}")
+
+
 def cmd_calibration(args) -> int:
     _, cal = load_calibration(args.state_root)
     exists = os.path.exists(calibration_path(args.state_root))

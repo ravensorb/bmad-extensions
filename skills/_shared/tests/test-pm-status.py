@@ -1193,5 +1193,92 @@ class TestEstimateFactors(TestLayoutResolution):
         self.assertNotIn("fix_factor", node["estimate"])
 
 
+class TestStorySampling(unittest.TestCase):
+    def setUp(self):
+        self.d = tempfile.mkdtemp()
+        self.root = os.path.join(self.d, "state")
+        os.makedirs(self.root)
+
+    def tearDown(self):
+        import shutil
+        shutil.rmtree(self.d, ignore_errors=True)
+
+    def _story(self, iterations, est=None, act=None):
+        est = est or {"man_hours": 6, "time_hours": 1.5, "tokens_k": 320,
+                      "cost": 4.80, "fix_factor": 1.25, "scope_ratio": 1.0}
+        act = act or {"man_hours": 7, "elapsed_hours": 1.8, "tokens_k": 355,
+                      "cost": 5.32}
+        node = {"key": "E001-S01-003", "classification": "complex",
+                "estimate": est, "actual": act}
+        if iterations is not None:
+            node["completion_evidence"] = {"fix_iterations": iterations}
+        return node
+
+    def test_pairing_is_not_identity(self):
+        # the map must send time_hours to elapsed_hours, not to itself
+        self.assertEqual(pm.ESTIMATE_TO_ACTUAL["time_hours"], "elapsed_hours")
+        self.assertEqual(pm.ESTIMATE_TO_ACTUAL["man_hours"], "man_hours")
+
+    def test_zero_iterations_gives_exact_provenance(self):
+        s = pm.derive_story_sample(self._story(0))
+        self.assertEqual(s["provenance"], "exact")
+
+    def test_reworked_story_uses_backout_provenance(self):
+        s = pm.derive_story_sample(self._story(3))
+        self.assertEqual(s["provenance"], "backout")
+
+    def test_absent_iterations_uses_backout(self):
+        s = pm.derive_story_sample(self._story(None))
+        self.assertEqual(s["provenance"], "backout")
+
+    def test_legacy_estimate_without_factors_is_marked(self):
+        est = {"man_hours": 6, "time_hours": 1.5, "tokens_k": 320, "cost": 4.80}
+        s = pm.derive_story_sample(self._story(0, est=est))
+        self.assertEqual(s["provenance"], "legacy")
+
+    def test_scope_ratio_uses_wall_clock_pairing_correctly(self):
+        # estimate.time_hours 1.5 vs actual.elapsed_hours 1.8, fix_factor 1.25
+        s = pm.derive_story_sample(self._story(0))
+        self.assertAlmostEqual(s["scope_ratios"]["time_hours"], 1.8 * 1.25 / 1.5)
+
+    def test_na_metrics_are_skipped_not_zeroed(self):
+        act = {"man_hours": 7, "elapsed_hours": 1.8, "tokens_k": "N/A", "cost": "N/A"}
+        s = pm.derive_story_sample(self._story(0, act=act))
+        self.assertNotIn("tokens_k", s["scope_ratios"])
+        self.assertNotIn("cost", s["scope_ratios"])
+        self.assertIn("man_hours", s["scope_ratios"])
+
+    def test_no_estimate_yields_no_sample(self):
+        node = {"key": "E001-S01-003", "classification": "complex",
+                "actual": {"man_hours": 7}}
+        self.assertIsNone(pm.derive_story_sample(node))
+
+    def test_record_appends_to_scope_and_fix_cohort(self):
+        pm.record_story_sample(self.root, self._story(0))
+        _, cal = pm.load_calibration(self.root)
+        self.assertEqual(len(pm._component_samples(cal, "scope", "complex", "man_hours")), 1)
+        self.assertEqual(int(cal["fix"]["complex"]["clean"]["samples"]), 1)
+
+    def test_reworked_story_joins_reworked_cohort(self):
+        pm.record_story_sample(self.root, self._story(2))
+        _, cal = pm.load_calibration(self.root)
+        self.assertEqual(int(cal["fix"]["complex"]["reworked"]["samples"]), 1)
+        self.assertEqual(int(cal["fix"]["complex"].get("clean", {}).get("samples", 0)), 0)
+
+    def test_v1_file_is_migrated_not_corrupted_on_record(self):
+        p = pm.calibration_path(self.root)
+        with open(p, "w") as f:
+            f.write("version: 1\nratio: 1.3\n")
+        pm.record_story_sample(self.root, self._story(0))
+        _, cal = pm.load_calibration(self.root)
+        self.assertEqual(cal["version"], pm.CALIBRATION_SCHEMA_VERSION)
+        self.assertTrue(os.path.exists(p + ".v1"))
+        # migration seeds scope["complex"]["man_hours"] with the old blended
+        # ratio as one sample; record_story_sample appends a second on top —
+        # proof the migrated structure, not a corrupted v1 shape, took the write.
+        self.assertEqual(len(pm._component_samples(cal, "scope", "complex", "man_hours")), 2)
+        self.assertEqual(int(cal["fix"]["complex"]["clean"]["samples"]), 1)
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)
