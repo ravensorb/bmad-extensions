@@ -100,11 +100,10 @@ Phase 2 (parallel — {count} epics):
   • E003 "Mobile App" — depends on: E001 ✅, E002 ✅
 
 Critical path: E001 → E003  ({estimated_hours_low}–{estimated_hours_high} hrs)
-Deferred epics (excluded from graph): {deferred_epic_keys}
 ```
 
 ## 6. Output status line
 
 ```
-Step 05 complete — phases: {phase_count}, epics in graph: {in_scope_epic_count}, deferred: {deferred_count}, critical path: {critical_path_epics joined by " → "}
+Step 05 complete — phases: {phase_count}, epics in graph: {in_scope_epic_count}, critical path: {critical_path_epics joined by " → "}
 ```

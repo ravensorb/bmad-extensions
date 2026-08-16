@@ -696,6 +696,72 @@ def cmd_append_issue(args) -> int:
     return 0
 
 
+def _norm_num(v, width: int) -> str:
+    """Normalize a possibly key-prefixed or unpadded numeric id to a zero-padded digit
+    string: 'E1'/'001' -> '001' (width=3); 'S1'/'01' -> '01' (width=2). Falls back to the
+    stripped original string when it is not purely numeric, so a malformed stored value
+    still compares by equality instead of raising."""
+    s = str(v).strip()
+    core = s.lstrip("EeSs")
+    if core.isdigit():
+        return f"{int(core):0{width}d}"
+    return s
+
+
+def cmd_list_issues(args) -> int:
+    """List (with optional filters) the flat backlog in issues.yaml.
+
+    A missing issues.yaml and a filter set that matches nothing are both success
+    (exit 0) — an empty backlog is a normal project state, not a failure. Filters
+    combine with AND; a repeated --severity ORs the given severities together.
+    """
+    path = os.path.join(args.state_root, "issues.yaml")
+    _, data = _load(path)
+    items = list((data or {}).get("backlog") or [])
+
+    epic_filter = _norm_num(args.epic, 3) if args.epic else None
+    sprint_filter = _norm_num(args.sprint, 2) if args.sprint else None
+    severity_filter = set(args.severity) if args.severity else None
+
+    def matches(item) -> bool:
+        if epic_filter is not None and _norm_num(item.get("epic", ""), 3) != epic_filter:
+            return False
+        if sprint_filter is not None:
+            item_sprint = str(item.get("sprint", "") or "").strip()
+            # empty sprint = epic-level item; it never satisfies a --sprint filter
+            if not item_sprint or _norm_num(item_sprint, 2) != sprint_filter:
+                return False
+        if severity_filter is not None and item.get("severity") not in severity_filter:
+            return False
+        return True
+
+    filtered = [i for i in items if matches(i)]
+
+    if args.format == "json":
+        import json
+        sys.stdout.write(json.dumps([dict(i) for i in filtered], indent=2) + "\n")
+        return 0
+
+    if not filtered:
+        sys.stdout.write("(no matching issues)\n")
+        return 0
+
+    headers = ["KEY", "EPIC", "SPRINT", "SEVERITY", "STATUS", "TITLE"]
+    rows = [[str(i.get("key", "")), str(i.get("epic", "")), str(i.get("sprint", "")) or "-",
+             str(i.get("severity", "")), str(i.get("status", "")), str(i.get("title", ""))]
+            for i in filtered]
+    widths = [max(len(headers[c]), *(len(r[c]) for r in rows)) for c in range(len(headers))]
+
+    def _fmt_row(cells):
+        last = len(cells) - 1
+        return "  ".join(c if idx == last else c.ljust(widths[idx]) for idx, c in enumerate(cells))
+
+    sys.stdout.write(_fmt_row(headers) + "\n")
+    for r in rows:
+        sys.stdout.write(_fmt_row(r) + "\n")
+    return 0
+
+
 STATUS_FOR_DIR = {"planned": "backlog", "active": "in-progress", "archived": "done"}
 
 
@@ -1020,6 +1086,15 @@ def build_parser() -> argparse.ArgumentParser:
     ai.add_argument("--severity", required=True, choices=["Low", "Medium", "High", "Critical"])
     ai.add_argument("--description", default="")
     ai.set_defaults(func=cmd_append_issue)
+
+    li = sub.add_parser("list-issues", help="list (with filters) the flat backlog in issues.yaml")
+    li.add_argument("--state-root", required=True, help="path to {implementation_artifacts}/state")
+    li.add_argument("--epic", help="epic id — accepts 'E001' or '001'")
+    li.add_argument("--sprint", help="sprint id — accepts 'S01' or '01'; never matches an epic-level (empty-sprint) item")
+    li.add_argument("--severity", action="append", choices=["Low", "Medium", "High", "Critical"],
+                    help="filter by severity; repeat to OR multiple severities")
+    li.add_argument("--format", choices=["text", "json"], default="text")
+    li.set_defaults(func=cmd_list_issues)
 
     mv = sub.add_parser("move-epic", help="move an epic directory between status folders")
     mv.add_argument("--state-root", required=True)

@@ -205,6 +205,143 @@ class TestAppendIssue(unittest.TestCase):
         self.assertEqual(code, 2)
 
 
+ISSUES_FIXTURE = """\
+backlog:
+- key: BL-E001-001
+  epic: '001'
+  sprint: '01'
+  title: Sprint-level issue
+  source: qa
+  severity: Low
+  status: backlog
+- key: BL-E001-002
+  epic: '001'
+  sprint: ''
+  title: Epic-level issue
+  source: arch-review
+  severity: High
+  status: backlog
+- key: BL-E002-001
+  epic: '002'
+  sprint: '01'
+  title: Other-epic issue
+  source: red-team
+  severity: Medium
+  status: backlog
+- key: BL-E000-001
+  epic: '000'
+  sprint: ''
+  title: Repo-global issue
+  source: adversarial
+  severity: Critical
+  status: backlog
+"""
+
+
+class TestListIssues(unittest.TestCase):
+    """list-issues reads state-root/issues.yaml; a missing file or a filter set
+    matching nothing is success (exit 0), never an error."""
+
+    def setUp(self):
+        self.d = tempfile.mkdtemp()
+        self.state_root = os.path.join(self.d, "state")
+        os.makedirs(self.state_root, exist_ok=True)
+        self.issues_file = os.path.join(self.state_root, "issues.yaml")
+
+    def write_fixture(self):
+        with open(self.issues_file, "w", encoding="utf-8") as fh:
+            fh.write(ISSUES_FIXTURE)
+
+    def run_main(self, argv):
+        buf = io.StringIO()
+        code = 0
+        try:
+            with redirect_stdout(buf):
+                code = pm.main(argv)
+        except SystemExit as e:
+            code = e.code if isinstance(e.code, int) else 1
+        return code, buf.getvalue()
+
+    def run_json(self, extra_args):
+        import json
+        code, out = self.run_main(["list-issues", "--state-root", self.state_root,
+                                    "--format", "json"] + extra_args)
+        self.assertEqual(code, 0, out)
+        return json.loads(out)
+
+    def test_no_filter_returns_everything(self):
+        self.write_fixture()
+        items = self.run_json([])
+        self.assertEqual(len(items), 4)
+
+    def test_epic_filter_matches_key_form(self):
+        self.write_fixture()
+        items = self.run_json(["--epic", "E001"])
+        self.assertEqual({i["key"] for i in items}, {"BL-E001-001", "BL-E001-002"})
+
+    def test_epic_filter_matches_zero_padded_number_form(self):
+        self.write_fixture()
+        items = self.run_json(["--epic", "001"])
+        self.assertEqual({i["key"] for i in items}, {"BL-E001-001", "BL-E001-002"})
+
+    def test_sprint_filter_excludes_epic_level_items(self):
+        self.write_fixture()
+        items = self.run_json(["--sprint", "S01"])
+        self.assertEqual({i["key"] for i in items}, {"BL-E001-001", "BL-E002-001"})
+        keys = {i["key"] for i in items}
+        self.assertNotIn("BL-E001-002", keys)
+        self.assertNotIn("BL-E000-001", keys)
+
+    def test_sprint_filter_matches_unpadded_number_form(self):
+        self.write_fixture()
+        items = self.run_json(["--sprint", "1"])
+        self.assertEqual({i["key"] for i in items}, {"BL-E001-001", "BL-E002-001"})
+
+    def test_severity_filter(self):
+        self.write_fixture()
+        items = self.run_json(["--severity", "High"])
+        self.assertEqual({i["key"] for i in items}, {"BL-E001-002"})
+
+    def test_severity_filter_repeated_ors_values(self):
+        self.write_fixture()
+        items = self.run_json(["--severity", "Low", "--severity", "High"])
+        self.assertEqual({i["key"] for i in items}, {"BL-E001-001", "BL-E001-002"})
+
+    def test_combined_filters_and(self):
+        self.write_fixture()
+        items = self.run_json(["--epic", "001", "--severity", "Low"])
+        self.assertEqual({i["key"] for i in items}, {"BL-E001-001"})
+
+    def test_epic_and_sprint_combined_and(self):
+        self.write_fixture()
+        items = self.run_json(["--epic", "001", "--sprint", "01"])
+        self.assertEqual({i["key"] for i in items}, {"BL-E001-001"})
+
+    def test_missing_file_exits_0_with_empty_json(self):
+        # no write_fixture() — issues.yaml does not exist
+        items = self.run_json([])
+        self.assertEqual(items, [])
+
+    def test_missing_file_exits_0_with_empty_text(self):
+        code, out = self.run_main(["list-issues", "--state-root", self.state_root])
+        self.assertEqual(code, 0)
+        self.assertNotIn("Traceback", out)
+
+    def test_text_format_is_readable_table(self):
+        self.write_fixture()
+        code, out = self.run_main(["list-issues", "--state-root", self.state_root])
+        self.assertEqual(code, 0)
+        self.assertIn("BL-E001-001", out)
+        self.assertIn("KEY", out)
+
+    def test_format_json_emits_valid_parseable_json(self):
+        self.write_fixture()
+        items = self.run_json(["--epic", "E002"])
+        self.assertIsInstance(items, list)
+        self.assertEqual(items[0]["key"], "BL-E002-001")
+        self.assertEqual(items[0]["severity"], "Medium")
+
+
 class TestLayoutResolution(unittest.TestCase):
     def setUp(self):
         self.d = tempfile.mkdtemp()

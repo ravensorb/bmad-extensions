@@ -279,6 +279,7 @@ Subcommand summary (see `pm-status.py --help` for full flags):
 | `move-epic` | `--state-root --epic ID --to {planned,active,archived}` |
 | `archive-epic` | `--state-root --epic ID` — alias for `move-epic --to archived` |
 | `append-issue` | `--file` (the one exception; see above) |
+| `list-issues` | `--state-root` (reads `{state-root}/issues.yaml`) + optional `--epic`/`--sprint`/`--severity`/`--format` filters |
 | `progress` | `--ledger` + `--msg` (unrelated to state-root addressing) |
 
 `show --state-root {pm_state_root} --epic E001 [--sprint S01]` renders a computed roll-up
