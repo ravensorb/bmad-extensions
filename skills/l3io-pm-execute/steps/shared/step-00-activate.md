@@ -43,6 +43,20 @@ message is normal. Failure here is BLOCKED.
 Bind `{pm_status}` = `{project-root}/_bmad/scripts/pm-status.py` for use in all
 subsequent steps.
 
+Bind `{runtime}` — passed as `--runtime` to every `set-actual` and `verify` call
+(`references/metrics-contract.md` §3). The value must be **exactly** `claude` or
+`other` — `pm-status.py` declares `--runtime` with `choices=["claude", "other"]` and
+rejects anything else with exit 2, so never widen this to a runtime name or version
+string. The criterion is a capability, not a brand check: bind `claude` only when this
+execution can read its own session transcript's `usage` fields to capture exact
+`tokens_k`/`cost` for the session (Claude Code, or any Claude-based agent with that
+transcript access); bind `other` otherwise. **Default to `other` when uncertain** — it
+is the permissive value, allowing `N/A` for `tokens_k`/`cost`, while `claude` forbids
+`N/A` there; guessing `claude` without the ability to produce exact figures would either
+block every write or invite a fabricated number, and both are worse than an honest
+`N/A`. Do not treat this default as a bug to "fix" later — it is the deliberate
+fail-safe direction.
+
 ## 3. Detect state layout
 
 Count how many of these three layouts are present — do **not** stop at the first match:
@@ -149,5 +163,5 @@ owning session. Generate it once here; never regenerate it in later steps.
 ## 8. Output status line
 
 ```
-Step 00 complete — state: {pm_state_root}, active epics: {count_of_active_epic_keys}, pm-status: installed
+Step 00 complete — state: {pm_state_root}, active epics: {count_of_active_epic_keys}, pm-status: installed, runtime: {runtime}
 ```
