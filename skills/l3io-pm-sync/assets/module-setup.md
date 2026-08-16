@@ -35,6 +35,25 @@ Show defaults in brackets. Present all prompts together so the user can respond 
 - `implementation_artifacts` (default: `{project-root}/_bmad-output/implementation-artifacts`) — absolute path to dev-facing artifacts
 - `planning_artifacts` (default: `{project-root}/_bmad-output/planning-artifacts`) — absolute path to plan outputs
 
+## Verify State Is Version-Controlled
+
+l3io-pm state must be committed — it is shared with the team, appears in PRs, and must
+survive a fresh clone. Verify the state root is not gitignored:
+
+```bash
+git -C {project-root} check-ignore -q {implementation_artifacts}/state && echo IGNORED || echo TRACKED
+```
+
+If `IGNORED`, stop and tell the user to add these lines to `.gitignore`, then re-run setup:
+
+```
+!{implementation_artifacts}/state/
+!{implementation_artifacts}/state/**
+```
+
+Do not proceed with `IGNORED` — state written to an ignored path is silently lost on a
+fresh clone, which is the failure this check exists to prevent.
+
 ## Write Files
 
 Write a temp JSON file with collected answers. Run both scripts in parallel:
@@ -50,14 +69,6 @@ python3 scripts/merge-help-csv.py \
   --target "{project-root}/_bmad/module-help.csv" \
   --source assets/module-help.csv \
   --module-code l3io-pm
-```
-
-## Create State Directory
-
-After config is written, create the state directory:
-
-```bash
-mkdir -p "{project-root}/_bmad/state/active"
 ```
 
 ## Confirm
