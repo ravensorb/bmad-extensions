@@ -2,6 +2,37 @@
 
 All notable changes to this project will be documented in this file. See [commit-and-tag-version](https://github.com/absolute-version/commit-and-tag-version) for commit guidelines.
 
+## [2.0.1](https://github.com/ravensorb/bmad-extensions/compare/2.0.0...2.0.1) (2026-08-16)
+
+
+### Features
+
+* **l3io-pm:** add list-issues subcommand to pm-status.py ([433bc30](https://github.com/ravensorb/bmad-extensions/commit/433bc30159b45523b536b0bf1ffe723ab5a38e9c))
+* **l3io-pm:** resolve state nodes by key over a sharded tree ([8d3d2c2](https://github.com/ravensorb/bmad-extensions/commit/8d3d2c29fdea90b5ac1c4bce949bbdafba633857))
+
+
+### Fixes
+
+* **ci-cd:** update test path to skills/_shared/ for v2 flat layout ([9d7f6f5](https://github.com/ravensorb/bmad-extensions/commit/9d7f6f5110bf177f7bb60965814f7a5f70ecd7c2))
+* **infra:** document the sharded layout and gate releases on script sync ([eb9a24f](https://github.com/ravensorb/bmad-extensions/commit/eb9a24f533522aec43110cc0a5768bbb2cd64207))
+* **l3io-pm:** bind {runtime} at activation for set-actual/verify calls ([c81f748](https://github.com/ravensorb/bmad-extensions/commit/c81f7480131f164e9e481740d30192e91eac85f5))
+* **l3io-pm:** call pm-status.py with keys, and fix the upgrade deadlock ([f511f1d](https://github.com/ravensorb/bmad-extensions/commit/f511f1d749c3bb29483dc931bcbcc5422485a8df))
+* **l3io-pm:** close upgrade-path gaps in migration, help, and state helper ([6f01f2c](https://github.com/ravensorb/bmad-extensions/commit/6f01f2c39cdaa92bcec54954a2f3afea86453764))
+* **l3io-pm:** gate module setup on state being version-controlled ([1cfaa73](https://github.com/ravensorb/bmad-extensions/commit/1cfaa738b78c30706e3268fe3173078c6ec5ebe8))
+* **l3io-pm:** read the sharded layout in l3io-pm-help ([e428d58](https://github.com/ravensorb/bmad-extensions/commit/e428d583c08140b8d091f00826085f7fcd0a02c0))
+* **l3io-pm:** remove dead deferred epic-status bucket from l3io-pm-plan ([1c28bba](https://github.com/ravensorb/bmad-extensions/commit/1c28bba4fcfa9a00c3e7f7f4fd9ca62f98b3791e))
+* **l3io-pm:** repair l3io-pm-sync against its real script CLIs ([890c748](https://github.com/ravensorb/bmad-extensions/commit/890c7482423fc50950342c266cc619995c303215))
+* **l3io-util:** extend clean-legacy to cover migrate-state's actual backups ([0add27d](https://github.com/ravensorb/bmad-extensions/commit/0add27dcb768bdbeaa7416f9b45e6c7f6efdce5a))
+* **l3io-util:** migrate to the sharded layout, verify before destroying ([0718ab6](https://github.com/ravensorb/bmad-extensions/commit/0718ab6783f948b3e44d939a0066973b0d4bdb3c))
+
+
+### Documentation
+
+* add design spec and implementation plan for state relocation ([845495a](https://github.com/ravensorb/bmad-extensions/commit/845495a71176b00956e777024fb68c16bdd796aa))
+* **l3io-pm:** add metrics-contract.md reference and wire into shared sync ([93c7db0](https://github.com/ravensorb/bmad-extensions/commit/93c7db0b132fe0dccbcc8c49a801d760b4525c2d))
+* **l3io-pm:** correct stale pm-status.py help text ([d11c359](https://github.com/ravensorb/bmad-extensions/commit/d11c3591acd3146e772143e9dc5183b72de11faa))
+* **l3io-pm:** rewrite status-files.md as the state layout contract ([c188377](https://github.com/ravensorb/bmad-extensions/commit/c188377ea6981592ad8abb74e9157a9df862ec3b))
+
 ## [2.0.0](https://github.com/ravensorb/bmad-extensions/compare/1.1.1...2.0.0) (2026-08-15)
 
 
