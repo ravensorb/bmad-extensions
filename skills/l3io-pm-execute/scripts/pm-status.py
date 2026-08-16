@@ -27,12 +27,17 @@ ruamel.yaml is already importable.
 Subcommands
 -----------
   set-status    --state-root S  (--story KEY | --epic ID [--sprint ID])  --status S
-                [--title T] [--ledger L]
+                [--title T] [--ledger L] [--scope SCOPE] [--flock]
   set-actual    --state-root S   --node {story,sprint,epic}  (--story KEY | --epic ID [--sprint ID])
                 [--elapsed-hours H] [--man-hours H] [--tokens-k K] [--cost C]
-                [--runtime {claude,other}] [--ledger L]
-  set-estimate  --state-root S  --node {story,sprint,epic}  (--story KEY | --epic ID [--sprint ID])
-                [--man-hours H] [--compute-hours H] [--tokens-k K] [--cost C]
+                [--runtime {claude,other}] [--ledger L] [--scope SCOPE] [--flock]
+  set-estimate  --state-root S  (--story KEY | --epic ID [--sprint ID])
+                [--man-hours-low H] [--man-hours-high H] [--time-hours-low H] [--time-hours-high H]
+                [--tokens-k-min K] [--tokens-k-max K] [--cost-low C] [--cost-high C]
+                (sprint/epic ranges; kind is inferred from --story vs --epic[/--sprint] —
+                a story node instead takes the single-value aliases --man-hours H,
+                --time-hours H, --tokens-k K, --cost C)
+                [--confidence {low,medium,high}] [--flock]
   set-field     --state-root S  (--story KEY | --epic ID [--sprint ID])  --field NAME --value V
   progress      --ledger L  --msg "..."  [--scope "E01/S02/ST03"]
   verify        --state-root S  --scope {story,sprint,epic}  (--story KEY | --epic ID [--sprint ID])
@@ -43,7 +48,13 @@ Subcommands
   set-lock      --state-root S  --epic ID  --session-id SESS  [--ttl-minutes N]
   clear-lock    --state-root S  --epic ID
   check-lock    --state-root S  --epic ID  --session-id SESS
-  append-issue  --file F  --epic ID  --issue TEXT
+  append-issue  --file F  --key BL-E{nnn}-{nnn}  --epic E  [--sprint S]  --title T
+                --source S  --severity {Low,Medium,High,Critical}  [--description D]
+  list-issues   --state-root S  [--epic E] [--sprint S]
+                [--severity {Low,Medium,High,Critical}] [--format {text,json}]
+                (filters combine with AND; a repeated --severity ORs the given severities;
+                a missing issues.yaml, or a filter matching nothing, is success — exit 0
+                with an empty result, not an error)
   move-epic     --state-root S  --epic ID  --to {planned,active,archived}
   archive-epic  --state-root S  --epic ID   (alias for move-epic --to archived)
   self-install  --dest PATH  [--force]
@@ -667,7 +678,7 @@ def cmd_set_field(args) -> int:
 
 
 def cmd_append_issue(args) -> int:
-    """Append a BL item to the backlog: list in sprint-status-issues.yaml (flock-protected)."""
+    """Append a BL item to the backlog: list in state/issues.yaml (flock-protected)."""
     y, data = _load(args.file)
     if data is None:
         from ruamel.yaml.comments import CommentedMap, CommentedSeq
@@ -1076,7 +1087,7 @@ def build_parser() -> argparse.ArgumentParser:
     sf.add_argument("--value", required=True, help="string value to set")
     sf.set_defaults(func=cmd_set_field)
 
-    ai = sub.add_parser("append-issue", help="append a BL item to sprint-status-issues.yaml")
+    ai = sub.add_parser("append-issue", help="append a BL item to state/issues.yaml")
     ai.add_argument("--file", required=True)
     ai.add_argument("--key", required=True, help="BL-E{nnn}-{nnn}")
     ai.add_argument("--epic", required=True, help="zero-padded epic number, e.g. '001'")
