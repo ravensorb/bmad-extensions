@@ -388,22 +388,31 @@ figure) is circular for a `fix` sample: it divides by the very number it is tryi
 so `fix` could only ever re-derive its own prior. `derive_story_sample` avoids this for the
 `fix` side by using `completion_evidence.fix_iterations` directly:
 
+**The scope-ratio formula never changes.** Whenever a `fix_factor` is present on the
+estimate, every scope ratio — `exact` or `backout` alike — is computed as `actual ×
+applied_fix_factor / estimate`, per metric. A pure-scope (zero-rework) actual is still being
+compared against an estimate that already had the fix multiplier baked into it at
+`estimate-story` time, so it still needs that same multiplier applied before the comparison
+is fair. **`exact` vs. `backout` changes only the provenance label and which `fix` cohort the
+man-hours actual feeds — never the arithmetic.**
+
 - **The estimate has no `fix_factor` recorded at all** (a story estimated before
   `estimate-story` existed, or estimated by hand) — `provenance: legacy`, checked first and
-  independent of `fix_iterations`. `derive_story_sample` still computes a scope ratio (using
-  `fix_factor = 1.0` since there is none to apply), but records no fix-cohort sample: there
-  is nothing to attribute rework to without knowing what fix multiplier, if any, was baked
-  into the estimate.
-- **`fix_iterations == 0`** (and a `fix_factor` is present) — the story needed no rework. The
-  actual is an **exact** scope sample; `provenance: exact`. Man-hours also feed the `clean`
-  cohort of `fix` unmodified.
+  independent of `fix_iterations`. `derive_story_sample` still computes a scope ratio, but
+  with `fix_factor = 1.0` since there is none to apply, and records no fix-cohort sample:
+  there is nothing to attribute rework to without knowing what fix multiplier, if any, was
+  baked into the estimate.
+- **`fix_iterations == 0`** (and a `fix_factor` is present) — the story needed no rework.
+  `provenance: exact` — the scope ratio (still `actual × fix_factor / estimate`) is treated
+  as a clean read on the scope component, with no back-out uncertainty, because there was no
+  rework to conflate it with. Man-hours also feed the `clean` cohort of `fix` unmodified.
 - **`fix_iterations > 0`, or the field is absent entirely** (a `fix_factor` is present, but
-  the completion evidence doesn't say zero) — `provenance: backout`. The **scope** ratio uses
-  the back-out (`actual × applied_fix_factor / estimate`, per metric) because there is no way
-  to isolate the scope-only portion of the actual. When `fix_iterations` is a real number
-  `> 0`, man-hours also feed the `reworked` cohort; when the field is simply **absent**, no
-  fix-cohort sample is recorded either — there's a fix factor to back out arithmetically, but
-  no iteration count to say which cohort the man-hours belong to.
+  the completion evidence doesn't say zero) — `provenance: backout`. The label reflects that
+  this actual mixes scope and rework and the split is inferred rather than known, but the
+  ratio formula applied is identical to the `exact` case above. When `fix_iterations` is a
+  real number `> 0`, man-hours also feed the `reworked` cohort; when the field is simply
+  **absent**, no fix-cohort sample is recorded either — there's a fix factor to back out
+  arithmetically, but no iteration count to say which cohort the man-hours belong to.
 
 `derive_story_sample` returns `None` — no sample at all — when the node has no `estimate` or
 no `actual` block, or when every metric's estimate/actual pair is missing/`N/A`/zero.
@@ -590,8 +599,10 @@ Had `--cost N/A` been passed with `--runtime claude`, `set-actual` would have ex
 before writing anything, and no calibration sample would have been derived.
 
 **What `set-actual` derived, inline.** `fix_iterations` is `1`, not `0`, so provenance is
-`backout`, not `exact`: the scope ratio for each metric is `actual × fix_factor /
-estimate`, not the raw actual/estimate ratio.
+`backout`, not `exact`. The ratio formula itself does not depend on that: `derive_story_sample`
+computes `actual × fix_factor / estimate` for each metric on both `exact` and `backout`
+alike (`fix_factor` is present here, so it applies either way) — provenance and cohort
+attribution are the only things `fix_iterations` changes.
 
 ```
 man_hours scope ratio  = 18.2 × 1.25 / 16.5 = 1.3788
@@ -605,6 +616,8 @@ Each is appended to `scope.complex.{man_hours,time_hours,tokens_k,cost}.samples`
 mean — not `clean`'s — and `fix.complex.clean` gets nothing from this story. `fix` for
 `complex` only activates once **both** `clean` and `reworked` separately reach 3 samples; a
 run of reworked-only stories, however many, never activates it on its own. Had
-`fix_iterations` been `0` instead, provenance would have been `exact`, the scope ratio would
-have used the plain `actual/estimate` ratio (no fix-factor multiplication), and the man-hours
-actual would have updated the `clean` cohort instead.
+`fix_iterations` been `0` instead, provenance would have been `exact` and the man-hours
+actual would have updated the `clean` cohort instead of `reworked` — but the four scope
+ratios above would have come out **identically**: the `actual × fix_factor / estimate`
+formula runs the same way regardless of provenance, so the man-hours scope ratio would still
+be `18.2 × 1.25 / 16.5 = 1.3788`, not the unmultiplied `18.2 / 16.5 = 1.103`.
