@@ -589,6 +589,121 @@ def record_story_sample(state_root: str, node) -> str:
             f"provenance={sample['provenance']}, class={cls}")
 
 
+def _mid(est, low_key: str, high_key: str):
+    """Midpoint of a range-form estimate. None if either bound is missing/non-numeric."""
+    lo, hi = _num_or_none(est.get(low_key)), _num_or_none(est.get(high_key))
+    if lo is None or hi is None:
+        return None
+    return (lo + hi) / 2.0
+
+
+CLOSURE_RANGE_KEYS = {
+    "man_hours": ("man_hours_low", "man_hours_high"),
+    "time_hours": ("time_hours_low", "time_hours_high"),
+    "tokens_k": ("tokens_k_min", "tokens_k_max"),
+    "cost": ("cost_low", "cost_high"),
+}
+# Sibling of ESTIMATE_TO_ACTUAL above: same time_hours -> elapsed_hours pairing,
+# but for range-form parent (sprint/epic) estimates rather than single-value
+# story estimates. Kept separate deliberately — different schema — but if one
+# changes, check the other.
+CLOSURE_ACTUAL_KEYS = {
+    "man_hours": "man_hours",
+    "time_hours": "elapsed_hours",
+    "tokens_k": "tokens_k",
+    "cost": "cost",
+}
+
+
+def derive_closure_sample(state_root: str, level: str, epic_key: str, sprint_key=None):
+    """Closure overhead = parent actual - sum(children actuals). Returns (sample, reason).
+
+    Three guards keep a wrong number from ever being recorded: any child
+    missing an actual skips the metric (a partial sum understates overhead
+    and biases the ratio low, permanently); a negative residual aborts the
+    whole call (a parent actual below its children's sum is miscounted, not
+    merely incomplete); N/A tokens/cost skip just that metric — man-hours and
+    wall-clock still record under non-Claude runtimes where those two are
+    legitimately absent.
+    """
+    if level == "sprint":
+        ppath = sprint_file(state_root, epic_key, sprint_key)
+        child_paths = list_story_files(state_root, epic_key, sprint_key)
+    else:
+        ppath = epic_file(state_root, epic_key)
+        child_paths = [sprint_file(state_root, epic_key, _sprint_key_from_dir(d))
+                       for d in list_sprint_dirs(state_root, epic_key)]
+    if ppath is None:
+        return None, f"{level} node not found"
+    _, pnode = load_node(ppath)
+    pact = (pnode or {}).get("actual") or {}
+    pest = (pnode or {}).get("estimate") or {}
+    if not pact:
+        return None, f"{level} has no actual yet"
+
+    closure = {}
+    for metric, akey in CLOSURE_ACTUAL_KEYS.items():
+        total = 0.0
+        complete = True
+        for cp in child_paths:
+            if cp is None:
+                complete = False
+                break
+            _, cn = load_node(cp)
+            cv = _num_or_none(((cn or {}).get("actual") or {}).get(akey))
+            if cv is None:
+                complete = False   # missing, N/A, or non-numeric child actual
+                break
+            total += cv
+        if not complete:
+            continue          # partial sums understate overhead and bias the ratio low
+        pv = _num_or_none(pact.get(akey))
+        if pv is None:
+            continue          # parent actual missing/N/A for this metric
+        residual = pv - total
+        if residual < 0:
+            return None, (f"negative closure residual for {metric}: parent "
+                          f"{pv} is below children sum {total} — miscounted")
+        closure[metric] = residual
+
+    if not closure:
+        return None, "no metric had complete child actuals"
+
+    ratios = {}
+    for metric, actual_overhead in closure.items():
+        lo, hi = CLOSURE_RANGE_KEYS[metric]
+        expected = _mid(pest, lo, hi)
+        if expected and expected > 0:
+            ratios[metric] = actual_overhead / expected
+    return {"level": level, "closure_actual": closure, "ratios": ratios}, "ok"
+
+
+def record_closure_sample(state_root: str, level: str, epic_key: str, sprint_key=None) -> str:
+    """Derive a sprint/epic's closure sample and append it to the shared file.
+
+    A write path, unlike load_calibration: migrates a stale schema version
+    before appending, so a v1 file is never mistaken for v2 and corrupted by
+    samples landing in a structure that doesn't exist there yet.
+    """
+    sample, reason = derive_closure_sample(state_root, level, epic_key, sprint_key)
+    if sample is None:
+        return f"no closure sample: {reason}"
+    if not sample["ratios"]:
+        return "no closure sample: parent has no estimate range to compare against"
+
+    from ruamel.yaml.comments import CommentedMap
+    y, cal = load_calibration(state_root)
+    if cal.get("version") != CALIBRATION_SCHEMA_VERSION:
+        cal = migrate_calibration(y, cal, state_root)
+    bucket = cal["closure"].setdefault(level, CommentedMap())
+    for metric, ratio in sample["ratios"].items():
+        entry = bucket.setdefault(metric, CommentedMap())
+        entry.setdefault("samples", [])
+        entry["samples"].append(round(ratio, 4))
+    save_calibration(y, cal, state_root)
+    return f"closure {level} +{len(sample['ratios'])} metrics"
+
+
 def cmd_calibration(args) -> int:
     _, cal = load_calibration(args.state_root)
     exists = os.path.exists(calibration_path(args.state_root))

@@ -1291,5 +1291,101 @@ class TestStorySampling(unittest.TestCase):
         self.assertEqual(int(cal["fix"]["complex"]["clean"]["samples"]), 1)
 
 
+class TestClosureSampling(TestLayoutResolution):
+    def _write(self, path, mapping):
+        y = pm._yaml()
+        with open(path, "w") as f:
+            y.dump(mapping, f)
+
+    def _sprint_with_stories(self, story_actuals, sprint_actual, sprint_estimate=None):
+        sd = os.path.join(self.root, "active", "epic-001", "sprint-01")
+        for f in os.listdir(sd):
+            if f.endswith(".yaml") and f != "sprint.yaml":
+                os.remove(os.path.join(sd, f))
+        for i, a in enumerate(story_actuals, start=1):
+            m = {"key": f"E001-S01-{i:03d}", "epic": "E001", "sprint": "S01",
+                 "status": "done"}
+            if a is not None:
+                m["actual"] = {"man_hours": a}
+            self._write(os.path.join(sd, f"E001-S01-{i:03d}.yaml"), m)
+        sm = {"key": "S01", "epic": "E001", "status": "done"}
+        if sprint_actual is not None:
+            sm["actual"] = {"man_hours": sprint_actual}
+        if sprint_estimate is not None:
+            sm["estimate"] = sprint_estimate
+        self._write(os.path.join(sd, "sprint.yaml"), sm)
+
+    def test_residual_is_parent_minus_children(self):
+        self._sprint_with_stories([3.0, 4.0], 9.0,
+                                  {"man_hours_low": 1.0, "man_hours_high": 3.0})
+        s, reason = pm.derive_closure_sample(self.root, "sprint", "E001", "S01")
+        self.assertIsNotNone(s, reason)
+        self.assertAlmostEqual(s["closure_actual"]["man_hours"], 2.0)
+
+    def test_missing_child_actual_skips_with_reason(self):
+        self._sprint_with_stories([3.0, None], 9.0,
+                                  {"man_hours_low": 1.0, "man_hours_high": 3.0})
+        s, reason = pm.derive_closure_sample(self.root, "sprint", "E001", "S01")
+        self.assertIsNone(s)
+        self.assertIn("actual", reason.lower())
+
+    def test_negative_residual_skips_with_reason(self):
+        self._sprint_with_stories([5.0, 5.0], 8.0,
+                                  {"man_hours_low": 1.0, "man_hours_high": 3.0})
+        s, reason = pm.derive_closure_sample(self.root, "sprint", "E001", "S01")
+        self.assertIsNone(s)
+        self.assertIn("negative", reason.lower())
+
+    def test_no_parent_actual_skips(self):
+        self._sprint_with_stories([3.0, 4.0], None,
+                                  {"man_hours_low": 1.0, "man_hours_high": 3.0})
+        s, reason = pm.derive_closure_sample(self.root, "sprint", "E001", "S01")
+        self.assertIsNone(s)
+
+    def test_record_appends_closure_sample(self):
+        self._sprint_with_stories([3.0, 4.0], 9.0,
+                                  {"man_hours_low": 1.0, "man_hours_high": 3.0})
+        pm.record_closure_sample(self.root, "sprint", "E001", "S01")
+        _, cal = pm.load_calibration(self.root)
+        self.assertEqual(len(pm._component_samples(cal, "closure", "sprint", "man_hours")), 1)
+
+    def test_dollar_prefixed_cost_contributes_to_closure_sample(self):
+        # RULING A: cost is stored '$'-prefixed (metrics-contract.md §9); the
+        # numeric guard must not drop it before the '$' is stripped, or cost
+        # closure samples never accumulate under real data.
+        sd = os.path.join(self.root, "active", "epic-001", "sprint-01")
+        for f in os.listdir(sd):
+            if f.endswith(".yaml") and f != "sprint.yaml":
+                os.remove(os.path.join(sd, f))
+        self._write(os.path.join(sd, "E001-S01-001.yaml"),
+                    {"key": "E001-S01-001", "epic": "E001", "sprint": "S01",
+                     "status": "done", "actual": {"cost": "$3.00"}})
+        self._write(os.path.join(sd, "E001-S01-002.yaml"),
+                    {"key": "E001-S01-002", "epic": "E001", "sprint": "S01",
+                     "status": "done", "actual": {"cost": "$4.00"}})
+        self._write(os.path.join(sd, "sprint.yaml"),
+                    {"key": "S01", "epic": "E001", "status": "done",
+                     "actual": {"cost": "$9.00"},
+                     "estimate": {"cost_low": 1.0, "cost_high": 3.0}})
+        s, reason = pm.derive_closure_sample(self.root, "sprint", "E001", "S01")
+        self.assertIsNotNone(s, reason)
+        self.assertAlmostEqual(s["closure_actual"]["cost"], 2.0)
+
+    def test_v1_file_is_migrated_not_corrupted_on_closure_record(self):
+        # RULING B: record_closure_sample is a write path — a stale v1
+        # calibration file must be migrated before a sample is appended, or
+        # the sample lands in a "closure" structure v1 doesn't have.
+        self._sprint_with_stories([3.0, 4.0], 9.0,
+                                  {"man_hours_low": 1.0, "man_hours_high": 3.0})
+        p = pm.calibration_path(self.root)
+        with open(p, "w") as f:
+            f.write("version: 1\nratio: 1.3\n")
+        pm.record_closure_sample(self.root, "sprint", "E001", "S01")
+        _, cal = pm.load_calibration(self.root)
+        self.assertEqual(cal["version"], pm.CALIBRATION_SCHEMA_VERSION)
+        self.assertTrue(os.path.exists(p + ".v1"))
+        self.assertEqual(len(pm._component_samples(cal, "closure", "sprint", "man_hours")), 1)
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)
