@@ -469,11 +469,17 @@ Calibration:  none yet — formula baseline (components calibrate at ≥3 sample
 | Development | `bmad-dev-story` |
 | Fix loop | `bmad-dev-story` |
 | Code review | `bmad-code-review` |
-| QA | `bmad-qa-generate-e2e-tests` |
+| ATDD scaffold | `bmad-testarch-atdd` (optional; skipped for DOCS/CONFIG or when absent) |
 | Retrospective (sprint + epic) | `bmad-retrospective` |
 | Clean release + adversarial review | `bmad-review-adversarial-general` |
 | Architecture gate (epic) | `l3io-arch-review` Mode B, `bmad-agent-architect`, superpowers (optional) |
 | Architectural drift (sprint + epic) | `l3io-arch-review` Mode C (optional) |
 | Red-team review (sprint) | `l3io-sec-redteam` (optional) |
 | UX review (sprint) | `bmad-ux-review` (optional) |
-| Issue triage | Inline — no skill invoked |
+| Clean release, issue triage | Inline — no skill invoked |
+
+> **No QA phase currently runs.** `bmad-qa-generate-e2e-tests` is declared a required
+> dependency in `marketplace.json` and CLAUDE.md, but no step file invokes it — the dev loop
+> is develop → code review → fix → done. The `tests/` directories exist in the artifact
+> layout and are written by other means. Treat the dependency declaration as aspirational
+> until a step actually calls it.
