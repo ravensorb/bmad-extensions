@@ -7,7 +7,7 @@
 //
 // Shared files:
 //   pm-status.py / test-pm-status.py / resolve_config.py / memlog.py → scripts/ in PM execution skills
-//   status-files.md                  → references/ in PM skills
+//   status-files.md / metrics-contract.md → references/ in PM skills
 //
 // Usage:
 //   node scripts/sync-shared-scripts.mjs           # write the per-skill payload copies
@@ -30,6 +30,7 @@ const pmScriptFiles = [
 
 const pmRefFiles = [
   { src: path.join(sharedDir, "status-files.md"), rel: path.join("references", "status-files.md") },
+  { src: path.join(sharedDir, "metrics-contract.md"), rel: path.join("references", "metrics-contract.md") },
 ];
 
 // PM skills that ship pm-status.py as an install payload (execution skills only)
