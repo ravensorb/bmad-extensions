@@ -24,27 +24,28 @@ Unrecognized scope argument. Usage:
 ```
 BLOCKED: unrecognized scope argument.
 
-## 2. State file existence check
+## 2. State node existence check
 
 For each key in `{scope_epic_keys}` (skip if `all`):
 
 ```bash
-ls {bmad_active_root}/{epic_key}-status.yaml 2>/dev/null || \
-  python3 {pm_status} verify --file {bmad_planned_file} --scope epic --epic {epic_key}
+python3 {pm_status} verify --state-root {pm_state_root} --scope epic --epic {epic_key}
 ```
 
-If neither the active file nor the planned entry exists:
+`verify --scope epic` resolves the key across `planned/`, `active/`, and `archived/` — no need
+to probe each folder separately. Exit code `3` means the key was not found anywhere:
 ```
-BLOCKED: {epic_key} not found in active/ or sprint-status-planned.yaml — check key and re-run.
+BLOCKED: {epic_key} not found under {pm_state_root} — check key and re-run.
 ```
 
 ## 3. Lock pre-check
 
-For each scoped epic key, check the active file if it exists:
+For each scoped epic key:
 
 ```bash
 python3 {pm_status} check-lock \
-  --file {bmad_active_root}/{epic_key}-status.yaml \
+  --state-root {pm_state_root} \
+  --epic {epic_key} \
   --session-id {session_id}
 ```
 

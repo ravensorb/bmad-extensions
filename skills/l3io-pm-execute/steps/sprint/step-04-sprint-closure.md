@@ -15,12 +15,17 @@ Execute it fully. It returns: issues found (with severities), retrospective text
 
 ## 2. Sum story actuals → write sprint actual
 
-Read `{epic_status_file}`. Sum `actual.*` across all stories in `{sprint_num}` with `status: done`.
-Add sprint orchestration overhead (0.2 man-hours, proportional elapsed).
+```bash
+python3 {pm_status} show --state-root {pm_state_root} --epic {epic_key} --sprint {sprint_num}
+```
+
+Sum `actual.*` across all stories in `{sprint_num}` with `status: done` (the roll-up above
+lists each story's `actual` totals). Add sprint orchestration overhead (0.2 man-hours,
+proportional elapsed).
 
 ```bash
 python3 {pm_status} set-actual \
-  --file {epic_status_file} \
+  --state-root {pm_state_root} \
   --node sprint \
   --epic {epic_key} \
   --sprint {sprint_num} \
@@ -35,26 +40,26 @@ python3 {pm_status} set-actual \
 
 ```bash
 python3 {pm_status} set-field \
-  --file {epic_status_file} \
-  --node sprint.{epic_key}.{sprint_num} \
+  --state-root {pm_state_root} \
+  --epic {epic_key} --sprint {sprint_num} \
   --field closed.date \
   --value {today_iso}
 
 python3 {pm_status} set-field \
-  --file {epic_status_file} \
-  --node sprint.{epic_key}.{sprint_num} \
+  --state-root {pm_state_root} \
+  --epic {epic_key} --sprint {sprint_num} \
   --field retrospective.summary \
   --value "{retrospective_summary}"
 
 python3 {pm_status} set-field \
-  --file {epic_status_file} \
-  --node sprint.{epic_key}.{sprint_num} \
+  --state-root {pm_state_root} \
+  --epic {epic_key} --sprint {sprint_num} \
   --field retrospective.velocity \
   --value {stories_done}
 
 python3 {pm_status} set-field \
-  --file {epic_status_file} \
-  --node sprint.{epic_key}.{sprint_num} \
+  --state-root {pm_state_root} \
+  --epic {epic_key} --sprint {sprint_num} \
   --field retrospective.carry_over \
   --value {carry_over_count}
 ```
@@ -63,15 +68,15 @@ python3 {pm_status} set-field \
 
 ```bash
 python3 {pm_status} set-status \
-  --file {epic_status_file} \
+  --state-root {pm_state_root} \
   --epic {epic_key} \
   --sprint {sprint_num} \
   --status done
 ```
 
-## 5. Update per-epic calibration
+## 5. Update calibration
 
-Append sprint closure sample to `{project-root}/_bmad/pm-calibration-{epic_key}.yaml`:
+Append sprint closure sample to `{pm_calibration_file}`:
 - `level: sprint`, metric estimated vs actual for `man_hours`, `time_hours`, `tokens_k`, `cost`
 - Omit `tokens_k`/`cost` ratio if runtime is not Claude
 

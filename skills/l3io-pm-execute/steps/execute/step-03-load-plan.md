@@ -48,8 +48,14 @@ Bind `{execution_phases}` = resolved ordered list of (phase, [epic_keys], parall
 
 ## 4. Validate dependencies for full scope
 
-For each phase beyond phase 1, verify that all `dependencies` listed in the phase have `status: done`
-in `{bmad_archived_file}` or `{bmad_active_root}`. If any dependency is not done:
+For each phase beyond phase 1, verify that all `dependencies` listed in the phase have `status: done`:
+
+```bash
+python3 {pm_status} show --state-root {pm_state_root} --epic {dep_key}
+```
+
+Check `status=done` in the output (the epic may currently sit under `active/` or `archived/` —
+`show` resolves either). If any dependency is not done:
 ```
 ⚠️  Phase N dependency {epic_key} is not done. Phase N epics will be blocked until it completes.
 ```

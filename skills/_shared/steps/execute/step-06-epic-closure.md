@@ -18,14 +18,20 @@ Execute the full closure workflow from that file. It returns a closure report wi
 
 ## 2. Sum sprint actuals → write epic actual
 
-Read `{bmad_active_root}/{epic_key}-status.yaml`. For each sprint with `status: done`:
-Sum `actual.elapsed_hours`, `actual.man_hours`, `actual.tokens_k`, `actual.cost`.
+```bash
+python3 {pm_status} show --state-root {pm_state_root} --epic {epic_key}
+```
+
+For each sprint with `status: done`, sum `actual.elapsed_hours`, `actual.man_hours`,
+`actual.tokens_k`, `actual.cost` (read the per-sprint totals from the roll-up above, or each
+sprint's own `sprint.yaml` under `{pm_state_root}/active/epic-{epic_nnn}/sprint-*/` if you need
+done-only precision the roll-up doesn't separate out).
 
 Add orchestration overhead estimate (0.5 man-hours, proportional elapsed).
 
 ```bash
 python3 {pm_status} set-actual \
-  --file {bmad_active_root}/{epic_key}-status.yaml \
+  --state-root {pm_state_root} \
   --node epic --epic {epic_key} \
   --runtime {runtime} \
   --elapsed-hours {total_elapsed} \
@@ -38,46 +44,46 @@ python3 {pm_status} set-actual \
 
 ```bash
 python3 {pm_status} set-field \
-  --file {bmad_active_root}/{epic_key}-status.yaml \
-  --node epic.{epic_key} \
+  --state-root {pm_state_root} \
+  --epic {epic_key} \
   --field closed.date \
   --value {today_iso}
 
 python3 {pm_status} set-field \
-  --file {bmad_active_root}/{epic_key}-status.yaml \
-  --node epic.{epic_key} \
+  --state-root {pm_state_root} \
+  --epic {epic_key} \
   --field retrospective.summary \
   --value "{retrospective_summary}"
 
 python3 {pm_status} set-field \
-  --file {bmad_active_root}/{epic_key}-status.yaml \
-  --node epic.{epic_key} \
+  --state-root {pm_state_root} \
+  --epic {epic_key} \
   --field retrospective.learnings \
   --value "{retrospective_learnings}"
 ```
 
 ## 4. Archive epic
 
-Move the epic file to the archived file (flock-protected):
+`archive-epic` moves the epic's whole directory (epic.yaml, every sprint.yaml, every story
+file) from `active/` to `archived/` in one step — nothing to delete afterward, since the
+directory itself relocates rather than being copied:
 
 ```bash
-python3 {pm_status} archive-epic \
-  --source {bmad_active_root}/{epic_key}-status.yaml \
-  --dest {bmad_archived_file}
-```
-
-On success, delete the source active file:
-```bash
-rm {bmad_active_root}/{epic_key}-status.yaml
+python3 {pm_status} archive-epic --state-root {pm_state_root} --epic {epic_key}
 ```
 
 ## 5. Clear ownership lock
 
-(Lock was in the source file, now deleted — no explicit clear needed. Log completion.)
+`archive-epic` moves the directory but does not touch `_lock` — clear it explicitly so the
+archived epic's file doesn't carry a stale lock forward:
 
-## 6. Update per-epic calibration file
+```bash
+python3 {pm_status} clear-lock --state-root {pm_state_root} --epic {epic_key}
+```
 
-Append epic-level closure overhead sample to `{project-root}/_bmad/pm-calibration-{epic_key}.yaml`:
+## 6. Update calibration file
+
+Append epic-level closure overhead sample to `{pm_calibration_file}`:
 - Record `level: epic`, metric actuals vs estimates for `man_hours`, `time_hours`, `tokens_k`, `cost`
 - Skip `tokens_k` and `cost` ratio if runtime is not Claude (set `ratio: N/A`)
 

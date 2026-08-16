@@ -68,7 +68,7 @@ Collect all Low severity issues found across phases 2–6. For each:
 
 ```bash
 python3 {pm_status} append-issue \
-  --file {bmad_issues_file} \
+  --file {pm_issues_file} \
   --key BL-{epic_key}-{nnn} \
   --epic {epic_nnn} \
   --sprint {sprint_num} \

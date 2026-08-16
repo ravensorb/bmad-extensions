@@ -11,8 +11,13 @@ Skip technical AC gate (proceed to §3) if `{work_type}` is `DOCS` or `CONFIG`.
 
 ## 2. Technical AC gate
 
-Read `{epic_status_file}` and bind `{epic_goal}` from the first epic's `goal` field.
-This is needed for story enrichment prompts below.
+```bash
+python3 {pm_status} show --state-root {pm_state_root} --epic {epic_key}
+```
+
+Read `{pm_state_root}/{active|planned|archived}/epic-{epic_nnn}/epic.yaml` (wherever
+`find_epic_dir` resolves it — normally `active/` at this point in the flow) and bind
+`{epic_goal}` from its `goal` field. This is needed for story enrichment prompts below.
 
 For each story key in `{story_keys}`:
 
@@ -54,7 +59,7 @@ For each story in `{story_keys}` that does not already have an `estimate` block:
 
 Read classification from story file (`classification: simple|standard|complex`).
 
-Apply estimation model (cold-start or calibrated from `_bmad/pm-calibration-{epic_key}.yaml`):
+Apply estimation model (cold-start or calibrated from `{pm_calibration_file}`):
 
 | Classification | man_hours | time_hours | tokens_k | cost |
 |---|---|---|---|---|
@@ -67,7 +72,7 @@ of the table above.
 
 ```bash
 python3 {pm_status} set-estimate \
-  --file {epic_status_file} \
+  --state-root {pm_state_root} \
   --story {story_key} \
   --man-hours {h} \
   --time-hours {h} \
@@ -82,7 +87,7 @@ For each story in `{story_keys}` with `status: backlog`:
 
 ```bash
 python3 {pm_status} set-status \
-  --file {epic_status_file} \
+  --state-root {pm_state_root} \
   --story {story_key} \
   --status ready-for-dev
 ```

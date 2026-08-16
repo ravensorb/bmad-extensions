@@ -8,7 +8,9 @@ completion evidence when done.
 ## 1. Story iteration order
 
 Process stories from `{story_keys}` in order. Stories with `depends_on` entries must wait until
-all referenced story keys are `status: done` (check `{epic_status_file}` before starting each).
+all referenced story keys are `status: done` (check each referenced story's own node file —
+`python3 {pm_status} show --state-root {pm_state_root} --epic {epic_key} --sprint {sprint_num}`
+lists every story in this sprint with its status — before starting each).
 
 If a dependency story is not done and is not in this sprint's `{story_keys}`, log:
 ```
@@ -21,7 +23,7 @@ Move the blocked story to the end of the queue.
 Mark story in-progress:
 ```bash
 python3 {pm_status} set-status \
-  --file {epic_status_file} \
+  --state-root {pm_state_root} \
   --story {story_key} \
   --status in-progress
 ```
@@ -56,7 +58,7 @@ Mark story `status: review` (not done) and continue to next story. Log the issue
 **If LOW findings:** defer to issues file (do not re-develop):
 ```bash
 python3 {pm_status} append-issue \
-  --file {bmad_issues_file} \
+  --file {pm_issues_file} \
   --key BL-{epic_key}-{nnn} \
   --epic {epic_nnn} \
   --sprint {sprint_num} \
@@ -71,7 +73,7 @@ When a story reaches done state:
 
 ```bash
 python3 {pm_status} set-actual \
-  --file {epic_status_file} \
+  --state-root {pm_state_root} \
   --node story \
   --story {story_key} \
   --runtime {runtime} \
@@ -84,20 +86,20 @@ python3 {pm_status} set-actual \
 Write completion evidence via set-field:
 ```bash
 python3 {pm_status} set-field \
-  --file {epic_status_file} \
-  --node story.{story_key} \
+  --state-root {pm_state_root} \
+  --story {story_key} \
   --field completion_evidence.fix_iterations \
   --value {fix_iterations}
 
 python3 {pm_status} set-field \
-  --file {epic_status_file} \
-  --node story.{story_key} \
+  --state-root {pm_state_root} \
+  --story {story_key} \
   --field completion_evidence.tests_passing \
   --value {tests_passing}
 
 python3 {pm_status} set-field \
-  --file {epic_status_file} \
-  --node story.{story_key} \
+  --state-root {pm_state_root} \
+  --story {story_key} \
   --field completion_evidence.files_changed \
   --value {files_changed}
 ```
@@ -105,7 +107,7 @@ python3 {pm_status} set-field \
 Mark story done:
 ```bash
 python3 {pm_status} set-status \
-  --file {epic_status_file} \
+  --state-root {pm_state_root} \
   --story {story_key} \
   --status done
 ```

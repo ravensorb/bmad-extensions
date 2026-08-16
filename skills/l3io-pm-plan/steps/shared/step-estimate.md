@@ -7,17 +7,14 @@ stories, sprints, and epics in scope. Reads calibration data to improve accuracy
 
 **Input bindings required before calling this step:**
 - `{scope}` — what to estimate: `all`, `E{nnn}`, or `E{nnn}-S{nn}`
-- `{bmad_state_root}`, `{pm_status}`, `{work_type}` — from step-00-activate and step-01
+- `{pm_state_root}`, `{pm_calibration_file}`, `{pm_status}`, `{work_type}` — from step-00-activate and step-01
 
 ---
 
 ## 1. Load calibration data
 
-Read `{project-root}/_bmad/pm-calibration.yaml` (consolidated, created by l3io-pm-plan).
-
-If it does not exist, read any `_bmad/pm-calibration-E{nnn}.yaml` per-epic files instead
-and treat each as an individual data point. If neither exists, all components use cold-start
-priors.
+Read `{pm_calibration_file}` (consolidated, created by l3io-pm-plan). If it does not exist,
+all components use cold-start priors.
 
 **Three calibration components** (each activates independently with ≥3 samples):
 - `scope` — story sizing ratio per classification (simple/standard/complex)
@@ -29,10 +26,13 @@ A component with <3 samples uses cold-start prior: ratio = 1.0, fix factor = 1.2
 ## 2. Determine stories in scope
 
 Based on `{scope}`:
-- `all` → all stories in `{bmad_planned_file}` + all `{bmad_active_root}/E{nnn}-status.yaml`
-  files that are not `status: done`
-- `E{nnn}` → all stories in that epic's file
-- `E{nnn}-S{nn}` → all stories in that sprint node
+- `all` → all stories under every epic in `{pm_state_root}/planned/` and `{pm_state_root}/active/`
+  that are not `status: done`
+- `E{nnn}` → all stories under that epic's sprint directories
+- `E{nnn}-S{nn}` → all stories under that sprint's directory
+
+Story files are the `*.yaml` files in a sprint directory, excluding `sprint.yaml` (see
+`skills/_shared/status-files.md` §4).
 
 For each story, read its `classification` (simple/standard/complex) and any existing
 estimate block.
@@ -55,7 +55,7 @@ Apply fix factor to man_hours and time_hours: `estimated = base × fix_factor`.
 Write story estimate:
 ```bash
 python3 {pm_status} set-estimate \
-  --file {epic_status_file} \
+  --state-root {pm_state_root} \
   --story {story_key} \
   --man-hours {man_hours} \
   --time-hours {time_hours} \
@@ -80,7 +80,7 @@ For each sprint in scope:
 Write sprint estimate:
 ```bash
 python3 {pm_status} set-estimate \
-  --file {epic_status_file} \
+  --state-root {pm_state_root} \
   --epic {epic_key} --sprint {sprint_key} \
   --man-hours-low {low} --man-hours-high {high} \
   --time-hours-low {low} --time-hours-high {high} \
@@ -93,23 +93,23 @@ python3 {pm_status} set-estimate \
 
 For each epic in scope:
 - Sum sprint estimates + epic closure overhead (calibrated or 20% flat cold-start).
-- Write epic estimate to the appropriate file (`sprint-status-planned.yaml` for backlog
-  epics, active file for in-progress epics).
+- Write the epic estimate — `--state-root` plus the epic key resolves to that epic's node
+  file wherever it currently sits (`planned/`, `active/`, or `archived/`), so the same call
+  works for backlog and in-progress epics alike:
 
-For planned epics:
 ```bash
 python3 {pm_status} set-estimate \
-  --file {bmad_planned_file} \
+  --state-root {pm_state_root} \
   --epic {epic_key} \
   --man-hours-low {low} --man-hours-high {high} \
   --time-hours-low {low} --time-hours-high {high} \
   --tokens-k-min {min} --tokens-k-max {max} \
   --cost-low {low} --cost-high {high} \
-  --flock \
   --confidence {confidence}
 ```
 
-Note: `--flock` is required when writing to `sprint-status-planned.yaml`.
+No `--flock` needed: each epic's estimate write touches only that epic's own directory (see
+`skills/_shared/status-files.md` §9, Concurrency).
 
 ## 6. Output estimate summary
 

@@ -10,8 +10,11 @@ Bind `{readiness}` to the gate result before loading the next step.
 ## 1. Collect stories in scope
 
 Read all stories from:
-- All files in `{bmad_active_root}/E{nnn}-status.yaml` with `status: in-progress`
-- All epics with `status: backlog` in `{bmad_planned_file}`
+- All epics under `{pm_state_root}/active/` with `status: in-progress`
+- All epics under `{pm_state_root}/planned/` with `status: backlog`
+
+For each epic, list its sprint directories and each sprint's story `.yaml` files (excluding
+`sprint.yaml`) to enumerate stories — or use `python3 {pm_status} show --state-root {pm_state_root} --epic {epic_key}` for a quick status roll-up.
 
 For each story, record: `key`, `classification`, `status`, `estimate` (present/absent),
 `depends_on`, and whether it is assigned to a sprint.

@@ -22,28 +22,21 @@ before starting it.
 
 ## 2. Promote epic to active (if needed)
 
-If epic is in `{bmad_planned_file}` (status: backlog or deferred):
-
 ```bash
-# Read the epic node from planned file, create active file, remove from planned
-# This is a two-step atomic operation via pm-status.py:
-python3 {pm_status} set-status \
-  --file {bmad_planned_file} \
-  --epic {epic_key} \
-  --status in-progress \
-  --flock
+python3 {pm_status} move-epic --state-root {pm_state_root} --epic {epic_key} --to active
 ```
 
-Then create the per-epic active file by writing the epic node content to:
-`{bmad_active_root}/{epic_key}-status.yaml`
-
-If the active file already exists (resumed run), skip promotion.
+`move-epic` moves the epic's whole directory (epic.yaml, every sprint.yaml, every story file)
+from `planned/` to `active/` in one step and sets its status to `in-progress` — nothing to
+create separately. If the epic is already under `active/` (resumed run), the same-location
+move is a no-op, so this call is always safe to make.
 
 ## 3. Claim ownership lock
 
 ```bash
 python3 {pm_status} set-lock \
-  --file {bmad_active_root}/{epic_key}-status.yaml \
+  --state-root {pm_state_root} \
+  --epic {epic_key} \
   --session-id {session_id} \
   --ttl-minutes {epic_lock_ttl_minutes}
 ```
@@ -56,7 +49,13 @@ Continue to next epic in phase.
 
 ## 4. Identify sprints to run
 
-Read `{bmad_active_root}/{epic_key}-status.yaml`. Find all sprints where `status != done`.
+```bash
+python3 {pm_status} show --state-root {pm_state_root} --epic {epic_key}
+```
+
+The roll-up lists each sprint under this epic with its `status`. Find all sprints where
+`status != done` (sprint directories live at `{pm_state_root}/active/epic-{epic_nnn}/sprint-*/`,
+in lexical — i.e. correct — order).
 For sprint scope (`{exec_scope}=sprint`), filter to `{scope_sprint_key}` only.
 
 Bind `{pending_sprints}` = ordered list of sprint `num` values (e.g. `["01", "02", "03"]`).
@@ -81,7 +80,6 @@ work_type: {work_type}
 skip_phases: {skip_phases}
 epic_key: {epic_key}
 epic_nnn: {epic_nnn}
-epic_status_file: {bmad_active_root}/{epic_key}-status.yaml
 sprint_root: {implementation_artifacts}/epic-{epic_nnn}/sprint-{sprint_nn}/
 story_keys: [{story_keys}]
 sprint_num: {sprint_num}
@@ -110,12 +108,12 @@ On subagent completion:
 After each sprint completes (DONE), trigger re-estimation of remaining unstarted sprints:
 
 ```bash
-# Update per-epic calibration file with this sprint's scope/fix/closure samples
+# Update {pm_calibration_file} with this sprint's scope/fix/closure samples
 # Then re-run step-estimate over remaining unstarted sprints
 ```
 
 Load `{skill-root}/steps/shared/step-estimate.md` with `{scope}={epic_key}` (remaining sprints only).
-This updates estimate blocks in the active file via `pm-status.py set-estimate`.
+This updates estimate blocks on the epic's sprint/story node files via `pm-status.py set-estimate`.
 
 ## 7. Epic completion check
 

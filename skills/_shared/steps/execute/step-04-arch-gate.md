@@ -87,7 +87,7 @@ BLOCKED: arch gate — {N} blocking findings unresolved after ADR resolution.
 For each MINOR finding, append to issues file:
 ```bash
 python3 {pm_status} append-issue \
-  --file {bmad_issues_file} \
+  --file {pm_issues_file} \
   --key BL-{epic_key}-{nnn} \
   --epic {epic_nnn} \
   --sprint "" \

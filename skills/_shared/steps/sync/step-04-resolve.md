@@ -2,42 +2,44 @@
 
 Communicate all responses in `{communication_language}`.
 
-Resolve any conflicts surfaced by step-03 and write the final sync report.
+Consolidate what step-03 did into a final report. There is no separate field-level conflict
+resolver here — `push` already resolves "which side wins" by construction (it always
+overwrites the remote issue with current local content and stamps the hash), and `pull` only
+ever moves a story forward to `done` when its issue closed. Nothing in step-03 leaves a
+local/remote field disagreement for this step to adjudicate.
 
-## 1. Conflict resolution (push/pull/sync modes only)
+## 1. Handle `missing_local` (mapped, but local file gone)
 
-If step-03 reported conflicts (local status != external status for the same item):
+If step-03 (`push` or `status`) reported any `missing_local` entries, they were already
+reported there and were **not** touched — the mapping in `sync-state.yaml` and the remote
+issue are both left exactly as they are. Re-list them here for visibility in the final
+report. If the user confirms a deletion was intentional, the mapping can be cleared with:
 
-For each conflict, present to user:
+```bash
+python3 {skill-root}/scripts/sync-state.py {project-root} remove {bmad_key}
 ```
-Conflict: {story_key}
-  Local status:    {local_status}
-  External status: {external_status} (last synced: {synced_at})
-  Resolution: [local-wins | external-wins | skip]
-```
 
-Default resolution: `local-wins` — l3io-pm is the authoritative source.
+Only run `remove` on explicit user confirmation — never automatically, since it is
+irreversible (no corresponding "undelete").
 
-Apply resolutions:
-- `local-wins`: update external item status to match local
-- `external-wins`: run `python3 {pm_status} set-status --file ... --story {story_key} --status {external_mapped_status}`
-- `skip`: log as unresolved, do not update either side
+## 2. Timestamps
 
-## 2. Update sync-mapping.yaml timestamps
-
-For all items successfully synced in this run, update `synced_at` in `{sync_mapping_file}`.
+Nothing to do here separately — `push` already calls `update-hash`, which stamps
+`last_synced_at` on every entry it touches at the point it touches it. There is no batch
+timestamp pass at the end of the run.
 
 ## 3. Write sync report
 
 Write `{project-root}/_bmad/sync-report-{iso_date}.md`:
-- Mode run, platform, timestamp
-- Items pushed/pulled/synced
-- Conflicts resolved (with resolution chosen)
-- Unresolved conflicts (if any)
-- Unmapped items (not yet pushed)
+
+- Mode run (`{sync_mode}`), platform (`{sync_platform}`), owner/repo, timestamp
+- Items created / updated / status-synced (from step-03's push and/or pull sections)
+- `missing_local` entries flagged this run (bmad_key, remote_url) and whether any were
+  cleared via `remove`
+- `sync-state.yaml` path, for reference
 
 ## 4. Output
 
-```
+```text
 Step 04 complete — sync report: {project-root}/_bmad/sync-report-{iso_date}.md
 ```

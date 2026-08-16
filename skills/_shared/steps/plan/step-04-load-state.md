@@ -9,26 +9,37 @@ Reads all state files and builds the full in-scope index. Subsequent steps consu
 
 ## 1. Read active epics
 
-List all files matching `{bmad_active_root}/E{nnn}-status.yaml`:
+List all epic directories under `active/`:
 
 ```bash
-ls {bmad_active_root}/E*-status.yaml 2>/dev/null || echo "(none)"
+ls -d {pm_state_root}/active/epic-*/ 2>/dev/null || echo "(none)"
 ```
 
-For each file, read and extract:
-- `epics[0].key` (the epic key — one epic per active file)
-- `epics[0].status` (always `in-progress` in active files)
-- `epics[0].depends_on` (list; empty if absent)
-- `epics[0].estimate` (present/absent)
-- `epics[0]._lock` (present/absent — flag locked epics)
-- All sprints and all their stories with `key`, `status`, `classification`, `estimate`, `depends_on`
+For each epic directory, read `epic.yaml` and extract:
+- `key` (the epic key)
+- `status` (always `in-progress` under `active/`)
+- `depends_on` (list; empty if absent)
+- `estimate` (present/absent)
+- `_lock` (present/absent — flag locked epics)
 
-Record: `{active_epics}` = list of epic keys from active files.
+List its `sprint-*/` subdirectories; for each, read `sprint.yaml` (`key`, `status`, `estimate`)
+and its story `.yaml` files excluding `sprint.yaml` (`key`, `status`, `classification`,
+`estimate`, `depends_on`). `python3 {pm_status} show --state-root {pm_state_root} --epic {epic_key}`
+gives the same sprint/story enumeration as a computed roll-up if you prefer reading that over
+walking the directory by hand.
+
+Record: `{active_epics}` = list of epic keys from `active/`.
 
 ## 2. Read planned epics
 
-Read `{bmad_planned_file}`. For each epic:
-- `key`, `status` (backlog or deferred), `depends_on`, `estimate`, sprint+story subtrees
+List all epic directories under `planned/` the same way:
+
+```bash
+ls -d {pm_state_root}/planned/epic-*/ 2>/dev/null || echo "(none)"
+```
+
+For each, read `epic.yaml` (`key`, `status` — backlog or deferred, `depends_on`, `estimate`)
+and its sprint/story subtree exactly as in section 1.
 
 Separate into:
 - `{backlog_epics}` = epics with `status: backlog`
@@ -36,9 +47,17 @@ Separate into:
 
 ## 3. Read archived epic keys
 
-Read `{bmad_archived_file}` (may not exist yet). Extract the list of epic `key` values from the top-level `epics` list. Store as `{archived_epic_keys}`. Do not load full content — only the keys are needed to validate `depends_on` references.
+List epic directories under `archived/` (may not exist yet):
 
-If the file does not exist, `{archived_epic_keys}` = [].
+```bash
+ls -d {pm_state_root}/archived/epic-*/ 2>/dev/null || echo "(none)"
+```
+
+Extract just the epic key from each directory name (`epic-001` → `E001`). Store as
+`{archived_epic_keys}`. Do not load full content — only the keys are needed to validate
+`depends_on` references.
+
+If the directory does not exist, `{archived_epic_keys}` = [].
 
 ## 4. Build epic index
 
@@ -46,14 +65,12 @@ Construct `{epic_index}` as a mapping from epic key to:
 ```
 {
   "E001": {
-    "file": "{bmad_active_root}/E001-status.yaml",
     "status": "in-progress",
     "depends_on": [],
     "estimate_present": true,
     "locked": false
   },
   "E003": {
-    "file": "{bmad_planned_file}",
     "status": "backlog",
     "depends_on": ["E001", "E002"],
     "estimate_present": false,
@@ -93,8 +110,8 @@ State loaded:
 If any locked epic is found:
 ```
 ⚠️  {epic_key} is locked by session {session_id} (claimed {claimed_at}, TTL {ttl_minutes}m).
-    Run: pm-status.py check-lock --file {file} --session-id {your_session_id}
-    to verify if the lock is stale. Clear with: pm-status.py clear-lock --file {file}
+    Run: pm-status.py check-lock --state-root {pm_state_root} --epic {epic_key} --session-id {your_session_id}
+    to verify if the lock is stale. Clear with: pm-status.py clear-lock --state-root {pm_state_root} --epic {epic_key}
 ```
 
 ## 7. Output status line
