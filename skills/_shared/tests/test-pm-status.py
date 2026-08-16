@@ -1387,5 +1387,70 @@ class TestClosureSampling(TestLayoutResolution):
         self.assertEqual(len(pm._component_samples(cal, "closure", "sprint", "man_hours")), 1)
 
 
+class TestSetActualCalibrates(TestLayoutResolution):
+    def run_main(self, argv):
+        buf = io.StringIO()
+        try:
+            with redirect_stdout(buf):
+                code = pm.main(argv)
+        except SystemExit as e:
+            code = e.code
+        return code, buf.getvalue()
+
+    def _estimated_story(self):
+        p = pm.story_file(self.root, "E001-S01-003")
+        with open(p, "w") as f:
+            f.write("key: 'E001-S01-003'\nepic: 'E001'\nsprint: 'S01'\n"
+                    "status: review\nclassification: complex\n"
+                    "completion_evidence:\n  fix_iterations: 0\n"
+                    "estimate:\n  man_hours: 6\n  time_hours: 1.5\n"
+                    "  tokens_k: 320\n  cost: 4.80\n  fix_factor: 1.25\n"
+                    "  scope_ratio: 1.0\n")
+
+    def test_actual_write_emits_a_sample(self):
+        self._estimated_story()
+        code, out = self.run_main(
+            ["set-actual", "--state-root", self.root, "--node", "story",
+             "--story", "E001-S01-003", "--elapsed-hours", "1.8",
+             "--man-hours", "7", "--tokens-k", "355", "--cost", "5.32"])
+        self.assertEqual(code, 0, out)
+        _, cal = pm.load_calibration(self.root)
+        self.assertEqual(len(pm._component_samples(cal, "scope", "complex", "man_hours")), 1)
+
+    def test_no_calibrate_suppresses_the_sample(self):
+        self._estimated_story()
+        code, out = self.run_main(
+            ["set-actual", "--state-root", self.root, "--node", "story",
+             "--story", "E001-S01-003", "--man-hours", "7", "--no-calibrate"])
+        self.assertEqual(code, 0, out)
+        self.assertFalse(os.path.exists(pm.calibration_path(self.root)))
+
+    def test_story_without_estimate_writes_actual_and_no_sample(self):
+        code, out = self.run_main(
+            ["set-actual", "--state-root", self.root, "--node", "story",
+             "--story", "E001-S01-003", "--man-hours", "7"])
+        self.assertEqual(code, 0, out)
+        _, node = pm.load_node(pm.story_file(self.root, "E001-S01-003"))
+        self.assertEqual(node["actual"]["man_hours"], 7)
+
+    def test_calibration_failure_does_not_fail_the_actual_write(self):
+        self._estimated_story()
+        # make the calibration path unwritable by putting a directory there
+        os.makedirs(pm.calibration_path(self.root))
+        code, out = self.run_main(
+            ["set-actual", "--state-root", self.root, "--node", "story",
+             "--story", "E001-S01-003", "--man-hours", "7"])
+        self.assertEqual(code, 0, out)          # actuals are primary
+        _, node = pm.load_node(pm.story_file(self.root, "E001-S01-003"))
+        self.assertEqual(node["actual"]["man_hours"], 7)
+
+    def test_claude_runtime_still_rejects_na(self):
+        self._estimated_story()
+        code, _ = self.run_main(
+            ["set-actual", "--state-root", self.root, "--node", "story",
+             "--story", "E001-S01-003", "--tokens-k", "N/A", "--runtime", "claude"])
+        self.assertEqual(code, 2)
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

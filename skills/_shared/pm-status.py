@@ -872,9 +872,29 @@ def cmd_set_actual(args) -> int:
         actual[k] = _coerce(k, v)
 
     save_node(y, node, path, getattr(args, "flock", False))
+
+    calib_note = ""
+    if not getattr(args, "no_calibrate", False):
+        # Calibration is DERIVED data. A failure here must never fail the
+        # actuals write, which is the primary record — but it must be visible,
+        # not silent.
+        try:
+            if kind == "story":
+                calib_note = record_story_sample(args.state_root, node)
+            elif kind == "sprint":
+                calib_note = record_closure_sample(args.state_root, "sprint",
+                                                   args.epic, args.sprint)
+            elif kind == "epic":
+                calib_note = record_closure_sample(args.state_root, "epic", args.epic)
+        except Exception as e:                      # noqa: BLE001 - deliberate isolation
+            sys.stderr.write(f"pm-status.py: warning — actual written, but calibration "
+                             f"sample failed: {e}\n")
+            calib_note = "calibration skipped (see stderr)"
+
     if args.ledger:
         _append_ledger(args.ledger, args.scope or label, f"actual {sorted(provided)}")
-    sys.stdout.write(f"OK set-actual {label} {sorted(provided)}\n")
+    suffix = f" [{calib_note}]" if calib_note else ""
+    sys.stdout.write(f"OK set-actual {label} {sorted(provided)}{suffix}\n")
     return 0
 
 
@@ -1415,6 +1435,8 @@ def build_parser() -> argparse.ArgumentParser:
     a.add_argument("--ledger")
     a.add_argument("--scope")
     a.add_argument("--flock", action="store_true", help="acquire exclusive flock before write")
+    a.add_argument("--no-calibrate", dest="no_calibrate", action="store_true",
+                   help="skip calibration sampling (backfills, replays)")
     a.set_defaults(func=cmd_set_actual)
 
     pr = sub.add_parser("progress", help="append a line to the progress ledger")
