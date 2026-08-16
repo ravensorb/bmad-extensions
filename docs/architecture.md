@@ -154,7 +154,7 @@ The sprint does not close (Step 10 sign-off does not execute) until all **Critic
 - Fixed and verified (fix subagent + QA verification subagent confirms tests pass), or
 - Explicitly accepted by `{user_name}` with documented rationale (only after the closure fix loop hits its 10-iteration cap)
 
-Low findings are auto-deferred to backlog (one `bmad-create-story` per item, no prompt). The sprint signs off with the deferred story keys listed. The auto-triage step files findings to fix-now vs. defer-to-backlog without per-item user prompts; the closure fix loop iterates fix → QA → re-check up to 10 times before halting.
+Low findings are auto-deferred to the backlog (one `pm-status.py append-issue` per item, no prompt — deferral appends a `BL-` item, it does not create a story). The sprint signs off with the deferred story keys listed. The auto-triage step files findings to fix-now vs. defer-to-backlog without per-item user prompts; the closure fix loop iterates fix → QA → re-check up to 10 times before halting.
 
 ### Epic quality gate
 

@@ -30,8 +30,9 @@ Check for presence of technical ACs — the story must have at least one of:
 - Security requirements (auth, validation, data handling)
 - Testability hooks (test entry points, mock boundaries)
 
-If `l3io-arch-review` is installed, use its story-AC-check mode. Otherwise apply the built-in
-checklist above.
+Apply the built-in checklist above. If `l3io-arch-review` is installed, also load
+`l3io-arch-review/references/standards-core.md` (plus any overlay matching the story's stack)
+and hold the story to those standards as well.
 
 **If technical ACs are missing (gate: "block" — always enforced):**
 
