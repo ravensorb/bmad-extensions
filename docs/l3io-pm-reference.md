@@ -1,20 +1,21 @@
 # l3io-pm Reference
 
-Full reference for the PM orchestration module — four skills that orchestrate a complete delivery lifecycle from execution planning through epic closure.
+Full reference for the PM orchestration module — four skills that cover the delivery lifecycle from planning through epic closure.
 
 ## Skills Overview
 
 | Skill | Role |
 |-------|------|
-| `l3io-pm-plan-execution` | Analyzes epic dependencies and produces a phased, parallel-optimized execution plan |
-| `l3io-pm-sprint-execute` | Orchestrates a single sprint: per-story phases plus sprint closure reviews |
-| `l3io-pm-epic-execute` | Orchestrates a full epic: delegates to `l3io-pm-sprint-execute` subagents, then runs epic closure |
+| `l3io-pm-plan` | Validates readiness, elaborates thin stories, estimates, builds the dependency graph, and writes a phased execution plan |
+| `l3io-pm-execute` | Runs the plan — full, single epic, or single sprint. Includes the pre-execution architecture gate, the per-story dev loop, and sprint/epic closure |
+| `l3io-pm-help` | Reads project state and recommends the exact next l3io-pm action |
+| `l3io-pm-sync` | Bidirectional sync between l3io-pm state and GitHub Issues — `setup`, `push`, `pull`, `sync`, `status` |
 
-`l3io-pm-epic-execute` is a wrapper around `l3io-pm-sprint-execute`. It handles sprint grouping, delegates each sprint headlessly, and runs a second level of closure reviews after all sprints complete.
+`l3io-pm-execute` is **one skill in two modes**, not two skills. In normal mode it orchestrates epics; for each sprint it dispatches a *headless* subagent invocation of itself. There is no separate sprint-execute or epic-execute skill.
 
 ## Configuration
 
-Both execute skills read config from `{project-root}/_bmad/config.yaml` and `{project-root}/_bmad/config.user.yaml` on activation. If values are absent, defaults are used.
+Skills read config from `{project-root}/_bmad/config.yaml` and `{project-root}/_bmad/config.user.yaml` at activation. If the `l3io-pm` section is absent — or you pass `setup`, `configure`, or `install` — the skill loads its embedded `assets/module-setup.md` first.
 
 ### Config files
 
@@ -31,302 +32,396 @@ Both execute skills read config from `{project-root}/_bmad/config.yaml` and `{pr
 | `communication_language` | user config | English | Language for all skill responses |
 | `document_output_language` | config.yaml root | English | Language for written artifacts |
 | `output_folder` | config.yaml root | `{project-root}/_bmad-output` | Root directory for all generated output |
-| `implementation_artifacts` | l3io-pm section | `{output_folder}/implementation-artifacts` | Root for stories, closure outputs, and tests |
-| `planning_artifacts` | l3io-pm section | `{output_folder}/planning-artifacts` | Root for planning documents |
+| `implementation_artifacts` | l3io-pm section | `{output_folder}/implementation-artifacts` | Root for state, stories, closure outputs, and tests |
+| `planning_artifacts` | l3io-pm section | `{output_folder}/planning-artifacts` | Root for planning documents and plan snapshots |
 
 ### Workflow customization
 
-All three orchestration skills ship with a `customize.toml` at `{skill-root}/customize.toml`. Override values are layered in this order (last wins):
+Each skill ships a `customize.toml` at `{skill-root}/customize.toml`. Layers, last wins:
 
 1. `{skill-root}/customize.toml` — base defaults shipped with the skill
-2. `{project-root}/_bmad/custom/{skill-name}.toml` — team overrides (commit to repo)
+2. `{project-root}/_bmad/custom/{skill-name}.toml` — team overrides (commit)
 3. `{project-root}/_bmad/custom/{skill-name}.user.toml` — personal overrides (gitignore)
+
+Scalars override; arrays append. The root key is `[workflow]` for all four PM skills — a mismatched root key means overrides are silently ignored.
+
+**Shared by all PM skills:**
 
 | Key | Default | Description |
 |-----|---------|-------------|
-| `parallel_mode` | `adaptive` | `adaptive` allows parallel story execution when safe; `off` forces sequential |
-| `max_parallel_subagents` | `2` | Maximum concurrent subagents (hard capped at 4 regardless of this value) |
+| `activation_steps_prepend` | `[]` | Extra steps to run before the skill's own activation |
+| `activation_steps_append` | `[]` | Extra steps to run after activation |
+| `persistent_facts` | `["file:{project-root}/**/project-context.md"]` | Files always loaded into skill context |
 
-## Sprint Execute Reference
+**`l3io-pm-execute`:**
 
-### Activation
+| Key | Default | Description |
+|-----|---------|-------------|
+| `max_parallel_subagents` | `4` | Maximum epics dispatched concurrently within a parallel plan phase |
+| `epic_lock_ttl_minutes` | `30` | TTL on the epic ownership lock; stale locks can be reclaimed |
 
-On activation, the skill:
+**`l3io-pm-plan`:**
 
-1. Resolves the workflow block from `customize.toml` (base → team → user)
-2. Loads config from `_bmad/config.yaml` and `_bmad/config.user.yaml`
-3. Reads the sprint status (the active + backlog split files; a legacy single `sprint-status.yaml` is auto-split on first run) — extracts story keys and statuses only, never file contents
-4. If invoked headlessly (by `l3io-pm-epic-execute`), uses the provided epic number, sprint number, and story keys directly. Otherwise, identifies the first in-progress or backlog epic with non-done stories and confirms with the user
-5. Computes pre-start estimates automatically
+| Key | Default | Description |
+|-----|---------|-------------|
+| `auto_elaborate` | `false` | `true` elaborates thin stories without confirmation; `false` prompts first |
+| `include_estimates` | `true` | `false` skips the estimate step entirely |
+| `plan_output` | `"markdown"` | `"markdown"` writes `plan-{date}-v{n}.yaml`; `"console"` prints a summary only |
 
-### Pre-start estimates
+## Plan Reference
 
-Estimated automatically — no user prompting. Stories are classified by acceptance criteria count:
+`l3io-pm-plan` is read-only with respect to code — it validates, elaborates, estimates, and plans. It does not execute work.
 
-| Classification | AC count | Est. time | Est. tokens |
-|----------------|----------|-----------|-------------|
-| Simple | 1–3 ACs | 8–12 min | 40–70K |
-| Standard | 4–6 ACs | 12–20 min | 70–120K |
-| Complex | 7+ ACs | 20–35 min | 120–200K |
+### Modes
 
-Closure overhead is added on top of story totals:
+| Invocation | Steps run |
+|---|---|
+| `/l3io-pm-plan` | Full plan: readiness check → story elaboration → load state → dependency graph → estimate → plan output |
+| `/l3io-pm-plan estimate` | Estimate only, all scope |
+| `/l3io-pm-plan estimate E{nnn}` | Estimate only, one epic |
+| `/l3io-pm-plan estimate E{nnn}-S{nn}` | Estimate only, one sprint |
 
-| Component | Time | Tokens |
-|-----------|------|--------|
-| Base closure (retro, clean release, adversarial, UX, arch drift, issue triage) | 25–50 min | 60–120K |
-| Red-team phase (when `l3io-sec-agent-redteam` is installed) | +15–25 min | +30–60K |
+Story elaboration is skipped when the classified `work_type` is `DOCS` or `CONFIG`, and is a no-op when readiness is already green.
 
-Estimates are a **bottom-up roll-up**: each story estimate = `base_band × scope_ratio × fix_mult`, the sprint estimate = Σ story estimates + the calibrated closure band, and (at epic level) the epic estimate = Σ sprint estimates + the epic-closure band. Sprint/epic estimates are *defined as* the sum of their children + closure, so they reconcile exactly. Story estimates are written **up front at the pre-start estimate** and read (not recomputed) during the story loop. A fix reserve (`F`, default 1.25 ≈ one fix pass) is applied as a cold-start prior until calibration has enough samples — see [Estimation Calibration](#estimation-calibration). Actuals are reported at sprint close.
+### Output
 
-### Per-story phases
+Full plan mode writes an **immutable, versioned snapshot** plus a stable pointer:
 
-Stories run through phases sequentially (by default). Parallel execution is allowed across stories when safe — never across phases within the same story.
+| File | Purpose |
+|---|---|
+| `{planning_artifacts}/plan-{date}-v{n}.yaml` | The plan snapshot. Version auto-increments per day and resets on a new date; the file must not already exist |
+| `{planning_artifacts}/plan-output-meta.yaml` | Stable pointer — `current_plan`, readiness, phase summary. This is what `l3io-pm-execute` reads |
+| `{planning_artifacts}/readiness-report.md` | Per-epic readiness with gap detail |
+| `{planning_artifacts}/elaboration-summary.md` | Which stories were elaborated, and any deviations |
 
-| Phase | Step | What happens |
-|-------|------|--------------|
-| Story Prep | 2a | `bmad-create-story` subagent writes story file to `{story_output_dir}/{story-key}.md`. Orchestrator presents story title + AC count + task count and waits for confirmation before development |
-| Development | 2b | `bmad-dev-story` subagent implements all tasks. Story status set to `in-progress`. Verified complete when all task checkboxes are checked and Dev Agent Record is populated |
-| Code Review | 2c | `bmad-code-review` subagent reviews all changed files. Status set to `review`. Critical/High findings route immediately to Fix Loop |
-| QA | 2d | `bmad-qa-generate-e2e-tests` subagent generates and runs tests. Test evidence written to `{test_output_dir}`. All tests must pass before story is marked `done`. Failures route to Fix Loop |
-| Fix Loop | 2e | `bmad-dev-story` subagent addresses each issue (Critical/High/Medium auto-fixed without per-item prompts). QA re-runs after each fix. Max 10 iterations before the orchestrator halts and presents options to the user |
+Each phase in the snapshot carries a roll-up estimate. For **parallel** phases wall-clock is `max(epic.time_hours)`; for **sequential** phases it is the sum. Man-hours, tokens, and cost always sum.
 
-### Sprint closure phases
+`arch_gate_summary.ran` is always `false` at plan time — the architecture gate runs in `l3io-pm-execute`, not here.
 
-All closure outputs go to `{sprint_root_dir}/closure/`. The closure sign-off requires all Critical/High findings resolved.
+### Declaring dependencies
 
-| Step | Phase | What happens |
-|------|-------|--------------|
-| 3 | Retrospective | `bmad-retrospective` subagent writes retro to `closure/epic-XX-sprint-YY-retro-{date}.md` |
-| 4 | Clean Release Review | Inline analysis — flags added scope and over-engineering as a concrete `{file}:{line} — {tag} {cut}` list (tags: delete / stdlib / native / yagni / shrink) with a removable-line count; never flags validation, error handling, security, or accessibility. Also harvests `bmad-defer:` shortcut markers in the sprint's changed files straight to the backlog |
-| 5 | Adversarial Review | `bmad-review-adversarial-general` subagent reviews the sprint increment as a whole |
-| 6 | Red-Team Review | `l3io-sec-agent-redteam` subagent (skipped gracefully if not installed) |
-| 7 | UX Review | `bmad-ux-review` subagent (conditional — skipped if no UX specs found and user opts out) |
-| 8 | Light Arch Drift | Inline analysis across five dimensions: data model, API contracts, component boundaries, NFRs, technology/patterns |
-| 9 | Issue Triage | All severity counts presented; Critical/High must be fixed or explicitly accepted before continuing |
-| 10 | Sprint Sign-Off | Status file updated; actual elapsed time reported against estimate |
+Both fields are optional and default to `[]`.
 
-### Quality gate
+**Epic-level** — in `state/{status}/epic-{nnn}/epic.yaml`; prerequisite epics that must be `done` before this epic starts:
 
-The sprint does not close until all Critical/High findings from all closure phases are either resolved or explicitly accepted by the user with documented rationale.
-
-## Epic Execute Reference
-
-### Activation
-
-On activation, the skill:
-
-1. Resolves the workflow block from `customize.toml`
-2. Loads config and resolves all paths including `arch_file` and `prd_file`
-3. Reads the sprint status (the active + backlog split files; a legacy single `sprint-status.yaml` is auto-split on first run) — extracts epic and story keys with statuses only
-4. Presents sprint grouping proposal and waits for user confirmation
-5. Computes pre-start estimates across all sprints plus epic closure overhead
-
-### Epic closure overhead (added to sprint estimates)
-
-| Component | Time | Tokens |
-|-----------|------|--------|
-| Per sprint closure × number of sprints | 25–50 min/sprint | 60–120K/sprint |
-| Red-team per sprint (when l3io-sec installed) | +15–25 min/sprint | +30–60K/sprint |
-| Epic-level closure (retro, parallel batch, arch drift, functional completeness, issue triage) | 60–120 min | 100–200K |
-
-### Sprint execution loop (Step 2)
-
-For each sprint in the plan, the epic orchestrator spawns an `l3io-pm-sprint-execute` subagent with a structured headless prompt containing the epic number, sprint number, story keys, and output root path. The sprint subagent runs all per-story phases and closure phases, then emits:
-
-```
-DONE — Stories: N, Issues resolved: N, Issues deferred: N, Retro: [path], Time: ~Nmin (est L–Hmin)
+```yaml
+key: 'E003'
+depends_on: ['E001', 'E002']
 ```
 
-Between sprints, the orchestrator asks whether to proceed or pause to adjust the remaining plan.
+**Story-level** — in that story's own node file; globally-unique story keys, cross-epic supported:
 
-### Epic closure phases
-
-After all sprints complete, the following phases run in order:
-
-| Step | Phase | Notes |
-|------|-------|-------|
-| 3 | Epic Retrospective | Runs first; must complete before Step 4 batch |
-| 4 | Parallel Closure Batch | Up to `effective_parallel_subagents` concurrent subagents |
-| 4a | Clean Release Review | Full epic scope — all stories across all sprints |
-| 4b | Adversarial Review | `bmad-review-adversarial-general` — systemic issues across all stories |
-| 4c | Red-Team Review | `l3io-sec-agent-redteam` — full epic attack surface (skipped if not installed) |
-| 4d | UX Review | `bmad-ux-review` — conditional on UX specs or user opt-in |
-| 5 | Architecture Drift | Solution-scoped — four categories: INTENTIONAL, UNDOCUMENTED, SPEC GAP, MISSING |
-| 6 | Functional Completeness | PRD coverage check — each epic-level AC verified against stories and tests |
-| 7 | Issue Triage and Resolution | All findings presented; Critical/High + undocumented drift + AC gaps must be resolved |
-| 8 | Epic Sign-Off | Status file updated; actual elapsed time reported |
-
-### Quality gate
-
-The epic does not close until all of the following are resolved:
-- All Critical/High findings from closure phases
-- All undocumented architecture drift findings (fix the code or document the rationale)
-- All functional completeness AC gaps (implement the missing AC or defer with documented rationale)
-
-## Headless Mode
-
-When `l3io-pm-epic-execute` calls `l3io-pm-sprint-execute`, it passes a structured prompt:
-
-```
-Load config from: {config_file}
-Load project context from: {context_file} (if it exists)
-Sprint status file: {status_file}
-Target: Epic {target_epic}, stories: {sprint_story_keys}
-Sprint number: {current_sprint_num} (two-digit: {current_sprint_padded})
-Expected sprint output root: {epic_root_dir}/sprint-{current_sprint_padded}
-Invoke skill: l3io-pm-sprint-execute
-Execute the complete sprint for the listed stories — all per-story phases and closure phases.
-...
-Print when done:
-  DONE — Stories: N, Issues resolved: N, Issues deferred: N, Retro: [path]
+```yaml
+key: 'E003-S01-001'
+depends_on: ['E001-S02-003']
 ```
 
-In headless mode, the sprint skill skips the interactive scope confirmation and emits a single status line instead of the full sign-off summary.
+`l3io-pm-plan` validates that all referenced keys exist and detects cycles before writing the plan.
 
-## Artifact Paths Reference
+## Execute Reference
 
-All paths use zero-padded two-digit epic/sprint numbers.
+### Activation and step order
+
+**Normal mode** (epic orchestration):
+
+```
+steps/shared/step-00-activate.md        variable binding, state resolution, gitignore check
+steps/shared/step-01-classify-work.md   determines work_type: CODE | DOCS | CONFIG | MIXED
+steps/execute/step-02-scope-resolve.md  full plan, single epic, or single sprint
+steps/execute/step-03-load-plan.md      reads plan-output-meta.yaml
+steps/execute/step-04-arch-gate.md      pre-execution architecture gate
+steps/execute/step-05-epic-loop.md      per-epic: promote, lock, dispatch sprints, re-estimate
+steps/execute/step-06-epic-closure.md   epic closure
+```
+
+**Headless mode** (one sprint, dispatched by step-05). `step-01-classify-work` is skipped because `work_type` arrives in the injected context block:
+
+```
+steps/shared/step-00-activate.md
+steps/sprint/step-02-story-prep.md
+steps/sprint/step-03-dev-loop.md
+steps/sprint/step-04-sprint-closure.md
+```
+
+### Architecture gate (step-04)
+
+Runs once per epic, before any sprint. Skipped entirely for `DOCS`/`CONFIG` work types, and when `l3io-arch-review` is not installed — the gate never partially skips, since at least one reviewer must run.
+
+Detected reviewers run in parallel: `l3io-arch-review` Mode B (always), plus `bmad-agent-architect` and superpowers when present. Findings consolidate by rule — any BLOCKER stays a BLOCKER; a MAJOR blocks even from a single reviewer; MINOR defers to `issues.yaml`.
+
+Each blocking finding is resolved by an ADR written to `{implementation_artifacts}/epic-{nnn}/arch/adr-{nnn}-{slug}.md` **and** by patching the affected story files with the technical ACs the decision implies. One re-validation pass follows; persistent blockers emit `BLOCKED`.
+
+Zero findings on non-trivial CODE scope prompts for confirmation rather than passing silently.
+
+### Epic loop (step-05)
+
+For each phase in the plan, epics dispatch concurrently up to `max_parallel_subagents` when the phase is marked parallel and holds more than one epic; otherwise sequentially. After a phase, every prerequisite is verified `done` before the next begins.
+
+Per epic: `move-epic --to active` (a no-op if already active, so it is always safe on resume) → `set-lock` (skip the epic with `BLOCKED` if another live session holds it) → dispatch sprints → epic closure.
+
+**Sprints within an epic are always sequential.** After each sprint completes, remaining unstarted sprints are re-estimated so calibration learned from the finished sprint feeds forward.
+
+### Per-story phases (step-03 dev loop)
+
+Stories process in order; a story with `depends_on` waits until each referenced story is `done`. A dependency outside this sprint's scope moves the story to the end of the queue rather than blocking the sprint.
+
+| Phase | What happens |
+|---|---|
+| Story prep | Technical-AC gate; `bmad-create-story` enriches stories missing technical ACs. Estimates written, status → `ready-for-dev` |
+| Development | Status → `in-progress`. `bmad-dev-story` implements all tasks |
+| Code review | `bmad-code-review` on changed files. Skipped for `DOCS`/`CONFIG` |
+| Fix loop | CRITICAL/HIGH re-invoke the dev subagent, capped at 10 iterations per story |
+| Completion | Completion evidence, then actuals, then status → `done` |
+
+Severity routing: **CRITICAL/HIGH** open the fix loop; **MEDIUM** is fixed in the current iteration before done; **LOW** defers to `issues.yaml` without re-development.
+
+Exceeding the 10-iteration cap emits `FAILED` for that story, leaves it at `status: review`, and continues to the next story.
+
+> **Write order is load-bearing.** `completion_evidence.fix_iterations` must be written **before** `set-actual`. `set-actual` derives the calibration sample inline and reads `fix_iterations` to choose the sample's provenance (`exact` vs `backout`) and its `fix` cohort. Writing it afterwards means it is always absent at derivation time — `provenance: exact` becomes unreachable, neither fix cohort ever fills, and the fix factor stays frozen at the 1.25 cold-start prior, silently and forever.
+
+### Sprint closure (step-04)
+
+| Phase | CODE | DOCS | CONFIG | MIXED |
+|---|---|---|---|---|
+| Retrospective | run | run | run | run |
+| Clean release review | run | skip | run | run |
+| Adversarial analysis | run | skip | skip | run |
+| Red team (`l3io-sec-redteam`) | run | skip | skip | run |
+| UX review (`bmad-ux-review`) | run | run | skip | run |
+| Architectural drift (`l3io-arch-review` Mode C) | run | skip | run | run |
+| Issue triage | run | run | run | run |
+
+Outputs go to `{sprint_root}/closure/` — `retrospective.md` and `closure-report.md`. The closure report records stories done, estimates vs actuals, issue counts resolved and deferred, and which phases ran versus were skipped.
+
+### Epic closure (step-06)
+
+1. **Retrospective** — reviews every sprint retro for the epic; summarizes velocity, recurring pain points, and up to five learnings
+2. **Architectural drift** — `l3io-arch-review` Mode C over the epic's ADRs and story files. CODE/MIXED only, and only when installed. CRITICAL/HIGH/MEDIUM must resolve before closure, under the 10-iteration cap
+3. **Issue triage** — re-reviews the epic's deferred Low items for promotion now that full epic context exists
+4. **Closure report** — epic goal and final status, estimate-vs-actual for all four metrics, sprint velocity, learnings, outstanding issues, ADRs produced
+
+Outputs go to `{implementation_artifacts}/epic-{nnn}/epic-closure/`.
+
+## Headless Dispatch
+
+Step-05 spawns each sprint with an authoritative context block:
+
+```
+# l3io-pm execution context [AUTHORITATIVE — read before any step file]
+work_type: {work_type}
+skip_phases: {skip_phases}
+epic_key: {epic_key}
+epic_nnn: {epic_nnn}
+sprint_root: {implementation_artifacts}/epic-{epic_nnn}/sprint-{sprint_nn}/
+story_keys: [{story_keys}]
+sprint_num: {sprint_num}
+execute_skill_root: {skill-root}
+headless: true
+
+Load and execute in order:
+  {skill-root}/steps/shared/step-00-activate.md
+  {skill-root}/steps/sprint/step-02-story-prep.md
+  {skill-root}/steps/sprint/step-03-dev-loop.md
+  {skill-root}/steps/sprint/step-04-sprint-closure.md
+
+End with exactly one of:
+  DONE — Stories: N, Issues resolved: N, Issues deferred: N
+  BLOCKED: [one-line reason]
+  FAILED: [one-line reason]
+```
+
+`skip_phases` is derived from `work_type`: `CODE` and `MIXED` skip nothing; `DOCS` skips adversarial, red-team, arch-drift, and clean-release; `CONFIG` skips adversarial, red-team, and ux-review.
+
+The orchestrator branches on the returned line: `DONE` marks the sprint done and continues; `BLOCKED` halts the epic loop; `FAILED` is non-fatal at epic level — logged and counted, then the next sprint runs.
+
+## Paths Reference
+
+Epic directories are 3-digit zero-padded, sprints 2-digit. Zero-padding makes lexical order the correct processing order.
 
 | Path | Description |
 |------|-------------|
-| `{implementation_artifacts}/sprint-status.yaml` | Story and epic status for in-progress epics — part of the single source of truth |
-| `{implementation_artifacts}/sprint-status-backlog.yaml` | Not-yet-started work plus the consolidated deferred-issue backlog — part of the single source of truth |
-| `{implementation_artifacts}/sprint-status-archived.yaml` | Done epics, moved here wholesale at epic close — part of the single source of truth |
-| `{implementation_artifacts}/epic-XX/sprint-YY/stories/{story-key}.md` | Story file |
-| `{implementation_artifacts}/epic-XX/sprint-YY/closure/` | Sprint closure outputs (retro, adversarial, etc.) |
-| `{implementation_artifacts}/epic-XX/sprint-YY/tests/` | Sprint-scoped QA evidence |
-| `{implementation_artifacts}/epic-XX/epic-closure/` | Epic closure outputs |
-| `{implementation_artifacts}/epic-XX/tests/` | Epic-scoped fix verification evidence |
-| `{planning_artifacts}/epic-XX/` | Epic-level planning documents |
-| `{planning_artifacts}/epic-XX/sprint-YY/` | Sprint-level planning documents |
+| `{implementation_artifacts}/state/{planned,active,archived}/epic-{nnn}/epic.yaml` | Epic node — one bare node per file, no `sprints:` list |
+| `{implementation_artifacts}/state/.../epic-{nnn}/sprint-{nn}/sprint.yaml` | Sprint node — no `stories:` list |
+| `{implementation_artifacts}/state/.../sprint-{nn}/E{nnn}-S{nn}-{nnn}.yaml` | Story node |
+| `{implementation_artifacts}/state/issues.yaml` | Flat deferred-issue list |
+| `{implementation_artifacts}/state/pm-calibration.yaml` | Learned calibration ratios — committed |
+| `{implementation_artifacts}/epic-{nnn}/sprint-{nn}/stories/{story-key}.md` | Story markdown |
+| `{implementation_artifacts}/epic-{nnn}/sprint-{nn}/closure/` | Sprint closure outputs |
+| `{implementation_artifacts}/epic-{nnn}/sprint-{nn}/tests/` | Sprint-scoped QA evidence |
+| `{implementation_artifacts}/epic-{nnn}/arch/` | ADRs from the architecture gate |
+| `{implementation_artifacts}/epic-{nnn}/epic-closure/` | Epic closure outputs |
+| `{implementation_artifacts}/epic-{nnn}/tests/` | Epic-scoped fix verification |
+| `{planning_artifacts}/plan-{date}-v{n}.yaml` | Plan snapshot |
+| `{planning_artifacts}/plan-output-meta.yaml` | Stable plan pointer |
 
-Sprint closure filename pattern: `epic-XX-sprint-YY-{type}-{date}.md`
-Epic closure filename pattern: `epic-XX-{type}-{date}.md`
+**Never construct a state path by hand.** All node operations address state by key through `pm-status.py`; `references/status-files.md` is the canonical contract.
 
-Types: `retro`, `clean-release`, `adversarial`, `redteam`, `ux-review`, `arch-drift`, `functional-completeness`
+## State Schema
 
-## Status File Schema
+One bare node per file — no `epics:` wrapper. The directory structure replaces the `sprints:` and `stories:` lists; children are discovered by listing the directory. Child files carry redundant `epic:`/`sprint:` back-references deliberately, so each file is self-describing and `verify --scope epic` can catch a file sitting in the wrong directory.
 
-The sprint status tracks story and epic lifecycle, split across three files in `{implementation_artifacts}/`: `sprint-status.yaml` (in-progress epics), `sprint-status-backlog.yaml` (not-yet-started work plus the consolidated top-level deferred-issue `backlog:` list, each item tagged with `epic` and `sprint` keys), and `sprint-status-archived.yaml` (done epics, moved here wholesale at epic close). Placement granularity is epic + sprint — stories always travel inside their owning sprint node, and archiving happens only at epic close. The placement rule, node-move operations, and read/auto-fallback procedure are defined in each PM skill's `references/status-files.md`. Only the orchestrator writes to these files; subagents pass paths but do not write directly. The schema below shows the per-epic node shape that lives in whichever of the three files currently holds that epic.
+Keys: epic `E{nnn}`, sprint `S{nn}`, story `E{nnn}-S{nn}-{nnn}`, backlog item `BL-E{nnn}-{nnn}` (`BL-E000-{nnn}` for repo-global). Node fields use `key:`, never `id:`.
 
-Story status lifecycle:
+```yaml
+# state/active/epic-001/epic.yaml
+_lock:                        # machine metadata; always the first key when present
+  session_id: 'claude-session-abc123'
+  claimed_at: '2026-08-16T10:00:00Z'
+  ttl_minutes: 30
+key: 'E001'
+title: 'Epic 001 — Foundation'
+goal: 'Stand up the core platform'
+status: in-progress
+depends_on: []                # epic keys; read by l3io-pm-plan
+estimate:                     # ranges at epic/sprint level
+  man_hours_low: 40
+  man_hours_high: 60
+  time_hours_low: 8
+  time_hours_high: 12
+  tokens_k_min: 2000
+  tokens_k_max: 3200
+  cost_low: 30.00
+  cost_high: 48.00
+  confidence: medium
+actual:                       # all four metrics required
+  elapsed_hours: 11.5
+  man_hours: 52
+  tokens_k: 2840
+  cost: 42.60
+```
+
+```yaml
+# state/active/epic-001/sprint-01/E001-S01-003.yaml
+key: 'E001-S01-003'
+epic: 'E001'                  # back-references; path must agree
+sprint: 'S01'
+title: 'Implement token ledger'
+status: review
+classification: complex
+estimate:                     # single values at story level
+  man_hours: 6
+  time_hours: 1.5
+  tokens_k: 320
+  cost: 4.80
+  confidence: high
+actual:
+  elapsed_hours: 1.8
+  man_hours: 7
+  tokens_k: 355
+  cost: 5.32
+```
+
+### Lifecycles
 
 ```
-backlog → ready-for-dev → in-progress → review → done
+story:  backlog → ready-for-dev → in-progress → review → done
+epic:   backlog → in-progress → done
 ```
 
 | Status | Set when |
 |--------|----------|
 | `backlog` | Initial state |
-| `ready-for-dev` | Story prep complete, user confirmed |
-| `in-progress` | Development phase started |
+| `ready-for-dev` | Story prep and the technical-AC gate complete |
+| `in-progress` | Development started |
 | `review` | Development complete, entering code review |
-| `done` | All QA tests pass |
+| `done` | Review clean, completion evidence and actuals written |
 
-Epic status lifecycle: `backlog → in-progress → done`
+### Backlog
 
-### Full schema
+`issues.yaml` is a flat, backlog-only list — resolved items are **removed**, not marked. There are no `resolved` or `resolution` fields.
 
 ```yaml
-epics:
-- id: '01'
-  title: 'Epic 01 — ...'           # written at in-progress
-  goal: '...'                       # written at in-progress
-  status: done
-  closed: '2026-05-18'             # written at epic close
-  retrospective: path/to/retro.md  # written at epic close
-  estimate:                         # roll-up: Σ sprint.estimate + calibrated epic-closure band
-    time_hours_low: 3.0
-    time_hours_high: 5.7
-    tokens_k_min: 800
-    tokens_k_max: 1600
-    cost_low: '$6.40'
-    cost_high: '$12.80'
-    man_hours_low: 120             # traditional dev equivalent (person-hours)
-    man_hours_high: 240
-  actual:                           # written at epic close
-    elapsed_hours: 4.1             # AI-assisted wall-clock actual
-    man_hours: 4.1                 # auto-computed: sum of sprint man_hours + 12h closure
-  sprints:
-  - id: '01'
-    title: 'Sprint 01 — Foundation'
-    status: done
-    closed: '2026-05-18'
-    retrospective: path/to/retro.md
-    estimate:
-      time_hours_low: 0.8
-      time_hours_high: 1.4
-      tokens_k_min: 250
-      tokens_k_max: 480
-      cost_low: '$2.00'
-      cost_high: '$3.84'
-      man_hours_low: 40
-      man_hours_high: 80
-    actual:
-      elapsed_hours: 1.1
-      man_hours: 52.5              # auto-computed: sum of (classification base × fix_factor) + 24h closure
-    stories:
-    - key: PROJ-E01-S01-ST01
-      title: 'Story title'
-      status: done
-      classification: complex      # simple | standard | complex — written at ready-for-dev
-      completion_evidence:         # written at done
-        fix_iterations: 2
-        tests_passing: 42
-        files_changed: 8
-        bugs_fixed:                # omitted when fix_iterations == 0
-        - 'Brief description of fix'
-backlog:
-- key: BL-E01-01                       # BL-E{epic}-{nn}, both zero-padded; BL-E00-{nn} for repo-global
-  epic: '01'                           # zero-padded epic id; '00' for repo-global items
-  sprint: '02'                         # zero-padded sprint id; '' for an epic-level deferral
+- key: BL-E001-004
+  epic: '001'
+  sprint: '02'                # '' for an epic-level deferral
   title: 'Issue title'
-  source: 'adversarial (ADV-L-01)'     # review phase + finding id
-  severity: Low                        # Critical | High | Medium | Low
+  source: 'code-review (E001-S02-003)'
+  severity: Low
   status: backlog
   description: 'One-sentence description.'
 ```
 
-The `backlog:` list is backlog-only — only `status: backlog` items appear. When an item is resolved inline or promoted to a story, it is **removed** from the list. There are no `resolved` or `resolution` fields — done items simply don't exist in this list. When promoted to a story, a story node is created in the target sprint in `sprint-status.yaml` with `title` and `classification` pre-populated; the story then follows the normal lifecycle and archives with its epic at epic close.
+### `pm-status.py` subcommands
 
-To upgrade a sprint status file that is missing these fields, run `/l3io-util-cleanup migrate-schema`. To split a legacy single `sprint-status.yaml` into the active/backlog/archived three-file layout (the original is preserved as `sprint-status.yaml.legacy`), run `/l3io-util-cleanup split-status`; the PM skills also auto-split a legacy file on first run.
+| Subcommand | Addressing |
+|---|---|
+| `set-status`, `set-actual`, `set-estimate`, `set-field`, `verify` | `--state-root` + (`--story KEY` \| `--epic ID [--sprint ID]`) |
+| `estimate-story` | `--state-root --story KEY --classification {simple,standard,complex}` |
+| `estimate-rollup` | `--state-root --epic ID [--sprint ID]` — sums children, widens by the closure band |
+| `show` | `--state-root --epic ID [--sprint ID]` — computed roll-up to stdout, never a committed file |
+| `set-lock`, `clear-lock`, `check-lock` | `--state-root --epic ID` (epics only) |
+| `move-epic`, `archive-epic` | `--state-root --epic ID [--to {planned,active,archived}]` |
+| `append-issue` | `--file` — the one path-addressed exception |
+| `list-issues` | `--state-root` + optional `--epic`/`--sprint`/`--severity`/`--format` |
+| `calibration show` | `--state-root [--format {text,json}]` |
+| `progress` | `--ledger` + `--msg` |
 
-## Metrics Contract (estimates & actuals)
+Exit codes: `0` success · `2` usage error · `3` node not found · `4` verification failure · `5` epic locked by another session.
 
-Every planning point and every closeout — at **story, sprint, epic, and retrospective** level — records both an `estimate` and an `actual` for all **four** metrics: man-hours, compute (AI wall-clock) hours, tokens, and token cost. This is a hard rule: a sprint or epic does not sign off with any estimate block, actual block, or individual metric missing. The authoritative procedure lives in each PM skill's `references/metrics-contract.md`.
+`verify --scope epic` checks **structural integrity** (every sprint directory has a `sprint.yaml`; every back-reference matches its directory — a *missing* back-reference fails exactly like a mismatched one). It deliberately does not check completion, since an in-progress epic legitimately holds unfinished stories. `verify --scope story|sprint` checks **completion** of one node. Activation runs the epic scope only.
 
-**Runtime-aware token/cost capture.** How the token and cost *actuals* are captured depends on the runtime, detected via the `CLAUDECODE=1` environment variable:
+### Legacy migration
 
-- **Under Claude** — tokens and cost are captured **exactly** from the session transcript `usage` fields (the run is scoped by session id, covering the orchestrator and all subagent transcripts). Never estimated.
-- **Under other runtimes** (e.g. Copilot) — if the runtime exposes a usage source it is read; otherwise tokens and cost are recorded as **`N/A`**, never guessed or back-filled. Seeing `N/A` for tokens/cost under a non-Claude runtime is expected behavior, not an error.
+Read resolution counts layout matches rather than stopping at the first hit — two populated layouts block rather than silently forking state. Legacy flat `sprint-status.yaml` and legacy `_bmad/state/` both migrate via `/l3io-util-cleanup migrate-state` (original preserved as `.legacy`).
 
-Compute hours (measured wall-clock) and man-hours (a modeled traditional-dev-equivalent formula) are always captured in both runtimes.
+## Metrics Contract
+
+Every planning point and closeout — story, sprint, epic, retrospective — records an `estimate` and an `actual` for all four metrics: **man-hours, compute (AI wall-clock) hours, tokens, and token cost.** A sprint or epic does not sign off with any block or individual metric missing.
+
+This is enforced at write time, not by convention: under `--runtime claude`, `set-actual` and `verify` **reject** an `N/A` tokens/cost value.
+
+**Runtime-aware capture**, detected via `CLAUDECODE=1`:
+
+- **Under Claude** — tokens and cost are read **exactly** from the session transcript `usage` fields, scoped by session id across the orchestrator and all subagent transcripts. Never estimated.
+- **Under other runtimes** (e.g. Copilot) — read the runtime's usage source if one exists; otherwise record **`N/A`**. Never guessed or back-filled. `N/A` under a non-Claude runtime is expected behavior, not an error.
+
+Compute hours and man-hours are captured in every runtime.
+
+### Estimation model
+
+Estimates are a strict **bottom-up roll-up**:
+
+```
+story.estimate  = base_band(classification) × scope_ratio × fix_mult
+sprint.estimate = Σ story.estimate + calibrated sprint-closure band
+epic.estimate   = Σ sprint.estimate  + calibrated epic-closure band
+```
+
+Sprint and epic estimates are *defined as* the sum of their children plus closure, so they reconcile by construction rather than via a parallel formula that could drift.
+
+Cold-start base bands per story:
+
+| Classification | man_hours | time_hours | tokens_k | cost |
+|---|---|---|---|---|
+| simple | 2 | 0.5 | 20 | 0.14 |
+| standard | 4 | 1.5 | 40 | 0.28 |
+| complex | 8 | 3.0 | 80 | 0.56 |
+
+The fix reserve `F` (default 1.25) is a **cold-start prior only**. It fills the gap until a component has ≥3 calibration samples, then the learned ratios — which already encode fix overhead — supersede it. Stacking both would double-count fixes.
+
+Full procedure: each PM skill's `references/metrics-contract.md`.
 
 ## Estimation Calibration
 
-Sprint-execute (and epic-execute at epic close) learns from plan-vs-actual deltas and applies corrections to future estimates. No configuration required — it activates automatically, per component, once enough history exists.
+Calibration learns from plan-vs-actual deltas and applies corrections to future estimates. No configuration required — each component activates independently once it has enough history.
 
-### How it works (decomposed)
+### Three separable components
 
-Calibration is **decomposed into three independent components**, each learned per metric, so a miss can be attributed to story sizing vs closure overhead vs fix churn rather than one blended number:
+| Component | Learned per | Measures |
+|---|---|---|
+| `scope` | classification × metric | Story sizing vs **fix-excluded** actuals |
+| `closure` | level (sprint, epic) × metric | Closure bands vs real closure consumption |
+| `fix` | classification | Observed `avg_fix_factor`, which replaces the static reserve once learned |
 
-- **`scope`** — per classification (simple / standard / complex) × per metric: how story-sizing estimates compare to **fix-excluded** actuals.
-- **`closure`** — per level (sprint, epic) × per metric: how the static closure bands compare to real closure consumption. (Closure was previously never calibrated — a blind spot this closes.)
-- **`fix`** — per classification: the observed average fix multiplier (`avg_fix_factor`), which **replaces** the static fix reserve once learned.
+Each activates at **≥3 samples**, independently, using an exponential-decay weighted rolling average (decay 0.8, most recent = 1.0). Until then it uses a cold-start prior: ratio 1.0, fix reserve 1.25.
 
-Each component activates once it has **≥3 samples** (independently), using an exponential-decay weighted rolling average (weight = 0.8^n, most recent = 1.0). Until then it uses a cold-start prior: ratio 1.0, or fix reserve `F` = 1.25.
+Story samples are emitted by `set-actual` as a side effect of a successful write (`--no-calibrate` suppresses it); closure samples are emitted per sprint and epic. The scope-vs-fix split of measured actuals backs the fix portion out via `fix_factor` (approach A).
 
-> **Why the fix reserve is only a cold-start prior:** actuals are captured *after* the fix loop while estimates are written *before* it, so every learned ratio already encodes real fix overhead. Multiplying a learned ratio by a static reserve would **double-count** fixes — so `F` retires as soon as the `fix` component has ≥3 samples.
-
-**Sampling granularity** is controlled by `calibration_granularity` in `customize.toml` (`"story"` default — each done story emits a scope/fix sample, so the model converges after ~3 *stories* — or `"sprint"` for coarser per-sprint aggregation). Closure samples are always emitted per sprint / epic. The scope-vs-fix split of measured time/token/cost actuals is computed by backing the fix portion out via `fix_factor` (approach A).
-
-**`token` and `cost` ratios only accumulate from runs with real actuals** (Claude runs); `N/A` entries (non-Claude runtime or unreadable transcript) are skipped — a guessed value is never fed into calibration. `time` and `man_hours` accumulate from every run.
-
-The system is self-correcting: if a component overshoots, its ratio drops below 1.0 and pulls subsequent estimates back down.
+**`token` and `cost` ratios only accumulate from runs with real actuals** — Claude runs. `N/A` entries are skipped; a guessed value is never fed into calibration. `time` and `man_hours` accumulate from every run.
 
 ### Calibration file
 
-`_bmad/pm-calibration.yaml` (`version: 2`) — project-scoped, add to `.gitignore` if you prefer not to commit it. A legacy `version: 1` file is auto-migrated on first write (original kept as `pm-calibration.yaml.v1`):
+`{implementation_artifacts}/state/pm-calibration.yaml` (`version: 2`). **Commit it** — learned ratios are team knowledge and expensive to rebuild. A legacy `version: 1` file is auto-migrated on first write, with the original kept as `pm-calibration.yaml.v1`.
 
 ```yaml
 version: 2
@@ -338,7 +433,7 @@ scope:                    # per class × per metric (fix-excluded story sizing)
   simple:   { time_ratio: 1.10, token_ratio: 1.05, cost_ratio: 1.05, man_hours_ratio: 1.0, sample_count: 6 }
   standard: { time_ratio: 1.20, token_ratio: 1.12, cost_ratio: 1.12, man_hours_ratio: 1.0, sample_count: 9 }
   complex:  { time_ratio: 1.35, token_ratio: 1.28, cost_ratio: 1.28, man_hours_ratio: 1.0, sample_count: 3 }
-closure:                  # per level × per metric (NEW)
+closure:                  # per level × per metric
   sprint: { time_ratio: 0.95, token_ratio: 1.08, cost_ratio: 1.08, man_hours_ratio: 1.0, sample_count: 4 }
   epic:   { time_ratio: 1.0,  token_ratio: 1.0,  cost_ratio: 1.0,  man_hours_ratio: 1.0, sample_count: 1 }
 fix:                      # per class; supersedes the cold-start reserve at ≥3 samples
@@ -346,74 +441,39 @@ fix:                      # per class; supersedes the cold-start reserve at ≥3
   standard: { avg_fix_factor: 1.30, sample_count: 9 }
   complex:  { avg_fix_factor: 1.50, sample_count: 3 }
 history:                  # most recent 30 entries
-- { kind: story, id: 'E01-S01-ST01', class: complex, date: '2026-05-15', scope: { time_ratio: 1.3, token_ratio: 1.25, cost_ratio: 1.25, man_hours_ratio: 1.0 }, fix_factor: 1.5 }
-- { kind: sprint-closure, id: 'E01-S01', date: '2026-05-15', closure: { time_ratio: 0.9, token_ratio: 1.1, cost_ratio: 1.1, man_hours_ratio: 1.0 } }
+- { kind: story, id: 'E001-S01-001', class: complex, date: '2026-05-15', scope: { time_ratio: 1.3 }, fix_factor: 1.5 }
+- { kind: sprint-closure, id: 'E001-S01', date: '2026-05-15', closure: { time_ratio: 0.9 } }
 ```
+
+Inspect it read-only with `pm-status.py calibration show`; a missing file reports cold-start and exits `0`.
+
+Because `pm-calibration.yaml` is a cross-epic aggregate that sharding cannot shard, its **whole read-modify-write cycle** runs inside one exclusive flock. Locking only the save was not safe — two concurrent samplers each loaded the same pre-append state, and the second save silently dropped the first's sample while both exited `0`.
 
 ### Announcement format
 
-When any component is calibrated, the pre-start estimate line summarizes which are active:
 ```
 Calibration:  scope.complex ×1.35 (n=3) · fix.complex ×1.50 (n=3) · closure.sprint ×0.95 (n=4)
 ```
+
 Before any component reaches 3 samples:
+
 ```
 Calibration:  none yet — formula baseline (components calibrate at ≥3 samples)
-```
-
-## Plan Execution Reference
-
-`l3io-pm-plan-execution` analyzes the dependency graph across your epics and produces a phased, parallel-optimized execution plan. It is a read-only planning skill — it does not execute any work.
-
-### Scope arguments
-
-| Argument | Effect |
-|----------|--------|
-| *(none)* | All non-done epics in the split status files |
-| `--epics E01,E02` | Only the named epic keys (comma- or space-separated) |
-| `--stories E01-S01-001,E02-S01-003` | Derives owning epics from the story keys; scopes to those epics |
-
-### Output
-
-Saves a markdown plan to `{planning_artifacts}/execution-plan-{date}.md` (configurable). The plan contains one section per phase with parallel/sequential labeling, per-epic story counts and wall-clock estimates, the critical path chain, and ready-to-run `/l3io-pm-epic-execute` dispatch commands.
-
-### customize.toml keys
-
-| Key | Default | Description |
-|-----|---------|-------------|
-| `plan_output` | `"markdown"` | `"markdown"` saves to `planning_artifacts`; `"console"` displays only |
-| `include_dispatch_lines` | `true` | Whether to include `/l3io-pm-epic-execute` dispatch lines in the plan |
-| `include_estimates` | `true` | Whether to include per-phase wall-clock estimates and critical path |
-
-### Declaring dependencies
-
-Add `depends_on` to epic or story nodes in the sprint status files. Both fields are optional and default to `[]`.
-
-**Epic-level** — prerequisite epic keys that must be `status: done` before this epic starts:
-```yaml
-epics:
-  - key: 'E03'
-    depends_on: ['E01', 'E02']
-```
-
-**Story-level** — prerequisite story keys (cross-epic supported); the skill rolls cross-epic story deps up to epic-level edges:
-```yaml
-stories:
-  - key: E03-S01-001
-    depends_on: ['E01-S02-003']
 ```
 
 ## Dependency Skills by Phase
 
 | Phase | Skill invoked |
 |-------|--------------|
-| Story Prep | `bmad-create-story` |
+| Story prep / elaboration | `bmad-create-story` |
 | Development | `bmad-dev-story` |
-| Fix Loop | `bmad-dev-story` |
-| Code Review | `bmad-code-review` |
+| Fix loop | `bmad-dev-story` |
+| Code review | `bmad-code-review` |
 | QA | `bmad-qa-generate-e2e-tests` |
 | Retrospective (sprint + epic) | `bmad-retrospective` |
-| Adversarial Review (sprint + epic) | `bmad-review-adversarial-general` |
-| Red-Team Review (sprint + epic) | `l3io-sec-agent-redteam` (optional) |
-| UX Review (sprint + epic) | `bmad-ux-review` (optional) |
-| Clean Release, Arch Drift, Functional Completeness | Inline — no skill invoked |
+| Clean release + adversarial review | `bmad-review-adversarial-general` |
+| Architecture gate (epic) | `l3io-arch-review` Mode B, `bmad-agent-architect`, superpowers (optional) |
+| Architectural drift (sprint + epic) | `l3io-arch-review` Mode C (optional) |
+| Red-team review (sprint) | `l3io-sec-redteam` (optional) |
+| UX review (sprint) | `bmad-ux-review` (optional) |
+| Issue triage | Inline — no skill invoked |
