@@ -21,12 +21,12 @@ Modes (pass as argument to skip directly to that mode):
 **One-time migrations (run in this order)**
 - **`migrate-schema`:** Upgrades an existing `sprint-status.yaml` to the current field schema — adds missing fields with zero/empty defaults, never overwrites existing values.
 - **`split-status`:** Splits a single `sprint-status.yaml` into the three-file layout the PM skills now use — `sprint-status.yaml` (active/in-progress epics), `sprint-status-backlog.yaml`, `sprint-status-archived.yaml` — partitioning every epic/sprint by status. One-time migration; the original is preserved as `sprint-status.yaml.legacy`. (Run `migrate-schema` first if the file predates the current field schema.)
-- **`migrate-state`:** Migrates from old sprint-status*.yaml layout to new _bmad/state/ per-epic layout. Preserves originals as .legacy files.
+- **`migrate-state`:** Migrates from either legacy layout (flat `sprint-status*.yaml`, or legacy per-epic `_bmad/state/`) to the sharded state tree under `{implementation_artifacts}/state/`. Preserves originals as `.legacy` files.
 
 **Ongoing maintenance (safe to repeat)**
 - **`normalize`:** Convenience shortcut — runs `reconcile-status` then `sort-status` in one confirmed pass. Use for routine maintenance instead of running two commands separately.
 - **`reconcile-status`:** Audits the three split status files for placement and structure issues: epics in the wrong file for their `status`, nested per-epic `backlog:` arrays that should be flattened into the consolidated top-level list, stale backlog items whose status is no longer `backlog`, and empty epic shells in the backlog file. Dry-run first; confirms before writing. Safe to run at any time.
-- **`sort-status`:** Validates that epics, sprints, stories, and backlog items in all three split status files are in the expected sort order, and applies sorting if needed. Dry-run first; confirms before writing. Safe to run at any time — never edits field values, only reorders nodes.
+- **`sort-status`:** Validates state file and directory naming against the zero-padded convention (`epic-{nnn}/`, `sprint-{nn}/`, `E{nnn}-S{nn}-{nnn}.yaml`). Ordering itself can no longer drift under the sharded layout — directory listing order is correct order — so this mode no longer reorders anything. It reports misnamed entries, which would sort incorrectly and break key resolution.
 - **`layout-cleanup`:** Runs only the artifact layout reorganization (the original default behavior) — reorganizes flat artifact outputs into the structured epic/sprint folder hierarchy, reconciles references, verifies state consistency.
 
 **Source & external sync**
@@ -36,6 +36,7 @@ Modes (pass as argument to skip directly to that mode):
 **Setup & housekeeping**
 - **`clean-legacy`:** Removes `.yaml.legacy` migration backup files and `.v1` calibration backup files left behind by one-time migration commands. Dry-run first; confirms before deleting. Safe to run once migrations have been verified.
 - **`rename-active`:** Renames `sprint-status-active.yaml` → `sprint-status.yaml`. Rarely needed directly — the health check detects and runs this automatically when the old naming is found.
+- **`rename-epic-dirs`:** Renames legacy two-digit `epic-{nn}/` artifact directories to the current three-digit `epic-{nnn}/` form. Rarely needed directly — the health check detects and runs this automatically when the old naming is found.
 
 **One-time use (layout cleanup):** Designed to be run once per project. Running again after a successful cleanup produces zero moves (everything already placed) or conflicts (for new flat files added since the first run).
 
@@ -62,6 +63,7 @@ Modes (pass as argument to skip directly to that mode):
 | `reconcile-status` | [Reconcile Status Mode](#reconcile-status-mode) |
 | `sort-status` | [Sort Status Mode](#sort-status-mode) |
 | `rename-active` | [Rename Active Mode](#rename-active-mode) |
+| `rename-epic-dirs` | [Rename Epic Dirs Mode](#rename-epic-dirs-mode) |
 | `update-ai-rules` | [Update AI Rules Mode](#update-ai-rules-mode) |
 | `clean-legacy` | [Clean Legacy Mode](#clean-legacy-mode) — remove migration backup files |
 | `migrate-state` | [Migrate State Mode](#migrate-state-mode) |
@@ -85,12 +87,12 @@ Diagnostic (read-only)
 One-time migrations (run in this order)
   migrate-schema     Add missing fields to sprint-status.yaml (zero/empty defaults)
   split-status       Split sprint-status.yaml into 3-file layout (active/backlog/archived)
-  migrate-state      Migrate sprint-status*.yaml to new _bmad/state/ per-epic layout
+  migrate-state      Migrate either legacy layout to the sharded state tree
 
 Ongoing maintenance (safe to repeat)
   normalize          Reconcile then sort all status files in one pass
   reconcile-status   Fix misplaced epics, nested backlogs, stale items, empty shells
-  sort-status        Sort epics, sprints, stories, and backlog items in all status files
+  sort-status        Validate zero-padded naming (epic-{nnn}/, sprint-{nn}/, story keys)
   layout-cleanup     Reorganize flat artifact files into epic/sprint folder structure
 
 Source & external sync
@@ -102,6 +104,8 @@ Setup & housekeeping
   clean-legacy       Remove .legacy and .v1 migration backup files after confirmation
   rename-active      (Rarely needed) Rename sprint-status-active.yaml → sprint-status.yaml;
                      the health check detects and runs this automatically when needed.
+  rename-epic-dirs   (Rarely needed) Rename legacy epic-{nn}/ dirs to epic-{nnn}/; the health
+                     check detects and runs this automatically when needed.
 
 Run without arguments to let the health check decide what's needed.
 ```
@@ -123,7 +127,7 @@ The default mode — runs when no recognized keyword is passed, or when `check`/
 
 Load config same as described above under On Activation.
 
-### Step HC2 — Scan (8 checks, read-only)
+### Step HC2 — Scan (11 checks, read-only)
 
 Run all checks. No files are changed at this step.
 
@@ -139,9 +143,14 @@ Do `sprint-status-backlog.yaml` OR `sprint-status-archived.yaml` exist in `{impl
 - At least one split file exists → split layout in use, ✓
 
 **Check 2b — State layout migration**
-Does `{project-root}/_bmad/state/active/` exist?
-- No, but old sprint-status files (split or single) exist in `{implementation_artifacts}/` → flag `migrate-state` · Priority: High (runs after `split-status` if both are flagged)
-- Yes → ✓
+Count which of the three state layouts are present: sharded (`{pm_state_root}` i.e.
+`{implementation_artifacts}/state/` exists), legacy per-epic (`{project-root}/_bmad/state/`
+exists), legacy flat (`sprint-status*.yaml` exists in `{implementation_artifacts}/`).
+- Only sharded present, or none present (new project) → ✓
+- Exactly one legacy layout present, sharded absent → flag `migrate-state` · Priority: High
+  (runs after `split-status` if both are flagged)
+- More than one layout present → flag `migrate-state` · Priority: Critical — an interrupted
+  migration left state in two places; do not run any other action until this is resolved
 
 **Check 3 — Status file schema**
 For each present status file, spot-check the first epic node and first sprint node for missing required fields (the full field list is in Schema Migration Mode Step M2). If any required field is absent, the full `migrate-schema` analysis is needed.
@@ -153,10 +162,10 @@ Scan the top level of `{implementation_artifacts}` and `{planning_artifacts}` fo
 - Flat classifiable files found → flag `layout-cleanup` · Priority: Medium · note count
 - None → ✓
 
-**Check 5 — Status file ordering**
-If split layout exists, run the ordering validation from Sort Status Mode Step SO2 on each present split file.
-- Out-of-order nodes found → flag `sort-status` · Priority: Low
-- In order → ✓
+**Check 5 — State file naming**
+If `{pm_state_root}` exists, run the naming validation from Sort Status Mode Step SO2 over it.
+- Misnamed entries found → flag `sort-status` · Priority: Low
+- No `{pm_state_root}` yet, or all names valid → ✓
 
 **Check 6 — Deferred code markers**
 Run the `bmad-defer:` grep from Harvest Debt Mode (Step H2 grep command). Dedupe against the existing `backlog:` list (Step H3 logic). Count new (unharvested) markers.
@@ -183,6 +192,39 @@ Scan `{implementation_artifacts}/` for `*.yaml.legacy` files (e.g., `sprint-stat
 - Any found → flag `clean-legacy` · Priority: Low · note count
 - None → ✓
 
+**Check 10 — Epic directory padding (legacy two-digit form)**
+Scan the top level of `{implementation_artifacts}/` for directories matching `epic-[0-9][0-9]`
+(exactly two digits).
+- Any found → flag `rename-epic-dirs` · Priority: **High** · list directories — state path
+  resolution (`epic-{nnn}` under `state/`) and the state/artifact mirror both depend on the
+  three-digit form; a two-digit `epic-{nn}/` will never match its `state/{status}/epic-{nnn}/`
+  counterpart or be found by Check 11's drift diff.
+- None → ✓
+
+**Check 11 — State/artifact drift**
+`{pm_state_root}` = `{implementation_artifacts}/state` (see `skills/_shared/status-files.md`,
+the canonical state-layout contract, for the full sharded schema this check reads). For each
+sprint directory under `{pm_state_root}/{planned,active,archived}/epic-{nnn}/sprint-{nn}/`,
+compare story state files against story artifacts by basename. Only `active/` and `archived/` are
+checked — a `planned/` epic legitimately has state and no artifacts yet (stories are authored after
+planning), so that asymmetry is not drift:
+
+```bash
+diff <(ls {pm_state_root}/{active,archived}/epic-{nnn}/sprint-{nn}/*.yaml 2>/dev/null \
+        | xargs -n1 basename | sed 's/.yaml//' | grep -v '^sprint$') \
+     <(ls {implementation_artifacts}/epic-{nnn}/sprint-{nn}/stories/*.md 2>/dev/null \
+        | xargs -n1 basename | sed 's/.md//')
+```
+
+Lines starting `<` are state files with no story artifact; lines starting `>` are story
+artifacts with no state. Also flag any story or sprint file whose `epic:`/`sprint:`
+back-reference disagrees with the directory it was found in.
+- Any mismatch found → flag for report · Priority: **Medium** · list the orphaned keys —
+  report only, **never auto-correct**: an orphan on either side needs a human decision about
+  which side is right (a dropped story file vs. an abandoned state node look identical from
+  the diff alone).
+- None → ✓
+
 ### Step HC3 — Report findings
 
 Print the health check table. Use ✓ for passing checks, ⚠ for flagged items:
@@ -201,12 +243,14 @@ Status file ordering            ✓ All sorted                   —
 Deferred code markers           ⚠ 2 new marker(s)             harvest-debt
 AI instruction references       ✓ Current                      —
 Migration backup files          ⚠ 1 .legacy file found         clean-legacy
+Epic directory padding          ⚠ 1 legacy epic-{nn}/ dir       rename-epic-dirs
+State/artifact drift            ⚠ 2 orphaned key(s)             — (report only)
 ================================================================
 ```
 
 If flagged items exist, append the recommended execution sequence (only flagged actions shown, in priority order):
 ```
-Recommended actions (in order): rename-active → reconcile-status → layout-cleanup → harvest-debt
+Recommended actions (in order): rename-active → rename-epic-dirs → reconcile-status → layout-cleanup → harvest-debt
 ```
 
 If nothing is flagged:
@@ -236,15 +280,16 @@ If `n`: print "Exiting — no changes made." and exit.
 Run each approved action in this fixed priority sequence (skip any that were not flagged):
 
 1. `rename-active`
-2. `migrate-schema`
-3. `split-status`
-4. `migrate-state`
-5. `reconcile-status`
-6. `layout-cleanup`
-7. `sort-status`
-8. `harvest-debt`
-9. `update-ai-rules`
-10. `clean-legacy`
+2. `rename-epic-dirs`
+3. `migrate-schema`
+4. `split-status`
+5. `migrate-state`
+6. `reconcile-status`
+7. `layout-cleanup`
+8. `sort-status`
+9. `harvest-debt`
+10. `update-ai-rules`
+11. `clean-legacy`
 
 Before each action, print a separator header:
 ```
@@ -254,6 +299,10 @@ Before each action, print a separator header:
 Each action runs its full mode implementation from its own section. **Suppress the per-mode confirmation prompts** — the user already confirmed in HC5; proceed as if they answered yes at each mode's own confirm step. The per-mode dry-run output and verify steps still run and are shown.
 
 If any action fails (exits with FAILED), stop and report — do not run remaining actions.
+
+**State/artifact drift (Check 11) is report-only** — it never appears in this execution list.
+It has no fixer action; its findings surface in Step HC3's table for the user to resolve by
+hand (author the missing story, or clean up the orphaned state node).
 
 ### Step HC7 — Final summary
 
@@ -273,17 +322,41 @@ If any action failed: "One or more actions failed — see output above for detai
 
 ## Target Folder Structure
 
+There are two mirrored trees under `{implementation_artifacts}/` — `state/` (machine-written
+status/estimate/actual data, see `skills/_shared/status-files.md` for the full schema) and the
+top-level `epic-{nnn}/` directories (human/agent-authored artifacts, the ones this skill
+reorganizes). They share an identical path suffix — `epic-{nnn}/sprint-{nn}/...` — which is
+what lets Health Check 11 diff the two sides directly.
+
 ```
-{implementation_artifacts}/epic-{EE}/sprint-{SS}/stories/{story-key}.md
-{implementation_artifacts}/epic-{EE}/sprint-{SS}/closure/...
-{implementation_artifacts}/epic-{EE}/sprint-{SS}/tests/...
-{implementation_artifacts}/epic-{EE}/epic-closure/...
-{implementation_artifacts}/epic-{EE}/tests/...
-{planning_artifacts}/epic-{EE}/...
-{planning_artifacts}/epic-{EE}/sprint-{SS}/...
+{implementation_artifacts}/
+├── state/                                   ← machine-written, pm-status.py only — reference only
+│   ├── planned/epic-{nnn}/epic.yaml, sprint-{nn}/sprint.yaml, sprint-{nn}/{story-key}.yaml
+│   ├── active/epic-{nnn}/...                 (same shape as planned/, one dir per active epic)
+│   ├── archived/epic-{nnn}/...               (same shape as planned/, one dir per archived epic)
+│   ├── issues.yaml
+│   └── pm-calibration.yaml
+│
+└── epic-{nnn}/                               ← human/agent-authored artifacts (this skill's domain,
+    │                                            one such directory per epic)
+    ├── sprint-{nn}/
+    │   ├── stories/{story-key}.md
+    │   ├── closure/...
+    │   └── tests/...
+    ├── tests/...
+    └── epic-closure/...
 ```
 
-`EE` and `SS` are zero-padded two-digit values (`01`, `02`, etc.).
+```
+{planning_artifacts}/epic-{nnn}/...
+{planning_artifacts}/epic-{nnn}/sprint-{nn}/...
+```
+
+`nnn` is a zero-padded three-digit epic number (`001`, `002`) and `nn` a zero-padded two-digit
+sprint number (`01`, `02`), matching the epic key `E{nnn}` and sprint key `S{nn}`.
+
+This skill never writes under `state/` — that tree is owned exclusively by `pm-status.py`.
+It is shown here only so the mirror (and Health Check 11's drift comparison) is clear.
 
 ## Safety Rules
 
@@ -295,17 +368,17 @@ If any action failed: "One or more actions failed — see output above for detai
 
 ## File Classification Heuristics
 
-1. **Story files** (flat implementation root): regex `^([0-9]+)-[0-9]+.*\.md$` — epic from first capture group; default sprint = `01` unless user provides mapping. Move to: `epic-{EE}/sprint-{SS}/stories/{story-key}.md`
-2. **Sprint closure files** (flat implementation root): patterns `epic-*-sprint-*-retro-*.md`, `*-sprint-*-adversarial-*.md`, `*-sprint-*-redteam-*.md`, `*-sprint-*-clean-release-*.md`, `*-sprint-*-ux-review-*.md`, `*-sprint-*-arch-drift-*.md`. Move to: `epic-{EE}/sprint-{SS}/closure/{filename}`
-3. **Epic closure files** (flat implementation root): patterns `epic-*-adversarial-*.md` (epic-scoped), `epic-*-redteam-*.md`, `epic-*-arch-drift-*.md`, `epic-*-functional-completeness-*.md`, `epic-*-clean-release-*.md`, `epic-*-ux-review-*.md`. Move to: `epic-{EE}/epic-closure/{filename}`
-4. **Test evidence files** (flat roots): patterns `*qa*.md`, `*test*.md`, `*verification*.md`. Sprint-scoped → `epic-{EE}/sprint-{SS}/tests/`. Epic-scoped → `epic-{EE}/tests/`.
+1. **Story files** (flat implementation root): regex `^([0-9]+)-[0-9]+.*\.md$` — epic from first capture group; default sprint = `01` unless user provides mapping. Move to: `epic-{nnn}/sprint-{nn}/stories/{story-key}.md`
+2. **Sprint closure files** (flat implementation root): patterns `epic-*-sprint-*-retro-*.md`, `*-sprint-*-adversarial-*.md`, `*-sprint-*-redteam-*.md`, `*-sprint-*-clean-release-*.md`, `*-sprint-*-ux-review-*.md`, `*-sprint-*-arch-drift-*.md`. Move to: `epic-{nnn}/sprint-{nn}/closure/{filename}`
+3. **Epic closure files** (flat implementation root): patterns `epic-*-adversarial-*.md` (epic-scoped), `epic-*-redteam-*.md`, `epic-*-arch-drift-*.md`, `epic-*-functional-completeness-*.md`, `epic-*-clean-release-*.md`, `epic-*-ux-review-*.md`. Move to: `epic-{nnn}/epic-closure/{filename}`
+4. **Test evidence files** (flat roots): patterns `*qa*.md`, `*test*.md`, `*verification*.md`. Sprint-scoped → `epic-{nnn}/sprint-{nn}/tests/`. Epic-scoped → `epic-{nnn}/tests/`.
 5. **Planning artifacts** (misplaced under `{planning_artifacts}` or `{implementation_artifacts}`): covers brainstorming, architecture, research, UX specs, and requirements docs — never story or epic tracking files (those are implementation artifacts). Classify by filename pattern:
    - **Architecture**: `*architecture*`, `*arch-spec*`, `*system-design*`, `*tech-design*`
    - **Requirements / PRD**: `*requirements*`, `*prd*`, `*brief*`, `*spec*` (excluding story files matched by heuristic 1)
    - **UX spec**: `*ux-spec*`, `*ux-design*`, `*wireframe*`, `*mockup*`, `*ui-spec*`
    - **Research / spike**: `*research*`, `*spike*`, `*investigation*`, `*discovery*`
    - **Brainstorming**: `*brainstorm*`, `*ideation*`, `*mind-map*`
-   Determine placement scope from the filename: if `sprint-{SS}` or `sprintSS` is present → `{planning_artifacts}/epic-{EE}/sprint-{SS}/{filename}`; otherwise → `{planning_artifacts}/epic-{EE}/{filename}`. If epic cannot be inferred from the filename, ask for a mapping before proceeding.
+   Determine placement scope from the filename: if `sprint-{nn}` or `sprintSS` is present → `{planning_artifacts}/epic-{nnn}/sprint-{nn}/{filename}`; otherwise → `{planning_artifacts}/epic-{nnn}/{filename}`. If epic cannot be inferred from the filename, ask for a mapping before proceeding.
 6. **Unknown files**: leave in place; record as "unclassified".
 
 ## Execution Sequence
@@ -362,7 +435,7 @@ Search reference-holding files: the split status files (`sprint-status.yaml`, `s
 ### Step 7 — State Verification
 
 Verify post-move state:
-- Epic and sprint folder names are zero-padded (`epic-01` not `epic-1`, `sprint-02` not `sprint-2`)
+- Epic and sprint folder names are zero-padded (`epic-001` not `epic-01` or `epic-1`, `sprint-02` not `sprint-2`)
 - Story files under `stories/`, closure outputs under `closure/`, tests under `tests/`
 - Check story state entries in whichever status files are present (split layout or legacy `sprint-status.yaml`) for references to missing story files
 - Flag any residual flat files that were not classified and remain in the root
@@ -375,7 +448,9 @@ Verify post-move state:
 
 If any ordering issue is found, include it in the State Issues count and append to the summary:
 ```
-Status file ordering: {N} issue(s) detected in {files} — run `/l3io-util-cleanup sort-status` to fix
+Status file ordering: {N} issue(s) detected in {files} — no automated fix; this split-file
+  layout predates the sharded state/ convention, where ordering can't drift. Reorder the
+  list(s) manually, or run `migrate-state` to move to the sharded layout.
 ```
 If all files are in order, append:
 ```
@@ -387,12 +462,12 @@ Status file ordering: ✓ all files sorted correctly
 For each epic that has conflicts, unclassified files, or manual-review reference items, write a consolidated deferred work file:
 
 ```
-{implementation_artifacts}/epic-{EE}/cleanup-deferred.md
+{implementation_artifacts}/epic-{nnn}/cleanup-deferred.md
 ```
 
 Format:
 ```markdown
-# Cleanup Deferred Work — Epic {EE}
+# Cleanup Deferred Work — Epic {nnn}
 Generated: {date}
 
 ## Conflicts (destination already exists — not moved)
@@ -643,11 +718,17 @@ DONE — Split complete.
   Original: {status_file}.legacy
 ```
 
-**Step S8 — Post-split ordering validation**
+**Step S8 — Post-split ordering note**
 
-After a successful split the nodes are placed correctly but may not be sorted within their files (the original file's order is preserved exactly during the split). Automatically run the ordering validation from [Sort Status Mode](#sort-status-mode) now:
-- If all files are already in order: append `Ordering: ✓ all files sorted correctly` to the report and exit.
-- If ordering issues are found: present the dry-run table (Step SO3) and ask: "Sort the {N} ordering issue(s) now?" If yes, proceed through Steps SO5–SO7. If no, print `Ordering issues recorded — run /l3io-util-cleanup sort-status to fix later.` and exit.
+The split preserves each node's original order exactly — nothing is reordered during the
+split, so if the source `sprint-status.yaml` was already out of order, that carries through
+unchanged. [Sort Status Mode](#sort-status-mode) no longer covers this: it validates naming in
+the sharded `{pm_state_root}` tree, not ordering in this split-file layout. There is no
+automated ordering fix for the split layout; append to the report:
+```
+Ordering: preserved from source order (not validated — sort-status covers the sharded
+  state/ layout only, not this split-file layout)
+```
 
 **Step S9 — AI Rules Update**
 
@@ -966,99 +1047,97 @@ DONE — No reconciliation needed. Status files are already consistent.
 
 ## Sort Status Mode
 
-Invoked with `sort-status` argument. Validates that epics, sprints, stories, and backlog items in the three split status files are in the expected sort order and applies sorting where needed. Safe to run at any time — never modifies field values, only reorders list nodes. Dry-run first; confirms before writing.
+Invoked with `sort-status` argument. Validates state file and directory naming in the sharded
+`{pm_state_root}` tree against the zero-padded convention. **Read-only** — reports misnamed
+entries, does not rename or reorder anything. Ordering itself can no longer drift under the
+sharded layout: nodes are individual files, and zero-padded names (`epic-{nnn}`, `sprint-{nn}`,
+`E{nnn}-S{nn}-{nnn}`) make directory-listing order the correct order, so there is no separate
+sort step the way there was when a whole epic's sprints and stories lived as one YAML list
+that could be edited out of order. What *can* still go wrong is a misnamed entry — created or
+edited outside `pm-status.py` — and a misnamed entry is not cosmetic: `pm-status.py` resolves
+every node path from its key, so a wrongly-padded directory or file is silently unreachable by
+key lookup rather than merely out of order. That is what this mode checks for.
 
-**Expected sort order:**
+If you want a rename applied rather than just reported, the two-digit legacy epic form is
+fixed by [Rename Epic Dirs Mode](#rename-epic-dirs-mode) (`rename-epic-dirs`) — this mode does
+not duplicate that rename logic itself.
 
-| Scope | Key | Direction |
-|---|---|---|
-| Epics within each status file | `id` parsed as integer | Ascending |
-| Sprints within each epic | `id` parsed as integer | Ascending |
-| Stories within each sprint | `key` lexicographic | Ascending |
-| Backlog items in `sprint-status-backlog.yaml` | `epic` (int, blank → 9999) then `sprint` (int, blank → 9999) then `key` | Ascending |
+**Naming convention checked:**
+
+| Entry | Expected form |
+|---|---|
+| Epic directory | `epic-{nnn}` — exactly three digits |
+| Sprint directory | `sprint-{nn}` — exactly two digits |
+| Story file | `E{nnn}-S{nn}-{nnn}.yaml` |
+| Epic node file | `epic.yaml` (exactly one per epic directory) |
+| Sprint node file | `sprint.yaml` (exactly one per sprint directory) |
 
 ### Steps
 
-**Step SO1 — Load config and resolve status files**
+**Step SO1 — Load config and resolve state root**
 
-Load config (same as layout cleanup). Resolve the split layout files:
-- `{status_active}` = `{implementation_artifacts}/sprint-status.yaml`
-- `{status_backlog}` = `{implementation_artifacts}/sprint-status-backlog.yaml`
-- `{status_archived}` = `{implementation_artifacts}/sprint-status-archived.yaml`
+Load config (same as layout cleanup). Resolve `{pm_state_root}` = `{implementation_artifacts}/state`.
 
-Process only files that exist; silently skip absent ones. If no split-layout files exist (no backlog or archived files) but `sprint-status.yaml` exists alone (full-content, not yet split), print:
+If `{pm_state_root}` does not exist:
 ```
-No split layout found. Run /l3io-util-cleanup split-status first, then re-run sort-status.
+No state directory found at {pm_state_root} — nothing to validate.
 ```
-and exit.
+Exit. (State is created lazily by `pm-status.py` on first write — there is no separate setup
+command to point to, and `split-status` is a decommissioned migration path for a different,
+older layout; do not suggest it here.)
 
-**Step SO2 — Validate ordering**
+**Step SO2 — Walk and validate naming**
 
-Parse each present file. For each file check:
-1. Epics list: is each epic's `id` (parsed as int) ≥ the previous epic's `id`? If not, record the file and the out-of-order `id` pair.
-2. Within each epic, sprints list: same check by `id`.
-3. Within each sprint, stories list: is each story's `key` ≥ the previous key (lexicographic)? Record out-of-order pairs.
-4. In `{status_backlog}`, top-level `backlog:` list: sort key = (`epic` as int with blank → 9999, `sprint` as int with blank → 9999, `key`). Record any pair that violates this order.
+Walk `{pm_state_root}/{planned,active,archived}/`. For each entry found, check:
+1. Each top-level directory matches `epic-[0-9]{3}` exactly (three digits). Flag deviations —
+   most commonly the legacy two-digit `epic-{nn}` form, but also unpadded or non-numeric
+   suffixes.
+2. Within each epic directory, each subdirectory matches `sprint-[0-9]{2}` exactly (two
+   digits). Flag deviations.
+3. Within each sprint directory, every `.yaml` file other than `sprint.yaml` matches
+   `E[0-9]{3}-S[0-9]{2}-[0-9]{3}\.yaml` exactly. Flag deviations.
+4. Each epic directory contains exactly one `epic.yaml`; each sprint directory contains
+   exactly one `sprint.yaml`. Flag missing or duplicate node files.
+5. Each story filename's embedded `E{nnn}-S{nn}` segment matches the epic/sprint directories
+   it was found under. Flag mismatches. (This checks the *filename* against its path; Health
+   Check 11's back-reference check reads the file's *contents* against its path — the two are
+   independent and both worth running.)
 
-Accumulate all findings as `{ordering_issues}`.
+Accumulate all findings as `{naming_issues}`.
 
-**Step SO3 — Dry-run report**
+**Step SO3 — Report**
 
-If `{ordering_issues}` is empty:
+If `{naming_issues}` is empty:
 ```
-STATUS ORDER CHECK — all files in order.
-  sprint-status.yaml:          {a_epics} epics, {a_sprints} sprints, {a_stories} stories — ✓ sorted
-  sprint-status-backlog.yaml:  {b_epics} epics, {b_sprints} sprints, {b_stories} stories, {bl_count} backlog items — ✓ sorted
-  sprint-status-archived.yaml: {r_epics} epics, {r_sprints} sprints, {r_stories} stories — ✓ sorted
+STATE NAMING CHECK — {pm_state_root}
+  planned/:  {p_epics} epic(s) — ✓ all names valid
+  active/:   {a_epics} epic(s) — ✓ all names valid
+  archived/: {r_epics} epic(s) — ✓ all names valid
+Ordering is not checked separately — zero-padded names make directory-listing order the
+correct order, so there is nothing that can drift the way a YAML list could.
 ```
 Exit.
 
 Otherwise:
 ```
-STATUS ORDER DRY RUN
+STATE NAMING ISSUES — {pm_state_root}
 ================================================================
-File                              Scope                           Issue
+Path                                              Issue
 ----------------------------------------------------------------
-sprint-status.yaml                epics                           id 03 appears before id 02
-sprint-status.yaml                epic 01 → sprints               id 02 appears before id 01
-sprint-status-backlog.yaml        backlog items                   BL-E00-03 appears before BL-E00-01
+{pm_state_root}/active/epic-01/                   expected epic-{nnn} (three digits)
+{pm_state_root}/active/epic-001/sprint-1/         expected sprint-{nn} (two digits)
+{pm_state_root}/active/epic-001/sprint-01/E1-S01-002.yaml   expected E{nnn}-S{nn}-{nnn}.yaml
 ...
 ================================================================
-{N} ordering issue(s) found across {M} file(s).
-Proposed: epics by id ↑, sprints by id ↑ within epic, stories by key ↑ within sprint,
-          backlog by epic ↑ → sprint ↑ → key ↑ (blank epic/sprint sort last).
+{N} naming issue(s) found. Report only — this mode does not rename or move anything.
+Two-digit epic-{nn}/ directories: fix with `/l3io-util-cleanup rename-epic-dirs`.
+Other naming issues need manual correction — they usually mean a file was created or edited
+outside pm-status.py.
 ```
 
-**Step SO4 — Confirm**
-
-Ask: "Sort {N} issue(s) across {M} file(s)? Field values are not changed — list order only."
-
-If no: print `Sort cancelled — no changes made.` and exit.
-
-**Step SO5 — Sort and write**
-
-For each file with ordering issues:
-1. Sort the top-level `epics:` list by `int(id)` ascending.
-2. Within each epic node, sort its `sprints:` list by `int(id)` ascending.
-3. Within each sprint node, sort its `stories:` list by `key` ascending (lexicographic).
-4. In `{status_backlog}` only: sort the top-level `backlog:` list by the composite key (`epic` as int with `''` → 9999, `sprint` as int with `''` → 9999, `key` lexicographic).
-5. Preserve all field values exactly — ordering changes only.
-6. Write the reordered file to disk.
-
-**Step SO6 — Verify**
-
-Re-parse each rewritten file as YAML. If any file fails to parse, restore its pre-sort content and print:
 ```
-FAILED — {file} is not valid YAML after sort. Original restored. Parse error: {error}
-```
-
-**Step SO7 — Report**
-
-```
-DONE — Status sort complete.
-  sprint-status.yaml:          {a_changes} list(s) reordered  (or "✓ already sorted")
-  sprint-status-backlog.yaml:  {b_changes} list(s) reordered, {bl_changes} backlog items reordered  (or "✓ already sorted")
-  sprint-status-archived.yaml: {r_changes} list(s) reordered  (or "✓ already sorted")
+DONE — State naming check complete.
+  Issues found: {N}  (0 means state is clean)
 ```
 
 ---
@@ -1123,6 +1202,73 @@ FAILED — sprint-status.yaml is not valid YAML after rename. Restored to sprint
 ```
 DONE — Renamed sprint-status-active.yaml → sprint-status.yaml. No content changed.
 ```
+
+---
+
+## Rename Epic Dirs Mode
+
+Invoked with `rename-epic-dirs` argument. One-time-per-occurrence migration for epic artifact
+directories still using the legacy two-digit form (`epic-{nn}/`). Renames each to the current
+three-digit form (`epic-{nnn}/`) so it matches the epic key `E{nnn}` and its
+`state/{status}/epic-{nnn}/` counterpart — the identical-path-suffix property the state/artifact
+drift check (Health Check 11) depends on. Content is not changed — directory name only.
+
+### Steps
+
+**Step RE1 — Load config and scan**
+
+Load config (same as layout cleanup). Scan the top level of `{implementation_artifacts}/` for
+directories matching `epic-[0-9][0-9]` (exactly two digits).
+
+If none found:
+```
+No legacy two-digit epic-{nn}/ directories found — nothing to rename.
+```
+Exit.
+
+**Step RE2 — Dry-run**
+
+For each matched directory, compute the three-digit destination by zero-padding the epic
+number. If that destination already exists, record a conflict instead of a rename (skip it;
+never overwrite).
+
+```
+RENAME EPIC DIRS DRY RUN
+================================================================
+{implementation_artifacts}/epic-{nn}/  →  {implementation_artifacts}/epic-{nnn}/
+...
+================================================================
+{N} director(y/ies) to rename, {C} conflict(s) (destination already exists — skipped).
+Contents unchanged — directory name only.
+```
+
+If `{N}` is 0 (all conflicts): print the conflict list and exit without prompting.
+
+**Step RE3 — Confirm**
+
+Ask: "Rename {N} epic director(y/ies) to the three-digit form? Conflicts are skipped."
+
+If no: print `Rename cancelled — no changes made.` and exit.
+
+**Step RE4 — Rename**
+
+For each non-conflicting directory, rename `epic-{nn}/` → `epic-{nnn}/`. Log each rename.
+
+**Step RE5 — Verify**
+
+Re-scan `{implementation_artifacts}/` top level. Confirm no `epic-[0-9][0-9]` (two-digit)
+directories remain except recorded conflicts.
+
+**Step RE6 — Report**
+
+```
+DONE — Rename epic dirs complete.
+  Renamed:   {n} director(y/ies)
+  Conflicts: {n} (destination already existed — left in place; list if > 0)
+```
+
+If conflicts remain, note that they need manual resolution (merge or remove one side) before
+Health Check 11's drift comparison can be trusted for that epic.
 
 ---
 
@@ -1227,58 +1373,62 @@ DONE — AI rules update complete.
 
 ## Normalize Mode
 
-Invoked with `normalize` argument. Convenience shortcut that runs [Reconcile Status Mode](#reconcile-status-mode) followed by [Sort Status Mode](#sort-status-mode) in a single confirmed pass. Use for routine maintenance instead of running two separate commands.
+Invoked with `normalize` argument. Convenience shortcut that runs [Reconcile Status Mode](#reconcile-status-mode) (if the legacy split layout is present) and the naming check from [Sort Status Mode](#sort-status-mode) (if sharded state is present) in one pass. The two operate on different, unrelated layouts — reconcile on the legacy split status files, naming-check on the current sharded `{pm_state_root}` tree — so normalize simply runs whichever applies and reports both; a fully-migrated project with no split files left still gets a useful naming check. Use for routine maintenance instead of running the two commands separately.
 
 ### Steps
 
-**Step NM1 — Load config**
+**Step NM1 — Load config and detect layouts present**
 
-Load config (same as layout cleanup). Check for the split layout — if neither `sprint-status-backlog.yaml` nor `sprint-status-archived.yaml` exists, print:
+Load config (same as layout cleanup). Determine what's present:
+- Split layout: any of `sprint-status.yaml`, `sprint-status-backlog.yaml`, `sprint-status-archived.yaml` exists in `{implementation_artifacts}/`.
+- Sharded state: `{pm_state_root}` (`{implementation_artifacts}/state`) exists.
+
+If neither is present:
 ```
-No split layout found. Run /l3io-util-cleanup split-status first, then re-run normalize.
+No split layout and no sharded state found — nothing to normalize.
 ```
 Exit.
 
-**Step NM2 — Reconcile**
+**Step NM2 — Reconcile (only if split layout present)**
 
-Run the full Reconcile Status Mode (Steps RC1–RC7) with one modification: **present the dry-run report but defer confirmation** — print the reconcile findings and the sort findings together in Step NM3 before asking to proceed.
+If the split layout is present: run the full Reconcile Status Mode (Steps RC1–RC7) with one modification: **present the dry-run report but defer confirmation** — print the reconcile findings and the naming-check findings together in Step NM4 before asking to proceed.
 
-If reconcile finds nothing to fix (`total` = 0), note that and proceed directly to the sort analysis.
+If the split layout is absent, skip reconcile and carry forward "Reconcile: — (no split layout present)" for Step NM4/NM6.
 
-**Step NM3 — Sort analysis**
+**Step NM3 — Naming analysis (only if sharded state present)**
 
-Run the ordering validation from Sort Status Mode (Step SO2) on each present split file. Collect `{ordering_issues}`.
+If `{pm_state_root}` is present: run Sort Status Mode's naming validation (Steps SO1–SO2). Collect `{naming_issues}`.
 
-If sort finds nothing to fix, note that.
+If `{pm_state_root}` is absent, carry forward "Naming check: — (no sharded state present)".
 
 **Step NM4 — Combined dry-run and confirm**
 
-Print the reconcile dry-run output (or "✓ Nothing to reconcile") followed by the sort dry-run output (or "✓ Nothing to sort"), then ask:
+Print the reconcile dry-run output (or its not-applicable note) followed by the naming-check
+report (or its not-applicable note). Naming issues are report-only — there is nothing to
+confirm for them, only reconcile changes need a confirmation:
 
 ```
-Apply {reconcile_total} reconciliation change(s) and {sort_issues} sort fix(es)?
+Apply {reconcile_total} reconciliation change(s)?
   Y — proceed
   n — exit, no changes
 ```
 
 If `n`: print `Normalize cancelled — no changes made.` and exit.
 
-If both totals are 0: print `✓ Status files are already normalized — nothing to do.` and exit.
+If `{reconcile_total}` is 0 (nothing to apply — regardless of any naming issues found, which
+were already shown above and need no confirmation): print `✓ Nothing to reconcile.` and exit
+without prompting.
 
 **Step NM5 — Execute reconcile**
 
-If reconcile has changes: apply Steps RC5–RC7 (execute, verify, report). On failure, stop and report — do not proceed to sort.
+If reconcile has changes: apply Steps RC5–RC7 (execute, verify, report). On failure, stop and report.
 
-**Step NM6 — Execute sort**
-
-If sort has changes: apply Steps SO5–SO7 (sort and write, verify, report). On failure, report.
-
-**Step NM7 — Summary**
+**Step NM6 — Summary**
 
 ```
 DONE — Normalize complete.
-  Reconcile: {reconcile summary line or "nothing to do"}
-  Sort:      {sort summary line or "nothing to do"}
+  Reconcile: {reconcile summary line, or "not applicable — no split layout"}
+  Naming:    {N} issue(s) found (or "✓ clean", or "not applicable — no sharded state")
 ```
 
 ---
@@ -1323,8 +1473,8 @@ Stories
 Backlog items
   Critical: {n}  High: {n}  Medium: {n}  Low: {n}  total: {n}
 ----------------------------------------------------------------
-Last sprint closed:  Epic {EE} / Sprint {SS}  (or "none")
-Last epic closed:    Epic {EE} — {title}      (or "none")
+Last sprint closed:  Epic {nnn} / Sprint {nn}  (or "none")
+Last epic closed:    Epic {nnn} — {title}      (or "none")
 Calibration file:    {version}, {n} scope samples  (or "not found")
 Layout:              {Split (3-file) | Legacy (single file)}
 ================================================================
