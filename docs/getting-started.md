@@ -6,8 +6,8 @@ Installation and first-run guide for `bmad-l3io-extensions`.
 
 - **Claude Code** installed and working
 - **BMad** installed in the target repo (`npx bmad-method install` or equivalent)
-- Required BMad skills present: `bmad-create-story`, `bmad-dev-story`, `bmad-code-review`, `bmad-qa-generate-e2e-tests`, `bmad-retrospective`, `bmad-review-adversarial-general`
-- Optional: `bmad-ux-review` (UX review phases are skipped gracefully when absent)
+- Required BMad skills present: `bmad-dev-story`, `bmad-code-review`, `bmad-qa-generate-e2e-tests`, `bmad-retrospective`, `bmad-review-adversarial-general`
+- Optional: `bmad-ux-review` (UX review phases are skipped gracefully when absent); `bmad-create-story` (not invoked by any l3io skill — stories are elaborated in place)
 - **WebSearch permission** granted in Claude Code if you plan to use `l3io-sec` (required for live cloud/platform best practices research)
 
 ## Module Selection

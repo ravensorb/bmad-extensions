@@ -30,25 +30,27 @@ Check for presence of technical ACs — the story must have at least one of:
 - Security requirements (auth, validation, data handling)
 - Testability hooks (test entry points, mock boundaries)
 
-If `l3io-arch-review` is installed, use its story-AC-check mode. Otherwise apply the built-in
-checklist above.
+Apply the built-in checklist above. If `l3io-arch-review` is installed, also load
+`l3io-arch-review/references/standards-core.md` (plus any overlay matching the story's stack)
+and hold the story to those standards as well.
 
 **If technical ACs are missing (gate: "block" — always enforced):**
 
+Enrich **in place**, directly in this step. Do **not** spawn `bmad-create-story` — it authors a
+*new* story from `template.md` at a flat `{implementation_artifacts}/{story_key}.md` path and
+auto-discovers work from a legacy flat `sprint-status.yaml`. Neither matches the sharded state
+layout (`references/status-files.md`), so it produces orphan files at the wrong path or halts.
+
 For each story missing technical ACs:
-1. Spawn `bmad-create-story` subagent with the story file path and this context:
-   ```
-   Enrich this story with technical ACs. Preserve all existing content. Add:
-   - Interface contracts
-   - Error and edge case handling
-   - Observability requirements
-   - Security considerations
-   - Testability approach
-   Story file: {sprint_root}/stories/{story_key}.md
-   Epic goal: {epic_goal}
-   work_type: {work_type}
-   ```
-2. After enrichment, re-check: if still missing after one elaboration pass:
+
+1. Edit `{sprint_root}/stories/{story_key}.md` in place, preserving all existing content
+   verbatim. Append the missing technical ACs, informed by `{epic_goal}` and `{work_type}`,
+   covering each dimension from the checklist above that applies: interface contracts, data
+   model changes, error and edge case handling, observability, security, and testability.
+   Write only to that path — create no new files, and do not touch `classification`,
+   `estimate`, or `status` (§3 and §4 own those).
+2. Re-check against the checklist. If still missing after one enrichment pass:
+
    ```
    BLOCKED: story {story_key} still missing technical ACs after elaboration. Investigate manually.
    ```

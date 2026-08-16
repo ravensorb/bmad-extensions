@@ -9,7 +9,6 @@ module_greeting: >
   Use /l3io-pm-execute to run the plan.
   Use /l3io-pm-help to get a state-aware next-action recommendation.
 post-install-notes: >
-  Required BMad skills (must be installed in target repo):
-  bmad-create-story.
-  Optional: l3io-arch-review (epic architecture gate), bmad-agent-architect (additional arch reviewer),
-  bmad-check-implementation-readiness (readiness integration).
+  No required BMad skills — story elaboration is performed in place by the skill itself.
+  Optional: l3io-arch-review (epic architecture gate, story-AC standards), bmad-agent-architect
+  (additional arch reviewer), bmad-check-implementation-readiness (readiness integration).

@@ -122,9 +122,9 @@ Runtime artifacts are organized with zero-padded epic/sprint folders:
 
 Required BMad skills (part of the standard BMad bmm module):
 
-`bmad-create-story`, `bmad-dev-story`, `bmad-code-review`, `bmad-qa-generate-e2e-tests`, `bmad-retrospective`, `bmad-review-adversarial-general`
+`bmad-dev-story`, `bmad-code-review`, `bmad-qa-generate-e2e-tests`, `bmad-retrospective`, `bmad-review-adversarial-general`
 
-Optional: `bmad-ux-review`
+Optional: `bmad-ux-review`, `bmad-create-story` (not invoked by any l3io skill — stories are elaborated in place)
 
 ## Repo Layout
 

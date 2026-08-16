@@ -84,7 +84,7 @@ Stories run through phases sequentially (by default). Parallel execution is allo
 
 | Phase | Step | What happens |
 |-------|------|--------------|
-| Story Prep | 2a | `bmad-create-story` subagent writes story file to `{story_output_dir}/{story-key}.md`. Orchestrator presents story title + AC count + task count and waits for confirmation before development |
+| Story Prep | 2a | Technical-AC gate reads the existing story at `{sprint_root}/stories/{story-key}.md` and enriches it in place when technical ACs are missing. Orchestrator presents story title + AC count + task count and waits for confirmation before development |
 | Development | 2b | `bmad-dev-story` subagent implements all tasks. Story status set to `in-progress`. Verified complete when all task checkboxes are checked and Dev Agent Record is populated |
 | Code Review | 2c | `bmad-code-review` subagent reviews all changed files. Status set to `review`. Critical/High findings route immediately to Fix Loop |
 | QA | 2d | `bmad-qa-generate-e2e-tests` subagent generates and runs tests. Test evidence written to `{test_output_dir}`. All tests must pass before story is marked `done`. Failures route to Fix Loop |
@@ -407,7 +407,7 @@ stories:
 
 | Phase | Skill invoked |
 |-------|--------------|
-| Story Prep | `bmad-create-story` |
+| Story Prep | *(none — enriched in place by the step itself)* |
 | Development | `bmad-dev-story` |
 | Fix Loop | `bmad-dev-story` |
 | Code Review | `bmad-code-review` |
