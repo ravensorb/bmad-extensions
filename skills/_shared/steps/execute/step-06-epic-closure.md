@@ -81,11 +81,13 @@ archived epic's file doesn't carry a stale lock forward:
 python3 {pm_status} clear-lock --state-root {pm_state_root} --epic {epic_key}
 ```
 
-## 6. Update calibration file
+## 6. Calibration
 
-Append epic-level closure overhead sample to `{pm_calibration_file}`:
-- Record `level: epic`, metric actuals vs estimates for `man_hours`, `time_hours`, `tokens_k`, `cost`
-- Skip `tokens_k` and `cost` ratio if runtime is not Claude (set `ratio: N/A`)
+Nothing to do here — the `set-actual --node epic` call in step 2 already derived and
+appended the epic's closure calibration sample as part of that write (unless
+`--no-calibrate` was passed). A skipped sample (missing sprint actual, negative residual, or
+no comparable estimate range) is reported on stderr by that call, not here; see
+`references/metrics-contract.md` §8.
 
 ## 7. Output
 

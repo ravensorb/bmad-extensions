@@ -3,27 +3,17 @@
 Communicate all responses in `{communication_language}`.
 
 Callable from l3io-pm-plan and l3io-pm-execute. Computes and writes estimate blocks for
-stories, sprints, and epics in scope. Reads calibration data to improve accuracy over time.
+stories, sprints, and epics in scope. All arithmetic — base band lookup, calibrated scope
+ratio and fix factor per metric, closure band — runs inside `pm-status.py`; this step's job
+is to choose scope and classification and call it.
 
 **Input bindings required before calling this step:**
 - `{scope}` — what to estimate: `all`, `E{nnn}`, or `E{nnn}-S{nn}`
-- `{pm_state_root}`, `{pm_calibration_file}`, `{pm_status}`, `{work_type}` — from step-00-activate and step-01
+- `{pm_state_root}`, `{pm_status}`, `{work_type}` — from step-00-activate and step-01
 
 ---
 
-## 1. Load calibration data
-
-Read `{pm_calibration_file}` (consolidated, created by l3io-pm-plan). If it does not exist,
-all components use cold-start priors.
-
-**Three calibration components** (each activates independently with ≥3 samples):
-- `scope` — story sizing ratio per classification (simple/standard/complex)
-- `closure` — sprint and epic closure overhead ratio
-- `fix` — average fix factor per classification
-
-A component with <3 samples uses cold-start prior: ratio = 1.0, fix factor = 1.25.
-
-## 2. Determine stories in scope
+## 1. Determine stories in scope
 
 Based on `{scope}`:
 - `all` → all stories under every epic in `{pm_state_root}/planned/` and `{pm_state_root}/active/`
@@ -37,83 +27,49 @@ Story files are the `*.yaml` files in a sprint directory, excluding `sprint.yaml
 For each story, read its `classification` (simple/standard/complex) and any existing
 estimate block.
 
-## 3. Compute story estimates (bottom-up)
+## 2. Estimate stories (bottom-up)
 
-For each unestimated story (or story needing re-estimation):
+For each unestimated story (or story needing re-estimation), the model supplies only the
+classification — `estimate-story` does the rest: looks up the base band
+(`references/metrics-contract.md` §6 cites `BASE_BANDS` in `pm-status.py` as the single
+source), applies the calibrated per-metric scope ratio and the classification's fix factor
+(cold-start priors when either is not yet active), and writes the estimate block.
 
-**Base band by classification (cold-start priors):**
-
-| Classification | man_hours | time_hours | tokens_k | cost_usd |
-|---------------|-----------|------------|----------|----------|
-| simple        | 2–4       | 0.5–1.5    | 20–50    | $0.10–$0.35 |
-| standard      | 4–8       | 1–3        | 40–100   | $0.25–$0.70 |
-| complex       | 8–16      | 2–6        | 80–200   | $0.55–$1.40 |
-
-Apply calibrated scope ratio if available (multiply base by ratio).
-Apply fix factor to man_hours and time_hours: `estimated = base × fix_factor`.
-
-Write story estimate:
 ```bash
-python3 {pm_status} set-estimate \
+python3 {pm_status} estimate-story \
   --state-root {pm_state_root} \
   --story {story_key} \
-  --man-hours {man_hours} \
-  --time-hours {time_hours} \
-  --tokens-k {tokens_k_midpoint} \
-  --cost {cost_midpoint} \
-  --confidence {low|medium|high}
+  --classification {simple|standard|complex} \
+  [--confidence {low|medium|high}]
 ```
 
-Confidence: `high` if ≥3 samples for this classification; `medium` if 1–2 samples;
-`low` if cold-start.
+`--confidence` is optional — omit it to let `estimate-story` derive `medium`/`low` from
+whether a field is present, per `metrics-contract.md` §4. Do not hand-compute the estimate
+arithmetic in this step; a re-derivation here can drift from what `estimate-story` actually
+applies.
 
-## 4. Roll up sprint estimates
+## 3. Roll up sprint and epic estimates
 
-For each sprint in scope:
-- `man_hours_low/high` = Σ story.estimate.man_hours (apply ±20% band)
-- `time_hours_low/high` = Σ story.estimate.time_hours × parallel_factor (sum compressed for
-  parallel execution within a sprint; default parallel_factor = 0.6)
-- `tokens_k_min/max` = Σ story.estimate.tokens_k (with ±20% band)
-- `cost_low/high` = Σ story.estimate.cost (with ±20% band)
-- Add closure overhead: apply calibrated `closure` ratio if available, else add 15% flat.
-
-Write sprint estimate:
-```bash
-python3 {pm_status} set-estimate \
-  --state-root {pm_state_root} \
-  --epic {epic_key} --sprint {sprint_key} \
-  --man-hours-low {low} --man-hours-high {high} \
-  --time-hours-low {low} --time-hours-high {high} \
-  --tokens-k-min {min} --tokens-k-max {max} \
-  --cost-low {low} --cost-high {high} \
-  --confidence {confidence}
-```
-
-## 5. Roll up epic estimates
-
-For each epic in scope:
-- Sum sprint estimates + epic closure overhead (calibrated or 20% flat cold-start).
-- Write the epic estimate — `--state-root` plus the epic key resolves to that epic's node
-  file wherever it currently sits (`planned/`, `active/`, or `archived/`), so the same call
-  works for backlog and in-progress epics alike:
+`estimate-rollup` sums the estimates of a node's children and widens the sum by the
+calibrated (or cold-start) closure band — see `references/metrics-contract.md` §6 for the
+exact mechanics. Run it sprint-first, then epic, since the epic roll-up sums sprint
+estimates:
 
 ```bash
-python3 {pm_status} set-estimate \
-  --state-root {pm_state_root} \
-  --epic {epic_key} \
-  --man-hours-low {low} --man-hours-high {high} \
-  --time-hours-low {low} --time-hours-high {high} \
-  --tokens-k-min {min} --tokens-k-max {max} \
-  --cost-low {low} --cost-high {high} \
-  --confidence {confidence}
+# each sprint in scope
+python3 {pm_status} estimate-rollup --state-root {pm_state_root} --epic {epic_key} --sprint {sprint_key}
+
+# each epic in scope, after all its sprints are rolled up
+python3 {pm_status} estimate-rollup --state-root {pm_state_root} --epic {epic_key}
 ```
 
 No `--flock` needed: each epic's estimate write touches only that epic's own directory (see
 `skills/_shared/status-files.md` §9, Concurrency).
 
-## 6. Output estimate summary
+## 4. Output estimate summary
 
-After all estimates are written, output a summary table:
+After all estimates are written, read each node back (`{pm_status} show`) and output a
+summary table:
 
 ```
 ## Estimate Summary (scope: {scope})

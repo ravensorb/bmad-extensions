@@ -274,13 +274,20 @@ Subcommand summary (see `pm-status.py --help` for full flags):
 | Subcommand | Addressing |
 |---|---|
 | `set-status`, `set-actual`, `set-estimate`, `set-field`, `verify` | `--state-root` + (`--story KEY` \| `--epic ID [--sprint ID]`) |
+| `estimate-story` | `--state-root --story KEY --classification {simple,standard,complex} [--confidence ...]` — computes and writes a story's estimate block from `BASE_BANDS` × calibrated scope ratio × fix factor |
+| `estimate-rollup` | `--state-root --epic ID [--sprint ID]` — sums child estimates and writes the parent's range-form estimate, widened by the calibrated (or cold-start) closure band |
 | `show` | `--state-root --epic ID [--sprint ID]` — renders a computed roll-up |
 | `set-lock`, `clear-lock`, `check-lock` | `--state-root --epic ID` (epic only — locks apply to epics) |
 | `move-epic` | `--state-root --epic ID --to {planned,active,archived}` |
 | `archive-epic` | `--state-root --epic ID` — alias for `move-epic --to archived` |
 | `append-issue` | `--file` (the one exception; see above) |
 | `list-issues` | `--state-root` (reads `{state-root}/issues.yaml`) + optional `--epic`/`--sprint`/`--severity`/`--format` filters |
+| `calibration show` | `--state-root [--format {text,json}]` — read-only report of every component's sample count and active ratio; a missing file reports cold-start and exits `0` |
 | `progress` | `--ledger` + `--msg` (unrelated to state-root addressing) |
+
+`set-actual` also derives and appends a calibration sample as a side effect of a successful
+write (`--no-calibrate` suppresses it) — see `references/metrics-contract.md` §8 for what it
+computes and why a failed derivation only warns rather than failing the actuals write.
 
 `show --state-root {pm_state_root} --epic E001 [--sprint S01]` renders a computed roll-up
 (status, story counts by status, summed actuals) from the child files on disk. It replaces
@@ -336,11 +343,15 @@ Per-epic directories mean epic-scoped writes (status, estimate, actual, lock, mo
 only that epic's own files — **no flock is needed for any of them.** Two developers working
 different stories, different sprints, or different epics never contend for the same file.
 
-`issues.yaml` is the one remaining shared-append target: every deferred item from every epic
-appends to the same flat file, so `append-issue` always acquires an exclusive flock
-internally before writing. It is the only subcommand where this applies — do not add
-`--flock` elsewhere; the other subcommands have no `--flock` need because they no longer
-share files.
+`issues.yaml` is not the only shared-append target — `pm-calibration.yaml` is a second one.
+Every `set-actual` across every epic and every parallel subagent may append a calibration
+sample to it (§8 of `metrics-contract.md`), so `save_calibration` always acquires an
+exclusive flock before writing, unconditionally — there is no `--flock` flag to remember for
+it, the same way `append-issue`'s flock is automatic rather than opt-in. Contrast this with
+per-epic node files (`epic.yaml`, `sprint.yaml`, story `.yaml`), which need no flock at all
+because sharding gives each epic its own directory — `pm-calibration.yaml` and `issues.yaml`
+are the two files sharding does not shard, because both are inherently cross-epic
+aggregates.
 
 ## 10. Read resolution at activation
 
