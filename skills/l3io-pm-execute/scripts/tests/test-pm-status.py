@@ -269,6 +269,41 @@ class TestLayoutResolution(unittest.TestCase):
         self.assertEqual(pm.check_backrefs(node, "E001", "S01"), [])
         self.assertTrue(pm.check_backrefs(node, "E002", "S01"))
 
+    def test_check_backrefs_flags_absent_epic_backref(self):
+        """A file with no `epic:` at all must FAIL, not pass. migrate-state adds these
+        back-references as a brand-new step, so "absent" is precisely the case this
+        check exists to catch — treating absent as OK made the migration's only
+        automated gate blind to its own newest transformation."""
+        p = pm.story_file(self.root, "E001-S01-003")
+        with open(p, "w") as f:
+            f.write("key: 'E001-S01-003'\nsprint: 'S01'\nstatus: review\n")
+        _, node = pm.load_node(p)
+        problems = pm.check_backrefs(node, "E001", "S01")
+        self.assertEqual(len(problems), 1, problems)
+        self.assertIn("epic back-reference absent", problems[0])
+
+    def test_check_backrefs_flags_absent_sprint_backref(self):
+        p = pm.story_file(self.root, "E001-S01-003")
+        with open(p, "w") as f:
+            f.write("key: 'E001-S01-003'\nepic: 'E001'\nstatus: review\n")
+        _, node = pm.load_node(p)
+        problems = pm.check_backrefs(node, "E001", "S01")
+        self.assertEqual(len(problems), 1, problems)
+        self.assertIn("sprint back-reference absent", problems[0])
+
+    def test_check_backrefs_flags_both_absent(self):
+        p = pm.story_file(self.root, "E001-S01-003")
+        with open(p, "w") as f:
+            f.write("key: 'E001-S01-003'\nstatus: review\n")
+        _, node = pm.load_node(p)
+        self.assertEqual(len(pm.check_backrefs(node, "E001", "S01")), 2)
+
+    def test_check_backrefs_absent_sprint_on_sprint_node_is_not_checked(self):
+        """Sprint nodes are checked with sprint_key=None (they have no `sprint:` of
+        their own to verify), so only the `epic:` back-reference is required there."""
+        _, node = pm.load_node(pm.sprint_file(self.root, "E001", "S01"))
+        self.assertEqual(pm.check_backrefs(node, "E001"), [])
+
 
 class TestAtomicAndCLI(TestLayoutResolution):
     """Reuses TestLayoutResolution's tree fixture."""
@@ -462,6 +497,37 @@ class TestVerifyEpicScope(TestLayoutResolution):
         code, _ = self.run_main(
             ["verify", "--state-root", self.root, "--scope", "epic", "--epic", "E999"])
         self.assertEqual(code, 3)
+
+    def test_scope_epic_fails_exit_4_when_story_backref_absent(self):
+        """migrate-state Stage E2 relies on this scope to prove Stage B actually wrote
+        the `epic:`/`sprint:` back-references it introduces. A story file missing them
+        entirely must fail the gate."""
+        p = pm.story_file(self.root, "E001-S01-003")
+        with open(p, "w") as f:
+            f.write("key: 'E001-S01-003'\nstatus: review\n")
+        err = io.StringIO()
+        try:
+            with redirect_stderr(err):
+                code = pm.main(
+                    ["verify", "--state-root", self.root, "--scope", "epic", "--epic", "E001"])
+        except SystemExit as e:
+            code = e.code
+        self.assertEqual(code, 4)
+        self.assertIn("back-reference absent", err.getvalue())
+
+    def test_scope_epic_fails_exit_4_when_sprint_backref_absent(self):
+        sp = pm.sprint_file(self.root, "E001", "S01")
+        with open(sp, "w") as f:
+            f.write("key: 'S01'\nstatus: in-progress\n")
+        err = io.StringIO()
+        try:
+            with redirect_stderr(err):
+                code = pm.main(
+                    ["verify", "--state-root", self.root, "--scope", "epic", "--epic", "E001"])
+        except SystemExit as e:
+            code = e.code
+        self.assertEqual(code, 4)
+        self.assertIn("epic back-reference absent", err.getvalue())
 
     def test_scope_epic_reports_missing_sprint_and_corrupted_story_together(self):
         """Addition B: a sprint with no sprint.yaml must still be descended into, so a
@@ -702,7 +768,7 @@ class TestEpicMoves(TestLayoutResolution):
         self.assertTrue(os.path.isdir(os.path.join(self.root, "archived", "epic-001")))
 
     def test_version_increments_for_self_install(self):
-        self.assertEqual(pm.PM_STATUS_VERSION, "2.0.1")
+        self.assertEqual(pm.PM_STATUS_VERSION, "2.0.2")
 
     def test_move_epic_already_in_place_is_noop(self):
         """E001 already lives under active/ — moving it to 'active' must return the
@@ -798,6 +864,51 @@ class TestEpicMovesGitBacked(unittest.TestCase):
         tracked = self._run_git(["ls-files", "archived/epic-001"])
         self.assertIn("archived/epic-001/sprint-01/E001-S01-003.yaml", tracked)
         self.assertIn("archived/epic-001/epic.yaml", tracked)
+
+    def test_move_epic_with_relative_state_root_still_uses_git_mv(self):
+        """Regression: a RELATIVE --state-root used to resolve twice — once against the
+        caller's process cwd when the operands were built, and again against
+        `cwd=state_root` inside the subprocess — so `git mv` was handed a path that did
+        not exist, failed, and fell silently through to `shutil.move`: exit 0, no
+        warning, no rename recorded. Every other test here uses an absolute tempdir, so
+        that branch went untested. move_epic now absolutizes both operands and the cwd."""
+        prev_cwd = os.getcwd()
+        os.chdir(self.d)
+        try:
+            pm.move_epic("state", "E001", "archived")  # relative state root
+        finally:
+            os.chdir(prev_cwd)
+
+        moved_story = os.path.join(self.root, "archived", "epic-001", "sprint-01",
+                                   "E001-S01-003.yaml")
+        self.assertTrue(os.path.exists(moved_story))
+
+        # git must have RECORDED the rename, not just seen a delete+add.
+        status = self._run_git(["status", "--porcelain"])
+        self.assertTrue(any(ln.startswith("R") for ln in status.splitlines()),
+                        f"expected a staged rename (R), got:\n{status}")
+        tracked = self._run_git(["ls-files", "archived/epic-001"])
+        self.assertIn("archived/epic-001/sprint-01/E001-S01-003.yaml", tracked)
+        self.assertNotIn("??", status)  # nothing left untracked by a shutil fallback
+
+    def test_move_epic_warns_on_stderr_when_git_mv_falls_back(self):
+        """The fallback is a real loss of history, so it must never be silent."""
+        non_git = tempfile.mkdtemp()
+        try:
+            root = os.path.join(non_git, "state")
+            os.makedirs(os.path.join(root, "active", "epic-001"))
+            with open(os.path.join(root, "active", "epic-001", "epic.yaml"), "w") as f:
+                f.write("key: 'E001'\nstatus: in-progress\n")
+            err = io.StringIO()
+            with redirect_stderr(err):
+                pm.move_epic(root, "E001", "archived")
+            msg = err.getvalue()
+            self.assertIn("WARNING", msg)
+            self.assertIn("git mv", msg)
+            self.assertIn("--follow", msg)
+        finally:
+            import shutil
+            shutil.rmtree(non_git, ignore_errors=True)
 
     def test_move_epic_preserves_history_via_git_log_follow(self):
         pre_move_log = self._run_git(

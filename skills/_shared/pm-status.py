@@ -3,7 +3,7 @@
 # requires-python = ">=3.11"
 # dependencies = ["ruamel.yaml>=0.18"]
 # ///
-# pm-status-version: 2.0.1   (machine-readable marker; `self-install` compares this across copies — keep at top)
+# pm-status-version: 2.0.2   (machine-readable marker; `self-install` compares this across copies — keep at top)
 """
 pm-status.py — deterministic, atomic, round-trip-safe writer for the l3io-pm
 split status files and the per-sprint progress ledger.
@@ -69,7 +69,7 @@ except ModuleNotFoundError:  # pragma: no cover - environment guard
     )
     sys.exit(2)
 
-PM_STATUS_VERSION = "2.0.1"  # keep in sync with the top-of-file `# pm-status-version:` marker
+PM_STATUS_VERSION = "2.0.2"  # keep in sync with the top-of-file `# pm-status-version:` marker
 
 VALID_STORY_STATUS = {"backlog", "ready-for-dev", "in-progress", "review", "done"}
 VALID_SPRINT_STATUS = {"backlog", "in-progress", "done"}
@@ -214,16 +214,27 @@ def save_node(y, node, path: str, use_flock: bool = False) -> None:
 
 
 def check_backrefs(node, epic_key: str, sprint_key: str = None) -> list:
-    """Compare a node's parent back-references against its resolved location."""
+    """Compare a node's parent back-references against its resolved location.
+
+    An ABSENT back-reference is a failure, not a pass. Sprint and story files are
+    required to carry `epic:` (and stories `sprint:`) — see status-files.md §4 — and
+    migrate-state adds them as a brand-new step, so "field missing entirely" is exactly
+    the case this check has to catch. Epic nodes have no parent and are never passed
+    here (callers skip them).
+    """
     problems = []
     if node is None:
         return ["node is empty"]
     got_epic = str(node.get("epic", "")).strip()
-    if got_epic and got_epic != str(epic_key).strip():
+    if not got_epic:
+        problems.append(f"epic back-reference absent (expected {str(epic_key).strip()!r})")
+    elif got_epic != str(epic_key).strip():
         problems.append(f"epic back-reference {got_epic!r} != path epic {epic_key!r}")
     if sprint_key is not None:
         got_sprint = str(node.get("sprint", "")).strip()
-        if got_sprint and got_sprint != str(sprint_key).strip():
+        if not got_sprint:
+            problems.append(f"sprint back-reference absent (expected {str(sprint_key).strip()!r})")
+        elif got_sprint != str(sprint_key).strip():
             problems.append(f"sprint back-reference {got_sprint!r} != path sprint {sprint_key!r}")
     return problems
 
@@ -693,30 +704,50 @@ def move_epic(state_root: str, epic_key: str, to_status: str) -> str:
 
     The directory name never changes — only its parent folder — so git records a
     rename and `git log --follow` keeps working on every file in the tree.
+
+    Every path handed to `git mv` is absolutized first, and so is its `cwd`. A relative
+    `state_root` would otherwise be resolved twice — once by the caller's process cwd when
+    the operands were built, and again by `cwd=state_root` inside the subprocess — so git
+    would be told to move a path that does not exist, fail, and drop silently through to
+    the `shutil.move` fallback with exit 0 and no rename recorded. Preserving history via
+    `git mv` is the entire reason this function moves directories instead of collapsing
+    them, so that degradation must not be silent: the fallback now warns on stderr.
     """
     if to_status not in STATUS_DIRS:
         raise ValueError(f"bad status folder {to_status!r} — expected one of {list(STATUS_DIRS)}")
+    state_root = os.path.abspath(state_root)
     src = find_epic_dir(state_root, epic_key)
     if src is None:
         raise FileNotFoundError(f"epic {epic_key} not found under {state_root}")
+    src = os.path.abspath(src)
     dest_parent = os.path.join(state_root, to_status)
-    dest = os.path.join(dest_parent, epic_dirname(epic_key))
-    if os.path.abspath(src) == os.path.abspath(dest):
+    dest = os.path.abspath(os.path.join(dest_parent, epic_dirname(epic_key)))
+    if src == dest:
         return dest
     if os.path.exists(dest):
         raise FileExistsError(f"destination already exists: {dest}")
     os.makedirs(dest_parent, exist_ok=True)
 
     moved = False
+    reason = "git mv was not attempted"
     try:
         import subprocess
         r = subprocess.run(["git", "mv", src, dest], cwd=state_root,
                            capture_output=True, text=True)
         moved = r.returncode == 0
-    except (OSError, ImportError):
+        if not moved:
+            reason = (r.stderr.strip() or r.stdout.strip()
+                      or f"git mv exited {r.returncode}").replace("\n", " ")
+    except (OSError, ImportError) as e:
         moved = False
+        reason = f"could not run git: {e}"
     if not moved:
         import shutil
+        sys.stderr.write(
+            f"pm-status.py: WARNING — `git mv` failed ({reason}); falling back to a plain "
+            f"filesystem move of {src} -> {dest}. Git will see this as delete+add, not a "
+            f"rename, so `git log --follow` will not cross it for these files.\n"
+        )
         shutil.move(src, dest)
 
     p = os.path.join(dest, "epic.yaml")

@@ -1,6 +1,6 @@
 ---
 name: l3io-util-cleanup
-description: Migration utilities. Use when the user needs to reorganize legacy flat BMad artifact outputs into the structured epic/sprint folder layout, migrate sprint-status.yaml to the current field schema, split it into the three-file layout, reconcile epic placement across the three split files and normalize the backlog to a flat list, harvest deferred-shortcut code markers into the backlog, validate and sort the ordering of epics and sprints in the status files, or update AI system instruction files with the current status file layout. Run without arguments for an auto-diagnostic that scans project state and proposes the right actions.
+description: Migration and housekeeping utilities for BMad artifacts and l3io-pm state. Use when the user needs to migrate a legacy state layout (flat sprint-status.yaml, or legacy per-epic _bmad/state/) to the current sharded state tree, reorganize legacy flat artifact outputs into the structured epic/sprint folder layout, harvest deferred-shortcut code markers into the issues backlog, validate zero-padded naming in the state tree, review the issues backlog or a project state dashboard, or update AI system instruction files to describe the current state layout. Also carries older legacy-only bridging modes (migrate-schema, split-status, reconcile-status) for repos that have not yet migrated. Run without arguments for an auto-diagnostic that scans project state and proposes the right actions.
 ---
 
 # Artifact Layout Cleanup
@@ -15,23 +15,23 @@ Modes (pass as argument to skip directly to that mode):
 
 **Diagnostic (read-only)**
 - **`check` / `status`:** Read-only health check — same diagnostic scan as the default but prints the findings table and exits without prompting to make changes.
-- **`stats`:** Project state dashboard — counts of epics, sprints, and stories by status, backlog size by severity, and last closed sprint/epic. No files changed.
-- **`backlog`:** Lists all items in the consolidated `backlog:` list in a readable table grouped by severity. No files changed.
+- **`stats`:** Project state dashboard — walks the sharded state tree for counts of epics, sprints, and stories by status, backlog size by severity, and last closed sprint/epic. No files changed.
+- **`backlog`:** Lists all items in the `backlog:` list of `{pm_state_root}/issues.yaml` in a readable table grouped by severity. No files changed.
 
 **One-time migrations (run in this order)**
-- **`migrate-schema`:** Upgrades an existing `sprint-status.yaml` to the current field schema — adds missing fields with zero/empty defaults, never overwrites existing values.
-- **`split-status`:** Splits a single `sprint-status.yaml` into the three-file layout the PM skills now use — `sprint-status.yaml` (active/in-progress epics), `sprint-status-backlog.yaml`, `sprint-status-archived.yaml` — partitioning every epic/sprint by status. One-time migration; the original is preserved as `sprint-status.yaml.legacy`. (Run `migrate-schema` first if the file predates the current field schema.)
+- **`migrate-schema`:** *(legacy-only)* Upgrades an existing legacy flat `sprint-status.yaml` to the current field schema — adds missing fields with zero/empty defaults, never overwrites existing values.
+- **`split-status`:** *(legacy-only)* Splits a legacy flat `sprint-status.yaml` into the three-file `sprint-status{,-backlog,-archived}.yaml` form, partitioning every epic/sprint by status. The PM skills do **not** read these files — this is an intermediate shape that lets `reconcile-status` clean up a messy flat file before `migrate-state` consumes it. One-time; the original is preserved as `sprint-status.yaml.legacy`.
 - **`migrate-state`:** Migrates from either legacy layout (flat `sprint-status*.yaml`, or legacy per-epic `_bmad/state/`) to the sharded state tree under `{implementation_artifacts}/state/`. Preserves originals as `.legacy` files.
 
 **Ongoing maintenance (safe to repeat)**
 - **`normalize`:** Convenience shortcut — runs `reconcile-status` then `sort-status` in one confirmed pass. Use for routine maintenance instead of running two commands separately.
-- **`reconcile-status`:** Audits the three split status files for placement and structure issues: epics in the wrong file for their `status`, nested per-epic `backlog:` arrays that should be flattened into the consolidated top-level list, stale backlog items whose status is no longer `backlog`, and empty epic shells in the backlog file. Dry-run first; confirms before writing. Safe to run at any time.
+- **`reconcile-status`:** *(legacy-only)* Audits the three split status files for placement and structure issues: epics in the wrong file for their `status`, nested per-epic `backlog:` arrays that should be flattened into the consolidated top-level list, stale backlog items whose status is no longer `backlog`, and empty epic shells in the backlog file. Dry-run first; confirms before writing. Safe to run at any time.
 - **`sort-status`:** Validates state file and directory naming against the zero-padded convention (`epic-{nnn}/`, `sprint-{nn}/`, `E{nnn}-S{nn}-{nnn}.yaml`). Ordering itself can no longer drift under the sharded layout — directory listing order is correct order — so this mode no longer reorders anything. It reports misnamed entries, which would sort incorrectly and break key resolution.
 - **`layout-cleanup`:** Runs only the artifact layout reorganization (the original default behavior) — reorganizes flat artifact outputs into the structured epic/sprint folder hierarchy, reconciles references, verifies state consistency.
 
 **Source & external sync**
 - **`harvest-debt`:** Greps the whole source tree for `bmad-defer:` deferred-shortcut markers (the comment crumbs developers and dev subagents leave when they take an intentional simplification) and harvests them into the consolidated `backlog:` list so deferrals do not rot into "later means never." Language-generic — recognizes the comment syntax of every common language. Re-runnable: dedupes against already-harvested markers. Report-only by default; backlog merge is confirmed. Respects `harvest_exclude_dirs` in the `l3io-util` config section for additional exclusions beyond the built-in list.
-- **`update-ai-rules`:** Scans for AI system instruction files in the project (`CLAUDE.md`, `.github/copilot-instructions.md`, `GEMINI.md`, `AGENTS.md`, `.cursorrules`, and others) and updates any references to the legacy `sprint-status.yaml` to document the current three-file split layout. For files that already exist: updates existing references. For the currently running AI system's file if it does not exist: creates it with a status layout section. Never creates files for other AI systems. Also auto-invoked after a successful `split-status` run. Safe to run repeatedly.
+- **`update-ai-rules`:** Scans for AI system instruction files in the project (`CLAUDE.md`, `.github/copilot-instructions.md`, `GEMINI.md`, `AGENTS.md`, `.cursorrules`, and others) and rewrites any reference to a legacy state layout (flat `sprint-status*.yaml`, the three-file split, or `_bmad/state/`) to describe the current sharded state tree. For files that already exist: updates existing references. For the currently running AI system's file if it does not exist: creates it with a state layout section. Never creates files for other AI systems. Also auto-invoked after a successful `split-status` run. Safe to run repeatedly.
 
 **Setup & housekeeping**
 - **`clean-legacy`:** Removes `.yaml.legacy` migration backup files and `.v1` calibration backup files left behind by one-time migration commands. Dry-run first; confirms before deleting. Safe to run once migrations have been verified.
@@ -82,22 +82,23 @@ Diagnostic (read-only)
   (no argument)      Project health check — scan and propose all needed actions
   check / status     Read-only health check — report findings, no changes
   stats              Project state dashboard — epic/sprint/story/backlog counts
-  backlog            List consolidated backlog items grouped by severity
+  backlog            List issues.yaml backlog items grouped by severity
 
 One-time migrations (run in this order)
-  migrate-schema     Add missing fields to sprint-status.yaml (zero/empty defaults)
-  split-status       Split sprint-status.yaml into 3-file layout (active/backlog/archived)
-  migrate-state      Migrate either legacy layout to the sharded state tree
+  migrate-schema     (legacy-only) Add missing fields to a legacy flat sprint-status.yaml
+  split-status       (legacy-only) Split flat sprint-status.yaml into the 3-file form
+  migrate-state      Migrate either legacy layout to the sharded state tree  <- the one
+                     that makes a legacy project usable by the PM skills again
 
 Ongoing maintenance (safe to repeat)
   normalize          Reconcile then sort all status files in one pass
-  reconcile-status   Fix misplaced epics, nested backlogs, stale items, empty shells
+  reconcile-status   (legacy-only) Fix misplaced epics, nested backlogs, stale items
   sort-status        Validate zero-padded naming (epic-{nnn}/, sprint-{nn}/, story keys)
   layout-cleanup     Reorganize flat artifact files into epic/sprint folder structure
 
 Source & external sync
   harvest-debt       Sweep source for bmad-defer: markers and harvest into backlog
-  update-ai-rules    Update AI instruction files to reference the 3-file status layout
+  update-ai-rules    Update AI instruction files to describe the sharded state tree
 
 Setup & housekeeping
   setup              Register l3io-util module config for this project
@@ -118,6 +119,20 @@ Load config from `{project-root}/_bmad/config.yaml` and `{project-root}/_bmad/co
 - `output_folder`
 
 If `implementation_artifacts` is not set, default to `{output_folder}/implementation-artifacts`.
+
+Then bind the state paths every mode below uses (identical to the PM skills' bindings —
+see `skills/_shared/status-files.md` §10, the canonical contract):
+
+- `{pm_state_root}` = `{implementation_artifacts}/state`
+- `{pm_issues_file}` = `{pm_state_root}/issues.yaml`
+- `{pm_calibration_file}` = `{pm_state_root}/pm-calibration.yaml`
+
+**Current vs. legacy-only modes.** The sharded state tree under `{pm_state_root}` is the
+layout the PM skills read and write today; they hard-block on anything else. Three modes
+here — `migrate-schema`, `split-status`, `reconcile-status` — operate on the **legacy flat**
+`sprint-status*.yaml` files only. They exist to bridge a repo that has not migrated yet, and
+they are dead ends on a migrated repo. Where a mode is legacy-only it says so in its own
+header; do not read those sections as descriptions of current behaviour.
 
 ## Project Health Check
 
@@ -174,7 +189,7 @@ Run the `bmad-defer:` grep from Harvest Debt Mode (Step H2 grep command). Dedupe
 
 **Check 7 — AI instruction references**
 Run the scan from Update AI Rules Mode Step AR1 across all well-known instruction file locations.
-- Stale `sprint-status.yaml` references found → flag `update-ai-rules` · Priority: Low · list files
+- Stale legacy state references found (flat `sprint-status*.yaml`, the three-file split, or `_bmad/state/`) → flag `update-ai-rules` · Priority: Low · list files
 - All current or absent → ✓
 
 **Check 8 — Status file placement and backlog structure**
@@ -622,16 +637,24 @@ DONE — Schema migration complete.
 
 ## Split Status Mode
 
-Invoked with `split-status` argument. Splits a single `sprint-status.yaml` into the
-three-file layout the PM skills (`l3io-pm-execute`)
-now read and write. One-time, one-way migration. The original is never deleted — it is
-renamed to `sprint-status.yaml.legacy` as the rollback. All [Safety Rules](#safety-rules)
-apply: dry-run first, never overwrite an existing destination, preserve node contents
-exactly.
+**Legacy-only mode — bridging step, not the current layout.**
 
-This is the same partition the PM skills perform automatically on first run when they find
-only a legacy file (see their `references/status-files.md`); running it here is the explicit,
-reviewed path.
+Invoked with `split-status` argument. Splits a single legacy flat `sprint-status.yaml` into
+the three-file `sprint-status{,-backlog,-archived}.yaml` layout. One-time, one-way. The
+original is never deleted — it is renamed to `sprint-status.yaml.legacy` as the rollback.
+All [Safety Rules](#safety-rules) apply: dry-run first, never overwrite an existing
+destination, preserve node contents exactly.
+
+**The PM skills do not read or write these three files.** They read the sharded state tree
+at `{pm_state_root}` and hard-block on any legacy layout (`skills/_shared/status-files.md`
+§10). The three-file split is an *intermediate* form on the way there: it is a convenient
+shape for `reconcile-status` to clean up a messy flat file before `migrate-state` consumes
+it, and `migrate-state` reads all three as one logical set. Nothing else consumes them.
+
+Do not run this mode expecting it to make a project usable — `migrate-state` is what does
+that. Run this only if you need `reconcile-status` on a legacy flat file first. On a project
+that has already migrated there is nothing here to do; run `/l3io-util-cleanup migrate-state`
+or nothing at all.
 
 ### Target files
 
@@ -799,16 +822,19 @@ and a marker quoted inside a backlog description must never re-harvest itself.
 Load config (same as layout cleanup). Also resolve:
 - `harvest_exclude_dirs` — from the `l3io-util` section; default `[]`. Additional directories to exclude from the sweep on top of the built-in exclusion list. Each entry is passed as an additional `--exclude-dir` argument in the [Grep contract](#grep-contract).
 
-Resolve the harvest target using the same read-resolution the PM skills use (split layout is authoritative):
+Bind `{status_backlog}` = `{pm_issues_file}` (`{pm_state_root}/issues.yaml`) — the single flat
+deferred-issue list of the current layout. Then check for a legacy layout using the same
+three-way count Check 2b uses, and refuse to write past one:
 
-1. If `{implementation_artifacts}/sprint-status-backlog.yaml` exists → bind `{status_backlog}` to it.
-2. Else if a legacy `{implementation_artifacts}/sprint-status.yaml` exists → print:
+1. If a legacy layout is present (legacy flat `sprint-status*.yaml`, or legacy per-epic
+   `_bmad/state/`) and `{pm_state_root}` does not exist → print:
    ```
-   Found legacy sprint-status.yaml but no split layout. Run `split-status` first, then re-run harvest-debt.
+   State is still on a legacy layout — harvest-debt writes to {pm_issues_file}, which does
+   not exist yet. Run /l3io-util-cleanup migrate-state first, then re-run harvest-debt.
    ```
-   and exit (do not write into a legacy file; harvest only targets the split `backlog:` list).
-3. Else → no state yet. The backlog file will be created lazily in Step H6 containing only a
-   top-level `backlog:` list (a valid, readers-tolerated shape).
+   and exit (never write into a legacy file).
+2. Else → `{status_backlog}` is the target. It is created lazily in Step H6 if absent,
+   containing only a top-level `backlog:` list (the shape `append-issue` writes).
 
 **Step H2 — Sweep and parse**
 
@@ -853,11 +879,11 @@ If no: print `Harvest cancelled — report only, no changes made.` and exit.
 
 Append one item per `new` marker to the top-level `backlog:` list of `{status_backlog}`, following
 the consolidated backlog schema (the PM skills' `references/status-files.md` is the schema source of
-truth). Generate keys by continuing the highest existing `BL-E00-NN` suffix (check existing items with `epic: '00'`; also check for any legacy `DEBT-NN` items to avoid gap collisions):
+truth). Prefer writing each item through `uv run {project-root}/_bmad/scripts/pm-status.py append-issue --file {pm_issues_file} ...` when that script is present — it appends under an exclusive flock, which is what makes `issues.yaml` safe as the one shared-append target. Generate keys by continuing the highest existing `BL-E000-{nnn}` suffix (check existing items with `epic: '000'`; also check for any legacy `DEBT-NN` or narrower-padded `BL-E00-NN` items to avoid gap collisions, parsing sequence numbers numerically):
 
 ```yaml
-- key: BL-E00-01                       # BL-E00-{nn} — repo-global, not epic-scoped
-  epic: '00'                           # '00' = repo-global marker
+- key: BL-E000-001                     # BL-E000-{nnn} — repo-global, not epic-scoped
+  epic: '000'                          # '000' = repo-global marker
   sprint: ''
   title: {what}                        # first clause of the marker, trimmed
   source: 'code-marker ({file}:{line})'
@@ -1274,7 +1300,12 @@ Health Check 11's drift comparison can be trusted for that epic.
 
 ## Update AI Rules Mode
 
-Invoked with `update-ai-rules` argument, or automatically from [Split Status Mode](#split-status-mode) Step S9. Scans for AI system instruction files in the project and updates any references to the legacy `sprint-status.yaml` to document the current three-file split layout. For instruction files that already exist: updates existing references. For the currently running AI system's file that does not yet exist: creates it with a status layout section. Never creates instruction files for other AI systems. Safe to run repeatedly — already-updated files are skipped.
+Invoked with `update-ai-rules` argument, or automatically from [Split Status Mode](#split-status-mode) Step S9. Scans for AI system instruction files in the project and updates any references to a **legacy** state layout — the flat `sprint-status*.yaml` files or the legacy per-epic `_bmad/state/` tree — so they describe the **current sharded state tree** under `{pm_state_root}`. For instruction files that already exist: updates existing references. For the currently running AI system's file that does not yet exist: creates it with a state layout section. Never creates instruction files for other AI systems. Safe to run repeatedly — already-updated files are skipped.
+
+**This mode writes into the consuming repo's own instruction files, and those files then
+steer every future agent in that repo.** It must therefore only ever emit the current
+layout. Emitting the decommissioned three-file layout here would teach every agent in the
+consuming repo to look for files the PM skills hard-block on.
 
 ### Supported AI instruction file locations
 
@@ -1289,19 +1320,21 @@ Invoked with `update-ai-rules` argument, or automatically from [Split Status Mod
 
 ### Detection rule
 
-A `sprint-status.yaml` reference is flagged for update if it is NOT immediately followed by `.legacy` and the same paragraph or section does not already mention `sprint-status-backlog.yaml` or `sprint-status-archived.yaml`. References that are already updated (mention the split layout) are skipped.
+A reference is flagged for update if it names any legacy state location — `sprint-status.yaml`, `sprint-status-backlog.yaml`, `sprint-status-archived.yaml`, `sprint-status-planned.yaml`, `sprint-status-issues.yaml`, `E{nnn}-status.yaml`, or `_bmad/state/` — and is NOT immediately followed by `.legacy`. A reference is already current, and skipped, when its paragraph or section describes the sharded tree (mentions `state/active/`, `state/planned/`, `state/archived/`, or `{pm_state_root}`).
+
+Note the direction of travel: the three-file split (`sprint-status-backlog.yaml` / `sprint-status-archived.yaml`) is itself a **legacy** layout now and is flagged for update, not treated as the target.
 
 ### Steps
 
 **Step AR1 — Scan**
 
-Check each well-known instruction file location. For each file that exists, grep for `sprint-status\.yaml` (case-sensitive) and collect all matches with surrounding context (2 lines before/after). Apply the detection rule. Build a findings list: `{file}` + `{line}` + `{context}`.
+Check each well-known instruction file location. For each file that exists, grep for `sprint-status[-a-z]*\.yaml`, `E[0-9]*-status\.yaml`, and `_bmad/state` (case-sensitive) and collect all matches with surrounding context (2 lines before/after). Apply the detection rule. Build a findings list: `{file}` + `{line}` + `{context}`.
 
 Also determine the current AI runtime (Claude, Copilot, Gemini, etc.) from execution context. If the current runtime's instruction file does not exist and was not found above, add it to a `{to_create}` list.
 
 If no existing instruction files found AND `{to_create}` is empty: print `No AI instruction files found — nothing to update.` and exit.
 
-If existing files found but no flagged references AND `{to_create}` is empty: print `AI instruction files are already current — no sprint-status.yaml references detected.` listing files checked, and exit.
+If existing files found but no flagged references AND `{to_create}` is empty: print `AI instruction files are already current — no legacy state-layout references detected.` listing files checked, and exit.
 
 **Step AR2 — Dry-run**
 
@@ -1333,9 +1366,9 @@ If no: print `Update cancelled — no changes made.` and exit.
 
 For each file in the findings list, read the full content. For each flagged reference, construct a contextually appropriate replacement:
 
-- **Inline path** (e.g., `some/path/sprint-status.yaml`): append ` (split layout: sprint-status.yaml / sprint-status-backlog.yaml / sprint-status-archived.yaml)` as a trailing inline note.
-- **Standalone keyword** (e.g., "reads sprint-status.yaml"): replace with a brief description: "`sprint-status.yaml` (in-progress epics), `sprint-status-backlog.yaml` (backlog), `sprint-status-archived.yaml` (archived)".
-- **Section or block** describing the state file: replace the entire description block with the three-file layout explanation, preserving surrounding format.
+- **Inline path** (e.g., `some/path/sprint-status.yaml`): replace the path with `{pm_state_root}` (rendered as the project's actual relative path, e.g. `docs/implementation-artifacts/state/`) and append ` (sharded state tree — one YAML file per epic/sprint/story)`.
+- **Standalone keyword** (e.g., "reads sprint-status.yaml"): replace with a brief description: "the sharded state tree under `{pm_state_root}` — `active/epic-{nnn}/`, `planned/epic-{nnn}/`, `archived/epic-{nnn}/`, one YAML file per node".
+- **Section or block** describing the state files: replace the entire description block with the state layout section from Step AR5 below, preserving surrounding format.
 
 Read 3 lines of surrounding context before choosing the replacement strategy. Write the updated content to disk.
 
@@ -1343,23 +1376,39 @@ Read 3 lines of surrounding context before choosing the replacement strategy. Wr
 
 For each file in `{to_create}`, create the file (and any parent directories, e.g. `.github/`) and write a minimal AI instruction section covering the PM state file layout:
 
-```markdown
+````markdown
 ## BMad PM — State File Layout
 
-Sprint and epic state is tracked in three split status files under `{implementation_artifacts}/`:
+Epic, sprint, and story state lives in a **sharded state tree** under `{pm_state_root}`
+(`{implementation_artifacts}/state/`) — one bare YAML file per node, committed to git:
 
-- `sprint-status.yaml` — epics currently in-progress, with their active and done sprints and all stories
-- `sprint-status-backlog.yaml` — not-yet-started epics and sprints, plus the consolidated deferred-issue backlog list
-- `sprint-status-archived.yaml` — completed epics (moved here wholesale at epic close)
-
-A legacy single `sprint-status.yaml` (full-content, pre-split) is auto-split on first PM skill run, or explicitly with `/l3io-util-cleanup split-status`.
 ```
+state/
+├── planned/epic-{nnn}/     ← status: backlog
+├── active/epic-{nnn}/      ← status: in-progress
+│   ├── epic.yaml
+│   └── sprint-{nn}/
+│       ├── sprint.yaml
+│       └── E{nnn}-S{nn}-{nnn}.yaml
+├── archived/epic-{nnn}/    ← status: done
+├── issues.yaml             ← flat deferred-issue backlog (BL-E{nnn}-{nnn})
+└── pm-calibration.yaml
+```
+
+- **An epic's directory lives in the folder named for its status.** Every status transition is a directory move, so `git log --follow` keeps working across it.
+- **The directory structure replaces child lists** — `epic.yaml` has no `sprints:` key and `sprint.yaml` has no `stories:` key. Children are discovered by listing the directory.
+- **State is written only by `pm-status.py`**, addressed by node key, never by hand-built path:
+  `uv run _bmad/scripts/pm-status.py set-status --state-root {pm_state_root} --story E001-S01-003 --status done`
+- Do not hand-edit these files, and do not create parallel status files.
+
+Older layouts (a flat `sprint-status*.yaml`, or a per-epic `_bmad/state/` tree) are legacy. Migrate with `/l3io-util-cleanup migrate-state`.
+````
 
 Adapt the heading style and surrounding content to match the existing file format for that AI system.
 
 **Step AR6 — Verify and report**
 
-Re-read each updated and created file. Confirm no `sprint-status.yaml` (non-legacy) references remain. If any remain, list them as unresolved.
+Re-read each updated and created file. Confirm no legacy state reference (per the Detection rule — `sprint-status*.yaml`, `E{nnn}-status.yaml`, `_bmad/state/`, non-`.legacy`) remains. If any remain, list them as unresolved.
 
 ```
 DONE — AI rules update complete.
@@ -1435,33 +1484,56 @@ DONE — Normalize complete.
 
 ## Stats Mode
 
-Invoked with `stats` argument. Read-only project state dashboard — parses all three split status files and prints counts. No files are changed.
+Invoked with `stats` argument. Read-only project state dashboard — walks the sharded state
+tree and prints counts. No files are changed.
 
 ### Steps
 
-**Step ST1 — Load config**
+**Step ST1 — Load config and detect layout**
 
-Load config (same as layout cleanup). Detect which layout is present:
-- Split layout (any of the three files exist) → parse all present files.
-- Legacy single `sprint-status.yaml` only → parse it; note that split layout has not been applied.
-- No status files → print `No status files found at {implementation_artifacts}.` and exit.
+Load config (same as layout cleanup). Run the same three-way count Check 2b uses:
 
-**Step ST2 — Parse and count**
+```bash
+SHARDED=$([ -d "{pm_state_root}" ] && echo 1 || echo 0)
+LEGACY_EPIC=$([ -d "{project-root}/_bmad/state" ] && echo 1 || echo 0)
+LEGACY_FLAT=$([ -f "{implementation_artifacts}/sprint-status.yaml" ] && echo 1 || echo 0)
+```
 
-Parse all present files. Accumulate:
+- **Sharded present** → walk it (Step ST2). This is the normal path.
+- **Sharded absent, a legacy layout present** → the dashboard cannot read it. Print and exit:
+  ```
+  State is still on a legacy layout ({legacy per-epic | legacy flat}) — stats reads the
+  sharded state tree at {pm_state_root}. Run /l3io-util-cleanup migrate-state first.
+  ```
+- **Nothing present** → print `No state found at {pm_state_root} — nothing to report.` and exit.
 
-- **Epics** by `status` (backlog, in-progress, done) — count per status, total.
+**Step ST2 — Walk the sharded tree and count**
+
+The tree is one bare-node YAML file per node; the directory structure *is* the child list
+(`skills/_shared/status-files.md` §4). Enumerate:
+
+```bash
+ls -d {pm_state_root}/{planned,active,archived}/epic-*/ 2>/dev/null
+```
+
+For each epic directory: read `epic.yaml`; for each `sprint-{nn}/` inside it read
+`sprint.yaml`; for each `*.yaml` in that sprint directory other than `sprint.yaml` read the
+story node. Accumulate:
+
+- **Epics** by `status` (backlog, in-progress, done) — count per status, total. The status
+  folder and the node's `status` agree by construction (`planned`→backlog, `active`→in-progress,
+  `archived`→done); if any epic disagrees with its folder, note it as a placement anomaly.
 - **Sprints** by `status` (backlog, in-progress, done) — count per status, total.
 - **Stories** by `status` (backlog, ready-for-dev, in-progress, review, done) — count per status, total.
-- **Backlog items** (top-level `backlog:` list in `sprint-status-backlog.yaml`) — count by severity (Critical, High, Medium, Low, unknown), total.
-- **Last closed sprint** — the sprint with the highest `id` across all epics where `status: done`; note its epic and sprint id.
-- **Last closed epic** — the epic with the highest `id` in `sprint-status-archived.yaml`; note its id and title.
-- **Calibration file** — check if `{project-root}/_bmad/pm-calibration.yaml` exists; if so, note its version and the number of scope/closure/fix sample entries.
+- **Backlog items** — the `backlog:` list in `{pm_issues_file}` — count by severity (Critical, High, Medium, Low, unknown), total. Absent file = zero items, not an error.
+- **Last closed sprint** — across all epics, the highest `epic-{nnn}/sprint-{nn}` whose `sprint.yaml` has `status: done` (lexical order over the zero-padded names is the correct order — §8).
+- **Last closed epic** — the highest `epic-{nnn}` under `{pm_state_root}/archived/`; note its key and title.
+- **Calibration file** — check `{pm_calibration_file}` (`{pm_state_root}/pm-calibration.yaml` — migrate-state moves it here from `{project-root}/_bmad/`); if present, note its version and the number of scope/closure/fix sample entries.
 
 **Step ST3 — Print dashboard**
 
 ```
-PROJECT STATE — {implementation_artifacts}
+PROJECT STATE — {pm_state_root}
 ================================================================
 Epics
   in-progress:  {n}    backlog: {n}    done: {n}    total: {n}
@@ -1474,9 +1546,10 @@ Backlog items
   Critical: {n}  High: {n}  Medium: {n}  Low: {n}  total: {n}
 ----------------------------------------------------------------
 Last sprint closed:  Epic {nnn} / Sprint {nn}  (or "none")
-Last epic closed:    Epic {nnn} — {title}      (or "none")
+Last epic closed:    E{nnn} — {title}          (or "none")
 Calibration file:    {version}, {n} scope samples  (or "not found")
-Layout:              {Split (3-file) | Legacy (single file)}
+Layout:              Sharded state tree
+Placement anomalies: none  (or list epics whose status disagrees with their folder)
 ================================================================
 ```
 
@@ -1484,18 +1557,30 @@ Layout:              {Split (3-file) | Legacy (single file)}
 
 ## Backlog Mode
 
-Invoked with `backlog` argument. Read-only — lists all items in the consolidated `backlog:` list from `sprint-status-backlog.yaml` in a readable table grouped by severity. No files are changed.
+Invoked with `backlog` argument. Read-only — lists all items in the consolidated `backlog:` list from the issues file in a readable table grouped by severity. No files are changed.
 
 ### Steps
 
-**Step BL1 — Load config and resolve backlog file**
+**Step BL1 — Load config and resolve the issues file**
 
-Load config (same as layout cleanup). If `{implementation_artifacts}/sprint-status-backlog.yaml` does not exist, print:
-```
-No backlog file found at {implementation_artifacts}/sprint-status-backlog.yaml.
-Run /l3io-util-cleanup split-status to create the split layout first.
-```
-Exit.
+Load config (same as layout cleanup). The backlog lives in `{pm_issues_file}`
+(`{pm_state_root}/issues.yaml`) — the single flat deferred-issue list the current layout
+uses, written by `pm-status.py append-issue`. If it does not exist, decide which case this is
+using the layout detection from Check 2b:
+
+- **A legacy layout is present** (legacy flat `sprint-status*.yaml`, or legacy per-epic
+  `_bmad/state/`):
+  ```
+  No issues file at {pm_issues_file} — this project is still on a legacy state layout.
+  Run /l3io-util-cleanup migrate-state to migrate; the backlog is carried over as part of it.
+  ```
+- **The sharded tree exists but has no issues file yet**, or nothing exists at all:
+  ```
+  Backlog is empty — no issues file at {pm_issues_file} yet. It is created the first time a
+  review defers an item.
+  ```
+
+Exit in either case.
 
 **Step BL2 — Parse**
 
@@ -1506,21 +1591,21 @@ Read the top-level `backlog:` list. If the list is absent or empty, print `Backl
 Group items by severity (Critical → High → Medium → Low → unknown). Within each group, sort by `epic` ascending then `key` ascending. Print:
 
 ```
-BACKLOG — {implementation_artifacts}/sprint-status-backlog.yaml
+BACKLOG — {pm_issues_file}
 ================================================================
 Sev      Key           Epic  Sprint  Title
 ----------------------------------------------------------------
 Critical
-  CRIT   BL-E01-01     01    02      {title (truncated to 50 chars)}
+  CRIT   BL-E001-001   001   02      {title (truncated to 50 chars)}
   ...
 High
-  HIGH   BL-E01-02     01    —       {title}
+  HIGH   BL-E001-002   001   —       {title}
   ...
 Medium
-  MED    BL-E00-01     00    —       {title}
+  MED    BL-E000-001   000   —       {title}
   ...
 Low
-  LOW    BL-E02-01     02    03      {title}
+  LOW    BL-E002-001   002   03      {title}
   ...
 ================================================================
 Total: {n} item(s)  (Critical: {n}  High: {n}  Medium: {n}  Low: {n})

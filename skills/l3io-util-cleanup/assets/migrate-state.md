@@ -42,7 +42,7 @@ current version). Check its version marker before proceeding — Stage E below c
 now with an actionable message rather than letting Stage E fail on an opaque argparse error:
 
 ```bash
-REQUIRED="2.0.1"
+REQUIRED="2.0.2"
 FOUND=$(grep -m1 "pm-status-version:" "{pm_status}" 2>/dev/null | sed 's/.*pm-status-version://' | awk '{print $1}')
 echo "required=$REQUIRED found=${FOUND:-none}"
 ```
@@ -99,8 +99,9 @@ re-run migrate-state.
 ```
 
 **Else if `LEGACY_EPIC=1`** → legacy per-epic source. Bind `{source_layout}` =
-`legacy-per-epic`. Continue to Stage B (Stage A is skipped entirely for the legacy
-per-epic layout).
+`legacy-per-epic`. Skip Stage A (it reads the legacy *flat* files) and continue to
+"Loading the working lists" below. Everything after that point — status normalization,
+cross-reference normalization, Stage B onward — runs for **both** source layouts.
 
 **Else if `LEGACY_FLAT=1`** → legacy flat source. Bind `{source_layout}` = `legacy-flat`.
 Continue to Stage A.
@@ -115,7 +116,7 @@ Exit. This is not an error.
 
 ---
 
-## Stage A — legacy flat normalization (legacy flat source only; skip entirely when `{source_layout} = legacy-per-epic`)
+## Stage A — legacy flat load and key conversion (legacy flat source only; skip entirely when `{source_layout} = legacy-per-epic`)
 
 Read whichever of these three files exist (missing files are treated as empty —
 `{epics: [], backlog: []}`; do **not** require all three):
@@ -134,48 +135,17 @@ only present in `sprint-status-backlog.yaml`) into an in-memory **working issues
 **Do not write any output yet** — Stage A is entirely in-memory; Stage C performs the
 actual writes.
 
-### Status normalizations — reused verbatim from this file's previous version
-
-Apply these normalizations to every epic, sprint, and story node in the working epic list.
-These are the same rules the file has always used for legacy flat status cleanup; they
-are not being reinvented here, only carried forward into the sharded pipeline:
-
-| Node type | Legacy status | Condition | Normalized to |
-|-----------|--------------|-----------|---------------|
-| Epic | `deferred` | no sprint has `status: done` | `backlog` |
-| Epic | `deferred` | ≥1 sprint has `status: done` | `in-progress` |
-| Epic | `superseded` | any | `done` (preserve the `superseded_by` field unchanged) |
-| Sprint | `deferred` | — | `backlog` |
-| Story | `deferred` | — | extracted as a backlog issue; **removed** from the sprint's story list |
-| Story | `superseded` | — | `done` |
-
-For deferred stories extracted as backlog issues: assign sequential keys continuing after
-the **highest existing** `BL-E{epic}-{nnn}` key already present for that epic in the
-working issues list (or `-001` if none exist for that epic), `severity: Low`, `source:
-migrate-state (deferred)`. This sequencing rule is unchanged from the previous version of
-this file. Parse the epic number and the sequence number of each existing key
-**numerically**, not lexicographically or by string width — pre-existing keys may use a
-narrower zero-padding than the sharded layout's 3-digit convention (e.g. `BL-E00-01` for
-epic 0), and a string comparison would misorder `BL-E003-2` before `BL-E003-10`.
-
-**Bind `{extracted_story_keys}`** = the list of story keys extracted in this step (the
-`key:` of each story removed from its sprint's story list, one per line). This list feeds
-Stage E3's drift check later — an extracted story's authored `.md` artifact is left in
-place (artifacts never move) even though its state node no longer exists, and that is an
-*expected* consequence of this step, not drift. For a legacy-per-epic source, bind
-`{extracted_story_keys}` = empty (Stage A does not run — a legacy-per-epic source was
-already put through this extraction once, by whatever process produced it).
-
-Record every normalization applied (node, old status, new status, and — for extracted
-issues — the assigned key) for the final report.
+Status normalization is **not** done here — it is a shared step that runs for both source
+layouts, after this stage and after the legacy-per-epic load below. See "Status
+normalization — every node lands on a status the sharded layout accepts".
 
 ### Node key conversion — necessary for the sharded layout, not present in the previous version of this file
 
 Legacy flat epic and sprint nodes use `id:` (a bare integer, e.g. `id: 3`). The sharded
 layout requires `key:` on every node (the PM skills' `references/status-files.md` §3),
 zero-padded — `'E{nnn}'` (3-digit) for epics, `'S{nn}'` (2-digit) for sprints. Convert, for
-every epic and sprint node in the working epic list (regardless of whether it was touched
-by a status normalization above):
+every epic and sprint node in the working epic list (regardless of what the status
+normalization step will later do to it):
 
 - Epic: `id: 3` → `key: 'E003'`. Drop the old `id:` field.
 - Sprint: `id: 1` → `key: 'S01'`. Drop the old `id:` field.
@@ -183,9 +153,10 @@ by a status normalization above):
 Story nodes already carry `key:` in the legacy flat layout (format `E{nnn}-S{nn}-{nnn}`)
 and need no conversion here — only the `epic:`/`sprint:` back-references added in Stage B.
 
-For backlog items extracted above, format the new key's epic segment with the **same
-3-digit width** as the epic's freshly-converted `key:` — e.g. epic `id: 3` → `key:
-'E003'` → new issues get `BL-E003-{nnn}`, never `BL-E3-` or `BL-E03-`. Pre-existing
+For backlog items extracted by the status-normalization step below, format the new key's
+epic segment with the **same 3-digit width** as the epic's freshly-converted `key:` — e.g.
+epic `id: 3` → `key: 'E003'` → new issues get `BL-E003-{nnn}`, never `BL-E3-` or
+`BL-E03-`. (This is why key conversion runs first.) Pre-existing
 backlog items already in the working issues list are **left exactly as found** — their
 keys are not reformatted (see Stage C; re-keying an item that may already be referenced
 elsewhere, e.g. by `l3io-pm-sync`, is out of scope and a needless risk for this
@@ -210,12 +181,82 @@ cat {project-root}/_bmad/state/sprint-status-archived.yaml 2>/dev/null
 
 Concatenate the `epics:` list from every `active/E{nnn}-status.yaml` file, from
 `sprint-status-planned.yaml`, and from `sprint-status-archived.yaml` into one **working
-epic list**. No status normalization and no `id:`→`key:` conversion is needed — legacy
-per-epic nodes already use `key:` and already have correct statuses.
+epic list**. No `id:`→`key:` conversion is needed — legacy per-epic nodes already use
+`key:`. Their **statuses**, however, are *not* guaranteed to be current: `deferred` and
+`superseded` are documented legacy statuses that a per-epic tree can carry, so the status
+normalization step below runs on this path too.
 
 Load `{project-root}/_bmad/state/sprint-status-issues.yaml`'s `backlog:` list as the
-**working issues list**, unchanged. Bind `{extracted_story_keys}` = empty (see Stage A —
-no deferred-story extraction happens on this path).
+**working issues list**, unchanged.
+
+---
+
+## Status normalization — every node lands on a status the sharded layout accepts (both source paths)
+
+**Run this for both source layouts.** It is the only thing standing between a legacy
+status and a node the rest of the toolchain cannot write to.
+
+`pm-status.py` accepts exactly these values, and rejects everything else with exit 2:
+
+| Node type | Accepted statuses (`pm-status.py`) |
+|---|---|
+| Epic | `backlog`, `in-progress`, `done` (`VALID_EPIC_STATUS`) |
+| Sprint | `backlog`, `in-progress`, `done` (`VALID_SPRINT_STATUS`) |
+| Story | `backlog`, `ready-for-dev`, `in-progress`, `review`, `done` (`VALID_STORY_STATUS`) |
+
+A node that reaches the sharded tree still carrying `deferred` is not merely untidy: Stage B
+would have nowhere to put it, and every later `set-status` on it exits 2. Normalize before
+Stage B decides placement.
+
+Apply to every epic, sprint, and story node in the working epic list. These are the same
+rules this file has always used for legacy flat cleanup — they are not being reinvented,
+only promoted to cover both source paths. The table is idempotent on a node whose status is
+already accepted, so running it on a legacy-per-epic source costs nothing and closes the gap:
+
+| Node type | Legacy status | Condition | Normalized to |
+|-----------|--------------|-----------|---------------|
+| Epic | `deferred` | no sprint has `status: done` | `backlog` |
+| Epic | `deferred` | ≥1 sprint has `status: done` | `in-progress` |
+| Epic | `superseded` | any | `done` (preserve the `superseded_by` field unchanged) |
+| Sprint | `deferred` | — | `backlog` |
+| Sprint | `superseded` | — | `done` |
+| Story | `deferred` | — | extracted as a backlog issue; **removed** from the sprint's story list |
+| Story | `superseded` | — | `done` |
+| Any | already an accepted value (table above) | — | unchanged |
+
+**Any other status → halt.** Never improvise a destination folder, never leave the value as
+found, and never write a partial tree. Nothing has been written to `{pm_state_root}` at this
+point, so stopping here is clean:
+
+```
+BLOCKED: unrecognized {epic|sprint|story} status '{status}' on node {key}. migrate-state
+has no destination for it and will not guess — guessing would either put the node in the
+wrong status folder or leave a status that makes every later pm-status.py write on that
+node fail with exit 2. Nothing has been written; {pm_state_root} was not created.
+Set that node's status in the source file to one of the accepted values for its type
+(epic/sprint: backlog | in-progress | done; story: backlog | ready-for-dev | in-progress |
+review | done), or to a legacy status this migration knows how to normalize (deferred,
+superseded), then re-run migrate-state.
+```
+
+For deferred stories extracted as backlog issues: assign sequential keys continuing after
+the **highest existing** `BL-E{epic}-{nnn}` key already present for that epic in the
+working issues list (or `-001` if none exist for that epic), `severity: Low`, `source:
+migrate-state (deferred)`. Parse the epic number and the sequence number of each existing
+key **numerically**, not lexicographically or by string width — pre-existing keys may use a
+narrower zero-padding than the sharded layout's 3-digit convention (e.g. `BL-E00-01` for
+epic 0), and a string comparison would misorder `BL-E003-2` before `BL-E003-10`.
+
+**Bind `{extracted_story_keys}`** = the list of story keys extracted in this step (the
+`key:` of each story removed from its sprint's story list, one per line), for **whichever**
+source layout it came from. Empty is a normal result. This list feeds Stage E3's drift check
+later — an extracted story's authored `.md` artifact is left in place (artifacts never move)
+even though its state node no longer exists, and that is an *expected* consequence of this
+step, not drift.
+
+Record every normalization applied (node, old status, new status, and — for extracted
+issues — the assigned key) for the final report. A legacy-per-epic source will usually
+record zero normalizations; that is the expected case, not a reason to skip the step.
 
 ---
 
@@ -253,9 +294,18 @@ By this point you have one working epic list, in legacy per-epic shape (nested
 `sprints:`/`stories:`), with every node's own identity and every cross-reference already
 normalized to `key:` form, regardless of source. Explode it:
 
+The status→folder mapping below is **total**: by the status-normalization step above, every
+epic in the working epic list carries one of exactly three statuses, and each of the three
+has a destination. There is no fourth case to improvise a folder for. The `else` branch is a
+belt-and-braces assertion — it should be unreachable, and if it ever fires the correct
+response is to halt, not to guess:
+
 ```
 for each epic node in the working epic list:
-    status_dir = {done: "archived", in-progress: "active", backlog: "planned"}[epic.status]
+    if   epic.status == "backlog":     status_dir = "planned"
+    elif epic.status == "in-progress": status_dir = "active"
+    elif epic.status == "done":        status_dir = "archived"
+    else:                              HALT (see below) — do not create any directory
     mkdir -p {pm_state_root}/{status_dir}/epic-{nnn}/
     write {pm_state_root}/{status_dir}/epic-{nnn}/epic.yaml
     for each sprint node in epic.sprints:
@@ -272,6 +322,20 @@ digits, taken from the sprint's `key: 'S{nn}'` (e.g. `key: 'S01'` → directory
 carries a `key:` in this exact format — there is no separate padding computation to do
 here beyond reading it back out of `key:`.
 
+If the `else` branch is reached — an epic status that is not one of the three — halt
+immediately with the same message the status-normalization step uses, and remove any
+directories this stage created so far so the retry meets a clean `{pm_state_root}`:
+
+```
+BLOCKED: epic {key} has status '{status}', which has no destination folder. This should
+have been caught by status normalization; nothing further was written. Fix the source
+node's status and re-run migrate-state.
+```
+
+Sprint and story nodes carry no folder of their own (they live inside their epic's
+directory), so they need no mapping here — but their statuses were normalized by the same
+step, so they too are guaranteed to be values `pm-status.py` will accept.
+
 **Every node is written bare — no `epics:` list wrapper anywhere in the sharded layout.**
 
 ### `epic.yaml` contents
@@ -285,7 +349,7 @@ title: 'Epic 003 — ...'
 goal: '...'
 status: in-progress
 depends_on: [...]          # only if present on the source node; already normalized above
-superseded_by: '...'       # only if this epic was normalized from `superseded` in Stage A; already normalized above
+superseded_by: '...'       # only if this epic was normalized from `superseded`; already normalized above
 estimate:
   ...                      # copied verbatim if present
 actual:
@@ -355,7 +419,7 @@ backlog:
     ...
 ```
 
-Then, for each deferred-story extraction recorded in Stage A, append it through the real
+Then, for each deferred-story extraction recorded in the status-normalization step, append it through the real
 CLI writer rather than hand-authoring its shape a second time — this is the one case in
 this migration where the destination file already exists and has real schema-validation
 value:
@@ -470,10 +534,19 @@ For every epic key produced in Stage B:
 uv run {pm_status} verify --state-root {pm_state_root} --epic {epic_key} --scope epic
 ```
 
-(`--scope epic` checks that every expected file exists and that each child's
-`epic:`/`sprint:` back-reference matches the path it was found at — exactly what
-validates that Stage B's explode was done correctly. It does not check completion status,
-so an in-progress epic with non-`done` stories is expected to pass.) If `uv` is
+`--scope epic` walks every `sprint-{nn}/` directory it finds under the epic and checks two
+things: that each one contains a `sprint.yaml`, and that every sprint and story file in the
+tree carries `epic:`/`sprint:` back-references matching the directory it was found in — an
+**absent** back-reference fails just as a mismatched one does, which is what makes this a
+real gate on Stage B's newest transformation (Stage B is where those back-references first
+come into existence). It does **not** check completion status, so an in-progress epic with
+non-`done` stories is expected to pass.
+
+What it cannot tell you: whether a story Stage B *should* have written is missing. There is
+no manifest of expected stories on disk — the directory listing *is* the list — so a story
+dropped between the working epic list and the write simply looks like a sprint with fewer
+stories. E3 below is what catches that, by diffing state files against story artifacts.
+If `uv` is
 unavailable, use `python3 {pm_status} ...` instead. E2 passes only when every migrated
 epic's `verify` call exits 0.
 
@@ -487,7 +560,7 @@ The artifact tree's epic directory may still be at its pre-sharded padding width
 (`epic-01`, 2-digit) — the "epic-directory padding reconciliation" that would rename these
 to match the state tree's 3-digit `epic-{nnn}` is a separate, later cleanup and must not be
 assumed done here. Resolve the artifact epic directory **numerically**, not by fixed-width
-string match. Also, **a deferred story extracted in Stage A is expected to show up as an
+string match. Also, **a deferred story extracted by status normalization is expected to show up as an
 artifact-only orphan** — its `.md` file is still there (artifacts never move) but it
 correctly has no state file any more (it lives in `issues.yaml` instead). Suppress those
 against `{extracted_story_keys}` and report them separately, not as drift:
@@ -526,7 +599,7 @@ for epic_dir in {pm_state_root}/active/epic-*/ {pm_state_root}/archived/epic-*/;
     done
 
     # artifact-only: has an artifact, no state file — expected if it was extracted as a
-    # deferred-story issue in Stage A; genuine drift otherwise.
+    # deferred-story issue during status normalization; genuine drift otherwise.
     artifact_only=$(comm -13 <(echo "$state_stories") <(echo "$artifact_stories"))
     printf '%s\n' "$artifact_only" | while IFS= read -r key; do
       [ -z "$key" ] && continue
@@ -541,7 +614,7 @@ done
 ```
 
 Report the `EXPECTED` bucket separately, with wording that makes clear it is a normal,
-expected consequence of Stage A's deferred-story extraction — not something to
+expected consequence of the status-normalization step's deferred-story extraction — not something to
 investigate. Never auto-correct either `DRIFT` direction — a genuine orphan on either side
 needs a human decision:
 - `DRIFT (state present, artifact missing)` — the artifact was never created, was moved,

@@ -301,12 +301,18 @@ file that gets committed — it is a read-only report to stdout.
 `verify --scope epic` and `verify --scope {story,sprint}` check **different things**; do not
 assume they are the same test at a different granularity.
 
-- **`--scope epic`** walks the epic's whole subtree (its `epic.yaml`, every `sprint.yaml`,
-  every story file) and checks **structural / back-reference integrity**: does each expected
-  file exist, and does each child's `epic:`/`sprint:` back-reference match the path it was
-  found at? It does **not** check completion status — an in-progress epic legitimately
-  contains stories that are not `done`, and this scope must not fail on that. This is the
-  check activation runs as a corruption gate before trusting an epic's files.
+- **`--scope epic`** walks the epic's whole subtree (its `epic.yaml`, every `sprint-{nn}/`
+  directory, every file in them) and checks **structural / back-reference integrity**: every
+  sprint directory must contain a `sprint.yaml`, and every sprint and story file must carry
+  `epic:`/`sprint:` back-references that match the directory it was found in. A **missing**
+  back-reference fails exactly like a mismatched one — a self-describing file that does not
+  describe itself is not verified, and `migrate-state` writes those back-references for the
+  first time, so "absent" is the case this most needs to catch. It does **not** check
+  completion status — an in-progress epic legitimately contains stories that are not `done`,
+  and this scope must not fail on that. Nor can it detect a story file that was never
+  written: the directory listing is the only list of children there is (§4), so there is
+  nothing to compare an absence against. This is the check activation runs as a corruption
+  gate before trusting an epic's files.
 - **`--scope story`** and **`--scope sprint`** check **completion of one node**: `status ==
   done`, all four `actual.*` metric fields present and correctly typed (numeric for
   `elapsed_hours`/`man_hours`; `tokens_k`/`cost` may only be `N/A` under a non-Claude
