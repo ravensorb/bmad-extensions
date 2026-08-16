@@ -1248,6 +1248,17 @@ class TestStorySampling(unittest.TestCase):
         self.assertNotIn("cost", s["scope_ratios"])
         self.assertIn("man_hours", s["scope_ratios"])
 
+    def test_dollar_prefixed_cost_is_still_parsed(self):
+        # cost values can be stored '$'-prefixed (metrics-contract.md §9); the
+        # numeric guard must not drop them before the '$' is stripped.
+        est = {"man_hours": 6, "time_hours": 1.5, "tokens_k": 320,
+               "cost": "$4.80", "fix_factor": 1.25, "scope_ratio": 1.0}
+        act = {"man_hours": 7, "elapsed_hours": 1.8, "tokens_k": 355,
+               "cost": "$5.32"}
+        s = pm.derive_story_sample(self._story(0, est=est, act=act))
+        self.assertIn("cost", s["scope_ratios"])
+        self.assertAlmostEqual(s["scope_ratios"]["cost"], 5.32 * 1.25 / 4.80)
+
     def test_no_estimate_yields_no_sample(self):
         node = {"key": "E001-S01-003", "classification": "complex",
                 "actual": {"man_hours": 7}}

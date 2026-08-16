@@ -480,6 +480,24 @@ ESTIMATE_TO_ACTUAL = {
 }
 
 
+def _num_or_none(v):
+    """Parse a metric value, tolerating a leading '$' on cost. None if not numeric.
+
+    Normalizing before the numeric guard (rather than after) matters: a
+    check-then-lstrip order lets a '$'-prefixed cost fail _is_number and get
+    skipped before the lstrip ever runs, silently starving the cost
+    component of samples. This is the single normalization both the guard
+    and the parse share, so they can't disagree.
+    """
+    if v is None or _is_na(v):
+        return None
+    s = str(v).strip().lstrip("$")
+    try:
+        return float(s)
+    except (TypeError, ValueError):
+        return None
+
+
 def derive_story_sample(node):
     """Compute a story's scope samples and its fix cohort. None when not derivable."""
     if not node:
@@ -501,15 +519,9 @@ def derive_story_sample(node):
 
     ratios = {}
     for e_key, a_key in ESTIMATE_TO_ACTUAL.items():
-        e_val, a_val = est.get(e_key), act.get(a_key)
-        if e_val is None or a_val is None:
-            continue
-        if _is_na(e_val) or _is_na(a_val):
-            continue          # never coerce N/A to zero
-        if not _is_number(e_val) or not _is_number(a_val):
-            continue
-        e_num = float(str(e_val).lstrip("$"))
-        a_num = float(str(a_val).lstrip("$"))
+        e_num, a_num = _num_or_none(est.get(e_key)), _num_or_none(act.get(a_key))
+        if e_num is None or a_num is None:
+            continue          # missing, N/A, or non-numeric — never coerced to zero
         if e_num == 0:
             continue
         # Both paths multiply by the applied fix factor: a pure-scope actual is
