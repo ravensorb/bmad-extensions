@@ -76,6 +76,7 @@
   "dependencies": {
     "bmad-module": "bmm",
     "required-skills": [
+      "bmad-create-story",
       "bmad-dev-story",
       "bmad-code-review",
       "bmad-qa-generate-e2e-tests",
@@ -85,8 +86,7 @@
     "optional-skills": [
       "bmad-ux-review",
       "l3io-arch-review",
-      "bmad-testarch-atdd",
-      "bmad-create-story"
+      "bmad-testarch-atdd"
     ]
   }
 }

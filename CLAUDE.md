@@ -140,10 +140,8 @@ FAILED: [one-line reason]
 ## Dependencies (consumer repos)
 
 These BMad skills must be present in the target repo:
-`bmad-dev-story`, `bmad-code-review`, `bmad-qa-generate-e2e-tests`, `bmad-retrospective`, `bmad-review-adversarial-general`.
+`bmad-create-story`, `bmad-dev-story`, `bmad-code-review`, `bmad-qa-generate-e2e-tests`, `bmad-retrospective`, `bmad-review-adversarial-general`.
 
-Optional: `bmad-ux-review`, `bmad-testarch-atdd`, `bmad-create-story`.
-
-`bmad-create-story` is **not** invoked by any l3io skill. It authors a *new* story from `template.md` at a flat `{implementation_artifacts}/{story_key}.md` and auto-discovers work from a legacy flat `sprint-status.yaml`, neither of which matches the sharded state layout — so story elaboration (plan step-03) and the story technical-AC gate (sprint step-02) enrich the existing story file **in place** instead. It stays listed as optional only because `l3io-arch-review`'s `customize-architect.md` supplies a standards overlay for it when the consuming repo uses it directly.
+Optional: `bmad-ux-review`, `bmad-testarch-atdd`.
 
 Optional intra-package: `l3io-arch-review` (this package's `l3io-arch` module) — enables the epic architecture gate and drives the story technical-AC gate's checklist. Both gates self-skip (the story gate falls back to a built-in checklist) when it is absent.

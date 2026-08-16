@@ -44,44 +44,22 @@ If `{auto_elaborate}` is `true`, proceed directly to step 4 without prompting.
 
 ## 4. Elaborate each thin story
 
-Elaborate **in place**, directly in this step. Do **not** spawn `bmad-create-story` — it
-authors a *new* story from `template.md` at a flat `{implementation_artifacts}/{story_key}.md`
-path and auto-discovers work from a legacy flat `sprint-status.yaml`. Neither matches the
-sharded state layout (`references/status-files.md`), so it produces orphan files at the wrong
-path or halts.
-
 For each thin story in sequence:
 
 ```
 Elaborating {story_key}: {story_title}...
 ```
 
-Read the existing story file at
-`{implementation_artifacts}/epic-{nnn}/sprint-{nn}/stories/{story_key}.md`.
+Spawn `bmad-create-story` with:
+- The existing story file path as the input artifact to enrich
+- Instruction to add technical ACs covering: interface contracts, data model changes,
+  error handling and edge cases, observability requirements, security considerations,
+  testability (unit + integration test anchors)
+- Context preamble: `epic_key: {epic_key}`, `work_type: {work_type}`, `skill: l3io-pm-plan`
 
-If `l3io-arch-review` is installed, load `l3io-arch-review/references/standards-core.md` plus
-any overlay matching the story's stack, and let those standards shape the ACs you write.
+Wait for the subagent to complete before elaborating the next story.
 
-**Edit that file in place.** Preserve every existing section verbatim — elaboration is additive.
-Append the technical ACs the story lacks, covering each dimension that applies to the story
-(skip a dimension only when it genuinely does not apply, and say so rather than omitting it):
-
-| Dimension | What to add |
-|---|---|
-| Interface contracts | API signatures, function/CLI surfaces, events, message shapes |
-| Data model | New or changed schemas, fields, migrations, persisted formats |
-| Error and edge cases | Failure modes, invalid input, partial/empty/concurrent states |
-| Observability | Log lines and levels, metrics, trace/correlation IDs |
-| Security | AuthN/AuthZ, input validation, secret and PII handling |
-| Testability | Unit and integration test anchors, mock boundaries, fixtures |
-
-Constraints:
-
-- Write only to the story file's own path. Create no new files.
-- Do not change the story's `classification`, `estimate`, or `status` — step-02 and
-  `pm-status.py` own those.
-
-Record result: `elaborated`, or `failed` with the reason.
+Record result: `elaborated` or `failed` (if bmad-create-story is not installed or errors).
 
 ## 5. Re-run readiness on updated stories
 
@@ -106,11 +84,8 @@ Stories failed: {failed_count}
 | Story | Result | Notes |
 |-------|--------|-------|
 | E001-S01-002 | ✅ Elaborated | Technical ACs added (interfaces, error handling, observability) |
-| E002-S01-001 | ❌ Failed | story file not found at expected sharded path |
+| E002-S01-001 | ❌ Failed | bmad-create-story not installed |
 ```
-
-If any story was elaborated by a route other than this step's in-place procedure, record that
-deviation here — the summary is the audit trail for how the ACs were produced.
 
 ## 7. Output status line
 
