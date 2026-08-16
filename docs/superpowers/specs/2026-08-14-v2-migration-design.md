@@ -1,5 +1,11 @@
 # bmad-extensions v2.0.0 Migration Design
 
+> **Superseded (2026-08-16).** The state-layout sections of this document — `_bmad/state/`,
+> per-epic `E{nnn}-status.yaml` files, and the three flat status files — are superseded by
+> `docs/superpowers/specs/2026-08-16-v3-state-relocation-design.md`. This document is
+> preserved as the historical record of the legacy per-epic migration design; do not
+> implement from its state layout sections.
+
 **Date:** 2026-08-14
 **Type:** Architectural — major version migration
 **Approach:** Hybrid (copy proven architecture, author differences fresh)

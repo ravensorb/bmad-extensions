@@ -1,5 +1,11 @@
 # bmad-extensions v2.0.0 Migration Implementation Plan
 
+> **Superseded (2026-08-16).** The state-layout sections of this document — `_bmad/state/`,
+> per-epic `E{nnn}-status.yaml` files, and the three flat status files — are superseded by
+> `docs/superpowers/specs/2026-08-16-v3-state-relocation-design.md`. This document is
+> preserved as the historical record of the legacy per-epic migration design; do not
+> implement from its state layout sections.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use `superpowers:subagent-driven-development` (recommended) or `superpowers:executing-plans` to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Migrate bmad-extensions from v1.x to v2.0.0, matching the reference implementation's architecture with l3io branding and GitHub-only sync.
