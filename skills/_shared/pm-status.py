@@ -798,6 +798,10 @@ def cmd_set_estimate(args) -> int:
         _maybe_set(est, "cost_low", args.cost_low, str)
         _maybe_set(est, "cost_high", args.cost_high, str)
 
+    # Calibration factors: applied to get from base values to the estimate
+    _maybe_set(est, "fix_factor", getattr(args, "fix_factor", None), float)
+    _maybe_set(est, "scope_ratio", getattr(args, "scope_ratio", None), float)
+
     # Confidence: explicit arg wins; else derive from completeness
     if args.confidence:
         est["confidence"] = args.confidence
@@ -1236,6 +1240,10 @@ def build_parser() -> argparse.ArgumentParser:
     se.add_argument("--tokens-k", dest="tokens_k_min")  # alias to tokens_k_min for story use
     se.add_argument("--cost", dest="cost_low")           # alias to cost_low for story use
     se.add_argument("--confidence", choices=["low", "medium", "high"])
+    se.add_argument("--fix-factor", dest="fix_factor",
+                    help="fix multiplier applied; required for the scope/fix split")
+    se.add_argument("--scope-ratio", dest="scope_ratio",
+                    help="calibrated scope ratio applied (1.0 when cold-start)")
     se.add_argument("--flock", action="store_true", help="acquire exclusive flock before write")
     se.set_defaults(func=cmd_set_estimate)
 

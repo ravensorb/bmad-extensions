@@ -1164,5 +1164,34 @@ class TestCalibrationIO(unittest.TestCase):
         self.assertIn("cold-start", buf.getvalue().lower())
 
 
+class TestEstimateFactors(TestLayoutResolution):
+    def run_main(self, argv):
+        buf = io.StringIO()
+        try:
+            with redirect_stdout(buf):
+                code = pm.main(argv)
+        except SystemExit as e:
+            code = e.code
+        return code, buf.getvalue()
+
+    def test_set_estimate_records_factors(self):
+        code, out = self.run_main(
+            ["set-estimate", "--state-root", self.root, "--story", "E001-S01-003",
+             "--man-hours", "6", "--time-hours", "1.5", "--tokens-k", "320",
+             "--cost", "4.80", "--fix-factor", "1.25", "--scope-ratio", "1.1"])
+        self.assertEqual(code, 0, out)
+        _, node = pm.load_node(pm.story_file(self.root, "E001-S01-003"))
+        self.assertAlmostEqual(float(node["estimate"]["fix_factor"]), 1.25)
+        self.assertAlmostEqual(float(node["estimate"]["scope_ratio"]), 1.1)
+
+    def test_factors_are_optional_and_absent_when_not_given(self):
+        code, out = self.run_main(
+            ["set-estimate", "--state-root", self.root, "--story", "E001-S01-003",
+             "--man-hours", "6"])
+        self.assertEqual(code, 0, out)
+        _, node = pm.load_node(pm.story_file(self.root, "E001-S01-003"))
+        self.assertNotIn("fix_factor", node["estimate"])
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)
