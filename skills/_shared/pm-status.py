@@ -744,6 +744,65 @@ def cmd_calibration(args) -> int:
     return 0
 
 
+# Cold-start base bands (low, high) per classification. These were previously a
+# markdown table in steps/shared/step-estimate.md; this is now the single source.
+BASE_BANDS = {
+    "simple":   {"man_hours": (2, 4),  "time_hours": (0.5, 1.5), "tokens_k": (20, 50),  "cost": (0.10, 0.35)},
+    "standard": {"man_hours": (4, 8),  "time_hours": (1, 3),     "tokens_k": (40, 100), "cost": (0.25, 0.70)},
+    "complex":  {"man_hours": (8, 16), "time_hours": (2, 6),     "tokens_k": (80, 200), "cost": (0.55, 1.40)},
+}
+
+
+def cmd_estimate_story(args) -> int:
+    """Compute and write a story's estimate block: band midpoint x scope ratio x fix
+    factor, per metric. Classification is the model's judgment; everything after it
+    is arithmetic, done here so it's error-checked and reproducible.
+
+    Each metric queries its own calibrated scope ratio — man_hours and tokens_k may
+    be calibrated independently once each has >=3 samples, so ratios are looked up
+    per metric, never hoisted out and reused across all four.
+    """
+    path = story_file(args.state_root, args.story)
+    if path is None:
+        _die_notfound(f"story {args.story}")
+    y, node = load_node(path)
+    if node is None:
+        _die_notfound(f"story {args.story} — file is empty")
+
+    cls = args.classification
+    _, cal = load_calibration(args.state_root)
+    fix = active_fix_factor(cal, cls)
+    fix = COLD_START_FIX_FACTOR if fix is None else fix
+
+    from ruamel.yaml.comments import CommentedMap
+    est = node.get("estimate")
+    if est is None:
+        est = CommentedMap()
+        node["estimate"] = est
+
+    applied_ratio = None
+    for metric, (lo, hi) in BASE_BANDS[cls].items():
+        mid = (lo + hi) / 2.0
+        ratio = active_scope_ratio(cal, cls, metric)
+        if ratio is None:
+            ratio = COLD_START_SCOPE_RATIO
+        if applied_ratio is None:
+            applied_ratio = ratio
+        value = mid * ratio * fix
+        est[metric] = int(round(value)) if metric == "tokens_k" else round(value, 2)
+
+    est["fix_factor"] = round(fix, 4)
+    est["scope_ratio"] = round(applied_ratio, 4)
+    if args.confidence:
+        est["confidence"] = args.confidence
+    node["classification"] = cls
+    node["updated_at"] = _now_iso()
+    save_node(y, node, path)
+    sys.stdout.write(f"OK estimate-story {args.story} class={cls} "
+                     f"scope_ratio={est['scope_ratio']} fix_factor={est['fix_factor']}\n")
+    return 0
+
+
 def list_story_files(state_root: str, epic_key: str, sprint_key: str) -> list:
     """Sorted story files in a sprint, excluding sprint.yaml."""
     d = find_epic_dir(state_root, epic_key)
@@ -1550,6 +1609,13 @@ def build_parser() -> argparse.ArgumentParser:
     cal.add_argument("--state-root", required=True)
     cal.add_argument("--format", choices=["text", "json"], default="text")
     cal.set_defaults(func=cmd_calibration)
+
+    es = sub.add_parser("estimate-story", help="compute and write a story estimate")
+    es.add_argument("--state-root", required=True)
+    es.add_argument("--story", required=True)
+    es.add_argument("--classification", required=True, choices=list(CLASSIFICATIONS))
+    es.add_argument("--confidence", choices=["low", "medium", "high"])
+    es.set_defaults(func=cmd_estimate_story)
 
     p.add_argument("--version", action="version", version=f"pm-status.py {PM_STATUS_VERSION}")
     return p

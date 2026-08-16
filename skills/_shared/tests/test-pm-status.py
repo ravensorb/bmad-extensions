@@ -1452,5 +1452,51 @@ class TestSetActualCalibrates(TestLayoutResolution):
         self.assertEqual(code, 2)
 
 
+class TestEstimateStory(TestLayoutResolution):
+    def run_main(self, argv):
+        buf = io.StringIO()
+        try:
+            with redirect_stdout(buf):
+                code = pm.main(argv)
+        except SystemExit as e:
+            code = e.code
+        return code, buf.getvalue()
+
+    def test_cold_start_uses_band_midpoint_times_fix_prior(self):
+        code, out = self.run_main(
+            ["estimate-story", "--state-root", self.root, "--story", "E001-S01-003",
+             "--classification", "complex"])
+        self.assertEqual(code, 0, out)
+        _, node = pm.load_node(pm.story_file(self.root, "E001-S01-003"))
+        est = node["estimate"]
+        mid = (pm.BASE_BANDS["complex"]["man_hours"][0] +
+               pm.BASE_BANDS["complex"]["man_hours"][1]) / 2
+        self.assertAlmostEqual(float(est["man_hours"]),
+                               round(mid * 1.0 * pm.COLD_START_FIX_FACTOR, 2))
+        self.assertAlmostEqual(float(est["fix_factor"]), pm.COLD_START_FIX_FACTOR)
+        self.assertAlmostEqual(float(est["scope_ratio"]), pm.COLD_START_SCOPE_RATIO)
+
+    def test_calibrated_ratio_is_applied_once_active(self):
+        y, cal = pm.load_calibration(self.root)
+        cal["scope"]["complex"] = {"man_hours": {"samples": [1.5, 1.5, 1.5]}}
+        pm.save_calibration(y, cal, self.root)
+        self.run_main(["estimate-story", "--state-root", self.root,
+                       "--story", "E001-S01-003", "--classification", "complex"])
+        _, node = pm.load_node(pm.story_file(self.root, "E001-S01-003"))
+        self.assertAlmostEqual(float(node["estimate"]["scope_ratio"]), 1.5)
+
+    def test_unknown_story_exits_3(self):
+        code, _ = self.run_main(
+            ["estimate-story", "--state-root", self.root, "--story", "E001-S01-999",
+             "--classification", "simple"])
+        self.assertEqual(code, 3)
+
+    def test_classification_is_written_to_the_node(self):
+        self.run_main(["estimate-story", "--state-root", self.root,
+                       "--story", "E001-S01-003", "--classification", "simple"])
+        _, node = pm.load_node(pm.story_file(self.root, "E001-S01-003"))
+        self.assertEqual(node["classification"], "simple")
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)
