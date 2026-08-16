@@ -905,7 +905,7 @@ class TestEpicMoves(TestLayoutResolution):
         self.assertTrue(os.path.isdir(os.path.join(self.root, "archived", "epic-001")))
 
     def test_version_increments_for_self_install(self):
-        self.assertEqual(pm.PM_STATUS_VERSION, "2.0.2")
+        self.assertEqual(pm.PM_STATUS_VERSION, "2.1.0")
 
     def test_move_epic_already_in_place_is_noop(self):
         """E001 already lives under active/ — moving it to 'active' must return the
@@ -1065,6 +1065,493 @@ class TestEpicMovesGitBacked(unittest.TestCase):
         lines = [ln for ln in follow_log.splitlines() if ln.strip()]
         self.assertEqual(len(lines), 2, follow_log)  # "seed" + "archive epic"
         self.assertIn("seed", follow_log)
+
+
+class TestCalibrationIO(unittest.TestCase):
+    def setUp(self):
+        self.d = tempfile.mkdtemp()
+        self.root = os.path.join(self.d, "state")
+        os.makedirs(self.root)
+
+    def tearDown(self):
+        import shutil
+        shutil.rmtree(self.d, ignore_errors=True)
+
+    def test_missing_file_yields_skeleton_not_error(self):
+        _, cal = pm.load_calibration(self.root)
+        self.assertEqual(cal["version"], 2)
+        self.assertEqual(cal["granularity"], "story")
+        self.assertIn("scope", cal)
+        self.assertIn("closure", cal)
+        self.assertIn("fix", cal)
+
+    def test_granularity_persists_in_file_not_a_binding(self):
+        y, cal = pm.load_calibration(self.root)
+        cal["granularity"] = "sprint"
+        pm.save_calibration(y, cal, self.root)
+        _, again = pm.load_calibration(self.root)
+        self.assertEqual(again["granularity"], "sprint")
+
+    def test_weighted_ratio_favours_recent_samples(self):
+        # oldest first; decay 0.8 means later samples dominate
+        older_heavy = pm.weighted_ratio([2.0, 1.0])
+        newer_heavy = pm.weighted_ratio([1.0, 2.0])
+        self.assertLess(older_heavy, newer_heavy)
+
+    def test_weighted_ratio_single_sample_is_that_sample(self):
+        self.assertAlmostEqual(pm.weighted_ratio([1.4]), 1.4)
+
+    def test_component_below_threshold_is_not_active(self):
+        y, cal = pm.load_calibration(self.root)
+        cal["scope"]["complex"] = {"man_hours": {"samples": [1.2, 1.3]}}
+        pm.save_calibration(y, cal, self.root)
+        _, cal2 = pm.load_calibration(self.root)
+        self.assertIsNone(pm.active_scope_ratio(cal2, "complex", "man_hours"))
+
+    def test_component_at_threshold_is_active(self):
+        y, cal = pm.load_calibration(self.root)
+        cal["scope"]["complex"] = {"man_hours": {"samples": [1.2, 1.3, 1.4]}}
+        pm.save_calibration(y, cal, self.root)
+        _, cal2 = pm.load_calibration(self.root)
+        self.assertIsNotNone(pm.active_scope_ratio(cal2, "complex", "man_hours"))
+
+    def test_fix_needs_both_cohorts_at_threshold(self):
+        y, cal = pm.load_calibration(self.root)
+        cal["fix"]["complex"] = {
+            "clean": {"mean_man_hours": 7.0, "samples": 5},
+            "reworked": {"mean_man_hours": 9.0, "samples": 0},
+        }
+        pm.save_calibration(y, cal, self.root)
+        _, cal2 = pm.load_calibration(self.root)
+        self.assertIsNone(pm.active_fix_factor(cal2, "complex"))
+
+    def test_fix_active_when_both_cohorts_reach_threshold(self):
+        y, cal = pm.load_calibration(self.root)
+        cal["fix"]["complex"] = {
+            "clean": {"mean_man_hours": 8.0, "samples": 3},
+            "reworked": {"mean_man_hours": 10.0, "samples": 3},
+        }
+        pm.save_calibration(y, cal, self.root)
+        _, cal2 = pm.load_calibration(self.root)
+        self.assertAlmostEqual(pm.active_fix_factor(cal2, "complex"), 1.25)
+
+    def test_v1_file_migrates_and_preserves_original(self):
+        p = pm.calibration_path(self.root)
+        with open(p, "w") as f:
+            f.write("version: 1\nratio: 1.3\n")
+        y, cal = pm.load_calibration(self.root)
+        cal = pm.migrate_calibration(y, cal, self.root)
+        self.assertEqual(cal["version"], 2)
+        self.assertTrue(os.path.exists(p + ".v1"))
+        # closure and fix start fresh, never seeded from the blended ratio.
+        # Assert emptiness per bucket rather than comparing a CommentedMap to a
+        # plain dict, which is fragile across ruamel versions.
+        for level in ("sprint", "epic"):
+            self.assertEqual(len(cal["closure"][level]), 0)
+        for c in ("simple", "standard", "complex"):
+            self.assertEqual(len(cal["fix"][c]), 0)
+        # the blended v1 ratio landed on scope, and only on scope
+        self.assertGreater(len(cal["scope"]["complex"]), 0)
+
+    def test_show_on_missing_file_exits_0(self):
+        buf = io.StringIO()
+        try:
+            with redirect_stdout(buf):
+                code = pm.main(["calibration", "show", "--state-root", self.root])
+        except SystemExit as e:
+            code = e.code
+        self.assertEqual(code, 0)
+        self.assertIn("cold-start", buf.getvalue().lower())
+
+
+class TestEstimateFactors(TestLayoutResolution):
+    def run_main(self, argv):
+        buf = io.StringIO()
+        try:
+            with redirect_stdout(buf):
+                code = pm.main(argv)
+        except SystemExit as e:
+            code = e.code
+        return code, buf.getvalue()
+
+    def test_set_estimate_records_factors(self):
+        code, out = self.run_main(
+            ["set-estimate", "--state-root", self.root, "--story", "E001-S01-003",
+             "--man-hours", "6", "--time-hours", "1.5", "--tokens-k", "320",
+             "--cost", "4.80", "--fix-factor", "1.25", "--scope-ratio", "1.1"])
+        self.assertEqual(code, 0, out)
+        _, node = pm.load_node(pm.story_file(self.root, "E001-S01-003"))
+        self.assertAlmostEqual(float(node["estimate"]["fix_factor"]), 1.25)
+        self.assertAlmostEqual(float(node["estimate"]["scope_ratio"]), 1.1)
+
+    def test_factors_are_optional_and_absent_when_not_given(self):
+        code, out = self.run_main(
+            ["set-estimate", "--state-root", self.root, "--story", "E001-S01-003",
+             "--man-hours", "6"])
+        self.assertEqual(code, 0, out)
+        _, node = pm.load_node(pm.story_file(self.root, "E001-S01-003"))
+        self.assertNotIn("fix_factor", node["estimate"])
+
+
+class TestStorySampling(unittest.TestCase):
+    def setUp(self):
+        self.d = tempfile.mkdtemp()
+        self.root = os.path.join(self.d, "state")
+        os.makedirs(self.root)
+
+    def tearDown(self):
+        import shutil
+        shutil.rmtree(self.d, ignore_errors=True)
+
+    def _story(self, iterations, est=None, act=None):
+        est = est or {"man_hours": 6, "time_hours": 1.5, "tokens_k": 320,
+                      "cost": 4.80, "fix_factor": 1.25, "scope_ratio": 1.0}
+        act = act or {"man_hours": 7, "elapsed_hours": 1.8, "tokens_k": 355,
+                      "cost": 5.32}
+        node = {"key": "E001-S01-003", "classification": "complex",
+                "estimate": est, "actual": act}
+        if iterations is not None:
+            node["completion_evidence"] = {"fix_iterations": iterations}
+        return node
+
+    def test_pairing_is_not_identity(self):
+        # the map must send time_hours to elapsed_hours, not to itself
+        self.assertEqual(pm.ESTIMATE_TO_ACTUAL["time_hours"], "elapsed_hours")
+        self.assertEqual(pm.ESTIMATE_TO_ACTUAL["man_hours"], "man_hours")
+
+    def test_zero_iterations_gives_exact_provenance(self):
+        s = pm.derive_story_sample(self._story(0))
+        self.assertEqual(s["provenance"], "exact")
+
+    def test_reworked_story_uses_backout_provenance(self):
+        s = pm.derive_story_sample(self._story(3))
+        self.assertEqual(s["provenance"], "backout")
+
+    def test_absent_iterations_uses_backout(self):
+        s = pm.derive_story_sample(self._story(None))
+        self.assertEqual(s["provenance"], "backout")
+
+    def test_legacy_estimate_without_factors_is_marked(self):
+        est = {"man_hours": 6, "time_hours": 1.5, "tokens_k": 320, "cost": 4.80}
+        s = pm.derive_story_sample(self._story(0, est=est))
+        self.assertEqual(s["provenance"], "legacy")
+
+    def test_scope_ratio_uses_wall_clock_pairing_correctly(self):
+        # estimate.time_hours 1.5 vs actual.elapsed_hours 1.8, fix_factor 1.25
+        s = pm.derive_story_sample(self._story(0))
+        self.assertAlmostEqual(s["scope_ratios"]["time_hours"], 1.8 * 1.25 / 1.5)
+
+    def test_na_metrics_are_skipped_not_zeroed(self):
+        act = {"man_hours": 7, "elapsed_hours": 1.8, "tokens_k": "N/A", "cost": "N/A"}
+        s = pm.derive_story_sample(self._story(0, act=act))
+        self.assertNotIn("tokens_k", s["scope_ratios"])
+        self.assertNotIn("cost", s["scope_ratios"])
+        self.assertIn("man_hours", s["scope_ratios"])
+
+    def test_dollar_prefixed_cost_is_still_parsed(self):
+        # cost values can be stored '$'-prefixed (metrics-contract.md §9); the
+        # numeric guard must not drop them before the '$' is stripped.
+        est = {"man_hours": 6, "time_hours": 1.5, "tokens_k": 320,
+               "cost": "$4.80", "fix_factor": 1.25, "scope_ratio": 1.0}
+        act = {"man_hours": 7, "elapsed_hours": 1.8, "tokens_k": 355,
+               "cost": "$5.32"}
+        s = pm.derive_story_sample(self._story(0, est=est, act=act))
+        self.assertIn("cost", s["scope_ratios"])
+        self.assertAlmostEqual(s["scope_ratios"]["cost"], 5.32 * 1.25 / 4.80)
+
+    def test_no_estimate_yields_no_sample(self):
+        node = {"key": "E001-S01-003", "classification": "complex",
+                "actual": {"man_hours": 7}}
+        self.assertIsNone(pm.derive_story_sample(node))
+
+    def test_record_appends_to_scope_and_fix_cohort(self):
+        pm.record_story_sample(self.root, self._story(0))
+        _, cal = pm.load_calibration(self.root)
+        self.assertEqual(len(pm._component_samples(cal, "scope", "complex", "man_hours")), 1)
+        self.assertEqual(int(cal["fix"]["complex"]["clean"]["samples"]), 1)
+
+    def test_reworked_story_joins_reworked_cohort(self):
+        pm.record_story_sample(self.root, self._story(2))
+        _, cal = pm.load_calibration(self.root)
+        self.assertEqual(int(cal["fix"]["complex"]["reworked"]["samples"]), 1)
+        self.assertEqual(int(cal["fix"]["complex"].get("clean", {}).get("samples", 0)), 0)
+
+    def test_v1_file_is_migrated_not_corrupted_on_record(self):
+        p = pm.calibration_path(self.root)
+        with open(p, "w") as f:
+            f.write("version: 1\nratio: 1.3\n")
+        pm.record_story_sample(self.root, self._story(0))
+        _, cal = pm.load_calibration(self.root)
+        self.assertEqual(cal["version"], pm.CALIBRATION_SCHEMA_VERSION)
+        self.assertTrue(os.path.exists(p + ".v1"))
+        # migration seeds scope["complex"]["man_hours"] with the old blended
+        # ratio as one sample; record_story_sample appends a second on top —
+        # proof the migrated structure, not a corrupted v1 shape, took the write.
+        self.assertEqual(len(pm._component_samples(cal, "scope", "complex", "man_hours")), 2)
+        self.assertEqual(int(cal["fix"]["complex"]["clean"]["samples"]), 1)
+
+
+class TestClosureSampling(TestLayoutResolution):
+    def _write(self, path, mapping):
+        y = pm._yaml()
+        with open(path, "w") as f:
+            y.dump(mapping, f)
+
+    def _sprint_with_stories(self, story_actuals, sprint_actual, sprint_estimate=None):
+        sd = os.path.join(self.root, "active", "epic-001", "sprint-01")
+        for f in os.listdir(sd):
+            if f.endswith(".yaml") and f != "sprint.yaml":
+                os.remove(os.path.join(sd, f))
+        for i, a in enumerate(story_actuals, start=1):
+            m = {"key": f"E001-S01-{i:03d}", "epic": "E001", "sprint": "S01",
+                 "status": "done"}
+            if a is not None:
+                m["actual"] = {"man_hours": a}
+            self._write(os.path.join(sd, f"E001-S01-{i:03d}.yaml"), m)
+        sm = {"key": "S01", "epic": "E001", "status": "done"}
+        if sprint_actual is not None:
+            sm["actual"] = {"man_hours": sprint_actual}
+        if sprint_estimate is not None:
+            sm["estimate"] = sprint_estimate
+        self._write(os.path.join(sd, "sprint.yaml"), sm)
+
+    def test_residual_is_parent_minus_children(self):
+        self._sprint_with_stories([3.0, 4.0], 9.0,
+                                  {"man_hours_low": 1.0, "man_hours_high": 3.0})
+        s, reason = pm.derive_closure_sample(self.root, "sprint", "E001", "S01")
+        self.assertIsNotNone(s, reason)
+        self.assertAlmostEqual(s["closure_actual"]["man_hours"], 2.0)
+
+    def test_missing_child_actual_skips_with_reason(self):
+        self._sprint_with_stories([3.0, None], 9.0,
+                                  {"man_hours_low": 1.0, "man_hours_high": 3.0})
+        s, reason = pm.derive_closure_sample(self.root, "sprint", "E001", "S01")
+        self.assertIsNone(s)
+        self.assertIn("actual", reason.lower())
+
+    def test_negative_residual_skips_with_reason(self):
+        self._sprint_with_stories([5.0, 5.0], 8.0,
+                                  {"man_hours_low": 1.0, "man_hours_high": 3.0})
+        s, reason = pm.derive_closure_sample(self.root, "sprint", "E001", "S01")
+        self.assertIsNone(s)
+        self.assertIn("negative", reason.lower())
+
+    def test_no_parent_actual_skips(self):
+        self._sprint_with_stories([3.0, 4.0], None,
+                                  {"man_hours_low": 1.0, "man_hours_high": 3.0})
+        s, reason = pm.derive_closure_sample(self.root, "sprint", "E001", "S01")
+        self.assertIsNone(s)
+
+    def test_record_appends_closure_sample(self):
+        self._sprint_with_stories([3.0, 4.0], 9.0,
+                                  {"man_hours_low": 1.0, "man_hours_high": 3.0})
+        pm.record_closure_sample(self.root, "sprint", "E001", "S01")
+        _, cal = pm.load_calibration(self.root)
+        self.assertEqual(len(pm._component_samples(cal, "closure", "sprint", "man_hours")), 1)
+
+    def test_dollar_prefixed_cost_contributes_to_closure_sample(self):
+        # RULING A: cost is stored '$'-prefixed (metrics-contract.md §9); the
+        # numeric guard must not drop it before the '$' is stripped, or cost
+        # closure samples never accumulate under real data.
+        sd = os.path.join(self.root, "active", "epic-001", "sprint-01")
+        for f in os.listdir(sd):
+            if f.endswith(".yaml") and f != "sprint.yaml":
+                os.remove(os.path.join(sd, f))
+        self._write(os.path.join(sd, "E001-S01-001.yaml"),
+                    {"key": "E001-S01-001", "epic": "E001", "sprint": "S01",
+                     "status": "done", "actual": {"cost": "$3.00"}})
+        self._write(os.path.join(sd, "E001-S01-002.yaml"),
+                    {"key": "E001-S01-002", "epic": "E001", "sprint": "S01",
+                     "status": "done", "actual": {"cost": "$4.00"}})
+        self._write(os.path.join(sd, "sprint.yaml"),
+                    {"key": "S01", "epic": "E001", "status": "done",
+                     "actual": {"cost": "$9.00"},
+                     "estimate": {"cost_low": 1.0, "cost_high": 3.0}})
+        s, reason = pm.derive_closure_sample(self.root, "sprint", "E001", "S01")
+        self.assertIsNotNone(s, reason)
+        self.assertAlmostEqual(s["closure_actual"]["cost"], 2.0)
+
+    def test_v1_file_is_migrated_not_corrupted_on_closure_record(self):
+        # RULING B: record_closure_sample is a write path — a stale v1
+        # calibration file must be migrated before a sample is appended, or
+        # the sample lands in a "closure" structure v1 doesn't have.
+        self._sprint_with_stories([3.0, 4.0], 9.0,
+                                  {"man_hours_low": 1.0, "man_hours_high": 3.0})
+        p = pm.calibration_path(self.root)
+        with open(p, "w") as f:
+            f.write("version: 1\nratio: 1.3\n")
+        pm.record_closure_sample(self.root, "sprint", "E001", "S01")
+        _, cal = pm.load_calibration(self.root)
+        self.assertEqual(cal["version"], pm.CALIBRATION_SCHEMA_VERSION)
+        self.assertTrue(os.path.exists(p + ".v1"))
+        self.assertEqual(len(pm._component_samples(cal, "closure", "sprint", "man_hours")), 1)
+
+
+class TestSetActualCalibrates(TestLayoutResolution):
+    def run_main(self, argv):
+        buf = io.StringIO()
+        try:
+            with redirect_stdout(buf):
+                code = pm.main(argv)
+        except SystemExit as e:
+            code = e.code
+        return code, buf.getvalue()
+
+    def _estimated_story(self):
+        p = pm.story_file(self.root, "E001-S01-003")
+        with open(p, "w") as f:
+            f.write("key: 'E001-S01-003'\nepic: 'E001'\nsprint: 'S01'\n"
+                    "status: review\nclassification: complex\n"
+                    "completion_evidence:\n  fix_iterations: 0\n"
+                    "estimate:\n  man_hours: 6\n  time_hours: 1.5\n"
+                    "  tokens_k: 320\n  cost: 4.80\n  fix_factor: 1.25\n"
+                    "  scope_ratio: 1.0\n")
+
+    def test_actual_write_emits_a_sample(self):
+        self._estimated_story()
+        code, out = self.run_main(
+            ["set-actual", "--state-root", self.root, "--node", "story",
+             "--story", "E001-S01-003", "--elapsed-hours", "1.8",
+             "--man-hours", "7", "--tokens-k", "355", "--cost", "5.32"])
+        self.assertEqual(code, 0, out)
+        _, cal = pm.load_calibration(self.root)
+        self.assertEqual(len(pm._component_samples(cal, "scope", "complex", "man_hours")), 1)
+
+    def test_no_calibrate_suppresses_the_sample(self):
+        self._estimated_story()
+        code, out = self.run_main(
+            ["set-actual", "--state-root", self.root, "--node", "story",
+             "--story", "E001-S01-003", "--man-hours", "7", "--no-calibrate"])
+        self.assertEqual(code, 0, out)
+        self.assertFalse(os.path.exists(pm.calibration_path(self.root)))
+
+    def test_story_without_estimate_writes_actual_and_no_sample(self):
+        code, out = self.run_main(
+            ["set-actual", "--state-root", self.root, "--node", "story",
+             "--story", "E001-S01-003", "--man-hours", "7"])
+        self.assertEqual(code, 0, out)
+        _, node = pm.load_node(pm.story_file(self.root, "E001-S01-003"))
+        self.assertEqual(node["actual"]["man_hours"], 7)
+
+    def test_calibration_failure_does_not_fail_the_actual_write(self):
+        self._estimated_story()
+        # make the calibration path unwritable by putting a directory there
+        os.makedirs(pm.calibration_path(self.root))
+        code, out = self.run_main(
+            ["set-actual", "--state-root", self.root, "--node", "story",
+             "--story", "E001-S01-003", "--man-hours", "7"])
+        self.assertEqual(code, 0, out)          # actuals are primary
+        _, node = pm.load_node(pm.story_file(self.root, "E001-S01-003"))
+        self.assertEqual(node["actual"]["man_hours"], 7)
+
+    def test_claude_runtime_still_rejects_na(self):
+        self._estimated_story()
+        code, _ = self.run_main(
+            ["set-actual", "--state-root", self.root, "--node", "story",
+             "--story", "E001-S01-003", "--tokens-k", "N/A", "--runtime", "claude"])
+        self.assertEqual(code, 2)
+
+
+class TestEstimateStory(TestLayoutResolution):
+    def run_main(self, argv):
+        buf = io.StringIO()
+        try:
+            with redirect_stdout(buf):
+                code = pm.main(argv)
+        except SystemExit as e:
+            code = e.code
+        return code, buf.getvalue()
+
+    def test_cold_start_uses_band_midpoint_times_fix_prior(self):
+        code, out = self.run_main(
+            ["estimate-story", "--state-root", self.root, "--story", "E001-S01-003",
+             "--classification", "complex"])
+        self.assertEqual(code, 0, out)
+        _, node = pm.load_node(pm.story_file(self.root, "E001-S01-003"))
+        est = node["estimate"]
+        mid = (pm.BASE_BANDS["complex"]["man_hours"][0] +
+               pm.BASE_BANDS["complex"]["man_hours"][1]) / 2
+        self.assertAlmostEqual(float(est["man_hours"]),
+                               round(mid * 1.0 * pm.COLD_START_FIX_FACTOR, 2))
+        self.assertAlmostEqual(float(est["fix_factor"]), pm.COLD_START_FIX_FACTOR)
+        self.assertAlmostEqual(float(est["scope_ratio"]), pm.COLD_START_SCOPE_RATIO)
+
+    def test_calibrated_ratio_is_applied_once_active(self):
+        y, cal = pm.load_calibration(self.root)
+        cal["scope"]["complex"] = {"man_hours": {"samples": [1.5, 1.5, 1.5]}}
+        pm.save_calibration(y, cal, self.root)
+        self.run_main(["estimate-story", "--state-root", self.root,
+                       "--story", "E001-S01-003", "--classification", "complex"])
+        _, node = pm.load_node(pm.story_file(self.root, "E001-S01-003"))
+        self.assertAlmostEqual(float(node["estimate"]["scope_ratio"]), 1.5)
+
+    def test_unknown_story_exits_3(self):
+        code, _ = self.run_main(
+            ["estimate-story", "--state-root", self.root, "--story", "E001-S01-999",
+             "--classification", "simple"])
+        self.assertEqual(code, 3)
+
+    def test_classification_is_written_to_the_node(self):
+        self.run_main(["estimate-story", "--state-root", self.root,
+                       "--story", "E001-S01-003", "--classification", "simple"])
+        _, node = pm.load_node(pm.story_file(self.root, "E001-S01-003"))
+        self.assertEqual(node["classification"], "simple")
+
+
+class TestEstimateRollup(TestLayoutResolution):
+    def run_main(self, argv):
+        buf = io.StringIO()
+        try:
+            with redirect_stdout(buf):
+                code = pm.main(argv)
+        except SystemExit as e:
+            code = e.code
+        return code, buf.getvalue()
+
+    def _story_estimates(self, values):
+        sd = os.path.join(self.root, "active", "epic-001", "sprint-01")
+        for f in os.listdir(sd):
+            if f.endswith(".yaml") and f != "sprint.yaml":
+                os.remove(os.path.join(sd, f))
+        for i, v in enumerate(values, start=1):
+            with open(os.path.join(sd, f"E001-S01-{i:03d}.yaml"), "w") as f:
+                f.write(f"key: 'E001-S01-{i:03d}'\nepic: 'E001'\nsprint: 'S01'\n"
+                        f"estimate:\n  man_hours: {v}\n  time_hours: 1\n"
+                        f"  tokens_k: 10\n  cost: 0.5\n")
+
+    def test_sprint_rollup_sums_children_plus_closure(self):
+        self._story_estimates([4, 6])
+        code, out = self.run_main(
+            ["estimate-rollup", "--state-root", self.root, "--epic", "E001",
+             "--sprint", "S01"])
+        self.assertEqual(code, 0, out)
+        _, node = pm.load_node(pm.sprint_file(self.root, "E001", "S01"))
+        est = node["estimate"]
+        self.assertGreaterEqual(float(est["man_hours_high"]), 10.0)
+        self.assertLessEqual(float(est["man_hours_low"]), float(est["man_hours_high"]))
+
+    def test_rollup_writes_range_form_not_single_values(self):
+        self._story_estimates([4, 6])
+        self.run_main(["estimate-rollup", "--state-root", self.root,
+                       "--epic", "E001", "--sprint", "S01"])
+        _, node = pm.load_node(pm.sprint_file(self.root, "E001", "S01"))
+        self.assertIn("man_hours_low", node["estimate"])
+        self.assertNotIn("man_hours", node["estimate"])
+
+    def test_unknown_epic_exits_3(self):
+        code, _ = self.run_main(
+            ["estimate-rollup", "--state-root", self.root, "--epic", "E999"])
+        self.assertEqual(code, 3)
+
+    def test_epic_rollup_sums_sprints(self):
+        self._story_estimates([4, 6])
+        self.run_main(["estimate-rollup", "--state-root", self.root,
+                       "--epic", "E001", "--sprint", "S01"])
+        code, out = self.run_main(
+            ["estimate-rollup", "--state-root", self.root, "--epic", "E001"])
+        self.assertEqual(code, 0, out)
+        _, node = pm.load_node(pm.epic_file(self.root, "E001"))
+        self.assertIn("man_hours_low", node["estimate"])
 
 
 if __name__ == "__main__":

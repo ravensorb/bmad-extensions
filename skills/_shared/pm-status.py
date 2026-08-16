@@ -3,7 +3,7 @@
 # requires-python = ">=3.11"
 # dependencies = ["ruamel.yaml>=0.18"]
 # ///
-# pm-status-version: 2.0.2   (machine-readable marker; `self-install` compares this across copies — keep at top)
+# pm-status-version: 2.1.0   (machine-readable marker; `self-install` compares this across copies — keep at top)
 """
 pm-status.py — deterministic, atomic, round-trip-safe writer for the l3io-pm
 split status files and the per-sprint progress ledger.
@@ -83,7 +83,7 @@ except ModuleNotFoundError:  # pragma: no cover - environment guard
     )
     sys.exit(2)
 
-PM_STATUS_VERSION = "2.0.2"  # keep in sync with the top-of-file `# pm-status-version:` marker
+PM_STATUS_VERSION = "2.1.0"  # keep in sync with the top-of-file `# pm-status-version:` marker
 
 VALID_STORY_STATUS = {"backlog", "ready-for-dev", "in-progress", "review", "done"}
 VALID_SPRINT_STATUS = {"backlog", "in-progress", "done"}
@@ -800,6 +800,91 @@ def cmd_estimate_story(args) -> int:
     save_node(y, node, path)
     sys.stdout.write(f"OK estimate-story {args.story} class={cls} "
                      f"scope_ratio={est['scope_ratio']} fix_factor={est['fix_factor']}\n")
+    return 0
+
+
+# Closure overhead as a fraction of children, used when no calibrated ratio is
+# active yet. Deliberately a band, not a point: closure cost is variable.
+COLD_START_CLOSURE_BAND = (0.10, 0.25)
+
+
+def _child_estimate_value(node, metric):
+    """A child's value for `metric`: single-value form first (a story), else
+    the midpoint of its range form (a sprint). None if neither is present.
+
+    Reuses CLOSURE_RANGE_KEYS (metric -> parent low/high key names) rather
+    than a second near-duplicate mapping — see the comment on
+    ESTIMATE_TO_ACTUAL above it for why these metric maps are kept explicit
+    and why a change to one should prompt checking the others.
+    """
+    est = (node or {}).get("estimate") or {}
+    v = _num_or_none(est.get(metric))
+    if v is not None:
+        return v
+    lo, hi = CLOSURE_RANGE_KEYS[metric]
+    return _mid(est, lo, hi)
+
+
+def cmd_estimate_rollup(args) -> int:
+    """Roll a sprint's story estimates, or an epic's sprint estimates, up to
+    the parent as a range: sum(children) + a closure band. The band scales by
+    the calibrated closure ratio for level/metric once active (>=3 samples),
+    else the cold-start band applies. Output is always range form, even when
+    every child estimate is single-value (the story form).
+    """
+    level = "sprint" if args.sprint else "epic"
+    if level == "sprint":
+        ppath = sprint_file(args.state_root, args.epic, args.sprint)
+        child_paths = list_story_files(args.state_root, args.epic, args.sprint)
+    else:
+        ppath = epic_file(args.state_root, args.epic)
+        child_paths = [sprint_file(args.state_root, args.epic, _sprint_key_from_dir(d))
+                       for d in list_sprint_dirs(args.state_root, args.epic)]
+    if ppath is None:
+        _die_notfound(f"{level} {args.sprint or args.epic}")
+    y, pnode = load_node(ppath)
+    if pnode is None:
+        _die_notfound(f"{level} file is empty")
+
+    _, cal = load_calibration(args.state_root)
+    from ruamel.yaml.comments import CommentedMap
+    est = CommentedMap()
+    counted = 0
+    for metric, (lo_key, hi_key) in CLOSURE_RANGE_KEYS.items():
+        total = 0.0
+        seen = 0
+        for cp in child_paths:
+            if cp is None:
+                continue
+            _, cn = load_node(cp)
+            v = _child_estimate_value(cn, metric)
+            if v is not None:
+                total += v
+                seen += 1
+        if seen == 0:
+            continue
+        counted = max(counted, seen)
+        ratio = active_closure_ratio(cal, level, metric)
+        if ratio is None:
+            lo = total * (1 + COLD_START_CLOSURE_BAND[0])
+            hi = total * (1 + COLD_START_CLOSURE_BAND[1])
+        else:
+            lo = total * (1 + ratio * COLD_START_CLOSURE_BAND[0])
+            hi = total * (1 + ratio * COLD_START_CLOSURE_BAND[1])
+        if metric == "tokens_k":
+            est[lo_key], est[hi_key] = int(round(lo)), int(round(hi))
+        else:
+            est[lo_key], est[hi_key] = round(lo, 2), round(hi, 2)
+
+    if counted == 0:
+        _die_usage(f"{level} {args.sprint or args.epic} has no child estimates to roll up")
+
+    est["confidence"] = "medium"
+    pnode["estimate"] = est
+    pnode["updated_at"] = _now_iso()
+    save_node(y, pnode, ppath)
+    sys.stdout.write(f"OK estimate-rollup {level} {args.sprint or args.epic} "
+                     f"from {counted} children\n")
     return 0
 
 
@@ -1616,6 +1701,12 @@ def build_parser() -> argparse.ArgumentParser:
     es.add_argument("--classification", required=True, choices=list(CLASSIFICATIONS))
     es.add_argument("--confidence", choices=["low", "medium", "high"])
     es.set_defaults(func=cmd_estimate_story)
+
+    er = sub.add_parser("estimate-rollup", help="roll child estimates up to a sprint or epic")
+    er.add_argument("--state-root", required=True)
+    er.add_argument("--epic", required=True)
+    er.add_argument("--sprint", default="")
+    er.set_defaults(func=cmd_estimate_rollup)
 
     p.add_argument("--version", action="version", version=f"pm-status.py {PM_STATUS_VERSION}")
     return p

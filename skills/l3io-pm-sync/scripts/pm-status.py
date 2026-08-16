@@ -3,7 +3,7 @@
 # requires-python = ">=3.11"
 # dependencies = ["ruamel.yaml>=0.18"]
 # ///
-# pm-status-version: 2.0.2   (machine-readable marker; `self-install` compares this across copies — keep at top)
+# pm-status-version: 2.1.0   (machine-readable marker; `self-install` compares this across copies — keep at top)
 """
 pm-status.py — deterministic, atomic, round-trip-safe writer for the l3io-pm
 split status files and the per-sprint progress ledger.
@@ -57,6 +57,9 @@ Subcommands
                 with an empty result, not an error)
   move-epic     --state-root S  --epic ID  --to {planned,active,archived}
   archive-epic  --state-root S  --epic ID   (alias for move-epic --to archived)
+  calibration   show  --state-root S  [--format {text,json}]
+                (inspects pm-calibration.yaml; a missing file is a normal
+                cold-start state, not an error)
   self-install  --dest PATH  [--force]
 
 Exit codes: 0 = success/verified, 2 = usage error, 3 = node not found,
@@ -80,7 +83,7 @@ except ModuleNotFoundError:  # pragma: no cover - environment guard
     )
     sys.exit(2)
 
-PM_STATUS_VERSION = "2.0.2"  # keep in sync with the top-of-file `# pm-status-version:` marker
+PM_STATUS_VERSION = "2.1.0"  # keep in sync with the top-of-file `# pm-status-version:` marker
 
 VALID_STORY_STATUS = {"backlog", "ready-for-dev", "in-progress", "review", "done"}
 VALID_SPRINT_STATUS = {"backlog", "in-progress", "done"}
@@ -347,6 +350,544 @@ def _sprint_key_from_dir(sprint_dir_path: str) -> str:
     return "S" + os.path.basename(sprint_dir_path).split("-")[1]
 
 
+# --------------------------------------------------------------------------- #
+# Calibration — the learning loop. See references/metrics-contract.md §8.
+# The file is a SHARED append target: every set-actual across parallel
+# subagents may write it, so every write takes flock. Unlike node files,
+# which are sharded per story precisely to avoid this.
+# --------------------------------------------------------------------------- #
+CALIBRATION_SCHEMA_VERSION = 2
+MIN_SAMPLES = 3          # a component below this is recorded but not applied
+DECAY = 0.8              # exponential decay, applied oldest-first
+COLD_START_SCOPE_RATIO = 1.0
+COLD_START_FIX_FACTOR = 1.25
+CLASSIFICATIONS = ("simple", "standard", "complex")
+CLOSURE_LEVELS = ("sprint", "epic")
+
+
+def calibration_path(state_root: str) -> str:
+    return os.path.join(state_root, "pm-calibration.yaml")
+
+
+def new_calibration(granularity: str = "story"):
+    from ruamel.yaml.comments import CommentedMap
+    cal = CommentedMap()
+    cal["version"] = CALIBRATION_SCHEMA_VERSION
+    cal["granularity"] = granularity
+    cal["scope"] = CommentedMap((c, CommentedMap()) for c in CLASSIFICATIONS)
+    cal["closure"] = CommentedMap((lv, CommentedMap()) for lv in CLOSURE_LEVELS)
+    cal["fix"] = CommentedMap((c, CommentedMap()) for c in CLASSIFICATIONS)
+    return cal
+
+
+def load_calibration(state_root: str):
+    """Load the calibration file, or a fresh skeleton if absent. Never raises."""
+    p = calibration_path(state_root)
+    y, data = _load(p)
+    if data is None:
+        return _yaml(), new_calibration()
+    for key, default in (("scope", CLASSIFICATIONS), ("fix", CLASSIFICATIONS),
+                         ("closure", CLOSURE_LEVELS)):
+        if key not in data or data[key] is None:
+            from ruamel.yaml.comments import CommentedMap
+            data[key] = CommentedMap((k, CommentedMap()) for k in default)
+    if "granularity" not in data:
+        data["granularity"] = "story"
+    return y, data
+
+
+def save_calibration(y, cal, state_root: str) -> None:
+    """Always flock — this file is written from every set-actual."""
+    _flock_write_or_plain(True, y, cal, calibration_path(state_root))
+
+
+def migrate_calibration(y, cal, state_root: str):
+    """version 1 -> 2. Original preserved as .v1 and never read again."""
+    if cal.get("version") == CALIBRATION_SCHEMA_VERSION:
+        return cal
+    p = calibration_path(state_root)
+    backup = p + ".v1"
+    if os.path.exists(p) and not os.path.exists(backup):
+        import shutil
+        shutil.copy2(p, backup)
+    blended = cal.get("ratio")
+    fresh = new_calibration(cal.get("granularity", "story"))
+    # The old blended figure maps onto scope only. closure and fix start at
+    # zero samples: the v1 file cannot separate them, and seeding from a
+    # blended number would import exactly the bias the split removes.
+    if isinstance(blended, (int, float)):
+        from ruamel.yaml.comments import CommentedMap
+        for c in CLASSIFICATIONS:
+            entry = CommentedMap()
+            entry["samples"] = [float(blended)]
+            fresh["scope"][c] = CommentedMap((("man_hours", entry),))
+    save_calibration(y, fresh, state_root)
+    return fresh
+
+
+def weighted_ratio(samples: list) -> float:
+    """Exponential-decay weighted mean, oldest first (most recent weighs most)."""
+    vals = [float(s) for s in samples if _is_number(s)]
+    if not vals:
+        return None
+    n = len(vals)
+    num = den = 0.0
+    for i, v in enumerate(vals):
+        w = DECAY ** (n - 1 - i)
+        num += v * w
+        den += w
+    return num / den if den else None
+
+
+def _component_samples(cal, component: str, bucket: str, metric: str) -> list:
+    node = ((cal.get(component) or {}).get(bucket) or {}).get(metric) or {}
+    return list(node.get("samples") or [])
+
+
+def active_scope_ratio(cal, classification: str, metric: str):
+    s = _component_samples(cal, "scope", classification, metric)
+    return weighted_ratio(s) if len(s) >= MIN_SAMPLES else None
+
+
+def active_closure_ratio(cal, level: str, metric: str):
+    s = _component_samples(cal, "closure", level, metric)
+    return weighted_ratio(s) if len(s) >= MIN_SAMPLES else None
+
+
+def active_fix_factor(cal, classification: str):
+    """Needs BOTH cohorts at threshold — one cohort alone cannot form a ratio."""
+    entry = (cal.get("fix") or {}).get(classification) or {}
+    clean, rework = entry.get("clean") or {}, entry.get("reworked") or {}
+    if int(clean.get("samples", 0)) < MIN_SAMPLES or int(rework.get("samples", 0)) < MIN_SAMPLES:
+        return None
+    cm, rm = clean.get("mean_man_hours"), rework.get("mean_man_hours")
+    if not _is_number(cm) or not _is_number(rm) or float(cm) == 0:
+        return None
+    return float(rm) / float(cm)
+
+
+# The four metrics do NOT pair by name: an estimate's time_hours is an
+# actual's elapsed_hours. Zipping keys naively produces a silently wrong
+# wall-clock ratio, so the pairing is explicit. Sibling map: CLOSURE_ACTUAL_KEYS
+# (range-form parent estimates) encodes the same time_hours -> elapsed_hours
+# pairing for a different schema — kept separate deliberately, but if one
+# changes, check the other.
+ESTIMATE_TO_ACTUAL = {
+    "man_hours": "man_hours",
+    "time_hours": "elapsed_hours",
+    "tokens_k": "tokens_k",
+    "cost": "cost",
+}
+
+
+def _num_or_none(v):
+    """Parse a metric value, tolerating a leading '$' on cost. None if not numeric.
+
+    Normalizing before the numeric guard (rather than after) matters: a
+    check-then-lstrip order lets a '$'-prefixed cost fail _is_number and get
+    skipped before the lstrip ever runs, silently starving the cost
+    component of samples. This is the single normalization both the guard
+    and the parse share, so they can't disagree.
+    """
+    if v is None or _is_na(v):
+        return None
+    s = str(v).strip().lstrip("$")
+    try:
+        return float(s)
+    except (TypeError, ValueError):
+        return None
+
+
+def derive_story_sample(node):
+    """Compute a story's scope samples and its fix cohort. None when not derivable."""
+    if not node:
+        return None
+    est, act = node.get("estimate") or {}, node.get("actual") or {}
+    if not est or not act:
+        return None
+
+    iters = ((node.get("completion_evidence") or {}).get("fix_iterations"))
+    has_factors = _is_number(est.get("fix_factor"))
+    fix_factor = float(est["fix_factor"]) if has_factors else 1.0
+
+    if not has_factors:
+        provenance = "legacy"
+    elif _is_number(iters) and int(iters) == 0:
+        provenance = "exact"
+    else:
+        provenance = "backout"
+
+    ratios = {}
+    for e_key, a_key in ESTIMATE_TO_ACTUAL.items():
+        e_num, a_num = _num_or_none(est.get(e_key)), _num_or_none(act.get(a_key))
+        if e_num is None or a_num is None:
+            continue          # missing, N/A, or non-numeric — never coerced to zero
+        if e_num == 0:
+            continue
+        # Both paths multiply by the applied fix factor: a pure-scope actual is
+        # still compared against an estimate that had fix baked in.
+        ratios[e_key] = a_num * fix_factor / e_num
+
+    if not ratios:
+        return None
+    return {
+        "classification": str(node.get("classification", "standard")),
+        "provenance": provenance,
+        "fix_iterations": int(iters) if _is_number(iters) else None,
+        "scope_ratios": ratios,
+        "actual_man_hours": float(act["man_hours"]) if _is_number(act.get("man_hours")) else None,
+    }
+
+
+def _bump_cohort(entry, cohort: str, man_hours):
+    """Running mean over a cohort, so a full sample history is not needed."""
+    from ruamel.yaml.comments import CommentedMap
+    c = entry.get(cohort)
+    if c is None:
+        c = CommentedMap()
+        c["mean_man_hours"] = 0.0
+        c["samples"] = 0
+        entry[cohort] = c
+    if man_hours is None:
+        return
+    n = int(c.get("samples", 0))
+    mean = float(c.get("mean_man_hours", 0.0))
+    c["mean_man_hours"] = round((mean * n + man_hours) / (n + 1), 4)
+    c["samples"] = n + 1
+
+
+def record_story_sample(state_root: str, node) -> str:
+    """Derive a story's calibration sample and append it to the shared file.
+
+    A write path, unlike load_calibration: migrates a stale schema version
+    before appending, so a v1 file is never mistaken for v2 and corrupted by
+    samples landing in a structure that doesn't exist there yet.
+    """
+    sample = derive_story_sample(node)
+    if sample is None:
+        return "no sample (missing estimate or actual)"
+    from ruamel.yaml.comments import CommentedMap
+    y, cal = load_calibration(state_root)
+    if cal.get("version") != CALIBRATION_SCHEMA_VERSION:
+        cal = migrate_calibration(y, cal, state_root)
+    cls = sample["classification"]
+
+    bucket = cal["scope"].setdefault(cls, CommentedMap())
+    for metric, ratio in sample["scope_ratios"].items():
+        entry = bucket.setdefault(metric, CommentedMap())
+        entry.setdefault("samples", [])
+        entry["samples"].append(round(ratio, 4))
+
+    fix_entry = cal["fix"].setdefault(cls, CommentedMap())
+    iters = sample["fix_iterations"]
+    if iters is not None:
+        _bump_cohort(fix_entry, "clean" if iters == 0 else "reworked",
+                     sample["actual_man_hours"])
+
+    save_calibration(y, cal, state_root)
+    return (f"scope+{len(sample['scope_ratios'])} metrics, "
+            f"provenance={sample['provenance']}, class={cls}")
+
+
+def _mid(est, low_key: str, high_key: str):
+    """Midpoint of a range-form estimate. None if either bound is missing/non-numeric."""
+    lo, hi = _num_or_none(est.get(low_key)), _num_or_none(est.get(high_key))
+    if lo is None or hi is None:
+        return None
+    return (lo + hi) / 2.0
+
+
+CLOSURE_RANGE_KEYS = {
+    "man_hours": ("man_hours_low", "man_hours_high"),
+    "time_hours": ("time_hours_low", "time_hours_high"),
+    "tokens_k": ("tokens_k_min", "tokens_k_max"),
+    "cost": ("cost_low", "cost_high"),
+}
+# Sibling of ESTIMATE_TO_ACTUAL above: same time_hours -> elapsed_hours pairing,
+# but for range-form parent (sprint/epic) estimates rather than single-value
+# story estimates. Kept separate deliberately — different schema — but if one
+# changes, check the other.
+CLOSURE_ACTUAL_KEYS = {
+    "man_hours": "man_hours",
+    "time_hours": "elapsed_hours",
+    "tokens_k": "tokens_k",
+    "cost": "cost",
+}
+
+
+def derive_closure_sample(state_root: str, level: str, epic_key: str, sprint_key=None):
+    """Closure overhead = parent actual - sum(children actuals). Returns (sample, reason).
+
+    Three guards keep a wrong number from ever being recorded: any child
+    missing an actual skips the metric (a partial sum understates overhead
+    and biases the ratio low, permanently); a negative residual aborts the
+    whole call (a parent actual below its children's sum is miscounted, not
+    merely incomplete); N/A tokens/cost skip just that metric — man-hours and
+    wall-clock still record under non-Claude runtimes where those two are
+    legitimately absent.
+    """
+    if level == "sprint":
+        ppath = sprint_file(state_root, epic_key, sprint_key)
+        child_paths = list_story_files(state_root, epic_key, sprint_key)
+    else:
+        ppath = epic_file(state_root, epic_key)
+        child_paths = [sprint_file(state_root, epic_key, _sprint_key_from_dir(d))
+                       for d in list_sprint_dirs(state_root, epic_key)]
+    if ppath is None:
+        return None, f"{level} node not found"
+    _, pnode = load_node(ppath)
+    pact = (pnode or {}).get("actual") or {}
+    pest = (pnode or {}).get("estimate") or {}
+    if not pact:
+        return None, f"{level} has no actual yet"
+
+    closure = {}
+    for metric, akey in CLOSURE_ACTUAL_KEYS.items():
+        total = 0.0
+        complete = True
+        for cp in child_paths:
+            if cp is None:
+                complete = False
+                break
+            _, cn = load_node(cp)
+            cv = _num_or_none(((cn or {}).get("actual") or {}).get(akey))
+            if cv is None:
+                complete = False   # missing, N/A, or non-numeric child actual
+                break
+            total += cv
+        if not complete:
+            continue          # partial sums understate overhead and bias the ratio low
+        pv = _num_or_none(pact.get(akey))
+        if pv is None:
+            continue          # parent actual missing/N/A for this metric
+        residual = pv - total
+        if residual < 0:
+            return None, (f"negative closure residual for {metric}: parent "
+                          f"{pv} is below children sum {total} — miscounted")
+        closure[metric] = residual
+
+    if not closure:
+        return None, "no metric had complete child actuals"
+
+    ratios = {}
+    for metric, actual_overhead in closure.items():
+        lo, hi = CLOSURE_RANGE_KEYS[metric]
+        expected = _mid(pest, lo, hi)
+        if expected and expected > 0:
+            ratios[metric] = actual_overhead / expected
+    return {"level": level, "closure_actual": closure, "ratios": ratios}, "ok"
+
+
+def record_closure_sample(state_root: str, level: str, epic_key: str, sprint_key=None) -> str:
+    """Derive a sprint/epic's closure sample and append it to the shared file.
+
+    A write path, unlike load_calibration: migrates a stale schema version
+    before appending, so a v1 file is never mistaken for v2 and corrupted by
+    samples landing in a structure that doesn't exist there yet.
+    """
+    sample, reason = derive_closure_sample(state_root, level, epic_key, sprint_key)
+    if sample is None:
+        return f"no closure sample: {reason}"
+    if not sample["ratios"]:
+        return "no closure sample: parent has no estimate range to compare against"
+
+    from ruamel.yaml.comments import CommentedMap
+    y, cal = load_calibration(state_root)
+    if cal.get("version") != CALIBRATION_SCHEMA_VERSION:
+        cal = migrate_calibration(y, cal, state_root)
+    bucket = cal["closure"].setdefault(level, CommentedMap())
+    for metric, ratio in sample["ratios"].items():
+        entry = bucket.setdefault(metric, CommentedMap())
+        entry.setdefault("samples", [])
+        entry["samples"].append(round(ratio, 4))
+    save_calibration(y, cal, state_root)
+    return f"closure {level} +{len(sample['ratios'])} metrics"
+
+
+def cmd_calibration(args) -> int:
+    _, cal = load_calibration(args.state_root)
+    exists = os.path.exists(calibration_path(args.state_root))
+    rows = []
+    for c in CLASSIFICATIONS:
+        for m in ("man_hours", "time_hours", "tokens_k", "cost"):
+            n = len(_component_samples(cal, "scope", c, m))
+            r = active_scope_ratio(cal, c, m)
+            rows.append(("scope", f"{c}/{m}", n, r))
+    for lv in CLOSURE_LEVELS:
+        for m in ("man_hours", "time_hours", "tokens_k", "cost"):
+            n = len(_component_samples(cal, "closure", lv, m))
+            r = active_closure_ratio(cal, lv, m)
+            rows.append(("closure", f"{lv}/{m}", n, r))
+    for c in CLASSIFICATIONS:
+        entry = (cal.get("fix") or {}).get(c) or {}
+        n = min(int((entry.get("clean") or {}).get("samples", 0)),
+                int((entry.get("reworked") or {}).get("samples", 0)))
+        rows.append(("fix", c, n, active_fix_factor(cal, c)))
+
+    if getattr(args, "format", "text") == "json":
+        import json
+        sys.stdout.write(json.dumps({
+            "exists": exists,
+            "granularity": cal.get("granularity", "story"),
+            "components": [{"component": a, "bucket": b, "samples": n,
+                            "active_ratio": r} for a, b, n, r in rows],
+        }, indent=2) + "\n")
+        return 0
+
+    if not exists:
+        sys.stdout.write("No calibration file yet — all components cold-start.\n")
+    sys.stdout.write(f"granularity: {cal.get('granularity', 'story')}\n")
+    sys.stdout.write(f"{'COMPONENT':<10} {'BUCKET':<22} {'SAMPLES':>7}  RATIO\n")
+    for a, b, n, r in rows:
+        shown = f"{r:.3f}" if r is not None else f"(cold-start, needs {MIN_SAMPLES})"
+        sys.stdout.write(f"{a:<10} {b:<22} {n:>7}  {shown}\n")
+    return 0
+
+
+# Cold-start base bands (low, high) per classification. These were previously a
+# markdown table in steps/shared/step-estimate.md; this is now the single source.
+BASE_BANDS = {
+    "simple":   {"man_hours": (2, 4),  "time_hours": (0.5, 1.5), "tokens_k": (20, 50),  "cost": (0.10, 0.35)},
+    "standard": {"man_hours": (4, 8),  "time_hours": (1, 3),     "tokens_k": (40, 100), "cost": (0.25, 0.70)},
+    "complex":  {"man_hours": (8, 16), "time_hours": (2, 6),     "tokens_k": (80, 200), "cost": (0.55, 1.40)},
+}
+
+
+def cmd_estimate_story(args) -> int:
+    """Compute and write a story's estimate block: band midpoint x scope ratio x fix
+    factor, per metric. Classification is the model's judgment; everything after it
+    is arithmetic, done here so it's error-checked and reproducible.
+
+    Each metric queries its own calibrated scope ratio — man_hours and tokens_k may
+    be calibrated independently once each has >=3 samples, so ratios are looked up
+    per metric, never hoisted out and reused across all four.
+    """
+    path = story_file(args.state_root, args.story)
+    if path is None:
+        _die_notfound(f"story {args.story}")
+    y, node = load_node(path)
+    if node is None:
+        _die_notfound(f"story {args.story} — file is empty")
+
+    cls = args.classification
+    _, cal = load_calibration(args.state_root)
+    fix = active_fix_factor(cal, cls)
+    fix = COLD_START_FIX_FACTOR if fix is None else fix
+
+    from ruamel.yaml.comments import CommentedMap
+    est = node.get("estimate")
+    if est is None:
+        est = CommentedMap()
+        node["estimate"] = est
+
+    applied_ratio = None
+    for metric, (lo, hi) in BASE_BANDS[cls].items():
+        mid = (lo + hi) / 2.0
+        ratio = active_scope_ratio(cal, cls, metric)
+        if ratio is None:
+            ratio = COLD_START_SCOPE_RATIO
+        if applied_ratio is None:
+            applied_ratio = ratio
+        value = mid * ratio * fix
+        est[metric] = int(round(value)) if metric == "tokens_k" else round(value, 2)
+
+    est["fix_factor"] = round(fix, 4)
+    est["scope_ratio"] = round(applied_ratio, 4)
+    if args.confidence:
+        est["confidence"] = args.confidence
+    node["classification"] = cls
+    node["updated_at"] = _now_iso()
+    save_node(y, node, path)
+    sys.stdout.write(f"OK estimate-story {args.story} class={cls} "
+                     f"scope_ratio={est['scope_ratio']} fix_factor={est['fix_factor']}\n")
+    return 0
+
+
+# Closure overhead as a fraction of children, used when no calibrated ratio is
+# active yet. Deliberately a band, not a point: closure cost is variable.
+COLD_START_CLOSURE_BAND = (0.10, 0.25)
+
+
+def _child_estimate_value(node, metric):
+    """A child's value for `metric`: single-value form first (a story), else
+    the midpoint of its range form (a sprint). None if neither is present.
+
+    Reuses CLOSURE_RANGE_KEYS (metric -> parent low/high key names) rather
+    than a second near-duplicate mapping — see the comment on
+    ESTIMATE_TO_ACTUAL above it for why these metric maps are kept explicit
+    and why a change to one should prompt checking the others.
+    """
+    est = (node or {}).get("estimate") or {}
+    v = _num_or_none(est.get(metric))
+    if v is not None:
+        return v
+    lo, hi = CLOSURE_RANGE_KEYS[metric]
+    return _mid(est, lo, hi)
+
+
+def cmd_estimate_rollup(args) -> int:
+    """Roll a sprint's story estimates, or an epic's sprint estimates, up to
+    the parent as a range: sum(children) + a closure band. The band scales by
+    the calibrated closure ratio for level/metric once active (>=3 samples),
+    else the cold-start band applies. Output is always range form, even when
+    every child estimate is single-value (the story form).
+    """
+    level = "sprint" if args.sprint else "epic"
+    if level == "sprint":
+        ppath = sprint_file(args.state_root, args.epic, args.sprint)
+        child_paths = list_story_files(args.state_root, args.epic, args.sprint)
+    else:
+        ppath = epic_file(args.state_root, args.epic)
+        child_paths = [sprint_file(args.state_root, args.epic, _sprint_key_from_dir(d))
+                       for d in list_sprint_dirs(args.state_root, args.epic)]
+    if ppath is None:
+        _die_notfound(f"{level} {args.sprint or args.epic}")
+    y, pnode = load_node(ppath)
+    if pnode is None:
+        _die_notfound(f"{level} file is empty")
+
+    _, cal = load_calibration(args.state_root)
+    from ruamel.yaml.comments import CommentedMap
+    est = CommentedMap()
+    counted = 0
+    for metric, (lo_key, hi_key) in CLOSURE_RANGE_KEYS.items():
+        total = 0.0
+        seen = 0
+        for cp in child_paths:
+            if cp is None:
+                continue
+            _, cn = load_node(cp)
+            v = _child_estimate_value(cn, metric)
+            if v is not None:
+                total += v
+                seen += 1
+        if seen == 0:
+            continue
+        counted = max(counted, seen)
+        ratio = active_closure_ratio(cal, level, metric)
+        if ratio is None:
+            lo = total * (1 + COLD_START_CLOSURE_BAND[0])
+            hi = total * (1 + COLD_START_CLOSURE_BAND[1])
+        else:
+            lo = total * (1 + ratio * COLD_START_CLOSURE_BAND[0])
+            hi = total * (1 + ratio * COLD_START_CLOSURE_BAND[1])
+        if metric == "tokens_k":
+            est[lo_key], est[hi_key] = int(round(lo)), int(round(hi))
+        else:
+            est[lo_key], est[hi_key] = round(lo, 2), round(hi, 2)
+
+    if counted == 0:
+        _die_usage(f"{level} {args.sprint or args.epic} has no child estimates to roll up")
+
+    est["confidence"] = "medium"
+    pnode["estimate"] = est
+    pnode["updated_at"] = _now_iso()
+    save_node(y, pnode, ppath)
+    sys.stdout.write(f"OK estimate-rollup {level} {args.sprint or args.epic} "
+                     f"from {counted} children\n")
+    return 0
+
+
 def list_story_files(state_root: str, epic_key: str, sprint_key: str) -> list:
     """Sorted story files in a sprint, excluding sprint.yaml."""
     d = find_epic_dir(state_root, epic_key)
@@ -475,9 +1016,29 @@ def cmd_set_actual(args) -> int:
         actual[k] = _coerce(k, v)
 
     save_node(y, node, path, getattr(args, "flock", False))
+
+    calib_note = ""
+    if not getattr(args, "no_calibrate", False):
+        # Calibration is DERIVED data. A failure here must never fail the
+        # actuals write, which is the primary record — but it must be visible,
+        # not silent.
+        try:
+            if kind == "story":
+                calib_note = record_story_sample(args.state_root, node)
+            elif kind == "sprint":
+                calib_note = record_closure_sample(args.state_root, "sprint",
+                                                   args.epic, args.sprint)
+            elif kind == "epic":
+                calib_note = record_closure_sample(args.state_root, "epic", args.epic)
+        except Exception as e:                      # noqa: BLE001 - deliberate isolation
+            sys.stderr.write(f"pm-status.py: warning — actual written, but calibration "
+                             f"sample failed: {e}\n")
+            calib_note = "calibration skipped (see stderr)"
+
     if args.ledger:
         _append_ledger(args.ledger, args.scope or label, f"actual {sorted(provided)}")
-    sys.stdout.write(f"OK set-actual {label} {sorted(provided)}\n")
+    suffix = f" [{calib_note}]" if calib_note else ""
+    sys.stdout.write(f"OK set-actual {label} {sorted(provided)}{suffix}\n")
     return 0
 
 
@@ -638,6 +1199,10 @@ def cmd_set_estimate(args) -> int:
         _maybe_set(est, "tokens_k_max", args.tokens_k_max, int)
         _maybe_set(est, "cost_low", args.cost_low, str)
         _maybe_set(est, "cost_high", args.cost_high, str)
+
+    # Calibration factors: applied to get from base values to the estimate
+    _maybe_set(est, "fix_factor", getattr(args, "fix_factor", None), float)
+    _maybe_set(est, "scope_ratio", getattr(args, "scope_ratio", None), float)
 
     # Confidence: explicit arg wins; else derive from completeness
     if args.confidence:
@@ -1014,6 +1579,8 @@ def build_parser() -> argparse.ArgumentParser:
     a.add_argument("--ledger")
     a.add_argument("--scope")
     a.add_argument("--flock", action="store_true", help="acquire exclusive flock before write")
+    a.add_argument("--no-calibrate", dest="no_calibrate", action="store_true",
+                   help="skip calibration sampling (backfills, replays)")
     a.set_defaults(func=cmd_set_actual)
 
     pr = sub.add_parser("progress", help="append a line to the progress ledger")
@@ -1077,6 +1644,10 @@ def build_parser() -> argparse.ArgumentParser:
     se.add_argument("--tokens-k", dest="tokens_k_min")  # alias to tokens_k_min for story use
     se.add_argument("--cost", dest="cost_low")           # alias to cost_low for story use
     se.add_argument("--confidence", choices=["low", "medium", "high"])
+    se.add_argument("--fix-factor", dest="fix_factor",
+                    help="fix multiplier applied; required for the scope/fix split")
+    se.add_argument("--scope-ratio", dest="scope_ratio",
+                    help="calibrated scope ratio applied (1.0 when cold-start)")
     se.add_argument("--flock", action="store_true", help="acquire exclusive flock before write")
     se.set_defaults(func=cmd_set_estimate)
 
@@ -1117,6 +1688,25 @@ def build_parser() -> argparse.ArgumentParser:
     ae.add_argument("--state-root", required=True)
     ae.add_argument("--epic", required=True)
     ae.set_defaults(func=cmd_move_epic, to="archived")
+
+    cal = sub.add_parser("calibration", help="inspect the calibration file")
+    cal.add_argument("action", choices=["show"])
+    cal.add_argument("--state-root", required=True)
+    cal.add_argument("--format", choices=["text", "json"], default="text")
+    cal.set_defaults(func=cmd_calibration)
+
+    es = sub.add_parser("estimate-story", help="compute and write a story estimate")
+    es.add_argument("--state-root", required=True)
+    es.add_argument("--story", required=True)
+    es.add_argument("--classification", required=True, choices=list(CLASSIFICATIONS))
+    es.add_argument("--confidence", choices=["low", "medium", "high"])
+    es.set_defaults(func=cmd_estimate_story)
+
+    er = sub.add_parser("estimate-rollup", help="roll child estimates up to a sprint or epic")
+    er.add_argument("--state-root", required=True)
+    er.add_argument("--epic", required=True)
+    er.add_argument("--sprint", default="")
+    er.set_defaults(func=cmd_estimate_rollup)
 
     p.add_argument("--version", action="version", version=f"pm-status.py {PM_STATUS_VERSION}")
     return p

@@ -905,7 +905,7 @@ class TestEpicMoves(TestLayoutResolution):
         self.assertTrue(os.path.isdir(os.path.join(self.root, "archived", "epic-001")))
 
     def test_version_increments_for_self_install(self):
-        self.assertEqual(pm.PM_STATUS_VERSION, "2.0.2")
+        self.assertEqual(pm.PM_STATUS_VERSION, "2.1.0")
 
     def test_move_epic_already_in_place_is_noop(self):
         """E001 already lives under active/ — moving it to 'active' must return the
@@ -1496,6 +1496,62 @@ class TestEstimateStory(TestLayoutResolution):
                        "--story", "E001-S01-003", "--classification", "simple"])
         _, node = pm.load_node(pm.story_file(self.root, "E001-S01-003"))
         self.assertEqual(node["classification"], "simple")
+
+
+class TestEstimateRollup(TestLayoutResolution):
+    def run_main(self, argv):
+        buf = io.StringIO()
+        try:
+            with redirect_stdout(buf):
+                code = pm.main(argv)
+        except SystemExit as e:
+            code = e.code
+        return code, buf.getvalue()
+
+    def _story_estimates(self, values):
+        sd = os.path.join(self.root, "active", "epic-001", "sprint-01")
+        for f in os.listdir(sd):
+            if f.endswith(".yaml") and f != "sprint.yaml":
+                os.remove(os.path.join(sd, f))
+        for i, v in enumerate(values, start=1):
+            with open(os.path.join(sd, f"E001-S01-{i:03d}.yaml"), "w") as f:
+                f.write(f"key: 'E001-S01-{i:03d}'\nepic: 'E001'\nsprint: 'S01'\n"
+                        f"estimate:\n  man_hours: {v}\n  time_hours: 1\n"
+                        f"  tokens_k: 10\n  cost: 0.5\n")
+
+    def test_sprint_rollup_sums_children_plus_closure(self):
+        self._story_estimates([4, 6])
+        code, out = self.run_main(
+            ["estimate-rollup", "--state-root", self.root, "--epic", "E001",
+             "--sprint", "S01"])
+        self.assertEqual(code, 0, out)
+        _, node = pm.load_node(pm.sprint_file(self.root, "E001", "S01"))
+        est = node["estimate"]
+        self.assertGreaterEqual(float(est["man_hours_high"]), 10.0)
+        self.assertLessEqual(float(est["man_hours_low"]), float(est["man_hours_high"]))
+
+    def test_rollup_writes_range_form_not_single_values(self):
+        self._story_estimates([4, 6])
+        self.run_main(["estimate-rollup", "--state-root", self.root,
+                       "--epic", "E001", "--sprint", "S01"])
+        _, node = pm.load_node(pm.sprint_file(self.root, "E001", "S01"))
+        self.assertIn("man_hours_low", node["estimate"])
+        self.assertNotIn("man_hours", node["estimate"])
+
+    def test_unknown_epic_exits_3(self):
+        code, _ = self.run_main(
+            ["estimate-rollup", "--state-root", self.root, "--epic", "E999"])
+        self.assertEqual(code, 3)
+
+    def test_epic_rollup_sums_sprints(self):
+        self._story_estimates([4, 6])
+        self.run_main(["estimate-rollup", "--state-root", self.root,
+                       "--epic", "E001", "--sprint", "S01"])
+        code, out = self.run_main(
+            ["estimate-rollup", "--state-root", self.root, "--epic", "E001"])
+        self.assertEqual(code, 0, out)
+        _, node = pm.load_node(pm.epic_file(self.root, "E001"))
+        self.assertIn("man_hours_low", node["estimate"])
 
 
 if __name__ == "__main__":
