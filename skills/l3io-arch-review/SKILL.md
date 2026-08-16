@@ -22,10 +22,21 @@ A clean review on non-trivial scope is suspect — walk every principle before y
 
 ## On Activation
 
-Load config from `{project-root}/_bmad/config.yaml` and `{project-root}/_bmad/config.user.yaml`
-(root level and the `l3io-arch` section). If there is no `l3io-arch` section, load
-`assets/module-setup.md` to register the module first, then continue. Read
-`core.communication_language` and present all output in that language.
+Resolve config through BMad core's resolver — full contract in
+`references/config-resolution.md`:
+
+```bash
+uv run --python 3.11 {project-root}/_bmad/scripts/resolve_config.py --project-root {project-root}
+```
+
+If the resolver is missing or fails, BMad core is not installed here — stop and tell the
+user to run the BMad installer. Read `core.communication_language` (default `English`) and
+present all output in that language; take module settings from `modules.l3io-arch` and the
+artifact paths from `modules.l3io-pm` (see the contract for defaults).
+
+An absent `modules.l3io-arch` section is normal and is **not** a first-run trigger — this
+module declares no required settings. Load `assets/module-setup.md` only when the user
+explicitly passes `setup`, `configure`, or `install`.
 
 1. **Always load** `references/standards-core.md` (the universal charter).
 2. **Detect the stack(s)** in scope and load the matching overlay(s):

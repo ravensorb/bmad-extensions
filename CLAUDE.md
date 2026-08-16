@@ -43,10 +43,17 @@ Files in `skills/_shared/` are the canonical sources for content shared across P
 |---|---|---|
 | `skills/_shared/pm-status.py` | `scripts/pm-status.py` | pm-execute, pm-plan, pm-sync |
 | `skills/_shared/tests/test-pm-status.py` | `scripts/tests/test-pm-status.py` | pm-execute, pm-plan, pm-sync |
-| `skills/_shared/resolve_config.py` | `scripts/resolve_config.py` | pm-execute, pm-plan, pm-sync |
-| `skills/_shared/memlog.py` | `scripts/memlog.py` | pm-execute, pm-plan, pm-sync |
 | `skills/_shared/status-files.md` | `references/status-files.md` | pm-execute, pm-plan, pm-sync |
 | `skills/_shared/steps/**` | `steps/**` | pm-execute, pm-plan, pm-sync |
+| `skills/_shared/config-resolution.md` | `references/config-resolution.md` | **all 7 skills** |
+| `skills/_shared/module-setup.md` | `assets/module-setup.md` | **all 7 skills** |
+| `skills/_shared/write-module-config.py` | `scripts/write-module-config.py` | **all 7 skills** |
+
+**Never bundle a BMad core script.** `resolve_config.py`, `resolve_customization.py`, and
+`memlog.py` are installed by BMad core at `{project-root}/_bmad/scripts/` and must be invoked
+from there. This package used to vendor byte-identical copies of all three into skill
+`scripts/` directories where nothing invoked them — dead payload that duplicated core and
+would rot on the next BMad release.
 
 Sync commands:
 
@@ -86,6 +93,18 @@ Suggested scopes: `l3io-pm`, `l3io-sec`, `l3io-util`, `l3io-arch` (module change
 ## Key Execution Contracts
 
 **Context boundary**: Each phase runs in a fresh subagent. All state passes through disk — never through in-memory hand-off.
+
+**Config resolution**: every skill resolves config by running BMad core's
+`{project-root}/_bmad/scripts/resolve_config.py`, which merges four TOML layers
+(`_bmad/config.toml`, `config.user.toml`, `custom/config.toml`, `custom/config.user.toml`)
+and prints JSON as `core.*` + `modules.<code>.*`. **There is no `_bmad/config.yaml`** — do
+not reintroduce a read of one. Module settings the skills write go to the `custom/` layers
+only (the installer regenerates the other two). `implementation_artifacts` and
+`planning_artifacts` resolve from `modules.l3io-pm` for *all four* modules — one artifact
+tree, one home for its path. An absent module section is normal and never triggers setup;
+setup runs only on an explicit `setup`/`configure`/`install`. Whether an optional module is
+installed is answered by `_bmad/_config/manifest.yaml`, never by a config section — a module
+can be installed and unconfigured. Full contract: `skills/_shared/config-resolution.md`.
 
 **State files** (sharded layout, under `{implementation_artifacts}/state/`):
 

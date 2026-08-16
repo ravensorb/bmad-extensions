@@ -21,3 +21,8 @@ jobs:
       run: |
         python3 -m pip install --quiet 'ruamel.yaml>=0.18'
         python3 skills/_shared/tests/test-pm-status.py
+    - uses: astral-sh/setup-uv@v5
+    - name: write-module-config.py unit tests
+      run: uv run skills/_shared/tests/test-write-module-config.py
+    - name: drift-report.py unit tests
+      run: uv run --with pyyaml skills/l3io-pm-sync/scripts/tests/test-drift-report.py

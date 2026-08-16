@@ -22,7 +22,8 @@ Write retrospective report to `{implementation_artifacts}/epic-{epic_nnn}/epic-c
 Run only if `{work_type}` is CODE or MIXED AND `l3io-arch-review` is installed.
 
 ```bash
-grep -q "^l3io-arch:" {project-root}/_bmad/config.yaml 2>/dev/null && echo "present" || echo "absent"
+grep -qE "^[[:space:]]*-[[:space:]]*name:[[:space:]]*l3io-arch[[:space:]]*$" \
+  {project-root}/_bmad/_config/manifest.yaml 2>/dev/null && echo "present" || echo "absent"
 ```
 
 If present: invoke l3io-arch-review Mode C (audit — review what was built vs what was planned).

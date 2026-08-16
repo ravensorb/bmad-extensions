@@ -12,7 +12,7 @@ Skill: `/l3io-arch-review`.
 
 ## Configuration
 
-Config is read from `{project-root}/_bmad/config.yaml` (root level and the `l3io-arch` section). The first invocation registers the module automatically if the section is absent.
+Config is resolved via `{project-root}/_bmad/scripts/resolve_config.py` — `core.*` for shared settings and `modules.l3io-arch.*` for this module. No section is required; every value has a default.
 
 Key settings (with defaults):
 

@@ -18,8 +18,14 @@ gated by an existence check.
 
 ## Bindings
 
-Read `{project-root}/_bmad/config.yaml` (and `{project-root}/_bmad/config.user.yaml` if
-present) to bind:
+Resolve config per `{skill-root}/references/config-resolution.md`:
+
+```bash
+uv run --python 3.11 {project-root}/_bmad/scripts/resolve_config.py --project-root {project-root}
+```
+
+Bind from `modules.l3io-pm`, falling back to the documented defaults:
+
 - `{implementation_artifacts}`
 - `{planning_artifacts}`
 

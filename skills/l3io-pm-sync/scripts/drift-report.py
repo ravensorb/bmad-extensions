@@ -33,14 +33,17 @@ import argparse
 import hashlib
 import json
 import re
+import subprocess
 import sys
 from pathlib import Path
 
 import yaml
 
 
-CONFIG_FILE = "_bmad/config.yaml"
-CONFIG_USER_FILE = "_bmad/config.user.yaml"
+# BMad central config is resolved by core's resolver over four TOML layers — see
+# references/config-resolution.md. There is no _bmad/config.yaml; reading one silently
+# yielded {} and pinned every path to the default.
+CORE_RESOLVER = "_bmad/scripts/resolve_config.py"
 SYNC_CONFIG_FILE = "_bmad/sync-config.yaml"
 SYNC_STATE_FILE = "_bmad/sync-state.yaml"
 
@@ -59,12 +62,36 @@ def load_yaml(path: Path) -> dict:
 
 
 def resolve_config(project_root: Path) -> dict:
-    cfg = load_yaml(project_root / CONFIG_FILE)
-    user_cfg = load_yaml(project_root / CONFIG_USER_FILE)
-    cfg.update({k: v for k, v in user_cfg.items() if v is not None})
+    """Resolve implementation_artifacts through BMad core's config resolver.
 
-    output_folder = cfg.get("output_folder", str(project_root / "_bmad-output"))
-    impl = cfg.get("implementation_artifacts") or f"{output_folder}/implementation-artifacts"
+    The resolver merges the four TOML layers and prints JSON. It is installed by BMad
+    core; if it is missing, BMad is not installed and we fall back to the documented
+    default rather than inventing a path.
+    """
+    resolver = project_root / CORE_RESOLVER
+    cfg: dict = {}
+    if resolver.exists():
+        try:
+            proc = subprocess.run(
+                [sys.executable, str(resolver), "--project-root", str(project_root)],
+                capture_output=True,
+                text=True,
+                check=True,
+            )
+            cfg = json.loads(proc.stdout or "{}")
+            # The resolver exits 0 but warns on stderr when a layer is malformed, and
+            # silently drops that whole layer. Swallowing it would turn a typo in a
+            # custom config into paths that quietly revert to defaults.
+            if proc.stderr:
+                sys.stderr.write(proc.stderr)
+        except (subprocess.CalledProcessError, json.JSONDecodeError) as error:
+            sys.stderr.write(f"warning: config resolution failed ({error}); using defaults\n")
+
+    core = cfg.get("core") or {}
+    pm = (cfg.get("modules") or {}).get("l3io-pm") or {}
+
+    output_folder = core.get("output_folder") or str(project_root / "_bmad-output")
+    impl = pm.get("implementation_artifacts") or f"{output_folder}/implementation-artifacts"
     return {"implementation_artifacts": impl}
 
 
@@ -264,7 +291,7 @@ def main() -> int:
     )
     parser.add_argument(
         "project_root",
-        help="Path to the project root containing _bmad/config.yaml and _bmad/sync-state.yaml",
+        help="Path to the project root containing _bmad/ (config and sync state)",
     )
     args = parser.parse_args()
     project_root = Path(args.project_root).resolve()

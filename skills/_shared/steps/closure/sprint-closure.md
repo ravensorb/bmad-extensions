@@ -41,7 +41,8 @@ Invoke `bmad-review-adversarial-general` with scope `adversarial`:
 
 If `l3io-sec-redteam` is installed:
 ```bash
-grep -q "^l3io-sec:" {project-root}/_bmad/config.yaml 2>/dev/null && echo "present" || echo "absent"
+grep -qE "^[[:space:]]*-[[:space:]]*name:[[:space:]]*l3io-sec[[:space:]]*$" \
+  {project-root}/_bmad/_config/manifest.yaml 2>/dev/null && echo "present" || echo "absent"
 ```
 If present: spawn l3io-sec-redteam with the sprint's changed files.
 CRITICAL/HIGH findings: block until resolved. LOW: defer to issues file.

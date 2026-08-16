@@ -30,7 +30,8 @@ python3 {pm_status} set-status \
 
 Spawn `bmad-dev-story` subagent with:
 - Story file path: `{sprint_root}/stories/{story_key}.md`
-- Project context: `{project-root}/_bmad/config.yaml`
+- Project context: the config resolved at activation (`references/config-resolution.md`) —
+  pass the bound values, not a config file path
 - Sprint root: `{sprint_root}`
 
 On completion, collect: files changed, tests passing (boolean), fix iterations attempted.

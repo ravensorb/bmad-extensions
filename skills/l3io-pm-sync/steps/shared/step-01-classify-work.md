@@ -52,11 +52,21 @@ Examine the stories in scope (those in the active epics or the epics being plann
 
 Bind `{skip_phases}` = comma-separated list of phase names to skip (empty if none).
 
-To check if a skill is installed:
-- `l3io-arch-review`: `_bmad/config.yaml` contains an `l3io-arch:` section (run:
-  `grep -q "^l3io-arch:" {project-root}/_bmad/config.yaml 2>/dev/null && echo "present" || echo "absent"`)
-- `l3io-sec-redteam`: `_bmad/config.yaml` contains an `l3io-sec:` section (run:
-  `grep -q "^l3io-sec:" {project-root}/_bmad/config.yaml 2>/dev/null && echo "present" || echo "absent"`)
+To check if a skill is installed — query the installer's module manifest, never a config
+section. A module can be installed and carry no config at all, so a config lookup reports a
+present module as absent and the phase silently self-skips. See
+`references/config-resolution.md` §6.
+
+For `l3io-arch-review` (module code `l3io-arch`) and `l3io-sec-redteam` (module code
+`l3io-sec`), run with the module code substituted:
+
+```bash
+grep -qE "^[[:space:]]*-[[:space:]]*name:[[:space:]]*l3io-arch[[:space:]]*$" \
+  {project-root}/_bmad/_config/manifest.yaml 2>/dev/null && echo "present" || echo "absent"
+```
+
+For the remaining skills:
+
 - `bmad-testarch-atdd`: command file exists at project or user level (run:
   `ls {project-root}/.claude/commands/bmad-testarch-atdd.md 2>/dev/null || ls ~/.claude/commands/bmad-testarch-atdd.md 2>/dev/null || echo "absent"`)
 

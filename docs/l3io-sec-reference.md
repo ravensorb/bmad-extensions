@@ -12,9 +12,9 @@ The agent works across three activation modes: called automatically by `l3io-pm`
 
 | Variable | Section | Default | Description |
 |----------|---------|---------|-------------|
-| `research_cache_ttl_days` | `l3io-sec` in `config.yaml` | `30` | Number of days before a cached platform best practices topic is considered stale and re-researched |
+| `research_cache_ttl_days` | `modules.l3io-sec` | `30` | Number of days before a cached platform best practices topic is considered stale and re-researched |
 
-Config is read from `{project-root}/_bmad/config.yaml` and `{project-root}/_bmad/config.user.yaml`.
+Config is resolved via `{project-root}/_bmad/scripts/resolve_config.py`, which merges the four `_bmad` TOML layers.
 
 ## Activation Modes
 
@@ -36,7 +36,7 @@ Triggered when invoked interactively and no sanctum exists at `{project-root}/_b
 
 Behavior:
 1. Run `python3 {skill-root}/scripts/init-sanctum.py {project-root} {skill-root}` to create the sanctum
-2. Check if `config.yaml` has an `l3io-sec` section; if not, run module setup
+2. First run is signalled by a missing sanctum, not by config — the module works unconfigured
 3. Load `references/first-breath.md` — the agent comes to life for the first time
 
 ### Mode 3 — Normal interactive

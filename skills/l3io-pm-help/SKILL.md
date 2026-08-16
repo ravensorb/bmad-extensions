@@ -13,16 +13,29 @@ Run: `python3 {project-root}/_bmad/scripts/resolve_customization.py --skill {ski
 
 If the script fails, read `{skill-root}/customize.toml` directly.
 
-If `{project-root}/_bmad/config.yaml` does not have an `l3io-pm` section, load
-`{skill-root}/assets/module-setup.md` first.
+Load `{skill-root}/assets/module-setup.md` first **only** when the user passes `setup`,
+`configure`, or `install`. An absent `modules.l3io-pm` section means the module has no
+overrides, not that it needs setup.
 
 ## Execution
 
 ### 1. Load paths from config
 
-Read `{project-root}/_bmad/config.yaml`. Extract:
-- `{implementation_artifacts}` — implementation artifacts path
-- `{planning_artifacts}` — planning artifacts path
+Resolve config through BMad core's resolver — full contract in
+`{skill-root}/references/config-resolution.md`:
+
+```bash
+uv run --python 3.11 {project-root}/_bmad/scripts/resolve_config.py --project-root {project-root}
+```
+
+If the resolver is missing or fails, BMad core is not installed here — stop and tell the
+user to run the BMad installer. Extract, applying the default when a key is absent:
+
+- `{output_folder}` — `core.output_folder` (default `{project-root}/_bmad-output`)
+- `{implementation_artifacts}` — `modules.l3io-pm.implementation_artifacts`
+  (default `{output_folder}/implementation-artifacts`)
+- `{planning_artifacts}` — `modules.l3io-pm.planning_artifacts`
+  (default `{output_folder}/planning-artifacts`)
 - Set `{pm_state_root}` = `{implementation_artifacts}/state`
 - Set `{pm_issues_file}` = `{pm_state_root}/issues.yaml`
 - Set `{pm_status}` = `{project-root}/_bmad/scripts/pm-status.py` (self-installed by the

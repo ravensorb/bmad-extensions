@@ -21,8 +21,10 @@ If the script fails, resolve the `workflow` block by reading `{skill-root}/custo
 `{project-root}/_bmad/custom/l3io-pm-execute.toml` (team), then
 `{project-root}/_bmad/custom/l3io-pm-execute.user.toml` (personal) in order. Scalars override, arrays append.
 
-If `{project-root}/_bmad/config.yaml` does not have an `l3io-pm` section — or the user passes
-`setup`, `configure`, or `install` — load `{skill-root}/assets/module-setup.md` first.
+Load `{skill-root}/assets/module-setup.md` first **only** when the user passes `setup`,
+`configure`, or `install`. Config itself is resolved in step-00-activate per
+`{skill-root}/references/config-resolution.md`; an absent `modules.l3io-pm` section means the
+module has no overrides, not that it needs setup.
 
 ## Execution
 

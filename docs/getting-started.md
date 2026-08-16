@@ -41,13 +41,13 @@ This installs all five skills and registers the four modules in `.claude-plugin/
 
 ## First-Run Configuration
 
-Config is written to `{project-root}/_bmad/config.yaml` (shared project settings) and `{project-root}/_bmad/config.user.yaml` (personal settings — add this to `.gitignore`).
+Core settings live in installer-owned `{project-root}/_bmad/config.toml` and `config.user.toml`. Your own module settings go in `{project-root}/_bmad/custom/config.toml` (team, committed) and `custom/config.user.toml` (personal, gitignored), under `[modules.<module-code>]`.
 
-Each module auto-configures on first use — no explicit setup step required.
+No module needs configuring to work — every setting has a default. Run a module's `configure` action only when you want to change one.
 
 ### l3io-pm
 
-No explicit setup step. The sprint and epic skills read config from `{project-root}/_bmad/config.yaml` on activation and use sensible defaults when the `l3io-pm` section is absent. On first run, module registration happens automatically.
+No explicit setup step. The skills resolve config at activation via `_bmad/scripts/resolve_config.py` and use sensible defaults when `modules.l3io-pm` is absent — which is the normal state for a fresh install.
 
 Key settings (with defaults):
 
@@ -85,7 +85,7 @@ npx bmad-method install \
   --yes
 ```
 
-After upgrading, your existing `_bmad/config.yaml` values are preserved — no re-configuration needed unless the upgrade notes call out schema changes.
+After upgrading, your `_bmad/custom/config.toml` and `config.user.toml` overrides are preserved — the installer never touches those layers.
 
 ## Before Running l3io-pm
 

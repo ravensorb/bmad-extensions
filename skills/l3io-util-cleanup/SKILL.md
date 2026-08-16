@@ -112,14 +112,31 @@ Setup & housekeeping
 Run without arguments to let the health check decide what's needed.
 ```
 
-If `{project-root}/_bmad/config.yaml` does not have an `l3io-util` section, load `assets/module-setup.md` to register the module first.
+Resolve config through BMad core's resolver — full contract in
+`references/config-resolution.md`:
 
-Load config from `{project-root}/_bmad/config.yaml` and `{project-root}/_bmad/config.user.yaml` (root level and `l3io-util` section). Resolve:
-- `implementation_artifacts`
-- `planning_artifacts`
-- `output_folder`
+```bash
+uv run --python 3.11 {project-root}/_bmad/scripts/resolve_config.py --project-root {project-root}
+```
 
-If `implementation_artifacts` is not set, default to `{output_folder}/implementation-artifacts`.
+If the resolver is missing or fails, BMad core is not installed here — stop and tell the
+user to run the BMad installer.
+
+Bind, applying the default when the key is absent:
+
+- `{output_folder}` — `core.output_folder` (default `{project-root}/_bmad-output`)
+- `{implementation_artifacts}` — `modules.l3io-pm.implementation_artifacts`
+  (default `{output_folder}/implementation-artifacts`)
+- `{planning_artifacts}` — `modules.l3io-pm.planning_artifacts`
+  (default `{output_folder}/planning-artifacts`)
+- `harvest_exclude_dirs` — `modules.l3io-util.harvest_exclude_dirs` (default: none)
+
+The artifact paths come from the **`l3io-pm`** section, not `l3io-util` — all modules share
+one artifact tree, and this skill reorganizes the very directories the PM skills read.
+
+An absent `modules.l3io-util` section is normal and is **not** a first-run trigger: this
+module declares no required settings. Load `assets/module-setup.md` only when the user
+explicitly passes `setup`, `configure`, or `install`.
 
 Then bind the state paths every mode below uses (identical to the PM skills' bindings —
 see `skills/_shared/status-files.md` §10, the canonical contract):

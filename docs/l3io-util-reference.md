@@ -10,7 +10,7 @@ Skill: `/l3io-util-cleanup [command]`.
 
 ## Configuration
 
-Config is read from `{project-root}/_bmad/config.yaml` (root level and the `l3io-util` section). The first invocation registers the module automatically if the section is absent.
+Config is resolved via `{project-root}/_bmad/scripts/resolve_config.py` — `core.*` for shared settings, `modules.l3io-util.*` for this module, and `modules.l3io-pm.*` for the artifact paths it reorganizes. No section is required; every value has a default.
 
 Key settings (with defaults):
 

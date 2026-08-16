@@ -18,8 +18,11 @@ Run: `python3 {project-root}/_bmad/scripts/resolve_customization.py --skill {ski
 
 If the script fails, read `{skill-root}/customize.toml` directly.
 
-If `{project-root}/_bmad/config.yaml` does not have an `l3io-pm` section, load
-`{skill-root}/assets/module-setup.md` first.
+Load `{skill-root}/assets/module-setup.md` first **only** when the user passes `configure` or
+`install`. Note that `setup` is *not* a module-setup trigger in this skill — it selects the
+`setup` mode below, which configures GitHub sync. Config is resolved in step-00-activate per
+`{skill-root}/references/config-resolution.md`; an absent `modules.l3io-pm` section means the
+module has no overrides, not that it needs setup.
 
 ## Execution
 

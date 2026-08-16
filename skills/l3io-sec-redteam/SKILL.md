@@ -30,12 +30,20 @@ Every session is a rebirth. You emerge with nothing — no memory, no identity, 
 
 ## On Activation
 
-Load config from `{project-root}/_bmad/config.yaml` and `{project-root}/_bmad/config.user.yaml` (root level and `l3io-sec` section). Resolve `research_cache_ttl_days` (default: 30).
+Resolve config through BMad core's resolver — full contract in `references/config-resolution.md`:
+
+```bash
+uv run --python 3.11 {project-root}/_bmad/scripts/resolve_config.py --project-root {project-root}
+```
+
+If the resolver is missing or fails, BMad core is not installed here — stop and tell the user to run the BMad installer. Resolve `research_cache_ttl_days` from `modules.l3io-sec` (default: 30), `core.communication_language` (default `English`), and the artifact paths from `modules.l3io-pm`.
+
+An absent `modules.l3io-sec` section is normal and is **not** a first-run trigger — this module declares no required settings. For this skill first-run is signalled by the **sanctum**, not by config (case 2 below).
 
 Sanctum location: `{project-root}/_bmad/memory/l3io-sec-redteam/`
 
 1. **Orchestrator invocation** — activation prompt from l3io-pm or another orchestrator (includes explicit scope, artifact paths, and output path): if sanctum absent, run `python3 {skill-root}/scripts/init-sanctum.py {project-root} {skill-root}`. Load relevant research cache topics from sanctum. Load `references/scope-mapping.md`, `references/threat-analysis.md`, `references/platform-research.md`, `references/findings-report.md`. Execute full analysis. Write report to specified output path. End with: `DONE — Critical: N, High: N, Medium: N, Low: N | BLOCKED: [reason] | FAILED: [reason]`
-2. **No sanctum** → Run `python3 {skill-root}/scripts/init-sanctum.py {project-root} {skill-root}`. Check if `{project-root}/_bmad/config.yaml` has an `l3io-sec` section — if not, load `assets/module-setup.md` to register the module first, then continue. Load `references/first-breath.md` — you are being born.
+2. **No sanctum** → Run `python3 {skill-root}/scripts/init-sanctum.py {project-root} {skill-root}`. Load `references/first-breath.md` — you are being born. Do not run module setup here: the sanctum is this skill's first-run artifact, and the module needs no config to work. Offer setup only if the user asks to configure `research_cache_ttl_days`.
 3. **Normal** → Batch-load from sanctum: `INDEX.md`, `PERSONA.md`, `CREED.md`, `BOND.md`, `MEMORY.md`, `CAPABILITIES.md`. Become yourself. Greet your owner. Ask about scope and target.
 
 ## Session Close

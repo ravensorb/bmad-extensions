@@ -15,6 +15,7 @@ import sys
 import tempfile
 import unittest
 from contextlib import redirect_stderr, redirect_stdout
+from pathlib import Path
 from unittest import mock
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -37,13 +38,48 @@ class Base(unittest.TestCase):
     """Scratch project with `{project_root}/artifacts` as implementation_artifacts and
     an in-process CLI runner (patches sys.argv, calls dr.main() directly)."""
 
+    # Minimal but faithful stand-in for BMad core's resolve_config.py: merges the four
+    # TOML layers and prints JSON, exactly as core does. Written into each scratch project
+    # so these tests exercise the real resolution path (subprocess + JSON + layer
+    # precedence) without depending on a BMad install being present in CI.
+    RESOLVER_STUB = '''\
+import json, sys, tomllib
+from pathlib import Path
+root = Path(sys.argv[sys.argv.index("--project-root") + 1]) / "_bmad"
+merged = {}
+for rel in ("config.toml", "config.user.toml", "custom/config.toml", "custom/config.user.toml"):
+    p = root / rel
+    if not p.exists():
+        continue
+    try:
+        layer = tomllib.loads(p.read_text())
+    except tomllib.TOMLDecodeError as e:
+        sys.stderr.write(f"warning: failed to parse {p}: {e}\\n")
+        continue
+    for k, v in layer.items():
+        if isinstance(v, dict):
+            merged.setdefault(k, {})
+            for k2, v2 in v.items():
+                if isinstance(v2, dict):
+                    merged[k].setdefault(k2, {}).update(v2)
+                else:
+                    merged[k][k2] = v2
+        else:
+            merged[k] = v
+json.dump(merged, sys.stdout)
+'''
+
     def setUp(self):
         self.project_root = tempfile.mkdtemp()
         self.impl_artifacts = os.path.join(self.project_root, "artifacts")
         self.state_root = os.path.join(self.impl_artifacts, "state")
         _write(
-            os.path.join(self.project_root, "_bmad", "config.yaml"),
-            f"implementation_artifacts: {self.impl_artifacts}\n",
+            os.path.join(self.project_root, "_bmad", "scripts", "resolve_config.py"),
+            self.RESOLVER_STUB,
+        )
+        _write(
+            os.path.join(self.project_root, "_bmad", "custom", "config.toml"),
+            f'[modules.l3io-pm]\nimplementation_artifacts = "{self.impl_artifacts}"\n',
         )
 
     def write_sync_state(self, mappings: list) -> None:
@@ -260,6 +296,58 @@ class TestMissingStateRoot(Base):
         self.assertFalse(report["state_root_found"])
         missing_keys = {e["bmad_key"] for e in report["missing_local"]}
         self.assertEqual(missing_keys, {"E001-S01-001"})
+
+
+class TestConfigResolution(Base):
+    """Config comes from BMad core's four-layer TOML resolver, never from a YAML file.
+
+    Reading a `_bmad/config.yaml` that BMad has not created since the TOML migration
+    silently yielded {} and pinned implementation_artifacts to the default, which is what
+    made every skill open with 'No <module> section in config'.
+    """
+
+    def test_resolves_implementation_artifacts_from_pm_module_section(self):
+        cfg = dr.resolve_config(Path(self.project_root))
+        self.assertEqual(cfg["implementation_artifacts"], self.impl_artifacts)
+
+    def test_user_layer_overrides_team_layer(self):
+        _write(
+            os.path.join(self.project_root, "_bmad", "custom", "config.user.toml"),
+            '[modules.l3io-pm]\nimplementation_artifacts = "/personal/impl"\n',
+        )
+        cfg = dr.resolve_config(Path(self.project_root))
+        self.assertEqual(cfg["implementation_artifacts"], "/personal/impl")
+
+    def test_a_config_yaml_is_ignored_entirely(self):
+        # The obsolete file must have no effect even when present — a repo upgrading from
+        # 2.0.1 may still carry one written by the old module setup.
+        _write(
+            os.path.join(self.project_root, "_bmad", "config.yaml"),
+            "implementation_artifacts: /obsolete/path\n",
+        )
+        cfg = dr.resolve_config(Path(self.project_root))
+        self.assertEqual(cfg["implementation_artifacts"], self.impl_artifacts)
+
+    def test_falls_back_to_default_when_bmad_is_not_installed(self):
+        bare = tempfile.mkdtemp()
+        cfg = dr.resolve_config(Path(bare))
+        self.assertEqual(
+            cfg["implementation_artifacts"],
+            os.path.join(bare, "_bmad-output") + "/implementation-artifacts",
+        )
+
+    def test_malformed_layer_warning_reaches_stderr(self):
+        # The resolver exits 0 and drops the bad layer. If we swallow its warning, a typo
+        # in a custom config silently reverts every path to the default.
+        _write(
+            os.path.join(self.project_root, "_bmad", "custom", "config.user.toml"),
+            "[modules.l3io-pm]\nthis is not = = valid toml\n",
+        )
+        err = io.StringIO()
+        with redirect_stderr(err):
+            cfg = dr.resolve_config(Path(self.project_root))
+        self.assertEqual(cfg["implementation_artifacts"], self.impl_artifacts)
+        self.assertIn("warning", err.getvalue().lower())
 
 
 if __name__ == "__main__":

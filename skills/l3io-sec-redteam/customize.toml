@@ -1,7 +1,8 @@
 # DO NOT EDIT -- overwritten on every update.
 #
 # Agent metadata for l3io-sec-redteam.
-# Override research_cache_ttl_days in {project-root}/_bmad/config.yaml under [l3io-sec].
+# Override research_cache_ttl_days in {project-root}/_bmad/custom/config.toml
+# under [modules.l3io-sec] (or config.user.toml for a personal override).
 
 [agent]
 

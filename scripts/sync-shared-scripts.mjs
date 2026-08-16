@@ -6,8 +6,14 @@
 // GENERATED — never hand-edit them.
 //
 // Shared files:
-//   pm-status.py / test-pm-status.py / resolve_config.py / memlog.py → scripts/ in PM execution skills
+//   pm-status.py / test-pm-status.py → scripts/ in PM execution skills
 //   status-files.md / metrics-contract.md → references/ in PM skills
+//   write-module-config.py → scripts/, config-resolution.md → references/,
+//   module-setup.md → assets/ in EVERY l3io skill
+//
+// Not shared, deliberately: resolve_config.py, resolve_customization.py and memlog.py are
+// installed by BMad core at {project-root}/_bmad/scripts/ and are never bundled by a skill.
+// Vendoring them shipped a stale duplicate of a core script that nothing invoked.
 //
 // Usage:
 //   node scripts/sync-shared-scripts.mjs           # write the per-skill payload copies
@@ -24,8 +30,15 @@ const sharedDir = path.join(repoRoot, "skills", "_shared");
 const pmScriptFiles = [
   { src: path.join(sharedDir, "pm-status.py"), rel: path.join("scripts", "pm-status.py") },
   { src: path.join(sharedDir, "tests", "test-pm-status.py"), rel: path.join("scripts", "tests", "test-pm-status.py") },
-  { src: path.join(sharedDir, "resolve_config.py"), rel: path.join("scripts", "resolve_config.py") },
-  { src: path.join(sharedDir, "memlog.py"), rel: path.join("scripts", "memlog.py") },
+];
+
+// Files every l3io skill ships, regardless of module: the config contract, the setup
+// procedure that points at it, and the script that setup runs.
+const allSkillFiles = [
+  { src: path.join(sharedDir, "write-module-config.py"), rel: path.join("scripts", "write-module-config.py") },
+  { src: path.join(sharedDir, "tests", "test-write-module-config.py"), rel: path.join("scripts", "tests", "test-write-module-config.py") },
+  { src: path.join(sharedDir, "config-resolution.md"), rel: path.join("references", "config-resolution.md") },
+  { src: path.join(sharedDir, "module-setup.md"), rel: path.join("assets", "module-setup.md") },
 ];
 
 const pmRefFiles = [
@@ -51,6 +64,18 @@ const newPmExecuteDirs = [
 const newPmSyncDirs = [
   path.join(repoRoot, "skills", "l3io-pm-sync"),
 ];
+
+// Every skill in the package — the four l3io modules' skills all resolve config and all
+// carry the same setup procedure.
+const allSkillDirs = [
+  "l3io-arch-review",
+  "l3io-pm-execute",
+  "l3io-pm-help",
+  "l3io-pm-plan",
+  "l3io-pm-sync",
+  "l3io-sec-redteam",
+  "l3io-util-cleanup",
+].map((name) => path.join(repoRoot, "skills", name));
 
 // Shared step files: source path → relative dest path within each skill's steps/ dir
 const sharedStepFiles = [
@@ -97,6 +122,8 @@ const syncStepFiles = [
 
 // Combined sync manifest: [{files, dirs, skipMissing}]
 const syncGroups = [
+  // Config contract + setup procedure + its writer script into every skill
+  { files: allSkillFiles, dirs: allSkillDirs },
   // Legacy: pm-status.py into old execution skills (kept for backward compat shape; skill dirs created in Tasks 5-9)
   { files: pmScriptFiles, dirs: pmScriptDirs },
   { files: pmRefFiles, dirs: allPmDirs },

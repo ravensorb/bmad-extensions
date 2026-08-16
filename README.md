@@ -63,7 +63,7 @@ Run in the project root — no prompts, no questions:
 npx bmad-method install --directory . --action quick-update --yes
 ```
 
-Reads the stored install config (tools, custom source) so nothing needs to be re-specified. Omitting `--modules` leaves core BMad skills untouched. Existing config (`_bmad/config.yaml`) is preserved and skills are refreshed in place.
+Reads the stored install config (tools, custom source) so nothing needs to be re-specified. Omitting `--modules` leaves core BMad skills untouched. Your `_bmad/custom/` config overrides are preserved and skills are refreshed in place.
 
 If upgrading from a version before 1.0.20 and you have an existing `sprint-status-active.yaml`, run `/l3io-util-cleanup rename-active` once after upgrading to migrate the file to the new name.
 

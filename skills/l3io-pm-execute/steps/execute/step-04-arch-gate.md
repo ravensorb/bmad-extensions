@@ -11,10 +11,15 @@ is required to run).
 Skip this step entirely and output `Step 04 skipped — work_type: {work_type}` if:
 - `{work_type}` is `DOCS` or `CONFIG`
 
-Check for l3io-arch-review installation:
+Check for l3io-arch-review installation against the installer's module manifest — not a
+config section, which an installed-but-unconfigured module does not have
+(`references/config-resolution.md` §6):
+
 ```bash
-grep -q "^l3io-arch:" {project-root}/_bmad/config.yaml 2>/dev/null && echo "present" || echo "absent"
+grep -qE "^[[:space:]]*-[[:space:]]*name:[[:space:]]*l3io-arch[[:space:]]*$" \
+  {project-root}/_bmad/_config/manifest.yaml 2>/dev/null && echo "present" || echo "absent"
 ```
+
 If absent:
 ```
 Step 04 skipped — l3io-arch-review not installed (required reviewer absent).

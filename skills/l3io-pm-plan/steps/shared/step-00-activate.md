@@ -9,15 +9,29 @@ any subsequent step file.
 
 ## 1. Load module configuration
 
-Read `{project-root}/_bmad/config.yaml`.
+Resolve config through BMad core's resolver — the full contract, including every
+binding and its default, is `{skill-root}/references/config-resolution.md`:
 
-If the file is absent or the `l3io-pm` module block is missing, this is a first-run:
-load `{skill-root}/assets/module-setup.md` and execute it fully before continuing
-with the steps below.
+```bash
+uv run --python 3.11 {project-root}/_bmad/scripts/resolve_config.py --project-root {project-root}
+```
 
-Extract and bind from config:
-- `{implementation_artifacts}` — absolute path to project's implementation artifacts directory
-- `{planning_artifacts}` — absolute path to planning artifacts directory
+If the resolver is missing or the command fails, BMad core is not installed in this
+project: **BLOCKED** — tell the user to run the BMad installer. Do not write config
+yourself and do not continue.
+
+`modules.l3io-pm` being absent is **not** a first-run and **not** an error — it means the
+module has no project-level overrides, which is the normal state. Bind the defaults below
+and continue. Load `{skill-root}/assets/module-setup.md` only when the user explicitly
+passes `setup`, `configure`, or `install`.
+
+Extract and bind from the resolved JSON:
+- `{communication_language}` — `core.communication_language` (default `English`)
+- `{output_folder}` — `core.output_folder` (default `{project-root}/_bmad-output`)
+- `{implementation_artifacts}` — `modules.l3io-pm.implementation_artifacts`
+  (default `{output_folder}/implementation-artifacts`)
+- `{planning_artifacts}` — `modules.l3io-pm.planning_artifacts`
+  (default `{output_folder}/planning-artifacts`)
 - Set `{pm_state_root}` = `{implementation_artifacts}/state`
 - Set `{pm_issues_file}` = `{pm_state_root}/issues.yaml`
 - Set `{pm_calibration_file}` = `{pm_state_root}/pm-calibration.yaml`
