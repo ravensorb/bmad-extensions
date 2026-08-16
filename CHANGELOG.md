@@ -2,6 +2,39 @@
 
 All notable changes to this project will be documented in this file. See [commit-and-tag-version](https://github.com/absolute-version/commit-and-tag-version) for commit guidelines.
 
+## [2.0.2](https://github.com/ravensorb/bmad-extensions/compare/2.0.1...2.0.2) (2026-08-16)
+
+
+### Features
+
+* **l3io-pm:** add calibration file I/O and calibration show ([1e7f670](https://github.com/ravensorb/bmad-extensions/commit/1e7f6706c3d4e31f60eafbe1f4f66265c63a6097))
+* **l3io-pm:** add estimate-rollup and bump pm-status.py to 2.1.0 ([d55598a](https://github.com/ravensorb/bmad-extensions/commit/d55598a4185e108f0d8b5cb027b5667d3cc77b53))
+* **l3io-pm:** add estimate-story ([7c772cd](https://github.com/ravensorb/bmad-extensions/commit/7c772cd22c62c08151936af6a8c871acbd39ce73))
+* **l3io-pm:** derive closure calibration samples ([ccb251e](https://github.com/ravensorb/bmad-extensions/commit/ccb251e8452b949c02cf113648f641c86cb734cc))
+* **l3io-pm:** derive story calibration samples ([de52f89](https://github.com/ravensorb/bmad-extensions/commit/de52f89baafe1fe17822ee7078879fb08b4480a2))
+* **l3io-pm:** emit calibration samples from set-actual ([498e242](https://github.com/ravensorb/bmad-extensions/commit/498e2421db5aced3b0c61d0c480e9f799bb4f141))
+* **l3io-pm:** record fix_factor and scope_ratio on estimates ([7b03d53](https://github.com/ravensorb/bmad-extensions/commit/7b03d53c3545c4fb0b1ad63c39eb3e0f11d95cf6))
+
+
+### Fixes
+
+* **infra:** resolve config through BMad core instead of a file BMad never creates ([deb1827](https://github.com/ravensorb/bmad-extensions/commit/deb18273b96ffc2e872e0d80f033293d82c3afb2))
+* **l3io-pm:** correct the calibration loop so it converges to truth ([1477fe7](https://github.com/ravensorb/bmad-extensions/commit/1477fe77958b4620aa2549f6ce7bf4bd4f0661d2))
+* **l3io-pm:** elaborate stories in place instead of spawning bmad-create-story ([6b6abb9](https://github.com/ravensorb/bmad-extensions/commit/6b6abb903df32d720088d9f25a9154787db6f89d))
+* **l3io-pm:** parse $-prefixed cost before the numeric guard ([d9b47cc](https://github.com/ravensorb/bmad-extensions/commit/d9b47cc02453e84d706bf85680620b6a74a21b49))
+
+
+### Documentation
+
+* add calibration mechanization design spec ([4cee74d](https://github.com/ravensorb/bmad-extensions/commit/4cee74da61a0bd14884177934f9898ef098ce674))
+* add calibration mechanization implementation plan (8 tasks) ([a7aff09](https://github.com/ravensorb/bmad-extensions/commit/a7aff09f3b84cc2dbad4ac89fb590cff6af76230))
+* bring architecture.md and l3io-pm-reference.md up to the current design ([06e206d](https://github.com/ravensorb/bmad-extensions/commit/06e206de2a0dc555ab97dd25c338dbd5869ac797))
+* **l3io-pm:** complete the dependency table and record declared-vs-invoked gaps ([50ff082](https://github.com/ravensorb/bmad-extensions/commit/50ff082cd950c8cdd266f794f90a4f31fefce7de))
+* **l3io-pm:** correct the QA row — no QA phase is actually invoked ([192cc89](https://github.com/ravensorb/bmad-extensions/commit/192cc8904d8d23c6dca8dda9d9ac0f5f510cd6b5))
+* **l3io-pm:** document the calibration loop that now runs ([cdaf550](https://github.com/ravensorb/bmad-extensions/commit/cdaf550e55115a734058258b1e16730488bc370d))
+* **l3io-pm:** fix false fix-factor claim in calibration worked example ([79b1959](https://github.com/ravensorb/bmad-extensions/commit/79b1959b4b818a846ad3cf3094443e96e4144c2e))
+* **l3io-pm:** fix two stale references surfaced during the create-story review ([7f13b66](https://github.com/ravensorb/bmad-extensions/commit/7f13b660b48306424750107fda425b00704df542))
+
 ## [2.0.1](https://github.com/ravensorb/bmad-extensions/compare/2.0.0...2.0.1) (2026-08-16)
 
 
