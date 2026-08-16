@@ -905,7 +905,7 @@ class TestEpicMoves(TestLayoutResolution):
         self.assertTrue(os.path.isdir(os.path.join(self.root, "archived", "epic-001")))
 
     def test_version_increments_for_self_install(self):
-        self.assertEqual(pm.PM_STATUS_VERSION, "2.1.0")
+        self.assertEqual(pm.PM_STATUS_VERSION, "2.2.0")
 
     def test_move_epic_already_in_place_is_noop(self):
         """E001 already lives under active/ — moving it to 'active' must return the
@@ -1297,7 +1297,8 @@ class TestClosureSampling(TestLayoutResolution):
         with open(path, "w") as f:
             y.dump(mapping, f)
 
-    def _sprint_with_stories(self, story_actuals, sprint_actual, sprint_estimate=None):
+    def _sprint_with_stories(self, story_actuals, sprint_actual, sprint_estimate=None,
+                             story_estimates=None):
         sd = os.path.join(self.root, "active", "epic-001", "sprint-01")
         for f in os.listdir(sd):
             if f.endswith(".yaml") and f != "sprint.yaml":
@@ -1307,6 +1308,8 @@ class TestClosureSampling(TestLayoutResolution):
                  "status": "done"}
             if a is not None:
                 m["actual"] = {"man_hours": a}
+            if story_estimates is not None:
+                m["estimate"] = {"man_hours": story_estimates[i - 1]}
             self._write(os.path.join(sd, f"E001-S01-{i:03d}.yaml"), m)
         sm = {"key": "S01", "epic": "E001", "status": "done"}
         if sprint_actual is not None:
@@ -1343,11 +1346,45 @@ class TestClosureSampling(TestLayoutResolution):
         self.assertIsNone(s)
 
     def test_record_appends_closure_sample(self):
+        # children estimated 3+4=7, parent estimated 8-9 (mid 8.5) -> estimated
+        # closure overhead 1.5; actual overhead 9-(3+4)=2 -> ratio 2/1.5
         self._sprint_with_stories([3.0, 4.0], 9.0,
-                                  {"man_hours_low": 1.0, "man_hours_high": 3.0})
+                                  {"man_hours_low": 8.0, "man_hours_high": 9.0},
+                                  story_estimates=[3.0, 4.0])
         pm.record_closure_sample(self.root, "sprint", "E001", "S01")
         _, cal = pm.load_calibration(self.root)
-        self.assertEqual(len(pm._component_samples(cal, "closure", "sprint", "man_hours")), 1)
+        samples = pm._component_samples(cal, "closure", "sprint", "man_hours")
+        self.assertEqual(len(samples), 1)
+        self.assertAlmostEqual(float(samples[0]), round(2.0 / 1.5, 4))
+
+    def test_closure_ratio_divides_by_estimated_overhead_not_whole_estimate(self):
+        # THE C2 REGRESSION: dividing by the whole parent estimate midpoint (8.5)
+        # would give 0.2353 and make the learned roll-up worse than cold start.
+        self._sprint_with_stories([3.0, 4.0], 9.0,
+                                  {"man_hours_low": 8.0, "man_hours_high": 9.0},
+                                  story_estimates=[3.0, 4.0])
+        s, reason = pm.derive_closure_sample(self.root, "sprint", "E001", "S01")
+        self.assertIsNotNone(s, reason)
+        self.assertAlmostEqual(s["ratios"]["man_hours"], 2.0 / 1.5)
+
+    def test_applied_closure_ratio_is_divided_back_out(self):
+        # a parent estimate written with an active ratio carries it on the block;
+        # the sample must remove it, or the loop settles on a geometric mean
+        self._sprint_with_stories([3.0, 4.0], 9.0,
+                                  {"man_hours_low": 8.0, "man_hours_high": 9.0,
+                                   "closure_ratios": {"man_hours": 2.0}},
+                                  story_estimates=[3.0, 4.0])
+        s, _ = pm.derive_closure_sample(self.root, "sprint", "E001", "S01")
+        self.assertAlmostEqual(s["ratios"]["man_hours"], 2.0 * 2.0 / 1.5)
+
+    def test_zero_estimated_overhead_skips_the_metric(self):
+        # parent estimated exactly its children -> nothing to measure against
+        self._sprint_with_stories([3.0, 4.0], 9.0,
+                                  {"man_hours_low": 7.0, "man_hours_high": 7.0},
+                                  story_estimates=[3.0, 4.0])
+        s, _ = pm.derive_closure_sample(self.root, "sprint", "E001", "S01")
+        self.assertNotIn("man_hours", s["ratios"])
+        self.assertIn("man_hours", s["skipped"])
 
     def test_dollar_prefixed_cost_contributes_to_closure_sample(self):
         # RULING A: cost is stored '$'-prefixed (metrics-contract.md §9); the
@@ -1376,7 +1413,8 @@ class TestClosureSampling(TestLayoutResolution):
         # calibration file must be migrated before a sample is appended, or
         # the sample lands in a "closure" structure v1 doesn't have.
         self._sprint_with_stories([3.0, 4.0], 9.0,
-                                  {"man_hours_low": 1.0, "man_hours_high": 3.0})
+                                  {"man_hours_low": 8.0, "man_hours_high": 9.0},
+                                  story_estimates=[3.0, 4.0])
         p = pm.calibration_path(self.root)
         with open(p, "w") as f:
             f.write("version: 1\nratio: 1.3\n")
@@ -1474,7 +1512,12 @@ class TestEstimateStory(TestLayoutResolution):
         self.assertAlmostEqual(float(est["man_hours"]),
                                round(mid * 1.0 * pm.COLD_START_FIX_FACTOR, 2))
         self.assertAlmostEqual(float(est["fix_factor"]), pm.COLD_START_FIX_FACTOR)
-        self.assertAlmostEqual(float(est["scope_ratio"]), pm.COLD_START_SCOPE_RATIO)
+        # per-metric, not a single scalar: the sample derivation divides the
+        # applied ratio back out and cannot reconstruct four from one
+        for m in ("man_hours", "time_hours", "tokens_k", "cost"):
+            self.assertAlmostEqual(float(est["scope_ratios"][m]),
+                                   pm.COLD_START_SCOPE_RATIO)
+        self.assertNotIn("scope_ratio", est)
 
     def test_calibrated_ratio_is_applied_once_active(self):
         y, cal = pm.load_calibration(self.root)
@@ -1483,7 +1526,11 @@ class TestEstimateStory(TestLayoutResolution):
         self.run_main(["estimate-story", "--state-root", self.root,
                        "--story", "E001-S01-003", "--classification", "complex"])
         _, node = pm.load_node(pm.story_file(self.root, "E001-S01-003"))
-        self.assertAlmostEqual(float(node["estimate"]["scope_ratio"]), 1.5)
+        ratios = node["estimate"]["scope_ratios"]
+        self.assertAlmostEqual(float(ratios["man_hours"]), 1.5)
+        # only man_hours had samples — the other three stay cold-start, which is
+        # exactly why one recorded scalar cannot stand in for all four
+        self.assertAlmostEqual(float(ratios["tokens_k"]), pm.COLD_START_SCOPE_RATIO)
 
     def test_unknown_story_exits_3(self):
         code, _ = self.run_main(
@@ -1552,6 +1599,344 @@ class TestEstimateRollup(TestLayoutResolution):
         self.assertEqual(code, 0, out)
         _, node = pm.load_node(pm.epic_file(self.root, "E001"))
         self.assertIn("man_hours_low", node["estimate"])
+
+
+class TestParallelClosureResidual(TestLayoutResolution):
+    """A negative residual must skip THAT METRIC, never the whole sample — and
+    wall-clock going negative is the expected topology under parallel execution,
+    not a miscount."""
+
+    def _write(self, path, mapping):
+        y = pm._yaml()
+        with open(path, "w") as f:
+            y.dump(mapping, f)
+
+    def _parallel_sprint(self):
+        sd = os.path.join(self.root, "active", "epic-001", "sprint-01")
+        for f in os.listdir(sd):
+            if f.endswith(".yaml") and f != "sprint.yaml":
+                os.remove(os.path.join(sd, f))
+        for i, (mh, eh) in enumerate([(12.0, 4.0), (12.0, 4.0)], start=1):
+            self._write(os.path.join(sd, f"E001-S01-{i:03d}.yaml"),
+                        {"key": f"E001-S01-{i:03d}", "epic": "E001", "sprint": "S01",
+                         "status": "done",
+                         "estimate": {"man_hours": 12.0, "time_hours": 4.0},
+                         "actual": {"man_hours": mh, "elapsed_hours": eh}})
+        # two stories ran concurrently: sprint wall-clock 3.0 < children's 8.0,
+        # while man-hours still add up (26 vs 24 -> 2.0 of closure overhead)
+        self._write(os.path.join(sd, "sprint.yaml"),
+                    {"key": "S01", "epic": "E001", "status": "done",
+                     "estimate": {"man_hours_low": 25.0, "man_hours_high": 29.0,
+                                  "time_hours_low": 9.0, "time_hours_high": 11.0},
+                     "actual": {"man_hours": 26.0, "elapsed_hours": 3.0}})
+
+    def test_parallel_wall_clock_does_not_discard_the_man_hours_sample(self):
+        self._parallel_sprint()
+        s, reason = pm.derive_closure_sample(self.root, "sprint", "E001", "S01")
+        self.assertIsNotNone(s, reason)
+        self.assertAlmostEqual(s["closure_actual"]["man_hours"], 2.0)
+        self.assertIn("man_hours", s["ratios"])
+        self.assertNotIn("time_hours", s["ratios"])
+
+    def test_negative_wall_clock_is_not_reported_as_a_miscount(self):
+        self._parallel_sprint()
+        s, _ = pm.derive_closure_sample(self.root, "sprint", "E001", "S01")
+        reason = s["skipped"]["time_hours"]
+        self.assertIn("parallel", reason.lower())
+        self.assertNotIn("miscounted", reason.lower())
+
+    def test_negative_man_hours_residual_still_warns_of_a_miscount(self):
+        self._parallel_sprint()
+        sd = os.path.join(self.root, "active", "epic-001", "sprint-01")
+        self._write(os.path.join(sd, "sprint.yaml"),
+                    {"key": "S01", "epic": "E001", "status": "done",
+                     "estimate": {"man_hours_low": 25.0, "man_hours_high": 29.0},
+                     "actual": {"man_hours": 20.0, "elapsed_hours": 3.0}})
+        s, reason = pm.derive_closure_sample(self.root, "sprint", "E001", "S01")
+        self.assertIsNone(s)
+        self.assertIn("miscounted", reason.lower())
+
+    def test_parallel_sprint_records_the_man_hours_closure_sample(self):
+        self._parallel_sprint()
+        note = pm.record_closure_sample(self.root, "sprint", "E001", "S01")
+        _, cal = pm.load_calibration(self.root)
+        self.assertEqual(len(pm._component_samples(cal, "closure", "sprint", "man_hours")), 1)
+        self.assertIn("parallel", note.lower())
+
+
+class TestSampleIdempotency(TestLayoutResolution):
+    """A second set-actual on the same node must not append a second sample set.
+    --no-calibrate exists, but relying on the caller to remember it is exactly
+    the failure mode the mechanization was built to end."""
+
+    def run_main(self, argv):
+        buf = io.StringIO()
+        try:
+            with redirect_stdout(buf):
+                code = pm.main(argv)
+        except SystemExit as e:
+            code = e.code
+        return code, buf.getvalue()
+
+    def _estimated_story(self):
+        p = pm.story_file(self.root, "E001-S01-003")
+        with open(p, "w") as f:
+            f.write("key: 'E001-S01-003'\nepic: 'E001'\nsprint: 'S01'\n"
+                    "status: review\nclassification: complex\n"
+                    "completion_evidence:\n  fix_iterations: 0\n"
+                    "estimate:\n  man_hours: 6\n  time_hours: 1.5\n"
+                    "  tokens_k: 320\n  cost: 4.80\n  fix_factor: 1.25\n"
+                    "  scope_ratios:\n    man_hours: 1.0\n    time_hours: 1.0\n"
+                    "    tokens_k: 1.0\n    cost: 1.0\n")
+
+    def _set_actual(self):
+        return self.run_main(
+            ["set-actual", "--state-root", self.root, "--node", "story",
+             "--story", "E001-S01-003", "--man-hours", "7"])
+
+    def test_replayed_set_actual_appends_nothing(self):
+        self._estimated_story()
+        self._set_actual()
+        code, out = self._set_actual()
+        self.assertEqual(code, 0, out)
+        _, cal = pm.load_calibration(self.root)
+        self.assertEqual(len(pm._component_samples(cal, "scope", "complex", "man_hours")), 1)
+        self.assertEqual(int(cal["fix"]["complex"]["clean"]["samples"]), 1)
+
+    def test_replay_is_reported_not_silent(self):
+        self._estimated_story()
+        self._set_actual()
+        _, out = self._set_actual()
+        self.assertIn("replay", out.lower())
+
+    def test_first_write_stamps_the_marker(self):
+        self._estimated_story()
+        self._set_actual()
+        _, node = pm.load_node(pm.story_file(self.root, "E001-S01-003"))
+        self.assertIn(pm.CALIBRATION_MARKER, node)
+
+    def test_closure_sample_is_idempotent_too(self):
+        sd = os.path.join(self.root, "active", "epic-001", "sprint-01")
+        y = pm._yaml()
+        for f in os.listdir(sd):
+            if f.endswith(".yaml") and f != "sprint.yaml":
+                os.remove(os.path.join(sd, f))
+        for i, v in enumerate([3.0, 4.0], start=1):
+            with open(os.path.join(sd, f"E001-S01-{i:03d}.yaml"), "w") as f:
+                y.dump({"key": f"E001-S01-{i:03d}", "epic": "E001", "sprint": "S01",
+                        "estimate": {"man_hours": v}, "actual": {"man_hours": v}}, f)
+        with open(os.path.join(sd, "sprint.yaml"), "w") as f:
+            y.dump({"key": "S01", "epic": "E001", "status": "done",
+                    "estimate": {"man_hours_low": 8.0, "man_hours_high": 9.0},
+                    "actual": {"man_hours": 9.0}}, f)
+        pm.record_closure_sample(self.root, "sprint", "E001", "S01")
+        note = pm.record_closure_sample(self.root, "sprint", "E001", "S01")
+        _, cal = pm.load_calibration(self.root)
+        self.assertEqual(len(pm._component_samples(cal, "closure", "sprint", "man_hours")), 1)
+        self.assertIn("replay", note.lower())
+
+
+class TestConcurrentSampling(unittest.TestCase):
+    """load->modify->save must run under ONE lock. Locking only the save let
+    parallel appends read the same pre-append state and clobber each other —
+    silently, at the DEFAULT max_parallel_subagents of 4."""
+
+    N = 12
+
+    def setUp(self):
+        self.d = tempfile.mkdtemp()
+        self.root = os.path.join(self.d, "state")
+        self.sd = os.path.join(self.root, "active", "epic-001", "sprint-01")
+        os.makedirs(self.sd)
+        with open(os.path.join(self.root, "active", "epic-001", "epic.yaml"), "w") as f:
+            f.write("key: 'E001'\nstatus: in-progress\n")
+        with open(os.path.join(self.sd, "sprint.yaml"), "w") as f:
+            f.write("key: 'S01'\nepic: 'E001'\nstatus: in-progress\n")
+        for i in range(1, self.N + 1):
+            with open(os.path.join(self.sd, f"E001-S01-{i:03d}.yaml"), "w") as f:
+                f.write(f"key: 'E001-S01-{i:03d}'\nepic: 'E001'\nsprint: 'S01'\n"
+                        f"status: review\nclassification: complex\n"
+                        f"completion_evidence:\n  fix_iterations: 0\n"
+                        f"estimate:\n  man_hours: 6\n  fix_factor: 1.25\n"
+                        f"  scope_ratios:\n    man_hours: 1.0\n")
+
+    def tearDown(self):
+        import shutil
+        shutil.rmtree(self.d, ignore_errors=True)
+
+    def test_concurrent_appends_lose_no_samples(self):
+        import subprocess
+        procs = [subprocess.Popen(
+            [sys.executable, SCRIPT, "set-actual", "--state-root", self.root,
+             "--node", "story", "--story", f"E001-S01-{i:03d}", "--man-hours", str(6 + i)],
+            stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+            for i in range(1, self.N + 1)]
+        for p in procs:
+            out, err = p.communicate(timeout=120)
+            self.assertEqual(p.returncode, 0, err.decode())
+        _, cal = pm.load_calibration(self.root)
+        self.assertEqual(len(pm._component_samples(cal, "scope", "complex", "man_hours")),
+                         self.N)
+        self.assertEqual(int(cal["fix"]["complex"]["clean"]["samples"]), self.N)
+
+
+class TestConvergence(TestLayoutResolution):
+    """Multi-generation convergence — the property every single-sample test
+    misses. Each case drives the real loop (estimate -> actual -> re-estimate)
+    against a FIXED ground truth for enough generations that a ratio activates
+    and feeds back into the next estimate.
+
+    Pre-fix, the scope loop settled on sqrt(truth x band_mid) and the closure
+    loop moved the roll-up AWAY from its own observed total. Both are asserted
+    against here directly.
+    """
+
+    TRUTH_MAN_HOURS = 24.0                     # stable ground truth, well above
+    BAND_MID = 12.0                            # the complex band midpoint (8-16)
+
+    def run_main(self, argv):
+        buf = io.StringIO()
+        try:
+            with redirect_stdout(buf):
+                code = pm.main(argv)
+        except SystemExit as e:
+            code = e.code
+        self.assertEqual(code, 0, buf.getvalue())
+        return buf.getvalue()
+
+    # --- scope ------------------------------------------------------------ #
+    def _new_story(self, i):
+        key = f"E001-S01-{i:03d}"
+        with open(os.path.join(self.root, "active", "epic-001", "sprint-01",
+                               f"{key}.yaml"), "w") as f:
+            f.write(f"key: '{key}'\nepic: 'E001'\nsprint: 'S01'\nstatus: review\n")
+        return key
+
+    def _scope_generation(self, i):
+        """One full turn of the loop, in the order step-03-dev-loop.md runs it:
+        estimate -> fix_iterations -> actual (which samples)."""
+        key = self._new_story(i)
+        self.run_main(["estimate-story", "--state-root", self.root, "--story", key,
+                       "--classification", "complex"])
+        _, node = pm.load_node(pm.story_file(self.root, key))
+        est = node["estimate"]
+        self.run_main(["set-field", "--state-root", self.root, "--story", key,
+                       "--field", "completion_evidence.fix_iterations", "--value", "0"])
+        self.run_main(["set-actual", "--state-root", self.root, "--node", "story",
+                       "--story", key, "--man-hours", str(self.TRUTH_MAN_HOURS)])
+        return float(est["man_hours"]) / float(est["fix_factor"])
+
+    def test_scope_estimate_converges_toward_the_ground_truth(self):
+        scope_estimates = [self._scope_generation(i) for i in range(1, 13)]
+        final = scope_estimates[-1]
+        # the scope component (estimate net of the fix reserve) reaches truth
+        self.assertAlmostEqual(final, self.TRUTH_MAN_HOURS, delta=0.05 * self.TRUTH_MAN_HOURS)
+        # and it moved TOWARD it, not away
+        self.assertLess(abs(final - self.TRUTH_MAN_HOURS),
+                        abs(scope_estimates[0] - self.TRUTH_MAN_HOURS))
+
+    def test_scope_does_not_settle_on_the_geometric_mean(self):
+        # the pre-fix fixed point: sqrt(truth x band_mid) = sqrt(24 x 12) = 16.97
+        geometric = (self.TRUTH_MAN_HOURS * self.BAND_MID) ** 0.5
+        final = [self._scope_generation(i) for i in range(1, 13)][-1]
+        self.assertGreater(abs(final - geometric), 2.0)
+
+    def test_scope_ratio_reaches_truth_over_band_midpoint(self):
+        for i in range(1, 13):
+            self._scope_generation(i)
+        _, cal = pm.load_calibration(self.root)
+        ratio = pm.active_scope_ratio(cal, "complex", "man_hours")
+        self.assertAlmostEqual(ratio, self.TRUTH_MAN_HOURS / self.BAND_MID, delta=0.05)
+
+    # --- perfect estimate: no drift --------------------------------------- #
+    def test_calibrated_component_does_not_drift_on_a_perfect_estimate(self):
+        y, cal = pm.load_calibration(self.root)
+        cal["scope"]["complex"] = {"man_hours": {"samples": [2.0, 2.0, 2.0]}}
+        pm.save_calibration(y, cal, self.root)
+        for i in range(20, 26):
+            key = self._new_story(i)
+            self.run_main(["estimate-story", "--state-root", self.root, "--story", key,
+                           "--classification", "complex"])
+            _, node = pm.load_node(pm.story_file(self.root, key))
+            est = node["estimate"]
+            # the estimate is exactly right: its scope half equals the truth it
+            # was built from, and the story consumed no fix reserve
+            actual = float(est["man_hours"]) / float(est["fix_factor"])
+            self.run_main(["set-field", "--state-root", self.root, "--story", key,
+                           "--field", "completion_evidence.fix_iterations", "--value", "0"])
+            self.run_main(["set-actual", "--state-root", self.root, "--node", "story",
+                           "--story", key, "--man-hours", str(actual)])
+            _, cal2 = pm.load_calibration(self.root)
+            self.assertAlmostEqual(pm.active_scope_ratio(cal2, "complex", "man_hours"),
+                                   2.0, delta=1e-6)
+
+    def test_backout_path_sample_is_neutral_when_actual_equals_estimate(self):
+        node = {"key": "E001-S01-003", "classification": "complex",
+                "completion_evidence": {"fix_iterations": 2},
+                "estimate": {"man_hours": 10.0, "fix_factor": 1.25,
+                             "scope_ratios": {"man_hours": 1.4}},
+                "actual": {"man_hours": 10.0}}
+        s = pm.derive_story_sample(node)
+        self.assertAlmostEqual(s["scope_ratios"]["man_hours"], 1.4)
+
+    # --- closure ----------------------------------------------------------- #
+    CHILD_ESTIMATE = 10.0
+    CHILDREN = 4
+    TRUE_CLOSURE_OVERHEAD = 8.0
+
+    def _make_sprint(self, n):
+        """A sprint whose 4 stories were each estimated exactly right, plus a
+        closure overhead that is the same 8.0 every single time."""
+        skey = f"S{n:02d}"
+        sd = os.path.join(self.root, "active", "epic-001", f"sprint-{n:02d}")
+        os.makedirs(sd, exist_ok=True)
+        y = pm._yaml()
+        for i in range(1, self.CHILDREN + 1):
+            with open(os.path.join(sd, f"E001-{skey}-{i:03d}.yaml"), "w") as f:
+                y.dump({"key": f"E001-{skey}-{i:03d}", "epic": "E001", "sprint": skey,
+                        "status": "done",
+                        "estimate": {"man_hours": self.CHILD_ESTIMATE},
+                        "actual": {"man_hours": self.CHILD_ESTIMATE}}, f)
+        with open(os.path.join(sd, "sprint.yaml"), "w") as f:
+            y.dump({"key": skey, "epic": "E001", "status": "in-progress"}, f)
+        return skey
+
+    def _rollup_mid(self, skey):
+        self.run_main(["estimate-rollup", "--state-root", self.root,
+                       "--epic", "E001", "--sprint", skey])
+        _, node = pm.load_node(pm.sprint_file(self.root, "E001", skey))
+        est = node["estimate"]
+        return (float(est["man_hours_low"]) + float(est["man_hours_high"])) / 2.0
+
+    def _closure_generation(self, n):
+        skey = self._make_sprint(n)
+        mid = self._rollup_mid(skey)
+        total_actual = self.CHILDREN * self.CHILD_ESTIMATE + self.TRUE_CLOSURE_OVERHEAD
+        self.run_main(["set-actual", "--state-root", self.root, "--node", "sprint",
+                       "--epic", "E001", "--sprint", skey,
+                       "--man-hours", str(total_actual)])
+        return mid
+
+    def test_learned_closure_rollup_is_closer_to_truth_than_cold_start(self):
+        truth = self.CHILDREN * self.CHILD_ESTIMATE + self.TRUE_CLOSURE_OVERHEAD  # 48
+        cold_start = self._closure_generation(2)
+        for n in range(3, 9):
+            self._closure_generation(n)
+        learned = self._rollup_mid(self._make_sprint(9))
+        self.assertLess(abs(learned - truth), abs(cold_start - truth))
+        self.assertAlmostEqual(learned, truth, delta=0.01 * truth)
+
+    def test_closure_ratio_is_stable_across_generations(self):
+        # every generation observes the same 8.0 of overhead, so the ratio must
+        # stop moving once it is active — not oscillate around a geometric mean
+        for n in range(2, 9):
+            self._closure_generation(n)
+        _, cal = pm.load_calibration(self.root)
+        samples = [float(s) for s in
+                   pm._component_samples(cal, "closure", "sprint", "man_hours")]
+        self.assertGreaterEqual(len(samples), 6)
+        for s in samples[3:]:
+            self.assertAlmostEqual(s, samples[0], delta=0.01)
 
 
 if __name__ == "__main__":

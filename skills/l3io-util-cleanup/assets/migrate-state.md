@@ -42,7 +42,7 @@ current version). Check its version marker before proceeding — Stage E below c
 now with an actionable message rather than letting Stage E fail on an opaque argparse error:
 
 ```bash
-REQUIRED="2.1.0"
+REQUIRED="2.2.0"
 FOUND=$(grep -m1 "pm-status-version:" "{pm_status}" 2>/dev/null | sed 's/.*pm-status-version://' | awk '{print $1}')
 echo "required=$REQUIRED found=${FOUND:-none}"
 ```

@@ -43,10 +43,15 @@ python3 {pm_status} estimate-story \
   [--confidence {low|medium|high}]
 ```
 
-`--confidence` is optional — omit it to let `estimate-story` derive `medium`/`low` from
-whether a field is present, per `metrics-contract.md` §4. Do not hand-compute the estimate
-arithmetic in this step; a re-derivation here can drift from what `estimate-story` actually
-applies.
+`--confidence` is optional, and **omitting it writes no `confidence` field at all** —
+`estimate-story` records it only when it is passed. (The `medium`/`low` derivation from field
+completeness belongs to `set-estimate`, not here; see `metrics-contract.md` §4.) Do not
+hand-compute the estimate arithmetic in this step; a re-derivation here can drift from what
+`estimate-story` actually applies.
+
+`estimate-story` records the factors it applied — `fix_factor`, plus `scope_ratios` with one
+entry per metric — on the estimate block. The calibration sample divides them back out, so
+never hand-edit or strip them.
 
 ## 3. Roll up sprint and epic estimates
 

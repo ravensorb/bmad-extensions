@@ -78,8 +78,12 @@ python3 {pm_status} set-status \
 
 Nothing to do here — the `set-actual --node sprint` call in step 2 already derived and
 appended the sprint's closure calibration sample as part of that write (unless
-`--no-calibrate` was passed). A skipped sample (missing child actual, negative residual, or
-no comparable estimate range) is reported on stderr by that call, not here; see
+`--no-calibrate` was passed). Skips are **reported on stdout**, in the `[...]` suffix of
+that call's own `OK set-actual …` line, not here and not on stderr. Each names its metric
+and its reason (missing child actual or estimate, no comparable estimate range, estimated
+closure overhead ≤ 0, negative residual); a skipped metric does not stop the others from
+recording. A `time_hours` skip naming parallel execution is expected whenever the sprint's
+stories ran concurrently — the sprint's wall-clock is legitimately below their sum. See
 `references/metrics-contract.md` §8.
 
 ## 6. Required exit status line

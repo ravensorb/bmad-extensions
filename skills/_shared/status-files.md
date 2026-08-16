@@ -345,9 +345,14 @@ different stories, different sprints, or different epics never contend for the s
 
 `issues.yaml` is not the only shared-append target — `pm-calibration.yaml` is a second one.
 Every `set-actual` across every epic and every parallel subagent may append a calibration
-sample to it (§8 of `metrics-contract.md`), so `save_calibration` always acquires an
-exclusive flock before writing, unconditionally — there is no `--flock` flag to remember for
-it, the same way `append-issue`'s flock is automatic rather than opt-in. Contrast this with
+sample to it (§8 of `metrics-contract.md`), so the **whole read-modify-write cycle** —
+load, append the sample, save — runs inside one exclusive flock (`calibration_lock`), not
+just the save. Locking only the save is not sufficient and was not safe: two concurrent
+samplers each loaded the same pre-append state and the second save silently dropped the
+first's sample, with both calls still exiting 0. There is no `--flock` flag to remember for
+it, the same way `append-issue`'s flock is automatic rather than opt-in. The lock is
+re-entrant within a process, so `save_calibration` nests inside it rather than deadlocking
+against its own flock. Contrast this with
 per-epic node files (`epic.yaml`, `sprint.yaml`, story `.yaml`), which need no flock at all
 because sharding gives each epic its own directory — `pm-calibration.yaml` and `issues.yaml`
 are the two files sharding does not shard, because both are inherently cross-epic

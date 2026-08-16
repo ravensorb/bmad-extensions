@@ -59,6 +59,12 @@ estimate:
   tokens_k: 320
   cost: 4.80
   confidence: high         # low | medium | high
+  fix_factor: 1.25         # the fix multiplier applied (one per classification)
+  scope_ratios:            # the scope ratio applied, PER METRIC — load-bearing
+    man_hours: 1.1         #   (see §8: the sample divides these back out)
+    time_hours: 1.0
+    tokens_k: 1.0
+    cost: 1.0
 
 # sprint and epic nodes — estimate is low/high ranges
 estimate:
@@ -70,6 +76,11 @@ estimate:
   tokens_k_max: 950
   cost_low: 9.00
   cost_high: 14.25
+  closure_ratios:          # the closure ratio applied, PER METRIC — load-bearing
+    man_hours: 1.14        #   (see §8; 1.0 means the cold-start band applied)
+    time_hours: 1.0
+    tokens_k: 1.0
+    cost: 1.0
   confidence: high
 
 # actual — identical at story, sprint, and epic level; always single values
@@ -78,17 +89,40 @@ actual:
   man_hours: 15
   tokens_k: 812
   cost: 12.18
+
+# stamped by set-actual once the node's calibration sample has been emitted;
+# a later set-actual on the same node records nothing (§8, Idempotency)
+calibration_sampled_at: '2026-08-16T22:34:03Z'
 ```
+
+`scope_ratios` / `closure_ratios` are written by `estimate-story` / `estimate-rollup`. A
+single scalar `scope_ratio` (what `set-estimate --scope-ratio` writes, and what
+`estimate-story` wrote before 2.2.0) is still accepted as a fallback for all four metrics,
+but it cannot express four independently calibrated corrections and is no longer produced by
+`estimate-story`.
 
 `METRIC_FIELDS` in `pm-status.py` is exactly `("elapsed_hours", "man_hours", "tokens_k",
 "cost")`. Those four names, in that order, are what `verify` requires and what `show` sums.
 
-**`cost` is written as a string.** `set-actual` coerces `cost` to a single-quoted scalar
-regardless of what is passed; `set-estimate` coerces `cost`/`cost_low`/`cost_high` through
-`str`. Pass a **bare decimal with no currency symbol** — `--cost 12.18`, never
-`--cost '$12.18'`. A `$`-prefixed value is stored without complaint but fails the `float()`
-conversion in the roll-up accumulator, so it is silently dropped from every `show` total.
-Currency symbols belong in prose reports, never in the state files.
+**`cost`'s on-disk type is command-dependent** — the writers disagree, and the docs follow
+the code rather than pretending otherwise:
+
+| Writer | `cost` is written as |
+|---|---|
+| `set-actual` | a single-quoted **string** (`_coerce` wraps it in `SingleQuotedScalarString`) |
+| `set-estimate` | a **string** (`cost`/`cost_low`/`cost_high` coerced through `str`) |
+| `estimate-story` | a **float** (`round(value, 2)`) |
+| `estimate-rollup` | a **float** (`round(value, 2)`) |
+
+Every reader on the calibration and roll-up paths goes through `_num_or_none`, which parses
+both forms (and strips a leading `$`), so the divergence is harmless there and was left
+alone deliberately: normalizing it would rewrite the quoting of every existing state file
+for no behavioural gain. `_accumulate_actuals` (what `show` sums) is the one reader that
+does a bare `float()` — it handles a plain numeric string fine but **drops a `$`-prefixed
+value silently**.
+
+So: pass a **bare decimal with no currency symbol** — `--cost 12.18`, never
+`--cost '$12.18'`. Currency symbols belong in prose reports, never in the state files.
 
 `tokens_k` is stored as an int when the value is integral, otherwise a float.
 `elapsed_hours` and `man_hours` are floats.
@@ -278,12 +312,14 @@ block. See §8 for how those two multipliers are derived.
 Stories store the band **midpoint × ratio × fix** as a single value; ranges appear only at
 sprint and epic level.
 
-**The written `estimate.scope_ratio` is a single number, not one per metric**, even though
-the arithmetic above looks up a separate ratio for each of the four metrics. `estimate-story`
-records whichever metric it computed first (`man_hours`, by `BASE_BANDS` key order) as
-`scope_ratio` and moves on — it is informational provenance for a human reading the file,
-not a value anything reads back. Do not treat it as "the" ratio that was applied to
-`tokens_k` or `cost`; those may differ once each metric has its own ≥3 samples.
+**`estimate-story` records one ratio PER METRIC**, as `estimate.scope_ratios`. This is
+load-bearing, not provenance: `derive_story_sample` divides the applied ratio back out so the
+next sample is measured against the base band (§8), and four independently calibrated metrics
+cannot be reconstructed from one recorded number. An earlier revision wrote a single
+`scope_ratio` scalar — whichever metric came first by `BASE_BANDS` key order — on the
+grounds that nothing read it back. Something does. A scalar `scope_ratio` is still *read* as
+a fallback for all four metrics (that is what `set-estimate --scope-ratio` writes, and what
+estimates written before 2.2.0 carry), but it is no longer written by `estimate-story`.
 
 ### Roll-up mechanics
 
@@ -299,9 +335,12 @@ python3 {pm_status} estimate-rollup --state-root {pm_state_root} --epic {epic_ke
 - `time_hours_low/high` = Σ child `time_hours` (no `parallel_factor` compression is applied
   by `estimate-rollup` — the sum is the wall-clock sum of the children as estimated).
 - Closure band: apply the calibrated `closure` ratio for that level when it has activated
-  (`total × (1 + ratio × band)`); otherwise the cold-start band applies at both ends
-  (`COLD_START_CLOSURE_BAND = (0.10, 0.25)` — **10%/25% at every level**, sprint and epic
-  alike; there is no separate 15%/20% split).
+  (`total × (1 + ratio × band)`); otherwise the cold-start band applies at both ends, which
+  is the same formula at `ratio = 1.0` (`COLD_START_CLOSURE_BAND = (0.10, 0.25)` —
+  **10%/25% at every level**, sprint and epic alike; there is no separate 15%/20% split).
+- The applied ratios are recorded per metric as `estimate.closure_ratios`, for the same
+  reason `estimate-story` records `scope_ratios`: the closure sample divides them back out
+  (§8).
 
 ## 7. The fix reserve
 
@@ -388,34 +427,98 @@ figure) is circular for a `fix` sample: it divides by the very number it is tryi
 so `fix` could only ever re-derive its own prior. `derive_story_sample` avoids this for the
 `fix` side by using `completion_evidence.fix_iterations` directly:
 
-**The scope-ratio formula never changes.** Whenever a `fix_factor` is present on the
-estimate, every scope ratio — `exact` or `backout` alike — is computed as `actual ×
-applied_fix_factor / estimate`, per metric. A pure-scope (zero-rework) actual is still being
-compared against an estimate that already had the fix multiplier baked into it at
-`estimate-story` time, so it still needs that same multiplier applied before the comparison
-is fair. **`exact` vs. `backout` changes only the provenance label and which `fix` cohort the
-man-hours actual feeds — never the arithmetic.**
+**The sample must be measured against the BASE BAND, not against the last estimate.** The
+estimate is `band_mid × scope_ratio_applied × fix_factor`, so a raw `actual / estimate`
+measures error against an estimate that already contains the previous ratio. Feeding that
+back as the next ratio makes the loop converge to `√(truth ÷ band_mid)` — a permanent
+underestimate that no volume of data closes — and means a perfect estimate never produces a
+neutral sample. `derive_story_sample` therefore divides the applied ratio back out, per
+metric, using `estimate.scope_ratios[metric]` (falling back to a scalar `scope_ratio`, then
+to `1.0`).
+
+**The two paths differ arithmetically**, which is what makes approach A a real back-out
+rather than a relabelling:
+
+- **`fix_iterations == 0`** (and a `fix_factor` is present) — the story needed no rework, so
+  the actual is pure scope. `provenance: exact`:
+
+  ```
+  sample = actual × scope_ratio_applied × fix_factor / estimate     ( = actual / band_mid )
+  ```
+
+  Man-hours also feed the `clean` cohort of `fix` unmodified.
+
+- **`fix_iterations > 0`, or the field is absent entirely** (a `fix_factor` is present, but
+  the completion evidence doesn't say zero) — the actual mixes scope and rework, so the
+  scope portion is `actual ÷ fix_factor` and the fix factor **cancels**.
+  `provenance: backout`:
+
+  ```
+  sample = actual × scope_ratio_applied / estimate     ( = actual / (band_mid × fix_factor) )
+  ```
+
+  When `fix_iterations` is a real number `> 0`, man-hours also feed the `reworked` cohort;
+  when the field is simply **absent**, no fix-cohort sample is recorded — there's a fix
+  factor to back out arithmetically, but no iteration count to say which cohort the
+  man-hours belong to.
 
 - **The estimate has no `fix_factor` recorded at all** (a story estimated before
   `estimate-story` existed, or estimated by hand) — `provenance: legacy`, checked first and
-  independent of `fix_iterations`. `derive_story_sample` still computes a scope ratio, but
-  with `fix_factor = 1.0` since there is none to apply, and records no fix-cohort sample:
-  there is nothing to attribute rework to without knowing what fix multiplier, if any, was
-  baked into the estimate.
-- **`fix_iterations == 0`** (and a `fix_factor` is present) — the story needed no rework.
-  `provenance: exact` — the scope ratio (still `actual × fix_factor / estimate`) is treated
-  as a clean read on the scope component, with no back-out uncertainty, because there was no
-  rework to conflate it with. Man-hours also feed the `clean` cohort of `fix` unmodified.
-- **`fix_iterations > 0`, or the field is absent entirely** (a `fix_factor` is present, but
-  the completion evidence doesn't say zero) — `provenance: backout`. The label reflects that
-  this actual mixes scope and rework and the split is inferred rather than known, but the
-  ratio formula applied is identical to the `exact` case above. When `fix_iterations` is a
-  real number `> 0`, man-hours also feed the `reworked` cohort; when the field is simply
-  **absent**, no fix-cohort sample is recorded either — there's a fix factor to back out
-  arithmetically, but no iteration count to say which cohort the man-hours belong to.
+  independent of `fix_iterations`. Both missing factors are treated as `1.0`, so the sample
+  is `actual / estimate`; the label preserves the imprecision for a later audit. No
+  fix-cohort sample is recorded: there is nothing to attribute rework to without knowing
+  what fix multiplier, if any, was baked into the estimate.
+
+A consequence worth stating plainly: on the `exact` path a story that consumes its entire
+fix reserve without any rework produces a sample of `ratio × fix_factor`, because that
+really is evidence that scope was under-modelled by the reserve. On the `backout` path,
+`actual == estimate` produces exactly the ratio that was applied — a neutral sample.
+
+**`fix_iterations` must be on the node BEFORE `set-actual` runs.** The sample is derived
+inside `set-actual`, so evidence written afterwards is invisible to it:
+`provenance: exact` becomes unreachable, neither `fix` cohort ever fills, and `F` = 1.25
+freezes. `steps/sprint/step-03-dev-loop.md` §4 writes the completion evidence first for
+exactly this reason.
 
 `derive_story_sample` returns `None` — no sample at all — when the node has no `estimate` or
 no `actual` block, or when every metric's estimate/actual pair is missing/`N/A`/zero.
+
+### Closure sampling — the residual and its denominator
+
+```
+closure actual   = actual(parent) − Σ actual(children)
+closure expected = midpoint(parent estimate) − Σ estimate(children)
+sample           = closure actual × closure_ratio_applied / closure expected
+```
+
+**The denominator must be the quantity the ratio is applied to.** `estimate-rollup` applies
+the learned ratio to the closure band alone (`total × (1 + ratio × band)`), so dividing the
+residual by the *whole* parent estimate midpoint measures a different quantity than the one
+being corrected and the loop cannot converge — with a perfectly consistent history it moved
+the roll-up *away* from the observed total. And, exactly as with `scope`, the estimated
+overhead already contains the ratio that was applied when the parent estimate was written
+(`estimate.closure_ratios[metric]`, `1.0` when absent), so that ratio is divided back out.
+
+Worked: four children estimated 10 each (Σ 40), true closure overhead 8 every time, true
+total 48. Cold start rolls up to `40 × (1 + 1.0 × 0.175) = 47`, expected overhead 7, sample
+`8 × 1.0 / 7 = 1.143`. Once active, `40 × (1 + 1.143 × 0.175) = 48.0` — the observed total —
+and every later generation samples `8 × 1.143 / 8 = 1.143` again, so the ratio holds.
+
+### Idempotency
+
+`set-actual` stamps `calibration_sampled_at` on the node once it has emitted that node's
+sample. A second `set-actual` on the same node records nothing and says so in its stdout
+suffix (`sample already recorded at … — skipped (replay)`). `--no-calibrate` still exists
+for backfills, but correctness no longer depends on the caller remembering it.
+
+### Concurrency
+
+`pm-calibration.yaml` is a shared append target — every `set-actual`, across every parallel
+subagent, may append to it. The **whole load → mutate → save cycle** runs under one
+exclusive `flock` (`calibration_lock`), not just the save: locking only the save let two
+concurrent samplers read the same pre-append state and the second one silently drop the
+first's sample. At the default `max_parallel_subagents = 4` that lost roughly half of all
+samples, with every call still exiting 0.
 
 ### The `fix` cohorts
 
@@ -467,8 +570,10 @@ newest last) — the weighted mean is computed on read by `weighted_ratio`, neve
 not a file field; it is `active_fix_factor(cal, classification)`, computed on read from the
 two cohort means, and only returned once both cohorts clear `MIN_SAMPLES`.
 
-A scope/closure ratio is `actual / estimate` (accounting for the applied fix factor per
-"The scope/fix split" above), so `> 1.0` means the estimates were optimistic. A component
+A `scope` ratio is `actual / band_mid` (or `actual / (band_mid × fix_factor)` on the backout
+path) and a `closure` ratio is `closure actual / closure expected` — both with the applied
+ratio divided back out per "The scope/fix split" and "Closure sampling" above — so `> 1.0`
+means the estimates were optimistic. A component
 below its activation threshold is recorded but **not applied** — `estimate-story` and
 `estimate-rollup` fall back to the cold-start prior for that metric/bucket.
 
@@ -502,16 +607,22 @@ sampling write paths migrate, and only at the moment they are about to append.
   stderr, and never fails the actuals write — the actual is the primary record; the
   calibration sample is derived, secondary data. The `set-actual` stdout line reports what
   was recorded (e.g. `scope+3 metrics, provenance=exact, class=complex`) or why nothing was
-  (e.g. `no sample (missing estimate or actual)`).
+  (e.g. `no sample (missing estimate or actual)`). **Skip reasons go to stdout**, inside that
+  `[...]` suffix — only an unexpected exception warns on stderr.
 - **`calibration show`** is read-only. A missing file reports cold-start for every component
   and exits `0` — there is no error state for "no calibration data yet."
-- **Closure sampling skips rather than records** on three specific conditions, each because
-  recording anyway would silently bias the ratio: a child missing that metric's actual
-  (partial sum understates overhead, permanently, since a low ratio has no marker saying it
-  was incomplete); a negative residual — parent actual below the children's sum — which
-  aborts the whole closure sample rather than just that metric, because a negative overhead
-  means something was miscounted, not merely incomplete; and an `N/A` `tokens_k`/`cost` on
-  either side, which skips just that metric while `man_hours`/`elapsed_hours` still record.
+- **Closure sampling skips PER METRIC, with a reason**, never aborting the other metrics'
+  samples, because recording anyway would silently bias the ratio: a child missing that
+  metric's actual or estimate (a partial sum understates overhead, permanently, since a low
+  ratio has no marker saying it was incomplete); an estimated closure overhead of `≤ 0`
+  (nothing to measure the residual against); a negative residual; and an `N/A`
+  `tokens_k`/`cost` on either side. Only when *no* metric produces a residual is the whole
+  sample skipped.
+- **A negative wall-clock residual is expected, not a miscount.** Under
+  `parallel_mode = "auto"` a sprint's stories overlap, so the sprint's `elapsed_hours` is
+  legitimately below the sum of its stories'. `time_hours` is skipped with a reason naming
+  parallelism; `man_hours`, `tokens_k` and `cost` are additive regardless of concurrency, so
+  a negative residual there keeps the miscount warning.
 
 See §9 for the disagreements this closes and the ones that remain open.
 
@@ -543,8 +654,11 @@ that claim (§8, Granularity). The rest were untouched by this round and remain 
 6. **`--require-tokens` on `verify` is undocumented in `CLAUDE.md`.** It forces the
    Claude-strict token/cost rule irrespective of `--runtime`.
 
-7. **Estimate/actual `cost` is a string, not a number**, despite the unquoted numeric form
-   shown in `status-files.md` §4's examples. See §2 for the currency-symbol trap.
+7. **Estimate/actual `cost`'s type depends on which command wrote it** — a quoted string
+   from `set-estimate`/`set-actual`, a float from `estimate-story`/`estimate-rollup` —
+   despite the single unquoted numeric form shown in `status-files.md` §4's examples. The
+   divergence is left as-is deliberately; see §2 for the full table and the currency-symbol
+   trap.
 
 ## 10. Worked example
 
@@ -557,7 +671,7 @@ covers this classification), but `scope.complex.man_hours` already active at rat
 ```bash
 python3 {pm_status} estimate-story --state-root {pm_state_root} \
   --story E001-S01-003 --classification complex
-# OK estimate-story E001-S01-003 class=complex scope_ratio=1.1 fix_factor=1.25
+# OK estimate-story E001-S01-003 class=complex scope_ratios[man_hours=1.1 time_hours=1.0 tokens_k=1.0 cost=1.0] fix_factor=1.25
 ```
 
 `estimate-story` looks up `BASE_BANDS["complex"]` (man_hours 8–16, time_hours 2–6, tokens_k
@@ -572,9 +686,10 @@ tokens_k   =140 × 1.00 × 1.25 =175        (scope ratio cold-start, rounded to 
 cost       =0.975× 1.00 × 1.25 = 1.22     (scope ratio cold-start)
 ```
 
-The written `estimate.scope_ratio` is `1.1` — the `man_hours` ratio, recorded first and
-carried as provenance only; `time_hours`/`tokens_k`/`cost` were each computed with their own
-(here, cold-start) ratio, not with `1.1`.
+The written `estimate.scope_ratios` is `{man_hours: 1.1, time_hours: 1.0, tokens_k: 1.0,
+cost: 1.0}` — one entry per metric, each the ratio actually applied to that metric. The
+sample derivation reads these back individually; a single recorded number could not
+reconstruct four different corrections.
 
 **Actual.** The story runs under Claude, needs **one** fix iteration
 (`completion_evidence.fix_iterations: 1`, written via `set-field` before closeout), and
@@ -598,26 +713,34 @@ python3 {pm_status} verify --state-root {pm_state_root} \
 Had `--cost N/A` been passed with `--runtime claude`, `set-actual` would have exited **2**
 before writing anything, and no calibration sample would have been derived.
 
-**What `set-actual` derived, inline.** `fix_iterations` is `1`, not `0`, so provenance is
-`backout`, not `exact`. The ratio formula itself does not depend on that: `derive_story_sample`
-computes `actual × fix_factor / estimate` for each metric on both `exact` and `backout`
-alike (`fix_factor` is present here, so it applies either way) — provenance and cohort
-attribution are the only things `fix_iterations` changes.
+**What `set-actual` derived, inline.** `fix_iterations` is `1`, not `0`, so this is the
+**backout** path: the actual mixes scope and rework, the scope portion is `actual ÷
+fix_factor`, and the `fix_factor` cancels out of the ratio. Each metric divides its own
+applied `scope_ratios` entry back out, so the comparison lands against the base band:
 
 ```
-man_hours scope ratio  = 18.2 × 1.25 / 16.5 = 1.3788
-time_hours scope ratio =  6.1 × 1.25 /  5.0 = 1.5250
-tokens_k scope ratio    =171 × 1.25 / 175   = 1.2214
-cost scope ratio        =1.24 × 1.25 / 1.22 = 1.2705
+man_hours scope ratio  = 18.2 × 1.10 / 16.5 = 1.2133   ( = 18.2 / (12    × 1.25) )
+time_hours scope ratio =  6.1 × 1.00 /  5.0 = 1.2200   ( =  6.1 / ( 4    × 1.25) )
+tokens_k scope ratio   =  171 × 1.00 / 175  = 0.9771   ( =  171 / (140   × 1.25) )
+cost scope ratio       = 1.24 × 1.00 / 1.22 = 1.0164   ( ≈ 1.24 / (0.975 × 1.25); the
+                                                         stored estimate is rounded to 1.22 )
 ```
 
 Each is appended to `scope.complex.{man_hours,time_hours,tokens_k,cost}.samples`. Because
 `fix_iterations > 0`, the 18.2 man-hours actual also updates `fix.complex.reworked`'s running
 mean — not `clean`'s — and `fix.complex.clean` gets nothing from this story. `fix` for
 `complex` only activates once **both** `clean` and `reworked` separately reach 3 samples; a
-run of reworked-only stories, however many, never activates it on its own. Had
-`fix_iterations` been `0` instead, provenance would have been `exact` and the man-hours
-actual would have updated the `clean` cohort instead of `reworked` — but the four scope
-ratios above would have come out **identically**: the `actual × fix_factor / estimate`
-formula runs the same way regardless of provenance, so the man-hours scope ratio would still
-be `18.2 × 1.25 / 16.5 = 1.3788`, not the unmultiplied `18.2 / 16.5 = 1.103`.
+run of reworked-only stories, however many, never activates it on its own.
+
+Had `fix_iterations` been `0`, provenance would have been `exact`, the man-hours actual would
+have fed the `clean` cohort, **and the four ratios would differ** — the exact path keeps the
+`fix_factor` because a zero-rework actual is pure scope measured against a
+fix-reserved estimate:
+
+```
+man_hours scope ratio (exact) = 18.2 × 1.10 × 1.25 / 16.5 = 1.5167   ( = 18.2 / 12 )
+```
+
+A second `set-actual` on this story would record nothing: the node now carries
+`calibration_sampled_at`, and the call reports `sample already recorded at … — skipped
+(replay)`.

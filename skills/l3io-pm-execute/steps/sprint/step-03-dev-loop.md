@@ -67,23 +67,18 @@ python3 {pm_status} append-issue \
   --severity Low
 ```
 
-## 4. Write story actuals and completion evidence
+## 4. Write completion evidence and story actuals
 
 When a story reaches done state:
 
-```bash
-python3 {pm_status} set-actual \
-  --state-root {pm_state_root} \
-  --node story \
-  --story {story_key} \
-  --runtime {runtime} \
-  --elapsed-hours {elapsed} \
-  --man-hours {man_hours} \
-  --tokens-k {tokens_k} \
-  --cost {cost}
-```
+**Completion evidence first — this order is load-bearing.** `set-actual` derives the
+story's calibration sample inline, and that derivation reads
+`completion_evidence.fix_iterations` to decide the sample's provenance (`exact` vs
+`backout`) and which `fix` cohort the man-hours join. Writing `fix_iterations` after
+`set-actual` means it is always absent at derivation time: `provenance: exact` becomes
+unreachable, neither `fix` cohort ever fills, and the fix factor is frozen at the 1.25
+cold-start prior forever — silently. See `references/metrics-contract.md` §8.
 
-Write completion evidence via set-field:
 ```bash
 python3 {pm_status} set-field \
   --state-root {pm_state_root} \
@@ -103,6 +98,25 @@ python3 {pm_status} set-field \
   --field completion_evidence.files_changed \
   --value {files_changed}
 ```
+
+Then write the actuals:
+```bash
+python3 {pm_status} set-actual \
+  --state-root {pm_state_root} \
+  --node story \
+  --story {story_key} \
+  --runtime {runtime} \
+  --elapsed-hours {elapsed} \
+  --man-hours {man_hours} \
+  --tokens-k {tokens_k} \
+  --cost {cost}
+```
+
+`set-actual` prints what it sampled in a `[...]` suffix on its own stdout line — e.g.
+`[scope+4 metrics, provenance=exact, class=complex]`. A `provenance=backout` on a story you
+know needed no rework means `fix_iterations` did not reach the node before this call; a
+`skipped (replay)` means this node already emitted its sample and the second call correctly
+recorded nothing.
 
 Mark story done:
 ```bash
