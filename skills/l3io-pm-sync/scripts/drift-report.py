@@ -4,7 +4,7 @@
 # dependencies = ["pyyaml"]
 # ///
 """
-Compute local drift for l3io-pm-sync — what has changed in BMad state files
+Compute local drift for l3io-pm-sync — what has changed in BMad state
 since the last sync, without making any remote API calls.
 
 Usage: uv run drift-report.py <project-root>
@@ -16,6 +16,17 @@ The manifest contains:
   unmapped_local  — BMad entities not yet in sync-state (never pushed)
   changed_local   — entities whose current content hash differs from last_synced_hash
   missing_local   — sync-state entries with no corresponding BMad file (deleted locally)
+
+State layout
+------------
+l3io-pm state lives under `{implementation_artifacts}/state/{planned,active,archived}/`
+(the sharded layout — see skills/_shared/status-files.md, the canonical contract).
+Each epic is a directory (`epic-{nnn}`, 3-digit zero-padded) containing a bare
+`epic.yaml` node and one `sprint-{nn}` (2-digit zero-padded) subdirectory per sprint,
+each holding a bare `sprint.yaml` node plus one `{story-key}.yaml` file per story.
+Nodes are stored bare (no `epics:`/`sprints:`/`stories:` list wrapper) — the
+directory tree itself is the list. Deferred backlog items live in a single flat
+`state/issues.yaml` file, independent of the per-epic status folders.
 """
 
 import argparse
@@ -33,11 +44,11 @@ CONFIG_USER_FILE = "_bmad/config.user.yaml"
 SYNC_CONFIG_FILE = "_bmad/sync-config.yaml"
 SYNC_STATE_FILE = "_bmad/sync-state.yaml"
 
-STATUS_FILES = [
-    "sprint-status.yaml",
-    "sprint-status-backlog.yaml",
-    "sprint-status-archived.yaml",
-]
+# Status folders under {implementation_artifacts}/state/, walked in this order for
+# determinism. Mirrors skills/_shared/pm-status.py's STATUS_DIRS ("active" first —
+# hottest path there because it resolves a single epic; here we walk all three, so
+# order only affects the sequence entities appear in the manifest).
+STATUS_DIRS = ("active", "planned", "archived")
 
 
 def load_yaml(path: Path) -> dict:
@@ -68,7 +79,11 @@ def compute_hash(fields: dict) -> str:
 
 
 def extract_story_fields(story_path: Path, status: str, story_node: dict) -> dict:
-    """Extract the fields that participate in drift detection from a story file and its status node."""
+    """Extract the fields that participate in drift detection from a story's authored
+    markdown (`story_path`, under the top-level `{implementation_artifacts}/epic-{nnn}/
+    sprint-{nn}/stories/` tree — human/agent-authored, never moves) and its sharded state
+    node (`story_node`, the bare mapping loaded from `state/{status}/epic-{nnn}/
+    sprint-{nn}/{story-key}.yaml`)."""
     title = ""
     description = ""
     ac = ""
@@ -102,6 +117,8 @@ def extract_story_fields(story_path: Path, status: str, story_node: dict) -> dic
             else:
                 ac = ac_content.strip()
 
+    # Story-level estimate is a single value per metric (man_hours, time_hours, tokens_k,
+    # cost) — not the low/high range used at sprint/epic level. See status-files.md §4.
     estimate = story_node.get("estimate", {}) or {}
     return {
         "title": title.lower(),
@@ -111,84 +128,129 @@ def extract_story_fields(story_path: Path, status: str, story_node: dict) -> dic
         "assignee": str(assignee).strip().lower(),
         "tags": tags,
         "estimates": {
-            "time_hours_low": estimate.get("time_hours_low", 0),
-            "time_hours_high": estimate.get("time_hours_high", 0),
+            "man_hours": estimate.get("man_hours", 0),
+            "time_hours": estimate.get("time_hours", 0),
+            "tokens_k": estimate.get("tokens_k", 0),
+            "cost": estimate.get("cost", 0),
         },
     }
 
 
-def collect_bmad_entities(project_root: Path, impl_artifacts: str) -> list[dict]:
-    """Walk sprint-status files and collect all stories, sprints, and epics."""
-    impl_path = Path(impl_artifacts)
-    entities = []
+def _relative_or_absolute(path: Path, project_root: Path) -> str:
+    """Best-effort project-relative path string; falls back to the absolute path if
+    `path` is not actually under `project_root` (e.g. implementation_artifacts configured
+    outside the project tree)."""
+    try:
+        return str(path.relative_to(project_root))
+    except ValueError:
+        return str(path)
 
-    for status_filename in STATUS_FILES:
-        status_path = impl_path / status_filename
-        if not status_path.exists():
+
+def collect_bmad_entities(project_root: Path, impl_artifacts: str) -> tuple[list[dict], bool]:
+    """Walk the sharded state tree and collect every epic, sprint, story, and backlog
+    entity. See skills/_shared/status-files.md for the layout this mirrors.
+
+    Returns (entities, state_root_found). `state_root_found` is False only when
+    `{implementation_artifacts}/state/` itself does not exist on disk — distinct from a
+    state root that exists but is (as yet) empty, so callers can tell "nothing to
+    analyse yet" apart from "analysed and found zero drift".
+    """
+    impl_path = Path(impl_artifacts)
+    state_root = impl_path / "state"
+    entities: list[dict] = []
+
+    if not state_root.is_dir():
+        return entities, False
+
+    for status_dir in STATUS_DIRS:
+        status_path = state_root / status_dir
+        if not status_path.is_dir():
             continue
-        data = load_yaml(status_path)
-        for epic in data.get("epics", []):
-            epic_id = str(epic.get("id", "")).zfill(2)
-            # Epic entity
+        for epic_dir in sorted(p for p in status_path.iterdir() if p.is_dir()):
+            if not epic_dir.name.startswith("epic-"):
+                continue
+            epic_node = load_yaml(epic_dir / "epic.yaml")
+            # Bare node — no `epics:` wrapper. `epic-{nnn}` (3-digit) is both the
+            # directory name and the source of the bmad_key's numeric suffix.
+            epic_num = epic_dir.name.split("-", 1)[1]
+            epic_key = f"E{epic_num}"
+
             entities.append({
-                "bmad_key": f"E{epic_id}",
+                "bmad_key": epic_key,
                 "bmad_type": "epic",
                 "bmad_path": None,
                 "fields": {
-                    "title": (epic.get("title") or "").strip().lower(),
-                    "status": epic.get("status", ""),
-                    "goal": (epic.get("goal") or "").strip(),
+                    "title": (epic_node.get("title") or "").strip().lower(),
+                    "status": epic_node.get("status", ""),
+                    "goal": (epic_node.get("goal") or "").strip(),
                 },
             })
-            for sprint in epic.get("sprints", []):
-                sprint_id = str(sprint.get("id", "")).zfill(2)
-                # Sprint entity
+
+            for sprint_dir in sorted(p for p in epic_dir.iterdir() if p.is_dir()):
+                if not sprint_dir.name.startswith("sprint-"):
+                    continue
+                sprint_node = load_yaml(sprint_dir / "sprint.yaml")
+                sprint_num = sprint_dir.name.split("-", 1)[1]
+                sprint_key = f"S{sprint_num}"
+
                 entities.append({
-                    "bmad_key": f"E{epic_id}-S{sprint_id}",
+                    "bmad_key": f"{epic_key}-{sprint_key}",
                     "bmad_type": "sprint",
                     "bmad_path": None,
                     "fields": {
-                        "title": (sprint.get("title") or "").strip().lower(),
-                        "status": sprint.get("status", ""),
+                        "title": (sprint_node.get("title") or "").strip().lower(),
+                        "status": sprint_node.get("status", ""),
                     },
                 })
-                for story in sprint.get("stories", []):
-                    story_key = story.get("key", "")
-                    if not story_key:
-                        continue
-                    story_path = (
+
+                # Every *.yaml file in the sprint directory except sprint.yaml is a
+                # story node — the directory listing IS the `stories:` list.
+                story_files = sorted(
+                    p for p in sprint_dir.iterdir()
+                    if p.is_file() and p.suffix == ".yaml" and p.name != "sprint.yaml"
+                )
+                for story_path in story_files:
+                    story_node = load_yaml(story_path)
+                    # The filename is the authoritative key (it's what pm-status.py
+                    # resolves by) — fall back to it if the node itself is empty/corrupt
+                    # so a single bad file doesn't drop the entity from the walk.
+                    story_key = str(story_node.get("key") or story_path.stem)
+
+                    story_md_path = (
                         impl_path
-                        / f"epic-{epic_id}"
-                        / f"sprint-{sprint_id}"
+                        / epic_dir.name
+                        / sprint_dir.name
                         / "stories"
                         / f"{story_key}.md"
                     )
                     fields = extract_story_fields(
-                        story_path, story.get("status", ""), story
+                        story_md_path, story_node.get("status", ""), story_node
                     )
                     entities.append({
                         "bmad_key": story_key,
                         "bmad_type": "story",
-                        "bmad_path": str(story_path.relative_to(project_root)),
+                        "bmad_path": _relative_or_absolute(story_md_path, project_root),
                         "fields": fields,
-                        "file_exists": story_path.exists(),
+                        "file_exists": story_md_path.exists(),
                     })
 
-        # Backlog items
-        for item in data.get("backlog", []):
-            key = item.get("key", "")
-            if key:
-                entities.append({
-                    "bmad_key": key,
-                    "bmad_type": "backlog",
-                    "bmad_path": None,
-                    "fields": {
-                        "title": (item.get("title") or "").strip().lower(),
-                        "status": "backlog",
-                    },
-                })
+    # Deferred backlog items — a single flat file, independent of the per-epic status
+    # folders (state/issues.yaml; see status-files.md's "one exception: append-issue").
+    issues_data = load_yaml(state_root / "issues.yaml")
+    for item in issues_data.get("backlog", []):
+        key = item.get("key", "")
+        if key:
+            entities.append({
+                "bmad_key": key,
+                "bmad_type": "backlog",
+                "bmad_path": None,
+                "fields": {
+                    "title": (item.get("title") or "").strip().lower(),
+                    "status": "backlog",
+                },
+            })
 
-    return entities
+    return entities, True
 
 
 def main() -> int:
@@ -216,8 +278,23 @@ def main() -> int:
     mappings = load_sync_state(project_root)
     mapped_keys = {m["bmad_key"]: m for m in mappings}
 
-    entities = collect_bmad_entities(project_root, impl_artifacts)
+    entities, state_root_found = collect_bmad_entities(project_root, impl_artifacts)
     entity_keys = {e["bmad_key"] for e in entities}
+
+    if not state_root_found:
+        # Distinct from "analysed and found zero drift" — there is nothing to analyse
+        # yet. This is a normal first-run state (see status-files.md §10, case 4), not
+        # an error, so we still exit 0 and emit a valid manifest — but the manifest
+        # itself is marked so callers can tell the two situations apart, and any
+        # pre-existing sync-state mappings still surface honestly as missing_local
+        # below rather than being silently swallowed.
+        print(
+            f"NOTE: no state directory found at {impl_artifacts}/state — nothing to "
+            "analyse. This is expected before the first l3io-pm-plan/l3io-pm-execute "
+            "run; if a legacy layout is present instead, run "
+            "`/l3io-util-cleanup migrate-state` to upgrade it.",
+            file=sys.stderr,
+        )
 
     unmapped_local = []
     changed_local = []
@@ -265,6 +342,7 @@ def main() -> int:
 
     report = {
         "implementation_artifacts": impl_artifacts,
+        "state_root_found": state_root_found,
         "total_entities": len(entities),
         "total_mapped": len(mappings),
         "unmapped_local": unmapped_local,

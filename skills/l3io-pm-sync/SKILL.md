@@ -28,9 +28,9 @@ Parse the invocation argument to determine mode:
 | Argument | Mode | Description |
 |---|---|---|
 | (none) or `status` | `status` | Show sync state and drift report |
-| `setup` | `setup` | Configure sync platform (GitHub), create sync-mapping.yaml |
-| `push` | `push` | Push l3io-pm state to external work items |
-| `pull` | `pull` | Pull external status updates into l3io-pm state |
+| `setup` | `setup` | Detect platform (GitHub), verify auth, verify/create `_bmad/sync-state.yaml` |
+| `push` | `push` | Create/update GitHub Issues for unmapped/changed local entities, record mappings |
+| `pull` | `pull` | Read mapped issue state, mark closed-issue stories `done` |
 | `sync` | `sync` | Bidirectional sync (push then pull) |
 
 Bind `{sync_mode}` = parsed mode.
