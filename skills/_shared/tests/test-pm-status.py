@@ -1067,5 +1067,102 @@ class TestEpicMovesGitBacked(unittest.TestCase):
         self.assertIn("seed", follow_log)
 
 
+class TestCalibrationIO(unittest.TestCase):
+    def setUp(self):
+        self.d = tempfile.mkdtemp()
+        self.root = os.path.join(self.d, "state")
+        os.makedirs(self.root)
+
+    def tearDown(self):
+        import shutil
+        shutil.rmtree(self.d, ignore_errors=True)
+
+    def test_missing_file_yields_skeleton_not_error(self):
+        _, cal = pm.load_calibration(self.root)
+        self.assertEqual(cal["version"], 2)
+        self.assertEqual(cal["granularity"], "story")
+        self.assertIn("scope", cal)
+        self.assertIn("closure", cal)
+        self.assertIn("fix", cal)
+
+    def test_granularity_persists_in_file_not_a_binding(self):
+        y, cal = pm.load_calibration(self.root)
+        cal["granularity"] = "sprint"
+        pm.save_calibration(y, cal, self.root)
+        _, again = pm.load_calibration(self.root)
+        self.assertEqual(again["granularity"], "sprint")
+
+    def test_weighted_ratio_favours_recent_samples(self):
+        # oldest first; decay 0.8 means later samples dominate
+        older_heavy = pm.weighted_ratio([2.0, 1.0])
+        newer_heavy = pm.weighted_ratio([1.0, 2.0])
+        self.assertLess(older_heavy, newer_heavy)
+
+    def test_weighted_ratio_single_sample_is_that_sample(self):
+        self.assertAlmostEqual(pm.weighted_ratio([1.4]), 1.4)
+
+    def test_component_below_threshold_is_not_active(self):
+        y, cal = pm.load_calibration(self.root)
+        cal["scope"]["complex"] = {"man_hours": {"samples": [1.2, 1.3]}}
+        pm.save_calibration(y, cal, self.root)
+        _, cal2 = pm.load_calibration(self.root)
+        self.assertIsNone(pm.active_scope_ratio(cal2, "complex", "man_hours"))
+
+    def test_component_at_threshold_is_active(self):
+        y, cal = pm.load_calibration(self.root)
+        cal["scope"]["complex"] = {"man_hours": {"samples": [1.2, 1.3, 1.4]}}
+        pm.save_calibration(y, cal, self.root)
+        _, cal2 = pm.load_calibration(self.root)
+        self.assertIsNotNone(pm.active_scope_ratio(cal2, "complex", "man_hours"))
+
+    def test_fix_needs_both_cohorts_at_threshold(self):
+        y, cal = pm.load_calibration(self.root)
+        cal["fix"]["complex"] = {
+            "clean": {"mean_man_hours": 7.0, "samples": 5},
+            "reworked": {"mean_man_hours": 9.0, "samples": 0},
+        }
+        pm.save_calibration(y, cal, self.root)
+        _, cal2 = pm.load_calibration(self.root)
+        self.assertIsNone(pm.active_fix_factor(cal2, "complex"))
+
+    def test_fix_active_when_both_cohorts_reach_threshold(self):
+        y, cal = pm.load_calibration(self.root)
+        cal["fix"]["complex"] = {
+            "clean": {"mean_man_hours": 8.0, "samples": 3},
+            "reworked": {"mean_man_hours": 10.0, "samples": 3},
+        }
+        pm.save_calibration(y, cal, self.root)
+        _, cal2 = pm.load_calibration(self.root)
+        self.assertAlmostEqual(pm.active_fix_factor(cal2, "complex"), 1.25)
+
+    def test_v1_file_migrates_and_preserves_original(self):
+        p = pm.calibration_path(self.root)
+        with open(p, "w") as f:
+            f.write("version: 1\nratio: 1.3\n")
+        y, cal = pm.load_calibration(self.root)
+        cal = pm.migrate_calibration(y, cal, self.root)
+        self.assertEqual(cal["version"], 2)
+        self.assertTrue(os.path.exists(p + ".v1"))
+        # closure and fix start fresh, never seeded from the blended ratio.
+        # Assert emptiness per bucket rather than comparing a CommentedMap to a
+        # plain dict, which is fragile across ruamel versions.
+        for level in ("sprint", "epic"):
+            self.assertEqual(len(cal["closure"][level]), 0)
+        for c in ("simple", "standard", "complex"):
+            self.assertEqual(len(cal["fix"][c]), 0)
+        # the blended v1 ratio landed on scope, and only on scope
+        self.assertGreater(len(cal["scope"]["complex"]), 0)
+
+    def test_show_on_missing_file_exits_0(self):
+        buf = io.StringIO()
+        try:
+            with redirect_stdout(buf):
+                code = pm.main(["calibration", "show", "--state-root", self.root])
+        except SystemExit as e:
+            code = e.code
+        self.assertEqual(code, 0)
+        self.assertIn("cold-start", buf.getvalue().lower())
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

@@ -57,6 +57,9 @@ Subcommands
                 with an empty result, not an error)
   move-epic     --state-root S  --epic ID  --to {planned,active,archived}
   archive-epic  --state-root S  --epic ID   (alias for move-epic --to archived)
+  calibration   show  --state-root S  [--format {text,json}]
+                (inspects pm-calibration.yaml; a missing file is a normal
+                cold-start state, not an error)
   self-install  --dest PATH  [--force]
 
 Exit codes: 0 = success/verified, 2 = usage error, 3 = node not found,
@@ -345,6 +348,162 @@ def _sprint_key_from_dir(sprint_dir_path: str) -> str:
     """'.../epic-001/sprint-01' -> 'S01'. Inverse of sprint_dirname for a path from
     list_sprint_dirs."""
     return "S" + os.path.basename(sprint_dir_path).split("-")[1]
+
+
+# --------------------------------------------------------------------------- #
+# Calibration — the learning loop. See references/metrics-contract.md §8.
+# The file is a SHARED append target: every set-actual across parallel
+# subagents may write it, so every write takes flock. Unlike node files,
+# which are sharded per story precisely to avoid this.
+# --------------------------------------------------------------------------- #
+CALIBRATION_SCHEMA_VERSION = 2
+MIN_SAMPLES = 3          # a component below this is recorded but not applied
+DECAY = 0.8              # exponential decay, applied oldest-first
+COLD_START_SCOPE_RATIO = 1.0
+COLD_START_FIX_FACTOR = 1.25
+CLASSIFICATIONS = ("simple", "standard", "complex")
+CLOSURE_LEVELS = ("sprint", "epic")
+
+
+def calibration_path(state_root: str) -> str:
+    return os.path.join(state_root, "pm-calibration.yaml")
+
+
+def new_calibration(granularity: str = "story"):
+    from ruamel.yaml.comments import CommentedMap
+    cal = CommentedMap()
+    cal["version"] = CALIBRATION_SCHEMA_VERSION
+    cal["granularity"] = granularity
+    cal["scope"] = CommentedMap((c, CommentedMap()) for c in CLASSIFICATIONS)
+    cal["closure"] = CommentedMap((lv, CommentedMap()) for lv in CLOSURE_LEVELS)
+    cal["fix"] = CommentedMap((c, CommentedMap()) for c in CLASSIFICATIONS)
+    return cal
+
+
+def load_calibration(state_root: str):
+    """Load the calibration file, or a fresh skeleton if absent. Never raises."""
+    p = calibration_path(state_root)
+    y, data = _load(p)
+    if data is None:
+        return _yaml(), new_calibration()
+    for key, default in (("scope", CLASSIFICATIONS), ("fix", CLASSIFICATIONS),
+                         ("closure", CLOSURE_LEVELS)):
+        if key not in data or data[key] is None:
+            from ruamel.yaml.comments import CommentedMap
+            data[key] = CommentedMap((k, CommentedMap()) for k in default)
+    if "granularity" not in data:
+        data["granularity"] = "story"
+    return y, data
+
+
+def save_calibration(y, cal, state_root: str) -> None:
+    """Always flock — this file is written from every set-actual."""
+    _flock_write_or_plain(True, y, cal, calibration_path(state_root))
+
+
+def migrate_calibration(y, cal, state_root: str):
+    """version 1 -> 2. Original preserved as .v1 and never read again."""
+    if cal.get("version") == CALIBRATION_SCHEMA_VERSION:
+        return cal
+    p = calibration_path(state_root)
+    backup = p + ".v1"
+    if os.path.exists(p) and not os.path.exists(backup):
+        import shutil
+        shutil.copy2(p, backup)
+    blended = cal.get("ratio")
+    fresh = new_calibration(cal.get("granularity", "story"))
+    # The old blended figure maps onto scope only. closure and fix start at
+    # zero samples: the v1 file cannot separate them, and seeding from a
+    # blended number would import exactly the bias the split removes.
+    if isinstance(blended, (int, float)):
+        from ruamel.yaml.comments import CommentedMap
+        for c in CLASSIFICATIONS:
+            entry = CommentedMap()
+            entry["samples"] = [float(blended)]
+            fresh["scope"][c] = CommentedMap((("man_hours", entry),))
+    save_calibration(y, fresh, state_root)
+    return fresh
+
+
+def weighted_ratio(samples: list) -> float:
+    """Exponential-decay weighted mean, oldest first (most recent weighs most)."""
+    vals = [float(s) for s in samples if _is_number(s)]
+    if not vals:
+        return None
+    n = len(vals)
+    num = den = 0.0
+    for i, v in enumerate(vals):
+        w = DECAY ** (n - 1 - i)
+        num += v * w
+        den += w
+    return num / den if den else None
+
+
+def _component_samples(cal, component: str, bucket: str, metric: str) -> list:
+    node = ((cal.get(component) or {}).get(bucket) or {}).get(metric) or {}
+    return list(node.get("samples") or [])
+
+
+def active_scope_ratio(cal, classification: str, metric: str):
+    s = _component_samples(cal, "scope", classification, metric)
+    return weighted_ratio(s) if len(s) >= MIN_SAMPLES else None
+
+
+def active_closure_ratio(cal, level: str, metric: str):
+    s = _component_samples(cal, "closure", level, metric)
+    return weighted_ratio(s) if len(s) >= MIN_SAMPLES else None
+
+
+def active_fix_factor(cal, classification: str):
+    """Needs BOTH cohorts at threshold — one cohort alone cannot form a ratio."""
+    entry = (cal.get("fix") or {}).get(classification) or {}
+    clean, rework = entry.get("clean") or {}, entry.get("reworked") or {}
+    if int(clean.get("samples", 0)) < MIN_SAMPLES or int(rework.get("samples", 0)) < MIN_SAMPLES:
+        return None
+    cm, rm = clean.get("mean_man_hours"), rework.get("mean_man_hours")
+    if not _is_number(cm) or not _is_number(rm) or float(cm) == 0:
+        return None
+    return float(rm) / float(cm)
+
+
+def cmd_calibration(args) -> int:
+    _, cal = load_calibration(args.state_root)
+    exists = os.path.exists(calibration_path(args.state_root))
+    rows = []
+    for c in CLASSIFICATIONS:
+        for m in ("man_hours", "time_hours", "tokens_k", "cost"):
+            n = len(_component_samples(cal, "scope", c, m))
+            r = active_scope_ratio(cal, c, m)
+            rows.append(("scope", f"{c}/{m}", n, r))
+    for lv in CLOSURE_LEVELS:
+        for m in ("man_hours", "time_hours", "tokens_k", "cost"):
+            n = len(_component_samples(cal, "closure", lv, m))
+            r = active_closure_ratio(cal, lv, m)
+            rows.append(("closure", f"{lv}/{m}", n, r))
+    for c in CLASSIFICATIONS:
+        entry = (cal.get("fix") or {}).get(c) or {}
+        n = min(int((entry.get("clean") or {}).get("samples", 0)),
+                int((entry.get("reworked") or {}).get("samples", 0)))
+        rows.append(("fix", c, n, active_fix_factor(cal, c)))
+
+    if getattr(args, "format", "text") == "json":
+        import json
+        sys.stdout.write(json.dumps({
+            "exists": exists,
+            "granularity": cal.get("granularity", "story"),
+            "components": [{"component": a, "bucket": b, "samples": n,
+                            "active_ratio": r} for a, b, n, r in rows],
+        }, indent=2) + "\n")
+        return 0
+
+    if not exists:
+        sys.stdout.write("No calibration file yet — all components cold-start.\n")
+    sys.stdout.write(f"granularity: {cal.get('granularity', 'story')}\n")
+    sys.stdout.write(f"{'COMPONENT':<10} {'BUCKET':<22} {'SAMPLES':>7}  RATIO\n")
+    for a, b, n, r in rows:
+        shown = f"{r:.3f}" if r is not None else f"(cold-start, needs {MIN_SAMPLES})"
+        sys.stdout.write(f"{a:<10} {b:<22} {n:>7}  {shown}\n")
+    return 0
 
 
 def list_story_files(state_root: str, epic_key: str, sprint_key: str) -> list:
@@ -1117,6 +1276,12 @@ def build_parser() -> argparse.ArgumentParser:
     ae.add_argument("--state-root", required=True)
     ae.add_argument("--epic", required=True)
     ae.set_defaults(func=cmd_move_epic, to="archived")
+
+    cal = sub.add_parser("calibration", help="inspect the calibration file")
+    cal.add_argument("action", choices=["show"])
+    cal.add_argument("--state-root", required=True)
+    cal.add_argument("--format", choices=["text", "json"], default="text")
+    cal.set_defaults(func=cmd_calibration)
 
     p.add_argument("--version", action="version", version=f"pm-status.py {PM_STATUS_VERSION}")
     return p
