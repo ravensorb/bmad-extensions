@@ -29,7 +29,7 @@ generated: "{timestamp}"               # ISO-8601 UTC
 plan_version: {version_number}         # integer; auto-increments per-day, resets on new date
 readiness: {readiness}                 # green | amber | red
 stories_elaborated: {elaborated_count} # from step-03; 0 if step was skipped
-total_epics_in_scope: {in_scope_count} # active + backlog (not deferred, not archived)
+total_epics_in_scope: {in_scope_count} # active + backlog (not archived)
 
 phases:
 {phases_yaml_block}                    # exactly the phases list from step-05
@@ -41,9 +41,6 @@ arch_gate_summary:
   ran: false                           # always false at plan time — arch gate runs in l3io-pm-execute
   reviewers: []
   findings: []
-
-deferred_epics:
-{deferred_epics_yaml_block}            # list of {key, title, deferred_reason, deferred_date}
 ```
 
 Where `{phases_yaml_block}` includes the estimate sub-block for each phase if estimates are present:
@@ -104,7 +101,6 @@ Phase 1 (parallel): {epic_keys} — est. {time_low}–{time_high} hrs wall-clock
 Phase 2 (sequential): {epic_keys} — est. {time_low}–{time_high} hrs wall-clock, {cost_low}–{cost_high} cost
 
 Critical path: {critical_path_str} ({total_time_low}–{total_time_high} hrs)
-Deferred: {deferred_count} epics not in plan
 
 Readiness: {readiness}
 Plan written to: {planning_artifacts}/{plan_filename}

@@ -166,7 +166,7 @@ Report to user:
 - Count by severity: Critical, High, Medium, Low
 
 **Plan status** (from `plan-output-meta.yaml`):
-- `readiness`, `generated` timestamp, `phases` count, `deferred_epics` count
+- `readiness`, `generated` timestamp, `phases` count
 - If absent: note "No plan found"
 
 ### 5. Recommend next action
@@ -185,6 +185,5 @@ present, or on a verified genuine first run. Apply the first matching rule:
 | Active epic, no BLOCKED sprint | `Run /l3io-pm-execute {key} to continue the in-progress epic.` |
 | No active epics, plan exists, planned epics available | `Run /l3io-pm-execute to start execution (plan is green).` |
 | All epics done (active + planned = 0) | `All work complete. Run /l3io-pm-sync to push closure to GitHub/ADO.` |
-| `plan-output-meta.yaml` lists `deferred_epics` | Surface count: `{N} epic(s) deferred in the current plan. Re-run /l3io-pm-plan to revisit them.` (deferral is recorded in the plan output, not as an epic status — `planned/` epics are always `status: backlog`.) |
 
 Output the recommendation as a clear, one-paragraph response with the exact command to run.

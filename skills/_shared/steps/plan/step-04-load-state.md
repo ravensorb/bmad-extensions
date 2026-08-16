@@ -38,12 +38,10 @@ List all epic directories under `planned/` the same way:
 ls -d {pm_state_root}/planned/epic-*/ 2>/dev/null || echo "(none)"
 ```
 
-For each, read `epic.yaml` (`key`, `status` — backlog or deferred, `depends_on`, `estimate`)
-and its sprint/story subtree exactly as in section 1.
+For each, read `epic.yaml` (`key`, `status` — always `backlog` under `planned/`, `depends_on`,
+`estimate`) and its sprint/story subtree exactly as in section 1.
 
-Separate into:
-- `{backlog_epics}` = epics with `status: backlog`
-- `{deferred_epics}` = epics with `status: deferred`
+Record: `{backlog_epics}` = epics with `status: backlog` (all epics under `planned/`).
 
 ## 3. Read archived epic keys
 
@@ -101,7 +99,6 @@ Construct `{story_index}` as a mapping from story key to:
 State loaded:
   Active epics:   {active_epic_count} ({active_epic_keys joined by comma})
   Backlog epics:  {backlog_epic_count}
-  Deferred epics: {deferred_epic_count}
   Archived epics: {archived_epic_count}
   Stories in scope: {total_story_count}
   Locked epics: {locked_count} (warning if any)
@@ -117,5 +114,5 @@ If any locked epic is found:
 ## 7. Output status line
 
 ```
-Step 04 complete — epics: {total_epic_count} ({active_count} active, {backlog_count} backlog, {deferred_count} deferred), stories: {total_story_count}
+Step 04 complete — epics: {total_epic_count} ({active_count} active, {backlog_count} backlog), stories: {total_story_count}
 ```
