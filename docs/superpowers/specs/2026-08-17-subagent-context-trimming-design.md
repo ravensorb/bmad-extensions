@@ -79,13 +79,29 @@ Add a digest of roughly 70 lines to `steps/shared/step-00-activate.md` containin
   under Claude and `N/A` elsewhere — never guessed)
 
 Change both reference headers from "load at activation and keep its rules in context" to
-"consult when you need the deep contract", naming the cases that genuinely do:
+"consult when you need the deep contract."
 
-- a state migration or a legacy layout
-- a `verify` failure that needs interpreting
-- a per-file schema question (which fields a node carries)
-- declaring or reading `depends_on`
-- a calibration question beyond what `pm-status.py` reports on stdout
+**The digest must end with a routing table, not a vague invitation to consult.** Telling an
+agent "read the reference if you need it" leaves it to search 1,178 lines for the relevant
+part — which either costs the tokens the trim was meant to save, or gets skipped. Name the
+destination down to the section:
+
+| If you need to… | Read |
+|---|---|
+| interpret a `verify` failure | `references/status-files.md` §7 (Addressing) |
+| know which fields a node carries | `references/status-files.md` §4 (Per-file schema) |
+| handle a migration or legacy layout | `references/status-files.md` §10 (Read resolution) |
+| declare or read `depends_on` | `references/status-files.md` §11 (Dependency fields) |
+| resolve an epic lock question | `references/status-files.md` §6 (Ownership lock) |
+| capture token/cost actuals correctly | `references/metrics-contract.md` §3 (Runtime detection) |
+| write an estimate or actual by hand | `references/metrics-contract.md` §4 |
+| explain a calibration result | `references/metrics-contract.md` §8 |
+| see a full worked example | `references/metrics-contract.md` §10 |
+
+Section numbers are load-bearing here, so the implementation must verify each anchor resolves
+to the section named — a stale pointer sends the agent to the wrong place, which is worse than
+no pointer. Both references already carry stable numbered `##` headings, so this is a
+mechanical check, not a judgement call.
 
 **Scope constraint — the digest's one real risk.** A digest is a second copy of content, and
 this repository has been bitten repeatedly by duplicated prose drifting. Constrain it to
@@ -186,14 +202,31 @@ Three competing `{skip_phases}` definitions exist, and the wrong one wins:
 | `steps/execute/step-05-epic-loop.md:141-145` | adversarial, red team, arch drift, clean release, UX |
 | `steps/closure/sprint-closure.md` §8 table | the 7×4 matrix closure actually reads |
 
-`step-01` binds `{skip_phases}`; `step-05` then **recomputes and overwrites it**, and
-`step-05`'s list omits the story technical-AC gate and the ATDD scaffold. On a DOCS sprint
-those therefore run despite `step-01` having decided to skip them.
+`step-01` binds `{skip_phases}`; `step-05` then **recomputes and overwrites it**.
+
+**This is inert today — verified, not assumed.** `{skip_phases}` has exactly five consumers,
+all closure phases in `closure/sprint-closure.md` (clean release, adversarial, red team, UX,
+arch drift), and for both DOCS and CONFIG `step-05`'s list agrees with the §8 table. The three
+entries in `step-01`'s table that `step-05` omits are gated independently on `{work_type}` and
+never flow through `{skip_phases}` at all:
+
+| Phase in step-01's table | Actually gated by |
+|---|---|
+| Story technical-AC gate | `{work_type}` — `steps/sprint/step-02-story-prep.md:10` |
+| Epic arch gate | `{work_type}` — `steps/execute/step-04-arch-gate.md:11-12` |
+| ATDD scaffold | nothing reads it; the table is its only mention |
+
+So the correct phases skip either way, and no tokens are being burned on phases already
+decided against. What is wrong is narrower: **one variable computed in two places from two
+different definitions**, plus a table that lists three phases which do not flow through it.
+That is a maintenance hazard and misleading documentation, not a live defect — it carries A's
+normal priority and is not a reason to resequence ahead of C.
 
 Decisions taken:
 
 - **One matrix, one source of truth.** Collapse all three into a single table; every consumer
-  reads it and nobody recomputes.
+  reads it and nobody recomputes. Phases gated on `{work_type}` directly should say so in the
+  matrix rather than appearing to be `{skip_phases}` entries.
 - **No UX review on DOCS.** The §8 table currently runs it. Removing it takes DOCS closure
   from three phases to two.
 - **Work-type-aware fix-loop caps, configurable.** The cap is hardcoded as `10` in three
