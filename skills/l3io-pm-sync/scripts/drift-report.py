@@ -319,7 +319,7 @@ def main() -> int:
             f"NOTE: no state directory found at {impl_artifacts}/state — nothing to "
             "analyse. This is expected before the first l3io-pm-plan/l3io-pm-execute "
             "run; if a legacy layout is present instead, run "
-            "`/l3io-util-cleanup migrate-state` to upgrade it.",
+            "`/l3io-util-doctor migrate-state` to upgrade it.",
             file=sys.stderr,
         )
 

@@ -737,8 +737,8 @@ rm -rf {project-root}/_bmad/state.legacy
 ```
 Print: `Legacy files deleted.`
 
-**If K:** print `Legacy files left in place. Run /l3io-util-cleanup to remove them
-later.` — no changes.
+**If K:** print `Legacy files left in place. Run /l3io-util-doctor clean-legacy to remove
+them later.` — no changes.
 
 ---
 

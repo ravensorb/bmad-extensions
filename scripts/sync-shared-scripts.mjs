@@ -74,7 +74,12 @@ const allSkillDirs = [
   "l3io-pm-plan",
   "l3io-pm-sync",
   "l3io-sec-redteam",
-  "l3io-util-cleanup",
+  "l3io-util-doctor",
+  // NOTE: skills/l3io-util-cleanup is deliberately absent. It is a deprecated forwarder that
+  // resolves no config and reads no state — it prints a rename notice and delegates to
+  // l3io-util-doctor. Syncing the shared payload into it would bundle a config-resolution
+  // reference and write-module-config.py that nothing there invokes, which is the same dead
+  // payload this package removed when it stopped vendoring BMad core scripts.
 ].map((name) => path.join(repoRoot, "skills", name));
 
 // Shared step files: source path → relative dest path within each skill's steps/ dir

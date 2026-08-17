@@ -1,1 +1,0 @@
-../../skills/l3io-util-cleanup/SKILL.md
