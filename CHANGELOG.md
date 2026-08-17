@@ -2,6 +2,14 @@
 
 All notable changes to this project will be documented in this file. See [commit-and-tag-version](https://github.com/absolute-version/commit-and-tag-version) for commit guidelines.
 
+## [2.1.2](https://github.com/ravensorb/bmad-extensions/compare/2.1.1...2.1.2) (2026-08-17)
+
+
+### Features
+
+* **infra:** check the documented CLI surface and inline config values ([40f573e](https://github.com/ravensorb/bmad-extensions/commit/40f573e42a139d1d06bbacbb2556bf348d24496c))
+* **l3io-pm:** filter the progress report by state folder ([88e1417](https://github.com/ravensorb/bmad-extensions/commit/88e14173ae01d182c491a06fe38db75a4f0927a6))
+
 ## [2.1.1](https://github.com/ravensorb/bmad-extensions/compare/2.1.0...2.1.1) (2026-08-17)
 
 
