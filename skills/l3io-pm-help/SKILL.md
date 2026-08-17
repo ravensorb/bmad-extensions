@@ -232,9 +232,19 @@ python3 {pm_status} report \
   --format tree
 ```
 
-Add `--all` when the user asked to include finished work ("everything", "including done",
-"including archived"); by default archived epics are counted in the phase denominators but
-not listed.
+**Scope — map what the user asked for to a `--status` filter.** The state tree's three
+folders are the vocabulary: `planned` = backlog, `active` = in progress, `archived` = done.
+
+| They asked for | Pass |
+|---|---|
+| nothing, "progress", "status" | *(nothing — defaults to planned + active)* |
+| "what's active", "in flight", "what's running", "in progress", "what's moving" | `--status active` |
+| "what's queued", "backlog", "not started", "what's next" | `--status planned` |
+| "everything", "including done", "including archived", "all" | `--all` |
+
+Counting is unaffected by the filter: totals and phase denominators always cover every epic,
+so a narrowed view never changes what "2/3 epics done" means. When the filter is not the
+default the report prints a `SHOWING …` banner itself — do not add your own caveat.
 
 Print the output verbatim. Do not summarize it, re-order it, or re-format it into your own
 table — it is already the rendered view, and paraphrasing it invites drift between what the

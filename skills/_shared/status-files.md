@@ -302,7 +302,7 @@ Subcommand summary (see `pm-status.py --help` for full flags):
 | `append-issue` | `--file` (the one exception; see above) |
 | `list-issues` | `--state-root` (reads `{state-root}/issues.yaml`) + optional `--epic`/`--sprint`/`--severity`/`--format` filters |
 | `calibration show` | `--state-root [--format {text,json}]` — read-only report of every component's sample count and active ratio; a missing file reports cold-start and exits `0` |
-| `report` | `--state-root` (+ optional `--plan` pointing at `plan-output-meta.yaml`) — walks every epic in every status folder; addresses none individually. Read-only unless `--out` is given |
+| `report` | `--state-root` (+ optional `--plan` pointing at `plan-output-meta.yaml`) — walks every epic in every status folder; addresses none individually. Read-only unless `--out` is given. `--status planned,active,archived` narrows the display (default `planned,active`); counting is unaffected |
 
 `set-status` and `set-actual` both append a line to `state/events.jsonl` as a side effect of
 a successful write (`--no-events` suppresses it, `--session-id` stamps it). A failed append

@@ -18,6 +18,7 @@
 //   3. section-refs  every "<file>.md §N" cross-reference resolves to a section bearing that number
 //   4. cli-surface   documented pm-status.py subcommands and the real CLI agree, both ways
 //   5. config-values values quoted in prose match the defaults customize.toml ships
+//   6. status-values --status filters named in skill phrase tables are real state folders
 //
 // Usage:
 //   node scripts/check-docs.mjs        # report and exit nonzero on any failure (CI)
@@ -384,6 +385,53 @@ function checkConfigValues() {
   if (verbose) console.log(`  config-values:  ${checked} restated value(s) checked against customize.toml`);
 }
 
+
+// ---------------------------------------------------------------------------
+// 6. --status values named in skill phrase tables are real state folders.
+//
+// The skills translate what a user says ("what's active", "everything") into a --status
+// filter. Those values are folder names, so a typo or a renamed folder silently produces a
+// usage error at the moment someone asks for a narrowed view — the least convenient time.
+// ---------------------------------------------------------------------------
+const STATUS_FOLDERS = ["planned", "active", "archived"];
+const PHRASE_TABLE_FILES = [
+  "skills/l3io-pm-help/SKILL.md",
+  "skills/l3io-util-doctor/SKILL.md",
+];
+
+function checkStatusValues() {
+  let checked = 0;
+  for (const rel of PHRASE_TABLE_FILES) {
+    if (!exists(rel)) continue;
+    // Only phrase-table rows. `--status` is also how set-status takes a VALUE
+    // ("set-status --status done"), and `done` is a legitimate status but not a folder —
+    // matching that was this check's first bug.
+    const rows = read(rel).split("\n").filter((l) => l.trimStart().startsWith("|"));
+    for (const m of rows.join("\n").matchAll(/--status\s+([a-z,\s-]+?)`/g)) {
+      for (const value of m[1].split(",").map((v) => v.trim()).filter(Boolean)) {
+        checked += 1;
+        if (STATUS_FOLDERS.includes(value)) continue;
+        failures.push(
+          `${rel}: phrase table maps to '--status ${value}', which is not a state folder\n` +
+            `      valid: ${STATUS_FOLDERS.join(", ")}`,
+        );
+      }
+    }
+  }
+  // The folders the checker trusts must match the ones the CLI accepts.
+  const declared = read(PM_STATUS).match(/^STATUS_DIRS\s*=\s*\(([^)]*)\)/m);
+  if (declared) {
+    const real = [...declared[1].matchAll(/"([a-z]+)"/g)].map((x) => x[1]).sort();
+    if (real.join() !== [...STATUS_FOLDERS].sort().join()) {
+      failures.push(
+        `scripts/check-docs.mjs: STATUS_FOLDERS is [${STATUS_FOLDERS}] but ${PM_STATUS} ` +
+          `declares STATUS_DIRS as [${real}] — update this checker`,
+      );
+    }
+  }
+  if (verbose) console.log(`  status-values:  ${checked} phrase-table filter value(s) checked`);
+}
+
 // ---------------------------------------------------------------------------
 
 checkSkillNames();
@@ -391,6 +439,7 @@ checkGatingTables();
 checkSectionRefs();
 checkCliSurface();
 checkConfigValues();
+checkStatusValues();
 
 for (const note of notes) if (verbose) console.log(`  note: ${note}`);
 

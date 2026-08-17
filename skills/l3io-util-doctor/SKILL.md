@@ -15,7 +15,7 @@ Modes (pass as argument to skip directly to that mode):
 
 **Diagnostic (read-only)**
 - **`check` / `status`:** Read-only health check — same diagnostic scan as the default but prints the findings table and exits without prompting to make changes.
-- **`stats`:** Plan-aware progress dashboard — phase → epic → sprint → story hierarchy with per-status dwell times and stuck-item flags (via `pm-status.py report`), plus backlog size by severity, last closed sprint/epic, and calibration state. Archived epics count toward phase denominators but are listed only with `--all`. No files changed.
+- **`stats`:** Plan-aware progress dashboard — phase → epic → sprint → story hierarchy with per-status dwell times and stuck-item flags (via `pm-status.py report`), plus backlog size by severity, last closed sprint/epic, and calibration state. Scope it by asking — "what's active", "what's queued", "everything" — which maps to `--status`; counting always covers every epic regardless. No files changed.
 - **`backlog`:** Lists all items in the `backlog:` list of `{pm_state_root}/issues.yaml` in a readable table grouped by severity. No files changed.
 
 **One-time migrations (run in this order)**
@@ -1598,8 +1598,21 @@ python3 {project-root}/_bmad/scripts/pm-status.py report \
   --format tree
 ```
 
-Add `--all` when the user asked to include archived epics; by default they are counted in each
-phase's denominator but not listed. Print the output verbatim, then append the sections `report`
+**Scope — map what the user asked for to a `--status` filter.** The state tree's three
+folders are the vocabulary: `planned` = backlog, `active` = in progress, `archived` = done.
+
+| They asked for | Pass |
+|---|---|
+| nothing, "progress", "status" | *(nothing — defaults to planned + active)* |
+| "what's active", "in flight", "what's running", "in progress", "what's moving" | `--status active` |
+| "what's queued", "backlog", "not started", "what's next" | `--status planned` |
+| "everything", "including done", "including archived", "all" | `--all` |
+
+Counting is unaffected by the filter: totals and phase denominators always cover every epic,
+so a narrowed view never changes what "2/3 epics done" means. When the filter is not the
+default the report prints a `SHOWING …` banner itself — do not add your own caveat.
+
+Print the output verbatim, then append the sections `report`
 does not cover:
 
 ```

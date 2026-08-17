@@ -1501,13 +1501,33 @@ def load_plan(plan_pointer: str):
     return {"meta": meta, "phases": phases}
 
 
-def build_progress_model(state_root: str, plan=None, include_archived: bool = False,
-                         now=None) -> dict:
+DEFAULT_REPORT_STATUSES = ("planned", "active")
+
+
+def build_progress_model(state_root: str, plan=None, statuses=None,
+                         include_archived: bool = False, now=None) -> dict:
     """The one model every renderer and every surface consumes.
 
-    Archived epics are built regardless of `include_archived` — phase progress needs a
-    true denominator — and filtered only out of the *display* lists.
+    `statuses` selects which state folders appear in the DISPLAY lists — pass a subset of
+    STATUS_DIRS, e.g. {"active"} for only what is moving. Defaults to planned + active, so
+    finished work stays out of the way until asked for.
+
+    Every epic is built regardless of the filter. Phase progress needs a true denominator:
+    a bar reading "2/3 epics done" must mean the same thing whatever you chose to look at,
+    so counting always sees the whole tree and only the listing narrows.
+
+    `include_archived` is the older boolean form, kept so existing callers keep working;
+    it is equivalent to adding "archived" to the default set.
     """
+    if statuses is None:
+        statuses = set(DEFAULT_REPORT_STATUSES)
+        if include_archived:
+            statuses.add("archived")
+    statuses = set(statuses)
+    unknown = statuses - set(STATUS_DIRS)
+    if unknown:
+        raise ValueError(f"unknown status folder(s): {sorted(unknown)} "
+                         f"— expected a subset of {list(STATUS_DIRS)}")
     events_index = build_events_index(state_root)
     details, flags = {}, []
     totals = {"epics": {}, "sprints": {}, "stories": {}}
@@ -1523,7 +1543,7 @@ def build_progress_model(state_root: str, plan=None, include_archived: bool = Fa
             totals["stories"][k] = totals["stories"].get(k, 0) + v
 
     def visible(d):
-        return include_archived or d["dir_status"] != "archived"
+        return d["dir_status"] in statuses
 
     phases, claimed = [], set()
     for ph in (plan or {}).get("phases") or []:
@@ -1541,6 +1561,7 @@ def build_progress_model(state_root: str, plan=None, include_archived: bool = Fa
     return {
         "generated": _now_iso(),
         "state_root": os.path.abspath(state_root),
+        "statuses": sorted(statuses),
         "plan": (plan or {}).get("meta"),
         "phases": phases,
         "unplanned_epics": [d for k, d in sorted(details.items())
@@ -1599,6 +1620,15 @@ def render_tree(model: dict) -> str:
     else:
         out.append("PLAN (none — showing state only)")
     out.append(f"STATE {model['state_root']}")
+    # Name the filter whenever it is not the default, so a short list is never mistaken for
+    # an empty project. "only" would be a lie when every folder is shown, so word that case
+    # differently.
+    shown = model.get("statuses") or list(DEFAULT_REPORT_STATUSES)
+    if sorted(shown) == sorted(STATUS_DIRS):
+        out.append("SHOWING every status, including archived")
+    elif sorted(shown) != sorted(DEFAULT_REPORT_STATUSES):
+        out.append(f"SHOWING {', '.join(shown)} only "
+                   f"(totals and phase counts still cover every epic)")
     out.append("")
 
     total_phases = len(model["phases"])
@@ -2195,10 +2225,22 @@ def cmd_report(args) -> int:
     if not os.path.isdir(args.state_root):
         _die_notfound(f"state root {args.state_root}")
 
+    if args.all and args.status:
+        _die_usage("pass --all or --status, not both")
+    if args.status:
+        statuses = {x.strip() for x in args.status.split(",") if x.strip()}
+        unknown = statuses - set(STATUS_DIRS)
+        if unknown:
+            _die_usage(f"unknown --status value(s) {sorted(unknown)} "
+                       f"— expected a subset of {list(STATUS_DIRS)}")
+    elif args.all:
+        statuses = set(STATUS_DIRS)
+    else:
+        statuses = set(DEFAULT_REPORT_STATUSES)
+
     def once() -> str:
         plan = load_plan(args.plan) if args.plan else None
-        model = build_progress_model(args.state_root, plan=plan,
-                                     include_archived=args.all)
+        model = build_progress_model(args.state_root, plan=plan, statuses=statuses)
         if args.format == "json":
             return json.dumps(model, indent=2, sort_keys=True) + "\n"
         return render_md(model) if args.format == "md" else render_tree(model)
@@ -2384,7 +2426,12 @@ def build_parser() -> argparse.ArgumentParser:
     rp.add_argument("--plan", default="", help="path to plan-output-meta.yaml")
     rp.add_argument("--format", choices=["tree", "json", "md"], default="tree")
     rp.add_argument("--out", default="", help="write to this file instead of stdout")
-    rp.add_argument("--all", action="store_true", help="include archived epics")
+    rp.add_argument("--all", action="store_true",
+                    help="show every status folder (sugar for --status planned,active,archived)")
+    rp.add_argument("--status", default="",
+                    help="comma list of state folders to display: planned, active, archived "
+                         "(default: planned,active). Counting is unaffected — phase "
+                         "denominators always see the whole tree")
     rp.add_argument("--watch", type=int, default=0, metavar="SECS",
                     help="re-render on an interval (tree only in practice)")
     rp.set_defaults(func=cmd_report)

@@ -2449,5 +2449,77 @@ class TestReport(TestPlanJoin):
         self.assertEqual(code, 2)
 
 
+class TestStatusFilter(TestPlanJoin):
+    """`--status` selects which state folders are displayed. Denominators must keep
+    counting every epic regardless, or a progress bar changes meaning with the view."""
+
+    def test_default_is_planned_and_active(self):
+        m = pm.build_progress_model(self.root)
+        keys = {e["key"] for e in m["unplanned_epics"]}
+        self.assertEqual(keys, {"E001", "E004"})       # active + planned, no archived
+
+    def test_active_only(self):
+        m = pm.build_progress_model(self.root, statuses={"active"})
+        self.assertEqual({e["key"] for e in m["unplanned_epics"]}, {"E001"})
+
+    def test_planned_only(self):
+        m = pm.build_progress_model(self.root, statuses={"planned"})
+        self.assertEqual({e["key"] for e in m["unplanned_epics"]}, {"E004"})
+
+    def test_all_three(self):
+        m = pm.build_progress_model(self.root, statuses={"planned", "active", "archived"})
+        self.assertEqual({e["key"] for e in m["unplanned_epics"]}, {"E001", "E002", "E004"})
+
+    def test_totals_count_everything_regardless_of_filter(self):
+        narrow = pm.build_progress_model(self.root, statuses={"active"})
+        wide = pm.build_progress_model(self.root, statuses={"planned", "active", "archived"})
+        self.assertEqual(narrow["totals"], wide["totals"])
+
+    def test_phase_denominator_is_filter_independent(self):
+        plan = pm.load_plan(self.write_plan())        # phase 1 = E001, E002 (E002 archived+done)
+        narrow = pm.build_progress_model(self.root, plan=plan, statuses={"active"})
+        wide = pm.build_progress_model(self.root, plan=plan,
+                                       statuses={"planned", "active", "archived"})
+        self.assertEqual(narrow["phases"][0]["epic_total"], wide["phases"][0]["epic_total"])
+        self.assertEqual(narrow["phases"][0]["epic_done"], wide["phases"][0]["epic_done"])
+        # ...but the displayed list narrows
+        self.assertEqual([e["key"] for e in narrow["phases"][0]["epics_detail"]], ["E001"])
+
+    def test_model_records_the_filter_it_applied(self):
+        m = pm.build_progress_model(self.root, statuses={"active"})
+        self.assertEqual(m["statuses"], ["active"])
+
+    def test_cli_status_flag(self):
+        code, out = self.run_main(["report", "--state-root", self.root,
+                                   "--status", "active", "--format", "json"])
+        self.assertEqual(code, 0)
+        self.assertEqual({e["key"] for e in json.loads(out)["unplanned_epics"]}, {"E001"})
+
+    def test_cli_status_accepts_comma_list(self):
+        code, out = self.run_main(["report", "--state-root", self.root,
+                                   "--status", "active,archived", "--format", "json"])
+        self.assertEqual(code, 0)
+        self.assertEqual({e["key"] for e in json.loads(out)["unplanned_epics"]}, {"E001", "E002"})
+
+    def test_cli_all_still_means_everything(self):
+        code, out = self.run_main(["report", "--state-root", self.root,
+                                   "--all", "--format", "json"])
+        self.assertEqual(code, 0)
+        self.assertEqual({e["key"] for e in json.loads(out)["unplanned_epics"]},
+                         {"E001", "E002", "E004"})
+
+    def test_cli_rejects_an_unknown_status(self):
+        with redirect_stderr(io.StringIO()):
+            code, _ = self.run_main(["report", "--state-root", self.root,
+                                     "--status", "inprogress", "--format", "json"])
+        self.assertEqual(code, 2)
+
+    def test_tree_names_the_filter_when_narrowed(self):
+        _, out = self.run_main(["report", "--state-root", self.root,
+                                "--status", "active", "--format", "tree"])
+        self.assertIn("active", out.lower())
+        self.assertNotIn("E004", out)
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)
