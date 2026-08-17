@@ -255,6 +255,7 @@ sprint_root: {implementation_artifacts}/epic-{epic_nnn}/sprint-{sprint_nn}/
 story_keys: [{story_keys}]
 sprint_num: {sprint_num}
 execute_skill_root: {skill-root}
+single_epic_phase: {single_epic_phase}
 headless: true
 
 Load and execute in order:

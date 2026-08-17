@@ -188,23 +188,27 @@ Epic-level parallelism is additionally bounded by the ownership lock: an epic al
 
 Phases run in order, with work-type-driven skips:
 
+The authoritative phase matrix lives in `steps/shared/step-01-classify-work.md` §4. The table
+below mirrors its `{skip_phases}`-enforced rows for readability; if the two ever disagree, the
+matrix is correct.
+
 | Phase | CODE | DOCS | CONFIG | MIXED |
 |---|---|---|---|---|
 | Retrospective | run | run | run | run |
 | Clean release review | run | skip | run | run |
 | Adversarial analysis | run | skip | skip | run |
 | Red team (l3io-sec) | run | skip | skip | run |
-| UX review | run | run | skip | run |
-| Architectural drift | run | skip | run | run |
+| UX review | run | skip | skip | run |
+| Sprint architectural drift | run | skip | run | run |
 | Issue triage | run | run | run | run |
 
-Severity routing is uniform across phases: **CRITICAL/HIGH** block closure and open a fix loop (10-iteration cap); **MEDIUM** is fixed in place before the sprint is marked done; **LOW** auto-defers to `issues.yaml` via `pm-status.py append-issue` — a `BL-` item, never a new story, and never a per-item prompt.
+Severity routing is uniform across phases: **CRITICAL/HIGH** block closure and open a fix loop (capped at `{max_fix_iterations}` — 10 for CODE/MIXED, 3 for DOCS/CONFIG); **MEDIUM** is fixed in place before the sprint is marked done; **LOW** auto-defers to `issues.yaml` via `pm-status.py append-issue` — a `BL-` item, never a new story, and never a per-item prompt.
 
 ### Epic closure
 
 Retrospective across all sprint retros → architectural drift audit (`l3io-arch-review` Mode C, CODE/MIXED only) → issue triage, which re-reviews the epic's deferred Low items for promotion now that full epic context exists → closure report with the estimate-vs-actual table for all four metrics.
 
-CRITICAL/HIGH/MEDIUM drift findings must be resolved before closure completes, under the same 10-iteration fix-loop cap.
+CRITICAL/HIGH/MEDIUM drift findings must be resolved before closure completes, under the same `{max_fix_iterations}` fix-loop cap (default 10; see the note on the DOCS/CONFIG value in `CLAUDE.md`).
 
 ## Metrics Contract
 

@@ -176,7 +176,7 @@ Pre-start estimate:
 Shall I begin?
 ```
 
-Confirm to start (interactive mode requires explicit `yes` before any subagent runs). The orchestrator delegates each story phase to a fresh subagent and reports progress. At closure, findings are auto-classified — Critical/High/Medium and undocumented drift route to the closure fix loop (auto-fix, max 10 iterations); Low findings auto-defer to `state/issues.yaml` as `BL-` backlog items — never as new stories. The sprint signs off once all Critical/High/Medium issues are resolved. You are only prompted again if a fix loop (per-story or closure) hits its 10-iteration cap.
+Confirm to start (interactive mode requires explicit `yes` before any subagent runs). The orchestrator delegates each story phase to a fresh subagent and reports progress. At closure, findings are auto-classified — Critical/High/Medium and undocumented drift route to the closure fix loop (auto-fix, capped at `max_fix_iterations` — default 10); Low findings auto-defer to `state/issues.yaml` as `BL-` backlog items — never as new stories. The sprint signs off once all Critical/High/Medium issues are resolved. You are only prompted again if a fix loop (per-story or closure) hits its `max_fix_iterations` cap.
 
 At sign-off the orchestrator records **actuals** alongside the estimate for all four metrics — compute (wall-clock) hours, man-hours, tokens, and token cost. Under Claude, tokens and cost are captured exactly from the session transcript; under other runtimes (e.g. Copilot) they show as `N/A` rather than a guess. Estimates self-calibrate from this plan-vs-actual history — decomposed into story-scope, closure, and fix components that each activate once they have ≥3 samples — with no setup needed. See the [PM reference](l3io-pm-reference.md#metrics-contract-estimates--actuals) for the full metrics contract and calibration details.
 
@@ -202,7 +202,7 @@ To split: provide story key groups
   (e.g. Sprint 1: E001-S01-001, E001-S01-002 / Sprint 2: E001-S01-003, …)
 ```
 
-Confirm the grouping or provide a custom split. The orchestrator dispatches one *headless* subagent invocation of itself per sprint (no per-sprint scope-confirmation prompt), then runs epic-level closure after all sprints complete. Between sprints, the orchestrator continues immediately to the next sprint without prompting. Epic closure auto-triages findings the same way sprints do; only halts if its closure fix loop hits the 10-iteration cap.
+Confirm the grouping or provide a custom split. The orchestrator dispatches one *headless* subagent invocation of itself per sprint (no per-sprint scope-confirmation prompt), then runs epic-level closure after all sprints complete. Between sprints, the orchestrator continues immediately to the next sprint without prompting. Epic closure auto-triages findings the same way sprints do; only halts if its closure fix loop hits the `max_fix_iterations` cap.
 
 ## Checking Progress
 
