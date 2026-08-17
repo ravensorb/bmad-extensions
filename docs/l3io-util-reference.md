@@ -1,12 +1,23 @@
 # l3io-util Reference
 
-Artifact migration & housekeeping utilities for BMad projects.
+Project state diagnostics, progress reporting, and housekeeping utilities for BMad projects.
 
 ## Overview
 
-`l3io-util` provides one-time migrations and repeatable maintenance for BMad PM artifacts and status files. It is standalone — no orchestrator relationship. Run the single skill `/l3io-util-cleanup` with no argument for a **project health check** that scans for all known issues and proposes the right actions in priority order behind one confirmation, or pass a keyword to jump straight to a mode.
+`l3io-util` provides project state diagnostics, the plan-aware progress dashboard, one-time
+migrations, and repeatable maintenance for BMad PM artifacts and state files. It is
+standalone — no orchestrator relationship. Run the single skill `/l3io-util-doctor` with no
+argument for a **project health check** that scans for all known issues and proposes the
+right actions in priority order behind one confirmation, or pass a keyword to jump straight
+to a mode.
 
-Skill: `/l3io-util-cleanup [command]`.
+Skill: `/l3io-util-doctor [command]`.
+
+> **Renamed in 2.1.0.** This skill was `l3io-util-cleanup` through 2.0.x. "Cleanup"
+> described about three of its fifteen modes, while the default behavior is a
+> diagnose-report-repair health check. `/l3io-util-cleanup` still works — it forwards to
+> `/l3io-util-doctor` and prints a notice — but it is deprecated and will be removed in a
+> future release. Update any scripts or docs that invoke the old name.
 
 ## Configuration
 
@@ -27,7 +38,7 @@ Key settings (with defaults):
 |---------|--------------|
 | *(no argument)* | Project health check — runs all checks and, after one confirmation, executes the flagged actions in priority order. |
 | `check` / `status` | Same scan as the health check, but reports the findings table and exits without changing anything. |
-| `stats` | Project state dashboard — epic/sprint/story counts by status, backlog size by severity, last closed sprint/epic, calibration file state. |
+| `stats` | Plan-aware progress dashboard — renders the phase → epic → sprint → story hierarchy with per-status dwell times and stuck-item flags, then appends backlog size by severity, last closed sprint/epic, and calibration file state. Delegates the state walk to `pm-status.py report` rather than duplicating it; falls back to counts only when `pm-status.py` is not installed yet. Archived epics count toward phase denominators but are listed only with `--all`. See [l3io-pm reference § Progress Reporting](l3io-pm-reference.md#progress-reporting). |
 | `backlog` | Lists the consolidated `backlog:` list grouped by severity. |
 
 ### One-time migrations (run in this order)

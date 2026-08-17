@@ -8,7 +8,7 @@ Full reference for the PM orchestration module — four skills that cover the de
 |-------|------|
 | `l3io-pm-plan` | Validates readiness, elaborates thin stories, estimates, builds the dependency graph, and writes a phased execution plan |
 | `l3io-pm-execute` | Runs the plan — full, single epic, or single sprint. Includes the pre-execution architecture gate, the per-story dev loop, and sprint/epic closure |
-| `l3io-pm-help` | Reads project state and recommends the exact next l3io-pm action |
+| `l3io-pm-help` | Reads project state and recommends the exact next l3io-pm action. `progress` renders the plan-aware progress tree |
 | `l3io-pm-sync` | Bidirectional sync between l3io-pm state and GitHub Issues — `setup`, `push`, `pull`, `sync`, `status` |
 
 `l3io-pm-execute` is **one skill in two modes**, not two skills. In normal mode it orchestrates epics; for each sprint it dispatches a *headless* subagent invocation of itself. There is no separate sprint-execute or epic-execute skill.
@@ -181,6 +181,8 @@ Per epic: `move-epic --to active` (a no-op if already active, so it is always sa
 
 **Sprints within an epic are always sequential.** After each sprint completes, remaining unstarted sprints are re-estimated so calibration learned from the finished sprint feeds forward.
 
+A progress tree renders at phase start and phase end. Inside a parallel phase, per-epic and per-sprint renders are suppressed — concurrent epic subagents would interleave their output — so phase end is the first point the whole phase can be shown coherently. See [Progress Reporting](#progress-reporting).
+
 ### Per-story phases (step-03 dev loop)
 
 Stories process in order; a story with `depends_on` waits until each referenced story is `done`. A dependency outside this sprint's scope moves the story to the end of the queue rather than blocking the sprint.
@@ -213,6 +215,8 @@ Exceeding the 10-iteration cap emits `FAILED` for that story, leaves it at `stat
 
 Outputs go to `{sprint_root}/closure/` — `retrospective.md` and `closure-report.md`. The closure report records stories done, estimates vs actuals, issue counts resolved and deferred, and which phases ran versus were skipped.
 
+Closure also regenerates `{implementation_artifacts}/progress-report.md`, and renders a progress tree when the phase holds a single epic.
+
 ### Epic closure (step-06)
 
 1. **Retrospective** — reviews every sprint retro for the epic; summarizes velocity, recurring pain points, and up to five learnings
@@ -220,7 +224,7 @@ Outputs go to `{sprint_root}/closure/` — `retrospective.md` and `closure-repor
 3. **Issue triage** — re-reviews the epic's deferred Low items for promotion now that full epic context exists
 4. **Closure report** — epic goal and final status, estimate-vs-actual for all four metrics, sprint velocity, learnings, outstanding issues, ADRs produced
 
-Outputs go to `{implementation_artifacts}/epic-{nnn}/epic-closure/`.
+Outputs go to `{implementation_artifacts}/epic-{nnn}/epic-closure/`. Epic closure also renders a progress tree unconditionally — it runs once per epic after its sprints finish, so it never competes with sibling sprints for stdout — and regenerates `{implementation_artifacts}/progress-report.md`.
 
 ## Headless Dispatch
 
@@ -264,7 +268,9 @@ Epic directories are 3-digit zero-padded, sprints 2-digit. Zero-padding makes le
 | `{implementation_artifacts}/state/.../epic-{nnn}/sprint-{nn}/sprint.yaml` | Sprint node — no `stories:` list |
 | `{implementation_artifacts}/state/.../sprint-{nn}/E{nnn}-S{nn}-{nnn}.yaml` | Story node |
 | `{implementation_artifacts}/state/issues.yaml` | Flat deferred-issue list |
+| `{implementation_artifacts}/state/events.jsonl` | Append-only transition log — committed; the source of per-status dwell time |
 | `{implementation_artifacts}/state/pm-calibration.yaml` | Learned calibration ratios — committed |
+| `{implementation_artifacts}/progress-report.md` | Generated progress report — a **view**, regenerated at closure boundaries; never hand-edit |
 | `{implementation_artifacts}/epic-{nnn}/sprint-{nn}/stories/{story-key}.md` | Story markdown |
 | `{implementation_artifacts}/epic-{nnn}/sprint-{nn}/closure/` | Sprint closure outputs |
 | `{implementation_artifacts}/epic-{nnn}/sprint-{nn}/tests/` | Sprint-scoped QA evidence |
@@ -366,9 +372,11 @@ epic:   backlog → in-progress → done
 | Subcommand | Addressing |
 |---|---|
 | `set-status`, `set-actual`, `set-estimate`, `set-field`, `verify` | `--state-root` + (`--story KEY` \| `--epic ID [--sprint ID]`) |
+| `set-status`, `set-actual` extras | `--no-events` skips the `events.jsonl` append; `--session-id ID` stamps it |
 | `estimate-story` | `--state-root --story KEY --classification {simple,standard,complex}` |
 | `estimate-rollup` | `--state-root --epic ID [--sprint ID]` — sums children, widens by the closure band |
 | `show` | `--state-root --epic ID [--sprint ID]` — computed roll-up to stdout, never a committed file |
+| `report` | `--state-root` + optional `--plan <plan-output-meta.yaml>` `--format {tree,json,md}` `--out FILE` `--all` `--watch SECS` — walks every epic; addresses none individually. Read-only unless `--out` is given |
 | `set-lock`, `clear-lock`, `check-lock` | `--state-root --epic ID` (epics only) |
 | `move-epic`, `archive-epic` | `--state-root --epic ID [--to {planned,active,archived}]` |
 | `append-issue` | `--file` — the one path-addressed exception |
@@ -382,7 +390,71 @@ Exit codes: `0` success · `2` usage error · `3` node not found · `4` verifica
 
 ### Legacy migration
 
-Read resolution counts layout matches rather than stopping at the first hit — two populated layouts block rather than silently forking state. Legacy flat `sprint-status.yaml` and legacy `_bmad/state/` both migrate via `/l3io-util-cleanup migrate-state` (original preserved as `.legacy`).
+Read resolution counts layout matches rather than stopping at the first hit — two populated layouts block rather than silently forking state. Legacy flat `sprint-status.yaml` and legacy `_bmad/state/` both migrate via `/l3io-util-doctor migrate-state` (original preserved as `.legacy`).
+
+## Progress Reporting
+
+Answers "which phase, which epic, which sprint, which stories are in flight" during a long-running execute. One builder in `pm-status.py` walks the state tree, joins it against the plan snapshot, and returns one model; every surface renders that model and computes nothing itself.
+
+### The event log
+
+`{implementation_artifacts}/state/events.jsonl` is append-only, one JSON object per line, written automatically by `set-status` and `set-actual` under `flock`:
+
+```json
+{"ts":"2026-08-17T10:42:31Z","event":"status","node":"story","key":"E001-S02-004",
+ "epic":"E001","sprint":"S02","from":"in-progress","to":"review","session":null}
+```
+
+`event` is `status` or `actual`. It exists because **`updated_at` cannot answer dwell time** — it records only the last write and is overwritten by any field change, so it cannot distinguish "entered review 20 minutes ago" from "had its estimate patched 20 minutes ago".
+
+Three deliberate properties:
+
+- **The write is automatic, not flag-driven.** The path derives from `--state-root`. The older optional `--ledger` flag is exactly why the previous progress ledger was never populated: no step file ever passed it. `--no-events` opts out per call.
+- **One project-level log, not one per sprint.** Per-sprint files would fragment the timeline and turn cross-epic velocity into a multi-file join.
+- **Telemetry never blocks the primary record.** A failed append warns on stderr and returns 0, the same contract as calibration sampling.
+
+Never read it to determine current status — the node files are authoritative and the log is history.
+
+### Dwell time and stuck flags
+
+Dwell is the time a node has been in its *current* status. It is **exact** when the event log recorded the transition into that status, and **approximate** (rendered with a `~` prefix) when derived from `updated_at`. Projects predating the log show approximate figures throughout and a footnote saying so.
+
+| Level | Status | Threshold |
+|---|---|---|
+| Story | `in-progress` | 4h |
+| Story | `review` | 4h |
+| Story | `ready-for-dev` | never flagged — waiting is normal |
+| Sprint | `in-progress` | 24h |
+| Epic | `in-progress` | 72h |
+
+Thresholds are fixed in this iteration; the calibration data needed to tune them is what this view generates. Epic-level staleness reuses `_lock.ttl_minutes` rather than introducing a second definition.
+
+Each node's `flags` describe only that node — an epic is not marked stuck because one of its stories is. The flat aggregate lives at the model's top-level `flags`, which also carries `placement`, `stale-lock`, and `unreadable` entries.
+
+### Surfaces
+
+| Surface | Invocation |
+|---|---|
+| CLI | `pm-status.py report --state-root S [--plan P] [--format tree\|json\|md] [--out F] [--all] [--watch N]` |
+| Help | `/l3io-pm-help progress` |
+| Execute | Renders at phase start/end, and at sprint boundaries only when the phase holds a single epic |
+| Doctor | `/l3io-util-doctor stats` |
+
+Archived epics count toward each phase's denominator but are listed only with `--all`, so `Phase 1/3 ████████░░ 2/3 epics done` stays correct with no archived rows shown.
+
+**Render points are limited to where execution is serialized.** A parallel phase runs several epic subagents at once; each printing a tree would interleave into unreadable output, and subagent stdout is buried behind the one-line `DONE — [metrics]` contract anyway. Nothing is lost — every transition still lands in the event log, so `report --watch 15` in a second terminal gives full-resolution live detail while the run's own output stays legible.
+
+The `md` report regenerates at sprint and epic closure boundaries, not per transition: closure is a natural commit point, whereas per-transition regeneration would churn git on every status move and put parallel subagents in contention over one file. It is a generated view carrying a header that says so.
+
+### Degradation
+
+| Condition | Behavior |
+|---|---|
+| No `events.jsonl` | Falls back to `updated_at`; dwell marked approximate |
+| No plan pointer or dangling snapshot | State hierarchy with `plan: null`, no phase framing |
+| Legacy state layout | Callers short-circuit to the `migrate-state` recommendation |
+| `pm-status.py` not self-installed | `/l3io-pm-help` reads `epic.yaml` directly; `stats` falls back to counts only |
+| Unparseable node file | Skipped, recorded as an `unreadable` flag, walk continues |
 
 ## Metrics Contract
 

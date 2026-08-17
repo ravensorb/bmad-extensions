@@ -3,6 +3,14 @@
 > Research note validated against BMad Method installer source (`bmad-code-org/BMAD-METHOD`,
 > v6.10.x): `tools/installer/project-root.js` and `tools/installer/core/manifest-generator.js`.
 > Fetched via `gh api` from `main` on 2026-07-05.
+>
+> **Dated record — kept as written.** The discovery *mechanism* described here is still
+> current, but the example paths are not: this package used a nested
+> `src/<module>/<skill>/` tree and skill names like `l3io-pm-sprint-execute` and
+> `l3io-sec-agent-redteam` when the note was taken. Skills now live in a flat `skills/`
+> directory (see [Architecture](architecture.md)), and those three skills are now
+> `l3io-pm-execute`, `l3io-pm-plan`, and `l3io-sec-redteam`. Read the paths below as
+> historical illustration, not as current layout.
 
 ## The warnings
 

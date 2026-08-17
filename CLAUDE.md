@@ -19,7 +19,8 @@ skills/
   l3io-pm-help/           SKILL.md, customize.toml, assets/, module.yaml
   l3io-pm-sync/           SKILL.md, customize.toml, scripts/, assets/, module.yaml
   l3io-sec-redteam/       SKILL.md, customize.toml, scripts/, assets/, references/, module.yaml
-  l3io-util-cleanup/      SKILL.md, customize.toml, scripts/, assets/, module.yaml
+  l3io-util-doctor/       SKILL.md, customize.toml, scripts/, assets/, module.yaml
+  l3io-util-cleanup/      SKILL.md, customize.toml, module.yaml (deprecated forwarder → l3io-util-doctor; no payload)
   l3io-arch-review/       SKILL.md, customize.toml, scripts/, assets/, references/, module.yaml
 .claude/commands/         symlinks → ../../skills/<skill>/SKILL.md
 .claude-plugin/           marketplace.json (required for installation)
@@ -32,7 +33,7 @@ skills/
 | `l3io-pm-help` | Reads project state and recommends the exact next l3io-pm action |
 | `l3io-pm-sync` | Bidirectional sync between l3io-pm state and GitHub Issues — setup, push, pull, sync, and status modes |
 | `l3io-sec-redteam` | Red team security analysis — five threat lenses + AI poisoning cross-cut, live cloud/platform best practices research |
-| `l3io-util-cleanup` | Artifact migration utilities — reorganizes legacy flat artifacts into structured epic/sprint layout; `migrate-state`, `split-status`, `harvest-debt`, `sort-status`, `update-ai-rules` modes |
+| `l3io-util-doctor` | Project state diagnostics and housekeeping — default is a health check that reports findings and proposes an ordered fix plan; `stats` is the plan-aware progress dashboard; plus `migrate-state`, `split-status`, `harvest-debt`, `sort-status`, `update-ai-rules`, `clean-legacy`. Renamed from `l3io-util-cleanup` in 2.1.0, which survives as a deprecated forwarder (backward compatible — the old command forwards) |
 | `l3io-arch-review` | Engineering-standards architecture guardrails and review — three modes: design guardrails (new project), architectural review (audit), decision support + ADR recording |
 
 ## Shared Files
@@ -45,9 +46,9 @@ Files in `skills/_shared/` are the canonical sources for content shared across P
 | `skills/_shared/tests/test-pm-status.py` | `scripts/tests/test-pm-status.py` | pm-execute, pm-plan, pm-sync |
 | `skills/_shared/status-files.md` | `references/status-files.md` | pm-execute, pm-plan, pm-sync |
 | `skills/_shared/steps/**` | `steps/**` | pm-execute, pm-plan, pm-sync |
-| `skills/_shared/config-resolution.md` | `references/config-resolution.md` | **all 7 skills** |
-| `skills/_shared/module-setup.md` | `assets/module-setup.md` | **all 7 skills** |
-| `skills/_shared/write-module-config.py` | `scripts/write-module-config.py` | **all 7 skills** |
+| `skills/_shared/config-resolution.md` | `references/config-resolution.md` | **all 8 skills** |
+| `skills/_shared/module-setup.md` | `assets/module-setup.md` | **all 8 skills** |
+| `skills/_shared/write-module-config.py` | `scripts/write-module-config.py` | **all 8 skills** |
 
 **Never bundle a BMad core script.** `resolve_config.py`, `resolve_customization.py`, and
 `memlog.py` are installed by BMad core at `{project-root}/_bmad/scripts/` and must be invoked
@@ -78,7 +79,7 @@ Every skill has a `customize.toml`. Use the correct root key:
 
 | Skill type | Root key | When to use |
 |---|---|---|
-| Workflow / utility skill | `[workflow]` | Any skill that is not a persistent memory agent (pm-execute, pm-plan, pm-help, pm-sync, util-cleanup, arch-review) |
+| Workflow / utility skill | `[workflow]` | Any skill that is not a persistent memory agent (pm-execute, pm-plan, pm-help, pm-sync, util-doctor, arch-review) |
 | Memory agent | `[agent]` | Skills with a named persona, sanctum, and First Breath (l3io-sec-redteam) |
 
 The BMad resolver (`resolve_customization.py`) is called with `--key workflow` or `--key agent` to match. Using the wrong key means team/user overrides are ignored silently.
@@ -112,17 +113,18 @@ can be installed and unconfigured. Full contract: `skills/_shared/config-resolut
 - `state/{planned,active,archived}/epic-{nnn}/sprint-{nn}/sprint.yaml` — one bare node per sprint file, no `stories:` list wrapper.
 - `state/{planned,active,archived}/epic-{nnn}/sprint-{nn}/{story-key}.yaml` — one bare node per story file (`E{nnn}-S{nn}-{nnn}.yaml`).
 - `state/issues.yaml` — deferred issues flat list (`BL-E{nnn}-{nnn}`); items removed when resolved.
+- `state/events.jsonl` — append-only transition log, one JSON object per status/actuals write, `flock`-guarded. The only source for per-status dwell time (`updated_at` is overwritten by any field write) and the input to `pm-status.py report`. Absent on pre-existing projects, which fall back to `updated_at` with dwell marked approximate.
 - `state/pm-calibration.yaml` — learned estimation-calibration ratios (see Estimation calibration below).
 
 **Placement rule**: an epic's directory lives in the folder named for its status (`planned/`, `active/`, or `archived/`), and every status transition is a `git mv` of that whole directory — sprints and stories travel with it, never moved independently.
 
 **The two trees**: `state/{status}/epic-001/` holds status, estimates, actuals, and locks (machine-written, `pm-status.py` only); the top-level `epic-001/` holds artifacts — stories, closure reports, QA tests (human/agent-authored, never moved). They mirror each other with an identical path suffix. Every epic with artifacts has state; not every epic with state has artifacts yet.
 
-The placement rule, node-move operations, read/auto-fallback procedure, and the optional `depends_on` fields used by `l3io-pm-plan` live in each PM skill's `references/status-files.md` (the single source of truth). Legacy `{implementation_artifacts}/sprint-status.yaml` (flat) and legacy `{project-root}/_bmad/state/` (per-epic file) repos are detected automatically; run `/l3io-util-cleanup migrate-state` to upgrade (original preserved as `.legacy`).
+The placement rule, node-move operations, read/auto-fallback procedure, and the optional `depends_on` fields used by `l3io-pm-plan` live in each PM skill's `references/status-files.md` (the single source of truth). Legacy `{implementation_artifacts}/sprint-status.yaml` (flat) and legacy `{project-root}/_bmad/state/` (per-epic file) repos are detected automatically; run `/l3io-util-doctor migrate-state` to upgrade (original preserved as `.legacy`).
 
 Story statuses: `backlog → ready-for-dev → in-progress → review → done`. Epic statuses: `backlog → in-progress → done`.
 
-**Status writes go through the shared `pm-status.py`** (run via `uv run`; deps auto-provisioned from its PEP-723 header). It performs every single-node status transition, `actual`-block write, progress-ledger append, and read-back `verify` as one atomic, `ruamel`-round-trip-safe operation (preserves comments + key order) — this replaced free-form YAML edits that were dropped/malformed under load and parallelism. All node operations address state via `--state-root` plus node keys (`--epic`, `--sprint`, `--story`) — never a hand-built path. Skills never construct state paths themselves; `pm-status.py` is the only place that resolves a key to a file location, so a future layout change touches only that script. Directory moves between `planned/`, `active/`, and `archived/` go through `move-epic`/`archive-epic`, still following `references/status-files.md`. Each PM skill activates it in a *Load the Status Helper* step and writes a per-run progress trail to `{sprint|epic_root_dir}/progress.log`. Under `--runtime claude`, `set-actual`/`verify` **reject** an `N/A` tokens/cost (enforces the estimates-&-actuals HARD RULE at write time).
+**Status writes go through the shared `pm-status.py`** (run via `uv run`; deps auto-provisioned from its PEP-723 header). It performs every single-node status transition, `actual`-block write, progress-ledger append, and read-back `verify` as one atomic, `ruamel`-round-trip-safe operation (preserves comments + key order) — this replaced free-form YAML edits that were dropped/malformed under load and parallelism. All node operations address state via `--state-root` plus node keys (`--epic`, `--sprint`, `--story`) — never a hand-built path. Skills never construct state paths themselves; `pm-status.py` is the only place that resolves a key to a file location, so a future layout change touches only that script. Directory moves between `planned/`, `active/`, and `archived/` go through `move-epic`/`archive-epic`, still following `references/status-files.md`. Each PM skill activates it in a *Load the Status Helper* step. Every status and actuals write also appends to `{implementation_artifacts}/state/events.jsonl` automatically (opt out per call with `--no-events`, stamp a session with `--session-id`); this replaced the optional `--ledger` flag, which no step file ever passed, so no progress trail was ever actually written. `pm-status.py report` renders that log plus the state tree as a plan-aware progress view (`--format tree|json|md`, `--watch SECS`, `--all`), read-only unless `--out` is given. Under `--runtime claude`, `set-actual`/`verify` **reject** an `N/A` tokens/cost (enforces the estimates-&-actuals HARD RULE at write time).
 
 `pm-status.py` is a **shared runtime utility** authored once in `skills/_shared/` (with its `tests/`); `npm run sync:scripts` (also chained into `postbump`) generates the per-skill `scripts/` payload copies — **never hand-edit those**. At module setup each PM skill runs `pm-status.py self-install --dest {project-root}/_bmad/scripts/pm-status.py` (version-guarded, self-healing on first use), so there is exactly **one runtime copy per project**, referenced by all PM skills as `{project-root}/_bmad/scripts/pm-status.py`. CI runs `npm run check:scripts` to fail on payload drift from the `skills/_shared/` source.
 

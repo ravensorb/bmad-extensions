@@ -39,7 +39,7 @@ l3io-pm-execute  (normal mode — epic orchestrator)
 l3io-pm-help            (read-only — recommends the next action)
 l3io-pm-sync            (bidirectional GitHub Issues sync)
 l3io-sec-redteam        (also invocable standalone)
-l3io-util-cleanup       (standalone only — migration utilities)
+l3io-util-doctor       (standalone only — migration utilities)
 l3io-arch-review        (standalone, plus invoked by the gate and drift reviews above)
 ```
 
@@ -71,6 +71,7 @@ State is **sharded**: one bare YAML node per file, with the directory structure 
 ├── active/    epic-001/…
 ├── archived/  epic-002/…
 ├── issues.yaml            ← flat BL-E{nnn}-{nnn} deferred-issue list
+├── events.jsonl           ← append-only transition log (committed — source of dwell time)
 └── pm-calibration.yaml    ← learned estimation ratios (committed — team knowledge)
 ```
 
@@ -102,7 +103,9 @@ uv run {pm_status} set-status --state-root {pm_state_root} --story E001-S01-003 
 
 **Who writes it:** `pm-status.py` exclusively. Every status transition, `actual` block, estimate, progress-ledger append, and read-back `verify` is one atomic, `ruamel`-round-trip-safe operation preserving comments and key order. This replaced free-form YAML edits that were dropped or malformed under load and parallelism.
 
-**Concurrency:** per-epic directories mean epic-scoped writes touch only that epic's files — **no flock needed**. The two files sharding cannot shard are inherently cross-epic aggregates and both take an automatic exclusive flock: `issues.yaml` (on append) and `pm-calibration.yaml` (whole read-modify-write cycle, since two concurrent samplers would otherwise silently drop one another's samples).
+**Concurrency:** per-epic directories mean epic-scoped writes touch only that epic's files — **no flock needed**. The three files sharding cannot shard are inherently cross-epic aggregates and all take an automatic exclusive flock: `issues.yaml` (on append), `events.jsonl` (on append), and `pm-calibration.yaml` (whole read-modify-write cycle, since two concurrent samplers would otherwise silently drop one another's samples).
+
+**Reads are lock-free.** Every write goes through an atomic temp-file-plus-rename, so a reader — notably `pm-status.py report --watch` polling during a parallel phase — can never observe a torn node file and needs no lock of its own.
 
 ### Lifecycles
 
@@ -117,7 +120,7 @@ epic:   backlog → in-progress → done
 
 ### Legacy detection
 
-At activation, read resolution checks for the current layout, the legacy per-epic `_bmad/state/` tree, and the legacy flat `sprint-status.yaml`. Detection **counts matches rather than stopping at the first hit** — if more than one layout is present, it blocks rather than guessing which is authoritative. Migration is `/l3io-util-cleanup migrate-state`.
+At activation, read resolution checks for the current layout, the legacy per-epic `_bmad/state/` tree, and the legacy flat `sprint-status.yaml`. Detection **counts matches rather than stopping at the first hit** — if more than one layout is present, it blocks rather than guessing which is authoritative. Migration is `/l3io-util-doctor migrate-state`.
 
 ## Artifact Directory Structure
 

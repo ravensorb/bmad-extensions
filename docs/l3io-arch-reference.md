@@ -82,7 +82,7 @@ Invocation shortcuts: `/l3io-arch-review design|review|decision [--stack python|
 `assets/customize-architect.md` documents the `bmad-customize` overlays to author **in the consuming project** (the core skills live there, not in this extension repo):
 
 - **`bmad-architect`** — load the standards before finalizing any architecture/technology decision; hold the design against every principle; record ADRs; produce diagrams and the docs skeleton.
-- **`bmad-code-review`** (and/or `l3io-sec-agent-redteam`) — additionally check standards compliance during review; treat BLOCKER/MAJOR as gating, MINOR as backlog.
+- **`bmad-code-review`** (and/or `l3io-sec-redteam`) — additionally check standards compliance during review; treat BLOCKER/MAJOR as gating, MINOR as backlog.
 
 The overlays point at the standards files rather than duplicating them, keeping a single source of truth.
 
