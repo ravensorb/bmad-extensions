@@ -61,7 +61,16 @@ Sync commands:
 ```bash
 npm run sync:scripts    # regenerate payload copies from skills/_shared/ source
 npm run check:scripts   # verify payload copies match source (CI also runs this)
+npm run check:docs      # verify docs match the code they describe (CI + release gate)
 ```
+
+`check:docs` asserts three things that have each drifted in this repo's history: every
+`l3io-*` skill named in a live doc resolves to a real `skills/` directory, every mirrored
+phase table matches the authoritative matrix in `steps/shared/step-01-classify-work.md` §4
+cell for cell, and every `<file>.md §N` cross-reference resolves to a section bearing that
+number. It deliberately allows a doc to name a removed skill when mapping it to its
+replacement or explaining the change — `docs/upgrading.md` must be able to say
+`/l3io-pm-epic-execute` → `/l3io-pm-execute`.
 
 The `postbump` hook chains sync automatically, so every release keeps the payloads in sync.
 

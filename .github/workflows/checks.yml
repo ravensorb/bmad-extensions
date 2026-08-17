@@ -17,6 +17,8 @@ jobs:
         python-version: '3.11'
     - name: Verify shared-script payload copies are in sync
       run: npm run check:scripts
+    - name: Verify documentation matches the code it describes
+      run: npm run check:docs
     - name: pm-status.py unit tests
       run: |
         python3 -m pip install --quiet 'ruamel.yaml>=0.18'
