@@ -18,7 +18,7 @@ You can install all four modules or only the ones you need:
 |--------|---------------------|
 | **l3io-pm** | Sprint and epic orchestration |
 | **l3io-sec** | Adversarial security review (standalone or automatic inside l3io-pm closure) |
-| **l3io-util** | One-time cleanup of legacy flat artifact layouts |
+| **l3io-util** | Project state diagnostics, the progress dashboard, and legacy layout migration |
 | **l3io-arch** | Engineering-standards architecture guardrails and review (new-project design, review audits, and ADR-recorded decisions) |
 
 All four modules are installed by the same `npx bmad-method install` command. Each module handles its own first-run configuration — no separate setup step required.
@@ -37,7 +37,7 @@ npx bmad-method install \
 
 Interactive path: `npx bmad-method install` -> Community modules -> `bmad-l3io-extensions`.
 
-This installs all five skills and registers the four modules in `.claude-plugin/marketplace.json`.
+This installs all eight skills and registers the four modules in `.claude-plugin/marketplace.json`.
 
 ## First-Run Configuration
 
@@ -89,28 +89,13 @@ After upgrading, your `_bmad/custom/config.toml` and `config.user.toml` override
 
 ### Upgrading from 1.x
 
-The installer refreshes skills; it does not migrate your data. Run this once, before any
-sprint or epic run:
+The installer refreshes skills; it does not migrate your data. Run `/l3io-util-doctor` once
+before any sprint or epic run — it inspects the project and applies every migration you
+need, in dependency order, behind one confirmation.
 
-```
-/l3io-util-doctor
-```
-
-With no argument it inspects the project and proposes every applicable migration **in the
-correct dependency order** behind one confirmation. The full sequence, of which it runs only
-the steps you actually need:
-
-```
-rename-active → rename-epic-dirs → migrate-schema → split-status → migrate-state
-  → reconcile-status → layout-cleanup → sort-status → harvest-debt
-  → update-ai-rules → clean-legacy
-```
-
-`migrate-state` is the step that matters most — it produces the sharded `state/` tree that the
-2.x skills read. Everything before it only prepares its input, so **running an earlier step
-alone leaves the project in a layout the skills cannot read.** Resist invoking individual modes
-by hand unless you know precisely which you need; originals are preserved as `.legacy` either
-way, and `clean-legacy` removes them once you have verified the result.
+The 1.x → 2.x jump renamed and merged several skills and changed the state layout twice.
+See **[Upgrading](upgrading.md)** for the version-by-version notes, the full ordered
+sequence, backups and rollback, and current deprecations.
 
 ## Before Running l3io-pm
 
@@ -129,8 +114,8 @@ Before your first sprint or epic run, verify:
 
    One bare node per file; children are discovered by listing the directory. If you are
    upgrading from a legacy layout — a flat `sprint-status.yaml`, the three-file split, or a
-   per-epic `_bmad/state/` tree — run `/l3io-util-doctor migrate-state` **before anything
-   else**. Originals are preserved as `.legacy`.
+   per-epic `_bmad/state/` tree — run `/l3io-util-doctor` first and let it sequence the
+   migration; see [Upgrading](upgrading.md). Originals are preserved as `.legacy`.
 2. Planning docs (epics file, PRD, architecture spec) exist under `{planning_artifacts}`
 3. If you are unsure what shape your project is in, run `/l3io-util-doctor` — with no
    argument it reports findings and proposes the right actions in order
