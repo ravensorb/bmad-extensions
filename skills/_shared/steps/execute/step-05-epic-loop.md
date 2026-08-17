@@ -150,6 +150,7 @@ Spawn headless sprint subagent with context block:
 # l3io-pm execution context [AUTHORITATIVE — read before any step file]
 work_type: {work_type}
 skip_phases: {skip_phases}
+max_fix_iterations: {max_fix_iterations}
 epic_key: {epic_key}
 epic_nnn: {epic_nnn}
 sprint_root: {implementation_artifacts}/epic-{epic_nnn}/sprint-{sprint_nn}/

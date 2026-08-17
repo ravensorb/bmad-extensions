@@ -11,4 +11,4 @@ module_greeting: >
 post-install-notes: >
   Required BMad skills: bmad-dev-story, bmad-code-review, bmad-qa-generate-e2e-tests,
   bmad-retrospective, bmad-review-adversarial-general.
-  Optional: l3io-arch-review, bmad-agent-architect, bmad-testarch-atdd, l3io-sec-redteam.
+  Optional: l3io-arch-review, bmad-agent-architect, l3io-sec-redteam.

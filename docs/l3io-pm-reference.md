@@ -221,7 +221,7 @@ Exceeding the `{max_fix_iterations}` cap emits `FAILED` for that story, leaves i
 | Adversarial analysis | run | skip | skip | run |
 | Red team (`l3io-sec-redteam`) | run | skip | skip | run |
 | UX review (`bmad-ux-review`) | run | skip | skip | run |
-| Architectural drift (`l3io-arch-review` Mode C) | run | skip | run | run |
+| Sprint architectural drift (`l3io-arch-review` Mode C) | run | skip | run | run |
 | Issue triage | run | run | run | run |
 
 The phase-gating matrix now lives in `steps/shared/step-01-classify-work.md` §4 (single source
@@ -248,6 +248,7 @@ Step-05 spawns each sprint with an authoritative context block:
 # l3io-pm execution context [AUTHORITATIVE — read before any step file]
 work_type: {work_type}
 skip_phases: {skip_phases}
+max_fix_iterations: {max_fix_iterations}
 epic_key: {epic_key}
 epic_nnn: {epic_nnn}
 sprint_root: {implementation_artifacts}/epic-{epic_nnn}/sprint-{sprint_nn}/
@@ -268,7 +269,7 @@ End with exactly one of:
   FAILED: [one-line reason]
 ```
 
-`skip_phases` is derived from `work_type`: `CODE` and `MIXED` skip nothing; `DOCS` skips adversarial, red-team, arch-drift, and clean-release; `CONFIG` skips adversarial, red-team, and ux-review.
+`{skip_phases}` is bound by `steps/shared/step-01-classify-work.md` §4 from the phase matrix there, which is authoritative; the table above mirrors it.
 
 The orchestrator branches on the returned line: `DONE` marks the sprint done and continues; `BLOCKED` halts the epic loop; `FAILED` is non-fatal at epic level — logged and counted, then the next sprint runs.
 
@@ -575,7 +576,6 @@ Calibration:  none yet — formula baseline (components calibrate at ≥3 sample
 | Development | `bmad-dev-story` |
 | Fix loop | `bmad-dev-story` |
 | Code review | `bmad-code-review` |
-| ATDD scaffold | `bmad-testarch-atdd` (optional; skipped for DOCS/CONFIG or when absent) |
 | Retrospective (sprint + epic) | `bmad-retrospective` |
 | Clean release review (sprint) | `bmad-review-adversarial-general`, scope `clean-release` |
 | Adversarial analysis (sprint) | `bmad-review-adversarial-general`, scope `adversarial` |

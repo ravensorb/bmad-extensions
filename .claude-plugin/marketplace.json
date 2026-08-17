@@ -86,8 +86,7 @@
     ],
     "optional-skills": [
       "bmad-ux-review",
-      "l3io-arch-review",
-      "bmad-testarch-atdd"
+      "l3io-arch-review"
     ]
   }
 }

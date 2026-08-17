@@ -55,7 +55,7 @@ ls {project-root}/.claude/commands/bmad-ux-review.md 2>/dev/null \
 If present: invoke with story files that have UX acceptance criteria.
 HIGH: fix. LOW/MEDIUM: defer.
 
-## 6. Architectural drift review (skip if in skip_phases)
+## 6. Sprint architectural drift review (skip if in skip_phases)
 
 If `l3io-arch-review` is installed: invoke Mode C (audit) on this sprint's stories and changed files.
 CRITICAL/HIGH/MEDIUM: resolve before marking sprint done. LOW: defer to issues file.
