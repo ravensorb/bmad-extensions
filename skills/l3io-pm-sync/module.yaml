@@ -1,7 +1,7 @@
 code: l3io-pm
 name: "LiquidLogicLabs PM"
 description: "Push l3io-pm state to GitHub Issues, pull status updates back."
-module_version: 2.0.4
+module_version: 2.1.0
 default_selected: false
 module_greeting: >
   LiquidLogicLabs PM module is configured!

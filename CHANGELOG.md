@@ -2,6 +2,26 @@
 
 All notable changes to this project will be documented in this file. See [commit-and-tag-version](https://github.com/absolute-version/commit-and-tag-version) for commit guidelines.
 
+## [2.1.0](https://github.com/ravensorb/bmad-extensions/compare/2.0.4...2.1.0) (2026-08-17)
+
+
+### Features
+
+* **l3io-pm:** add plan-aware progress reporting ([8191065](https://github.com/ravensorb/bmad-extensions/commit/81910657423e6d6d4727518c3ec0204561fc7bc1))
+
+
+### Refactoring
+
+* **l3io-pm:** remove the unused progress ledger ([7931dc3](https://github.com/ravensorb/bmad-extensions/commit/7931dc36df0ad91ec0b8956522aa0ab7d81a3cc3))
+* **l3io-util:** rename l3io-util-cleanup to l3io-util-doctor ([0085f7a](https://github.com/ravensorb/bmad-extensions/commit/0085f7aed01f01eafa81bc3b8af7e3d40aa4067b))
+
+
+### Documentation
+
+* consolidate upgrade guidance into docs/upgrading.md ([3e52e1b](https://github.com/ravensorb/bmad-extensions/commit/3e52e1bbc333328d39330a247c36f59e0c80f40d))
+* correct the 1.x upgrade path ([a365db5](https://github.com/ravensorb/bmad-extensions/commit/a365db5eb9fbef6f389379b7c6afc3c7d2275bc0))
+* refresh all documentation for current skills and progress reporting ([8abc76e](https://github.com/ravensorb/bmad-extensions/commit/8abc76ecf903d734333c51d2fe0c897c19a6acf7))
+
 ## [2.0.4](https://github.com/ravensorb/bmad-extensions/compare/2.0.3...2.0.4) (2026-08-17)
 
 
