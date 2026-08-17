@@ -382,7 +382,6 @@ epic:   backlog → in-progress → done
 | `append-issue` | `--file` — the one path-addressed exception |
 | `list-issues` | `--state-root` + optional `--epic`/`--sprint`/`--severity`/`--format` |
 | `calibration show` | `--state-root [--format {text,json}]` |
-| `progress` | `--ledger` + `--msg` |
 
 Exit codes: `0` success · `2` usage error · `3` node not found · `4` verification failure · `5` epic locked by another session.
 
@@ -409,7 +408,7 @@ Answers "which phase, which epic, which sprint, which stories are in flight" dur
 
 Three deliberate properties:
 
-- **The write is automatic, not flag-driven.** The path derives from `--state-root`. The older optional `--ledger` flag is exactly why the previous progress ledger was never populated: no step file ever passed it. `--no-events` opts out per call.
+- **The write is automatic, not flag-driven.** The path derives from `--state-root`. An earlier optional `--ledger` flag and `progress` subcommand did the same job opt-in, and are exactly why no progress trail was ever populated — nothing passed them. Both have been removed. `--no-events` opts out per call.
 - **One project-level log, not one per sprint.** Per-sprint files would fragment the timeline and turn cross-epic velocity into a multi-file join.
 - **Telemetry never blocks the primary record.** A failed append warns on stderr and returns 0, the same contract as calibration sampling.
 

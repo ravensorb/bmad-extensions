@@ -296,12 +296,15 @@ Subcommand summary (see `pm-status.py --help` for full flags):
 | `list-issues` | `--state-root` (reads `{state-root}/issues.yaml`) + optional `--epic`/`--sprint`/`--severity`/`--format` filters |
 | `calibration show` | `--state-root [--format {text,json}]` — read-only report of every component's sample count and active ratio; a missing file reports cold-start and exits `0` |
 | `report` | `--state-root` (+ optional `--plan` pointing at `plan-output-meta.yaml`) — walks every epic in every status folder; addresses none individually. Read-only unless `--out` is given |
-| `progress` | `--ledger` + `--msg` (unrelated to state-root addressing) |
 
 `set-status` and `set-actual` both append a line to `state/events.jsonl` as a side effect of
 a successful write (`--no-events` suppresses it, `--session-id` stamps it). A failed append
 warns on stderr and never fails the write — the node file is the primary record and telemetry
 must not be able to block it.
+
+This replaced an optional `--ledger` flag and a `progress` subcommand, both removed. Because
+the flag was opt-in and no step file ever passed it, no project ever produced a ledger; the
+event log is unconditional so it cannot be silently skipped.
 
 `set-actual` also derives and appends a calibration sample as a side effect of a successful
 write (`--no-calibrate` suppresses it) — see `references/metrics-contract.md` §8 for what it

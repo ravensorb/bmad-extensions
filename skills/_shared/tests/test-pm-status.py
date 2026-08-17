@@ -4,8 +4,8 @@ Tests for pm-status.py — run with: python3 test-pm-status.py  (or `uv run`).
 Exercises the sharded split-directory layout resolution, key-based node addressing
 (set-status/set-actual/set-estimate/set-field/verify), epic directory moves
 (move-epic/archive-epic), the unconverted --file-based commands (locks,
-append-issue, self-install), comment/order preservation, the progress ledger,
-and verify exit codes.
+append-issue, self-install), comment/order preservation, the events.jsonl
+transition log, the progress report, and verify exit codes.
 """
 import io
 import json
@@ -33,7 +33,6 @@ class Base(unittest.TestCase):
 
     def setUp(self):
         self.d = tempfile.mkdtemp()
-        self.ledger = os.path.join(self.d, "progress.log")
 
     def run_main(self, argv):
         """Call main() in-process; return (exit_code, stdout)."""
@@ -45,16 +44,6 @@ class Base(unittest.TestCase):
         except SystemExit as e:
             code = e.code if isinstance(e.code, int) else 1
         return code, buf.getvalue()
-
-
-class TestProgress(Base):
-    def test_append(self):
-        self.run_main(["progress", "--ledger", self.ledger, "--msg", "PROGRESS: task 2/5", "--scope", "E01/S01"])
-        self.run_main(["progress", "--ledger", self.ledger, "--msg", "PROGRESS: task 3/5", "--scope", "E01/S01"])
-        with open(self.ledger, encoding="utf-8") as fh:
-            lines = fh.read().strip().splitlines()
-        self.assertEqual(len(lines), 2)
-        self.assertIn("task 3/5", lines[1])
 
 
 class TestSelfInstall(Base):

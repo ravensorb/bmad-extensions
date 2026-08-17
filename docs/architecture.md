@@ -101,7 +101,7 @@ uv run {pm_status} set-status --state-root {pm_state_root} --story E001-S01-003 
 
 `append-issue` is the one exception: `issues.yaml` is a flat file with no resolvable node key, so it takes `--file`.
 
-**Who writes it:** `pm-status.py` exclusively. Every status transition, `actual` block, estimate, progress-ledger append, and read-back `verify` is one atomic, `ruamel`-round-trip-safe operation preserving comments and key order. This replaced free-form YAML edits that were dropped or malformed under load and parallelism.
+**Who writes it:** `pm-status.py` exclusively. Every status transition, `actual` block, estimate, event-log append, and read-back `verify` is one atomic, `ruamel`-round-trip-safe operation preserving comments and key order. This replaced free-form YAML edits that were dropped or malformed under load and parallelism.
 
 **Concurrency:** per-epic directories mean epic-scoped writes touch only that epic's files — **no flock needed**. The three files sharding cannot shard are inherently cross-epic aggregates and all take an automatic exclusive flock: `issues.yaml` (on append), `events.jsonl` (on append), and `pm-calibration.yaml` (whole read-modify-write cycle, since two concurrent samplers would otherwise silently drop one another's samples).
 

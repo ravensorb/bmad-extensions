@@ -146,4 +146,3 @@ It dry-runs first and confirms before deleting.
 |---|---|---|---|
 | `/l3io-util-cleanup` | 2.1.0 | `/l3io-util-doctor` | a future major release |
 | `migrate-schema`, `split-status`, `reconcile-status` | — | legacy-only bridging modes; no longer reachable once `migrate-state` has run | when 1.x migration support is dropped |
-| `pm-status.py progress --ledger` | 2.3.0 (script version) | automatic `state/events.jsonl` appends | not yet scheduled |

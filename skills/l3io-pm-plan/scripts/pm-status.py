@@ -6,7 +6,7 @@
 # pm-status-version: 2.3.0   (machine-readable marker; `self-install` compares this across copies — keep at top)
 """
 pm-status.py — deterministic, atomic, round-trip-safe writer for the l3io-pm
-split status files and the per-sprint progress ledger.
+sharded state tree, and the reader behind its progress report.
 
 Why this exists
 ---------------
@@ -27,10 +27,10 @@ ruamel.yaml is already importable.
 Subcommands
 -----------
   set-status    --state-root S  (--story KEY | --epic ID [--sprint ID])  --status S
-                [--title T] [--ledger L] [--scope SCOPE] [--flock]
+                [--title T] [--flock] [--no-events] [--session-id ID]
   set-actual    --state-root S   --node {story,sprint,epic}  (--story KEY | --epic ID [--sprint ID])
                 [--elapsed-hours H] [--man-hours H] [--tokens-k K] [--cost C]
-                [--runtime {claude,other}] [--ledger L] [--scope SCOPE] [--flock]
+                [--runtime {claude,other}] [--flock] [--no-events] [--session-id ID]
                 [--no-calibrate]
                 (derives the node's calibration sample inline — write
                 completion_evidence.fix_iterations BEFORE this call, or the scope/fix
@@ -44,7 +44,6 @@ Subcommands
                 --time-hours H, --tokens-k K, --cost C)
                 [--confidence {low,medium,high}] [--flock]
   set-field     --state-root S  (--story KEY | --epic ID [--sprint ID])  --field NAME --value V
-  progress      --ledger L  --msg "..."  [--scope "E01/S02/ST03"]
   verify        --state-root S  --scope {story,sprint,epic}  (--story KEY | --epic ID [--sprint ID])
                 [--require-tokens] [--runtime {claude,other}]
                 (--scope epic checks structural/back-reference integrity across the
@@ -323,14 +322,6 @@ def _die_usage(msg: str):
 def _die_notfound(what: str):
     sys.stderr.write(f"pm-status.py: node not found — {what}\n")
     sys.exit(3)
-
-
-def _append_ledger(ledger: str, scope: str, msg: str) -> None:
-    d = os.path.dirname(os.path.abspath(ledger)) or "."
-    os.makedirs(d, exist_ok=True)
-    line = f"{_now_iso()}  {scope or '-'}  {msg}\n"
-    with open(ledger, "a", encoding="utf-8") as f:
-        f.write(line)
 
 
 EVENTS_FILENAME = "events.jsonl"
@@ -1731,9 +1722,6 @@ def cmd_set_status(args) -> int:
         payload.update(_event_keys(kind, args))
         append_event(args.state_root, payload)
 
-    if args.ledger:
-        scope = args.scope or (args.story or f"{args.epic}" + (f"/{args.sprint}" if args.sprint else ""))
-        _append_ledger(args.ledger, scope, f"status -> {args.status}")
     sys.stdout.write(f"OK set-status {label} -> {args.status}\n")
     return 0
 
@@ -1795,8 +1783,6 @@ def cmd_set_actual(args) -> int:
         payload.update(_event_keys(kind, args))
         append_event(args.state_root, payload)
 
-    if args.ledger:
-        _append_ledger(args.ledger, args.scope or label, f"actual {sorted(provided)}")
     suffix = f" [{calib_note}]" if calib_note else ""
     sys.stdout.write(f"OK set-actual {label} {sorted(provided)}{suffix}\n")
     return 0
@@ -2174,13 +2160,6 @@ def cmd_move_epic(args) -> int:
     return 0
 
 
-def cmd_progress(args) -> int:
-    if not args.msg:
-        _die_usage("progress needs --msg")
-    _append_ledger(args.ledger, args.scope, args.msg)
-    return 0
-
-
 def cmd_show(args) -> int:
     """Render a computed sprint or epic roll-up. Exits 3 if the epic (or,
     when --sprint is given, that sprint within it) does not resolve — an
@@ -2360,8 +2339,6 @@ def build_parser() -> argparse.ArgumentParser:
     node_args(s)
     s.add_argument("--status", required=True)
     s.add_argument("--title")
-    s.add_argument("--ledger")
-    s.add_argument("--scope")
     s.add_argument("--flock", action="store_true", help="acquire exclusive flock before write")
     s.add_argument("--no-events", dest="no_events", action="store_true",
                    help="skip the events.jsonl append for this call")
@@ -2378,8 +2355,6 @@ def build_parser() -> argparse.ArgumentParser:
     a.add_argument("--tokens-k", dest="tokens_k")
     a.add_argument("--cost")
     a.add_argument("--runtime", choices=["claude", "other"], default="other")
-    a.add_argument("--ledger")
-    a.add_argument("--scope")
     a.add_argument("--flock", action="store_true", help="acquire exclusive flock before write")
     a.add_argument("--no-calibrate", dest="no_calibrate", action="store_true",
                    help="skip calibration sampling (backfills, replays)")
@@ -2388,12 +2363,6 @@ def build_parser() -> argparse.ArgumentParser:
     a.add_argument("--session-id", dest="session_id", default=None,
                    help="recorded in the event payload; null when omitted")
     a.set_defaults(func=cmd_set_actual)
-
-    pr = sub.add_parser("progress", help="append a line to the progress ledger")
-    pr.add_argument("--ledger", required=True)
-    pr.add_argument("--msg", required=True)
-    pr.add_argument("--scope")
-    pr.set_defaults(func=cmd_progress)
 
     v = sub.add_parser("verify", help="read-back gate; nonzero exit on any gap")
     v.add_argument("--state-root", required=True, help="path to {implementation_artifacts}/state")
