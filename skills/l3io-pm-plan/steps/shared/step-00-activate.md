@@ -178,8 +178,8 @@ owning session. Generate it once here; never regenerate it in later steps.
 
 This is everything a normal run needs from the state and metrics contracts. **Do not load
 `references/status-files.md` or `references/metrics-contract.md` unless the routing table at
-the end of this section sends you there** — they are 1,178 lines combined, and re-reading them
-per subagent is the single largest avoidable token cost in the system.
+the end of this section sends you there** — they run well over a thousand lines combined, and
+re-reading them per subagent is the single largest avoidable token cost in the system.
 
 **Precedence.** `pm-status.py` is the authority: it enforces every rule below mechanically, so
 if its behavior and this digest disagree, the script is right. Then the full reference. This
@@ -192,12 +192,15 @@ digest is last — treat it as stale if it conflicts.
 - Backlog item `BL-E{nnn}-{nnn}` (`BL-E000-{nnn}` for repo-global)
 - Zero-padded always. Node fields use `key:`, never `id:`.
 
-### Never build a state path by hand
+### Never build a state path by hand for a write
 
-`pm-status.py` is the only component that resolves a key to a location. Address nodes by key;
-if you find yourself concatenating `state/active/epic-...`, stop and use a subcommand.
+`pm-status.py` is the only component that resolves a key to a location for writes. Address
+nodes by key when writing; if you find yourself concatenating `state/active/epic-...` to write
+a file, stop and use a subcommand. Direct reads are fine where a step file directs one — e.g.
+`steps/sprint/step-02-story-prep.md` reads `epic.yaml` directly for `goal`, a field `show`
+does not print.
 
-Bind `{pm_status}` = `{project-root}/_bmad/scripts/pm-status.py`.
+Uses `{pm_status}` (bound in §2).
 
 ### The calls a sprint or epic run makes
 
@@ -223,7 +226,8 @@ set-lock      --state-root S  --epic ID  --session-id SESS  [--ttl-minutes N]
 clear-lock    --state-root S  --epic ID
 check-lock    --state-root S  --epic ID  --session-id SESS
 move-epic     --state-root S  --epic ID  --to {planned,active,archived}
-append-issue  --file F  --key BL-E{nnn}-{nnn}  --epic E  [--sprint S]  --title T
+archive-epic  --state-root S  --epic ID  (alias for move-epic --to archived)
+append-issue  --file F  --key BL-E{nnn}-{nnn}  --epic {nnn}  [--sprint S]  --title T
               --source S  --severity {Low,Medium,High,Critical}  [--description D]
 ```
 
@@ -251,13 +255,14 @@ cannot see it.
 
 | If you need to… | Read |
 |---|---|
-| interpret a `verify` failure | `references/status-files.md` §7 (Addressing) |
-| know which fields a node carries | `references/status-files.md` §4 (Per-file schema) |
+| understand what a `verify` failure actually checked | `references/metrics-contract.md` §5 (Enforcement — what is actually checked, and where) |
+| know which fields a node carries, or diagnose a back-reference/structural `verify` failure | `references/status-files.md` §4 (Per-file schema) |
 | handle a migration or legacy layout | `references/status-files.md` §10 (Read resolution at activation) |
 | declare or read `depends_on` | `references/status-files.md` §11 (Dependency fields) |
 | resolve an epic lock question | `references/status-files.md` §6 (Ownership lock) |
 | capture token/cost actuals correctly | `references/metrics-contract.md` §3 (Runtime detection and capture) |
 | write an estimate or actual by hand | `references/metrics-contract.md` §4 (Writing estimates and actuals) |
+| apply the estimation roll-up or fix-reserve model | `references/metrics-contract.md` §6 (The estimation roll-up) and §7 (The fix reserve) |
 | explain a calibration result | `references/metrics-contract.md` §8 (Calibration) |
 | see a full worked example | `references/metrics-contract.md` §10 (Worked example) |
 

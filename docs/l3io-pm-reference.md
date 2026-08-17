@@ -142,6 +142,12 @@ depends_on: ['E001-S02-003']
 
 ### Activation and step order
 
+Activation ends with an operative digest (§8 of `step-00-activate.md`) covering keys,
+`pm-status.py` signatures, exit codes, and the estimates hard rule. `status-files.md` and
+`metrics-contract.md` are **not** loaded at activation — they are deep references consulted on
+demand, and the digest's routing table names the section to read for each case. Precedence is
+`pm-status.py` > reference > digest. This applies to both modes below.
+
 **Normal mode** (epic orchestration):
 
 ```
@@ -162,12 +168,6 @@ steps/sprint/step-02-story-prep.md
 steps/sprint/step-03-dev-loop.md
 steps/sprint/step-04-sprint-closure.md
 ```
-
-Activation ends with an operative digest (§8 of `step-00-activate.md`) covering keys,
-`pm-status.py` signatures, exit codes, and the estimates hard rule. `status-files.md` and
-`metrics-contract.md` are **not** loaded at activation — they are deep references consulted on
-demand, and the digest's routing table names the section to read for each case. Precedence is
-`pm-status.py` > reference > digest.
 
 ### Architecture gate (step-04)
 
