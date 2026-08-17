@@ -16,6 +16,8 @@
 //   1. skill-names   every l3io-* skill named in docs resolves to a real skills/ directory
 //   2. gating-tables every mirrored phase table matches the authoritative matrix, cell for cell
 //   3. section-refs  every "<file>.md §N" cross-reference resolves to a section bearing that number
+//   4. cli-surface   documented pm-status.py subcommands and the real CLI agree, both ways
+//   5. config-values values quoted in prose match the defaults customize.toml ships
 //
 // Usage:
 //   node scripts/check-docs.mjs        # report and exit nonzero on any failure (CI)
@@ -225,10 +227,170 @@ function checkSectionRefs() {
 }
 
 // ---------------------------------------------------------------------------
+// 4. The documented pm-status.py CLI surface matches the real one, both ways.
+//
+// Docs list subcommands in four places by design — the script's own docstring, the
+// addressing table in status-files.md §7, the reference doc's table, and the activation
+// digest, which exists precisely so a subagent has the signatures inline. Those mirrors are
+// fine; silently disagreeing with the CLI is not.
+//
+// Caught in practice: removing the unused `progress` subcommand meant editing three separate
+// docs, and adding `report` meant remembering to document it. Either could have been missed.
+//
+// Checked both directions:
+//   forward  a subcommand a doc names must exist in the CLI  (stale doc)
+//   reverse  a subcommand the CLI has must appear in the reference  (undocumented feature)
+// ---------------------------------------------------------------------------
+const PM_STATUS = "skills/_shared/pm-status.py";
+const CLI_REFERENCE_DOC = "docs/l3io-pm-reference.md";
+// Words that follow "pm-status.py" in prose rather than naming a subcommand.
+const PROSE_AFTER_CMD = new Set(["only", "is", "are", "and", "or", "the", "for", "with",
+  "to", "from", "in", "on", "at", "by", "not", "itself", "runs", "writes", "reads"]);
+
+function cliSubcommands() {
+  // argparse registrations are the authoritative surface: sub.add_parser("name", ...)
+  const src = read(PM_STATUS);
+  return new Set([...src.matchAll(/sub\.add_parser\(\s*"([a-z-]+)"/g)].map((m) => m[1]));
+}
+
+function checkCliSurface() {
+  const real = cliSubcommands();
+  if (real.size === 0) {
+    failures.push(`${PM_STATUS}: no sub.add_parser() calls found — has the CLI been restructured?`);
+    return;
+  }
+  let checked = 0;
+
+  // Forward. Hyphenated names are unambiguous wherever they appear in backticks. Single-word
+  // names (show, report, verify) are ordinary English, so only trust the explicit
+  // "pm-status.py <cmd>" form for those — a checker that flags the word "report" in prose is
+  // a checker nobody keeps.
+  for (const rel of [...LIVE_DOCS, "skills/_shared/status-files.md",
+                     "skills/_shared/steps/shared/step-00-activate.md"]) {
+    if (!exists(rel)) continue;
+    const text = read(rel);
+    const named = new Set([
+      ...[...text.matchAll(/`([a-z]+(?:-[a-z]+)+)`/g)].map((m) => m[1]),
+      ...[...text.matchAll(/pm-status\.py\s+([a-z-]+)/g)].map((m) => m[1]),
+    ]);
+    for (const name of named) {
+      // "pm-status.py" is followed by prose as often as by a subcommand ("written by
+      // pm-status.py only", "see pm-status.py --help"), so filter both shapes out. Flags are
+      // never subcommands; the stopword list stays tiny and covers what actually occurs.
+      if (name.startsWith("-")) continue;
+      if (PROSE_AFTER_CMD.has(name)) continue;
+      // Only judge tokens that look like they are claiming to be subcommands: either the CLI
+      // has one by that name, or the doc used the explicit pm-status.py form.
+      const explicit = new RegExp(`pm-status\\.py\\s+${name}\\b`).test(text);
+      if (!explicit && !/^(set|estimate|move|archive|append|list|check|clear|self)-/.test(name)) continue;
+      checked += 1;
+      if (real.has(name)) continue;
+      const line = text.split("\n").find((l) => l.includes(name)) || "";
+      if (/remov|deprecat|no longer|replaced|used to/i.test(line)) {
+        notes.push(`${rel}: names absent subcommand '${name}' while describing its removal — allowed`);
+        continue;
+      }
+      failures.push(
+        `${rel}: documents pm-status.py subcommand '${name}', which the CLI does not have\n` +
+          `      CLI has: ${[...real].sort().join(", ")}`,
+      );
+    }
+  }
+
+  // Reverse. The reference doc is where a reader looks for the complete surface.
+  const refText = exists(CLI_REFERENCE_DOC) ? read(CLI_REFERENCE_DOC) : "";
+  for (const name of real) {
+    if (name === "self-install") continue; // internal plumbing, deliberately not user-facing
+    checked += 1;
+    // Word-boundary, not substring: `includes("estimate-rollup")` is satisfied by the typo
+    // "estimate-rollupX", so a renamed-but-not-removed command would slip through.
+    if (new RegExp(`\\b${name}\\b`).test(refText)) continue;
+    failures.push(
+      `${CLI_REFERENCE_DOC}: does not document pm-status.py subcommand '${name}'\n` +
+        `      every CLI subcommand should appear in the reference`,
+    );
+  }
+  if (verbose) console.log(`  cli-surface:    ${checked} subcommand claim(s) checked both ways`);
+}
+
+// ---------------------------------------------------------------------------
+// 5. Config values restated in prose match the shipped defaults.
+//
+// Docs quote the fix-loop cap inline because a reader wants the number without a click.
+// That is the right call for the reader and the wrong one for consistency — unless the
+// quote is checked. Caught in practice: the cap was stated as a flat 10 in six places and
+// went stale in all of them the moment it became configurable.
+// ---------------------------------------------------------------------------
+const PM_SKILLS = ["l3io-pm-execute", "l3io-pm-plan", "l3io-pm-sync", "l3io-pm-help"];
+
+function tomlInt(text, key) {
+  const m = text.match(new RegExp(`^${key}\\s*=\\s*(\\d+)`, "m"));
+  return m ? Number(m[1]) : null;
+}
+
+function checkConfigValues() {
+  // The four PM skills must agree with each other first — a doc cannot match all of them
+  // if they disagree, and a per-skill divergence is itself a defect.
+  const defaults = {};
+  for (const key of ["max_fix_iterations", "max_fix_iterations_non_code"]) {
+    const seen = new Map();
+    for (const skill of PM_SKILLS) {
+      const p = `skills/${skill}/customize.toml`;
+      if (!exists(p)) continue;
+      const v = tomlInt(read(p), key);
+      if (v !== null) seen.set(skill, v);
+    }
+    const values = new Set(seen.values());
+    if (values.size > 1) {
+      failures.push(
+        `customize.toml: '${key}' disagrees across PM skills — ` +
+          [...seen].map(([s, v]) => `${s}=${v}`).join(", "),
+      );
+    }
+    if (values.size === 1) defaults[key] = [...values][0];
+  }
+  if (defaults.max_fix_iterations === undefined) return; // key absent; nothing to verify against
+
+  const code = defaults.max_fix_iterations;
+  const nonCode = defaults.max_fix_iterations_non_code;
+  let checked = 0;
+
+  for (const doc of LIVE_DOCS) {
+    // Scope to lines naming the knob. A bare "default 4" elsewhere in the file belongs to
+    // max_parallel_subagents, "default 30" to the lock TTL, and "default 1.25" to the fix
+    // reserve — matching those was the first draft's bug.
+    const text = read(doc)
+      .split("\n")
+      .filter((l) => l.includes("max_fix_iterations"))
+      .join("\n");
+    if (!text) continue;
+    // Phrasings in use: "10 for CODE/MIXED", "3 for DOCS/CONFIG", "default 10".
+    for (const [re, want, label] of [
+      [/(\d+)\s+for\s+CODE\/MIXED/g, code, "CODE/MIXED"],
+      [/(\d+)\s+for\s+DOCS\/CONFIG/g, nonCode, "DOCS/CONFIG"],
+      [/default\s+(\d+)/g, code, "default"],
+    ]) {
+      if (want === undefined || want === null) continue;
+      for (const m of text.matchAll(re)) {
+        checked += 1;
+        if (Number(m[1]) === want) continue;
+        failures.push(
+          `${doc}: states the ${label} fix-loop cap is ${m[1]}, but customize.toml ships ${want}\n` +
+            `      context: ${m[0]}`,
+        );
+      }
+    }
+  }
+  if (verbose) console.log(`  config-values:  ${checked} restated value(s) checked against customize.toml`);
+}
+
+// ---------------------------------------------------------------------------
 
 checkSkillNames();
 checkGatingTables();
 checkSectionRefs();
+checkCliSurface();
+checkConfigValues();
 
 for (const note of notes) if (verbose) console.log(`  note: ${note}`);
 

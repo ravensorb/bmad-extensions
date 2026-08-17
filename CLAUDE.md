@@ -64,13 +64,18 @@ npm run check:scripts   # verify payload copies match source (CI also runs this)
 npm run check:docs      # verify docs match the code they describe (CI + release gate)
 ```
 
-`check:docs` asserts three things that have each drifted in this repo's history: every
+`check:docs` asserts five things that have each drifted in this repo's history: every
 `l3io-*` skill named in a live doc resolves to a real `skills/` directory, every mirrored
 phase table matches the authoritative matrix in `steps/shared/step-01-classify-work.md` §4
 cell for cell, and every `<file>.md §N` cross-reference resolves to a section bearing that
 number. It deliberately allows a doc to name a removed skill when mapping it to its
 replacement or explaining the change — `docs/upgrading.md` must be able to say
-`/l3io-pm-epic-execute` → `/l3io-pm-execute`.
+`/l3io-pm-epic-execute` → `/l3io-pm-execute`. It also checks the documented `pm-status.py`
+CLI surface against the real one in both directions — a doc naming a subcommand the CLI lacks,
+or a CLI subcommand missing from the reference — and verifies that config values quoted inline
+(the fix-loop caps) match what `customize.toml` ships, including that the four PM skills agree
+with each other. Docs are allowed to quote values inline; they are not allowed to quote them
+wrongly.
 
 The `postbump` hook chains sync automatically, so every release keeps the payloads in sync.
 
