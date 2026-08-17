@@ -71,7 +71,7 @@ Scalars override; arrays append. The root key is `[workflow]` for all four PM sk
 |-----|---------|-------------|
 | `activation_steps_prepend` | `[]` | Extra steps to run before the skill's own activation |
 | `activation_steps_append` | `[]` | Extra steps to run after activation |
-| `persistent_facts` | `["file:{project-root}/**/project-context.md"]` | Files always loaded into skill context |
+| `persistent_facts` | `["file:{project-root}/project-context.md", "file:{project-root}/docs/project-context.md"]` | Files always loaded into skill context |
 
 **`l3io-pm-execute`:**
 
@@ -162,6 +162,12 @@ steps/sprint/step-02-story-prep.md
 steps/sprint/step-03-dev-loop.md
 steps/sprint/step-04-sprint-closure.md
 ```
+
+Activation ends with an operative digest (§8 of `step-00-activate.md`) covering keys,
+`pm-status.py` signatures, exit codes, and the estimates hard rule. `status-files.md` and
+`metrics-contract.md` are **not** loaded at activation — they are deep references consulted on
+demand, and the digest's routing table names the section to read for each case. Precedence is
+`pm-status.py` > reference > digest.
 
 ### Architecture gate (step-04)
 
