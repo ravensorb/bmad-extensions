@@ -6,3 +6,7 @@ persistent_facts         = [
   "file:{project-root}/docs/project-context.md",
 ]
 github_auth_method       = "mcp"
+
+# Fix loops
+max_fix_iterations          = 10   # CODE and MIXED work
+max_fix_iterations_non_code = 3    # DOCS and CONFIG work

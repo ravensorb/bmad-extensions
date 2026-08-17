@@ -32,7 +32,7 @@ Invoke `bmad-review-adversarial-general` with scope `clean-release`:
 
 Invoke `bmad-review-adversarial-general` with scope `adversarial`:
 - Threat-model the sprint's changes
-- CRITICAL/HIGH: block closure, fix loop (max 10 iterations). MEDIUM: fix in place. LOW: defer.
+- CRITICAL/HIGH: block closure, fix loop (max `{max_fix_iterations}` iterations). MEDIUM: fix in place. LOW: defer.
 
 ## 4. Red team (skip if in skip_phases)
 

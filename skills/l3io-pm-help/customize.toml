@@ -5,3 +5,7 @@ persistent_facts         = [
   "file:{project-root}/project-context.md",
   "file:{project-root}/docs/project-context.md",
 ]
+
+# Fix loops
+max_fix_iterations          = 10   # CODE and MIXED work
+max_fix_iterations_non_code = 3    # DOCS and CONFIG work

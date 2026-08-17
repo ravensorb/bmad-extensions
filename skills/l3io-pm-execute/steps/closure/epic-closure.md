@@ -32,7 +32,7 @@ Pass:
 - Story file paths: `{implementation_artifacts}/epic-{epic_nnn}/*/stories/*.md`
 
 Findings:
-- CRITICAL/HIGH/MEDIUM: must be resolved before closure completes. Open fix loop (max 10 iterations).
+- CRITICAL/HIGH/MEDIUM: must be resolved before closure completes. Open fix loop (max `{max_fix_iterations}` iterations).
 - LOW: append to issues file via `pm-status.py append-issue`.
 
 ## 3. Issue triage

@@ -70,6 +70,18 @@ file, or "always runs", are never included.
 
 For `{work_type}` = CODE or MIXED, `{skip_phases}` is empty unless an installed check fails.
 
+5. Bind `{max_fix_iterations}` from `{work_type}`:
+
+| `{work_type}` | Binding |
+|---|---|
+| CODE, MIXED | `max_fix_iterations` (default 10) |
+| DOCS, CONFIG | `max_fix_iterations_non_code` (default 3) |
+
+Both come from the resolved `customize.toml` `[workflow]` table. This one integer is the cap for
+**every** fix loop in the run — per-story in the dev loop, and at sprint and epic closure.
+A ten-iteration autonomous fix loop is proportionate to a broken API contract and wildly
+disproportionate to a typo, which is why it follows the work type.
+
 To check if a skill is installed — query the installer's module manifest, never a config
 section. A module can be installed and carry no config at all, so a config lookup reports a
 present module as absent and the phase silently self-skips. See
@@ -90,6 +102,7 @@ Report the classification result:
 ```
 Work type: {work_type}
 Skipping phases: {skip_phases or "(none)"}
+Max fix iterations: {max_fix_iterations}
 Rationale: [one sentence explaining the dominant story type]
 ```
 

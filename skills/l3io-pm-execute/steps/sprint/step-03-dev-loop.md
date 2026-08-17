@@ -48,9 +48,11 @@ Code review returns findings by severity.
 
 **If CRITICAL or HIGH findings:** spawn dev subagent again to fix (fix iteration). Increment fix counter.
 
-**Fix loop cap:** 10 iterations per story. If findings persist after 10 iterations:
+**Fix loop cap:** `{max_fix_iterations}` iterations per story (bound at
+`step-01-classify-work.md` §5 — 10 for CODE/MIXED, 3 for DOCS/CONFIG). If findings persist
+after `{max_fix_iterations}` iterations:
 ```
-FAILED: story {story_key} — {N} critical/high findings unresolved after 10 fix iterations.
+FAILED: story {story_key} — {N} critical/high findings unresolved after {max_fix_iterations} fix iterations.
 ```
 Mark story `status: review` (not done) and continue to next story. Log the issue.
 
