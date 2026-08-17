@@ -20,7 +20,31 @@ If `parallel_flag=false` OR single epic:
 After all epics in a phase complete, verify prerequisites for the next phase are all `status: done`
 before starting it.
 
-## 2. Promote epic to active (if needed)
+## 2. Skip completed epics, then promote to active (if needed)
+
+**Check status before touching the epic** — this guard is mandatory and must run before
+`move-epic`:
+
+```bash
+python3 {pm_status} show --state-root {pm_state_root} --epic {epic_key}
+```
+
+If `status=done`, skip this epic entirely — do not move it, do not lock it, do not run
+sprints or closure:
+
+```
+⏭️  {epic_key} is already done — skipping (listed in the plan, completed since).
+```
+Continue to the next epic in the phase.
+
+This check is not an optimization. `move-epic` resolves an epic key in *any* status folder
+and unconditionally rewrites `epic.yaml` status from the destination folder, so calling it on
+a finished epic would drag the directory out of `archived/`, flip `done` back to
+`in-progress`, and strand it in `active/`. A plan snapshot that predates the epic's
+completion is the normal way to hit this, so the guard has to be here rather than left to
+the plan being current.
+
+Then promote:
 
 ```bash
 python3 {pm_status} move-epic --state-root {pm_state_root} --epic {epic_key} --to active
@@ -29,7 +53,7 @@ python3 {pm_status} move-epic --state-root {pm_state_root} --epic {epic_key} --t
 `move-epic` moves the epic's whole directory (epic.yaml, every sprint.yaml, every story file)
 from `planned/` to `active/` in one step and sets its status to `in-progress` — nothing to
 create separately. If the epic is already under `active/` (resumed run), the same-location
-move is a no-op, so this call is always safe to make.
+move is a no-op, so this call is safe once the `done` case above has been excluded.
 
 ## 3. Claim ownership lock
 
@@ -49,13 +73,15 @@ Continue to next epic in phase.
 
 ## 4. Identify sprints to run
 
+Reuse the roll-up already read in §2 — it lists each sprint under this epic with its
+`status`, so there is no need to run `show` a second time:
+
 ```bash
 python3 {pm_status} show --state-root {pm_state_root} --epic {epic_key}
 ```
 
-The roll-up lists each sprint under this epic with its `status`. Find all sprints where
-`status != done` (sprint directories live at `{pm_state_root}/active/epic-{epic_nnn}/sprint-*/`,
-in lexical — i.e. correct — order).
+Find all sprints where `status != done` (sprint directories live at
+`{pm_state_root}/active/epic-{epic_nnn}/sprint-*/`, in lexical — i.e. correct — order).
 For sprint scope (`{exec_scope}=sprint`), filter to `{scope_sprint_key}` only.
 
 Bind `{pending_sprints}` = ordered list of sprint `num` values (e.g. `["01", "02", "03"]`).

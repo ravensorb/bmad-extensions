@@ -67,14 +67,28 @@ For parallel phases, wall_clock = max(epic.time_hours) not sum — parallel phas
 
 ## 3. Write plan snapshot
 
+The version scan in section 1 is read-then-write with no lock. Two plan runs on the same day —
+routine when several agents share one checkout — both read `v1` and both compute `v2`, and the
+second write would silently destroy the first. Re-check immediately before writing, and never
+overwrite an existing snapshot:
+
 ```bash
-# Write to {planning_artifacts}/{plan_filename}
-# The file must not already exist (new unique snapshot each run)
+test -e {planning_artifacts}/{plan_filename} && echo TAKEN || echo FREE
 ```
+
+If `TAKEN`, another run claimed this version between section 1 and now. Re-run section 1 to pick
+the next free version, rebind `{plan_filename}`, and re-check. Repeat until `FREE` (at most 3
+attempts; if still taken, BLOCKED: concurrent plan runs are contending for a version number).
 
 Write `{plan_snapshot}` as YAML to `{planning_artifacts}/{plan_filename}`.
 
 ## 4. Update plan-output-meta.yaml
+
+Order matters and is not interchangeable: the snapshot must be written and confirmed before the
+pointer is updated. `l3io-pm-execute` treats this file as the sole authority for which plan is
+current, so a pointer naming a snapshot that does not exist blocks execution outright. If
+section 3 did not complete, do not write this file — leaving the previous pointer intact is
+strictly better than publishing a dangling one.
 
 Write `{planning_artifacts}/plan-output-meta.yaml` (overwrite):
 
