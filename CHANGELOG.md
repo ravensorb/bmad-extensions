@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file. See [commit-and-tag-version](https://github.com/absolute-version/commit-and-tag-version) for commit guidelines.
 
+## [2.0.4](https://github.com/ravensorb/bmad-extensions/compare/2.0.3...2.0.4) (2026-08-17)
+
+
+### Fixes
+
+* **l3io-pm:** make the plan snapshot's authority explicit and stop duplicating phases ([e42bc66](https://github.com/ravensorb/bmad-extensions/commit/e42bc66376652913bdea5cfaec40c27a9e38f85a))
+
 ## [2.0.3](https://github.com/ravensorb/bmad-extensions/compare/2.0.2...2.0.3) (2026-08-17)
 
 
