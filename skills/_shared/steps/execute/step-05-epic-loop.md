@@ -6,9 +6,52 @@ Execute each epic in `{execution_phases}` order. Within a parallel phase, dispat
 up to `{max_parallel_subagents}`. For each epic, promote it to active, claim the lock, dispatch sprint
 subagents sequentially, then trigger epic closure.
 
+## 0. Progress rendering — only where execution is serialized
+
+This step dispatches epics **concurrently** inside a parallel phase. Several epic subagents each
+printing a progress tree would interleave into unreadable output, and subagent stdout is buried
+anyway — the contract there is a one-line `DONE — [metrics]`. So render only where exactly one
+writer is producing output:
+
+| Point | Render |
+|---|---|
+| Phase start, phase end (this step, top level) | Yes |
+| Sprint boundary when the phase holds a single epic | Yes — see `step-04-sprint-closure.md` |
+| Sprint boundary inside a parallel phase | No |
+| Story boundary | Never |
+
+Nothing is lost by suppressing. Every transition still lands in `{pm_state_root}/events.jsonl`,
+so `report --watch 15` in a second terminal gives full-resolution live detail while the run's own
+output stays legible. Say that once, at first phase start.
+
+Bind `{progress_cmd}` to:
+
+```bash
+python3 {pm_status} report \
+  --state-root {pm_state_root} \
+  --plan {planning_artifacts}/plan-output-meta.yaml \
+  --format tree
+```
+
+Print its output verbatim wherever this file says to render. It is read-only and cannot affect
+execution, so a non-zero exit from it is a reporting problem only: note it in one line and carry
+on with the run. Never block execution on the progress view.
+
 ## 1. Phase iteration
 
 For each phase in `{execution_phases}`:
+
+**Render progress (phase start).** Run `{progress_cmd}` and print the output verbatim. On the
+first phase of the run only, also print:
+
+```
+Live view during this run: python3 {pm_status} report --state-root {pm_state_root} \
+  --plan {planning_artifacts}/plan-output-meta.yaml --watch 15
+```
+
+Bind `{single_epic_phase}` = `true` when this phase dispatches exactly one epic, else `false`.
+Pass it into every sprint subagent's context block — `step-04-sprint-closure.md` reads it to
+decide whether it may render.
 
 If `parallel_flag=true` AND `len(epics) > 1`:
   Dispatch up to `{max_parallel_subagents}` epics concurrently per §15 adaptive parallelism.
@@ -19,6 +62,11 @@ If `parallel_flag=false` OR single epic:
 
 After all epics in a phase complete, verify prerequisites for the next phase are all `status: done`
 before starting it.
+
+**Render progress (phase end).** Run `{progress_cmd}` and print the output verbatim, so the
+phase's net effect is visible in one place before the next phase starts. This is the render that
+matters most in a parallel phase: it is the first serialized point after concurrent epics have all
+reported, and therefore the first time the whole phase can be shown coherently.
 
 ## 2. Skip completed epics, then promote to active (if needed)
 
@@ -110,6 +158,7 @@ sprint_root: {implementation_artifacts}/epic-{epic_nnn}/sprint-{sprint_nn}/
 story_keys: [{story_keys}]
 sprint_num: {sprint_num}
 execute_skill_root: {skill-root}
+single_epic_phase: {single_epic_phase}
 headless: true
 
 Load and execute in order:

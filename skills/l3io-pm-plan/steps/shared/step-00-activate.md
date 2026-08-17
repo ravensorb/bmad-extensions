@@ -42,7 +42,7 @@ Self-install runs here — **before** layout detection — deliberately. Self-in
 layout-independent (it copies a file and needs no state), so nothing in detection depends on
 it, and running it first guarantees a current script whichever branch detection takes below.
 This also keeps an upgrading user from getting stuck on a stale installed copy: a legacy
-layout blocks in section 3 and sends the user to `/l3io-util-cleanup migrate-state`, and that
+layout blocks in section 3 and sends the user to `/l3io-util-doctor migrate-state`, and that
 command needs a current `{pm_status}` to succeed — which this section guarantees regardless of
 which layout branch section 3 takes.
 
@@ -87,7 +87,7 @@ places, and guessing which is authoritative would fork the project's state:
 ```
 BLOCKED: multiple state layouts detected (sharded=$SHARDED legacy-per-epic=$LEGACY_EPIC legacy-flat=$LEGACY_FLAT). An earlier migration
 did not finish. Do not run any l3io-pm skill until this is resolved — inspect both
-locations and remove the stale one, then re-run /l3io-util-cleanup migrate-state.
+locations and remove the stale one, then re-run /l3io-util-doctor migrate-state.
 ```
 
 **If only sharded** → current layout. Continue to section 4.
@@ -95,7 +95,7 @@ locations and remove the stale one, then re-run /l3io-util-cleanup migrate-state
 **If only the legacy per-epic layout or only the legacy flat layout** → halt:
 ```
 ⚠️  Legacy state layout detected (legacy per-epic layout = _bmad/state/, legacy flat layout = flat sprint-status.yaml).
-Run /l3io-util-cleanup migrate-state to upgrade before continuing.
+Run /l3io-util-doctor migrate-state to upgrade before continuing.
 ```
 BLOCKED: legacy state layout — migrate required. (`{pm_status}` was just self-installed in
 section 2, so `migrate-state` runs against a current copy.)

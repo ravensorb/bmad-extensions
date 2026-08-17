@@ -86,7 +86,35 @@ recording. A `time_hours` skip naming parallel execution is expected whenever th
 stories ran concurrently — the sprint's wall-clock is legitimately below their sum. See
 `references/metrics-contract.md` §8.
 
-## 6. Required exit status line
+## 6. Progress render and report regeneration
+
+**Render (conditional).** Only when `{single_epic_phase}` is `true`. Inside a parallel phase this
+output would interleave with sibling epics and is suppressed by design — see §0 of
+`step-05-epic-loop.md`. When it is `true`:
+
+```bash
+python3 {pm_status} report \
+  --state-root {pm_state_root} \
+  --plan {planning_artifacts}/plan-output-meta.yaml \
+  --format tree
+```
+
+**Regenerate the committed report (always, both branches).** Closure is a natural commit point.
+Regenerating per story transition instead would churn git on every status move and put parallel
+subagents in contention over one file:
+
+```bash
+python3 {pm_status} report \
+  --state-root {pm_state_root} \
+  --plan {planning_artifacts}/plan-output-meta.yaml \
+  --format md --out {implementation_artifacts}/progress-report.md
+```
+
+That file is a generated view and says so in its own header. Never hand-edit it; regenerate it.
+Both commands are read-only with respect to state — a failure in either is a reporting problem,
+so note it in one line and continue to the exit status line rather than failing the sprint.
+
+## 7. Required exit status line
 
 ```
 DONE — Stories: {N}, Issues resolved: {N_resolved}, Issues deferred: {N_deferred}

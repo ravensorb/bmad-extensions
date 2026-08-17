@@ -54,3 +54,23 @@ Write `{implementation_artifacts}/epic-{epic_nnn}/epic-closure/closure-report.md
 - Retrospective learnings
 - Outstanding issues count (by severity)
 - ADRs produced (if any)
+
+## 5. Progress render and report regeneration
+
+Epic closure runs once per epic, after all of its sprints have finished, so it is not competing
+with sibling sprints for stdout — render unconditionally:
+
+```bash
+python3 {pm_status} report \
+  --state-root {pm_state_root} \
+  --plan {planning_artifacts}/plan-output-meta.yaml \
+  --format tree
+
+python3 {pm_status} report \
+  --state-root {pm_state_root} \
+  --plan {planning_artifacts}/plan-output-meta.yaml \
+  --format md --out {implementation_artifacts}/progress-report.md
+```
+
+Print the tree verbatim. Both commands are read-only with respect to state; a failure in either
+is a reporting problem — note it in one line and continue rather than failing epic closure.

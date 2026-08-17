@@ -8,6 +8,7 @@ append-issue, self-install), comment/order preservation, the progress ledger,
 and verify exit codes.
 """
 import io
+import json
 import os
 import sys
 import tempfile
@@ -904,8 +905,14 @@ class TestEpicMoves(TestLayoutResolution):
         self.assertEqual(code, 0, out)
         self.assertTrue(os.path.isdir(os.path.join(self.root, "archived", "epic-001")))
 
-    def test_version_increments_for_self_install(self):
-        self.assertEqual(pm.PM_STATUS_VERSION, "2.2.0")
+    def test_version_constant_and_marker_agree(self):
+        """self-install parses the `# pm-status-version:` marker off a copy on disk and
+        compares it to PM_STATUS_VERSION. If the two ever diverge, propagation breaks
+        silently — so assert the invariant rather than pinning a literal that has to be
+        edited on every release."""
+        marker = pm._parse_version_line(SCRIPT)
+        self.assertIsNotNone(marker, "top-of-file pm-status-version marker not found")
+        self.assertEqual(marker, tuple(int(x) for x in pm.PM_STATUS_VERSION.split(".")))
 
     def test_move_epic_already_in_place_is_noop(self):
         """E001 already lives under active/ — moving it to 'active' must return the
@@ -1937,6 +1944,520 @@ class TestConvergence(TestLayoutResolution):
         self.assertGreaterEqual(len(samples), 6)
         for s in samples[3:]:
             self.assertAlmostEqual(s, samples[0], delta=0.01)
+
+
+class TestEvents(Base):
+    """events.jsonl — the append-only transition log that supplies dwell time."""
+
+    def setUp(self):
+        super().setUp()
+        self.root = os.path.join(self.d, "state")
+        d = os.path.join(self.root, "active", "epic-001", "sprint-01")
+        os.makedirs(d)
+        with open(os.path.join(self.root, "active", "epic-001", "epic.yaml"), "w") as fh:
+            fh.write("key: 'E001'\ntitle: 'Foundation'\nstatus: in-progress\n")
+        with open(os.path.join(d, "sprint.yaml"), "w") as fh:
+            fh.write("key: 'S01'\nepic: 'E001'\nstatus: in-progress\n")
+        with open(os.path.join(d, "E001-S01-001.yaml"), "w") as fh:
+            fh.write("key: 'E001-S01-001'\nepic: 'E001'\nsprint: 'S01'\nstatus: in-progress\n")
+
+    def read_events(self):
+        p = pm.events_path(self.root)
+        if not os.path.exists(p):
+            return []
+        with open(p, encoding="utf-8") as fh:
+            return [json.loads(l) for l in fh if l.strip()]
+
+    def test_set_status_appends_event_with_from_and_to(self):
+        code, _ = self.run_main(["set-status", "--state-root", self.root,
+                                 "--story", "E001-S01-001", "--status", "review"])
+        self.assertEqual(code, 0)
+        evs = self.read_events()
+        self.assertEqual(len(evs), 1)
+        self.assertEqual(evs[0]["event"], "status")
+        self.assertEqual(evs[0]["node"], "story")
+        self.assertEqual(evs[0]["key"], "E001-S01-001")
+        self.assertEqual(evs[0]["from"], "in-progress")
+        self.assertEqual(evs[0]["to"], "review")
+        self.assertEqual(evs[0]["epic"], "E001")
+        self.assertEqual(evs[0]["sprint"], "S01")
+
+    def test_no_events_flag_suppresses(self):
+        self.run_main(["set-status", "--state-root", self.root,
+                       "--story", "E001-S01-001", "--status", "review", "--no-events"])
+        self.assertEqual(self.read_events(), [])
+
+    def test_session_id_recorded_when_given(self):
+        self.run_main(["set-status", "--state-root", self.root, "--story", "E001-S01-001",
+                       "--status", "review", "--session-id", "sess-abc"])
+        self.assertEqual(self.read_events()[0]["session"], "sess-abc")
+
+    def test_session_is_null_by_default(self):
+        self.run_main(["set-status", "--state-root", self.root,
+                       "--story", "E001-S01-001", "--status", "review"])
+        self.assertIsNone(self.read_events()[0]["session"])
+
+    def test_epic_and_sprint_events_carry_right_node_kind(self):
+        self.run_main(["set-status", "--state-root", self.root, "--epic", "E001",
+                       "--sprint", "S01", "--status", "done"])
+        self.run_main(["set-status", "--state-root", self.root, "--epic", "E001",
+                       "--status", "done"])
+        evs = self.read_events()
+        self.assertEqual(evs[0]["node"], "sprint")
+        self.assertEqual(evs[0]["key"], "S01")
+        self.assertEqual(evs[0]["epic"], "E001")
+        self.assertEqual(evs[1]["node"], "epic")
+        self.assertEqual(evs[1]["key"], "E001")
+        self.assertIsNone(evs[1]["sprint"])
+
+    def test_set_actual_appends_actual_event(self):
+        self.run_main(["set-actual", "--state-root", self.root, "--node", "story",
+                       "--story", "E001-S01-001", "--elapsed-hours", "2",
+                       "--man-hours", "3", "--tokens-k", "10", "--cost", "1.5",
+                       "--no-calibrate"])
+        evs = [e for e in self.read_events() if e["event"] == "actual"]
+        self.assertEqual(len(evs), 1)
+        self.assertEqual(evs[0]["key"], "E001-S01-001")
+
+    def test_append_failure_warns_but_write_succeeds(self):
+        # Plant a directory where the log file goes, so open(..., "a") must fail.
+        os.makedirs(pm.events_path(self.root))
+        buf = io.StringIO()
+        with redirect_stderr(buf):
+            code, _ = self.run_main(["set-status", "--state-root", self.root,
+                                     "--story", "E001-S01-001", "--status", "review"])
+        self.assertEqual(code, 0)
+        self.assertIn("could not append event", buf.getvalue())
+        _, node = pm.load_node(pm.story_file(self.root, "E001-S01-001"))
+        self.assertEqual(node["status"], "review")
+
+    def test_concurrent_appends_lose_no_lines(self):
+        import threading
+
+        def worker(i):
+            pm.append_event(self.root, {"event": "status", "n": i})
+
+        ts = [threading.Thread(target=worker, args=(i,)) for i in range(40)]
+        for t in ts:
+            t.start()
+        for t in ts:
+            t.join()
+        self.assertEqual(len(self.read_events()), 40)
+
+
+class TestDwellAndFlags(Base):
+    """Per-status dwell time (exact from events, approximate from updated_at) and
+    the fixed stuck thresholds."""
+
+    def test_parse_iso_handles_z_suffix(self):
+        dt = pm._parse_iso("2026-08-17T10:00:00Z")
+        self.assertEqual(dt.year, 2026)
+        self.assertIsNone(pm._parse_iso(None))
+        self.assertIsNone(pm._parse_iso("not-a-date"))
+
+    def test_dwell_prefers_events_and_is_exact(self):
+        root = os.path.join(self.d, "state")
+        os.makedirs(root)
+        pm.append_event(root, {"ts": "2026-08-17T06:00:00Z", "event": "status",
+                               "node": "story", "key": "E001-S01-001",
+                               "from": "in-progress", "to": "review"})
+        idx = pm.build_events_index(root)
+        node = {"key": "E001-S01-001", "status": "review",
+                "updated_at": "2026-08-17T09:00:00Z"}
+        now = pm._parse_iso("2026-08-17T10:00:00Z")
+        hours, exact = pm.dwell_hours(node, idx, now=now)
+        self.assertAlmostEqual(hours, 4.0, places=3)
+        self.assertTrue(exact)
+
+    def test_dwell_falls_back_to_updated_at_when_no_events(self):
+        node = {"key": "E001-S01-001", "status": "review",
+                "updated_at": "2026-08-17T08:00:00Z"}
+        now = pm._parse_iso("2026-08-17T10:00:00Z")
+        hours, exact = pm.dwell_hours(node, {}, now=now)
+        self.assertAlmostEqual(hours, 2.0, places=3)
+        self.assertFalse(exact)
+
+    def test_dwell_falls_back_when_latest_event_status_disagrees(self):
+        # Hand-edited YAML: state says done, the last event said review.
+        root = os.path.join(self.d, "state")
+        os.makedirs(root)
+        pm.append_event(root, {"ts": "2026-08-17T06:00:00Z", "event": "status",
+                               "node": "story", "key": "E001-S01-001",
+                               "from": "in-progress", "to": "review"})
+        idx = pm.build_events_index(root)
+        node = {"key": "E001-S01-001", "status": "done",
+                "updated_at": "2026-08-17T09:30:00Z"}
+        now = pm._parse_iso("2026-08-17T10:00:00Z")
+        hours, exact = pm.dwell_hours(node, idx, now=now)
+        self.assertAlmostEqual(hours, 0.5, places=3)
+        self.assertFalse(exact)
+
+    def test_dwell_none_when_no_timestamp_at_all(self):
+        hours, exact = pm.dwell_hours({"key": "X", "status": "review"}, {})
+        self.assertIsNone(hours)
+        self.assertFalse(exact)
+
+    def test_index_takes_latest_event_per_key(self):
+        root = os.path.join(self.d, "state")
+        os.makedirs(root)
+        for ts, to in [("2026-08-17T06:00:00Z", "review"),
+                       ("2026-08-17T07:00:00Z", "in-progress")]:
+            pm.append_event(root, {"ts": ts, "event": "status", "node": "story",
+                                   "key": "E001-S01-001", "to": to})
+        idx = pm.build_events_index(root)
+        self.assertEqual(idx["E001-S01-001"]["to"], "in-progress")
+
+    def test_index_ignores_actual_events_and_bad_lines(self):
+        root = os.path.join(self.d, "state")
+        os.makedirs(root)
+        pm.append_event(root, {"ts": "2026-08-17T06:00:00Z", "event": "status",
+                               "node": "story", "key": "K", "to": "review"})
+        pm.append_event(root, {"ts": "2026-08-17T07:00:00Z", "event": "actual",
+                               "node": "story", "key": "K"})
+        with open(pm.events_path(root), "a", encoding="utf-8") as fh:
+            fh.write("{ not json\n")
+        idx = pm.build_events_index(root)
+        self.assertEqual(idx["K"]["to"], "review")
+
+    def test_index_empty_when_log_absent(self):
+        self.assertEqual(pm.build_events_index(os.path.join(self.d, "nope")), {})
+
+    def test_flags_fire_at_threshold_per_level(self):
+        self.assertEqual(pm.compute_flags("story", "K", "review", 4.5, True)[0]["kind"], "stuck")
+        self.assertEqual(pm.compute_flags("story", "K", "review", 3.5, True), [])
+        self.assertEqual(pm.compute_flags("story", "K", "in-progress", 5.0, True)[0]["kind"], "stuck")
+        self.assertEqual(pm.compute_flags("sprint", "S01", "in-progress", 25.0, True)[0]["kind"], "stuck")
+        self.assertEqual(pm.compute_flags("sprint", "S01", "in-progress", 5.0, True), [])
+        self.assertEqual(pm.compute_flags("epic", "E001", "in-progress", 80.0, True)[0]["kind"], "stuck")
+
+    def test_ready_for_dev_never_flagged(self):
+        self.assertEqual(pm.compute_flags("story", "K", "ready-for-dev", 500.0, True), [])
+
+    def test_done_never_flagged_and_none_dwell_never_flagged(self):
+        self.assertEqual(pm.compute_flags("story", "K", "done", 500.0, True), [])
+        self.assertEqual(pm.compute_flags("story", "K", "review", None, False), [])
+
+    def test_flag_carries_approximate_marker(self):
+        f = pm.compute_flags("story", "K", "review", 9.0, False)[0]
+        self.assertFalse(f["exact"])
+        self.assertEqual(f["threshold"], 4.0)
+        self.assertEqual(f["status"], "review")
+
+
+class TestProgressModel(Base):
+    """The project-wide walk: hierarchy, archived filtering, flags, tolerance."""
+
+    def setUp(self):
+        super().setUp()
+        self.root = os.path.join(self.d, "state")
+        self.mk("active", "epic-001", "E001", "Foundation", "in-progress",
+                sprints={"sprint-01": ("S01", "done", [("E001-S01-001", "done"),
+                                                       ("E001-S01-002", "done")]),
+                         "sprint-02": ("S02", "in-progress", [("E001-S02-001", "review"),
+                                                              ("E001-S02-002", "backlog")])})
+        self.mk("archived", "epic-002", "E002", "Auth", "done",
+                sprints={"sprint-01": ("S01", "done", [("E002-S01-001", "done")])})
+        self.mk("planned", "epic-004", "E004", "Telemetry", "backlog", sprints={})
+
+    def mk(self, folder, edir, ekey, title, status, sprints):
+        ed = os.path.join(self.root, folder, edir)
+        os.makedirs(ed, exist_ok=True)
+        with open(os.path.join(ed, "epic.yaml"), "w") as fh:
+            fh.write(f"key: '{ekey}'\ntitle: '{title}'\nstatus: {status}\n"
+                     f"updated_at: '2026-08-17T09:00:00Z'\n")
+        for sdir, (skey, sstatus, stories) in sprints.items():
+            sd = os.path.join(ed, sdir)
+            os.makedirs(sd, exist_ok=True)
+            with open(os.path.join(sd, "sprint.yaml"), "w") as fh:
+                fh.write(f"key: '{skey}'\nepic: '{ekey}'\nstatus: {sstatus}\n"
+                         f"updated_at: '2026-08-17T09:00:00Z'\n")
+            for stkey, ststatus in stories:
+                with open(os.path.join(sd, f"{stkey}.yaml"), "w") as fh:
+                    fh.write(f"key: '{stkey}'\nepic: '{ekey}'\nsprint: '{skey}'\n"
+                             f"status: {ststatus}\nupdated_at: '2026-08-17T09:00:00Z'\n")
+
+    def test_list_all_epics_spans_all_status_folders(self):
+        got = pm.list_all_epics(self.root)
+        self.assertEqual(got, [("E001", "active"), ("E002", "archived"), ("E004", "planned")])
+
+    def test_archived_omitted_by_default(self):
+        m = pm.build_progress_model(self.root)
+        keys = [e["key"] for e in m["unplanned_epics"]]
+        self.assertIn("E001", keys)
+        self.assertIn("E004", keys)
+        self.assertNotIn("E002", keys)
+
+    def test_archived_present_with_include_archived(self):
+        m = pm.build_progress_model(self.root, include_archived=True)
+        self.assertIn("E002", [e["key"] for e in m["unplanned_epics"]])
+
+    def test_totals_count_archived_even_when_hidden(self):
+        m = pm.build_progress_model(self.root)
+        self.assertEqual(m["totals"]["epics"], {"in-progress": 1, "done": 1, "backlog": 1})
+        self.assertEqual(m["totals"]["stories"]["done"], 3)   # 2 in E001 + 1 in archived E002
+        self.assertEqual(m["totals"]["stories"]["review"], 1)
+
+    def test_epic_detail_hierarchy(self):
+        m = pm.build_progress_model(self.root)
+        e = next(x for x in m["unplanned_epics"] if x["key"] == "E001")
+        self.assertEqual(e["title"], "Foundation")
+        self.assertEqual(e["dir_status"], "active")
+        self.assertEqual(e["sprint_count"], 2)
+        self.assertEqual(e["story_count"], 4)
+        self.assertEqual([s["key"] for s in e["sprints"]], ["S01", "S02"])
+        s2 = e["sprints"][1]
+        self.assertEqual([st["key"] for st in s2["stories"]],
+                         ["E001-S02-001", "E001-S02-002"])
+
+    def test_placement_anomaly_flagged(self):
+        p = os.path.join(self.root, "planned", "epic-004", "epic.yaml")
+        with open(p, "w") as fh:
+            fh.write("key: 'E004'\ntitle: 'Telemetry'\nstatus: done\n")
+        m = pm.build_progress_model(self.root)
+        self.assertIn("placement", [f["kind"] for f in m["flags"]])
+
+    def test_unparseable_node_is_flagged_not_fatal(self):
+        p = os.path.join(self.root, "active", "epic-001", "sprint-02", "E001-S02-001.yaml")
+        with open(p, "w") as fh:
+            fh.write("key: [unclosed\n")
+        m = pm.build_progress_model(self.root)
+        self.assertIn("unreadable", [f["kind"] for f in m["flags"]])
+
+    def test_stuck_story_flagged_from_updated_at(self):
+        now = pm._parse_iso("2026-08-17T20:00:00Z")   # 11h after the fixture stamp
+        m = pm.build_progress_model(self.root, now=now)
+        stuck = [f for f in m["flags"] if f["kind"] == "stuck"]
+        self.assertIn("E001-S02-001", [f["key"] for f in stuck])      # review, 11h > 4h
+        self.assertNotIn("E001-S02-002", [f["key"] for f in stuck])   # backlog, never
+
+    def test_stale_lock_flagged(self):
+        p = os.path.join(self.root, "active", "epic-001", "epic.yaml")
+        with open(p, "w") as fh:
+            fh.write("_lock:\n  session_id: 'sess-1'\n  claimed_at: '2026-08-17T00:00:00Z'\n"
+                     "  ttl_minutes: 30\nkey: 'E001'\ntitle: 'Foundation'\n"
+                     "status: in-progress\nupdated_at: '2026-08-17T09:00:00Z'\n")
+        now = pm._parse_iso("2026-08-17T10:00:00Z")
+        m = pm.build_progress_model(self.root, now=now)
+        self.assertIn("stale-lock", [f["kind"] for f in m["flags"]])
+        e = next(x for x in m["unplanned_epics"] if x["key"] == "E001")
+        self.assertTrue(e["lock"]["stale"])
+
+    def test_empty_state_root_yields_empty_model(self):
+        empty = os.path.join(self.d, "nothing")
+        os.makedirs(empty)
+        m = pm.build_progress_model(empty)
+        self.assertEqual(m["unplanned_epics"], [])
+        self.assertEqual(m["phases"], [])
+        self.assertIsNone(m["plan"])
+
+
+class TestFlagScoping(TestProgressModel):
+    """Each node's own `flags` must describe only that node. The aggregate lives at
+    model['flags']. Mixing the two made an epic row report 'stuck' whenever any
+    descendant story was stuck, and left sprints unable to report their own."""
+
+    def test_epic_own_flags_exclude_descendant_stuck(self):
+        now = pm._parse_iso("2026-08-17T20:00:00Z")   # story review 11h > 4h; epic 11h < 72h
+        m = pm.build_progress_model(self.root, now=now)
+        e = next(x for x in m["unplanned_epics"] if x["key"] == "E001")
+        self.assertEqual([f["kind"] for f in e["flags"]], [])
+        story = e["sprints"][1]["stories"][0]
+        self.assertEqual(story["key"], "E001-S02-001")
+        self.assertEqual([f["kind"] for f in story["flags"]], ["stuck"])
+
+    def test_sprint_carries_its_own_flags_key(self):
+        now = pm._parse_iso("2026-08-19T09:00:00Z")   # 48h: sprint in-progress > 24h
+        m = pm.build_progress_model(self.root, now=now)
+        e = next(x for x in m["unplanned_epics"] if x["key"] == "E001")
+        s02 = e["sprints"][1]
+        self.assertEqual(s02["key"], "S02")
+        self.assertIn("flags", s02)
+        self.assertEqual([f["kind"] for f in s02["flags"]], ["stuck"])
+        s01 = e["sprints"][0]                         # done — never flagged
+        self.assertEqual(s01["flags"], [])
+
+    def test_epic_own_flags_still_carry_placement_and_lock(self):
+        p = os.path.join(self.root, "planned", "epic-004", "epic.yaml")
+        with open(p, "w") as fh:
+            fh.write("key: 'E004'\ntitle: 'Telemetry'\nstatus: done\n")
+        m = pm.build_progress_model(self.root)
+        e = next(x for x in m["unplanned_epics"] if x["key"] == "E004")
+        self.assertEqual([f["kind"] for f in e["flags"]], ["placement"])
+
+    def test_model_flags_aggregate_every_level(self):
+        now = pm._parse_iso("2026-08-19T09:00:00Z")
+        m = pm.build_progress_model(self.root, now=now)
+        levels = {f["level"] for f in m["flags"] if f["kind"] == "stuck"}
+        self.assertIn("story", levels)
+        self.assertIn("sprint", levels)
+
+    def test_unreadable_story_attaches_to_its_sprint(self):
+        p = os.path.join(self.root, "active", "epic-001", "sprint-02", "E001-S02-001.yaml")
+        with open(p, "w") as fh:
+            fh.write("key: [unclosed\n")
+        m = pm.build_progress_model(self.root)
+        e = next(x for x in m["unplanned_epics"] if x["key"] == "E001")
+        s02 = e["sprints"][1]
+        self.assertIn("unreadable", [f["kind"] for f in s02["flags"]])
+        self.assertIn("unreadable", [f["kind"] for f in m["flags"]])
+
+    def test_tree_does_not_mark_epic_stuck_for_a_stuck_story(self):
+        now = pm._parse_iso("2026-08-17T20:00:00Z")
+        m = pm.build_progress_model(self.root, now=now)
+        lines = pm.render_tree(m).splitlines()
+        epic_line = next(l for l in lines if l.strip().startswith("E001 "))
+        self.assertNotIn("stuck", epic_line)
+        story_line = next(l for l in lines if "E001-S02-001" in l)
+        self.assertIn("stuck", story_line)
+
+    def test_tree_has_no_trailing_whitespace(self):
+        m = pm.build_progress_model(self.root)
+        for line in pm.render_tree(m).splitlines():
+            self.assertEqual(line, line.rstrip(), f"trailing whitespace: {line!r}")
+
+
+class TestPlanJoin(TestProgressModel):
+    """Joining plan-output-meta.yaml -> snapshot phases onto the state hierarchy."""
+
+    def write_plan(self, epics_p1=("E001", "E002"), snapshot="plan-2026-08-17-v1.yaml"):
+        pd = os.path.join(self.d, "planning")
+        os.makedirs(pd, exist_ok=True)
+        with open(os.path.join(pd, "plan-output-meta.yaml"), "w") as fh:
+            fh.write(f'current_plan: "{snapshot}"\ngenerated: "2026-08-17T08:00:00Z"\n'
+                     f"readiness: green\nphase_count: 2\n")
+        with open(os.path.join(pd, snapshot), "w") as fh:
+            fh.write('generated: "2026-08-17T08:00:00Z"\nreadiness: green\nphases:\n')
+            fh.write(f"  - phase: 1\n    parallel: true\n    epics: {list(epics_p1)}\n"
+                     f"    dependencies: []\n")
+            fh.write("  - phase: 2\n    parallel: false\n    epics: ['E004']\n"
+                     "    dependencies: ['E001']\n")
+        return os.path.join(pd, "plan-output-meta.yaml")
+
+    def test_load_plan_follows_pointer_to_snapshot(self):
+        plan = pm.load_plan(self.write_plan())
+        self.assertEqual(plan["meta"]["readiness"], "green")
+        self.assertEqual(len(plan["phases"]), 2)
+        self.assertEqual(list(plan["phases"][0]["epics"]), ["E001", "E002"])
+
+    def test_load_plan_returns_none_when_missing(self):
+        self.assertIsNone(pm.load_plan(os.path.join(self.d, "nope.yaml")))
+
+    def test_load_plan_tolerates_dangling_snapshot(self):
+        ptr = self.write_plan(snapshot="does-not-exist.yaml")
+        os.remove(os.path.join(os.path.dirname(ptr), "does-not-exist.yaml"))
+        buf = io.StringIO()
+        with redirect_stderr(buf):
+            plan = pm.load_plan(ptr)
+        self.assertIsNotNone(plan["meta"])
+        self.assertEqual(plan["phases"], [])
+        self.assertIn("missing snapshot", buf.getvalue())
+
+    def test_model_groups_epics_into_phases(self):
+        plan = pm.load_plan(self.write_plan())
+        m = pm.build_progress_model(self.root, plan=plan)
+        self.assertEqual(len(m["phases"]), 2)
+        self.assertEqual(m["phases"][0]["epic_total"], 2)
+        self.assertEqual([e["key"] for e in m["phases"][0]["epics_detail"]], ["E001"])
+        self.assertEqual(m["plan"]["readiness"], "green")
+
+    def test_archived_counted_in_denominator_but_not_displayed(self):
+        plan = pm.load_plan(self.write_plan(epics_p1=("E001", "E002")))
+        m = pm.build_progress_model(self.root, plan=plan)
+        ph = m["phases"][0]
+        self.assertEqual(ph["epic_total"], 2)
+        self.assertEqual(ph["epic_done"], 1)                       # E002 is archived+done
+        self.assertEqual([e["key"] for e in ph["epics_detail"]], ["E001"])
+
+    def test_planned_epics_do_not_appear_as_unplanned(self):
+        plan = pm.load_plan(self.write_plan())
+        m = pm.build_progress_model(self.root, plan=plan)
+        self.assertEqual(m["unplanned_epics"], [])   # E001,E002,E004 all named in phases
+
+
+class TestReport(TestPlanJoin):
+    """The report subcommand and its three renderers."""
+
+    def snapshot_tree(self):
+        seen = {}
+        for base, _, files in os.walk(self.root):
+            for f in files:
+                p = os.path.join(base, f)
+                seen[p] = os.path.getmtime(p)
+        return seen
+
+    def test_json_format_round_trips(self):
+        code, out = self.run_main(["report", "--state-root", self.root, "--format", "json"])
+        self.assertEqual(code, 0)
+        m = json.loads(out)
+        self.assertIn("totals", m)
+        self.assertIn("unplanned_epics", m)
+
+    def test_tree_renders_hierarchy(self):
+        code, out = self.run_main(["report", "--state-root", self.root, "--format", "tree"])
+        self.assertEqual(code, 0)
+        self.assertIn("E001", out)
+        self.assertIn("S02", out)
+        self.assertIn("E001-S02-001", out)
+        self.assertNotIn("E002", out)          # archived, hidden by default
+
+    def test_tree_shows_archived_with_all(self):
+        _, out = self.run_main(["report", "--state-root", self.root,
+                                "--format", "tree", "--all"])
+        self.assertIn("E002", out)
+
+    def test_tree_renders_phases_when_plan_given(self):
+        ptr = self.write_plan()
+        _, out = self.run_main(["report", "--state-root", self.root, "--plan", ptr,
+                                "--format", "tree"])
+        self.assertIn("Phase 1", out)
+        self.assertIn("readiness", out.lower())
+
+    def test_md_format_emits_tables(self):
+        _, out = self.run_main(["report", "--state-root", self.root, "--format", "md"])
+        self.assertIn("|", out)
+        self.assertIn("generated by", out.lower())
+
+    def test_out_writes_file_and_prints_confirmation(self):
+        dest = os.path.join(self.d, "progress-report.md")
+        code, out = self.run_main(["report", "--state-root", self.root,
+                                   "--format", "md", "--out", dest])
+        self.assertEqual(code, 0)
+        self.assertTrue(os.path.isfile(dest))
+        self.assertIn("OK report", out)
+
+    def test_read_only_without_out(self):
+        before = self.snapshot_tree()
+        self.run_main(["report", "--state-root", self.root, "--format", "tree"])
+        self.assertEqual(before, self.snapshot_tree())
+        self.assertFalse(os.path.exists(pm.events_path(self.root)))
+
+    def test_empty_tree_renders_without_raising(self):
+        empty = os.path.join(self.d, "empty-state")
+        os.makedirs(empty)
+        code, out = self.run_main(["report", "--state-root", empty, "--format", "tree"])
+        self.assertEqual(code, 0)
+        self.assertIn("no epics", out.lower())
+
+    def test_stuck_marker_appears_in_tree(self):
+        p = os.path.join(self.root, "active", "epic-001", "sprint-02", "E001-S02-001.yaml")
+        with open(p, "w") as fh:
+            fh.write("key: 'E001-S02-001'\nepic: 'E001'\nsprint: 'S02'\n"
+                     "status: review\nupdated_at: '2000-01-01T00:00:00Z'\n")
+        _, out = self.run_main(["report", "--state-root", self.root, "--format", "tree"])
+        self.assertIn("E001-S02-001", out)
+        self.assertIn("stuck", out.lower())
+
+    def test_missing_state_root_exits_3(self):
+        with redirect_stderr(io.StringIO()):
+            code, _ = self.run_main(["report", "--state-root",
+                                     os.path.join(self.d, "absent"), "--format", "tree"])
+        self.assertEqual(code, 3)
+
+    def test_bad_format_is_usage_error(self):
+        with redirect_stderr(io.StringIO()):
+            code, _ = self.run_main(["report", "--state-root", self.root,
+                                     "--format", "nope"])
+        self.assertEqual(code, 2)
 
 
 if __name__ == "__main__":

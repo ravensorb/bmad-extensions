@@ -3,7 +3,7 @@
 # requires-python = ">=3.11"
 # dependencies = ["ruamel.yaml>=0.18"]
 # ///
-# pm-status-version: 2.2.0   (machine-readable marker; `self-install` compares this across copies — keep at top)
+# pm-status-version: 2.3.0   (machine-readable marker; `self-install` compares this across copies — keep at top)
 """
 pm-status.py — deterministic, atomic, round-trip-safe writer for the l3io-pm
 split status files and the per-sprint progress ledger.
@@ -50,6 +50,8 @@ Subcommands
                 (--scope epic checks structural/back-reference integrity across the
                 epic's whole subtree; --scope story/sprint check completion of one node)
   show          --state-root S  --epic ID  [--sprint ID]
+  report        --state-root S  [--plan P] [--format tree|json|md] [--out F]
+                [--all] [--watch SECS]
   set-lock      --state-root S  --epic ID  --session-id SESS  [--ttl-minutes N]
   clear-lock    --state-root S  --epic ID
   check-lock    --state-root S  --epic ID  --session-id SESS
@@ -75,6 +77,7 @@ from __future__ import annotations
 
 import argparse
 import contextlib
+import json
 import os
 import sys
 import tempfile
@@ -89,7 +92,7 @@ except ModuleNotFoundError:  # pragma: no cover - environment guard
     )
     sys.exit(2)
 
-PM_STATUS_VERSION = "2.2.0"  # keep in sync with the top-of-file `# pm-status-version:` marker
+PM_STATUS_VERSION = "2.3.0"  # keep in sync with the top-of-file `# pm-status-version:` marker
 
 VALID_STORY_STATUS = {"backlog", "ready-for-dev", "in-progress", "review", "done"}
 VALID_SPRINT_STATUS = {"backlog", "in-progress", "done"}
@@ -328,6 +331,135 @@ def _append_ledger(ledger: str, scope: str, msg: str) -> None:
     line = f"{_now_iso()}  {scope or '-'}  {msg}\n"
     with open(ledger, "a", encoding="utf-8") as f:
         f.write(line)
+
+
+EVENTS_FILENAME = "events.jsonl"
+
+
+def events_path(state_root: str) -> str:
+    """The one project-level event log. A single log (not one per sprint) keeps the
+    progress report a single read and makes cross-epic velocity computable."""
+    return os.path.join(state_root, EVENTS_FILENAME)
+
+
+def append_event(state_root: str, payload: dict) -> None:
+    """Append one JSON line under flock. NEVER raises: telemetry must not be able to
+    fail a status write, matching the calibration contract in set-actual."""
+    try:
+        p = events_path(state_root)
+        os.makedirs(os.path.dirname(os.path.abspath(p)) or ".", exist_ok=True)
+        line = json.dumps(payload, sort_keys=True) + "\n"
+        try:
+            import fcntl
+        except ImportError:  # pragma: no cover - non-POSIX
+            fcntl = None
+        with open(p, "a", encoding="utf-8") as fh:
+            if fcntl is not None:
+                fcntl.flock(fh, fcntl.LOCK_EX)
+            try:
+                fh.write(line)
+                fh.flush()
+            finally:
+                if fcntl is not None:
+                    fcntl.flock(fh, fcntl.LOCK_UN)
+    except Exception as e:  # noqa: BLE001 - deliberate: never fail the caller
+        sys.stderr.write(f"pm-status.py: warning — could not append event: {e}\n")
+
+
+def _event_keys(kind: str, args) -> dict:
+    """Node-identifying fields for an event payload, by node kind."""
+    if kind == "story":
+        epic_key, sprint_key, _ = parse_story_key(args.story)
+        return {"node": "story", "key": args.story, "epic": epic_key, "sprint": sprint_key}
+    if kind == "sprint":
+        return {"node": "sprint", "key": args.sprint, "epic": args.epic, "sprint": args.sprint}
+    return {"node": "epic", "key": args.epic, "epic": args.epic, "sprint": None}
+
+
+# Fixed thresholds, in hours. Deliberately not configurable in this iteration: the
+# calibration data needed to tune them is what this report will generate.
+STUCK_THRESHOLDS = {
+    ("story", "in-progress"): 4.0,
+    ("story", "review"): 4.0,
+    ("sprint", "in-progress"): 24.0,
+    ("epic", "in-progress"): 72.0,
+}
+
+
+def _parse_iso(ts):
+    """Parse a pm-status timestamp into an aware datetime, or None if unusable."""
+    if not ts:
+        return None
+    try:
+        return datetime.fromisoformat(str(ts).strip().replace("Z", "+00:00"))
+    except (TypeError, ValueError):
+        return None
+
+
+def build_events_index(state_root: str) -> dict:
+    """key -> the most recent *status* event for that key.
+
+    Returns {} when the log is absent, which is the normal case for every project
+    predating it — callers then fall back to `updated_at`.
+    """
+    idx: dict = {}
+    p = events_path(state_root)
+    if not os.path.isfile(p):
+        return idx
+    try:
+        with open(p, encoding="utf-8") as fh:
+            for line in fh:
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    ev = json.loads(line)
+                except ValueError:
+                    continue  # a torn or hand-mangled line must not kill the report
+                if not isinstance(ev, dict):
+                    continue
+                if ev.get("event") != "status" or not ev.get("key"):
+                    continue
+                prev = idx.get(ev["key"])
+                if prev is None or str(ev.get("ts", "")) >= str(prev.get("ts", "")):
+                    idx[ev["key"]] = ev
+    except OSError as e:
+        sys.stderr.write(f"pm-status.py: warning — could not read event log: {e}\n")
+    return idx
+
+
+def dwell_hours(node, events_index: dict, now=None):
+    """Hours the node has been in its CURRENT status.
+
+    Returns (hours, exact). `exact` is True only when the event log recorded the
+    transition into this very status. The `updated_at` fallback is approximate
+    because any field write refreshes it, not only a status change.
+    """
+    if node is None:
+        return None, False
+    now = now or datetime.now(timezone.utc)
+    status = str(node.get("status", ""))
+    key = str(node.get("key", ""))
+    ev = (events_index or {}).get(key)
+    if ev is not None and str(ev.get("to", "")) == status:
+        started = _parse_iso(ev.get("ts"))
+        if started is not None:
+            return max(0.0, (now - started).total_seconds() / 3600.0), True
+    started = _parse_iso(node.get("updated_at"))
+    if started is None:
+        return None, False
+    return max(0.0, (now - started).total_seconds() / 3600.0), False
+
+
+def compute_flags(level: str, key: str, status: str, dwell, exact: bool) -> list:
+    """Stuck flags for one node. Terminal and waiting statuses are never flagged."""
+    if dwell is None:
+        return []
+    threshold = STUCK_THRESHOLDS.get((level, str(status)))
+    if threshold is None or dwell < threshold:
+        return []
+    return [{"kind": "stuck", "level": level, "key": key, "status": str(status),
+             "dwell_hours": round(dwell, 2), "threshold": threshold, "exact": exact}]
 
 
 def _epic_path_or_die(args) -> str:
@@ -1179,6 +1311,403 @@ def _fmt_actuals(totals: dict) -> str:
 
 
 # --------------------------------------------------------------------------- #
+# progress model — one builder, consumed by every renderer and every surface
+# --------------------------------------------------------------------------- #
+def list_all_epics(state_root: str) -> list:
+    """(epic_key, dir_status) for every epic in every status folder, sorted by key.
+
+    The directory name is authoritative for the key: 'epic-001' -> 'E001'. Reading the
+    key from the file instead would let a mis-keyed file hide an epic entirely.
+    """
+    found = []
+    for status in STATUS_DIRS:
+        base = os.path.join(state_root, status)
+        if not os.path.isdir(base):
+            continue
+        for name in sorted(os.listdir(base)):
+            if not name.startswith("epic-"):
+                continue
+            if not os.path.isdir(os.path.join(base, name)):
+                continue
+            suffix = name[len("epic-"):]
+            if not suffix.isdigit():
+                continue
+            found.append((f"E{int(suffix):03d}", status))
+    return sorted(found, key=lambda t: t[0])
+
+
+def _build_sprint_detail(state_root: str, epic_key: str, sprint_key: str,
+                         events_index: dict, now=None) -> dict:
+    """One sprint and its stories.
+
+    `detail["flags"]` holds only the sprint's OWN flags (its stuck state, and any story
+    file too broken to become a node of its own). Story flags live on their story. The
+    flat aggregate is assembled later by `_collect_flags` — an earlier version pushed
+    descendants' flags up into the parent, which made every ancestor row report "stuck"
+    whenever one story was.
+    """
+    flags: list = []
+    sp = sprint_file(state_root, epic_key, sprint_key)
+    snode = {}
+    if sp is not None:
+        try:
+            _, loaded = load_node(sp)
+            snode = loaded or {}
+        except Exception as e:  # noqa: BLE001 - a bad file must not kill the report
+            flags.append({"kind": "unreadable", "level": "sprint",
+                          "key": f"{epic_key}/{sprint_key}", "detail": str(e)})
+
+    s_status = str(snode.get("status", "unknown"))
+    s_dwell, s_exact = dwell_hours({"key": sprint_key, "status": s_status,
+                                    "updated_at": snode.get("updated_at")},
+                                   events_index, now)
+    flags += compute_flags("sprint", f"{epic_key}/{sprint_key}", s_status, s_dwell, s_exact)
+
+    stories, by_status, totals = [], {}, {}
+    for p in list_story_files(state_root, epic_key, sprint_key):
+        try:
+            _, node = load_node(p)
+        except Exception as e:  # noqa: BLE001
+            # No story node exists to hang this on, so it belongs to the sprint.
+            flags.append({"kind": "unreadable", "level": "story",
+                          "key": os.path.basename(p), "detail": str(e)})
+            continue
+        if node is None:
+            continue
+        st = str(node.get("status", "unknown"))
+        key = str(node.get("key", os.path.basename(p)))
+        by_status[st] = by_status.get(st, 0) + 1
+        _accumulate_actuals(totals, node)
+        d, ex = dwell_hours(node, events_index, now)
+        stories.append({"key": key, "status": st,
+                        "estimate": dict(node.get("estimate") or {}),
+                        "actual": dict(node.get("actual") or {}),
+                        "updated_at": node.get("updated_at"),
+                        "dwell_hours": None if d is None else round(d, 2),
+                        "dwell_exact": ex,
+                        "flags": compute_flags("story", key, st, d, ex)})
+
+    return {"key": sprint_key, "status": s_status, "story_count": len(stories),
+            "by_status": by_status, "actual_totals": totals,
+            "estimate": dict(snode.get("estimate") or {}),
+            "updated_at": snode.get("updated_at"),
+            "dwell_hours": None if s_dwell is None else round(s_dwell, 2),
+            "dwell_exact": s_exact, "flags": flags, "stories": stories}
+
+
+def _collect_flags(epic_detail: dict) -> list:
+    """Flatten one epic subtree's flags for the model-level aggregate."""
+    out = list(epic_detail.get("flags") or [])
+    for sp in epic_detail.get("sprints") or []:
+        out += list(sp.get("flags") or [])
+        for st in sp.get("stories") or []:
+            out += list(st.get("flags") or [])
+    return out
+
+
+def build_epic_detail(state_root: str, epic_key: str, dir_status: str,
+                      events_index: dict, now=None) -> dict:
+    """One epic subtree, enriched with dwell times, flags, and placement checks."""
+    flags: list = []
+    ep = epic_file(state_root, epic_key)
+    y_node = None
+    if ep is not None:
+        try:
+            _, y_node = load_node(ep)
+        except Exception as e:  # noqa: BLE001
+            flags.append({"kind": "unreadable", "level": "epic", "key": epic_key,
+                          "detail": str(e)})
+    enode = y_node or {}
+
+    status = str(enode.get("status", "unknown"))
+    expected = STATUS_FOR_DIR.get(dir_status)
+    if expected and status != "unknown" and status != expected:
+        flags.append({"kind": "placement", "level": "epic", "key": epic_key,
+                      "detail": f"status {status!r} but sits in {dir_status}/ "
+                                f"(expected {expected!r})"})
+
+    lock = None
+    raw_lock = enode.get("_lock")
+    if isinstance(raw_lock, dict):
+        claimed = _parse_iso(raw_lock.get("claimed_at"))
+        ttl = raw_lock.get("ttl_minutes")
+        stale = False
+        if claimed is not None and ttl:
+            try:
+                age_min = ((now or datetime.now(timezone.utc))
+                           - claimed).total_seconds() / 60.0
+                stale = age_min > float(ttl)
+            except (TypeError, ValueError):
+                stale = False
+        lock = {"session_id": raw_lock.get("session_id"),
+                "claimed_at": raw_lock.get("claimed_at"),
+                "ttl_minutes": ttl, "stale": stale}
+        if stale:
+            flags.append({"kind": "stale-lock", "level": "epic", "key": epic_key,
+                          "detail": f"lock claimed {raw_lock.get('claimed_at')} "
+                                    f"exceeds ttl {ttl}m"})
+
+    dwell, exact = dwell_hours({"key": epic_key, "status": status,
+                                "updated_at": enode.get("updated_at")},
+                               events_index, now)
+    flags += compute_flags("epic", epic_key, status, dwell, exact)
+
+    sprints, totals, by_status, story_count = [], {}, {}, 0
+    for sd in list_sprint_dirs(state_root, epic_key):
+        skey = _sprint_key_from_dir(sd)
+        s_detail = _build_sprint_detail(state_root, epic_key, skey, events_index, now)
+        sprints.append(s_detail)
+        story_count += s_detail["story_count"]
+        for k, v in s_detail["by_status"].items():
+            by_status[k] = by_status.get(k, 0) + v
+        for k, v in s_detail["actual_totals"].items():
+            totals[k] = totals.get(k, 0.0) + v
+
+    return {
+        "key": epic_key, "title": enode.get("title"), "status": status,
+        "dir_status": dir_status, "sprint_count": len(sprints),
+        "story_count": story_count, "by_status": by_status,
+        "estimate": dict(enode.get("estimate") or {}),
+        "actual_totals": totals, "updated_at": enode.get("updated_at"),
+        "dwell_hours": None if dwell is None else round(dwell, 2),
+        "dwell_exact": exact, "lock": lock, "flags": flags, "sprints": sprints,
+    }
+
+
+def load_plan(plan_pointer: str):
+    """Load plan phases via the stable pointer.
+
+    `plan-output-meta.yaml` is a pointer plus summary scalars and deliberately holds no
+    phases list (step-06-plan-output.md §4), so the phases come from the snapshot it
+    names, resolved in the pointer's own directory. A dangling pointer yields the meta
+    with empty phases rather than an error: the state hierarchy is still worth showing.
+    """
+    if not plan_pointer or not os.path.isfile(plan_pointer):
+        return None
+    try:
+        _, meta = _load(plan_pointer)
+    except Exception as e:  # noqa: BLE001
+        sys.stderr.write(f"pm-status.py: warning — could not read plan pointer: {e}\n")
+        return None
+    if not meta:
+        return None
+    meta = dict(meta)
+    phases = []
+    snap_name = meta.get("current_plan")
+    if snap_name:
+        snap = os.path.join(os.path.dirname(os.path.abspath(plan_pointer)), str(snap_name))
+        if os.path.isfile(snap):
+            try:
+                _, snode = _load(snap)
+                phases = [dict(p) for p in ((snode or {}).get("phases") or [])]
+            except Exception as e:  # noqa: BLE001
+                sys.stderr.write(f"pm-status.py: warning — could not read plan "
+                                 f"snapshot: {e}\n")
+        else:
+            sys.stderr.write(f"pm-status.py: warning — plan pointer names a missing "
+                             f"snapshot: {snap_name}\n")
+    return {"meta": meta, "phases": phases}
+
+
+def build_progress_model(state_root: str, plan=None, include_archived: bool = False,
+                         now=None) -> dict:
+    """The one model every renderer and every surface consumes.
+
+    Archived epics are built regardless of `include_archived` — phase progress needs a
+    true denominator — and filtered only out of the *display* lists.
+    """
+    events_index = build_events_index(state_root)
+    details, flags = {}, []
+    totals = {"epics": {}, "sprints": {}, "stories": {}}
+
+    for epic_key, dir_status in list_all_epics(state_root):
+        d = build_epic_detail(state_root, epic_key, dir_status, events_index, now)
+        details[epic_key] = d
+        flags += _collect_flags(d)
+        totals["epics"][d["status"]] = totals["epics"].get(d["status"], 0) + 1
+        for sp in d["sprints"]:
+            totals["sprints"][sp["status"]] = totals["sprints"].get(sp["status"], 0) + 1
+        for k, v in d["by_status"].items():
+            totals["stories"][k] = totals["stories"].get(k, 0) + v
+
+    def visible(d):
+        return include_archived or d["dir_status"] != "archived"
+
+    phases, claimed = [], set()
+    for ph in (plan or {}).get("phases") or []:
+        members = [str(k) for k in (ph.get("epics") or [])]
+        claimed.update(members)
+        present = [details[k] for k in members if k in details]
+        phases.append({
+            "phase": ph.get("phase"), "parallel": bool(ph.get("parallel")),
+            "epics": members, "dependencies": list(ph.get("dependencies") or []),
+            "epic_total": len(members),
+            "epic_done": sum(1 for d in present if d["status"] == "done"),
+            "epics_detail": [d for d in present if visible(d)],
+        })
+
+    return {
+        "generated": _now_iso(),
+        "state_root": os.path.abspath(state_root),
+        "plan": (plan or {}).get("meta"),
+        "phases": phases,
+        "unplanned_epics": [d for k, d in sorted(details.items())
+                            if k not in claimed and visible(d)],
+        "totals": totals,
+        "flags": flags,
+    }
+
+
+# --------------------------------------------------------------------------- #
+# renderers — thin: they consume the model and nothing else
+# --------------------------------------------------------------------------- #
+def _bar(done: int, total: int, width: int = 10) -> str:
+    if total <= 0:
+        return "░" * width
+    filled = int(round(width * max(0, min(done, total)) / total))
+    return "█" * filled + "░" * (width - filled)
+
+
+def _dwell_str(node: dict) -> str:
+    h = node.get("dwell_hours")
+    if h is None:
+        return ""
+    approx = "" if node.get("dwell_exact") else "~"
+    return f"{approx}{h:.1f}h"
+
+
+def _stuck_suffix(node: dict) -> str:
+    return "  ⚠ stuck" if any(f["kind"] == "stuck" for f in node.get("flags") or []) else ""
+
+
+def _render_epic_tree(d: dict, out: list, indent: str = "  ") -> None:
+    done = d["by_status"].get("done", 0)
+    out.append(f"{indent}{d['key']} {(d.get('title') or ''):<24} {d['status']:<12} "
+               f"{done}/{d['story_count']} stories  {_dwell_str(d)}{_stuck_suffix(d)}")
+    if d.get("lock") and d["lock"].get("stale"):
+        out.append(f"{indent}  ⚠ STALE LOCK — claimed {d['lock'].get('claimed_at')} "
+                   f"(ttl {d['lock'].get('ttl_minutes')}m)")
+    for sp in d["sprints"]:
+        s_done = sp["by_status"].get("done", 0)
+        out.append(f"{indent}  {sp['key']:<6} {sp['status']:<12} "
+                   f"{s_done}/{sp['story_count']}  {_dwell_str(sp)}{_stuck_suffix(sp)}")
+        for st in sp["stories"]:
+            if st["status"] == "done":
+                continue  # counts above carry finished work; the tree shows what is live
+            out.append(f"{indent}    {st['key']:<20} {st['status']:<14} "
+                       f"{_dwell_str(st)}{_stuck_suffix(st)}")
+
+
+def render_tree(model: dict) -> str:
+    out: list = []
+    plan = model.get("plan")
+    if plan:
+        out.append(f"PLAN {plan.get('current_plan')}   readiness={plan.get('readiness')}"
+                   f"   generated={plan.get('generated')}")
+    else:
+        out.append("PLAN (none — showing state only)")
+    out.append(f"STATE {model['state_root']}")
+    out.append("")
+
+    total_phases = len(model["phases"])
+    for ph in model["phases"]:
+        kind = "parallel" if ph["parallel"] else "sequential"
+        out.append(f"Phase {ph['phase']}/{total_phases} ({kind})  "
+                   f"{_bar(ph['epic_done'], ph['epic_total'])}  "
+                   f"{ph['epic_done']}/{ph['epic_total']} epics done")
+        if ph["dependencies"]:
+            out.append(f"  depends on: {', '.join(str(x) for x in ph['dependencies'])}")
+        if not ph["epics_detail"]:
+            out.append("  (all epics in this phase are archived — pass --all to show)")
+        for d in ph["epics_detail"]:
+            _render_epic_tree(d, out)
+        out.append("")
+
+    if model["unplanned_epics"]:
+        out.append("Not in any plan phase:" if model["phases"] else "Epics:")
+        for d in model["unplanned_epics"]:
+            _render_epic_tree(d, out)
+        out.append("")
+
+    if not model["phases"] and not model["unplanned_epics"]:
+        out.append("No epics found — nothing to report.")
+        out.append("")
+
+    out.append("Totals")
+    for level in ("epics", "sprints", "stories"):
+        counts = model["totals"].get(level) or {}
+        body = "  ".join(f"{k}={v}" for k, v in sorted(counts.items())) or "none"
+        out.append(f"  {level:<9} {body}")
+
+    other = [f for f in model["flags"] if f["kind"] != "stuck"]
+    if other:
+        out.append("")
+        out.append("Anomalies")
+        for f in other:
+            out.append(f"  [{f['kind']}] {f.get('key')} — {f.get('detail', '')}")
+
+    if any(f["kind"] == "stuck" and not f.get("exact") for f in model["flags"]):
+        out.append("")
+        out.append("~ dwell times are approximate (no event log yet — derived from "
+                   "updated_at, which any field write refreshes)")
+    # Column padding leaves ragged trailing spaces on rows with no dwell/flag suffix.
+    return "\n".join(line.rstrip() for line in out) + "\n"
+
+
+def render_md(model: dict) -> str:
+    plan = model.get("plan")
+    out = ["# Progress Report", "",
+           f"Generated by `pm-status.py report` at {model['generated']}. This file is a "
+           "view, not a source of truth — do not hand-edit; regenerate it.", ""]
+    if plan:
+        out.append(f"**Plan:** `{plan.get('current_plan')}` — readiness "
+                   f"`{plan.get('readiness')}`, generated {plan.get('generated')}")
+    else:
+        out.append("**Plan:** none found — state only.")
+    out.append("")
+
+    if model["phases"]:
+        out += ["## Phases", "", "| Phase | Mode | Epics done | Members |",
+                "|---|---|---|---|"]
+        for ph in model["phases"]:
+            mode = "parallel" if ph["parallel"] else "sequential"
+            out.append(f"| {ph['phase']} | {mode} | {ph['epic_done']}/{ph['epic_total']} "
+                       f"| {', '.join(ph['epics'])} |")
+        out.append("")
+
+    rows = [d for ph in model["phases"] for d in ph["epics_detail"]] + model["unplanned_epics"]
+    out += ["## Epics", "", "| Epic | Title | Status | Sprints | Stories done | Dwell |",
+            "|---|---|---|---|---|---|"]
+    if not rows:
+        out.append("| _none_ | | | | | |")
+    for d in rows:
+        out.append(f"| {d['key']} | {d.get('title') or ''} | {d['status']} "
+                   f"| {d['sprint_count']} | {d['by_status'].get('done', 0)}/"
+                   f"{d['story_count']} | {_dwell_str(d) or '—'} |")
+    out.append("")
+
+    live = [(d, sp, st) for d in rows for sp in d["sprints"] for st in sp["stories"]
+            if st["status"] not in ("done", "backlog")]
+    if live:
+        out += ["## Stories in flight", "",
+                "| Story | Epic | Sprint | Status | Dwell | Stuck |",
+                "|---|---|---|---|---|---|"]
+        for d, sp, st in live:
+            stuck = "yes" if any(f["kind"] == "stuck" for f in st["flags"]) else ""
+            out.append(f"| {st['key']} | {d['key']} | {sp['key']} | {st['status']} "
+                       f"| {_dwell_str(st) or '—'} | {stuck} |")
+        out.append("")
+
+    out += ["## Totals", "", "| Level | Counts |", "|---|---|"]
+    for level in ("epics", "sprints", "stories"):
+        counts = model["totals"].get(level) or {}
+        body = ", ".join(f"{k}={v}" for k, v in sorted(counts.items())) or "none"
+        out.append(f"| {level} | {body} |")
+    out.append("")
+    return "\n".join(out) + "\n"
+
+
+# --------------------------------------------------------------------------- #
 # subcommands
 # --------------------------------------------------------------------------- #
 def cmd_set_status(args) -> int:
@@ -1188,11 +1717,19 @@ def cmd_set_status(args) -> int:
         _die_usage(f"invalid {kind} status '{args.status}' — expected one of {sorted(valid)}")
 
     y, node, path, label = _load_checked(args.state_root, args, kind)
+    prior = str(node.get("status", "")) or None
     node["status"] = args.status
     node["updated_at"] = _now_iso()
     if args.title:
         node["title"] = args.title
     save_node(y, node, path, getattr(args, "flock", False))
+
+    if not getattr(args, "no_events", False):
+        payload = {"ts": _now_iso(), "event": "status",
+                   "from": prior, "to": args.status,
+                   "session": getattr(args, "session_id", None)}
+        payload.update(_event_keys(kind, args))
+        append_event(args.state_root, payload)
 
     if args.ledger:
         scope = args.scope or (args.story or f"{args.epic}" + (f"/{args.sprint}" if args.sprint else ""))
@@ -1250,6 +1787,13 @@ def cmd_set_actual(args) -> int:
             sys.stderr.write(f"pm-status.py: warning — actual written, but calibration "
                              f"sample failed: {e}\n")
             calib_note = "calibration skipped (see stderr)"
+
+    if not getattr(args, "no_events", False):
+        payload = {"ts": _now_iso(), "event": "actual",
+                   "from": None, "to": None,
+                   "session": getattr(args, "session_id", None)}
+        payload.update(_event_keys(kind, args))
+        append_event(args.state_root, payload)
 
     if args.ledger:
         _append_ledger(args.ledger, args.scope or label, f"actual {sorted(provided)}")
@@ -1665,6 +2209,44 @@ def cmd_show(args) -> int:
     return 0
 
 
+def cmd_report(args) -> int:
+    """Plan-aware progress report. Read-only unless --out is given, which is what lets
+    read-only callers (l3io-util-doctor stats) share this exact code path."""
+    if not os.path.isdir(args.state_root):
+        _die_notfound(f"state root {args.state_root}")
+
+    def once() -> str:
+        plan = load_plan(args.plan) if args.plan else None
+        model = build_progress_model(args.state_root, plan=plan,
+                                     include_archived=args.all)
+        if args.format == "json":
+            return json.dumps(model, indent=2, sort_keys=True) + "\n"
+        return render_md(model) if args.format == "md" else render_tree(model)
+
+    if args.watch:
+        import time
+        try:
+            while True:
+                sys.stdout.write("\x1b[2J\x1b[H")   # clear + home
+                sys.stdout.write(once())
+                sys.stdout.write(f"\n[refreshing every {args.watch}s — Ctrl-C to stop]\n")
+                sys.stdout.flush()
+                time.sleep(args.watch)
+        except KeyboardInterrupt:
+            return 0
+
+    text = once()
+    if args.out:
+        d = os.path.dirname(os.path.abspath(args.out)) or "."
+        os.makedirs(d, exist_ok=True)
+        with open(args.out, "w", encoding="utf-8") as fh:
+            fh.write(text)
+        sys.stdout.write(f"OK report {args.out} ({args.format})\n")
+        return 0
+    sys.stdout.write(text)
+    return 0
+
+
 def cmd_verify(args) -> int:
     kind = args.scope  # story | sprint | epic
     if kind == "epic":
@@ -1781,6 +2363,10 @@ def build_parser() -> argparse.ArgumentParser:
     s.add_argument("--ledger")
     s.add_argument("--scope")
     s.add_argument("--flock", action="store_true", help="acquire exclusive flock before write")
+    s.add_argument("--no-events", dest="no_events", action="store_true",
+                   help="skip the events.jsonl append for this call")
+    s.add_argument("--session-id", dest="session_id", default=None,
+                   help="recorded in the event payload; null when omitted")
     s.set_defaults(func=cmd_set_status)
 
     a = sub.add_parser("set-actual", help="write a validated actual block")
@@ -1797,6 +2383,10 @@ def build_parser() -> argparse.ArgumentParser:
     a.add_argument("--flock", action="store_true", help="acquire exclusive flock before write")
     a.add_argument("--no-calibrate", dest="no_calibrate", action="store_true",
                    help="skip calibration sampling (backfills, replays)")
+    a.add_argument("--no-events", dest="no_events", action="store_true",
+                   help="skip the events.jsonl append for this call")
+    a.add_argument("--session-id", dest="session_id", default=None,
+                   help="recorded in the event payload; null when omitted")
     a.set_defaults(func=cmd_set_actual)
 
     pr = sub.add_parser("progress", help="append a line to the progress ledger")
@@ -1818,6 +2408,16 @@ def build_parser() -> argparse.ArgumentParser:
     sh.add_argument("--epic", required=True)
     sh.add_argument("--sprint", default="")
     sh.set_defaults(func=cmd_show)
+
+    rp = sub.add_parser("report", help="plan-aware progress report (read-only unless --out)")
+    rp.add_argument("--state-root", required=True)
+    rp.add_argument("--plan", default="", help="path to plan-output-meta.yaml")
+    rp.add_argument("--format", choices=["tree", "json", "md"], default="tree")
+    rp.add_argument("--out", default="", help="write to this file instead of stdout")
+    rp.add_argument("--all", action="store_true", help="include archived epics")
+    rp.add_argument("--watch", type=int, default=0, metavar="SECS",
+                    help="re-render on an interval (tree only in practice)")
+    rp.set_defaults(func=cmd_report)
 
     si = sub.add_parser("self-install", help="copy this script to --dest, version-guarded")
     si.add_argument("--dest", required=True, help="target path, e.g. {project-root}/_bmad/scripts/pm-status.py")

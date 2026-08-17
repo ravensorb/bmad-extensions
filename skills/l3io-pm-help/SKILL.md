@@ -1,6 +1,6 @@
 ---
 name: l3io-pm-help
-description: Read project state and recommend the exact next l3io-pm action.
+description: Read project state and recommend the exact next l3io-pm action. Use /l3io-pm-help progress for a plan-aware progress tree — which phase, epic, sprint, and stories are in flight.
 ---
 
 # l3io-pm-help
@@ -16,6 +16,11 @@ If the script fails, read `{skill-root}/customize.toml` directly.
 Load `{skill-root}/assets/module-setup.md` first **only** when the user passes `setup`,
 `configure`, or `install`. An absent `modules.l3io-pm` section means the module has no
 overrides, not that it needs setup.
+
+**Recognized argument — `progress`:** run section 1 (config) and section 2 (layout
+detection) exactly as written, then jump to [Progress Mode](#progress-mode) and skip
+sections 3-5. The layout gate still applies: a legacy tree short-circuits to the migration
+recommendation, because the progress report reads only the sharded layout.
 
 ## Execution
 
@@ -85,7 +90,7 @@ not build a snapshot, do not recommend anything:
 BLOCKED: multiple state layouts detected (sharded=$SHARDED legacy-per-epic=$LEGACY_EPIC
 legacy-flat=$LEGACY_FLAT). An earlier migration did not finish. Do not run any l3io-pm skill
 until this is resolved — inspect both locations and remove the stale one, then re-run
-/l3io-util-cleanup migrate-state.
+/l3io-util-doctor migrate-state.
 ```
 
 **If only the legacy per-epic layout or only the legacy flat layout** → stop here. Report
@@ -96,7 +101,7 @@ what was found and give exactly one recommendation:
 = flat sprint-status.yaml). Your project has existing l3io-pm state in a layout the current
 skills no longer read.
 
-Next action:  /l3io-util-cleanup migrate-state
+Next action:  /l3io-util-doctor migrate-state
 
 Nothing else should run first. The migration is non-destructive until its final stage and
 keeps your originals as .legacy backups.
@@ -203,3 +208,51 @@ present, or on a verified genuine first run. Apply the first matching rule:
 | All epics done (active + planned = 0) | `All work complete. Run /l3io-pm-sync to push closure to GitHub/ADO.` |
 
 Output the recommendation as a clear, one-paragraph response with the exact command to run.
+
+### Progress Mode
+
+Invoked with the `progress` argument. Read-only — `report` writes only when `--out` is
+passed, and nothing here passes it.
+
+**When `{pm_status_present}` is `absent`:** print this and stop. The report is the one thing
+in this skill that genuinely needs the helper — it computes dwell times and phase roll-ups
+that cannot be read off `epic.yaml`:
+
+```
+pm-status.py is not installed yet, so the progress report cannot be computed. It
+self-installs the first time you run /l3io-pm-plan or /l3io-pm-execute.
+```
+
+**Otherwise** run:
+
+```bash
+python3 {pm_status} report \
+  --state-root {pm_state_root} \
+  --plan {planning_artifacts}/plan-output-meta.yaml \
+  --format tree
+```
+
+Add `--all` when the user asked to include finished work ("everything", "including done",
+"including archived"); by default archived epics are counted in the phase denominators but
+not listed.
+
+Print the output verbatim. Do not summarize it, re-order it, or re-format it into your own
+table — it is already the rendered view, and paraphrasing it invites drift between what the
+tool computed and what the user reads.
+
+Then add one line pointing at the live view, because that is what answers "what is happening
+right now" during a long run:
+
+```
+For a live view during a run: python3 {pm_status} report --state-root {pm_state_root} \
+  --plan {planning_artifacts}/plan-output-meta.yaml --watch 15
+```
+
+Two follow-ups, only when the output warrants them:
+
+- If the output contains `⚠ STALE LOCK`, append the clear-lock recommendation from section 5
+  for each affected epic. Do not re-derive stale-lock state yourself — the report already
+  computed it from `_lock.ttl_minutes`.
+- If the output ends with the `~ dwell times are approximate` note, add: `Dwell times sharpen
+  once state/events.jsonl accumulates transitions — it starts recording on the next
+  /l3io-pm-execute run.`

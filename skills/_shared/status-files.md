@@ -40,6 +40,7 @@ co-located with the artifacts it describes. Nothing state-related lives under
 │   ├── archived/
 │   │   └── epic-002/…                       ← done; keeps its full tree
 │   ├── issues.yaml                          ← flat BL list
+│   ├── events.jsonl                         ← append-only transition log
 │   └── pm-calibration.yaml
 │
 ├── epic-001/                                ← human/agent-authored artifacts
@@ -61,6 +62,17 @@ co-located with the artifacts it describes. Nothing state-related lives under
 An epic's directory lives in exactly one of `planned/`, `active/`, or `archived/` at any
 time (see "Placement rule" below). Every sprint and story of that epic lives inside the same
 epic directory, one file per node.
+
+`events.jsonl` is an append-only JSON-lines log — one object per status or actuals write,
+appended automatically by `set-status`/`set-actual` under `flock`. It is the only place
+per-status *dwell* time can come from: `updated_at` records just the last write and is
+overwritten by any field change, so it cannot distinguish "entered review 20 minutes ago"
+from "had its estimate patched 20 minutes ago". It is committed, and it is one
+project-level log rather than one per sprint — per-sprint files would fragment the timeline
+and turn cross-epic velocity into a multi-file join. Absent on projects that predate it, in
+which case `report` falls back to `updated_at` and marks those dwell figures approximate
+with a `~` prefix. Never read it to determine current status; the node files are
+authoritative for that, and the log is history.
 
 ## 2. The two trees
 
@@ -283,7 +295,13 @@ Subcommand summary (see `pm-status.py --help` for full flags):
 | `append-issue` | `--file` (the one exception; see above) |
 | `list-issues` | `--state-root` (reads `{state-root}/issues.yaml`) + optional `--epic`/`--sprint`/`--severity`/`--format` filters |
 | `calibration show` | `--state-root [--format {text,json}]` — read-only report of every component's sample count and active ratio; a missing file reports cold-start and exits `0` |
+| `report` | `--state-root` (+ optional `--plan` pointing at `plan-output-meta.yaml`) — walks every epic in every status folder; addresses none individually. Read-only unless `--out` is given |
 | `progress` | `--ledger` + `--msg` (unrelated to state-root addressing) |
+
+`set-status` and `set-actual` both append a line to `state/events.jsonl` as a side effect of
+a successful write (`--no-events` suppresses it, `--session-id` stamps it). A failed append
+warns on stderr and never fails the write — the node file is the primary record and telemetry
+must not be able to block it.
 
 `set-actual` also derives and appends a calibration sample as a side effect of a successful
 write (`--no-calibrate` suppresses it) — see `references/metrics-contract.md` §8 for what it
@@ -365,7 +383,7 @@ Run once at startup, before any state read or write:
 | Order | Found | Layout | Action |
 |---|---|---|---|
 | 1 | `{implementation_artifacts}/state/` | current | Proceed |
-| 2 | `{project-root}/_bmad/state/` | legacy (per-epic file) | Block → `/l3io-util-cleanup migrate-state` |
+| 2 | `{project-root}/_bmad/state/` | legacy (per-epic file) | Block → `/l3io-util-doctor migrate-state` |
 | 3 | `{implementation_artifacts}/sprint-status.yaml` | legacy (flat) | Block → same command |
 | 4 | none | first run | Create lazily |
 
