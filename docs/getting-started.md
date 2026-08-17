@@ -87,6 +87,31 @@ npx bmad-method install \
 
 After upgrading, your `_bmad/custom/config.toml` and `config.user.toml` overrides are preserved — the installer never touches those layers.
 
+### Upgrading from 1.x
+
+The installer refreshes skills; it does not migrate your data. Run this once, before any
+sprint or epic run:
+
+```
+/l3io-util-doctor
+```
+
+With no argument it inspects the project and proposes every applicable migration **in the
+correct dependency order** behind one confirmation. The full sequence, of which it runs only
+the steps you actually need:
+
+```
+rename-active → rename-epic-dirs → migrate-schema → split-status → migrate-state
+  → reconcile-status → layout-cleanup → sort-status → harvest-debt
+  → update-ai-rules → clean-legacy
+```
+
+`migrate-state` is the step that matters most — it produces the sharded `state/` tree that the
+2.x skills read. Everything before it only prepares its input, so **running an earlier step
+alone leaves the project in a layout the skills cannot read.** Resist invoking individual modes
+by hand unless you know precisely which you need; originals are preserved as `.legacy` either
+way, and `clean-legacy` removes them once you have verified the result.
+
 ## Before Running l3io-pm
 
 Before your first sprint or epic run, verify:

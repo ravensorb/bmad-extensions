@@ -65,9 +65,16 @@ npx bmad-method install --directory . --action quick-update --yes
 
 Reads the stored install config (tools, custom source) so nothing needs to be re-specified. Omitting `--modules` leaves core BMad skills untouched. Your `_bmad/custom/` config overrides are preserved and skills are refreshed in place.
 
-If upgrading from a version before 1.0.20 and you have an existing `sprint-status-active.yaml`, run `/l3io-util-doctor rename-active` once after upgrading to migrate the file to the new name.
+**After upgrading from any 1.x version, run `/l3io-util-doctor` once before starting sprint
+or epic orchestration.** With no argument it inspects the project, reports what it finds,
+and proposes every applicable migration in the correct dependency order behind a single
+confirmation — old status-file naming, two-digit epic directories, schema gaps, the legacy
+flat or three-file status layout, and flat artifact roots.
 
-For projects upgrading from an older flat artifact layout, run `/l3io-util-doctor` once before starting sprint or epic orchestration.
+Do not run the individual migration modes by hand unless you know exactly which you need.
+The order matters, and stopping partway leaves the project in a layout the 2.x skills do
+not read: `migrate-state` is the step that produces the sharded state tree, and the
+renames and schema upgrades that precede it only prepare its input.
 
 See [docs/getting-started.md](docs/getting-started.md) for a full installation and first-run walkthrough.
 

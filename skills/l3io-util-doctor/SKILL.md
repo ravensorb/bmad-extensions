@@ -283,8 +283,14 @@ State/artifact drift            ⚠ 2 orphaned key(s)             — (report on
 
 If flagged items exist, append the recommended execution sequence (only flagged actions shown, in priority order):
 ```
-Recommended actions (in order): rename-active → rename-epic-dirs → reconcile-status → layout-cleanup → harvest-debt
+Recommended actions (in order): rename-active → rename-epic-dirs → split-status → migrate-state → layout-cleanup → harvest-debt
 ```
+
+Never emit a sequence that includes a legacy-only action (`migrate-schema`, `split-status`,
+`reconcile-status`) but omits `migrate-state`. Those modes only exist to prepare a legacy tree
+for migration, so if one of them is flagged the project is on a legacy layout and
+`migrate-state` is flagged too. A sequence ending before `migrate-state` would leave the
+project in a shape the PM skills cannot read while reporting success.
 
 If nothing is flagged:
 ```
