@@ -107,8 +107,7 @@ Fresh context means better focus, no context window exhaustion, and restartable 
 
 Execution defaults to sequential and only parallelizes when work is independent and safe.
 
-- `parallel_mode = "auto"` (default) — orchestrator sizes each batch from provably-independent items; `"adaptive"` caps at `max_parallel_subagents`; `"off"` forces sequential
-- `max_parallel_subagents = 4` (default); `parallel_ceiling = 12` (hard upper bound regardless of setting)
+- `max_parallel_subagents = 4` (default, per-skill in `customize.toml`) — bounds how many epics dispatch concurrently within a plan phase marked parallel; sprints within an epic are always sequential
 - safety fallback: force sequential when independence or state safety is unclear
 - per-story dependencies respected: a story cannot enter development until all declared dependencies are `done`
 

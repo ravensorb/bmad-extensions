@@ -863,12 +863,13 @@ CLOSURE_ACTUAL_KEYS = {
 }
 
 
-# Wall-clock metrics legitimately go NEGATIVE as a closure residual: under
-# parallel_mode="auto" a sprint's stories overlap, so the sprint's wall-clock is
-# below the sum of its stories' wall-clock by design. That is topology, not a
-# miscount, and must not be reported as one. Man-hours, tokens and cost are
-# additive regardless of concurrency, so a negative residual there really is a
-# miscount.
+# Wall-clock metrics legitimately go NEGATIVE as a closure residual: if a closure
+# node's children ever overlap in wall-clock time, the parent's wall-clock can be
+# below the sum of its children's by design (today's step files run children
+# strictly in order, so this does not arise in practice; the check stays
+# defensive). That is topology, not a miscount, and must not be reported as one.
+# Man-hours, tokens and cost are additive regardless of concurrency, so a
+# negative residual there really is a miscount.
 WALL_CLOCK_METRICS = ("time_hours",)
 
 

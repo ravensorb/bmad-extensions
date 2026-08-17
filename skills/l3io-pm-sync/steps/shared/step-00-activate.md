@@ -255,8 +255,9 @@ cannot see it.
 
 | If you need to… | Read |
 |---|---|
-| understand what a `verify` failure actually checked | `references/metrics-contract.md` §5 (Enforcement — what is actually checked, and where) |
-| know which fields a node carries, or diagnose a back-reference/structural `verify` failure | `references/status-files.md` §4 (Per-file schema) |
+| diagnose a structural `verify --scope epic` failure | `references/status-files.md` §7 (Addressing — see "`verify` — two different checks behind one subcommand") |
+| understand what `verify` enforces for a story or sprint | `references/metrics-contract.md` §5 (Enforcement — what is actually checked, and where) |
+| know which fields a node carries | `references/status-files.md` §4 (Per-file schema) |
 | handle a migration or legacy layout | `references/status-files.md` §10 (Read resolution at activation) |
 | declare or read `depends_on` | `references/status-files.md` §11 (Dependency fields) |
 | resolve an epic lock question | `references/status-files.md` §6 (Ownership lock) |

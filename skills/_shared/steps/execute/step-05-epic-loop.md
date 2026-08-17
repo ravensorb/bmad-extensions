@@ -54,7 +54,8 @@ Pass it into every sprint subagent's context block — `step-04-sprint-closure.m
 decide whether it may render.
 
 If `parallel_flag=true` AND `len(epics) > 1`:
-  Dispatch up to `{max_parallel_subagents}` epics concurrently per §15 adaptive parallelism.
+  Dispatch up to `{max_parallel_subagents}` epics concurrently (default 4, set per skill in
+  `customize.toml`). Sprints within an epic are always sequential.
   Each epic runs §2–§7 below as an independent execution branch.
 
 If `parallel_flag=false` OR single epic:

@@ -198,12 +198,17 @@ Stories process in order; a story with `depends_on` waits until each referenced 
 | Story prep | Technical-AC gate; `bmad-create-story` enriches stories missing technical ACs. Estimates written, status → `ready-for-dev` |
 | Development | Status → `in-progress`. `bmad-dev-story` implements all tasks |
 | Code review | `bmad-code-review` on changed files. Skipped for `DOCS`/`CONFIG` |
-| Fix loop | CRITICAL/HIGH re-invoke the dev subagent, capped at 10 iterations per story |
+| Fix loop | CRITICAL/HIGH re-invoke the dev subagent, capped at `{max_fix_iterations}` iterations per story |
 | Completion | Completion evidence, then actuals, then status → `done` |
 
 Severity routing: **CRITICAL/HIGH** open the fix loop; **MEDIUM** is fixed in the current iteration before done; **LOW** defers to `issues.yaml` without re-development.
 
-Exceeding the 10-iteration cap emits `FAILED` for that story, leaves it at `status: review`, and continues to the next story.
+`{max_fix_iterations}` is bound at `step-01-classify-work.md` §5 from `customize.toml`: 10 for
+CODE/MIXED, 3 for DOCS/CONFIG (`max_fix_iterations_non_code`). The DOCS/CONFIG value is currently
+inert here — this fix loop only fires off a code-review finding, and code review itself is
+skipped for DOCS/CONFIG (row above), so the loop never runs for those work types today.
+
+Exceeding the `{max_fix_iterations}` cap emits `FAILED` for that story, leaves it at `status: review`, and continues to the next story.
 
 > **Write order is load-bearing.** `completion_evidence.fix_iterations` must be written **before** `set-actual`. `set-actual` derives the calibration sample inline and reads `fix_iterations` to choose the sample's provenance (`exact` vs `backout`) and its `fix` cohort. Writing it afterwards means it is always absent at derivation time — `provenance: exact` becomes unreachable, neither fix cohort ever fills, and the fix factor stays frozen at the 1.25 cold-start prior, silently and forever.
 
@@ -215,9 +220,12 @@ Exceeding the 10-iteration cap emits `FAILED` for that story, leaves it at `stat
 | Clean release review | run | skip | run | run |
 | Adversarial analysis | run | skip | skip | run |
 | Red team (`l3io-sec-redteam`) | run | skip | skip | run |
-| UX review (`bmad-ux-review`) | run | run | skip | run |
+| UX review (`bmad-ux-review`) | run | skip | skip | run |
 | Architectural drift (`l3io-arch-review` Mode C) | run | skip | run | run |
 | Issue triage | run | run | run | run |
+
+The phase-gating matrix now lives in `steps/shared/step-01-classify-work.md` §4 (single source
+of truth); this table mirrors it.
 
 Outputs go to `{sprint_root}/closure/` — `retrospective.md` and `closure-report.md`. The closure report records stories done, estimates vs actuals, issue counts resolved and deferred, and which phases ran versus were skipped.
 
@@ -226,7 +234,7 @@ Closure also regenerates `{implementation_artifacts}/progress-report.md`, and re
 ### Epic closure (step-06)
 
 1. **Retrospective** — reviews every sprint retro for the epic; summarizes velocity, recurring pain points, and up to five learnings
-2. **Architectural drift** — `l3io-arch-review` Mode C over the epic's ADRs and story files. CODE/MIXED only, and only when installed. CRITICAL/HIGH/MEDIUM must resolve before closure, under the 10-iteration cap
+2. **Architectural drift** — `l3io-arch-review` Mode C over the epic's ADRs and story files. CODE/MIXED only, and only when installed. CRITICAL/HIGH/MEDIUM must resolve before closure, under the `{max_fix_iterations}` cap — 10, since this gate is CODE/MIXED only and never reaches the DOCS/CONFIG value of 3
 3. **Issue triage** — re-reviews the epic's deferred Low items for promotion now that full epic context exists
 4. **Closure report** — epic goal and final status, estimate-vs-actual for all four metrics, sprint velocity, learnings, outstanding issues, ADRs produced
 

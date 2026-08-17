@@ -628,9 +628,11 @@ sampling write paths migrate, and only at the moment they are about to append.
   (nothing to measure the residual against); a negative residual; and an `N/A`
   `tokens_k`/`cost` on either side. Only when *no* metric produces a residual is the whole
   sample skipped.
-- **A negative wall-clock residual is expected, not a miscount.** Under
-  `parallel_mode = "auto"` a sprint's stories overlap, so the sprint's `elapsed_hours` is
-  legitimately below the sum of its stories'. `time_hours` is skipped with a reason naming
+- **A negative wall-clock residual is expected, not a miscount.** If a closure node's children
+  ever overlap in wall-clock time, the parent's `elapsed_hours` is legitimately below the sum
+  of its children's — today's step files run stories and sprints strictly in order, so this
+  does not arise from current execution, but the check stays defensive rather than treating an
+  edited or future-parallel dataset as broken. `time_hours` is skipped with a reason naming
   parallelism; `man_hours`, `tokens_k` and `cost` are additive regardless of concurrency, so
   a negative residual there keeps the miscount warning.
 
