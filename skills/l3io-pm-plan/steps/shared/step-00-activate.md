@@ -174,7 +174,94 @@ Generate and bind `{session_id}` — a stable unique identifier for this executi
 lifetime of this skill invocation and is used by set-lock / check-lock to identify the
 owning session. Generate it once here; never regenerate it in later steps.
 
-## 8. Output status line
+## 8. State and metrics digest — keep this in context
+
+This is everything a normal run needs from the state and metrics contracts. **Do not load
+`references/status-files.md` or `references/metrics-contract.md` unless the routing table at
+the end of this section sends you there** — they are 1,178 lines combined, and re-reading them
+per subagent is the single largest avoidable token cost in the system.
+
+**Precedence.** `pm-status.py` is the authority: it enforces every rule below mechanically, so
+if its behavior and this digest disagree, the script is right. Then the full reference. This
+digest is last — treat it as stale if it conflicts.
+
+### Keys
+
+- Epic `E{nnn}` → directory `epic-{nnn}` · Sprint `S{nn}` → `sprint-{nn}`
+- Story `E{nnn}-S{nn}-{nnn}` → file `E{nnn}-S{nn}-{nnn}.yaml` in that sprint's directory
+- Backlog item `BL-E{nnn}-{nnn}` (`BL-E000-{nnn}` for repo-global)
+- Zero-padded always. Node fields use `key:`, never `id:`.
+
+### Never build a state path by hand
+
+`pm-status.py` is the only component that resolves a key to a location. Address nodes by key;
+if you find yourself concatenating `state/active/epic-...`, stop and use a subcommand.
+
+Bind `{pm_status}` = `{project-root}/_bmad/scripts/pm-status.py`.
+
+### The calls a sprint or epic run makes
+
+```
+set-status    --state-root S  (--story KEY | --epic ID [--sprint ID])  --status S
+              [--title T] [--flock] [--no-events] [--session-id ID]
+set-actual    --state-root S  --node {story,sprint,epic}  (--story KEY | --epic ID [--sprint ID])
+              [--elapsed-hours H] [--man-hours H] [--tokens-k K] [--cost C]
+              [--runtime {claude,other}] [--flock] [--no-calibrate]
+set-estimate  --state-root S  (--story KEY | --epic ID [--sprint ID])
+              story: --man-hours H --time-hours H --tokens-k K --cost C
+              sprint/epic: --man-hours-low/-high, --time-hours-low/-high,
+                           --tokens-k-min/-max, --cost-low/-high
+              [--confidence {low,medium,high}] [--flock]
+set-field     --state-root S  (--story KEY | --epic ID [--sprint ID])  --field NAME --value V
+estimate-story   --state-root S  --story KEY  --classification {simple,standard,complex}
+estimate-rollup  --state-root S  --epic ID  [--sprint ID]
+verify        --state-root S  --scope {story,sprint,epic}  (--story KEY | --epic ID [--sprint ID])
+              [--require-tokens] [--runtime {claude,other}]
+show          --state-root S  --epic ID  [--sprint ID]
+report        --state-root S  [--plan P] [--format tree|json|md] [--out F] [--all] [--watch SECS]
+set-lock      --state-root S  --epic ID  --session-id SESS  [--ttl-minutes N]
+clear-lock    --state-root S  --epic ID
+check-lock    --state-root S  --epic ID  --session-id SESS
+move-epic     --state-root S  --epic ID  --to {planned,active,archived}
+append-issue  --file F  --key BL-E{nnn}-{nnn}  --epic E  [--sprint S]  --title T
+              --source S  --severity {Low,Medium,High,Critical}  [--description D]
+```
+
+Exit codes: `0` success · `2` usage error · `3` node not found · `4` verification failure ·
+`5` epic locked by another session. Branch on these rather than parsing stdout.
+
+`set-status` and `set-actual` append to `state/events.jsonl` automatically. You never write
+that file, and you never pass a flag to make it happen.
+
+### Estimates and actuals — the HARD RULE
+
+Every planning point and every closeout, at story, sprint, and epic level, records **both** an
+`estimate` and an `actual` for all four metrics: man-hours, compute (wall-clock) hours, tokens,
+and token cost. This is enforced at write time, not advisory.
+
+Under `--runtime claude`, token and cost actuals are read **exactly** from the session
+transcript's `usage` fields and `set-actual`/`verify` **reject** `N/A`. Under any other runtime
+capture what is exposed and record `N/A` — **never a guess**.
+
+`set-actual` derives the calibration sample itself. Write
+`completion_evidence.fix_iterations` **before** calling it, or the scope-versus-fix split
+cannot see it.
+
+### When you do need the deep contract
+
+| If you need to… | Read |
+|---|---|
+| interpret a `verify` failure | `references/status-files.md` §7 (Addressing) |
+| know which fields a node carries | `references/status-files.md` §4 (Per-file schema) |
+| handle a migration or legacy layout | `references/status-files.md` §10 (Read resolution at activation) |
+| declare or read `depends_on` | `references/status-files.md` §11 (Dependency fields) |
+| resolve an epic lock question | `references/status-files.md` §6 (Ownership lock) |
+| capture token/cost actuals correctly | `references/metrics-contract.md` §3 (Runtime detection and capture) |
+| write an estimate or actual by hand | `references/metrics-contract.md` §4 (Writing estimates and actuals) |
+| explain a calibration result | `references/metrics-contract.md` §8 (Calibration) |
+| see a full worked example | `references/metrics-contract.md` §10 (Worked example) |
+
+## 9. Output status line
 
 ```
 Step 00 complete — state: {pm_state_root}, active epics: {count_of_active_epic_keys}, pm-status: installed, runtime: {runtime}
