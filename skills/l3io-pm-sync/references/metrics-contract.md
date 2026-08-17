@@ -4,8 +4,18 @@ Communicate all responses in `{communication_language}`.
 
 This file is the single source of truth for **which** numbers l3io-pm records, **what they
 are called on disk**, **how they are captured**, **where they are enforced**, and **how
-estimates learn from them**. Load it at activation alongside `references/status-files.md`
-and keep its rules in context for every estimate write and every closeout.
+estimates learn from them**. It is a **deep reference, consulted on demand** — do not load it
+at activation. `steps/shared/step-00-activate.md` §8 carries the HARD RULE and the runtime
+capture rule, plus a routing table naming the section to read for each case that needs this
+file: token/cost capture detail (§3), writing an estimate or actual by hand (§4), explaining a
+calibration result (§8), or a worked example (§10).
+
+Most of what follows is now mechanized. §6 (roll-up), §7 (fix reserve), and §8 (calibration)
+describe what `estimate-story`, `estimate-rollup`, and `set-actual` do themselves — read them
+to understand or debug a number, not to perform a calculation by hand.
+
+This file outranks the digest. Where they disagree, this file is correct — and `pm-status.py`
+outranks both.
 
 `status-files.md` owns *where state lives*. This file owns *what the numbers in it mean*.
 
