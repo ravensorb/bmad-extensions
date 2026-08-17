@@ -2,6 +2,44 @@
 
 All notable changes to this project will be documented in this file. See [commit-and-tag-version](https://github.com/absolute-version/commit-and-tag-version) for commit guidelines.
 
+## [2.1.1](https://github.com/ravensorb/bmad-extensions/compare/2.1.0...2.1.1) (2026-08-17)
+
+
+### Features
+
+* **infra:** gate documentation against the code it describes ([4ad0b1a](https://github.com/ravensorb/bmad-extensions/commit/4ad0b1af0b064535068807471a4cfb7fab4c43ab))
+* **l3io-pm:** scale the fix-loop cap to work type ([a1a2438](https://github.com/ravensorb/bmad-extensions/commit/a1a2438e4e621c74733952a23aa61f36fc71cd6f))
+
+
+### Fixes
+
+* **l3io-pm:** bind max_fix_iterations in headless sprints, drop ATDD refs ([156ee5c](https://github.com/ravensorb/bmad-extensions/commit/156ee5c0b5caf9532cb76cb6c4312afff45b4389))
+* **l3io-pm:** correct the activation digest's verify routing and four related nits ([89bf51d](https://github.com/ravensorb/bmad-extensions/commit/89bf51d699a3857fa7b7b7d64b6e322ca8244b51))
+
+
+### Performance
+
+* **l3io-pm:** add an operative digest to activation ([9f8da53](https://github.com/ravensorb/bmad-extensions/commit/9f8da5395d31fd6e9b35b43ba1fceeb6d04f09d4))
+* **l3io-pm:** bound persistent_facts to explicit paths ([82b09c3](https://github.com/ravensorb/bmad-extensions/commit/82b09c3f0a5d761c9495f588c7c5d2f091932f23))
+* **l3io-pm:** consult the state and metrics contracts on demand ([70b20f6](https://github.com/ravensorb/bmad-extensions/commit/70b20f6acadd335e6ee1c741987ed79779010d1d))
+
+
+### Refactoring
+
+* **l3io-pm:** make step-01 the single source of phase gating ([80b64f6](https://github.com/ravensorb/bmad-extensions/commit/80b64f6732bc4e836a29ff7dd354704a760b58ad))
+
+
+### Documentation
+
+* add a routing table to the digest, and correct the skip_phases claim ([9da2bcd](https://github.com/ravensorb/bmad-extensions/commit/9da2bcdd6517af4c7b305236d3d56757faf4b665))
+* add design spec for subagent context trimming ([d0ec251](https://github.com/ravensorb/bmad-extensions/commit/d0ec251e96e464744349c5b9f870f98a2b0ddb8d))
+* add implementation plan for phase gating unification ([977e86b](https://github.com/ravensorb/bmad-extensions/commit/977e86b8fe7cf418a1d602ba530e2baa8c46d056))
+* add implementation plan for subagent context trimming ([7d8d129](https://github.com/ravensorb/bmad-extensions/commit/7d8d129cdb7fda1ede7005da4f725bebffd47912))
+* **l3io-pm:** describe on-demand reference loading, and record the measurement ([7b9c0ca](https://github.com/ravensorb/bmad-extensions/commit/7b9c0cad3e6f93149ab05ebc9aa3e4fd794fe135))
+* **l3io-pm:** describe the parallelism that exists, and fix the verify routing row ([6253c18](https://github.com/ravensorb/bmad-extensions/commit/6253c18994f0f0dbe0c73ddd8564efcbc7f633f7))
+* reconcile the remaining gating mirrors and fix-cap references ([0b0af23](https://github.com/ravensorb/bmad-extensions/commit/0b0af23e8cc135f0f106c6db4c3516908c03a570))
+* spec phase-gating unification (A) and adaptive parallelism (D) ([b68e4f7](https://github.com/ravensorb/bmad-extensions/commit/b68e4f7afeda29f507b82311728854278be9b5cf))
+
 ## [2.1.0](https://github.com/ravensorb/bmad-extensions/compare/2.0.4...2.1.0) (2026-08-17)
 
 
