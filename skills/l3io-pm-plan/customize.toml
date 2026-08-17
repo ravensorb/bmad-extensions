@@ -1,7 +1,10 @@
 [workflow]
 activation_steps_prepend = []
 activation_steps_append  = []
-persistent_facts         = ["file:{project-root}/**/project-context.md"]
+persistent_facts         = [
+  "file:{project-root}/project-context.md",
+  "file:{project-root}/docs/project-context.md",
+]
 
 # Elaboration behavior
 auto_elaborate           = false   # true: runs without user confirmation; false: prompts first

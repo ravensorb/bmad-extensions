@@ -50,6 +50,33 @@ The skill is the authority on this sequence. If this document and
 Find your starting version and read forward. `npx bmad-method install` upgrades across any
 number of these at once, but the migrations must still run.
 
+### → 2.1.1
+
+**`persistent_facts` no longer searches recursively.** The PM skills previously injected
+`{project-root}/**/project-context.md` into every subagent — an unbounded recursive glob. It
+is now two explicit paths:
+
+```toml
+persistent_facts = [
+  "file:{project-root}/project-context.md",
+  "file:{project-root}/docs/project-context.md",
+]
+```
+
+**Action required only if your `project-context.md` lives somewhere else.** It will silently
+stop being loaded — no error. Restore it by adding your path in
+`_bmad/custom/{skill-name}.toml`; the customization model **appends** arrays across layers, so
+your path and the defaults are both loaded:
+
+```toml
+[workflow]
+persistent_facts = ["file:{project-root}/my/path/project-context.md"]
+```
+
+Nothing else changes. Subagents also no longer load the full state and metrics contracts at
+activation — they carry an operative digest and consult those references on demand — which
+cuts token use substantially with no change to which phases run.
+
 ### → 2.1.0
 
 **`l3io-util-cleanup` was renamed to `l3io-util-doctor`.** "Cleanup" described about three of
