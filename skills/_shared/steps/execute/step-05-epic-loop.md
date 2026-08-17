@@ -138,11 +138,8 @@ Bind `{pending_sprints}` = ordered list of sprint `num` values (e.g. `["01", "02
 
 For each sprint in `{pending_sprints}` (always sequential — no parallel sprints within an epic):
 
-Compute `{skip_phases}` from `{work_type}`:
-- `CODE`: skip none
-- `DOCS`: skip adversarial, red-team, arch-drift, clean-release
-- `CONFIG`: skip adversarial, red-team, ux-review
-- `MIXED`: skip none
+`{skip_phases}` was bound by `step-01-classify-work.md` §4 from the phase matrix there. Pass it
+through unchanged — do not recompute it. Two computations of one variable is what this replaced.
 
 Compute `{story_keys}` = keys of all stories in this sprint with `status != done`.
 

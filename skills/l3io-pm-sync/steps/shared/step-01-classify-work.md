@@ -39,18 +39,36 @@ Examine the stories in scope (those in the active epics or the epics being plann
 
 3. Bind `{work_type}` for all subsequent steps.
 
-4. Compute `{skip_phases}` from the conditional phase table:
+4. Compute `{skip_phases}` from the phase matrix below.
 
-| Phase | Skip when |
-|-------|-----------|
-| Story technical-AC gate | `{work_type}` is DOCS or CONFIG |
-| Arch gate (epic level) | `{work_type}` is DOCS or CONFIG, or l3io-arch-review not installed |
-| Adversarial analysis | `{work_type}` is DOCS or CONFIG |
-| Red team (l3io-sec) | `{work_type}` is DOCS or CONFIG, or l3io-sec not installed |
-| UX review | `{work_type}` is CONFIG |
-| ATDD scaffold | `{work_type}` is DOCS or CONFIG, or bmad-testarch-atdd not installed |
+**This matrix is the single source of truth for phase gating.** No other step file computes
+`{skip_phases}` — `step-05-epic-loop.md` passes through what is bound here, and
+`closure/sprint-closure.md` skips whatever this names. If you are about to recompute it
+somewhere else, that is the bug this table exists to prevent.
 
-Bind `{skip_phases}` = comma-separated list of phase names to skip (empty if none).
+**Two mechanisms, and the difference matters.** Rows marked `{skip_phases}` are skipped by
+being named in that binding. Rows marked with a step file are gated by a `{work_type}` check
+inside that step and never appear in `{skip_phases}` at all. Do not migrate the second kind
+into the first: a malformed `{skip_phases}` string would silently disable a gate, whereas a
+`{work_type}` check cannot be turned off by a typo.
+
+| Phase | CODE | DOCS | CONFIG | MIXED | Enforced by |
+|---|---|---|---|---|---|
+| Retrospective | run | run | run | run | always runs |
+| Clean release review | run | skip | run | run | `{skip_phases}` |
+| Adversarial analysis | run | skip | skip | run | `{skip_phases}` |
+| Red team (`l3io-sec`) | run | skip | skip | run | `{skip_phases}` + installed check |
+| UX review | run | skip | skip | run | `{skip_phases}` + installed check + UI-facing stories |
+| Architectural drift | run | skip | run | run | `{skip_phases}` + installed check |
+| Issue triage | run | run | run | run | always runs |
+| Story technical-AC gate | run | skip | skip | run | `{work_type}` at `steps/sprint/step-02-story-prep.md` |
+| Epic arch gate | run | skip | skip | run | `{work_type}` at `steps/execute/step-04-arch-gate.md` |
+
+Bind `{skip_phases}` = comma-separated list of the `{skip_phases}`-enforced phase names that
+this `{work_type}` column marks `skip` (empty if none). Rows whose *Enforced by* is a step
+file, or "always runs", are never included.
+
+For `{work_type}` = CODE or MIXED, `{skip_phases}` is empty unless an installed check fails.
 
 To check if a skill is installed — query the installer's module manifest, never a config
 section. A module can be installed and carry no config at all, so a config lookup reports a
@@ -64,11 +82,6 @@ For `l3io-arch-review` (module code `l3io-arch`) and `l3io-sec-redteam` (module 
 grep -qE "^[[:space:]]*-[[:space:]]*name:[[:space:]]*l3io-arch[[:space:]]*$" \
   {project-root}/_bmad/_config/manifest.yaml 2>/dev/null && echo "present" || echo "absent"
 ```
-
-For the remaining skills:
-
-- `bmad-testarch-atdd`: command file exists at project or user level (run:
-  `ls {project-root}/.claude/commands/bmad-testarch-atdd.md 2>/dev/null || ls ~/.claude/commands/bmad-testarch-atdd.md 2>/dev/null || echo "absent"`)
 
 ## Output
 

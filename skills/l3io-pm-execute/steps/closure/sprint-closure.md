@@ -5,17 +5,14 @@ Communicate all responses in `{communication_language}`.
 This file is loaded by step-04-sprint-closure.md. Run each phase; skip phases listed in
 `{skip_phases}`.
 
-## Phase table (§8)
+## Phase gating
 
-| Phase | CODE | DOCS | CONFIG | MIXED |
-|---|---|---|---|---|
-| Retrospective | run | run | run | run |
-| Clean release review | run | skip | run | run |
-| Adversarial analysis | run | skip | skip | run |
-| Red team (l3io-sec) | run | skip | skip | run |
-| UX review | run | run | skip | run |
-| Architectural drift | run | skip | run | run |
-| Issue triage | run | run | run | run |
+The phase matrix lives in `steps/shared/step-01-classify-work.md` §4 and is the single source
+of truth. It bound `{skip_phases}`; run every phase below except those it names. This file
+deliberately carries no copy of that table — the duplicate it used to hold is what let the two
+drift.
+
+Note for DOCS work: UX review is skipped. Documentation does not get a UX review pass.
 
 ## 1. Retrospective
 
