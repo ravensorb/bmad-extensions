@@ -109,8 +109,8 @@ Full plan mode writes an **immutable, versioned snapshot** plus a stable pointer
 
 | File | Purpose |
 |---|---|
-| `{planning_artifacts}/plan-{date}-v{n}.yaml` | The plan snapshot. Version auto-increments per day and resets on a new date; the file must not already exist |
-| `{planning_artifacts}/plan-output-meta.yaml` | Stable pointer — `current_plan`, readiness, phase summary. This is what `l3io-pm-execute` reads |
+| `{planning_artifacts}/plan-{date}-v{n}.yaml` | The plan snapshot — the only source for the phases list. Immutable once written; version auto-increments per day, resets on a new date, and a re-check before writing refuses to overwrite an existing file. Its per-phase `estimate` blocks are a point-in-time report stamped `estimates_as_of`; estimates are authoritative in the state node files, not here |
+| `{planning_artifacts}/plan-output-meta.yaml` | Stable pointer — `current_plan`, `generated`, `readiness`, `phase_count`. Written only after the snapshot it names is confirmed. Deliberately carries no per-phase data: `l3io-pm-execute` resolves the plan through this file but reads phases from the snapshot, and `l3io-pm-help` needs only the count |
 | `{planning_artifacts}/readiness-report.md` | Per-epic readiness with gap detail |
 | `{planning_artifacts}/elaboration-summary.md` | Which stories were elaborated, and any deviations |
 

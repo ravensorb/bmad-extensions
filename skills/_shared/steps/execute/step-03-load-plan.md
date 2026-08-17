@@ -69,8 +69,10 @@ If `MISSING`:
 BLOCKED: plan-output-meta.yaml points at {current_plan}, which does not exist in
 {planning_artifacts}. Re-run /l3io-pm-plan to rebuild the plan and pointer.
 ```
-Do **not** fall back to the `phases:` block duplicated inside plan-output-meta.yaml, and do not
-substitute another snapshot — either would execute a plan the pointer does not vouch for.
+Do not substitute another snapshot — that would execute a plan the pointer does not vouch for.
+Nor may a legacy pointer's `phases:` list stand in for the missing snapshot: current pointers
+carry only `phase_count`, and the older duplicated list is by definition as old as the pointer
+and was never the authority for phases.
 
 Read the snapshot file. Extract and bind:
 - `{plan_phases}` — ordered list of phases, each with `parallel` flag and `epics` list

@@ -49,3 +49,24 @@ Parse scope from arg: `estimate` → `{scope}=all`; `estimate E{nnn}` → `{scop
 {skill-root}/steps/shared/step-estimate.md
 ```
 Output estimate summary only. No graph, no elaboration, no plan document.
+
+Estimate mode writes state and **must not touch any plan snapshot** — snapshots are immutable
+once written, and `l3io-pm-execute` may be reading one concurrently. Their estimate blocks are a
+point-in-time report stamped `estimates_as_of` (see `step-06-plan-output.md` §2); re-estimating
+makes that stamp stale, which is the stamp doing its job.
+
+Say so rather than silently leaving a stale report behind. After the summary:
+
+```bash
+test -f {planning_artifacts}/plan-output-meta.yaml && \
+  grep '^current_plan:' {planning_artifacts}/plan-output-meta.yaml
+```
+
+If a pointer exists, print:
+```
+ℹ️  Estimates updated in state. {current_plan} still shows the estimates from when it was
+   generated — run /l3io-pm-plan (full) to produce a snapshot with the new numbers.
+   Execution is unaffected: l3io-pm-execute reads estimates from state, not the snapshot.
+```
+
+If no pointer exists, print nothing — there is no snapshot to go stale.

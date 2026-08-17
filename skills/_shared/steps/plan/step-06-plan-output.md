@@ -52,6 +52,7 @@ phases:
     epics: ["E001", "E002"]
     dependencies: []
     estimate:
+      estimates_as_of: "{timestamp}"     # point-in-time; see below
       wall_clock_hours_low: {max(epic.time_hours_low) if parallel else Σ time_hours_low}
       wall_clock_hours_high: {max(epic.time_hours_high) if parallel else Σ time_hours_high}
       man_hours_low: {Σ man_hours_low}
@@ -64,6 +65,19 @@ phases:
 ```
 
 For parallel phases, wall_clock = max(epic.time_hours) not sum — parallel phases run concurrently. For sequential phases, wall_clock = sum.
+
+**These blocks are a report, not an input.** The authority for estimates is the state node
+files under `{pm_state_root}`, written by `pm-status.py estimate-story` / `estimate-rollup`.
+Nothing reads these numbers back: `l3io-pm-execute` extracts only the phases list, `generated`,
+and `confidence` from the snapshot, and the critical path in step-05 is computed from epic
+estimates in state. They exist so a human reading the snapshot sees what the plan cost was
+projected at.
+
+`estimates_as_of` therefore records when the numbers were true, and the snapshot is never
+rewritten to refresh them — `/l3io-pm-plan estimate` updates state and leaves this file alone.
+A snapshot is immutable once written (`l3io-pm-execute` step-03 treats snapshots as inert
+history), so a stamp that goes stale is correct behavior; a snapshot that mutates under an
+executing run is not. To get current numbers into a snapshot, generate a new one.
 
 ## 3. Write plan snapshot
 
@@ -90,6 +104,12 @@ current, so a pointer naming a snapshot that does not exist blocks execution out
 section 3 did not complete, do not write this file — leaving the previous pointer intact is
 strictly better than publishing a dangling one.
 
+This file is a **pointer plus summary scalars — never a second copy of the plan.** It used to
+repeat the whole `phases:` list, giving the plan two sources of truth that could diverge under
+hand-editing while no consumer benefited: `l3io-pm-execute` reads phases only from the snapshot,
+and `l3io-pm-help` wants nothing but the count. Write `phase_count` and leave the list to the
+snapshot.
+
 Write `{planning_artifacts}/plan-output-meta.yaml` (overwrite):
 
 ```yaml
@@ -98,9 +118,11 @@ generated: "{timestamp}"
 readiness: {readiness}
 stories_elaborated: {elaborated_count}
 total_epics_in_scope: {in_scope_count}
-phases:
-{phases_summary_yaml_block}            # same phases list, estimates included if present
+phase_count: {phase_count}             # length of the snapshot's phases list
 ```
+
+Do not add fields here to save a consumer from opening the snapshot. Anything per-phase or
+per-epic belongs in `{plan_filename}` only.
 
 ## 5. Output plan summary
 

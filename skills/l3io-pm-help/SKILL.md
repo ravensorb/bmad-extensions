@@ -179,7 +179,10 @@ Report to user:
 - Count by severity: Critical, High, Medium, Low
 
 **Plan status** (from `plan-output-meta.yaml`):
-- `readiness`, `generated` timestamp, `phases` count
+- `readiness`, `generated` timestamp, and the phase count — read `phase_count` when present;
+  when it is absent the pointer predates that field, so fall back to the length of its legacy
+  `phases:` list. Current pointers carry `phase_count` and no `phases:` list; do not read
+  anything else per-phase from this file, and never open the snapshot just to count phases.
 - If absent: note "No plan found"
 
 ### 5. Recommend next action
