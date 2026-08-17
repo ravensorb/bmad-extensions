@@ -1,7 +1,7 @@
 code: l3io-pm
 name: "LiquidLogicLabs PM"
 description: "Reads project state and recommends the exact next l3io-pm action."
-module_version: 2.0.2
+module_version: 2.0.3
 default_selected: false
 module_greeting: >
   LiquidLogicLabs PM module is configured!

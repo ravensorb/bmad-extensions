@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file. See [commit-and-tag-version](https://github.com/absolute-version/commit-and-tag-version) for commit guidelines.
 
+## [2.0.3](https://github.com/ravensorb/bmad-extensions/compare/2.0.2...2.0.3) (2026-08-17)
+
+
+### Fixes
+
+* **l3io-pm:** guard execute against stale plans instead of corrupting epic state ([dd542f9](https://github.com/ravensorb/bmad-extensions/commit/dd542f9f0c4bcf09ec090d9637e56f9148dc6c70))
+
 ## [2.0.2](https://github.com/ravensorb/bmad-extensions/compare/2.0.1...2.0.2) (2026-08-16)
 
 
