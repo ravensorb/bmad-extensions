@@ -80,7 +80,7 @@ phases:
 The critical path is the sequence of phases with the highest cumulative wall-clock estimate. If estimates are present on epics, compute:
 
 ```
-critical_path_phases = phases with the largest Σ estimate.time_hours_high
+critical_path_phases = phases with the largest Σ estimate.elapsed_hours_high
 ```
 
 Record as `{critical_path_epics}` = the epics on the critical path in order.

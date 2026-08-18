@@ -147,18 +147,30 @@ depends_on: []                            # epic keys; read by l3io-pm-plan
 estimate:                                 # ranges at epic/sprint level
   man_hours_low: 40
   man_hours_high: 60
-  time_hours_low: 8
-  time_hours_high: 12
+  hitl_hours_low: 6
+  hitl_hours_high: 10
+  elapsed_hours_low: 8
+  elapsed_hours_high: 12
   tokens_k_min: 2000
   tokens_k_max: 3200
-  cost_low: 30.00
+  cost_low: 30.00                         # derived from tokens_k_min/max x rates; never entered
   cost_high: 48.00
   confidence: medium
-actual:                                   # METRIC_FIELDS — all four required
+actual:                                   # METRIC_FIELDS — all five required
   elapsed_hours: 11.5
-  man_hours: 52
-  tokens_k: 2840
-  cost: 42.60
+  man_hours: 52                           # counterfactual re-assessment, not observed
+  hitl_hours: 7.2
+  tokens_k: {total: 2840, input: 420, output: 140, cache_write: 850, cache_read: 1430}
+  cost: 42.60                             # derived; written by the tool, never by hand
+  model: claude-sonnet-5
+orchestration:                            # sprint/epic only — the orchestrator's own overhead
+  elapsed_hours: 0.6
+  man_hours: 0                            # AI-only overhead; no human-developer counterfactual
+  hitl_hours: 0.1
+  tokens_k: {total: 90, input: 14, output: 5, cache_write: 27, cache_read: 44}
+  cost: 1.35
+  model: claude-sonnet-5
+orchestration_sampled_at: '2026-08-16T22:34:03Z'  # replay guard; set-actual --block orchestration
 # no `sprints:` — sprint-NN/ directories are the list
 ```
 
@@ -171,18 +183,22 @@ status: in-progress
 estimate:
   man_hours_low: 12
   man_hours_high: 18
-  time_hours_low: 2.5
-  time_hours_high: 4
+  hitl_hours_low: 1.5
+  hitl_hours_high: 2.5
+  elapsed_hours_low: 2.5
+  elapsed_hours_high: 4
   tokens_k_min: 600
   tokens_k_max: 950
-  cost_low: 9.00
+  cost_low: 9.00                          # derived; never entered
   cost_high: 14.25
   confidence: high
 actual:
   elapsed_hours: 3.2
-  man_hours: 15
-  tokens_k: 812
+  man_hours: 15                           # counterfactual re-assessment, not observed
+  hitl_hours: 1.8
+  tokens_k: {total: 812, input: 122, output: 41, cache_write: 244, cache_read: 405}
   cost: 12.18
+  model: claude-sonnet-5
 # no `stories:` — E001-S01-*.yaml files are the list
 ```
 
@@ -196,15 +212,19 @@ status: review
 classification: complex
 estimate:                                 # single values at story level
   man_hours: 6
-  time_hours: 1.5
-  tokens_k: 320
-  cost: 4.80
+  hitl_hours: 0.8
+  elapsed_hours: 1.5
+  tokens_k: {total: 320, input: 48, output: 16, cache_write: 96, cache_read: 160}
+  cost: 4.80                              # derived; never entered
+  model: claude-opus-5
   confidence: high
 actual:
   elapsed_hours: 1.8
-  man_hours: 7
-  tokens_k: 355
+  man_hours: 7                            # counterfactual re-assessment, not observed
+  hitl_hours: 0.5
+  tokens_k: {total: 355, input: 53, output: 18, cache_write: 107, cache_read: 177}
   cost: 5.32
+  model: claude-opus-5
 ```
 
 `_lock` (epic files only) is machine metadata and is always the first key when present —
@@ -293,16 +313,19 @@ Subcommand summary (see `pm-status.py --help` for full flags):
 | Subcommand | Addressing |
 |---|---|
 | `set-status`, `set-actual`, `set-estimate`, `set-field`, `verify` | `--state-root` + (`--story KEY` \| `--epic ID [--sprint ID]`) |
-| `estimate-story` | `--state-root --story KEY --classification {simple,standard,complex} [--confidence ...]` — computes and writes a story's estimate block from `BASE_BANDS` × calibrated scope ratio × fix factor |
-| `estimate-rollup` | `--state-root --epic ID [--sprint ID]` — sums child estimates and writes the parent's range-form estimate, widened by the calibrated (or cold-start) closure band |
+| `set-actual` extra | `--block {actual,orchestration}` (default `actual`); `orchestration` writes the orchestrator's own overhead and is valid on a sprint or epic only, never a story |
+| `estimate-story` | `--state-root --story KEY --classification {simple,standard,complex} [--confidence ...] [--model ID] [--token-rates JSON]` — computes and writes a story's estimate block from `BASE_BANDS` × calibrated scope ratio × fix factor, per metric, then prices `cost` from the estimated `tokens_k` |
+| `estimate-rollup` | `--state-root --epic ID [--sprint ID] [--model ID] [--token-rates JSON]` — sums child estimates and writes the parent's range-form estimate, widened by the calibrated (or cold-start) closure band and the calibrated (or unseeded) orchestration band, then prices `cost` from the rolled-up `tokens_k` range |
 | `show` | `--state-root --epic ID [--sprint ID]` — renders a computed roll-up |
 | `set-lock`, `clear-lock`, `check-lock` | `--state-root --epic ID` (epic only — locks apply to epics) |
 | `move-epic` | `--state-root --epic ID --to {planned,active,archived}` |
 | `archive-epic` | `--state-root --epic ID` — alias for `move-epic --to archived` |
 | `append-issue` | `--file` (the one exception; see above) |
 | `list-issues` | `--state-root` (reads `{state-root}/issues.yaml`) + optional `--epic`/`--sprint`/`--severity`/`--format` filters |
-| `calibration show` | `--state-root [--format {text,json}]` — read-only report of every component's sample count and active ratio; a missing file reports cold-start and exits `0` |
-| `report` | `--state-root` (+ optional `--plan` pointing at `plan-output-meta.yaml`) — walks every epic in every status folder; addresses none individually. Read-only unless `--out` is given. `--status planned,active,archived` narrows the display (default `planned,active`); counting is unaffected |
+| `calibration show` \| `migrate-metrics` | `--state-root [--format {text,json}]` — `show` is a read-only report of every component's sample count and active ratio (a missing file reports cold-start and exits `0`); `migrate-metrics` reshapes a pre-metrics-rework calibration file in place (gated on its own marker, idempotent) |
+| `report` | `--state-root` (+ optional `--plan` pointing at `plan-output-meta.yaml`, `--stall-minutes N`) — walks every epic in every status folder; addresses none individually. Read-only unless `--out` is given. `--status planned,active,archived` narrows the display (default `planned,active`); counting is unaffected. Flags any dispatch opened longer than `--stall-minutes` (default 15) and never closed |
+| `dispatch` | `--state-root --event {open,close} --agent NAME` + optional `--epic`/`--sprint`/`--story`/`--session-id` — records a subagent dispatch boundary into `events.jsonl`; the input to `report`'s stalled-dispatch flags |
+| `rates` | `[--model ID] [--token-rates JSON]` — prints the effective per-model token rate table (read-only); an unknown `--model` exits 2 |
 
 `set-status` and `set-actual` both append a line to `state/events.jsonl` as a side effect of
 a successful write (`--no-events` suppresses it, `--session-id` stamps it). A failed append
@@ -350,9 +373,11 @@ assume they are the same test at a different granularity.
   nothing to compare an absence against. This is the check activation runs as a corruption
   gate before trusting an epic's files.
 - **`--scope story`** and **`--scope sprint`** check **completion of one node**: `status ==
-  done`, all four `actual.*` metric fields present and correctly typed (numeric for
-  `elapsed_hours`/`man_hours`; `tokens_k`/`cost` may only be `N/A` under a non-Claude
-  runtime), and — for stories — `completion_evidence` present.
+  done`, all five `actual.*` metric fields present and correctly typed (numeric for
+  `elapsed_hours`/`man_hours`/`hitl_hours`; `tokens_k`/`cost` may only be `N/A` under a
+  non-Claude runtime), a structured `tokens_k.total` matching the sum of its four classes, and
+  `cost` matching what those classes price out to under the node's own `model` field — a
+  hand-edited cost cannot pass — and, for stories, `completion_evidence` present.
 
 Activation depends on this distinction: it always runs `verify --scope epic` (structural),
 never `--scope story`/`--scope sprint`, because activation is checking "is this file usable"

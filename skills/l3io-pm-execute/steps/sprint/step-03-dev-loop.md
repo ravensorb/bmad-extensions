@@ -28,6 +28,25 @@ python3 {pm_status} set-status \
   --status in-progress
 ```
 
+**Dispatch tracking — always emit the matching close.** Every subagent spawn in this step
+brackets with `pm-status.py dispatch --event open` immediately before and `--event close`
+immediately after, using the same `--agent`/`--epic`/`--sprint`/`--story`/`--session-id`
+identity for both. This is what `report --stall-minutes` uses to flag a hung subagent, and it
+is the attribution boundary for orchestration spend (`references/metrics-contract.md` §3, §6).
+**Close on every exit path — `DONE`, `BLOCKED`, and `FAILED` alike.** A dispatch left open
+because this step exited early is not just a missed close: a later retry that opens the same
+identity (same agent, same story) before that stale open is closed silently overwrites it in
+`pm-status.py`'s pending-dispatch map, and the original hang's timestamp is lost for good. That
+overwrite-on-duplicate-identity behavior is intentional in `pm-status.py` (a retry of the same
+agent on the same node reuses the identity on purpose) — the burden it places on this step is
+simply: never skip the close.
+
+```bash
+python3 {pm_status} dispatch --state-root {pm_state_root} --event open \
+  --agent bmad-dev-story --epic {epic_key} --sprint {sprint_num} --story {story_key} \
+  --session-id {session_id}
+```
+
 Spawn `bmad-dev-story` subagent with:
 - Story file path: `{sprint_root}/stories/{story_key}.md`
 - Project context: the config resolved at activation (`references/config-resolution.md`) —
@@ -38,11 +57,23 @@ Spawn `bmad-dev-story` subagent with:
 - Your final line must be exactly one of `DONE — [brief metrics]`,
   `BLOCKED: [one-line reason]`, or `FAILED: [one-line reason]`.
 
+```bash
+python3 {pm_status} dispatch --state-root {pm_state_root} --event close \
+  --agent bmad-dev-story --epic {epic_key} --sprint {sprint_num} --story {story_key} \
+  --session-id {session_id}
+```
+
 On completion, collect: files changed, tests passing (boolean), fix iterations attempted.
 
 ## 3. For each story: code review (CODE and MIXED only)
 
 Skip if `{work_type}` is DOCS or CONFIG.
+
+```bash
+python3 {pm_status} dispatch --state-root {pm_state_root} --event open \
+  --agent bmad-code-review --epic {epic_key} --sprint {sprint_num} --story {story_key} \
+  --session-id {session_id}
+```
 
 Spawn `bmad-code-review` subagent with:
 - Story file path
@@ -52,9 +83,17 @@ Spawn `bmad-code-review` subagent with:
 - Your final line must be exactly one of `DONE — [brief metrics]`,
   `BLOCKED: [one-line reason]`, or `FAILED: [one-line reason]`.
 
+```bash
+python3 {pm_status} dispatch --state-root {pm_state_root} --event close \
+  --agent bmad-code-review --epic {epic_key} --sprint {sprint_num} --story {story_key} \
+  --session-id {session_id}
+```
+
 Code review returns findings by severity.
 
-**If CRITICAL or HIGH findings:** spawn dev subagent again to fix (fix iteration). Increment fix counter.
+**If CRITICAL or HIGH findings:** spawn dev subagent again to fix (fix iteration) — bracket this
+re-dispatch with the same open/close pair as §2's `bmad-dev-story` call above (same agent name,
+same story identity). Increment fix counter.
 
 **Fix loop cap:** `{max_fix_iterations}` iterations per story (bound at
 `step-01-classify-work.md` §5 — 10 for CODE/MIXED, 3 for DOCS/CONFIG). If findings persist
@@ -110,7 +149,17 @@ python3 {pm_status} set-field \
   --value {files_changed}
 ```
 
-Then write the actuals:
+**`man_hours` is a re-assessment, not an observation.** Bind `{man_hours}` from your own
+judgment of what a developer, working without AI assistance, would have needed to implement
+this story's delivered diff and tests — never a self-report of how long the dev/review
+subagents actually ran (that figure is `{elapsed}`). See `references/metrics-contract.md` §2.
+`{hitl_hours}` is the human attention actually spent supervising this story (observable).
+
+Then write the actuals. Under `--runtime claude`, capture the four token classes from the
+session transcript's `usage` fields (in thousands) and pass `--model`; `set-actual` derives
+`cost` — never pass `--cost`, it is rejected. Under any other runtime, pass `--tokens-na` if
+tokens are not observable:
+
 ```bash
 python3 {pm_status} set-actual \
   --state-root {pm_state_root} \
@@ -119,8 +168,12 @@ python3 {pm_status} set-actual \
   --runtime {runtime} \
   --elapsed-hours {elapsed} \
   --man-hours {man_hours} \
-  --tokens-k {tokens_k} \
-  --cost {cost}
+  --hitl-hours {hitl_hours} \
+  --tokens-input {tokens_input} \
+  --tokens-output {tokens_output} \
+  --tokens-cache-write {tokens_cache_write} \
+  --tokens-cache-read {tokens_cache_read} \
+  --model {model}
 ```
 
 `set-actual` prints what it sampled in a `[...]` suffix on its own stdout line — e.g.

@@ -49,7 +49,7 @@ Output triage summary: count of issues by severity, count promoted.
 
 Write `{implementation_artifacts}/epic-{epic_nnn}/epic-closure/closure-report.md` containing:
 - Epic goal and final status
-- Estimate vs actual table (all four metrics)
+- Estimate vs actual table (all five metrics)
 - Sprint velocity summary
 - Retrospective learnings
 - Outstanding issues count (by severity)

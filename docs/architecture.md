@@ -206,15 +206,15 @@ Severity routing is uniform across phases: **CRITICAL/HIGH** block closure and o
 
 ### Epic closure
 
-Retrospective across all sprint retros → architectural drift audit (`l3io-arch-review` Mode C, CODE/MIXED only) → issue triage, which re-reviews the epic's deferred Low items for promotion now that full epic context exists → closure report with the estimate-vs-actual table for all four metrics.
+Retrospective across all sprint retros → architectural drift audit (`l3io-arch-review` Mode C, CODE/MIXED only) → issue triage, which re-reviews the epic's deferred Low items for promotion now that full epic context exists → closure report with the estimate-vs-actual table for all five metrics.
 
 CRITICAL/HIGH/MEDIUM drift findings must be resolved before closure completes, under the same `{max_fix_iterations}` fix-loop cap (default 10; see the note on the DOCS/CONFIG value in `CLAUDE.md`).
 
 ## Metrics Contract
 
-Every planning point and every closeout — story, sprint, epic, and retrospective — records both an `estimate` and an `actual` for all four metrics: man-hours, compute (AI wall-clock) hours, tokens, and token cost. This is enforced at write time, not by convention: under `--runtime claude`, `set-actual` and `verify` **reject** an `N/A` tokens/cost value.
+Every planning point and every closeout — story, sprint, epic, and retrospective — records both an `estimate` and an `actual` for all five metrics: `elapsed_hours` (AI wall-clock), `man_hours` (counterfactual developer effort, assessed at closure — not observed), `hitl_hours` (human attention actually spent supervising), `tokens_k` (a mapping of `total` plus the four token classes), and `cost` (derived from `tokens_k × rates`, never entered directly). This is enforced at write time, not by convention: under `--runtime claude`, `set-actual` and `verify` **reject** an `N/A` tokens value, and `--cost*` is rejected on every runtime.
 
-Estimates are a strict bottom-up roll-up — `sprint.estimate = Σ story.estimate + calibrated closure band`, `epic.estimate = Σ sprint.estimate + calibrated epic-closure band` — so parents reconcile with children by construction rather than by a parallel formula that could drift.
+Estimates are a strict bottom-up roll-up — `sprint.estimate = Σ story.estimate + calibrated closure band + calibrated orchestration band`, `epic.estimate = Σ sprint.estimate + calibrated epic-closure band + calibrated orchestration band` — so parents reconcile with children by construction rather than by a parallel formula that could drift.
 
 Full model and capture procedure: each PM skill's `references/metrics-contract.md`.
 

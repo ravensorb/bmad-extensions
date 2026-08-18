@@ -223,20 +223,32 @@ Uses `{pm_status}` (bound in §2).
 set-status    --state-root S  (--story KEY | --epic ID [--sprint ID])  --status S
               [--title T] [--flock] [--no-events] [--session-id ID]
 set-actual    --state-root S  --node {story,sprint,epic}  (--story KEY | --epic ID [--sprint ID])
-              [--elapsed-hours H] [--man-hours H] [--tokens-k K] [--cost C]
+              [--block {actual,orchestration}]   (orchestration: sprint/epic only, never story)
+              [--elapsed-hours H] [--man-hours H] [--hitl-hours H]
+              [--tokens-input K] [--tokens-output K] [--tokens-cache-write K] [--tokens-cache-read K]
+              (any --tokens-* requires --model M; cost is DERIVED from tokens x rates —
+              --cost is rejected, exit 2)
+              [--tokens-na]   (runtime=other only; forbidden under runtime=claude)
               [--runtime {claude,other}] [--flock] [--no-calibrate]
 set-estimate  --state-root S  (--story KEY | --epic ID [--sprint ID])
-              story: --man-hours H --time-hours H --tokens-k K --cost C
-              sprint/epic: --man-hours-low/-high, --time-hours-low/-high,
-                           --tokens-k-min/-max, --cost-low/-high
+              story: --man-hours H --hitl-hours H --elapsed-hours H --tokens-k K
+              sprint/epic: --man-hours-low/-high, --hitl-hours-low/-high,
+                           --elapsed-hours-low/-high, --tokens-k-min/-max
+              (--time-hours* accepted as a deprecated alias for --elapsed-hours*;
+              --cost/--cost-low/--cost-high are rejected, exit 2 — cost is derived,
+              never entered; use estimate-story/estimate-rollup)
               [--confidence {low,medium,high}] [--flock]
 set-field     --state-root S  (--story KEY | --epic ID [--sprint ID])  --field NAME --value V
 estimate-story   --state-root S  --story KEY  --classification {simple,standard,complex}
-estimate-rollup  --state-root S  --epic ID  [--sprint ID]
+                 [--model ID] [--token-rates JSON]
+estimate-rollup  --state-root S  --epic ID  [--sprint ID]  [--model ID] [--token-rates JSON]
 verify        --state-root S  --scope {story,sprint,epic}  (--story KEY | --epic ID [--sprint ID])
-              [--require-tokens] [--runtime {claude,other}]
+              [--require-tokens] [--runtime {claude,other}] [--token-rates JSON]
 show          --state-root S  --epic ID  [--sprint ID]
 report        --state-root S  [--plan P] [--format tree|json|md] [--out F] [--all] [--watch SECS]
+              [--stall-minutes N]
+dispatch      --state-root S  --event {open,close}  --agent NAME
+              [--epic ID] [--sprint ID] [--story KEY] [--session-id ID]
 set-lock      --state-root S  --epic ID  --session-id SESS  [--ttl-minutes N]
 clear-lock    --state-root S  --epic ID
 check-lock    --state-root S  --epic ID  --session-id SESS
@@ -244,6 +256,7 @@ move-epic     --state-root S  --epic ID  --to {planned,active,archived}
 archive-epic  --state-root S  --epic ID  (alias for move-epic --to archived)
 append-issue  --file F  --key BL-E{nnn}-{nnn}  --epic {nnn}  [--sprint S]  --title T
               --source S  --severity {Low,Medium,High,Critical}  [--description D]
+rates         [--model ID] [--token-rates JSON]   (read-only; prints the effective rate table)
 ```
 
 Exit codes: `0` success · `2` usage error · `3` node not found · `4` verification failure ·
@@ -255,12 +268,21 @@ that file, and you never pass a flag to make it happen.
 ### Estimates and actuals — the HARD RULE
 
 Every planning point and every closeout, at story, sprint, and epic level, records **both** an
-`estimate` and an `actual` for all four metrics: man-hours, compute (wall-clock) hours, tokens,
-and token cost. This is enforced at write time, not advisory.
+`estimate` and an `actual` for all five metrics, in canonical order: `elapsed_hours` (AI
+wall-clock), `man_hours` (counterfactual — what a developer would have taken by hand, assessed
+at closure from the delivered diff/tests/scope, never observed), `hitl_hours` (human attention
+actually spent supervising — observable), `tokens_k` (a mapping of `total` plus the four token
+classes), and `cost`. This is enforced at write time, not advisory.
 
-Under `--runtime claude`, token and cost actuals are read **exactly** from the session
-transcript's `usage` fields and `set-actual`/`verify` **reject** `N/A`. Under any other runtime
-capture what is exposed and record `N/A` — **never a guess**.
+**`cost` is derived, never entered.** It is computed once from `tokens_k × the model's rate
+table` and frozen; `--cost*` is rejected on every runtime (exit 2). Fix the token counts or
+`modules.l3io-pm.token_rates`, never the cost field.
+
+Under `--runtime claude`, token actuals are read **exactly** from the session transcript's
+`usage` fields, split by class, passed with `--model`, and `set-actual`/`verify` **reject**
+`N/A` for tokens. Under any other runtime, capture what is exposed or pass `--tokens-na` and
+record `N/A` — **never a guess**. `man_hours` and `hitl_hours` have no `N/A` path on any
+runtime.
 
 `set-actual` derives the calibration sample itself. Write
 `completion_evidence.fix_iterations` **before** calling it, or the scope-versus-fix split
@@ -278,8 +300,9 @@ cannot see it.
 | resolve an epic lock question | `references/status-files.md` §6 (Ownership lock) |
 | capture token/cost actuals correctly | `references/metrics-contract.md` §3 (Runtime detection and capture) |
 | write an estimate or actual by hand | `references/metrics-contract.md` §4 (Writing estimates and actuals) |
-| apply the estimation roll-up or fix-reserve model | `references/metrics-contract.md` §6 (The estimation roll-up) and §7 (The fix reserve) |
-| explain a calibration result | `references/metrics-contract.md` §8 (Calibration) |
+| apply the estimation roll-up, fix-reserve, or orchestration-band model | `references/metrics-contract.md` §6 (The estimation roll-up) and §7 (The fix reserve) |
+| explain a calibration result, or run the one-time metrics migration | `references/metrics-contract.md` §8 (Calibration) |
+| record the orchestrator's own overhead, or the token rate table | `references/metrics-contract.md` §3 and §6 |
 | see a full worked example | `references/metrics-contract.md` §10 (Worked example) |
 
 ## 9. Output status line

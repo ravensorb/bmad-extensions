@@ -60,26 +60,19 @@ For each story in `{story_keys}` that does not already have an `estimate` block:
 
 Read classification from story file (`classification: simple|standard|complex`).
 
-Apply estimation model (cold-start or calibrated from `{pm_calibration_file}`):
-
-| Classification | man_hours | time_hours | tokens_k | cost |
-|---|---|---|---|---|
-| simple | 2 | 0.5 | 20 | 0.14 |
-| standard | 4 | 1.5 | 40 | 0.28 |
-| complex | 8 | 3.0 | 80 | 0.56 |
-
-If calibration file has ≥3 scope samples for this classification, use calibrated ratios instead
-of the table above.
+The model's only job is supplying the classification — `estimate-story` does the rest: it
+looks up the cold-start base band (or the calibrated per-metric scope ratio once a metric has
+≥3 samples), applies the classification's fix factor, and derives `cost` from the resulting
+`tokens_k` and `--model`. **Do not hand-compute the base bands or ratios here** — they live in
+`BASE_BANDS` inside `pm-status.py`, not in this file, and a re-derivation here can drift from
+what `estimate-story` actually applies. See `references/metrics-contract.md` §6.
 
 ```bash
-python3 {pm_status} set-estimate \
+python3 {pm_status} estimate-story \
   --state-root {pm_state_root} \
   --story {story_key} \
-  --man-hours {h} \
-  --time-hours {h} \
-  --tokens-k {n} \
-  --cost {usd} \
-  --confidence {level}
+  --classification {simple|standard|complex} \
+  [--confidence {low|medium|high}]
 ```
 
 ## 4. Mark stories ready-for-dev

@@ -53,18 +53,20 @@ phases:
     dependencies: []
     estimate:
       estimates_as_of: "{timestamp}"     # point-in-time; see below
-      wall_clock_hours_low: {max(epic.time_hours_low) if parallel else Σ time_hours_low}
-      wall_clock_hours_high: {max(epic.time_hours_high) if parallel else Σ time_hours_high}
+      wall_clock_hours_low: {max(epic.elapsed_hours_low) if parallel else Σ elapsed_hours_low}
+      wall_clock_hours_high: {max(epic.elapsed_hours_high) if parallel else Σ elapsed_hours_high}
       man_hours_low: {Σ man_hours_low}
       man_hours_high: {Σ man_hours_high}
+      hitl_hours_low: {Σ hitl_hours_low}
+      hitl_hours_high: {Σ hitl_hours_high}
       tokens_k_min: {Σ tokens_k_min}
       tokens_k_max: {Σ tokens_k_max}
-      cost_low: {Σ cost_low}
-      cost_high: {Σ cost_high}
+      cost_low: {Σ cost_low}             # each epic's cost_low/high is itself derived from its
+      cost_high: {Σ cost_high}           # tokens_k range x rates — never re-derived here, only summed
       confidence: {weakest confidence across epics}
 ```
 
-For parallel phases, wall_clock = max(epic.time_hours) not sum — parallel phases run concurrently. For sequential phases, wall_clock = sum.
+For parallel phases, wall_clock (`elapsed_hours`) = max(epic.elapsed_hours) not sum — parallel phases run concurrently. For sequential phases, wall_clock = sum. Man-hours, hitl-hours, tokens, and cost always sum regardless of parallelism.
 
 **These blocks are a report, not an input.** The authority for estimates is the state node
 files under `{pm_state_root}`, written by `pm-status.py estimate-story` / `estimate-rollup`.

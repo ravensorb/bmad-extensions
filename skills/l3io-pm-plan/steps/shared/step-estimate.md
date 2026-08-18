@@ -79,13 +79,17 @@ summary table:
 ```
 ## Estimate Summary (scope: {scope})
 
-| Epic | Sprints | Stories | man-hrs (low–high) | wall-clock (low–high) | cost (low–high) | confidence |
-|------|---------|---------|--------------------|-----------------------|-----------------|------------|
-| E001 | 2       | 8       | 32–52 hrs          | 9–15 hrs              | $2.80–$4.60     | medium     |
-| E002 | 3       | 11      | 48–76 hrs          | 13–21 hrs             | $4.10–$6.50     | low        |
+| Epic | Sprints | Stories | man-hrs (low–high) | hitl-hrs (low–high) | wall-clock (low–high) | tokens (low–high) | cost (low–high) | confidence |
+|------|---------|---------|--------------------|----------------------|-----------------------|--------------------|-----------------|------------|
+| E001 | 2       | 8       | 32–52 hrs          | 4–7 hrs              | 9–15 hrs              | 210K–340K          | $2.80–$4.60     | medium     |
+| E002 | 3       | 11      | 48–76 hrs          | 6–10 hrs             | 13–21 hrs             | 310K–500K          | $4.10–$6.50     | low        |
 
-**Total (sequential):** 80–128 man-hrs, 22–36 wall-clock hrs, $6.90–$11.10
-**If E001 and E002 run in parallel:** 48–76 man-hrs, 13–21 wall-clock hrs, $4.10–$6.50
+**Total (sequential):** 80–128 man-hrs, 10–17 hitl-hrs, 22–36 wall-clock hrs, $6.90–$11.10
+**If E001 and E002 run in parallel:** 48–76 man-hrs, 6–10 hitl-hrs, 13–21 wall-clock hrs, $4.10–$6.50
 ```
+
+`cost` in this table is read back from each node's estimate — never recomputed here. It was
+derived once, inside `estimate-story`/`estimate-rollup`, from that node's `tokens_k` and the
+model's rate table; this step only reports it.
 
 Confidence levels are per-epic, reflecting the weakest component used.

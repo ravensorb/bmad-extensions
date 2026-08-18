@@ -114,7 +114,7 @@ Full plan mode writes an **immutable, versioned snapshot** plus a stable pointer
 | `{planning_artifacts}/readiness-report.md` | Per-epic readiness with gap detail |
 | `{planning_artifacts}/elaboration-summary.md` | Which stories were elaborated, and any deviations |
 
-Each phase in the snapshot carries a roll-up estimate. For **parallel** phases wall-clock is `max(epic.time_hours)`; for **sequential** phases it is the sum. Man-hours, tokens, and cost always sum.
+Each phase in the snapshot carries a roll-up estimate. For **parallel** phases wall-clock (`elapsed_hours`) is `max(epic.elapsed_hours)`; for **sequential** phases it is the sum. Man-hours, hitl-hours, tokens, and cost always sum.
 
 `arch_gate_summary.ran` is always `false` at plan time — the architecture gate runs in `l3io-pm-execute`, not here.
 
@@ -236,7 +236,7 @@ Closure also regenerates `{implementation_artifacts}/progress-report.md`, and re
 1. **Retrospective** — reviews every sprint retro for the epic; summarizes velocity, recurring pain points, and up to five learnings
 2. **Architectural drift** — `l3io-arch-review` Mode C over the epic's ADRs and story files. CODE/MIXED only, and only when installed. CRITICAL/HIGH/MEDIUM must resolve before closure, under the `{max_fix_iterations}` cap — 10, since this gate is CODE/MIXED only and never reaches the DOCS/CONFIG value of 3
 3. **Issue triage** — re-reviews the epic's deferred Low items for promotion now that full epic context exists
-4. **Closure report** — epic goal and final status, estimate-vs-actual for all four metrics, sprint velocity, learnings, outstanding issues, ADRs produced
+4. **Closure report** — epic goal and final status, estimate-vs-actual for all five metrics, sprint velocity, learnings, outstanding issues, ADRs produced
 
 Outputs go to `{implementation_artifacts}/epic-{nnn}/epic-closure/`. Epic closure also renders a progress tree unconditionally — it runs once per epic after its sprints finish, so it never competes with sibling sprints for stdout — and regenerates `{implementation_artifacts}/progress-report.md`.
 
@@ -318,18 +318,22 @@ depends_on: []                # epic keys; read by l3io-pm-plan
 estimate:                     # ranges at epic/sprint level
   man_hours_low: 40
   man_hours_high: 60
-  time_hours_low: 8
-  time_hours_high: 12
+  hitl_hours_low: 6
+  hitl_hours_high: 10
+  elapsed_hours_low: 8
+  elapsed_hours_high: 12
   tokens_k_min: 2000
   tokens_k_max: 3200
-  cost_low: 30.00
+  cost_low: 30.00              # derived from tokens_k_min/max x rates; never entered
   cost_high: 48.00
   confidence: medium
-actual:                       # all four metrics required
+actual:                       # all five METRIC_FIELDS required
   elapsed_hours: 11.5
-  man_hours: 52
-  tokens_k: 2840
-  cost: 42.60
+  man_hours: 52                # counterfactual re-assessment, not observed
+  hitl_hours: 7.2
+  tokens_k: {total: 2840, input: 420, output: 140, cache_write: 850, cache_read: 1430}
+  cost: 42.60                  # derived from tokens_k x the model's rate table; written by the tool
+  model: claude-sonnet-5
 ```
 
 ```yaml
@@ -342,15 +346,19 @@ status: review
 classification: complex
 estimate:                     # single values at story level
   man_hours: 6
-  time_hours: 1.5
-  tokens_k: 320
-  cost: 4.80
+  hitl_hours: 0.8
+  elapsed_hours: 1.5
+  tokens_k: {total: 320, input: 48, output: 16, cache_write: 96, cache_read: 160}
+  cost: 4.80                   # derived; never entered
+  model: claude-opus-5
   confidence: high
 actual:
   elapsed_hours: 1.8
-  man_hours: 7
-  tokens_k: 355
+  man_hours: 7                 # counterfactual re-assessment, not observed
+  hitl_hours: 0.5
+  tokens_k: {total: 355, input: 53, output: 18, cache_write: 107, cache_read: 177}
   cost: 5.32
+  model: claude-opus-5
 ```
 
 ### Lifecycles
@@ -475,16 +483,18 @@ The `md` report regenerates at sprint and epic closure boundaries, not per trans
 
 ## Metrics Contract
 
-Every planning point and closeout — story, sprint, epic, retrospective — records an `estimate` and an `actual` for all four metrics: **man-hours, compute (AI wall-clock) hours, tokens, and token cost.** A sprint or epic does not sign off with any block or individual metric missing.
+Every planning point and closeout — story, sprint, epic, retrospective — records an `estimate` and an `actual` for all five metrics, `METRIC_FIELDS` in canonical order: **`elapsed_hours`** (AI wall-clock), **`man_hours`** (counterfactual — what a developer would have taken to do this work by hand, re-assessed at closure from the delivered diff/tests/scope, never observed), **`hitl_hours`** (human attention actually spent supervising — observable), **`tokens_k`** (a mapping: `total` plus the `input`/`output`/`cache_write`/`cache_read` classes), and **`cost`**. A sprint or epic does not sign off with any block or individual metric missing.
 
-This is enforced at write time, not by convention: under `--runtime claude`, `set-actual` and `verify` **reject** an `N/A` tokens/cost value.
+**`cost` is derived, never entered.** It is computed once, at capture time, as `Σ(class tokens × the model's per-class rate) / 1000`, keyed by `--model`, and frozen on the node. `set-actual` and `set-estimate` reject a `--cost`/`--cost-low`/`--cost-high` flag outright (exit 2); the only way to change a recorded cost is to fix the token counts or the rate table and re-derive it. `verify` recomputes `cost` from the stored `tokens_k` and `model` and fails if they disagree (tolerance $0.005) — a hand-edited cost cannot survive `verify`.
+
+Enforcement is at write time, not by convention: under `--runtime claude`, `set-actual` and `verify` **reject** an `N/A` tokens value. (`man_hours` and `hitl_hours` have no runtime exemption at all — they must be real numbers on every runtime.)
 
 **Runtime-aware capture**, detected via `CLAUDECODE=1`:
 
-- **Under Claude** — tokens and cost are read **exactly** from the session transcript `usage` fields, scoped by session id across the orchestrator and all subagent transcripts. Never estimated.
-- **Under other runtimes** (e.g. Copilot) — read the runtime's usage source if one exists; otherwise record **`N/A`**. Never guessed or back-filled. `N/A` under a non-Claude runtime is expected behavior, not an error.
+- **Under Claude** — tokens are read **exactly** from the session transcript `usage` fields, split into the four classes, scoped by session id across the orchestrator and all subagent transcripts, and passed as `--tokens-input`/`--tokens-output`/`--tokens-cache-write`/`--tokens-cache-read` (in thousands) with `--model`; `set-actual` derives `cost` from them. Never estimated.
+- **Under other runtimes** (e.g. Copilot) — read the runtime's usage source if one exists; otherwise pass `--tokens-na` to record both `tokens_k` and `cost` as **`N/A`**. Never guessed or back-filled. `N/A` under a non-Claude runtime is expected behavior, not an error.
 
-Compute hours and man-hours are captured in every runtime.
+`elapsed_hours`, `man_hours`, and `hitl_hours` are captured in every runtime — none of the three has an `N/A` path.
 
 ### Estimation model
 
@@ -492,19 +502,19 @@ Estimates are a strict **bottom-up roll-up**:
 
 ```
 story.estimate  = base_band(classification) × scope_ratio × fix_mult
-sprint.estimate = Σ story.estimate + calibrated sprint-closure band
-epic.estimate   = Σ sprint.estimate  + calibrated epic-closure band
+sprint.estimate = Σ story.estimate + calibrated sprint-closure band + calibrated orchestration band
+epic.estimate   = Σ sprint.estimate  + calibrated epic-closure band + calibrated orchestration band
 ```
 
-Sprint and epic estimates are *defined as* the sum of their children plus closure, so they reconcile by construction rather than via a parallel formula that could drift.
+Sprint and epic estimates are *defined as* the sum of their children plus closure plus orchestration, so they reconcile by construction rather than via a parallel formula that could drift. `cost` has no band of its own: it is priced from the rolled-up `tokens_k` total (split across classes by the observed mix, or a cold-start assumption below three samples) through the model's rate table — the same relationship a story estimate already has between its `tokens_k` and `cost`.
 
-Cold-start base bands per story:
+Cold-start base bands per story (`BASE_BANDS` in `pm-status.py`; no `cost` row, for the reason above):
 
-| Classification | man_hours | time_hours | tokens_k | cost |
+| Classification | man_hours | hitl_hours | elapsed_hours | tokens_k |
 |---|---|---|---|---|
-| simple | 2 | 0.5 | 20 | 0.14 |
-| standard | 4 | 1.5 | 40 | 0.28 |
-| complex | 8 | 3.0 | 80 | 0.56 |
+| simple | 2–4 | 0.1–0.3 | 0.5–1.5 | 20–50 |
+| standard | 4–8 | 0.2–0.5 | 1–3 | 40–100 |
+| complex | 8–16 | 0.3–1.0 | 2–6 | 80–200 |
 
 The fix reserve `F` (default 1.25) is a **cold-start prior only**. It fills the gap until a component has ≥3 calibration samples, then the learned ratios — which already encode fix overhead — supersede it. Stacking both would double-count fixes.
 
@@ -514,44 +524,50 @@ Full procedure: each PM skill's `references/metrics-contract.md`.
 
 Calibration learns from plan-vs-actual deltas and applies corrections to future estimates. No configuration required — each component activates independently once it has enough history.
 
-### Three separable components
+### Four separable components
 
 | Component | Learned per | Measures |
 |---|---|---|
 | `scope` | classification × metric | Story sizing vs **fix-excluded** actuals |
 | `closure` | level (sprint, epic) × metric | Closure bands vs real closure consumption |
 | `fix` | classification | Observed `avg_fix_factor`, which replaces the static reserve once learned |
+| `orchestration` | level (sprint, epic) × metric | A **fraction** of children's actuals (not a ratio — the band ships unseeded, so there is nothing to measure a ratio against until real observations exist) |
 
-Each activates at **≥3 samples**, independently, using an exponential-decay weighted rolling average (decay 0.8, most recent = 1.0). Until then it uses a cold-start prior: ratio 1.0, fix reserve 1.25.
+`scope`, `closure`, and `orchestration` each activate at **≥3 samples**, independently per metric, using an exponential-decay weighted rolling average (decay 0.8, most recent = 1.0). `fix` needs **both** its `clean` and `reworked` cohorts at ≥3 samples — one cohort alone cannot form a ratio. Until active, a component uses its cold-start prior: ratio 1.0 for `scope`/`closure`, fix reserve 1.25, and *nothing* for `orchestration` (no cold-start band exists for it).
 
-Story samples are emitted by `set-actual` as a side effect of a successful write (`--no-calibrate` suppresses it); closure samples are emitted per sprint and epic. The scope-vs-fix split of measured actuals backs the fix portion out via `fix_factor` (approach A).
+Story samples are emitted by `set-actual --node story` as a side effect of a successful write (`--no-calibrate` suppresses it); closure samples are emitted per sprint/epic by `set-actual --node sprint|epic`; orchestration samples are emitted by `set-actual --block orchestration --node sprint|epic`. The scope-vs-fix split of measured actuals backs the fix portion out via `fix_factor` (approach A, using `completion_evidence.fix_iterations`).
 
-**`token` and `cost` ratios only accumulate from runs with real actuals** — Claude runs. `N/A` entries are skipped; a guessed value is never fed into calibration. `time` and `man_hours` accumulate from every run.
+**`tokens_k` ratios only accumulate from runs with real actuals** — Claude runs; `N/A` entries are skipped, never guessed. **`cost` never calibrates at all** — `CALIBRATED_METRIC_FIELDS` is `METRIC_FIELDS` minus `cost`, because a derived value must not learn its own independent correction. `elapsed_hours`, `man_hours`, and `hitl_hours` accumulate from every run. The observed token *mix* across classes (`token_mix`) is tracked separately as a derived statistic, not a calibration component — it feeds how a banded `tokens_k` total is split across classes at estimate time, once ≥3 story samples carry class data; below that, a cold-start assumption (`{input: 0.15, output: 0.05, cache_write: 0.30, cache_read: 0.50}`) is used instead.
 
 ### Calibration file
 
 `{implementation_artifacts}/state/pm-calibration.yaml` (`version: 2`). **Commit it** — learned ratios are team knowledge and expensive to rebuild. A legacy `version: 1` file is auto-migrated on first write, with the original kept as `pm-calibration.yaml.v1`.
 
+A pre-existing `version: 2` file written before this metrics rework additionally goes through an in-place **metrics migration** (`pm-status.py calibration migrate-metrics`, also run automatically by the first `set-actual` that touches it): `cost` samples are dropped (derived now, never independently calibrated); `time_hours` samples are renamed `elapsed_hours`; `man_hours` samples and the whole `fix` block are quarantined under a `legacy` block, since the metric's definition changed from observed human attention to counterfactual developer effort and old samples are not comparable; a `tokens_k` weighted ratio outside 0.5–2.0 is flagged (not dropped) as possibly contaminated by orchestration overhead that leaked into story samples under the old rules; and the new `orchestration` and `token_mix` components are seeded empty. This runs once, gated on a `metrics_migrated_at` marker (not a `version` bump — the schema version stays 2), and the file beforehand is preserved as `pm-calibration.yaml.pre-metrics`.
+
 ```yaml
 version: 2
-last_updated: '2026-05-28'
-stories_sampled: 12
-sprints_sampled: 4
-epics_sampled: 1
-scope:                    # per class × per metric (fix-excluded story sizing)
-  simple:   { time_ratio: 1.10, token_ratio: 1.05, cost_ratio: 1.05, man_hours_ratio: 1.0, sample_count: 6 }
-  standard: { time_ratio: 1.20, token_ratio: 1.12, cost_ratio: 1.12, man_hours_ratio: 1.0, sample_count: 9 }
-  complex:  { time_ratio: 1.35, token_ratio: 1.28, cost_ratio: 1.28, man_hours_ratio: 1.0, sample_count: 3 }
+granularity: story
+metrics_migrated_at: '2026-08-18T09:00:00Z'
+scope:                    # per classification × per metric; raw ratio samples, newest last
+  simple:   { man_hours: {samples: [1.02, 1.14, 0.98]}, hitl_hours: {...}, elapsed_hours: {...}, tokens_k: {...} }
+  standard: { ... }
+  complex:  { ... }
 closure:                  # per level × per metric
-  sprint: { time_ratio: 0.95, token_ratio: 1.08, cost_ratio: 1.08, man_hours_ratio: 1.0, sample_count: 4 }
-  epic:   { time_ratio: 1.0,  token_ratio: 1.0,  cost_ratio: 1.0,  man_hours_ratio: 1.0, sample_count: 1 }
-fix:                      # per class; supersedes the cold-start reserve at ≥3 samples
-  simple:   { avg_fix_factor: 1.10, sample_count: 6 }
-  standard: { avg_fix_factor: 1.30, sample_count: 9 }
-  complex:  { avg_fix_factor: 1.50, sample_count: 3 }
-history:                  # most recent 30 entries
-- { kind: story, id: 'E001-S01-001', class: complex, date: '2026-05-15', scope: { time_ratio: 1.3 }, fix_factor: 1.5 }
-- { kind: sprint-closure, id: 'E001-S01', date: '2026-05-15', closure: { time_ratio: 0.9 } }
+  sprint:   { man_hours: {samples: [1.18, 1.05, 1.22, 0.97]}, ... }
+  epic:     { ... }
+orchestration:            # per level × per metric; FRACTION of children's actuals, not a ratio
+  sprint:   { man_hours: {samples: [0.08, 0.11, 0.09]}, ... }
+  epic:     { ... }
+fix:                      # per classification; running mean per cohort, not a sample list
+  simple:   { clean: {mean_man_hours: 3.1, samples: 4}, reworked: {mean_man_hours: 4.2, samples: 3} }
+  standard: { ... }
+  complex:  { ... }
+token_mix:                # observed class split, independent of the scope-ratio samples above
+  samples:
+  - { input: 0.14, output: 0.06, cache_write: 0.29, cache_read: 0.51 }
+legacy:                    # quarantined pre-rework man_hours/fix samples; never read again
+  fix: { ... }
 ```
 
 Inspect it read-only with `pm-status.py calibration show`; a missing file reports cold-start and exits `0`.
