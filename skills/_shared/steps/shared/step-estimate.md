@@ -40,8 +40,16 @@ python3 {pm_status} estimate-story \
   --state-root {pm_state_root} \
   --story {story_key} \
   --classification {simple|standard|complex} \
+  --model {model} \
+  [--token-rates '{token_rates_json}'] \
   [--confidence {low|medium|high}]
 ```
+
+`--model {model}` and `--token-rates` are the bindings from `step-00-activate.md` §1
+(`modules.l3io-pm.default_model` / `.token_rates`). Pass `--model` always; add
+`--token-rates` only when `{token_rates_json}` is non-empty. Omitting `--model` prices the
+derived `cost` at `claude-opus-5` whatever the project actually runs on — a silent ~2× error
+on a fable or fast-mode project, which is exactly what keying rates by model prevents.
 
 `--confidence` is optional, and **omitting it writes no `confidence` field at all** —
 `estimate-story` records it only when it is passed. (The `medium`/`low` derivation from field
@@ -62,11 +70,17 @@ estimates:
 
 ```bash
 # each sprint in scope
-python3 {pm_status} estimate-rollup --state-root {pm_state_root} --epic {epic_key} --sprint {sprint_key}
+python3 {pm_status} estimate-rollup --state-root {pm_state_root} --epic {epic_key} --sprint {sprint_key} \
+  --model {model} [--token-rates '{token_rates_json}']
 
 # each epic in scope, after all its sprints are rolled up
-python3 {pm_status} estimate-rollup --state-root {pm_state_root} --epic {epic_key}
+python3 {pm_status} estimate-rollup --state-root {pm_state_root} --epic {epic_key} \
+  --model {model} [--token-rates '{token_rates_json}']
 ```
+
+Same `--model`/`--token-rates` rule as §2: `--model` always, `--token-rates` only when
+`{token_rates_json}` is non-empty. The rolled-up `cost_low`/`cost_high` are priced from the
+rolled-up token range under that model.
 
 No `--flock` needed: each epic's estimate write touches only that epic's own directory (see
 `skills/_shared/status-files.md` §9, Concurrency).

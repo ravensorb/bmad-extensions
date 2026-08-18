@@ -80,8 +80,13 @@ python3 {pm_status} set-actual \
   --tokens-output {total_tokens_output} \
   --tokens-cache-write {total_tokens_cache_write} \
   --tokens-cache-read {total_tokens_cache_read} \
-  --model {model}
+  --model {model} \
+  [--token-rates '{token_rates_json}']
 ```
+
+`{model}` and `{token_rates_json}` are bound at activation (`step-00-activate.md` §1). Pass
+`--model` always; add `--token-rates` only when `{token_rates_json}` is non-empty, on this
+call, the orchestration call below, and any `verify` on this node.
 
 ## 4. Orchestration capture — the orchestrator's own overhead
 
@@ -97,7 +102,7 @@ python3 {pm_status} set-actual --state-root {pm_state_root} --node sprint \
   --elapsed-hours {orch_elapsed} --man-hours 0 --hitl-hours {orch_hitl} \
   --tokens-input {orch_tokens_input} --tokens-output {orch_tokens_output} \
   --tokens-cache-write {orch_tokens_cache_write} --tokens-cache-read {orch_tokens_cache_read} \
-  --model {model} --runtime {runtime}
+  --model {model} --runtime {runtime} [--token-rates '{token_rates_json}']
 ```
 
 This call derives its own calibration sample (the orchestration fraction) and stamps its own

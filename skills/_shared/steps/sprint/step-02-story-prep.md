@@ -72,8 +72,13 @@ python3 {pm_status} estimate-story \
   --state-root {pm_state_root} \
   --story {story_key} \
   --classification {simple|standard|complex} \
+  --model {model} \
+  [--token-rates '{token_rates_json}'] \
   [--confidence {low|medium|high}]
 ```
+
+`{model}` and `{token_rates_json}` are bound at activation (`step-00-activate.md` §1). Pass
+`--model` always; add `--token-rates` only when `{token_rates_json}` is non-empty.
 
 ## 4. Mark stories ready-for-dev
 

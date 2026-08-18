@@ -193,8 +193,14 @@ python3 {pm_status} set-actual \
   --tokens-output {tokens_output} \
   --tokens-cache-write {tokens_cache_write} \
   --tokens-cache-read {tokens_cache_read} \
-  --model {model}
+  --model {model} \
+  [--token-rates '{token_rates_json}']
 ```
+
+`{model}` and `{token_rates_json}` are bound at activation (`step-00-activate.md` §1) from
+`modules.l3io-pm.default_model` / `.token_rates`. Pass `--model` always; add `--token-rates`
+only when `{token_rates_json}` is non-empty, and pass the same override to any `verify` on
+this node — `verify` re-derives `cost` and fails against the shipped rates otherwise.
 
 `set-actual` prints what it sampled in a `[...]` suffix on its own stdout line — e.g.
 `[scope+4 metrics, provenance=exact, class=complex]`. A `provenance=backout` on a story you

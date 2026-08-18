@@ -124,6 +124,17 @@ safe default to fall back to. `pm-status.py rates [--model ID] [--token-rates JS
 the effective table (read-only) so the value actually in force — including any override — is
 inspectable without reading source or guessing.
 
+**Both reach the CLI from activation bindings, not from the CLI's own defaults.**
+`step-00-activate.md` §1 binds `{model}` from `modules.l3io-pm.default_model` (default
+`claude-opus-5`) and `{token_rates_json}` from `modules.l3io-pm.token_rates` (JSON-encoded;
+empty when the key is absent). Every step file that estimates or writes an actual passes
+`--model {model}`, and adds `--token-rates '{token_rates_json}'` only when that binding is
+non-empty. `DEFAULT_ESTIMATE_MODEL` inside `pm-status.py` is the fallback for a direct CLI
+call, not the project's answer: without the binding every estimate in a project prices at
+`claude-opus-5` whatever it actually runs on. And an override passed to the writers but not
+to `verify` fails **every** node, because `verify` re-derives `cost` against whatever rate
+table is in force for it. Full contract: `references/config-resolution.md` §3.
+
 *(`set-estimate` accepts `--token-rates` too, but only to reject `--cost*` with a clear usage
 error, per the point above — it never derives a cost itself; only `estimate-story`/
 `estimate-rollup` do.)*

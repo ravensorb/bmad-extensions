@@ -32,6 +32,19 @@ Extract and bind from the resolved JSON:
   (default `{output_folder}/implementation-artifacts`)
 - `{planning_artifacts}` — `modules.l3io-pm.planning_artifacts`
   (default `{output_folder}/planning-artifacts`)
+- `{model}` — `modules.l3io-pm.default_model` (default `claude-opus-5`). The model id every
+  `cost` in this project is priced against. Pass it as `--model {model}` on `estimate-story`,
+  `estimate-rollup`, and every `set-actual` that carries token counts. **Not optional** —
+  leaving it unbound prices every estimate at `claude-opus-5` regardless of what the project
+  actually runs on, and the same token volume prices ~2× apart between a $3/M and a $10/M
+  input tier. An unknown id is a hard error, exit 2, never a silent fallback.
+- `{token_rates_json}` — `modules.l3io-pm.token_rates`, serialized to compact JSON; empty
+  when the key is absent, which is the normal case (the shipped rate table applies). When it
+  is **non-empty**, add `--token-rates '{token_rates_json}'` to `estimate-story`,
+  `estimate-rollup`, `set-actual`, **and `verify`**; when it is empty, omit the flag
+  entirely. Passing it to the writers but not to `verify` makes `verify` recompute `cost`
+  against the shipped rates and fail every node the override priced. See
+  `references/config-resolution.md` §3.
 - Set `{pm_state_root}` = `{implementation_artifacts}/state`
 - Set `{pm_issues_file}` = `{pm_state_root}/issues.yaml`
 - Set `{pm_calibration_file}` = `{pm_state_root}/pm-calibration.yaml`

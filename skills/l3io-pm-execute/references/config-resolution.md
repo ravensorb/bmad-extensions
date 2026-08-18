@@ -64,6 +64,28 @@ Bind these at activation, applying the default when the key is absent:
 | `{output_folder}` | `core.output_folder` | `{project-root}/_bmad-output` |
 | `{implementation_artifacts}` | `modules.l3io-pm.implementation_artifacts` | `{output_folder}/implementation-artifacts` |
 | `{planning_artifacts}` | `modules.l3io-pm.planning_artifacts` | `{output_folder}/planning-artifacts` |
+| `{model}` | `modules.l3io-pm.default_model` | `claude-opus-5` (`DEFAULT_ESTIMATE_MODEL` in `pm-status.py`) |
+| `{token_rates_json}` | `modules.l3io-pm.token_rates`, **JSON-encoded** | empty — the shipped rate table applies unchanged |
+
+**`{model}` and `{token_rates_json}` are what make cost a real number rather than a
+default.** Every `cost` in this system is derived from `tokens_k × the rate card for a
+model`, and the same token volume prices roughly 2× apart between a $3/M and a $10/M input
+tier. `{model}` is passed as `--model` on `estimate-story`, `estimate-rollup`, and every
+`set-actual` that carries token counts; leaving it unbound silently prices every estimate in
+the project at `claude-opus-5` regardless of what it actually runs on. An unknown model id is
+a hard error (exit 2), never a silent fallback — that is deliberate, so a wrong rate stays
+visible.
+
+`{token_rates_json}` is the per-model override table, and it is **optional**: bind it only
+when `modules.l3io-pm.token_rates` is present, serialize that section to compact JSON, and
+pass `--token-rates '{token_rates_json}'` on `estimate-story`, `estimate-rollup`,
+`set-actual`, **and `verify`**. Omit the flag entirely when the key is absent — an empty
+string is accepted but adds nothing. Passing it to the three writers but not to `verify` is
+the specific mistake to avoid: `verify` recomputes `cost` from the node's own `tokens_k` and
+`model`, so without the same override in force it recomputes against the shipped rates and
+fails every node the override priced. Overrides merge per model rather than replacing the
+table, so a card for one model leaves the rest intact. `pm-status.py rates
+[--token-rates JSON]` prints the effective table if you need to confirm what is in force.
 
 `implementation_artifacts` and `planning_artifacts` deliberately resolve from the
 **`l3io-pm`** section for every module, not from each module's own section. All four
