@@ -31,8 +31,12 @@ python3 {pm_status} set-status \
 **Dispatch tracking — always emit the matching close.** Every subagent spawn in this step
 brackets with `pm-status.py dispatch --event open` immediately before and `--event close`
 immediately after, using the same `--agent`/`--epic`/`--sprint`/`--story`/`--session-id`
-identity for both. This is what `report --stall-minutes` uses to flag a hung subagent, and it
-is the attribution boundary for orchestration spend (`references/metrics-contract.md` §3, §6).
+identity for both. Two things read this pair: `report --stall-minutes` flags a hung subagent
+from it, and closure uses it to place the boundary between a story's own spend and the
+orchestrator's (`references/metrics-contract.md` §6). It records the boundary only — the token
+counts on either side of it are still read from the session transcript's `usage` fields by the
+closing agent, exactly as for every other metric; `pm-status.py` derives nothing from these
+events.
 **Close on every exit path — `DONE`, `BLOCKED`, and `FAILED` alike.** A dispatch left open
 because this step exited early is not just a missed close: a later retry that opens the same
 identity (same agent, same story) before that stale open is closed silently overwrites it in

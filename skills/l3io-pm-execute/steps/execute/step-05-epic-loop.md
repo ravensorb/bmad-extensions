@@ -144,6 +144,20 @@ through unchanged — do not recompute it. Two computations of one variable is w
 
 Compute `{story_keys}` = keys of all stories in this sprint with `status != done`.
 
+**Dispatch tracking — always emit the matching close.** Bracket the sprint spawn exactly as
+`steps/sprint/step-03-dev-loop.md` §2 brackets a story spawn, with the same
+`--agent`/`--epic`/`--sprint`/`--session-id` identity on both calls. Without this bracket an
+epic's orchestration has no recorded boundary at all — only story-level dispatches are
+tracked, so a hung sprint subagent is invisible to `report --stall-minutes` and the epic's
+`orchestration` block has nothing to separate it from its sprints' spend
+(`references/metrics-contract.md` §6):
+
+```bash
+python3 {pm_status} dispatch --state-root {pm_state_root} --event open \
+  --agent l3io-pm-sprint --epic {epic_key} --sprint {sprint_num} \
+  --session-id {session_id}
+```
+
 Spawn headless sprint subagent with context block:
 
 ```
@@ -172,7 +186,20 @@ End with exactly one of:
   FAILED: [one-line reason]
 ```
 
-On subagent completion:
+On subagent completion, **first** close the dispatch — on every exit path, `DONE`, `BLOCKED`
+and `FAILED` alike, and before the branch below, so an early halt cannot skip it:
+
+```bash
+python3 {pm_status} dispatch --state-root {pm_state_root} --event close \
+  --agent l3io-pm-sprint --epic {epic_key} --sprint {sprint_num} \
+  --session-id {session_id}
+```
+
+A dispatch left open is not merely a missed close: the next sprint that opens the same
+identity silently overwrites it in `pm-status.py`'s pending map, and the original hang's
+timestamp is lost for good.
+
+Then branch:
 - `DONE` → mark sprint done, continue to next sprint
 - `BLOCKED` → log reason, halt epic loop, output: `BLOCKED: sprint {sprint_num} of {epic_key} — {reason}`
 - `FAILED` → log reason, continue to next sprint (sprint failure is non-fatal at epic level); track count

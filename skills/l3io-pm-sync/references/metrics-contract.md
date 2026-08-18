@@ -258,11 +258,19 @@ relying on the default silently disables the strict path.
 
 `elapsed_hours`, `man_hours`, and `hitl_hours` are always real numbers — no runtime has an
 `N/A` path for these three. Tokens are captured **exactly**: sum `input_tokens`,
-`output_tokens`, and the two cache-token classes from the session transcript's `usage`
-fields, scoped to the messages belonging to the node being closed, convert to thousands, and
-pass them as `--tokens-input`/`--tokens-output`/`--tokens-cache-write`/`--tokens-cache-read`
-along with `--model`. `set-actual` derives `tokens_k` (the mapping) and `cost` from them —
-never pass `--cost`; it is rejected.
+`output_tokens`, `cache_creation_input_tokens`, and `cache_read_input_tokens` from the session
+transcript's `usage` fields, convert to thousands, and pass them as
+`--tokens-input`/`--tokens-output`/`--tokens-cache-write`/`--tokens-cache-read` along with
+`--model`. All four are required together (§5); pass an explicit `0` for a class that really
+is zero. `set-actual` derives `tokens_k` (the mapping) and `cost` from them — never pass
+`--cost`; it is rejected.
+
+**Which messages count toward which node is §6's Attribution rule, not a per-metric
+judgement.** The rule "scope it to the messages belonging to the node being closed" used to
+live here; it is the defect the orchestration term exists to remove, because orchestrator
+messages belong to no node under it and their spend therefore entered no sample at all. Read
+§6 for the three buckets and the `dispatch_open`/`dispatch_close` boundary that separates
+them.
 
 `N/A` (via `--tokens-na`) is **forbidden** for tokens here — `set-actual` exits `2` if
 `--tokens-na` is combined with `--runtime claude`. This is the mechanical enforcement point of
@@ -498,6 +506,32 @@ counterfactual re-assessment of the whole level (§2), which already covers the 
 work that level delivered. `elapsed_hours`, `hitl_hours`, and the four `tokens_k` classes are
 summed and then extended by the closure phases' own measured spend, captured exactly as for a
 story (§3).
+
+#### Where the boundary between "child" and "orchestration" is
+
+Every subagent spawn is bracketed by a `dispatch --event open` immediately before it and a
+`dispatch --event close` immediately after, carrying the same
+`--agent`/`--epic`/`--sprint`/`--story` identity
+(`steps/sprint/step-03-dev-loop.md` §2, `steps/execute/step-05-epic-loop.md` §5). Those two
+records in `events.jsonl` are what make the boundary **unambiguous**:
+
+- messages between a child's `dispatch_open` and its matching `dispatch_close` are that
+  **child's** spend, and land in the child node's own `actual`;
+- messages outside every open dispatch — deciding what to dispatch, reading a result,
+  blocking on a wait — are **orchestration**, and land in the parent's `orchestration` block;
+- messages inside the closure phases of §2, which are not dispatched children of this level,
+  are **closure**, and are added on top of the children's sum in the parent's `actual`.
+
+> **The counts themselves are still read by the agent, from the session transcript — exactly
+> as for every other metric.** `pm-status.py` has no access to a session transcript and never
+> will; it records the boundary and prices the numbers you hand it, and nothing more. There is
+> no derivation from `events.jsonl` to a token count, and any wording implying one is an
+> overclaim. The dispatch events remove the *judgement* about where one bucket ends and the
+> next begins; they do not remove the *reading*.
+
+Closing on **every** exit path — `DONE`, `BLOCKED`, and `FAILED` alike — is what keeps the
+boundary usable. A dispatch left open also disappears from `report --stall-minutes` the moment
+a retry reuses its identity, taking the original hang's timestamp with it.
 
 ### Base bands (cold-start priors, per story)
 

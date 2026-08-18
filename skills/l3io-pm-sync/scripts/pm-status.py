@@ -445,9 +445,17 @@ DEFAULT_STALL_MINUTES = 15
 def cmd_dispatch(args) -> int:
     """Record a subagent dispatch opening or closing.
 
-    This is the attribution boundary for orchestration spend (metrics-contract
-    §6) AND the input to stall detection. Both need the same two timestamps, so
-    they share one event pair rather than two parallel logs that can disagree.
+    Two consumers, one event pair rather than two parallel logs that can
+    disagree: `open_dispatches` (stall detection) reads it here, and the closing
+    agent reads it to place the boundary between a child's spend and the
+    orchestrator's (metrics-contract.md §6, "Where the boundary between 'child'
+    and 'orchestration' is").
+
+    NOT a derivation of orchestration spend. This script has no access to a
+    session transcript and cannot see a token count; it records two timestamps.
+    The counts are read from the transcript's `usage` fields by the agent, as for
+    every other metric — these events remove the judgement about where one
+    bucket ends and the next begins, not the reading.
     """
     payload = {"ts": _now_iso(),
                "event": "dispatch_open" if args.event == "open" else "dispatch_close",
