@@ -1836,6 +1836,53 @@ class TestEstimateTokensAndCost(TestLayoutResolution):
         ]}
         self.assertAlmostEqual(pm.observed_mix(cal)["input"], 0.5, places=3)
 
+    def test_observed_mix_skips_a_non_mapping_sample(self):
+        # A stray non-mapping entry -- hand-edit of the committed, shared
+        # pm-calibration.yaml, a bad merge, partial corruption -- must not
+        # crash observed_mix (and therefore estimate-story) with an
+        # AttributeError from calling .get() on something that isn't a
+        # mapping. It falls back to cold-start like every other malformed
+        # shape here, same as a missing key or a non-numeric value would.
+        cal = pm.new_calibration()
+        cal["token_mix"] = {"samples": [
+            "not-a-mapping",
+            {"input": 0.5, "output": 0.1, "cache_write": 0.2, "cache_read": 0.2},
+            {"input": 0.5, "output": 0.1, "cache_write": 0.2, "cache_read": 0.2},
+        ]}
+        # only 2 real mappings present (below MIN_SAMPLES=3 once the stray
+        # scalar is excluded) -> cold-start, not a crash and not a mix
+        # computed from garbage.
+        self.assertEqual(pm.observed_mix(cal), pm.COLD_START_TOKEN_MIX)
+
+    def test_estimate_story_token_rates_override_changes_the_cost(self):
+        base_code, base_out = self.run_main(
+            ["estimate-story", "--state-root", self.root, "--story", "E001-S01-003",
+             "--classification", "standard", "--model", "claude-opus-5"])
+        self.assertEqual(base_code, 0, base_out)
+        _, node = pm.load_node(pm.story_file(self.root, "E001-S01-003"))
+        base_cost = float(node["estimate"]["cost"])
+
+        override = '{"claude-opus-5": {"input": 50.0, "output": 250.0, ' \
+                    '"cache_write": 62.5, "cache_read": 5.0}}'
+        code, out = self.run_main(
+            ["estimate-story", "--state-root", self.root, "--story", "E001-S01-003",
+             "--classification", "standard", "--model", "claude-opus-5",
+             "--token-rates", override])
+        self.assertEqual(code, 0, out)
+        _, node = pm.load_node(pm.story_file(self.root, "E001-S01-003"))
+        overridden_cost = float(node["estimate"]["cost"])
+        # rates 10x'd -> cost must actually move, proving --token-rates
+        # reaches cost_from_tokens rather than being parsed and dropped
+        # (the exact defect class Task 3 hit)
+        self.assertAlmostEqual(overridden_cost, base_cost * 10, places=1)
+        self.assertGreater(overridden_cost, base_cost)
+
+    def test_estimate_story_unknown_model_exits_nonzero(self):
+        code, out = self.run_main(
+            ["estimate-story", "--state-root", self.root, "--story", "E001-S01-003",
+             "--classification", "standard", "--model", "not-a-real-model"])
+        self.assertEqual(code, 2, out)
+
 
 class TestEstimateRollup(TestLayoutResolution):
     def run_main(self, argv):

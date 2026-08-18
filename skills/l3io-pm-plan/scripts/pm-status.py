@@ -1280,8 +1280,13 @@ COLD_START_TOKEN_MIX = {"input": 0.15, "output": 0.05,
 def observed_mix(cal) -> dict:
     """Mean observed token mix, or the cold-start assumption below MIN_SAMPLES."""
     samples = ((cal or {}).get("token_mix") or {}).get("samples") or []
-    usable = [s for s in samples if all(_num_or_none(s.get(c)) is not None
-                                        for c in TOKEN_CLASSES)]
+    # hasattr(s, "get") first: a stray non-mapping entry (hand-edit, bad
+    # merge, partial corruption of the committed, shared calibration file)
+    # must fall back to cold-start like every other malformed shape here —
+    # not crash `estimate-story` for the whole project. Same guard as the
+    # tokens_k mapping check in record_story_sample above.
+    usable = [s for s in samples if hasattr(s, "get") and
+              all(_num_or_none(s.get(c)) is not None for c in TOKEN_CLASSES)]
     if len(usable) < MIN_SAMPLES:
         return dict(COLD_START_TOKEN_MIX)
     mix = {c: sum(float(s[c]) for s in usable) / len(usable) for c in TOKEN_CLASSES}
