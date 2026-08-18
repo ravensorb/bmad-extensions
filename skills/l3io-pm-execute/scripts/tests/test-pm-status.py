@@ -1784,11 +1784,44 @@ class TestEstimateTokensAndCost(TestLayoutResolution):
         self.assertAlmostEqual(float(est["cost"]),
                                pm.cost_from_tokens(tk, "claude-opus-5"), places=2)
 
+    def _set_estimate_rejected(self, *extra):
+        """Run set-estimate addressing the sprint the way it actually resolves
+        kind — via node_args (--epic/--sprint), never --node (that flag
+        belongs to set-actual/verify, not set-estimate). Captures stderr so
+        the assertion can tell "our rejection fired" apart from "argparse
+        choked on an unrecognized flag" — both exit 2, and only the message
+        text distinguishes them. This is the same class of --node mismatch
+        caught in Task 4; TestEstimateTokensAndCost.test_cost_low_flag_is_rejected
+        had it too until this fix."""
+        err = io.StringIO()
+        try:
+            with redirect_stderr(err):
+                code = pm.main(["set-estimate", "--state-root", self.root,
+                                "--epic", "E001", "--sprint", "S01"] + list(extra))
+        except SystemExit as e:
+            code = e.code
+        return code, err.getvalue()
+
     def test_cost_low_flag_is_rejected(self):
-        code, out = self.run_main(["set-estimate", "--state-root", self.root,
-                                   "--node", "sprint", "--epic", "E001", "--sprint", "S01",
-                                   "--cost-low", "9.00"])
-        self.assertEqual(code, 2, out)
+        code, err = self._set_estimate_rejected("--cost-low", "9.00")
+        self.assertEqual(code, 2, err)
+        self.assertIn("cost is derived from tokens x rates", err)
+        self.assertNotIn("unrecognized arguments", err)
+
+    def test_cost_high_flag_is_rejected(self):
+        code, err = self._set_estimate_rejected("--cost-high", "9.00")
+        self.assertEqual(code, 2, err)
+        self.assertIn("cost is derived from tokens x rates", err)
+        self.assertNotIn("unrecognized arguments", err)
+
+    def test_cost_flag_is_rejected_on_set_estimate(self):
+        # --cost is the story-form alias (see build_parser); exercised on the
+        # sprint node too since set-estimate declares it unconditionally, not
+        # only for --story.
+        code, err = self._set_estimate_rejected("--cost", "9.00")
+        self.assertEqual(code, 2, err)
+        self.assertIn("cost is derived from tokens x rates", err)
+        self.assertNotIn("unrecognized arguments", err)
 
     def test_observed_mix_falls_back_below_three_samples(self):
         cal = pm.new_calibration()
