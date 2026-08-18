@@ -1231,7 +1231,8 @@ def derive_closure_sample(state_root: str, level: str, epic_key: str, sprint_key
     while man-hours still record under non-Claude runtimes where tokens are
     legitimately absent.
 
-    A ZERO RESIDUAL IS A SKIP, NOT A SAMPLE OF 0.0. A parent actual exactly
+    A ZERO RESIDUAL IS A SKIP, NOT A SAMPLE OF 0.0 — and "zero" means within a
+    relative tolerance, on both signs, not exactly 0.0 in binary. A parent actual
     equal to the sum of its children means the closure phases' own spend
     (adversarial analysis, retrospective, QA generation — real, measurable
     work) was attributed to nothing. Recording that as a legitimate 0.0
@@ -1241,7 +1242,11 @@ def derive_closure_sample(state_root: str, level: str, epic_key: str, sprint_key
     estimate — permanently, with no marker saying why. The step files now
     instruct the parent actual as "sum of children PLUS this level's own
     closure-phase spend" precisely so this does not arise; when it does, it
-    is a capture defect and must be reported as one, not learned from.
+    is a capture defect and must be reported as one, not learned from. Both
+    signs route to that one reason because a bare sum over decimal inputs lands
+    on either side of zero depending on the values (0.3 + 0.6 vs 0.9 leaves
+    +1.11e-16; 1.1 + 2.2 vs 3.3 leaves -4.44e-16), and calling the second a
+    "miscount" would tell the reader something false.
 
     Iterates CALIBRATED_METRIC_FIELDS, not CLOSURE_RANGE_KEYS or the full
     METRIC_FIELDS: `cost` never produces a closure sample (Task 10) — it is
@@ -1286,6 +1291,26 @@ def derive_closure_sample(state_root: str, level: str, epic_key: str, sprint_key
             skipped[metric] = f"{level} actual is missing or N/A for this metric"
             continue
         residual = pv - total
+        # Near-zero is checked FIRST, and on BOTH signs. `residual` is unrounded
+        # float arithmetic over decimal inputs, so `== 0` only catches a residual
+        # that happens to land exactly on zero in binary. Children of 0.3 and 0.6
+        # against a parent written as the bare sum 0.9 leave +1.11e-16, which
+        # sails past `== 0` and records three 0.0 samples — C2 reopened, on
+        # ordinary tenths-of-an-hour input. The mirror (1.1 + 2.2 vs 3.3) leaves
+        # -4.44e-16 and would otherwise be reported as a miscount that did not
+        # happen. One relative tolerance, both signs, one reason. The tolerance is
+        # relative to the parent so it stays meaningful at any magnitude, and
+        # floored at 1.0 so it never collapses to nothing for small values; at
+        # 1e-9 it is many orders below the smallest real closure overhead and many
+        # above double-precision summation noise.
+        if abs(residual) <= 1e-9 * max(1.0, abs(pv)):
+            skipped[metric] = (
+                f"zero residual (parent {pv} equals children sum {total} to within float "
+                f"tolerance) — this {level}'s own closure-phase spend was attributed to "
+                f"nothing; a 0.0 sample would train the closure component to zero "
+                f"permanently. Re-capture the {level} actual as children + this level's "
+                f"closure-phase spend (metrics-contract.md §6)")
+            continue
         if residual < 0:
             if metric in WALL_CLOCK_METRICS:
                 skipped[metric] = (f"negative wall-clock residual (parent {pv} below children "
@@ -1293,14 +1318,6 @@ def derive_closure_sample(state_root: str, level: str, epic_key: str, sprint_key
             else:
                 skipped[metric] = (f"negative residual (parent {pv} below children sum "
                                    f"{total}) — miscounted")
-            continue
-        if residual == 0:
-            skipped[metric] = (
-                f"zero residual (parent {pv} exactly equals children sum {total}) — this "
-                f"{level}'s own closure-phase spend was attributed to nothing; a 0.0 sample "
-                f"would train the closure component to zero permanently. Re-capture the "
-                f"{level} actual as children + this level's closure-phase spend "
-                f"(metrics-contract.md §6)")
             continue
         closure[metric] = residual
 

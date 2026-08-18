@@ -2071,6 +2071,47 @@ class TestClosureSampling(TestLayoutResolution):
         _, cal = pm.load_calibration(self.root)
         self.assertEqual(pm._component_samples(cal, "closure", "sprint", "man_hours"), [])
 
+    def test_bare_sum_of_unrepresentable_decimals_is_still_skipped(self):
+        """The zero-residual guard must not be exact float equality.
+
+        `residual = pv - total` is unrounded float arithmetic. Every other test in
+        this file uses exactly-representable values (3.0 + 4.0 = 7.0), so an
+        `== 0` check passes all of them while missing every real project that
+        records hours in tenths. Both directions are exercised because a bare sum
+        over decimals lands on either side of zero depending on the values, and
+        the negative one used to be reported as a "miscount" that did not happen.
+        """
+        for children, parent, drift in (([0.3, 0.6], 0.9, "positive"),
+                                        ([1.1, 2.2], 3.3, "negative")):
+            with self.subTest(drift=drift):
+                # the premise: these do NOT sum exactly, in either direction
+                self.assertNotEqual(sum(children), parent)
+                self._sprint_with_stories(
+                    children, parent,
+                    {"man_hours_low": parent + 1.0, "man_hours_high": parent + 3.0},
+                    story_estimates=list(children))
+                s, reason = pm.derive_closure_sample(self.root, "sprint", "E001", "S01")
+                self.assertIsNone(s, f"{drift} float drift produced a sample: {s}")
+                self.assertIn("zero residual", reason)
+                self.assertNotIn("miscounted", reason)
+                pm.record_closure_sample(self.root, "sprint", "E001", "S01")
+                _, cal = pm.load_calibration(self.root)
+                self.assertEqual(
+                    pm._component_samples(cal, "closure", "sprint", "man_hours"), [])
+                _, snode = pm.load_node(pm.sprint_file(self.root, "E001", "S01"))
+                self.assertNotIn(pm.CALIBRATION_MARKER, snode)
+
+    def test_tolerance_does_not_swallow_a_genuine_small_residual(self):
+        """The other half of the guard: a real closure overhead, however small,
+        must still record. A tolerance wide enough to eat one is the same defect
+        with a different sign."""
+        self._sprint_with_stories([0.3, 0.6], 0.9001,
+                                  {"man_hours_low": 1.0, "man_hours_high": 3.0},
+                                  story_estimates=[0.3, 0.6])
+        s, reason = pm.derive_closure_sample(self.root, "sprint", "E001", "S01")
+        self.assertIsNotNone(s, reason)
+        self.assertAlmostEqual(s["closure_actual"]["man_hours"], 0.0001, places=7)
+
     def test_three_bare_sum_closes_never_train_the_ratio_to_zero(self):
         """The composite failure, not the single sample: three sprints closed with
         `actual == Σ children` used to leave `closure.sprint.man_hours` holding

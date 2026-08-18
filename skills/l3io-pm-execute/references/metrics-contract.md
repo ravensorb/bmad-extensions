@@ -863,8 +863,13 @@ order, so this is defensive, not currently reachable); a **zero** residual; and 
 `tokens_k` on either side. Only when *no* calibrated metric produces a residual is the whole
 sample skipped.
 
-**A zero residual is a skip, not a sample of `0.0`.** A parent actual exactly equal to the sum
-of its children means this level's own closure-phase spend was attributed to nothing (see
+**A zero residual is a skip, not a sample of `0.0`.** "Zero" here means *within a relative
+tolerance, on either sign* — not exactly `0.0`: the residual is unrounded float arithmetic, so
+a bare sum over ordinary decimals lands just off zero in one direction or the other
+(`0.3 + 0.6` against `0.9` leaves `+1.11e-16`; `1.1 + 2.2` against `3.3` leaves `-4.44e-16`),
+and an exact comparison would catch neither. Both signs give the same skip reason, so the
+negative case is not mis-reported as a miscount. A parent actual equal to the sum of its
+children means this level's own closure-phase spend was attributed to nothing (see
 "Attribution" in §6). Recording that as a legitimate `0.0` is strictly worse than recording
 nothing: `0.0` is not `None`, so after three such closes `active_closure_ratio` returns `0.0`,
 `estimate-rollup` accepts it, and the closure band contributes nothing to any future estimate
