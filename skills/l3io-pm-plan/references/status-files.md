@@ -153,22 +153,23 @@ estimate:                                 # ranges at epic/sprint level
   elapsed_hours_high: 12
   tokens_k_min: 2000
   tokens_k_max: 3200
-  cost_low: 30.00                         # derived from tokens_k_min/max x rates; never entered
-  cost_high: 48.00
+  cost_low: 8.25                          # derived from tokens_k_min/max x rates; never entered
+  cost_high: 13.20
+  model: claude-opus-5                    # the rate card that priced the range
   confidence: medium
 actual:                                   # METRIC_FIELDS — all five required
   elapsed_hours: 11.5
   man_hours: 52                           # counterfactual re-assessment, not observed
   hitl_hours: 7.2
   tokens_k: {total: 2840, input: 420, output: 140, cache_write: 850, cache_read: 1430}
-  cost: 42.60                             # derived; written by the tool, never by hand
+  cost: 6.98                              # derived; written by the tool, never by hand
   model: claude-sonnet-5
 orchestration:                            # sprint/epic only — the orchestrator's own overhead
   elapsed_hours: 0.6
   man_hours: 0                            # AI-only overhead; no human-developer counterfactual
   hitl_hours: 0.1
   tokens_k: {total: 90, input: 14, output: 5, cache_write: 27, cache_read: 44}
-  cost: 1.35
+  cost: 0.23
   model: claude-sonnet-5
 orchestration_sampled_at: '2026-08-16T22:34:03Z'  # replay guard; set-actual --block orchestration
 # no `sprints:` — sprint-NN/ directories are the list
@@ -189,15 +190,16 @@ estimate:
   elapsed_hours_high: 4
   tokens_k_min: 600
   tokens_k_max: 950
-  cost_low: 9.00                          # derived; never entered
-  cost_high: 14.25
+  cost_low: 2.48                          # derived; never entered
+  cost_high: 3.93
+  model: claude-opus-5                    # the rate card that priced the range
   confidence: high
 actual:
   elapsed_hours: 3.2
   man_hours: 15                           # counterfactual re-assessment, not observed
   hitl_hours: 1.8
   tokens_k: {total: 812, input: 122, output: 41, cache_write: 244, cache_read: 405}
-  cost: 12.18
+  cost: 2.02
   model: claude-sonnet-5
 # no `stories:` — E001-S01-*.yaml files are the list
 ```
@@ -215,7 +217,7 @@ estimate:                                 # single values at story level
   hitl_hours: 0.8
   elapsed_hours: 1.5
   tokens_k: {total: 320, input: 48, output: 16, cache_write: 96, cache_read: 160}
-  cost: 4.80                              # derived; never entered
+  cost: 1.32                              # derived; never entered
   model: claude-opus-5
   confidence: high
 actual:
@@ -223,7 +225,7 @@ actual:
   man_hours: 7                            # counterfactual re-assessment, not observed
   hitl_hours: 0.5
   tokens_k: {total: 355, input: 53, output: 18, cache_write: 107, cache_read: 177}
-  cost: 5.32
+  cost: 1.47
   model: claude-opus-5
 ```
 

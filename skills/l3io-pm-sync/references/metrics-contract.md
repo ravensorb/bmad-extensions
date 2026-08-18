@@ -151,7 +151,7 @@ estimate:
   hitl_hours: 0.8
   elapsed_hours: 1.5
   tokens_k: {total: 320, input: 48, output: 16, cache_write: 96, cache_read: 160}
-  cost: 4.80                # derived by estimate-story from tokens_k x rates; never entered
+  cost: 1.32                # derived by estimate-story from tokens_k x rates; never entered
   model: claude-opus-5
   confidence: high           # low | medium | high
   fix_factor: 1.25           # the fix multiplier applied (one per classification)
@@ -171,8 +171,8 @@ estimate:
   elapsed_hours_high: 4
   tokens_k_min: 600
   tokens_k_max: 950
-  cost_low: 9.00              # derived by estimate-rollup from tokens_k_min/max x rates
-  cost_high: 14.25
+  cost_low: 2.48              # derived by estimate-rollup from tokens_k_min/max x rates
+  cost_high: 3.93             #   (600K/950K split by the cold-start mix, priced at `model` below)
   model: claude-opus-5
   closure_ratios:              # the closure ratio applied, PER CALIBRATED METRIC — load-bearing
     man_hours: 1.14            #   (see §8; 1.0 means the cold-start band applied)
@@ -192,7 +192,7 @@ actual:
   man_hours: 15               # counterfactual re-assessment at closure — NOT observed
   hitl_hours: 1.8
   tokens_k: {total: 812, input: 122, output: 41, cache_write: 244, cache_read: 405}
-  cost: 12.18                 # derived; written by the tool, never by hand
+  cost: 2.02                  # derived; written by the tool, never by hand
   model: claude-sonnet-5
 
 # sprint/epic only — the orchestrator's own overhead, a SEPARATE block from `actual`
@@ -201,7 +201,7 @@ orchestration:
   man_hours: 0                # AI-only overhead; no human-developer counterfactual
   hitl_hours: 0.1
   tokens_k: {total: 90, input: 14, output: 5, cache_write: 27, cache_read: 44}
-  cost: 1.35
+  cost: 0.23
   model: claude-sonnet-5
 
 # stamped by set-actual once the node's calibration sample has been emitted;
@@ -243,17 +243,18 @@ So in ordinary operation — any node with a real `cost` — every writer agrees
 float; the only quoted form is the `N/A` sentinel itself, which is a string by definition
 regardless of which field carries it.
 
-Every reader on the calibration and roll-up paths goes through `_num_or_none`, which parses
-both a bare number and a numeric string (and strips a leading `$`), so a hand-constructed
-quoted numeric string (e.g. from an older hand-edit, or a backfill script) still reads
-correctly there. `_accumulate_actuals` (what `show` sums) is the one reader that does a bare
-`float()` — it handles a plain numeric string fine but **drops a `$`-prefixed value
-silently**.
+Every reader goes through `_num_or_none`, which parses both a bare number and a numeric
+string and strips a leading `$`, so a hand-constructed quoted numeric string (e.g. from an
+older hand-edit or a backfill script) reads correctly everywhere — on the calibration and
+roll-up paths, and in `_accumulate_actuals` (what `show` and `report` sum), which routes
+through `_actual_metric`/`_num_or_none` like the rest. There is no longer a reader that does
+a bare `float()` and silently drops a `$`-prefixed value.
 
-So: pass a **bare decimal with no currency symbol** if you are ever constructing one by hand
-for a test or a backfill — `4.80`, never `'$4.80'`. Currency symbols belong in prose reports,
-never in the state files. In normal operation this never arises: `cost` is derived, not typed
-in.
+Even so: pass a **bare decimal with no currency symbol** if you are ever constructing one by
+hand for a test or a backfill — `1.32`, never `'$1.32'`. `verify` compares `cost` against
+what `tokens_k` prices out to, and a currency-prefixed figure is a hand-edit by definition.
+Currency symbols belong in prose reports, never in the state files. In normal operation this
+never arises: `cost` is derived, not typed in.
 
 `tokens_k.total` (and each class) is stored as an int when the value is integral, otherwise a
 float. `elapsed_hours`, `man_hours`, and `hitl_hours` are floats.
@@ -1133,7 +1134,8 @@ tokens_k      =140    × 1.00 × 1.25 =175         (scope ratio cold-start, roun
 `cost` is then priced from that 175K `tokens_k` total: split across the four classes by
 `observed_mix` (or, below 3 samples, `COLD_START_TOKEN_MIX`) and run through `cost_from_tokens`
 for the model bound at estimate time (`--model`, or `DEFAULT_ESTIMATE_MODEL` if omitted) —
-say `cost = 1.22` under the cold-start mix and `claude-opus-5` rates.
+say `cost = 0.72` under the cold-start mix and `claude-opus-5` rates (175K splits to
+26/9/52/88 across input/output/cache_write/cache_read, priced at $5/$25/$6.25/$0.50 per M).
 
 The written `estimate.scope_ratios` is `{man_hours: 1.1, hitl_hours: 1.0, elapsed_hours: 1.0,
 tokens_k: 1.0}` — one entry per calibrated metric, each the ratio actually applied to that

@@ -324,15 +324,16 @@ estimate:                     # ranges at epic/sprint level
   elapsed_hours_high: 12
   tokens_k_min: 2000
   tokens_k_max: 3200
-  cost_low: 30.00              # derived from tokens_k_min/max x rates; never entered
-  cost_high: 48.00
+  cost_low: 8.25               # derived from tokens_k_min/max x rates; never entered
+  cost_high: 13.20
+  model: claude-opus-5         # the rate card that priced the range
   confidence: medium
 actual:                       # all five METRIC_FIELDS required
   elapsed_hours: 11.5
   man_hours: 52                # counterfactual re-assessment, not observed
   hitl_hours: 7.2
   tokens_k: {total: 2840, input: 420, output: 140, cache_write: 850, cache_read: 1430}
-  cost: 42.60                  # derived from tokens_k x the model's rate table; written by the tool
+  cost: 6.98                   # derived from tokens_k x the model's rate table; written by the tool
   model: claude-sonnet-5
 ```
 
@@ -349,7 +350,7 @@ estimate:                     # single values at story level
   hitl_hours: 0.8
   elapsed_hours: 1.5
   tokens_k: {total: 320, input: 48, output: 16, cache_write: 96, cache_read: 160}
-  cost: 4.80                   # derived; never entered
+  cost: 1.32                   # derived; never entered
   model: claude-opus-5
   confidence: high
 actual:
@@ -357,7 +358,7 @@ actual:
   man_hours: 7                 # counterfactual re-assessment, not observed
   hitl_hours: 0.5
   tokens_k: {total: 355, input: 53, output: 18, cache_write: 107, cache_read: 177}
-  cost: 5.32
+  cost: 1.47
   model: claude-opus-5
 ```
 
