@@ -77,6 +77,48 @@ class TestSelfInstall(Base):
         self.assertEqual(code, 0, out)
         self.assertNotIn("skipped", out)
 
+    def test_reinstalls_same_version_with_different_content(self):
+        """The regression that shipped: equal marker, different bytes, skipped forever.
+
+        A hand-maintained version marker drifts -- ten commits changed this script under
+        2.3.0, and one more changed it after the bump to 2.4.0. Any project that installed
+        at those moments kept a stale copy that self-install reported as up to date. One
+        sat 920 lines behind with a Critical fix missing. Equal version must therefore mean
+        "check the bytes", never "assume identical".
+        """
+        dest = os.path.join(self.d, "pm-status.py")
+        self.run_main(["self-install", "--dest", dest])
+        real = open(dest, encoding="utf-8").read()
+
+        truncated = real[: len(real) // 3]
+        self.assertIn("pm-status-version:", truncated,
+                      "premise: the stale copy still carries the SAME marker")
+        with open(dest, "w", encoding="utf-8") as fh:
+            fh.write(truncated)
+
+        code, out = self.run_main(["self-install", "--dest", dest])
+        self.assertEqual(code, 0, out)
+        self.assertNotIn("skipped", out)
+        self.assertEqual(open(dest, encoding="utf-8").read(), real,
+                         "a same-version copy with different content must be replaced")
+
+    def test_skips_only_when_bytes_are_identical(self):
+        dest = os.path.join(self.d, "pm-status.py")
+        self.run_main(["self-install", "--dest", dest])
+        code, out = self.run_main(["self-install", "--dest", dest])
+        self.assertEqual(code, 0, out)
+        self.assertIn("already this exact script", out)
+
+    def test_refuses_to_downgrade_a_strictly_newer_dest(self):
+        """Version still governs the one thing content cannot express: a real downgrade."""
+        dest = os.path.join(self.d, "pm-status.py")
+        with open(dest, "w", encoding="utf-8") as fh:
+            fh.write("# pm-status-version: 99.0.0\nprint('newer')\n")
+        code, out = self.run_main(["self-install", "--dest", dest])
+        self.assertEqual(code, 0, out)
+        self.assertIn("refusing to downgrade", out)
+        self.assertIn("print('newer')", open(dest, encoding="utf-8").read())
+
 
 class TestLockCommands(Base):
     """set-lock/clear-lock/check-lock using --state-root and --epic."""

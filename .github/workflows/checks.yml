@@ -9,6 +9,10 @@ jobs:
     runs-on: ubuntu-latest
     steps:
     - uses: actions/checkout@v4
+      with:
+        # check:version diffs pm-status.py against the last release tag; the default
+        # shallow checkout has no tags, which would make that check silently pass.
+        fetch-depth: 0
     - uses: actions/setup-node@v4
       with:
         node-version: '20'
@@ -19,6 +23,8 @@ jobs:
       run: npm run check:scripts
     - name: Verify documentation matches the code it describes
       run: npm run check:docs
+    - name: Verify pm-status.py's version tracks its content
+      run: npm run check:version
     - name: pm-status.py unit tests
       run: |
         python3 -m pip install --quiet 'ruamel.yaml>=0.18'

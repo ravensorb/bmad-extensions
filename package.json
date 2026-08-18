@@ -8,6 +8,7 @@
     "sync:scripts": "node scripts/sync-shared-scripts.mjs",
     "check:scripts": "node scripts/sync-shared-scripts.mjs --check",
     "check:docs": "node scripts/check-docs.mjs",
+    "check:version": "node scripts/check-pm-status-version.mjs",
     "postbump": "node scripts/sync-bmad-versions.mjs && node scripts/sync-shared-scripts.mjs && git add -u",
     "release": "commit-and-tag-version",
     "release:patch": "commit-and-tag-version --release-as patch",

@@ -3,7 +3,7 @@
 # requires-python = ">=3.11"
 # dependencies = ["ruamel.yaml>=0.18"]
 # ///
-# pm-status-version: 2.4.0   (machine-readable marker; `self-install` compares this across copies — keep at top)
+# pm-status-version: 2.4.1   (machine-readable marker; `self-install` compares this across copies — keep at top)
 """
 pm-status.py — deterministic, atomic, round-trip-safe writer for the l3io-pm
 sharded state tree, and the reader behind its progress report.
@@ -89,6 +89,7 @@ import contextlib
 import json
 import os
 import sys
+import hashlib
 import tempfile
 from datetime import datetime, timezone
 
@@ -101,7 +102,7 @@ except ModuleNotFoundError:  # pragma: no cover - environment guard
     )
     sys.exit(2)
 
-PM_STATUS_VERSION = "2.4.0"  # keep in sync with the top-of-file `# pm-status-version:` marker
+PM_STATUS_VERSION = "2.4.1"  # keep in sync with the top-of-file `# pm-status-version:` marker
 
 VALID_STORY_STATUS = {"backlog", "ready-for-dev", "in-progress", "review", "done"}
 VALID_SPRINT_STATUS = {"backlog", "in-progress", "done"}
@@ -2791,21 +2792,58 @@ def _parse_version_line(path: str):
     return None
 
 
+def _file_sha(path: str):
+    """SHA-256 of a file's bytes; None if it cannot be read."""
+    try:
+        with open(path, "rb") as f:
+            return hashlib.sha256(f.read()).hexdigest()
+    except OSError:
+        return None
+
+
 def cmd_self_install(args) -> int:
-    """Copy this script to --dest, version-guarded (dest missing or self newer), unless --force.
+    """Copy this script to --dest unless the destination is already this exact script.
 
     This is how the module shares one runtime copy: each PM skill's setup (and its activation
     self-heal) calls `self-install --dest {project-root}/_bmad/scripts/pm-status.py`, so both
     skills reference a single installed copy — the `resolve_customization.py` pattern.
+
+    THE GUARD IS CONTENT, NOT VERSION. It used to skip whenever the destination's version
+    marker was >= this one, which made an equal version mean "identical" — an assumption the
+    marker cannot carry, because it is hand-maintained and therefore drifts. It did: ten
+    commits changed this script under 2.3.0, and after the bump to 2.4.0 another changed it
+    again under 2.4.0. A project that installed at either moment kept a stale copy forever,
+    with self-install cheerfully reporting a skip every time, and the staleness was invisible
+    because both copies agreed on the number they printed. One such copy sat 920 lines behind
+    and was missing a Critical fix.
+
+    A strictly newer destination is still protected — that is a genuine downgrade and the
+    version is the only thing that can express it. What no longer happens is treating "same
+    number" as "same file".
     """
     src = os.path.abspath(__file__)
     dest = os.path.abspath(args.dest)
     mine = tuple(int(x) for x in PM_STATUS_VERSION.split("."))
     theirs = _parse_version_line(dest) if os.path.exists(dest) else None
 
-    if os.path.exists(dest) and not args.force and theirs is not None and theirs >= mine:
-        sys.stdout.write(f"OK self-install skipped — {dest} is {'.'.join(map(str, theirs))} ≥ {PM_STATUS_VERSION}\n")
-        return 0
+    if os.path.exists(dest) and not args.force:
+        same = _file_sha(src) is not None and _file_sha(src) == _file_sha(dest)
+        if same:
+            sys.stdout.write(f"OK self-install skipped — {dest} is already this exact script "
+                             f"({PM_STATUS_VERSION})\n")
+            return 0
+        if theirs is not None and theirs > mine:
+            sys.stdout.write(f"OK self-install skipped — {dest} is "
+                             f"{'.'.join(map(str, theirs))} > {PM_STATUS_VERSION} "
+                             f"(refusing to downgrade)\n")
+            return 0
+        if theirs is not None and theirs == mine:
+            # Same number, different bytes. Installing is right; saying nothing is not --
+            # this means a release shipped a changed script without moving the marker, and
+            # the only place that can be noticed is here.
+            sys.stderr.write(f"pm-status.py: warning — {dest} reports {PM_STATUS_VERSION} but "
+                             f"its content differs from this copy; reinstalling. A changed "
+                             f"script shipped under an unchanged version marker.\n")
     d = os.path.dirname(dest) or "."
     os.makedirs(d, exist_ok=True)
     fd, tmp = tempfile.mkstemp(prefix=".pm-status.", suffix=".tmp", dir=d)

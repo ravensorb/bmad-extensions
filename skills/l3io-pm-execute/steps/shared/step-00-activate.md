@@ -51,6 +51,11 @@ Extract and bind from the resolved JSON:
 
 ## 2. Install pm-status.py
 
+Self-install compares the installed copy's **bytes** against this one and reinstalls on any
+difference, so a project pinned to a stale copy heals itself on the next run. It skips only a
+byte-identical copy, and refuses to overwrite a strictly newer one. Pass `--force` to
+reinstall regardless.
+
 Self-install runs here — **before** layout detection — deliberately. Self-install is
 layout-independent (it copies a file and needs no state), so nothing in detection depends on
 it, and running it first guarantees a current script whichever branch detection takes below.
