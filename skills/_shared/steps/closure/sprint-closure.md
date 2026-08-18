@@ -21,7 +21,7 @@ red team, UX, arch drift, and any fix-loop re-dispatch — brackets it with
 `dispatch --event open` / `--event close`, same `--agent <name> --epic {epic_key} --sprint {sprint_num}
 --session-id {session_id}` identity on both, closed on **every** exit path.
 
-Include `{agent_contract}` (verbatim — see `step-00-activate.md` §8) in every spawn prompt.
+Include `{agent_contract}` (verbatim — see `steps/shared/step-00-digest.md`) in every spawn prompt.
 These are `bmad-*` and `l3io-*` agents that load no part of the activation digest; without it
 they have no instruction to stop rather than wait.
 

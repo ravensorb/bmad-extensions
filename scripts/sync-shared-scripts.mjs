@@ -92,6 +92,12 @@ const sharedStepFiles = [
     rel: path.join("steps", "shared", "step-00-activate.md"),
   },
   {
+    // The digest, split out of step-00-activate.md §8: dispatched subagents load it alone,
+    // inheriting the bootstrap in sections 1-7 rather than re-running it per dispatch.
+    src: path.join(sharedDir, "steps", "shared", "step-00-digest.md"),
+    rel: path.join("steps", "shared", "step-00-digest.md"),
+  },
+  {
     src: path.join(sharedDir, "steps", "shared", "step-01-classify-work.md"),
     rel: path.join("steps", "shared", "step-01-classify-work.md"),
   },

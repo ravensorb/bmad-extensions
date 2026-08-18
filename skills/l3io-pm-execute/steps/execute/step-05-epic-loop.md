@@ -144,6 +144,13 @@ through unchanged — do not recompute it. Two computations of one variable is w
 
 Compute `{story_keys}` = keys of all stories in this sprint with `status != done`.
 
+**Pass `{session_id}` down unchanged.** It is the orchestrator's, and every subagent stamps
+its events and dispatch brackets with it. A subagent that generates its own — which is what
+happened while the context block omitted the binding and `step-00-activate.md` §7 said to
+generate one — splits a single run across two ids in `events.jsonl`, so the run can no longer
+be filtered out of the log, and any `check-lock` from inside the sprint path sees the epic as
+owned by a stranger.
+
 **Dispatch tracking — always emit the matching close.** Bracket the sprint spawn exactly as
 `steps/sprint/step-03-dev-loop.md` §2 brackets a story spawn, with the same
 `--agent`/`--epic`/`--sprint`/`--session-id` identity on both calls. Without this bracket an
@@ -174,8 +181,23 @@ execute_skill_root: {skill-root}
 single_epic_phase: {single_epic_phase}
 headless: true
 
+# Inherited activation — sections 1-7 of step-00-activate.md are ALREADY DONE for this
+# project. Do not resolve config, self-install, detect layout, create directories, list
+# epics, verify schema, or generate a session id. Use these bindings as given.
+communication_language: {communication_language}
+implementation_artifacts: {implementation_artifacts}
+planning_artifacts: {planning_artifacts}
+pm_status: {pm_status}
+pm_state_root: {pm_state_root}
+pm_issues_file: {pm_issues_file}
+pm_calibration_file: {pm_calibration_file}
+model: {model}
+token_rates_json: {token_rates_json}
+runtime: {runtime}
+session_id: {session_id}
+
 Load and execute in order:
-  {skill-root}/steps/shared/step-00-activate.md
+  {skill-root}/steps/shared/step-00-digest.md
   {skill-root}/steps/sprint/step-02-story-prep.md
   {skill-root}/steps/sprint/step-03-dev-loop.md
   {skill-root}/steps/sprint/step-04-sprint-closure.md

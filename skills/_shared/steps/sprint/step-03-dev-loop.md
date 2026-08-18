@@ -56,7 +56,7 @@ Spawn `bmad-dev-story` subagent with:
 - Project context: the config resolved at activation (`references/config-resolution.md`) —
   pass the bound values, not a config file path
 - Sprint root: `{sprint_root}`
-- `{agent_contract}` (verbatim — see `step-00-activate.md` §8)
+- `{agent_contract}` (verbatim — see `steps/shared/step-00-digest.md`)
 
 ```bash
 python3 {pm_status} dispatch --state-root {pm_state_root} --event close \
@@ -79,7 +79,7 @@ python3 {pm_status} dispatch --state-root {pm_state_root} --event open \
 Spawn `bmad-code-review` subagent with:
 - Story file path
 - Files changed by dev subagent
-- `{agent_contract}` (verbatim — see `step-00-activate.md` §8)
+- `{agent_contract}` (verbatim — see `steps/shared/step-00-digest.md`)
 
 ```bash
 python3 {pm_status} dispatch --state-root {pm_state_root} --event close \

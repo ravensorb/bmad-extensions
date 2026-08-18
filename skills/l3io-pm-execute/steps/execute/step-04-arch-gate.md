@@ -53,7 +53,7 @@ reviewer that returns BLOCKER findings. Parallel reviewers make this load-bearin
 close, a hung reviewer is invisible to `report --stall-minutes` and stalls the whole epic
 before any sprint has run.
 
-Include `{agent_contract}` (verbatim — see `step-00-activate.md` §8) in every spawn prompt.
+Include `{agent_contract}` (verbatim — see `steps/shared/step-00-digest.md`) in every spawn prompt.
 A `bmad-*` or `l3io-arch-review` subagent loads no part of the activation digest, so a
 reviewer that waits for an answer it can never receive is exactly the failure that clause
 exists to prevent.

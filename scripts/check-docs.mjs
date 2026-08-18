@@ -537,28 +537,18 @@ function checkMetricList() {
 // the commit message; lowering it as content moves out is free and encouraged. The check says
 // nothing about whether the content is good — only that adding to it is a decision someone
 // made on purpose.
-const DIGEST_FILE = "skills/_shared/steps/shared/step-00-activate.md";
-const DIGEST_BUDGET = 9000;
+const DIGEST_FILE = "skills/_shared/steps/shared/step-00-digest.md";
+const DIGEST_BUDGET = 9600;
 
 function checkDigestSize() {
   if (!exists(DIGEST_FILE)) {
     failures.push(`${DIGEST_FILE}: not found — has the activation step moved?`);
     return;
   }
-  const text = read(DIGEST_FILE);
-  const start = text.indexOf("## 8.");
-  const end = text.indexOf("## 9.", start + 1);
-  if (start === -1 || end === -1) {
-    failures.push(
-      `${DIGEST_FILE}: could not locate the "## 8." digest section (bounded by "## 9.") — ` +
-        `renumbering the sections breaks this check; update DIGEST_FILE/section markers`,
-    );
-    return;
-  }
-  const bytes = Buffer.byteLength(text.slice(start, end), "utf8");
+  const bytes = Buffer.byteLength(read(DIGEST_FILE), "utf8");
   if (bytes > DIGEST_BUDGET) {
     failures.push(
-      `${DIGEST_FILE} §8: activation digest is ${bytes} B, over its ${DIGEST_BUDGET} B budget ` +
+      `${DIGEST_FILE}: activation digest is ${bytes} B, over its ${DIGEST_BUDGET} B budget ` +
         `by ${bytes - DIGEST_BUDGET} B\n` +
         `      Every subagent re-pays this section and the orchestrator re-pays it on every\n` +
         `      prompt-cache re-creation. Either move the addition to a reference and cite it\n` +

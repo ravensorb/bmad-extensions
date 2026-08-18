@@ -4,7 +4,7 @@ Communicate all responses in `{communication_language}`.
 
 This file is the single source of truth for **where** epic/sprint/story/backlog state lives
 on disk and **how** to read or write it. It is a **deep reference, consulted on demand** — do
-not load it at activation. `steps/shared/step-00-activate.md` §8 carries the operative digest
+not load it at activation. `steps/shared/step-00-digest.md` carries the operative digest
 every run needs (keys, subcommand signatures, exit codes) plus a routing table naming the
 section to read for each case that genuinely needs this file: a `verify` failure (§7), a
 per-file schema question (§4), a migration or legacy layout (§10), `depends_on` (§11), or an
