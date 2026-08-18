@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file. See [commit-and-tag-version](https://github.com/absolute-version/commit-and-tag-version) for commit guidelines.
 
+## [2.1.5](https://github.com/ravensorb/bmad-extensions/compare/2.1.4...2.1.5) (2026-08-18)
+
+
+### Fixes
+
+* **l3io-pm:** guard self-install on content, not on a version number ([fa939b7](https://github.com/ravensorb/bmad-extensions/commit/fa939b7438ed5dc9042f643677edfa0aec625d05))
+
 ## [2.1.4](https://github.com/ravensorb/bmad-extensions/compare/2.1.3...2.1.4) (2026-08-18)
 
 
