@@ -43,11 +43,13 @@ Subcommands
   set-estimate  --state-root S  (--story KEY | --epic ID [--sprint ID])
                 [--man-hours-low H] [--man-hours-high H] [--hitl-hours-low H] [--hitl-hours-high H]
                 [--elapsed-hours-low H] [--elapsed-hours-high H]
-                [--tokens-k-min K] [--tokens-k-max K] [--cost-low C] [--cost-high C]
+                [--tokens-k-min K] [--tokens-k-max K]
                 (sprint/epic ranges; kind is inferred from --story vs --epic[/--sprint] —
                 a story node instead takes the single-value aliases --man-hours H,
-                --hitl-hours H, --elapsed-hours H, --tokens-k K, --cost C;
-                --time-hours* accepted as a deprecated alias for --elapsed-hours*)
+                --hitl-hours H, --elapsed-hours H, --tokens-k K;
+                --time-hours* accepted as a deprecated alias for --elapsed-hours*;
+                cost is DERIVED from tokens x rates — --cost/--cost-low/--cost-high are
+                declared but always rejected; use estimate-story/estimate-rollup instead)
                 [--confidence {low,medium,high}] [--flock]
   set-field     --state-root S  (--story KEY | --epic ID [--sprint ID])  --field NAME --value V
   verify        --state-root S  --scope {story,sprint,epic}  (--story KEY | --epic ID [--sprint ID])
@@ -103,6 +105,16 @@ VALID_STORY_STATUS = {"backlog", "ready-for-dev", "in-progress", "review", "done
 VALID_SPRINT_STATUS = {"backlog", "in-progress", "done"}
 VALID_EPIC_STATUS = {"backlog", "in-progress", "done"}
 METRIC_FIELDS = ("elapsed_hours", "man_hours", "hitl_hours", "tokens_k", "cost")
+
+# The subset of METRIC_FIELDS whose SCOPE ratio is learned. `cost` is derived
+# from tokens x rates (Tasks 6/7) rather than entered or actualed on its own,
+# so letting it also accumulate a scope-ratio sample would give a derived
+# value an independently-learned correction — exactly the drift this rework
+# removes. `cost` deliberately stays IN METRIC_FIELDS: it is still stored,
+# verified, and reported, just never scope-calibrated. Derived (not restated)
+# from METRIC_FIELDS so the two can't drift apart the way separately-typed
+# copies did before.
+CALIBRATED_METRIC_FIELDS = tuple(m for m in METRIC_FIELDS if m != "cost")
 
 
 def _yaml() -> YAML:
@@ -808,7 +820,7 @@ def derive_story_sample(node):
         provenance = "backout"
 
     ratios = {}
-    for metric in METRIC_FIELDS:
+    for metric in CALIBRATED_METRIC_FIELDS:
         e_num, a_num = _num_or_none(est.get(metric)), _actual_metric(act, metric)
         if e_num is None or a_num is None:
             continue          # missing, N/A, or non-numeric — never coerced to zero
@@ -898,6 +910,20 @@ def record_story_sample(state_root: str, node, node_path: str = None, y=None) ->
             entry = bucket.setdefault(metric, CommentedMap())
             entry.setdefault("samples", [])
             entry["samples"].append(round(ratio, 4))
+
+        # The observed per-class split, as a fraction of the actual's total —
+        # feeds observed_mix() once 3 samples accrue, superseding
+        # COLD_START_TOKEN_MIX. Independent of the scope-ratio samples above:
+        # this is about how a token total divides across classes, not about
+        # how big the total itself is.
+        tk = (node.get("actual") or {}).get("tokens_k")
+        if hasattr(tk, "get"):
+            total = _num_or_none(tk.get("total"))
+            if total and total > 0:
+                mix_bucket = cal.setdefault("token_mix", CommentedMap())
+                mix_bucket.setdefault("samples", [])
+                mix_bucket["samples"].append(
+                    {c: round((_num_or_none(tk.get(c)) or 0.0) / total, 4) for c in TOKEN_CLASSES})
 
         fix_entry = cal["fix"].setdefault(cls, CommentedMap())
         iters = sample["fix_iterations"]
@@ -1101,11 +1127,14 @@ def cmd_calibration(args) -> int:
     exists = os.path.exists(calibration_path(args.state_root))
     rows = []
     for c in CLASSIFICATIONS:
-        for m in METRIC_FIELDS:
+        for m in CALIBRATED_METRIC_FIELDS:  # cost never scope-calibrates (derived, see above)
             n = len(_component_samples(cal, "scope", c, m))
             r = active_scope_ratio(cal, c, m)
             rows.append(("scope", f"{c}/{m}", n, r))
     for lv in CLOSURE_LEVELS:
+        # Closure still calibrates `cost` directly (CLOSURE_RANGE_KEYS keeps its
+        # cost row until the rolled-up cost is itself derived from tokens) — so
+        # this loop stays on the full METRIC_FIELDS, unlike the scope loop above.
         for m in METRIC_FIELDS:
             n = len(_component_samples(cal, "closure", lv, m))
             r = active_closure_ratio(cal, lv, m)
@@ -1234,15 +1263,63 @@ def cmd_rates(args) -> int:
     return 0
 
 
+# The estimate-time model. Skills pass modules.l3io-pm.default_model through
+# --model; this is the fallback for a direct CLI call, and it is a REAL model
+# id so an unknown-model error can never be produced by the default itself.
+DEFAULT_ESTIMATE_MODEL = "claude-opus-5"
+
+# Cold-start assumption about a healthy, cache-warm run. NOT a calibrated
+# ratio and not a component of its own: it is replaced by the observed mean
+# once three story samples carry class data (see observed_mix below). It
+# affects only how a banded TOTAL is SPLIT across classes — the banded total
+# itself is untouched by it.
+COLD_START_TOKEN_MIX = {"input": 0.15, "output": 0.05,
+                        "cache_write": 0.30, "cache_read": 0.50}
+
+
+def observed_mix(cal) -> dict:
+    """Mean observed token mix, or the cold-start assumption below MIN_SAMPLES."""
+    samples = ((cal or {}).get("token_mix") or {}).get("samples") or []
+    usable = [s for s in samples if all(_num_or_none(s.get(c)) is not None
+                                        for c in TOKEN_CLASSES)]
+    if len(usable) < MIN_SAMPLES:
+        return dict(COLD_START_TOKEN_MIX)
+    mix = {c: sum(float(s[c]) for s in usable) / len(usable) for c in TOKEN_CLASSES}
+    total = sum(mix.values())
+    if total <= 0:
+        return dict(COLD_START_TOKEN_MIX)
+    return {c: v / total for c, v in mix.items()}   # renormalize; means need not sum to 1
+
+
+def split_tokens(total: float, mix: dict) -> dict:
+    """Split a banded total across classes, preserving the total exactly.
+
+    Rounding drift goes to the largest class rather than being dropped, so
+    `sum(classes) == total` is an invariant a test can assert and a reader can
+    trust.
+    """
+    out = {c: int(round(total * float(mix.get(c, 0.0)))) for c in TOKEN_CLASSES}
+    drift = int(round(total)) - sum(out.values())
+    if drift:
+        biggest = max(TOKEN_CLASSES, key=lambda c: out[c])
+        out[biggest] += drift
+    return out
+
+
 # Cold-start base bands (low, high) per classification. These were previously a
 # markdown table in steps/shared/step-estimate.md; this is now the single source.
+# No `cost` row: cost is derived from the tokens_k total (split across classes,
+# then priced per model) rather than banded and calibrated on its own — see
+# cmd_estimate_story. Keeping a separate cost band was the original defect: a
+# cost estimate with no arithmetic relationship to the token estimate it should
+# follow, drifting apart from it as the two calibrated independently.
 BASE_BANDS = {
     "simple":   {"man_hours": (2, 4),  "hitl_hours": (0.1, 0.3), "elapsed_hours": (0.5, 1.5),
-                 "tokens_k": (20, 50),  "cost": (0.10, 0.35)},
+                 "tokens_k": (20, 50)},
     "standard": {"man_hours": (4, 8),  "hitl_hours": (0.2, 0.5), "elapsed_hours": (1, 3),
-                 "tokens_k": (40, 100), "cost": (0.25, 0.70)},
+                 "tokens_k": (40, 100)},
     "complex":  {"man_hours": (8, 16), "hitl_hours": (0.3, 1.0), "elapsed_hours": (2, 6),
-                 "tokens_k": (80, 200), "cost": (0.55, 1.40)},
+                 "tokens_k": (80, 200)},
 }
 
 
@@ -1253,12 +1330,20 @@ def cmd_estimate_story(args) -> int:
 
     Each metric queries its own calibrated scope ratio — man_hours and tokens_k may
     be calibrated independently once each has >=3 samples, so ratios are looked up
-    per metric, never hoisted out and reused across all five.
+    per metric, never hoisted out and reused across all four in BASE_BANDS.
 
-    All five applied ratios are recorded as `estimate.scope_ratios`, per metric.
+    All four applied ratios are recorded as `estimate.scope_ratios`, per metric.
     This is load-bearing, not provenance: `derive_story_sample` divides the applied
     ratio back out to measure the next sample against the base band, and one
-    scalar cannot reconstruct five metrics' corrections.
+    scalar cannot reconstruct four metrics' corrections.
+
+    `cost` is not one of the banded/calibrated metrics: it is priced from the
+    banded tokens_k TOTAL, split across classes by `observed_mix` (or the
+    cold-start assumption below three samples), then run through
+    `cost_from_tokens` for `--model` (falling back to DEFAULT_ESTIMATE_MODEL).
+    This keeps cost arithmetically bound to the token estimate it prices —
+    the two can no longer drift apart the way a separately-banded,
+    separately-calibrated cost could.
     """
     path = story_file(args.state_root, args.story)
     if path is None:
@@ -1287,6 +1372,18 @@ def cmd_estimate_story(args) -> int:
         applied[metric] = round(ratio, 4)
         value = mid * ratio * fix
         est[metric] = int(round(value)) if metric == "tokens_k" else round(value, 2)
+
+    total_tokens = est.pop("tokens_k")
+    counts = split_tokens(total_tokens, observed_mix(cal))
+    est["tokens_k"] = tokens_block(counts)
+    model = args.model or DEFAULT_ESTIMATE_MODEL
+    try:
+        est["cost"] = cost_from_tokens(counts, model, rate_overrides(args))
+    except KeyError as e:
+        # e.args[0], not str(e) — KeyError.__str__ repr-quotes its argument,
+        # which would double-wrap a message that already reads as prose.
+        _die_usage(e.args[0])
+    est["model"] = model
 
     est["fix_factor"] = round(fix, 4)
     est["scope_ratios"] = applied
@@ -2135,6 +2232,16 @@ def _maybe_set(d, key: str, val, coerce):
 
 
 def cmd_set_estimate(args) -> int:
+    # Rejected before anything else is touched: cost is derived from tokens x
+    # rates (cmd_estimate_story / cmd_estimate_rollup), never accepted as
+    # direct input. --cost, --cost-low, and --cost-high stay declared (with
+    # help=argparse.SUPPRESS) purely so this is a clear usage error instead of
+    # an argparse "unrecognized arguments" one.
+    if getattr(args, "cost", None) is not None or getattr(args, "cost_low", None) is not None \
+            or getattr(args, "cost_high", None) is not None:
+        _die_usage("cost is derived from tokens x rates and cannot be set directly — "
+                   "fix the token counts or modules.l3io-pm.token_rates instead")
+
     kind = _infer_kind(args)
     y, node, path, label = _load_checked(args.state_root, args, kind)
 
@@ -2150,7 +2257,6 @@ def cmd_set_estimate(args) -> int:
         _maybe_set(est, "hitl_hours", args.hitl_hours, float)
         _maybe_set(est, "elapsed_hours", args.elapsed_hours, float)
         _maybe_set(est, "tokens_k", args.tokens_k_min, int)
-        _maybe_set(est, "cost", args.cost_low, str)
     else:
         # Sprints and epics: low/high ranges
         _maybe_set(est, "man_hours_low", args.man_hours_low, float)
@@ -2161,8 +2267,6 @@ def cmd_set_estimate(args) -> int:
         _maybe_set(est, "elapsed_hours_high", args.elapsed_hours_high, float)
         _maybe_set(est, "tokens_k_min", args.tokens_k_min, int)
         _maybe_set(est, "tokens_k_max", args.tokens_k_max, int)
-        _maybe_set(est, "cost_low", args.cost_low, str)
-        _maybe_set(est, "cost_high", args.cost_high, str)
 
     # Calibration factors: applied to get from base values to the estimate
     _maybe_set(est, "fix_factor", getattr(args, "fix_factor", None), float)
@@ -2172,9 +2276,12 @@ def cmd_set_estimate(args) -> int:
     if args.confidence:
         est["confidence"] = args.confidence
     elif "confidence" not in est:
+        # No cost_low/cost_high here: set-estimate never writes them (cost is
+        # derived, not settable — see the rejection above), so requiring them
+        # would make a sprint/epic estimate permanently "low" confidence.
         range_keys = ["man_hours_low", "man_hours_high", "hitl_hours_low", "hitl_hours_high",
                       "elapsed_hours_low", "elapsed_hours_high",
-                      "tokens_k_min", "tokens_k_max", "cost_low", "cost_high"]
+                      "tokens_k_min", "tokens_k_max"]
         story_keys = ["man_hours", "hitl_hours", "elapsed_hours", "tokens_k", "cost"]
         check = story_keys if kind == "story" else range_keys
         est["confidence"] = "medium" if all(k in est for k in check) else "low"
@@ -2690,8 +2797,14 @@ def build_parser() -> argparse.ArgumentParser:
     se.add_argument("--elapsed-hours-high", "--time-hours-high", dest="elapsed_hours_high")
     se.add_argument("--tokens-k-min", dest="tokens_k_min")
     se.add_argument("--tokens-k-max", dest="tokens_k_max")
-    se.add_argument("--cost-low", dest="cost_low")
-    se.add_argument("--cost-high", dest="cost_high")
+    # --cost / --cost-low / --cost-high are declared but SUPPRESSed from --help
+    # and rejected in cmd_set_estimate: cost is derived from tokens x rates,
+    # never accepted as direct input (see the rejection at the top of
+    # cmd_set_estimate). Declaring them here — rather than leaving them
+    # unrecognized — turns that rejection into a clear usage error instead of
+    # argparse's generic "unrecognized arguments".
+    se.add_argument("--cost-low", dest="cost_low", help=argparse.SUPPRESS)
+    se.add_argument("--cost-high", dest="cost_high", help=argparse.SUPPRESS)
     # Single-value fields (story)
     se.add_argument("--man-hours", dest="man_hours")
     se.add_argument("--hitl-hours", dest="hitl_hours",
@@ -2699,7 +2812,7 @@ def build_parser() -> argparse.ArgumentParser:
     se.add_argument("--elapsed-hours", "--time-hours", dest="elapsed_hours",
                     help="--time-hours is a deprecated alias")
     se.add_argument("--tokens-k", dest="tokens_k_min")  # alias to tokens_k_min for story use
-    se.add_argument("--cost", dest="cost_low")           # alias to cost_low for story use
+    se.add_argument("--cost", dest="cost", help=argparse.SUPPRESS)
     se.add_argument("--confidence", choices=["low", "medium", "high"])
     se.add_argument("--fix-factor", dest="fix_factor",
                     help="fix multiplier applied; required for the scope/fix split")
@@ -2757,6 +2870,10 @@ def build_parser() -> argparse.ArgumentParser:
     es.add_argument("--story", required=True)
     es.add_argument("--classification", required=True, choices=list(CLASSIFICATIONS))
     es.add_argument("--confidence", choices=["low", "medium", "high"])
+    es.add_argument("--model", default="",
+                    help="model id to price the derived cost; falls back to DEFAULT_ESTIMATE_MODEL")
+    es.add_argument("--token-rates", dest="token_rates", default="",
+                    help="JSON object of per-model rate overrides")
     es.set_defaults(func=cmd_estimate_story)
 
     er = sub.add_parser("estimate-rollup", help="roll child estimates up to a sprint or epic")

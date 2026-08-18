@@ -625,13 +625,16 @@ class TestKeyBasedAddressing(TestLayoutResolution):
         self.assertEqual(code, 2)
 
     def test_set_estimate_story_uses_single_values(self):
+        # --cost is not passed here: cost is derived from tokens x rates and
+        # set-estimate rejects it outright (see TestEstimateTokensAndCost).
         code, out = self.run_main(
             ["set-estimate", "--state-root", self.root, "--story", "E001-S01-003",
-             "--man-hours", "6", "--time-hours", "1.5", "--tokens-k", "320", "--cost", "4.80"])
+             "--man-hours", "6", "--time-hours", "1.5", "--tokens-k", "320"])
         self.assertEqual(code, 0, out)
         _, node = pm.load_node(pm.story_file(self.root, "E001-S01-003"))
         self.assertEqual(node["estimate"]["man_hours"], 6.0)
         self.assertNotIn("man_hours_low", node["estimate"])
+        self.assertNotIn("cost", node["estimate"])
 
     def test_set_field_dot_path(self):
         code, out = self.run_main(
@@ -1339,10 +1342,12 @@ class TestEstimateFactors(TestLayoutResolution):
         return code, buf.getvalue()
 
     def test_set_estimate_records_factors(self):
+        # No --cost: cost is derived from tokens x rates and set-estimate
+        # rejects it (see TestEstimateTokensAndCost.test_cost_low_flag_is_rejected).
         code, out = self.run_main(
             ["set-estimate", "--state-root", self.root, "--story", "E001-S01-003",
              "--man-hours", "6", "--time-hours", "1.5", "--tokens-k", "320",
-             "--cost", "4.80", "--fix-factor", "1.25", "--scope-ratio", "1.1"])
+             "--fix-factor", "1.25", "--scope-ratio", "1.1"])
         self.assertEqual(code, 0, out)
         _, node = pm.load_node(pm.story_file(self.root, "E001-S01-003"))
         self.assertAlmostEqual(float(node["estimate"]["fix_factor"]), 1.25)
@@ -1419,16 +1424,18 @@ class TestStorySampling(unittest.TestCase):
         self.assertNotIn("cost", s["scope_ratios"])
         self.assertIn("man_hours", s["scope_ratios"])
 
-    def test_dollar_prefixed_cost_is_still_parsed(self):
-        # cost values can be stored '$'-prefixed (metrics-contract.md §9); the
-        # numeric guard must not drop them before the '$' is stripped.
+    def test_dollar_prefixed_cost_does_not_break_derivation(self):
+        # cost values can be stored '$'-prefixed (metrics-contract.md §9). cost
+        # is derived from tokens x rates now and never scope-calibrates (Task
+        # 7) — but a '$'-prefixed cost sitting alongside the calibrated
+        # metrics must still not crash derivation or leak into scope_ratios.
         est = {"man_hours": 6, "elapsed_hours": 1.5, "tokens_k": 320,
                "cost": "$4.80", "fix_factor": 1.25, "scope_ratio": 1.0}
         act = {"man_hours": 7, "elapsed_hours": 1.8, "tokens_k": {"total": 355},
                "cost": "$5.32"}
         s = pm.derive_story_sample(self._story(0, est=est, act=act))
-        self.assertIn("cost", s["scope_ratios"])
-        self.assertAlmostEqual(s["scope_ratios"]["cost"], 5.32 * 1.25 / 4.80)
+        self.assertNotIn("cost", s["scope_ratios"])
+        self.assertAlmostEqual(s["scope_ratios"]["elapsed_hours"], 1.8 * 1.25 / 1.5)
 
     def test_no_estimate_yields_no_sample(self):
         node = {"key": "E001-S01-003", "classification": "complex",
@@ -1440,6 +1447,29 @@ class TestStorySampling(unittest.TestCase):
         _, cal = pm.load_calibration(self.root)
         self.assertEqual(len(pm._component_samples(cal, "scope", "complex", "man_hours")), 1)
         self.assertEqual(int(cal["fix"]["complex"]["clean"]["samples"]), 1)
+
+    def test_record_appends_the_observed_token_mix(self):
+        # A real set-actual write always carries all four classes alongside
+        # `total` (tokens_block builds them together) — a fixture with only
+        # `total` (the rest of this file's default) can't exercise this.
+        act = {"man_hours": 7, "elapsed_hours": 1.8,
+               "tokens_k": {"total": 355, "input": 100, "output": 20,
+                            "cache_write": 100, "cache_read": 135},
+               "cost": 5.32}
+        pm.record_story_sample(self.root, self._story(0, act=act))
+        _, cal = pm.load_calibration(self.root)
+        samples = cal["token_mix"]["samples"]
+        self.assertEqual(len(samples), 1)
+        self.assertAlmostEqual(samples[0]["input"], 100 / 355, places=4)
+        self.assertAlmostEqual(sum(samples[0][c] for c in pm.TOKEN_CLASSES), 1.0, places=3)
+
+    def test_record_skips_token_mix_when_actual_lacks_a_total(self):
+        # tokens_k stays a scalar (legacy pre-Task-6 shape, or N/A) — no
+        # `.get`, so the mix step must not raise and must not append.
+        act = {"man_hours": 7, "elapsed_hours": 1.8, "tokens_k": "N/A", "cost": "N/A"}
+        pm.record_story_sample(self.root, self._story(0, act=act))
+        _, cal = pm.load_calibration(self.root)
+        self.assertNotIn("token_mix", cal)
 
     def test_reworked_story_joins_reworked_cohort(self):
         pm.record_story_sample(self.root, self._story(2))
@@ -1685,9 +1715,12 @@ class TestEstimateStory(TestLayoutResolution):
         self.assertAlmostEqual(float(est["fix_factor"]), pm.COLD_START_FIX_FACTOR)
         # per-metric, not a single scalar: the sample derivation divides the
         # applied ratio back out and cannot reconstruct four from one
-        for m in ("man_hours", "elapsed_hours", "tokens_k", "cost"):
+        for m in ("man_hours", "hitl_hours", "elapsed_hours", "tokens_k"):
             self.assertAlmostEqual(float(est["scope_ratios"][m]),
                                    pm.COLD_START_SCOPE_RATIO)
+        # cost is derived from tokens x rates now, never scope-calibrated —
+        # it must not appear among the applied ratios at all
+        self.assertNotIn("cost", est["scope_ratios"])
         self.assertNotIn("scope_ratio", est)
 
     def test_calibrated_ratio_is_applied_once_active(self):
@@ -1714,6 +1747,61 @@ class TestEstimateStory(TestLayoutResolution):
                        "--story", "E001-S01-003", "--classification", "simple"])
         _, node = pm.load_node(pm.story_file(self.root, "E001-S01-003"))
         self.assertEqual(node["classification"], "simple")
+
+
+class TestEstimateTokensAndCost(TestLayoutResolution):
+    def run_main(self, argv):
+        buf = io.StringIO()
+        try:
+            with redirect_stdout(buf):
+                code = pm.main(argv)
+        except SystemExit as e:
+            code = e.code
+        return code, buf.getvalue()
+
+    def test_split_preserves_the_total_exactly(self):
+        got = pm.split_tokens(1160, pm.COLD_START_TOKEN_MIX)
+        self.assertEqual(sum(got[c] for c in pm.TOKEN_CLASSES), 1160)
+        self.assertEqual(got["input"], 174)
+        self.assertEqual(got["cache_read"], 580)
+
+    def test_split_absorbs_rounding_into_the_largest_class(self):
+        got = pm.split_tokens(101, {"input": 0.33, "output": 0.33,
+                                    "cache_write": 0.33, "cache_read": 0.01})
+        self.assertEqual(sum(got[c] for c in pm.TOKEN_CLASSES), 101)
+
+    def test_estimate_story_derives_cost_from_the_split(self):
+        code, out = self.run_main(["estimate-story", "--state-root", self.root,
+                                   "--story", "E001-S01-003", "--classification", "standard",
+                                   "--model", "claude-opus-5"])
+        self.assertEqual(code, 0, out)
+        _, node = pm.load_node(pm.story_file(self.root, "E001-S01-003"))
+        est = node["estimate"]
+        tk = est["tokens_k"]
+        # standard band 40-100, midpoint 70, x scope 1.0 x fix 1.25 = 88 total
+        self.assertEqual(int(tk["total"]), 88)
+        self.assertEqual(sum(int(tk[c]) for c in pm.TOKEN_CLASSES), 88)
+        self.assertAlmostEqual(float(est["cost"]),
+                               pm.cost_from_tokens(tk, "claude-opus-5"), places=2)
+
+    def test_cost_low_flag_is_rejected(self):
+        code, out = self.run_main(["set-estimate", "--state-root", self.root,
+                                   "--node", "sprint", "--epic", "E001", "--sprint", "S01",
+                                   "--cost-low", "9.00"])
+        self.assertEqual(code, 2, out)
+
+    def test_observed_mix_falls_back_below_three_samples(self):
+        cal = pm.new_calibration()
+        self.assertEqual(pm.observed_mix(cal), pm.COLD_START_TOKEN_MIX)
+
+    def test_observed_mix_used_at_three_samples(self):
+        cal = pm.new_calibration()
+        cal["token_mix"] = {"samples": [
+            {"input": 0.5, "output": 0.1, "cache_write": 0.2, "cache_read": 0.2},
+            {"input": 0.5, "output": 0.1, "cache_write": 0.2, "cache_read": 0.2},
+            {"input": 0.5, "output": 0.1, "cache_write": 0.2, "cache_read": 0.2},
+        ]}
+        self.assertAlmostEqual(pm.observed_mix(cal)["input"], 0.5, places=3)
 
 
 class TestEstimateRollup(TestLayoutResolution):
