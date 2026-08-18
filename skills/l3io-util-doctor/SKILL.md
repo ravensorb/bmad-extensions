@@ -557,12 +557,18 @@ Present the residual list and wait for `{user_name}` guidance before exiting.
 
 Invoked with `migrate-schema` argument. Upgrades an existing `sprint-status.yaml` to the current field schema. Adds missing fields with zero/empty defaults. Never overwrites existing non-null values. Never guesses at values — only mechanical defaults (zero for numbers, empty for strings, `'unknown'` for enums).
 
+**Two field types are not mechanically defaultable, and this mode must not invent them:**
+
+- **`cost` is derived, never entered** — `cost = tokens_k × the model's per-class rates` (the l3io-pm metrics contract; the PM skills carry it as `references/metrics-contract.md` §2). `set-actual`/`set-estimate` reject a `--cost*` flag outright, and `verify` recomputes it and fails on a mismatch. So `cost_low`/`cost_high` are **never added to an estimate block** by this migration: nothing verifies an estimate, and a placeholder is worse than an absence. The old `'$0.00'` default was doubly wrong — a currency-prefixed *string* where every writer produces an unquoted float.
+- **`tokens_k` and `cost` on an `actual` block default to the `'N/A'` sentinel, not `0`.** A legacy flat file has no token data. `0` claims a measurement that was never taken, and calibration would consume it as a real sample and drive the learned ratio toward zero; `'N/A'` is skipped by calibration and passes `verify --runtime other`, which is the honest state of a legacy migration.
+
 ### Default Values for Missing Fields
 
 | Field type | Default |
 |---|---|
-| Numeric (`time_hours_low/high`, `tokens_k_min/max`, `man_hours_low/high`, `elapsed_hours`, `man_hours`, `fix_iterations`, `tests_passing`, `files_changed`) | `0` |
-| Cost string (`cost_low`, `cost_high`) | `'$0.00'` |
+| Numeric (`elapsed_hours_low/high`, `hitl_hours_low/high`, `man_hours_low/high`, `tokens_k_min/max`, `elapsed_hours`, `man_hours`, `hitl_hours`, `fix_iterations`, `tests_passing`, `files_changed`) | `0` |
+| `tokens_k` / `cost` on an **actual** block | `'N/A'` — the sentinel, never `0` |
+| `cost`, `cost_low`, `cost_high` on an **estimate** block | **never added** |
 | `classification` enum | `'unknown'` |
 | `severity` enum | `'unknown'` |
 | `source`, `description`, `goal` | `''` |
@@ -591,13 +597,13 @@ Schema fields to verify (add if absent):
 *Epic node:*
 - `title` (derive: `'Epic {id}'`)
 - `goal`
-- `estimate` block: `time_hours_low`, `time_hours_high`, `tokens_k_min`, `tokens_k_max`, `cost_low`, `cost_high`, `man_hours_low`, `man_hours_high`
-- `actual` block (only when `status: done`): `elapsed_hours`, `man_hours`
+- `estimate` block: `man_hours_low`, `man_hours_high`, `hitl_hours_low`, `hitl_hours_high`, `elapsed_hours_low`, `elapsed_hours_high`, `tokens_k_min`, `tokens_k_max`
+- `actual` block (only when `status: done`): `elapsed_hours`, `man_hours`, `hitl_hours`, `tokens_k`, `cost`
 
 *Sprint node:*
 - `title` (derive: `'Sprint {id}'`)
-- `estimate` block: `time_hours_low`, `time_hours_high`, `tokens_k_min`, `tokens_k_max`, `cost_low`, `cost_high`, `man_hours_low`, `man_hours_high`
-- `actual` block (only when `status: done`): `elapsed_hours`, `man_hours`
+- `estimate` block: `man_hours_low`, `man_hours_high`, `hitl_hours_low`, `hitl_hours_high`, `elapsed_hours_low`, `elapsed_hours_high`, `tokens_k_min`, `tokens_k_max`
+- `actual` block (only when `status: done`): `elapsed_hours`, `man_hours`, `hitl_hours`, `tokens_k`, `cost`
 
 *Story node:*
 - `title` (derive from story `.md` file's first heading if the file exists; otherwise `''`)
@@ -618,7 +624,7 @@ File                          Node                              Field           
 ----------------------------------------------------------------
 sprint-status.yaml            epics[01]                         title                'Epic 01'
 sprint-status.yaml            epics[01]                         goal                 ''
-sprint-status.yaml            epics[01]                         estimate.time_hours_low  0
+sprint-status.yaml            epics[01]                         estimate.elapsed_hours_low  0
 sprint-status.yaml            epics[01].sprints[01]             title                'Sprint 01'
 sprint-status.yaml            epics[01].sprints[01].stories[ST01]  classification    'unknown'
 sprint-status-backlog.yaml    epics[02].backlog[BL-01]          source               ''

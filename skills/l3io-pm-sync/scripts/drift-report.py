@@ -144,9 +144,15 @@ def extract_story_fields(story_path: Path, status: str, story_node: dict) -> dic
             else:
                 ac = ac_content.strip()
 
-    # Story-level estimate is a single value per metric (man_hours, time_hours, tokens_k,
-    # cost) — not the low/high range used at sprint/epic level. See status-files.md §4.
+    # Story-level estimate is a single value per metric — not the low/high range used at
+    # sprint/epic level. See status-files.md §4. The metric set is METRIC_FIELDS:
+    # elapsed_hours (formerly time_hours — the old name reads as 0 forever), man_hours,
+    # hitl_hours, tokens_k (a MAPPING since the metrics rework; `total` is the figure that
+    # is banded and compared), and the derived cost.
     estimate = story_node.get("estimate", {}) or {}
+    tokens = estimate.get("tokens_k", 0)
+    if hasattr(tokens, "get"):
+        tokens = tokens.get("total", 0)
     return {
         "title": title.lower(),
         "description": description,
@@ -156,8 +162,9 @@ def extract_story_fields(story_path: Path, status: str, story_node: dict) -> dic
         "tags": tags,
         "estimates": {
             "man_hours": estimate.get("man_hours", 0),
-            "time_hours": estimate.get("time_hours", 0),
-            "tokens_k": estimate.get("tokens_k", 0),
+            "hitl_hours": estimate.get("hitl_hours", 0),
+            "elapsed_hours": estimate.get("elapsed_hours", 0),
+            "tokens_k": tokens,
             "cost": estimate.get("cost", 0),
         },
     }
