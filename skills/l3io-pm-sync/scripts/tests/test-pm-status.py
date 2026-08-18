@@ -432,6 +432,46 @@ class TestLayoutResolution(unittest.TestCase):
         self.assertEqual(pm.check_backrefs(node, "E001"), [])
 
 
+class TestElapsedHoursUnification(TestLayoutResolution):
+    """estimate-side time_hours and actual-side elapsed_hours are one name now —
+    ESTIMATE_TO_ACTUAL is gone, and the deprecated --time-hours* CLI flags still
+    write the elapsed_hours* destinations."""
+
+    def run_main(self, argv):
+        buf = io.StringIO()
+        try:
+            with redirect_stdout(buf):
+                code = pm.main(argv)
+        except SystemExit as e:
+            code = e.code
+        return code, buf.getvalue()
+
+    def test_estimate_writes_elapsed_hours_not_time_hours(self):
+        code, out = self.run_main(["estimate-story", "--state-root", self.root,
+                                   "--story", "E001-S01-003", "--classification", "standard"])
+        self.assertEqual(code, 0, out)
+        _, node = pm.load_node(pm.story_file(self.root, "E001-S01-003"))
+        self.assertIn("elapsed_hours", node["estimate"])
+        self.assertNotIn("time_hours", node["estimate"])
+
+    def test_deprecated_time_hours_flag_still_writes_elapsed_hours(self):
+        # set-estimate has no --node flag (unlike set-actual) — kind is inferred
+        # from --story vs --epic[/--sprint]
+        code, out = self.run_main(["set-estimate", "--state-root", self.root,
+                                   "--story", "E001-S01-003",
+                                   "--time-hours", "3"])
+        self.assertEqual(code, 0, out)
+        _, node = pm.load_node(pm.story_file(self.root, "E001-S01-003"))
+        self.assertEqual(float(node["estimate"]["elapsed_hours"]), 3.0)
+        self.assertNotIn("time_hours", node["estimate"])
+
+    def test_estimate_to_actual_map_is_gone(self):
+        self.assertFalse(hasattr(pm, "ESTIMATE_TO_ACTUAL"))
+
+    def test_wall_clock_metric_is_elapsed_hours(self):
+        self.assertEqual(pm.WALL_CLOCK_METRICS, ("elapsed_hours",))
+
+
 class TestAtomicAndCLI(TestLayoutResolution):
     """Reuses TestLayoutResolution's tree fixture."""
 
@@ -1200,7 +1240,7 @@ class TestStorySampling(unittest.TestCase):
         shutil.rmtree(self.d, ignore_errors=True)
 
     def _story(self, iterations, est=None, act=None):
-        est = est or {"man_hours": 6, "time_hours": 1.5, "tokens_k": 320,
+        est = est or {"man_hours": 6, "elapsed_hours": 1.5, "tokens_k": 320,
                       "cost": 4.80, "fix_factor": 1.25, "scope_ratio": 1.0}
         act = act or {"man_hours": 7, "elapsed_hours": 1.8, "tokens_k": 355,
                       "cost": 5.32}
@@ -1209,11 +1249,6 @@ class TestStorySampling(unittest.TestCase):
         if iterations is not None:
             node["completion_evidence"] = {"fix_iterations": iterations}
         return node
-
-    def test_pairing_is_not_identity(self):
-        # the map must send time_hours to elapsed_hours, not to itself
-        self.assertEqual(pm.ESTIMATE_TO_ACTUAL["time_hours"], "elapsed_hours")
-        self.assertEqual(pm.ESTIMATE_TO_ACTUAL["man_hours"], "man_hours")
 
     def test_zero_iterations_gives_exact_provenance(self):
         s = pm.derive_story_sample(self._story(0))
@@ -1228,14 +1263,14 @@ class TestStorySampling(unittest.TestCase):
         self.assertEqual(s["provenance"], "backout")
 
     def test_legacy_estimate_without_factors_is_marked(self):
-        est = {"man_hours": 6, "time_hours": 1.5, "tokens_k": 320, "cost": 4.80}
+        est = {"man_hours": 6, "elapsed_hours": 1.5, "tokens_k": 320, "cost": 4.80}
         s = pm.derive_story_sample(self._story(0, est=est))
         self.assertEqual(s["provenance"], "legacy")
 
-    def test_scope_ratio_uses_wall_clock_pairing_correctly(self):
-        # estimate.time_hours 1.5 vs actual.elapsed_hours 1.8, fix_factor 1.25
+    def test_scope_ratio_computed_correctly_for_elapsed_hours(self):
+        # estimate.elapsed_hours 1.5 vs actual.elapsed_hours 1.8, fix_factor 1.25
         s = pm.derive_story_sample(self._story(0))
-        self.assertAlmostEqual(s["scope_ratios"]["time_hours"], 1.8 * 1.25 / 1.5)
+        self.assertAlmostEqual(s["scope_ratios"]["elapsed_hours"], 1.8 * 1.25 / 1.5)
 
     def test_na_metrics_are_skipped_not_zeroed(self):
         act = {"man_hours": 7, "elapsed_hours": 1.8, "tokens_k": "N/A", "cost": "N/A"}
@@ -1247,7 +1282,7 @@ class TestStorySampling(unittest.TestCase):
     def test_dollar_prefixed_cost_is_still_parsed(self):
         # cost values can be stored '$'-prefixed (metrics-contract.md §9); the
         # numeric guard must not drop them before the '$' is stripped.
-        est = {"man_hours": 6, "time_hours": 1.5, "tokens_k": 320,
+        est = {"man_hours": 6, "elapsed_hours": 1.5, "tokens_k": 320,
                "cost": "$4.80", "fix_factor": 1.25, "scope_ratio": 1.0}
         act = {"man_hours": 7, "elapsed_hours": 1.8, "tokens_k": 355,
                "cost": "$5.32"}
@@ -1437,7 +1472,7 @@ class TestSetActualCalibrates(TestLayoutResolution):
             f.write("key: 'E001-S01-003'\nepic: 'E001'\nsprint: 'S01'\n"
                     "status: review\nclassification: complex\n"
                     "completion_evidence:\n  fix_iterations: 0\n"
-                    "estimate:\n  man_hours: 6\n  time_hours: 1.5\n"
+                    "estimate:\n  man_hours: 6\n  elapsed_hours: 1.5\n"
                     "  tokens_k: 320\n  cost: 4.80\n  fix_factor: 1.25\n"
                     "  scope_ratio: 1.0\n")
 
@@ -1510,7 +1545,7 @@ class TestEstimateStory(TestLayoutResolution):
         self.assertAlmostEqual(float(est["fix_factor"]), pm.COLD_START_FIX_FACTOR)
         # per-metric, not a single scalar: the sample derivation divides the
         # applied ratio back out and cannot reconstruct four from one
-        for m in ("man_hours", "time_hours", "tokens_k", "cost"):
+        for m in ("man_hours", "elapsed_hours", "tokens_k", "cost"):
             self.assertAlmostEqual(float(est["scope_ratios"][m]),
                                    pm.COLD_START_SCOPE_RATIO)
         self.assertNotIn("scope_ratio", est)
@@ -1559,7 +1594,7 @@ class TestEstimateRollup(TestLayoutResolution):
         for i, v in enumerate(values, start=1):
             with open(os.path.join(sd, f"E001-S01-{i:03d}.yaml"), "w") as f:
                 f.write(f"key: 'E001-S01-{i:03d}'\nepic: 'E001'\nsprint: 'S01'\n"
-                        f"estimate:\n  man_hours: {v}\n  time_hours: 1\n"
+                        f"estimate:\n  man_hours: {v}\n  elapsed_hours: 1\n"
                         f"  tokens_k: 10\n  cost: 0.5\n")
 
     def test_sprint_rollup_sums_children_plus_closure(self):
@@ -1616,14 +1651,14 @@ class TestParallelClosureResidual(TestLayoutResolution):
             self._write(os.path.join(sd, f"E001-S01-{i:03d}.yaml"),
                         {"key": f"E001-S01-{i:03d}", "epic": "E001", "sprint": "S01",
                          "status": "done",
-                         "estimate": {"man_hours": 12.0, "time_hours": 4.0},
+                         "estimate": {"man_hours": 12.0, "elapsed_hours": 4.0},
                          "actual": {"man_hours": mh, "elapsed_hours": eh}})
         # two stories ran concurrently: sprint wall-clock 3.0 < children's 8.0,
         # while man-hours still add up (26 vs 24 -> 2.0 of closure overhead)
         self._write(os.path.join(sd, "sprint.yaml"),
                     {"key": "S01", "epic": "E001", "status": "done",
                      "estimate": {"man_hours_low": 25.0, "man_hours_high": 29.0,
-                                  "time_hours_low": 9.0, "time_hours_high": 11.0},
+                                  "elapsed_hours_low": 9.0, "elapsed_hours_high": 11.0},
                      "actual": {"man_hours": 26.0, "elapsed_hours": 3.0}})
 
     def test_parallel_wall_clock_does_not_discard_the_man_hours_sample(self):
@@ -1632,12 +1667,12 @@ class TestParallelClosureResidual(TestLayoutResolution):
         self.assertIsNotNone(s, reason)
         self.assertAlmostEqual(s["closure_actual"]["man_hours"], 2.0)
         self.assertIn("man_hours", s["ratios"])
-        self.assertNotIn("time_hours", s["ratios"])
+        self.assertNotIn("elapsed_hours", s["ratios"])
 
     def test_negative_wall_clock_is_not_reported_as_a_miscount(self):
         self._parallel_sprint()
         s, _ = pm.derive_closure_sample(self.root, "sprint", "E001", "S01")
-        reason = s["skipped"]["time_hours"]
+        reason = s["skipped"]["elapsed_hours"]
         self.assertIn("parallel", reason.lower())
         self.assertNotIn("miscounted", reason.lower())
 
@@ -1680,9 +1715,9 @@ class TestSampleIdempotency(TestLayoutResolution):
             f.write("key: 'E001-S01-003'\nepic: 'E001'\nsprint: 'S01'\n"
                     "status: review\nclassification: complex\n"
                     "completion_evidence:\n  fix_iterations: 0\n"
-                    "estimate:\n  man_hours: 6\n  time_hours: 1.5\n"
+                    "estimate:\n  man_hours: 6\n  elapsed_hours: 1.5\n"
                     "  tokens_k: 320\n  cost: 4.80\n  fix_factor: 1.25\n"
-                    "  scope_ratios:\n    man_hours: 1.0\n    time_hours: 1.0\n"
+                    "  scope_ratios:\n    man_hours: 1.0\n    elapsed_hours: 1.0\n"
                     "    tokens_k: 1.0\n    cost: 1.0\n")
 
     def _set_actual(self):

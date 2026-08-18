@@ -37,11 +37,12 @@ Subcommands
                 split cannot see it; the sample is emitted at most once per node,
                 guarded by a `calibration_sampled_at` marker)
   set-estimate  --state-root S  (--story KEY | --epic ID [--sprint ID])
-                [--man-hours-low H] [--man-hours-high H] [--time-hours-low H] [--time-hours-high H]
+                [--man-hours-low H] [--man-hours-high H] [--elapsed-hours-low H] [--elapsed-hours-high H]
                 [--tokens-k-min K] [--tokens-k-max K] [--cost-low C] [--cost-high C]
                 (sprint/epic ranges; kind is inferred from --story vs --epic[/--sprint] —
                 a story node instead takes the single-value aliases --man-hours H,
-                --time-hours H, --tokens-k K, --cost C)
+                --elapsed-hours H, --tokens-k K, --cost C; --time-hours* accepted as a
+                deprecated alias for --elapsed-hours*)
                 [--confidence {low,medium,high}] [--flock]
   set-field     --state-root S  (--story KEY | --epic ID [--sprint ID])  --field NAME --value V
   verify        --state-root S  --scope {story,sprint,epic}  (--story KEY | --epic ID [--sprint ID])
@@ -716,20 +717,6 @@ def active_fix_factor(cal, classification: str):
     return float(rm) / float(cm)
 
 
-# The four metrics do NOT pair by name: an estimate's time_hours is an
-# actual's elapsed_hours. Zipping keys naively produces a silently wrong
-# wall-clock ratio, so the pairing is explicit. Sibling map: CLOSURE_ACTUAL_KEYS
-# (range-form parent estimates) encodes the same time_hours -> elapsed_hours
-# pairing for a different schema — kept separate deliberately, but if one
-# changes, check the other.
-ESTIMATE_TO_ACTUAL = {
-    "man_hours": "man_hours",
-    "time_hours": "elapsed_hours",
-    "tokens_k": "tokens_k",
-    "cost": "cost",
-}
-
-
 def _num_or_none(v):
     """Parse a metric value, tolerating a leading '$' on cost. None if not numeric.
 
@@ -806,18 +793,18 @@ def derive_story_sample(node):
         provenance = "backout"
 
     ratios = {}
-    for e_key, a_key in ESTIMATE_TO_ACTUAL.items():
-        e_num, a_num = _num_or_none(est.get(e_key)), _num_or_none(act.get(a_key))
+    for metric in ("man_hours", "elapsed_hours", "tokens_k", "cost"):
+        e_num, a_num = _num_or_none(est.get(metric)), _num_or_none(act.get(metric))
         if e_num is None or a_num is None:
             continue          # missing, N/A, or non-numeric — never coerced to zero
         if e_num == 0:
             continue
-        applied = _applied_scope_ratio(est, e_key) if has_factors else 1.0
+        applied = _applied_scope_ratio(est, metric) if has_factors else 1.0
         if provenance == "backout":
             # actual/fix_factor is the scope portion; the fix_factor cancels.
-            ratios[e_key] = a_num * applied / e_num
+            ratios[metric] = a_num * applied / e_num
         else:
-            ratios[e_key] = a_num * applied * fix_factor / e_num
+            ratios[metric] = a_num * applied * fix_factor / e_num
 
     if not ratios:
         return None
@@ -918,20 +905,10 @@ def _mid(est, low_key: str, high_key: str):
 
 
 CLOSURE_RANGE_KEYS = {
-    "man_hours": ("man_hours_low", "man_hours_high"),
-    "time_hours": ("time_hours_low", "time_hours_high"),
-    "tokens_k": ("tokens_k_min", "tokens_k_max"),
-    "cost": ("cost_low", "cost_high"),
-}
-# Sibling of ESTIMATE_TO_ACTUAL above: same time_hours -> elapsed_hours pairing,
-# but for range-form parent (sprint/epic) estimates rather than single-value
-# story estimates. Kept separate deliberately — different schema — but if one
-# changes, check the other.
-CLOSURE_ACTUAL_KEYS = {
-    "man_hours": "man_hours",
-    "time_hours": "elapsed_hours",
-    "tokens_k": "tokens_k",
-    "cost": "cost",
+    "man_hours":     ("man_hours_low", "man_hours_high"),
+    "elapsed_hours": ("elapsed_hours_low", "elapsed_hours_high"),
+    "tokens_k":      ("tokens_k_min", "tokens_k_max"),
+    "cost":          ("cost_low", "cost_high"),
 }
 
 
@@ -942,7 +919,7 @@ CLOSURE_ACTUAL_KEYS = {
 # defensive). That is topology, not a miscount, and must not be reported as one.
 # Man-hours, tokens and cost are additive regardless of concurrency, so a
 # negative residual there really is a miscount.
-WALL_CLOCK_METRICS = ("time_hours",)
+WALL_CLOCK_METRICS = ("elapsed_hours",)
 
 
 def _closure_nodes(state_root: str, level: str, epic_key: str, sprint_key=None):
@@ -1006,11 +983,11 @@ def derive_closure_sample(state_root: str, level: str, epic_key: str, sprint_key
 
     applied_ratios = pest.get("closure_ratios")
     closure, ratios, skipped = {}, {}, {}
-    for metric, akey in CLOSURE_ACTUAL_KEYS.items():
+    for metric in CLOSURE_RANGE_KEYS:
         total = 0.0
         complete = True
         for cn in children:
-            cv = _num_or_none(((cn or {}).get("actual") or {}).get(akey)) if cn is not None else None
+            cv = _num_or_none(((cn or {}).get("actual") or {}).get(metric)) if cn is not None else None
             if cv is None:
                 complete = False   # missing, N/A, or non-numeric child actual
                 break
@@ -1018,7 +995,7 @@ def derive_closure_sample(state_root: str, level: str, epic_key: str, sprint_key
         if not complete:
             skipped[metric] = "a child is missing this metric's actual"
             continue
-        pv = _num_or_none(pact.get(akey))
+        pv = _num_or_none(pact.get(metric))
         if pv is None:
             skipped[metric] = f"{level} actual is missing or N/A for this metric"
             continue
@@ -1108,12 +1085,12 @@ def cmd_calibration(args) -> int:
     exists = os.path.exists(calibration_path(args.state_root))
     rows = []
     for c in CLASSIFICATIONS:
-        for m in ("man_hours", "time_hours", "tokens_k", "cost"):
+        for m in ("man_hours", "elapsed_hours", "tokens_k", "cost"):
             n = len(_component_samples(cal, "scope", c, m))
             r = active_scope_ratio(cal, c, m)
             rows.append(("scope", f"{c}/{m}", n, r))
     for lv in CLOSURE_LEVELS:
-        for m in ("man_hours", "time_hours", "tokens_k", "cost"):
+        for m in ("man_hours", "elapsed_hours", "tokens_k", "cost"):
             n = len(_component_samples(cal, "closure", lv, m))
             r = active_closure_ratio(cal, lv, m)
             rows.append(("closure", f"{lv}/{m}", n, r))
@@ -1222,9 +1199,9 @@ def cmd_rates(args) -> int:
 # Cold-start base bands (low, high) per classification. These were previously a
 # markdown table in steps/shared/step-estimate.md; this is now the single source.
 BASE_BANDS = {
-    "simple":   {"man_hours": (2, 4),  "time_hours": (0.5, 1.5), "tokens_k": (20, 50),  "cost": (0.10, 0.35)},
-    "standard": {"man_hours": (4, 8),  "time_hours": (1, 3),     "tokens_k": (40, 100), "cost": (0.25, 0.70)},
-    "complex":  {"man_hours": (8, 16), "time_hours": (2, 6),     "tokens_k": (80, 200), "cost": (0.55, 1.40)},
+    "simple":   {"man_hours": (2, 4),  "elapsed_hours": (0.5, 1.5), "tokens_k": (20, 50),  "cost": (0.10, 0.35)},
+    "standard": {"man_hours": (4, 8),  "elapsed_hours": (1, 3),     "tokens_k": (40, 100), "cost": (0.25, 0.70)},
+    "complex":  {"man_hours": (8, 16), "elapsed_hours": (2, 6),     "tokens_k": (80, 200), "cost": (0.55, 1.40)},
 }
 
 
@@ -1294,9 +1271,7 @@ def _child_estimate_value(node, metric):
     the midpoint of its range form (a sprint). None if neither is present.
 
     Reuses CLOSURE_RANGE_KEYS (metric -> parent low/high key names) rather
-    than a second near-duplicate mapping — see the comment on
-    ESTIMATE_TO_ACTUAL above it for why these metric maps are kept explicit
-    and why a change to one should prompt checking the others.
+    than a second near-duplicate mapping.
     """
     est = (node or {}).get("estimate") or {}
     v = _num_or_none(est.get(metric))
@@ -2111,15 +2086,15 @@ def cmd_set_estimate(args) -> int:
     if kind == "story":
         # Stories: single values (not ranges)
         _maybe_set(est, "man_hours", args.man_hours, float)
-        _maybe_set(est, "time_hours", args.time_hours, float)
+        _maybe_set(est, "elapsed_hours", args.elapsed_hours, float)
         _maybe_set(est, "tokens_k", args.tokens_k_min, int)
         _maybe_set(est, "cost", args.cost_low, str)
     else:
         # Sprints and epics: low/high ranges
         _maybe_set(est, "man_hours_low", args.man_hours_low, float)
         _maybe_set(est, "man_hours_high", args.man_hours_high, float)
-        _maybe_set(est, "time_hours_low", args.time_hours_low, float)
-        _maybe_set(est, "time_hours_high", args.time_hours_high, float)
+        _maybe_set(est, "elapsed_hours_low", args.elapsed_hours_low, float)
+        _maybe_set(est, "elapsed_hours_high", args.elapsed_hours_high, float)
         _maybe_set(est, "tokens_k_min", args.tokens_k_min, int)
         _maybe_set(est, "tokens_k_max", args.tokens_k_max, int)
         _maybe_set(est, "cost_low", args.cost_low, str)
@@ -2133,9 +2108,9 @@ def cmd_set_estimate(args) -> int:
     if args.confidence:
         est["confidence"] = args.confidence
     elif "confidence" not in est:
-        range_keys = ["man_hours_low", "man_hours_high", "time_hours_low", "time_hours_high",
+        range_keys = ["man_hours_low", "man_hours_high", "elapsed_hours_low", "elapsed_hours_high",
                       "tokens_k_min", "tokens_k_max", "cost_low", "cost_high"]
-        story_keys = ["man_hours", "time_hours", "tokens_k", "cost"]
+        story_keys = ["man_hours", "elapsed_hours", "tokens_k", "cost"]
         check = story_keys if kind == "story" else range_keys
         est["confidence"] = "medium" if all(k in est for k in check) else "low"
 
@@ -2637,15 +2612,16 @@ def build_parser() -> argparse.ArgumentParser:
     # Range fields (sprint/epic)
     se.add_argument("--man-hours-low", dest="man_hours_low")
     se.add_argument("--man-hours-high", dest="man_hours_high")
-    se.add_argument("--time-hours-low", dest="time_hours_low")
-    se.add_argument("--time-hours-high", dest="time_hours_high")
+    se.add_argument("--elapsed-hours-low", "--time-hours-low", dest="elapsed_hours_low")
+    se.add_argument("--elapsed-hours-high", "--time-hours-high", dest="elapsed_hours_high")
     se.add_argument("--tokens-k-min", dest="tokens_k_min")
     se.add_argument("--tokens-k-max", dest="tokens_k_max")
     se.add_argument("--cost-low", dest="cost_low")
     se.add_argument("--cost-high", dest="cost_high")
     # Single-value fields (story)
     se.add_argument("--man-hours", dest="man_hours")
-    se.add_argument("--time-hours", dest="time_hours")
+    se.add_argument("--elapsed-hours", "--time-hours", dest="elapsed_hours",
+                    help="--time-hours is a deprecated alias")
     se.add_argument("--tokens-k", dest="tokens_k_min")  # alias to tokens_k_min for story use
     se.add_argument("--cost", dest="cost_low")           # alias to cost_low for story use
     se.add_argument("--confidence", choices=["low", "medium", "high"])
