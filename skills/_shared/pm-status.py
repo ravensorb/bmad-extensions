@@ -984,8 +984,13 @@ CLOSURE_RANGE_KEYS = {
     "hitl_hours":    ("hitl_hours_low", "hitl_hours_high"),
     "elapsed_hours": ("elapsed_hours_low", "elapsed_hours_high"),
     "tokens_k":      ("tokens_k_min", "tokens_k_max"),
-    "cost":          ("cost_low", "cost_high"),
 }
+# No "cost" row: cost is derived from the rolled-up tokens_k range (see
+# cmd_estimate_rollup) rather than banded and calibrated on its own — the
+# story-level equivalent of this was already true (BASE_BANDS has no cost
+# row either). Keeping a separate closure-cost band was the last place the
+# old defect survived: a cost figure with no arithmetic tie to the token
+# figure it should track, drifting apart as the two calibrated independently.
 
 
 # Wall-clock metrics legitimately go NEGATIVE as a closure residual: if a closure
@@ -1037,8 +1042,14 @@ def derive_closure_sample(state_root: str, level: str, epic_key: str, sprint_key
     understates overhead and biases the ratio low, permanently); a negative
     residual (a miscount — except for wall-clock, where parallel execution makes
     it expected); an estimated overhead <= 0 (nothing to measure against); and
-    N/A tokens/cost, which skip just that metric while man-hours still record
-    under non-Claude runtimes where those two are legitimately absent.
+    N/A tokens, which skips just that metric while man-hours still record
+    under non-Claude runtimes where tokens are legitimately absent.
+
+    Iterates CALIBRATED_METRIC_FIELDS, not CLOSURE_RANGE_KEYS or the full
+    METRIC_FIELDS: `cost` never produces a closure sample (Task 10) — it is
+    derived from the rolled-up tokens_k range at estimate-rollup time, so a
+    residual measured against its own band would have nothing left to divide
+    against and nothing calibrating it downstream would ever read the sample.
     """
     ppath, child_paths = _closure_nodes(state_root, level, epic_key, sprint_key)
     if ppath is None:
@@ -1059,7 +1070,7 @@ def derive_closure_sample(state_root: str, level: str, epic_key: str, sprint_key
 
     applied_ratios = pest.get("closure_ratios")
     closure, ratios, skipped = {}, {}, {}
-    for metric in CLOSURE_RANGE_KEYS:
+    for metric in CALIBRATED_METRIC_FIELDS:
         total = 0.0
         complete = True
         for cn in children:
@@ -1269,10 +1280,11 @@ def cmd_calibration(args) -> int:
             r = active_scope_ratio(cal, c, m)
             rows.append(("scope", f"{c}/{m}", n, r))
     for lv in CLOSURE_LEVELS:
-        # Closure still calibrates `cost` directly (CLOSURE_RANGE_KEYS keeps its
-        # cost row until the rolled-up cost is itself derived from tokens) — so
-        # this loop stays on the full METRIC_FIELDS, unlike the scope loop above.
-        for m in METRIC_FIELDS:
+        # Closure no longer calibrates `cost` on its own (Task 10): the rolled-up
+        # cost is now derived from the rolled-up tokens_k range, so this loop
+        # moves onto CALIBRATED_METRIC_FIELDS like the scope loop above, rather
+        # than the full METRIC_FIELDS it used while closure cost was still real.
+        for m in CALIBRATED_METRIC_FIELDS:
             n = len(_component_samples(cal, "closure", lv, m))
             r = active_closure_ratio(cal, lv, m)
             rows.append(("closure", f"{lv}/{m}", n, r))
@@ -1554,6 +1566,19 @@ def cmd_estimate_story(args) -> int:
 # active yet. Deliberately a band, not a point: closure cost is variable.
 COLD_START_CLOSURE_BAND = (0.10, 0.25)
 
+# The orchestration fraction (active_orchestration_fraction) is a point
+# estimate; these widen it into a range the same way COLD_START_CLOSURE_BAND
+# widens the closure ratio. There is NO cold-start pair here, unlike closure
+# — and that asymmetry is deliberate, not an oversight to "fix" by adding one.
+# While the component is inactive (< MIN_SAMPLES) the fraction is 0 and the
+# band contributes nothing to the roll-up at all; a cold-start orchestration
+# band would put a number on a quantity this rework explicitly refuses to
+# guess (see active_orchestration_fraction's docstring — every pre-existing
+# measurement was contaminated by a cache-eviction defect). The stderr
+# warning `cmd_estimate_rollup` emits while unseeded is what stands in for
+# that number instead.
+ORCH_SPREAD = (0.8, 1.2)
+
 
 def _child_estimate_value(node, metric):
     """A child's value for `metric`: single-value form first (a story), else
@@ -1561,9 +1586,19 @@ def _child_estimate_value(node, metric):
 
     Reuses CLOSURE_RANGE_KEYS (metric -> parent low/high key names) rather
     than a second near-duplicate mapping.
+
+    `tokens_k`'s single-value form is a mapping (`tokens_block`'s `total` +
+    per-class counts, since Tasks 6/7), not a bare number — same shape
+    `_actual_metric` already unwraps for actuals. Without the same unwrap
+    here, a story that went through `estimate-story` would look like it has
+    no tokens_k estimate at all, and a sprint/epic roll-up would silently
+    skip the metric instead of summing it.
     """
     est = (node or {}).get("estimate") or {}
-    v = _num_or_none(est.get(metric))
+    v = est.get(metric)
+    if metric == "tokens_k" and hasattr(v, "get"):
+        v = v.get("total")
+    v = _num_or_none(v)
     if v is not None:
         return v
     lo, hi = CLOSURE_RANGE_KEYS[metric]
@@ -1572,15 +1607,31 @@ def _child_estimate_value(node, metric):
 
 def cmd_estimate_rollup(args) -> int:
     """Roll a sprint's story estimates, or an epic's sprint estimates, up to
-    the parent as a range: sum(children) + a closure band. The band scales by
-    the calibrated closure ratio for level/metric once active (>=3 samples),
-    else the cold-start band applies (equivalently, ratio 1.0). Output is always
-    range form, even when every child estimate is single-value (the story form).
+    the parent as a range: sum(children) + a closure band + an orchestration
+    band. Output is always range form, even when every child estimate is
+    single-value (the story form).
 
-    The applied ratios are recorded as `estimate.closure_ratios`, per metric, so
-    `derive_closure_sample` can divide them back out — the closure loop measures
-    the residual against the estimated closure overhead, which already contains
-    them.
+    The closure band scales by the calibrated closure ratio for level/metric
+    once active (>=3 samples), else the cold-start band applies (equivalently,
+    ratio 1.0). The orchestration band scales by the calibrated orchestration
+    FRACTION for level/metric once active, else it contributes nothing — there
+    is no cold-start prior for orchestration (see ORCH_SPREAD, and
+    active_orchestration_fraction's docstring for why). Both bands widen by a
+    fixed spread (COLD_START_CLOSURE_BAND, ORCH_SPREAD respectively) rather
+    than landing on a single point.
+
+    The applied ratios/fractions are recorded as `estimate.closure_ratios` and
+    `estimate.orchestration_ratios`, per metric, so `derive_closure_sample` and
+    a future orchestration-sample reader can divide them back out — the same
+    reason `estimate.scope_ratios` exists on a story.
+
+    `cost` is not one of the banded metrics (see CLOSURE_RANGE_KEYS): it is
+    derived from the rolled-up tokens_k range, split across classes by
+    `observed_mix`, then priced for `--model` (falling back to
+    DEFAULT_ESTIMATE_MODEL) — the sprint/epic-level mirror of what
+    `cmd_estimate_story` already does for a story. This keeps the rolled-up
+    cost arithmetically bound to the rolled-up token estimate it prices,
+    instead of banding and calibrating a second, independently-drifting cost.
     """
     level = "sprint" if args.sprint else "epic"
     if level == "sprint":
@@ -1600,6 +1651,7 @@ def cmd_estimate_rollup(args) -> int:
     from ruamel.yaml.comments import CommentedMap
     est = CommentedMap()
     applied = CommentedMap()
+    orch_applied = CommentedMap()
     counted = 0
     for metric, (lo_key, hi_key) in CLOSURE_RANGE_KEYS.items():
         total = 0.0
@@ -1617,10 +1669,14 @@ def cmd_estimate_rollup(args) -> int:
         counted = max(counted, seen)
         ratio = active_closure_ratio(cal, level, metric)
         if ratio is None:
-            ratio = 1.0            # cold start: the band applies unscaled
+            ratio = 1.0            # cold start: the closure band applies unscaled
         applied[metric] = round(ratio, 4)
-        lo = total * (1 + ratio * COLD_START_CLOSURE_BAND[0])
-        hi = total * (1 + ratio * COLD_START_CLOSURE_BAND[1])
+
+        frac = active_orchestration_fraction(cal, level, metric)
+        orch_applied[metric] = round(frac, 4) if frac is not None else 0
+        of = frac or 0.0
+        lo = total * (1 + ratio * COLD_START_CLOSURE_BAND[0] + of * ORCH_SPREAD[0])
+        hi = total * (1 + ratio * COLD_START_CLOSURE_BAND[1] + of * ORCH_SPREAD[1])
         if metric == "tokens_k":
             est[lo_key], est[hi_key] = int(round(lo)), int(round(hi))
         else:
@@ -1630,6 +1686,26 @@ def cmd_estimate_rollup(args) -> int:
         _die_usage(f"{level} {args.sprint or args.epic} has no child estimates to roll up")
 
     est["closure_ratios"] = applied
+    est["orchestration_ratios"] = orch_applied
+    if not any(orch_applied.values()):
+        sys.stderr.write(
+            "pm-status.py: warning — orchestration is unestimated (component has "
+            f"<{MIN_SAMPLES} samples at {level} level); this estimate is known-low "
+            "on tokens and cost.\n")
+
+    model = args.model or DEFAULT_ESTIMATE_MODEL
+    mix = observed_mix(cal)
+    try:
+        for bound, key in (("tokens_k_min", "cost_low"), ("tokens_k_max", "cost_high")):
+            tv = _num_or_none(est.get(bound))
+            if tv is not None:
+                est[key] = cost_from_tokens(split_tokens(tv, mix), model, rate_overrides(args))
+    except KeyError as e:
+        # e.args[0], not str(e) — KeyError.__str__ repr-quotes its argument,
+        # which would double-wrap a message that already reads as prose.
+        _die_usage(e.args[0])
+    est["model"] = model
+
     est["confidence"] = "medium"
     pnode["estimate"] = est
     pnode["updated_at"] = _now_iso()
@@ -3086,6 +3162,10 @@ def build_parser() -> argparse.ArgumentParser:
     er.add_argument("--state-root", required=True)
     er.add_argument("--epic", required=True)
     er.add_argument("--sprint", default="")
+    er.add_argument("--model", default="",
+                    help="model id to price the derived cost; falls back to DEFAULT_ESTIMATE_MODEL")
+    er.add_argument("--token-rates", dest="token_rates", default="",
+                    help="JSON object of per-model rate overrides")
     er.set_defaults(func=cmd_estimate_rollup)
 
     rt = sub.add_parser("rates", help="print the effective token rate table (read-only)")

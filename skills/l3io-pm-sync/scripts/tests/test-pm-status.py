@@ -548,6 +548,17 @@ class TestHitlHours(TestLayoutResolution):
         buckets = [c["bucket"] for c in data["components"] if c["component"] == "closure"]
         self.assertTrue(any(b.endswith("/hitl_hours") for b in buckets), buckets)
 
+    def test_calibration_show_omits_closure_cost_row(self):
+        """Task 10: closure cost is derived at rollup time (tokens x rates),
+        never sampled or displayed on its own — a lingering closure/cost row
+        would advertise a component that can no longer activate."""
+        code, out = self.run_main(["calibration", "show", "--state-root", self.root,
+                                   "--format", "json"])
+        self.assertEqual(code, 0, out)
+        data = json.loads(out)
+        buckets = [c["bucket"] for c in data["components"] if c["component"] == "closure"]
+        self.assertFalse(any(b.endswith("/cost") for b in buckets), buckets)
+
 
 class TestAtomicAndCLI(TestLayoutResolution):
     """Reuses TestLayoutResolution's tree fixture."""
@@ -1720,27 +1731,38 @@ class TestClosureSampling(TestLayoutResolution):
         self.assertNotIn("man_hours", s["ratios"])
         self.assertIn("man_hours", s["skipped"])
 
-    def test_dollar_prefixed_cost_contributes_to_closure_sample(self):
-        # RULING A: cost is stored '$'-prefixed (metrics-contract.md §9); the
-        # numeric guard must not drop it before the '$' is stripped, or cost
-        # closure samples never accumulate under real data.
+    def test_cost_is_never_closure_sampled(self):
+        # Task 10: cost is now derived from the rolled-up tokens_k range at
+        # estimate-rollup time, so it must never accumulate its own closure
+        # ratio — CLOSURE_RANGE_KEYS drops "cost" entirely (previously
+        # test_dollar_prefixed_cost_contributes_to_closure_sample asserted the
+        # opposite; a lingering cost closure sample would band a value the
+        # estimate no longer bands). man_hours is present alongside the
+        # dollar-prefixed cost actuals so the sample still succeeds overall —
+        # this proves cost is skipped by design, not because nothing else
+        # produced a residual.
         sd = os.path.join(self.root, "active", "epic-001", "sprint-01")
         for f in os.listdir(sd):
             if f.endswith(".yaml") and f != "sprint.yaml":
                 os.remove(os.path.join(sd, f))
         self._write(os.path.join(sd, "E001-S01-001.yaml"),
                     {"key": "E001-S01-001", "epic": "E001", "sprint": "S01",
-                     "status": "done", "actual": {"cost": "$3.00"}})
+                     "status": "done", "actual": {"man_hours": 3.0, "cost": "$3.00"}})
         self._write(os.path.join(sd, "E001-S01-002.yaml"),
                     {"key": "E001-S01-002", "epic": "E001", "sprint": "S01",
-                     "status": "done", "actual": {"cost": "$4.00"}})
+                     "status": "done", "actual": {"man_hours": 4.0, "cost": "$4.00"}})
         self._write(os.path.join(sd, "sprint.yaml"),
                     {"key": "S01", "epic": "E001", "status": "done",
-                     "actual": {"cost": "$9.00"},
-                     "estimate": {"cost_low": 1.0, "cost_high": 3.0}})
+                     "actual": {"man_hours": 9.0, "cost": "$9.00"},
+                     "estimate": {"man_hours_low": 8.0, "man_hours_high": 9.0,
+                                  "cost_low": 1.0, "cost_high": 3.0}})
         s, reason = pm.derive_closure_sample(self.root, "sprint", "E001", "S01")
         self.assertIsNotNone(s, reason)
-        self.assertAlmostEqual(s["closure_actual"]["cost"], 2.0)
+        self.assertAlmostEqual(s["closure_actual"]["man_hours"], 2.0)
+        self.assertNotIn("cost", s["closure_actual"])
+        self.assertNotIn("cost", s["ratios"])
+        self.assertNotIn("cost", s["skipped"])
+        self.assertNotIn("cost", pm.CLOSURE_RANGE_KEYS)
 
     def test_v1_file_is_migrated_not_corrupted_on_closure_record(self):
         # RULING B: record_closure_sample is a write path — a stale v1
@@ -2071,6 +2093,83 @@ class TestEstimateRollup(TestLayoutResolution):
         self.assertEqual(code, 0, out)
         _, node = pm.load_node(pm.epic_file(self.root, "E001"))
         self.assertIn("man_hours_low", node["estimate"])
+
+
+class TestRollupOrchestrationBand(TestLayoutResolution):
+    def run_main(self, argv):
+        buf = io.StringIO()
+        try:
+            with redirect_stdout(buf):
+                code = pm.main(argv)
+        except SystemExit as e:
+            code = e.code
+        return code, buf.getvalue()
+
+    def _story_estimate(self):
+        self.run_main(["estimate-story", "--state-root", self.root,
+                       "--story", "E001-S01-003", "--classification", "standard",
+                       "--model", "claude-opus-5"])
+
+    def test_warns_and_omits_band_while_unseeded(self):
+        self._story_estimate()
+        buf = io.StringIO()
+        with redirect_stderr(buf):
+            code, out = self.run_main(["estimate-rollup", "--state-root", self.root,
+                                       "--epic", "E001", "--sprint", "S01"])
+        self.assertEqual(code, 0, out)
+        self.assertIn("orchestration is unestimated", buf.getvalue())
+        _, node = pm.load_node(pm.sprint_file(self.root, "E001", "S01"))
+        self.assertEqual(node["estimate"]["orchestration_ratios"]["tokens_k"], 0)
+
+    def test_band_applied_once_active(self):
+        self._story_estimate()
+        with pm.calibration_lock(self.root):
+            y, cal = pm.load_calibration(self.root)
+            for m in ("man_hours", "hitl_hours", "elapsed_hours", "tokens_k"):
+                cal["orchestration"]["sprint"][m] = {"samples": [2.0, 2.0, 2.0]}
+            pm.save_calibration(y, cal, self.root)
+        code, out = self.run_main(["estimate-rollup", "--state-root", self.root,
+                                   "--epic", "E001", "--sprint", "S01"])
+        self.assertEqual(code, 0, out)
+        _, node = pm.load_node(pm.sprint_file(self.root, "E001", "S01"))
+        est = node["estimate"]
+        self.assertAlmostEqual(float(est["orchestration_ratios"]["tokens_k"]), 2.0, places=2)
+        # 88 total x (1 + closure 0.10 + orchestration 2.0*0.8) = 88 * 2.70
+        self.assertEqual(int(est["tokens_k_min"]), 238)
+
+    def test_rollup_derives_cost_from_rolled_up_tokens(self):
+        """cost is no longer banded independently (Task 10): it must be priced
+        from the ALREADY-BANDED tokens_k_min/max, not from its own residual."""
+        self._story_estimate()
+        code, out = self.run_main(["estimate-rollup", "--state-root", self.root,
+                                   "--epic", "E001", "--sprint", "S01"])
+        self.assertEqual(code, 0, out)
+        _, node = pm.load_node(pm.sprint_file(self.root, "E001", "S01"))
+        est = node["estimate"]
+        _, cal = pm.load_calibration(self.root)
+        mix = pm.observed_mix(cal)
+        expect_low = pm.cost_from_tokens(pm.split_tokens(float(est["tokens_k_min"]), mix),
+                                         "claude-opus-5")
+        expect_high = pm.cost_from_tokens(pm.split_tokens(float(est["tokens_k_max"]), mix),
+                                          "claude-opus-5")
+        self.assertAlmostEqual(float(est["cost_low"]), expect_low, places=2)
+        self.assertAlmostEqual(float(est["cost_high"]), expect_high, places=2)
+        self.assertEqual(est["model"], "claude-opus-5")
+
+    def test_model_flag_selects_rate_card(self):
+        self._story_estimate()
+        code, out = self.run_main(["estimate-rollup", "--state-root", self.root,
+                                   "--epic", "E001", "--sprint", "S01",
+                                   "--model", "claude-haiku-4-5"])
+        self.assertEqual(code, 0, out)
+        _, node = pm.load_node(pm.sprint_file(self.root, "E001", "S01"))
+        est = node["estimate"]
+        self.assertEqual(est["model"], "claude-haiku-4-5")
+        _, cal = pm.load_calibration(self.root)
+        mix = pm.observed_mix(cal)
+        expect_low = pm.cost_from_tokens(pm.split_tokens(float(est["tokens_k_min"]), mix),
+                                         "claude-haiku-4-5")
+        self.assertAlmostEqual(float(est["cost_low"]), expect_low, places=2)
 
 
 class TestParallelClosureResidual(TestLayoutResolution):
