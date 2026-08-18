@@ -21,7 +21,7 @@
       "name": "l3io-pm",
       "source": "./skills",
       "description": "PM orchestration for LiquidLogicLabs delivery teams — plan, execute, help, and sync.",
-      "version": "2.1.5",
+      "version": "2.4.1",
       "author": {
         "name": "Shawn Anderson",
         "email": "shawn@eye-catcher.com"
@@ -37,7 +37,7 @@
       "name": "l3io-sec",
       "source": "./skills",
       "description": "Adversarial security analysis — five threat lenses with AI poisoning cross-cut.",
-      "version": "2.1.5",
+      "version": "2.4.1",
       "author": {
         "name": "Shawn Anderson",
         "email": "shawn@eye-catcher.com"
@@ -50,7 +50,7 @@
       "name": "l3io-util",
       "source": "./skills",
       "description": "Utility skills for BMad projects — project state diagnostics, progress dashboard, and state migration.",
-      "version": "2.1.5",
+      "version": "2.4.1",
       "author": {
         "name": "Shawn Anderson",
         "email": "shawn@eye-catcher.com"
@@ -64,7 +64,7 @@
       "name": "l3io-arch",
       "source": "./skills",
       "description": "Engineering-standards architecture guardrails — universal best practices plus per-stack overlays.",
-      "version": "2.1.5",
+      "version": "2.4.1",
       "author": {
         "name": "Shawn Anderson",
         "email": "shawn@eye-catcher.com"
