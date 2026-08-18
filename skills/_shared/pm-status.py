@@ -2614,20 +2614,47 @@ def cmd_verify(args) -> int:
         problems.append(f"status={node.get('status')!r} (expected done)")
 
     actual = node.get("actual") or {}
-    required = ["elapsed_hours", "man_hours", "tokens_k", "cost"]
+    required = list(METRIC_FIELDS)
     for m in required:
         if m not in actual:
             problems.append(f"actual.{m} absent")
             continue
         val = actual[m]
         # Numeric fields must be numeric; token/cost may be N/A only under non-claude runtime.
-        if m in ("elapsed_hours", "man_hours"):
+        if m in ("elapsed_hours", "man_hours", "hitl_hours"):
             if _is_na(val) or not _is_number(val):
                 problems.append(f"actual.{m}={val!r} (must be numeric)")
         else:  # tokens_k, cost
             if _is_na(val):
                 if args.require_tokens or args.runtime == "claude":
                     problems.append(f"actual.{m}=N/A (forbidden under runtime=claude / --require-tokens)")
+
+    # tokens_k, once structured, is self-verifying: its total must equal the sum
+    # of its four classes, and its cost must equal what those tokens price out to
+    # under its own recorded model. A hand-edited cost is exactly the failure
+    # this closes — without it, a bogus number survives in committed state
+    # indefinitely because nothing ever recomputes it.
+    tk = actual.get("tokens_k")
+    if hasattr(tk, "get"):
+        parts = sum(_num_or_none(tk.get(c)) or 0.0 for c in TOKEN_CLASSES)
+        total = _num_or_none(tk.get("total"))
+        if total is None or abs(total - parts) > 0.01:
+            problems.append(f"actual.tokens_k.total={total!r} != sum of classes ({parts})")
+        model = actual.get("model")
+        if not model:
+            problems.append("actual.model absent (cost cannot be verified)")
+        else:
+            try:
+                expect = cost_from_tokens(tk, str(model), rate_overrides(args))
+            except KeyError as e:
+                # e.args[0], not str(e) — KeyError.__str__ repr-quotes its argument,
+                # which would double-wrap a message that already reads as prose.
+                problems.append(e.args[0])
+            else:
+                got = _num_or_none(actual.get("cost"))
+                if got is None or abs(got - expect) > 0.01:
+                    problems.append(f"actual.cost={got!r} != derived {expect} "
+                                    f"for model {model}")
 
     if kind == "story" and "completion_evidence" not in node:
         problems.append("completion_evidence absent")
@@ -2731,6 +2758,8 @@ def build_parser() -> argparse.ArgumentParser:
     node_args(v)
     v.add_argument("--require-tokens", action="store_true")
     v.add_argument("--runtime", choices=["claude", "other"], default="other")
+    v.add_argument("--token-rates", dest="token_rates", default="",
+                   help="JSON object of per-model rate overrides")
     v.set_defaults(func=cmd_verify)
 
     sh = sub.add_parser("show", help="render a computed sprint or epic roll-up")

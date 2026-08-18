@@ -725,8 +725,11 @@ class TestVerify(TestLayoutResolution):
         actual = CommentedMap()
         actual["elapsed_hours"] = 0.4
         actual["man_hours"] = 3
-        actual["tokens_k"] = 120
-        actual["cost"] = "$1.10"
+        actual["hitl_hours"] = 0.1
+        actual["tokens_k"] = {"total": 120, "input": 80, "output": 30,
+                               "cache_write": 6, "cache_read": 4}
+        actual["cost"] = 0.71
+        actual["model"] = "claude-sonnet-5"
         node["actual"] = actual
         if story:
             ce = CommentedMap()
@@ -760,6 +763,61 @@ class TestVerify(TestLayoutResolution):
         code, _ = self.run_main(
             ["verify", "--state-root", self.root, "--scope", "story", "--story", "E001-S01-999"])
         self.assertEqual(code, 3)
+
+
+class TestVerifyDerivedCost(TestLayoutResolution):
+    def run_main(self, argv):
+        buf = io.StringIO()
+        try:
+            with redirect_stdout(buf):
+                code = pm.main(argv)
+        except SystemExit as e:
+            code = e.code
+        return code, buf.getvalue()
+
+    def _done_story(self, cost, total=4999):
+        p = pm.story_file(self.root, "E001-S01-003")
+        y, node = pm.load_node(p)
+        node["status"] = "done"
+        node["completion_evidence"] = {"fix_iterations": 0}
+        node["actual"] = {"elapsed_hours": 3.1, "man_hours": 14, "hitl_hours": 0.3,
+                          "tokens_k": {"total": total, "input": 412, "output": 34,
+                                       "cache_write": 4300, "cache_read": 253},
+                          "cost": cost, "model": "claude-opus-5"}
+        pm.save_node(y, node, p)
+
+    def test_passes_when_cost_matches_the_tokens(self):
+        self._done_story(29.91)
+        code, out = self.run_main(["verify", "--state-root", self.root, "--scope", "story",
+                                   "--story", "E001-S01-003", "--runtime", "claude"])
+        self.assertEqual(code, 0, out)
+
+    def test_fails_a_hand_edited_cost(self):
+        self._done_story(9.99)
+        code, out = self.run_main(["verify", "--state-root", self.root, "--scope", "story",
+                                   "--story", "E001-S01-003", "--runtime", "claude"])
+        self.assertEqual(code, 4, out)
+        self.assertIn("cost", out)
+
+    def test_fails_when_total_is_not_the_sum(self):
+        self._done_story(29.91, total=999)
+        code, out = self.run_main(["verify", "--state-root", self.root, "--scope", "story",
+                                   "--story", "E001-S01-003", "--runtime", "claude"])
+        self.assertEqual(code, 4, out)
+        self.assertIn("total", out)
+
+    def test_fails_when_hitl_hours_absent(self):
+        p = pm.story_file(self.root, "E001-S01-003")
+        y, node = pm.load_node(p)
+        node["status"] = "done"
+        node["completion_evidence"] = {"fix_iterations": 0}
+        node["actual"] = {"elapsed_hours": 3.1, "man_hours": 14,
+                          "tokens_k": "N/A", "cost": "N/A"}
+        pm.save_node(y, node, p)
+        code, out = self.run_main(["verify", "--state-root", self.root, "--scope", "story",
+                                   "--story", "E001-S01-003"])
+        self.assertEqual(code, 4, out)
+        self.assertIn("hitl_hours", out)
 
 
 class TestVerifyEpicScope(TestLayoutResolution):
