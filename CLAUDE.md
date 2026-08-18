@@ -6,6 +6,12 @@
 
 ## Module Layout
 
+`l3io-util-doctor` routes: `SKILL.md` carries the overview, the keyword table, safety rules
+and the state layout, and each of its fourteen modes lives in its own `steps/` file loaded
+only when its keyword selects it. Add a mode as a file plus a table row — never inline. The
+modes were inlined once and `SKILL.md` reached 96,980 B, so every invocation paid for thirteen
+procedures it would not run.
+
 Module setup is **embedded** in each operational skill (`assets/module-setup.md` + config `scripts/`); there are no standalone `*-setup/` skill directories. Setup runs on first use or via the module's `configure` action.
 
 ## Skill Directory
@@ -19,7 +25,7 @@ skills/
   l3io-pm-help/           SKILL.md, customize.toml, assets/, module.yaml
   l3io-pm-sync/           SKILL.md, customize.toml, scripts/, assets/, module.yaml
   l3io-sec-redteam/       SKILL.md, customize.toml, scripts/, assets/, references/, module.yaml
-  l3io-util-doctor/       SKILL.md, customize.toml, scripts/, assets/, module.yaml
+  l3io-util-doctor/       SKILL.md (router), customize.toml, scripts/, assets/, steps/, references/, module.yaml
   l3io-util-cleanup/      SKILL.md, customize.toml, module.yaml (deprecated forwarder → l3io-util-doctor; no payload)
   l3io-arch-review/       SKILL.md, customize.toml, scripts/, assets/, references/, module.yaml
 .claude/commands/         symlinks → ../../skills/<skill>/SKILL.md
