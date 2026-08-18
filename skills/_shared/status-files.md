@@ -339,7 +339,7 @@ the flag was opt-in and no step file ever passed it, no project ever produced a 
 event log is unconditional so it cannot be silently skipped.
 
 `set-actual` also derives and appends a calibration sample as a side effect of a successful
-write (`--no-calibrate` suppresses it) — see `references/metrics-contract.md` §8 for what it
+write (`--no-calibrate` suppresses it) — see `references/calibration-model.md` for what it
 computes and why a failed derivation only warns rather than failing the actuals write.
 
 `show --state-root {pm_state_root} --epic E001 [--sprint S01]` renders a computed roll-up
@@ -403,7 +403,7 @@ different stories, different sprints, or different epics never contend for the s
 
 `issues.yaml` is not the only shared-append target — `pm-calibration.yaml` is a second one.
 Every `set-actual` across every epic and every parallel subagent may append a calibration
-sample to it (§8 of `metrics-contract.md`), so the **whole read-modify-write cycle** —
+sample to it (`references/calibration-model.md`), so the **whole read-modify-write cycle** —
 load, append the sample, save — runs inside one exclusive flock (`calibration_lock`), not
 just the save. Locking only the save is not sufficient and was not safe: two concurrent
 samplers each loaded the same pre-append state and the second save silently dropped the

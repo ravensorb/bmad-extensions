@@ -44,6 +44,9 @@ const allSkillFiles = [
 const pmRefFiles = [
   { src: path.join(sharedDir, "status-files.md"), rel: path.join("references", "status-files.md") },
   { src: path.join(sharedDir, "metrics-contract.md"), rel: path.join("references", "metrics-contract.md") },
+  // The calibration model, split out of metrics-contract.md: pm-status.py performs all of it
+  // and a normal run never reads it, so it must not sit in the contract a capture agent loads.
+  { src: path.join(sharedDir, "calibration-model.md"), rel: path.join("references", "calibration-model.md") },
 ];
 
 // PM skills that ship pm-status.py as an install payload (execution skills only)
