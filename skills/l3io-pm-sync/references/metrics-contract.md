@@ -210,21 +210,32 @@ hand through `set-estimate` will show a scalar `tokens_k` next to a mechanized s
 mapping. Prefer `estimate-story`/`estimate-rollup` for anything that should carry a class
 split.
 
-**Divergence 2 — `cost`'s on-disk type is command-dependent.** The writers disagree, and the
-docs follow the code rather than pretending otherwise:
+**Divergence 2 — `cost`'s on-disk type depends on which path wrote it, not on which
+subcommand.** `set-actual` writes an **unquoted float** in the normal, token-given path —
+`cost_from_tokens` returns a `float`, and `cmd_set_actual`'s write loop only routes *string*
+values through `_coerce` (`block_data[k] = v if not isinstance(v, str) else _coerce(k, v)`), so
+a float is stored as-is: `cost: 0.11`, no quotes. The **only** case `set-actual` writes `cost`
+as a string is the `--tokens-na` sentinel path, where `cost` is set to the literal string
+`"N/A"` (never a real value) — that string is what actually reaches `_coerce`, and `_is_na`
+returns it unchanged.
 
-| Writer | `cost` is written as |
-|---|---|
-| `set-actual` | a **string** (`_coerce` special-cases `cost` to never int-coerce it) |
-| `estimate-story` | a **float** (`round(value, 2)`) |
-| `estimate-rollup` | a **float** (`round(value, 2)`) |
+| Writer | Path | `cost` is written as |
+|---|---|---|
+| `set-actual` | tokens given (the normal case) | an **unquoted float** (`cost_from_tokens`'s return value, stored directly) |
+| `set-actual` | `--tokens-na` (runtime=other only) | the literal **string** `"N/A"` |
+| `estimate-story` | — | a **float** (`round(value, 2)`) |
+| `estimate-rollup` | — | a **float** (`round(value, 2)`) |
+
+So in ordinary operation — any node with a real `cost` — every writer agrees on an unquoted
+float; the only quoted form is the `N/A` sentinel itself, which is a string by definition
+regardless of which field carries it.
 
 Every reader on the calibration and roll-up paths goes through `_num_or_none`, which parses
-both forms (and strips a leading `$`), so the divergence is harmless there and was left
-alone deliberately: normalizing it would rewrite the quoting of every existing state file
-for no behavioural gain. `_accumulate_actuals` (what `show` sums) is the one reader that
-does a bare `float()` — it handles a plain numeric string fine but **drops a `$`-prefixed
-value silently**.
+both a bare number and a numeric string (and strips a leading `$`), so a hand-constructed
+quoted numeric string (e.g. from an older hand-edit, or a backfill script) still reads
+correctly there. `_accumulate_actuals` (what `show` sums) is the one reader that does a bare
+`float()` — it handles a plain numeric string fine but **drops a `$`-prefixed value
+silently**.
 
 So: pass a **bare decimal with no currency symbol** if you are ever constructing one by hand
 for a test or a backfill — `4.80`, never `'$4.80'`. Currency symbols belong in prose reports,
@@ -858,9 +869,16 @@ because the metric set itself changed. `migrate_calibration_metrics` does this i
   dropped** — carried forward as-is, with a log line suggesting it may be contaminated by
   orchestration-shaped overhead that leaked into story samples under the old rules (exactly
   the defect `orchestration` now isolates into its own component).
-- **`orchestration` and `token_mix` are seeded empty**, but only when this pass actually found
-  and moved legacy content (not unconditionally — seeding them on a brand-new project's first,
-  no-op pass would recreate a conflict this design deliberately avoids).
+- **`token_mix` is seeded empty by this migration** — but only when this pass actually found
+  and moved legacy content (`if log and "token_mix" not in cal`), not unconditionally: seeding
+  it on a brand-new project's first, no-op pass would recreate a conflict this design
+  deliberately avoids. **`orchestration` is a separate case, seeded by a different mechanism**:
+  `new_calibration` always includes an empty `orchestration` key on a fresh file, and
+  `load_calibration` backfills it on every load of an older file that lacks one
+  (`for key, default in (("scope", ...), ..., ("orchestration", CLOSURE_LEVELS)): if key not
+  in data: data[key] = ...`) — unconditionally, independent of whether
+  `migrate_calibration_metrics` finds anything to migrate. `migrate_calibration_metrics`
+  itself never seeds `orchestration` at all.
 
 This runs **once**, gated on `CALIBRATION_METRICS_MARKER = "metrics_migrated_at"` — a
 positive marker stamped at the end of every real pass, **even a no-op one** on a brand-new

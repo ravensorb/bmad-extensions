@@ -91,9 +91,25 @@ python3 {pm_status} dispatch --state-root {pm_state_root} --event close \
 
 Code review returns findings by severity.
 
-**If CRITICAL or HIGH findings:** spawn dev subagent again to fix (fix iteration) — bracket this
-re-dispatch with the same open/close pair as §2's `bmad-dev-story` call above (same agent name,
-same story identity). Increment fix counter.
+**If CRITICAL or HIGH findings:** spawn dev subagent again to fix (fix iteration). Bracket this
+re-dispatch with its own open/close pair — same agent name and story identity as §2's
+`bmad-dev-story` call, so a hang here is flagged the same way:
+
+```bash
+python3 {pm_status} dispatch --state-root {pm_state_root} --event open \
+  --agent bmad-dev-story --epic {epic_key} --sprint {sprint_num} --story {story_key} \
+  --session-id {session_id}
+```
+
+Spawn `bmad-dev-story` subagent again with the code review findings to fix.
+
+```bash
+python3 {pm_status} dispatch --state-root {pm_state_root} --event close \
+  --agent bmad-dev-story --epic {epic_key} --sprint {sprint_num} --story {story_key} \
+  --session-id {session_id}
+```
+
+Increment fix counter.
 
 **Fix loop cap:** `{max_fix_iterations}` iterations per story (bound at
 `step-01-classify-work.md` §5 — 10 for CODE/MIXED, 3 for DOCS/CONFIG). If findings persist
