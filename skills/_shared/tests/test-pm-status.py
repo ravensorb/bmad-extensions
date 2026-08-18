@@ -1845,6 +1845,36 @@ class TestSetActualCalibrates(TestLayoutResolution):
              "--story", "E001-S01-003", "--tokens-na", "--runtime", "claude"])
         self.assertEqual(code, 2)
 
+    def test_estimate_story_tokens_k_produces_a_real_scope_sample(self):
+        """RULING (Task 10 fix round 1): `_estimated_story` above hand-writes
+        estimate.tokens_k as a bare int — the same blind spot `_child_estimate_value`
+        had before Task 10 fixed it, and it can only ever confirm the shape its
+        author had in mind. `estimate-story` actually writes tokens_k as a
+        `tokens_block` MAPPING (Tasks 6/7); `derive_story_sample` read it with
+        `_num_or_none(est.get("tokens_k"))` directly, which returns None for a
+        mapping, so the tokens_k scope component silently received zero samples
+        in production. This drives the real CLI end to end — estimate-story then
+        set-actual — the same style Task 10's own roll-up tests used to catch the
+        first instance, and confirms a sample with the expected magnitude, not
+        just a nonzero count."""
+        code, out = self.run_main(["estimate-story", "--state-root", self.root,
+                                   "--story", "E001-S01-003", "--classification", "standard",
+                                   "--model", "claude-opus-5"])
+        self.assertEqual(code, 0, out)
+        code, out = self.run_main(
+            ["set-actual", "--state-root", self.root, "--node", "story",
+             "--story", "E001-S01-003", "--tokens-input", "20", "--tokens-output", "8",
+             "--tokens-cache-write", "30", "--tokens-cache-read", "50",
+             "--model", "claude-opus-5", "--runtime", "claude"])
+        self.assertEqual(code, 0, out)
+        _, cal = pm.load_calibration(self.root)
+        samples = pm._component_samples(cal, "scope", "standard", "tokens_k")
+        self.assertEqual(len(samples), 1, cal)
+        # estimate total 88 (band mid 70 x cold-start ratio 1.0 x fix 1.25);
+        # actual total 20+8+30+50=108; no completion_evidence -> provenance
+        # "backout": sample = actual x applied(1.0) / estimate = 108/88
+        self.assertAlmostEqual(float(samples[0]), 108.0 / 88.0, places=4)
+
 
 class TestEstimateStory(TestLayoutResolution):
     def run_main(self, argv):
@@ -2170,6 +2200,67 @@ class TestRollupOrchestrationBand(TestLayoutResolution):
         expect_low = pm.cost_from_tokens(pm.split_tokens(float(est["tokens_k_min"]), mix),
                                          "claude-haiku-4-5")
         self.assertAlmostEqual(float(est["cost_low"]), expect_low, places=2)
+
+    def test_partial_seed_still_warns_and_names_only_inactive_metrics(self):
+        """RULING (Task 10 fix round 1): `not any(orch_applied.values())` only
+        fires when EVERY metric is inactive. Orchestration calibrates per
+        metric, and a metric is sampled only when every child carries a numeric
+        actual for it, so a mixed runtime can activate man_hours while
+        tokens_k never does — `any()` is then True and the warning would stay
+        silent on exactly the metric it exists to flag. Seed only man_hours
+        (the other two prior tests seed none or all four) and confirm the
+        warning still fires, names the still-inactive metrics, and does not
+        name the metric that actually activated."""
+        self._story_estimate()
+        with pm.calibration_lock(self.root):
+            y, cal = pm.load_calibration(self.root)
+            cal["orchestration"]["sprint"]["man_hours"] = {"samples": [2.0, 2.0, 2.0]}
+            pm.save_calibration(y, cal, self.root)
+        buf = io.StringIO()
+        with redirect_stderr(buf):
+            code, out = self.run_main(["estimate-rollup", "--state-root", self.root,
+                                       "--epic", "E001", "--sprint", "S01"])
+        self.assertEqual(code, 0, out)
+        msg = buf.getvalue()
+        self.assertIn("orchestration is unestimated", msg)
+        self.assertIn("tokens_k", msg)
+        self.assertIn("hitl_hours", msg)
+        self.assertIn("elapsed_hours", msg)
+        self.assertNotIn("man_hours", msg)
+        _, node = pm.load_node(pm.sprint_file(self.root, "E001", "S01"))
+        est = node["estimate"]
+        self.assertGreater(float(est["orchestration_ratios"]["man_hours"]), 0)
+        self.assertEqual(est["orchestration_ratios"]["tokens_k"], 0)
+
+    def test_token_rates_override_moves_the_derived_cost(self):
+        """A parsed-but-unapplied flag is a defect class this branch already
+        hit once (Task 3's review) — assert the override actually changes the
+        priced number, not just that it's accepted without error."""
+        self._story_estimate()
+        code, out = self.run_main(["estimate-rollup", "--state-root", self.root,
+                                   "--epic", "E001", "--sprint", "S01"])
+        self.assertEqual(code, 0, out)
+        _, node = pm.load_node(pm.sprint_file(self.root, "E001", "S01"))
+        baseline_cost = float(node["estimate"]["cost_low"])
+
+        overrides = json.dumps({"claude-opus-5": {"input": 500.0}})
+        code, out = self.run_main(["estimate-rollup", "--state-root", self.root,
+                                   "--epic", "E001", "--sprint", "S01",
+                                   "--token-rates", overrides])
+        self.assertEqual(code, 0, out)
+        _, node = pm.load_node(pm.sprint_file(self.root, "E001", "S01"))
+        overridden_cost = float(node["estimate"]["cost_low"])
+        self.assertGreater(overridden_cost, baseline_cost)
+
+    def test_unknown_model_exits_2(self):
+        self._story_estimate()
+        err = io.StringIO()
+        with redirect_stderr(err):
+            code, out = self.run_main(["estimate-rollup", "--state-root", self.root,
+                                       "--epic", "E001", "--sprint", "S01",
+                                       "--model", "not-a-real-model"])
+        self.assertEqual(code, 2, out)
+        self.assertIn("unknown model", err.getvalue().lower())
 
 
 class TestParallelClosureResidual(TestLayoutResolution):

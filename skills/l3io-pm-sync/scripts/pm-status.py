@@ -806,6 +806,29 @@ def _actual_metric(actual: dict, metric: str):
     return _num_or_none(v)
 
 
+def _estimate_metric(est: dict, metric: str):
+    """A metric's numeric value from an ESTIMATE block. The single-value
+    (story) form of `tokens_k` is a MAPPING (`tokens_block`'s `total` + the
+    four per-class counts, since Tasks 6/7) — the same shape `_actual_metric`
+    unwraps above, mirrored here for the estimate side.
+
+    EVERY reader of an estimate's tokens_k must go through this, never
+    `_num_or_none(est.get(metric))` directly. That direct form is exactly what
+    silently zeroed two independent things before Task 10 found and fixed the
+    first: `_child_estimate_value` (a sprint/epic roll-up would see zero
+    children with a tokens_k estimate, `estimate-rollup` would just never emit
+    `tokens_k_min`/`tokens_k_max`) and `derive_story_sample` (a story's
+    tokens_k scope ratio never accumulated a sample — cold-start forever,
+    silently, for the metric the whole cost derivation now hangs off). Both
+    call sites now route through here so a fourth instance can't reintroduce
+    the same blind spot by hand-duplicating the unwrap.
+    """
+    v = (est or {}).get(metric)
+    if metric == "tokens_k" and hasattr(v, "get"):
+        v = v.get("total")
+    return _num_or_none(v)
+
+
 def derive_story_sample(node):
     """Compute a story's scope samples and its fix cohort. None when not derivable.
 
@@ -848,7 +871,7 @@ def derive_story_sample(node):
 
     ratios = {}
     for metric in CALIBRATED_METRIC_FIELDS:
-        e_num, a_num = _num_or_none(est.get(metric)), _actual_metric(act, metric)
+        e_num, a_num = _estimate_metric(est, metric), _actual_metric(act, metric)
         if e_num is None or a_num is None:
             continue          # missing, N/A, or non-numeric — never coerced to zero
         if e_num == 0:
@@ -1585,20 +1608,12 @@ def _child_estimate_value(node, metric):
     the midpoint of its range form (a sprint). None if neither is present.
 
     Reuses CLOSURE_RANGE_KEYS (metric -> parent low/high key names) rather
-    than a second near-duplicate mapping.
-
-    `tokens_k`'s single-value form is a mapping (`tokens_block`'s `total` +
-    per-class counts, since Tasks 6/7), not a bare number — same shape
-    `_actual_metric` already unwraps for actuals. Without the same unwrap
-    here, a story that went through `estimate-story` would look like it has
-    no tokens_k estimate at all, and a sprint/epic roll-up would silently
-    skip the metric instead of summing it.
+    than a second near-duplicate mapping, and `_estimate_metric` (not a local
+    unwrap) for the single-value read — see that function's docstring for why
+    duplicating the tokens_k unwrap here is exactly the mistake to avoid.
     """
     est = (node or {}).get("estimate") or {}
-    v = est.get(metric)
-    if metric == "tokens_k" and hasattr(v, "get"):
-        v = v.get("total")
-    v = _num_or_none(v)
+    v = _estimate_metric(est, metric)
     if v is not None:
         return v
     lo, hi = CLOSURE_RANGE_KEYS[metric]
@@ -1687,11 +1702,20 @@ def cmd_estimate_rollup(args) -> int:
 
     est["closure_ratios"] = applied
     est["orchestration_ratios"] = orch_applied
-    if not any(orch_applied.values()):
+    # ANY inactive metric warns, not just "every metric inactive" (`not any(...)`
+    # would under-fire: orchestration calibrates per metric, and a metric is
+    # sampled only when every child carries a numeric actual for it, so under a
+    # mixed runtime man_hours can activate while tokens_k never does — `any()`
+    # would then be true and stay silent on exactly the metric the warning
+    # exists to flag). Named, not blanket: listing which metrics are still
+    # unestimated makes the warning actionable instead of a caveat that is
+    # "always true anyway" once any single metric has activated.
+    inactive = [m for m, v in orch_applied.items() if not v]
+    if inactive:
         sys.stderr.write(
-            "pm-status.py: warning — orchestration is unestimated (component has "
-            f"<{MIN_SAMPLES} samples at {level} level); this estimate is known-low "
-            "on tokens and cost.\n")
+            "pm-status.py: warning — orchestration is unestimated for "
+            f"{', '.join(inactive)} (component has <{MIN_SAMPLES} samples at "
+            f"{level} level); this estimate is known-low on those metrics.\n")
 
     model = args.model or DEFAULT_ESTIMATE_MODEL
     mix = observed_mix(cal)
