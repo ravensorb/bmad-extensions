@@ -29,7 +29,11 @@ Subcommands
   set-status    --state-root S  (--story KEY | --epic ID [--sprint ID])  --status S
                 [--title T] [--flock] [--no-events] [--session-id ID]
   set-actual    --state-root S   --node {story,sprint,epic}  (--story KEY | --epic ID [--sprint ID])
-                [--elapsed-hours H] [--man-hours H] [--hitl-hours H] [--tokens-k K] [--cost C]
+                [--elapsed-hours H] [--man-hours H] [--hitl-hours H]
+                [--tokens-input K] [--tokens-output K] [--tokens-cache-write K] [--tokens-cache-read K]
+                (any --tokens-* requires --model M; [--token-rates JSON] overrides its rate card;
+                cost is DERIVED from tokens x rates — --cost is declared but always rejected)
+                [--tokens-na]   (in place of --tokens-*; runtime=other only, forbidden under runtime=claude)
                 [--runtime {claude,other}] [--flock] [--no-events] [--session-id ID]
                 [--no-calibrate]
                 (derives the node's calibration sample inline — write
@@ -1945,7 +1949,9 @@ def cmd_set_actual(args) -> int:
         try:
             cost = cost_from_tokens(given, args.model, rate_overrides(args))
         except KeyError as e:
-            _die_usage(str(e))
+            # e.args[0], not str(e) — KeyError.__str__ repr-quotes its argument,
+            # which would double-wrap a message that already reads as prose.
+            _die_usage(e.args[0])
         provided["tokens_k"] = tokens_block(given)
         provided["cost"] = cost
         provided["model"] = args.model
