@@ -20,6 +20,7 @@
 //   5. config-values values quoted in prose match the defaults customize.toml ships
 //   6. status-values --status filters named in skill phrase tables are real state folders
 //   7. metric-list   metrics-contract.md documents exactly the metrics in METRIC_FIELDS
+//   8. digest-size   the activation digest stays inside its byte budget
 //
 // Usage:
 //   node scripts/check-docs.mjs        # report and exit nonzero on any failure (CI)
@@ -524,6 +525,53 @@ function checkMetricList() {
 }
 
 // ---------------------------------------------------------------------------
+// 8. The activation digest stays inside its byte budget.
+//
+// Why a byte count is worth gating: step-00-activate.md §8 exists BECAUSE the two deep
+// references were too expensive to load per subagent (59,398 B -> 4,960 B at commit 7b9c0ca).
+// Every subagent re-pays this section, and the orchestrator re-pays it on every prompt-cache
+// re-creation, so growth here is multiplied by invocation count. It has already crept back to
+// 8,580 B once, absorbing the five-metric model one reasonable-looking paragraph at a time.
+//
+// This is a RATCHET, not a target. Raising DIGEST_BUDGET is a deliberate act with a reason in
+// the commit message; lowering it as content moves out is free and encouraged. The check says
+// nothing about whether the content is good — only that adding to it is a decision someone
+// made on purpose.
+const DIGEST_FILE = "skills/_shared/steps/shared/step-00-activate.md";
+const DIGEST_BUDGET = 9000;
+
+function checkDigestSize() {
+  if (!exists(DIGEST_FILE)) {
+    failures.push(`${DIGEST_FILE}: not found — has the activation step moved?`);
+    return;
+  }
+  const text = read(DIGEST_FILE);
+  const start = text.indexOf("## 8.");
+  const end = text.indexOf("## 9.", start + 1);
+  if (start === -1 || end === -1) {
+    failures.push(
+      `${DIGEST_FILE}: could not locate the "## 8." digest section (bounded by "## 9.") — ` +
+        `renumbering the sections breaks this check; update DIGEST_FILE/section markers`,
+    );
+    return;
+  }
+  const bytes = Buffer.byteLength(text.slice(start, end), "utf8");
+  if (bytes > DIGEST_BUDGET) {
+    failures.push(
+      `${DIGEST_FILE} §8: activation digest is ${bytes} B, over its ${DIGEST_BUDGET} B budget ` +
+        `by ${bytes - DIGEST_BUDGET} B\n` +
+        `      Every subagent re-pays this section and the orchestrator re-pays it on every\n` +
+        `      prompt-cache re-creation. Either move the addition to a reference and cite it\n` +
+        `      from the routing table, or raise DIGEST_BUDGET in scripts/check-docs.mjs and\n` +
+        `      say why in the commit message.`,
+    );
+  }
+  if (verbose) {
+    console.log(`  digest-size:    ${bytes} B / ${DIGEST_BUDGET} B budget`);
+  }
+}
+
+// ---------------------------------------------------------------------------
 
 checkSkillNames();
 checkGatingTables();
@@ -532,6 +580,7 @@ checkCliSurface();
 checkConfigValues();
 checkStatusValues();
 checkMetricList();
+checkDigestSize();
 
 for (const note of notes) if (verbose) console.log(`  note: ${note}`);
 
