@@ -1480,19 +1480,33 @@ class TestCalibrationMetricsMigration(unittest.TestCase):
     file in place, without bumping `version` (still 2 — compatibility is by
     shape-tolerant reads, never a version gate).
 
-    The "before" fixture here is hand-authored, not built by running a real
-    command: `git log -S` over this file's whole history turns up no commit
-    where a calibration SCOPE/CLOSURE bucket ever used a literal "time_hours"
-    key (METRIC_FIELDS already read "elapsed_hours" as far back as the file
-    goes) or calibrated `cost` unconditionally without excluding it — the
-    "old rules" this task migrates away from predate what this repo tracks.
-    There is no real command left in this codebase whose output would
-    produce that shape, so hand-authoring the fixture (matching the task
-    brief's own Step-1 fixture) is the only option. Where a REAL write path
-    can produce genuine data instead (the `fix` cohort structure has not
-    changed shape at all), the tests below use it — see
+    Gating is by a POSITIVE MARKER (`CALIBRATION_METRICS_MARKER`,
+    `metrics_migrated_at`), stamped once a real pass through the function
+    finishes — even a no-op one. An earlier design inferred "not yet
+    migrated" from the presence/absence of the old `cost`/`time_hours` keys;
+    the coordinator rejected it because that inference has a silent blind
+    spot on a non-Claude-runtime project (cost is always N/A there, so a
+    file that also lacks time_hours samples would read as "already
+    migrated" and never have its man_hours/fix samples quarantined — see
+    test_man_hours_quarantined_even_without_cost_or_time_hours_markers,
+    which falsifies that design). `man_hours` and `fix` now quarantine
+    unconditionally on the one authoritative pass, no corroborating marker
+    needed.
+
+    The main "before" fixture (in setUp) is hand-authored, not built by
+    running a real command: `git log -S` over this file's whole history
+    turns up no commit where a calibration SCOPE/CLOSURE bucket ever used a
+    literal "time_hours" key (METRIC_FIELDS already read "elapsed_hours" as
+    far back as the file goes) or calibrated `cost` unconditionally without
+    excluding it — the "old rules" this task migrates away from predate
+    what this repo tracks. There is no real command left in this codebase
+    whose output would produce that shape, so hand-authoring the fixture
+    (matching the task brief's own Step-1 fixture) is the only option.
+    Where a REAL write path can produce genuine data instead (the `fix`
+    cohort structure has not changed shape at all, and neither has a lone
+    `man_hours` sample), the tests below use it — see
     test_fix_cohort_built_via_real_writes_is_quarantined_wholesale and
-    test_man_hours_alone_is_never_quarantined_without_a_corroborating_marker.
+    test_man_hours_written_after_the_one_time_cutover_is_never_revisited.
     """
 
     def setUp(self):
@@ -1591,18 +1605,54 @@ class TestCalibrationMetricsMigration(unittest.TestCase):
         self.assertIn("sprint", cal["closure"])
         self.assertEqual(len(cal["closure"]["sprint"]), 0)
 
-    def test_man_hours_alone_is_never_quarantined_without_a_corroborating_marker(self):
-        """Data-safety proof, built via the REAL write path (not a hand-authored
-        fixture): `man_hours` is still a legitimately-calibrated metric after
-        the rework, under a new definition, and is structurally identical old
-        vs new — there is no marker on a lone man_hours sample. Migration must
-        therefore never touch a bucket that shows no unambiguous legacy key
-        (`cost`/`time_hours`) of its own, or it would quarantine a perfectly
-        valid post-rework sample with nothing to justify it.
+    def test_man_hours_quarantined_even_without_cost_or_time_hours_markers(self):
+        """The coordinator's motivating case: a non-Claude-runtime project
+        never accumulates `cost` samples (cost is N/A there and skipped by
+        calibration), and may equally have no `time_hours` samples for any
+        other reason. Such a file's ONLY sign of pre-rework vintage is the
+        man_hours samples themselves — no unambiguous key at all.
 
-        This uses a SEPARATE fresh root (not self.root, which is pre-seeded
-        with a legacy `complex` bucket) so the "standard" bucket this test
-        writes into never carries a legacy marker at all.
+        This is the test that falsifies inferring "already migrated" from
+        legacy-key presence/absence: that design would read "no cost, no
+        time_hours" as "nothing to do" and leave old-definition man_hours
+        ratios silently in force forever. Gating on a positive marker
+        instead means an unmigrated file gets the full treatment regardless
+        of which sample types it happens to contain.
+        """
+        root = os.path.join(self.d, "no-cost-no-time-state")
+        os.makedirs(root)
+        with open(pm.calibration_path(root), "w") as f:
+            f.write(
+                "version: 2\n"
+                "granularity: story\n"
+                "scope:\n"
+                "  standard:\n"
+                "    man_hours: {samples: [3.0, 3.1, 3.2]}\n"
+            )
+        y, cal = pm.load_calibration(root)
+        log = pm.migrate_calibration_metrics(y, cal, root)
+        pm.save_calibration(y, cal, root)
+        self.assertTrue(any("QUARANTINE" in line and "man_hours" in line for line in log))
+        self.assertNotIn("man_hours", cal["scope"]["standard"])
+        self.assertEqual(cal["legacy"]["scope"]["standard"]["man_hours"]["samples"],
+                         [3.0, 3.1, 3.2])
+
+    def test_man_hours_written_after_the_one_time_cutover_is_never_revisited(self):
+        """Data-safety proof, built via the REAL write path (not a
+        hand-authored fixture): the migration's one authoritative pass runs
+        on a project's VERY FIRST write, before that write's own sample is
+        even appended — even when there is nothing yet to migrate — and
+        stamps CALIBRATION_METRICS_MARKER right there. Every man_hours
+        sample written by every subsequent real write to that same project,
+        no matter how many, is therefore never revisited: the marker gate
+        short-circuits before any bucket is even inspected again.
+
+        This is the replacement for an earlier test of the same name's
+        intent that reasoned about per-bucket "corroborating markers" — a
+        mechanism the coordinator correctly rejected (see
+        migrate_calibration_metrics's docstring and
+        test_man_hours_quarantined_even_without_cost_or_time_hours_markers).
+        The safety property survives; the mechanism producing it changed.
         """
         fresh_root = os.path.join(self.d, "fresh-state")
         os.makedirs(fresh_root)
@@ -1610,29 +1660,42 @@ class TestCalibrationMetricsMigration(unittest.TestCase):
                "cost": 4.80, "fix_factor": 1.25, "scope_ratio": 1.0}
         act = {"man_hours": 7, "elapsed_hours": 1.8, "tokens_k": {"total": 355},
                "cost": 5.32}
-        node = {"key": "E001-S01-003", "classification": "standard",
-                "estimate": est, "actual": act, "completion_evidence": {"fix_iterations": 0}}
-        pm.record_story_sample(fresh_root, node)  # real write path, real hook
+
+        def _node(key):
+            return {"key": key, "classification": "standard",
+                    "estimate": dict(est), "actual": dict(act),
+                    "completion_evidence": {"fix_iterations": 0}}
+
+        pm.record_story_sample(fresh_root, _node("E001-S01-001"))  # real write path
         _, cal = pm.load_calibration(fresh_root)
+        self.assertIn(pm.CALIBRATION_METRICS_MARKER, cal)  # stamped on the very first write
+        self.assertNotIn("legacy", cal)  # nothing existed yet to quarantine
         self.assertEqual(len(pm._component_samples(cal, "scope", "standard", "man_hours")), 1)
-        self.assertNotIn("legacy", cal)  # nothing was ever found to quarantine
+
+        pm.record_story_sample(fresh_root, _node("E001-S01-002"))  # a later real write
+        _, cal2 = pm.load_calibration(fresh_root)
+        self.assertEqual(len(pm._component_samples(cal2, "scope", "standard", "man_hours")), 2)
+        self.assertNotIn("legacy", cal2)  # neither sample was ever touched
 
     def test_fix_cohort_built_via_real_writes_is_quarantined_wholesale(self):
         """The `fix` payload here is 100% real: built by calling
         `record_story_sample` (the actual write path) three times, on a
-        FRESH root with no legacy markers of its own, so the `clean` cohort
-        crosses MIN_SAMPLES exactly as a real project would — and so those
-        three real writes never trip the migration hook themselves (nothing
-        legacy-shaped is present yet to trigger it).
+        FRESH root, so the `clean` cohort crosses MIN_SAMPLES exactly as a
+        real project would. The first of those three writes stamps
+        CALIBRATION_METRICS_MARKER (the migration's own one-time-pass
+        marker) since nothing existed yet to migrate — correctly, per
+        test_man_hours_written_after_the_one_time_cutover_is_never_revisited.
 
-        `fix` itself carries no structural marker distinguishing old from new
-        (decision: quarantine wholesale, not per-metric), so the trigger for
-        treating the FILE as legacy has to come from elsewhere — a
-        `cost` key hand-injected into an unrelated scope bucket after the
-        real writes, standing in for the one signal a genuinely pre-rework
-        project would have shown on its own. Everything downstream of that
-        trigger (the fix cohort itself, and the assertion that it moved
-        intact) is real, not hand-authored.
+        To then prove `fix` DOES quarantine wholesale on a genuinely
+        unmigrated file (decision: no per-metric split, no corroborating
+        marker needed — see migrate_calibration_metrics's docstring), this
+        strips that marker before calling migrate_calibration_metrics
+        directly: no real pre-Task-11 project's calibration file could ever
+        have carried a marker this task itself introduces, so stripping it
+        is the accurate way to simulate genuine pre-upgrade disk state.
+        Everything else here — the fix cohort itself, and the assertion
+        that it moved intact — is real data from real writes, not
+        hand-authored.
         """
         fresh_root = os.path.join(self.d, "fix-quarantine-state")
         os.makedirs(fresh_root)
@@ -1646,15 +1709,11 @@ class TestCalibrationMetricsMigration(unittest.TestCase):
             pm.record_story_sample(fresh_root, node)
         _, cal = pm.load_calibration(fresh_root)
         self.assertEqual(int(cal["fix"]["complex"]["clean"]["samples"]), 3)
-        self.assertNotIn("legacy", cal)  # the 3 real writes alone triggered nothing
+        self.assertIn(pm.CALIBRATION_METRICS_MARKER, cal)  # stamped by the first of these 3 writes
         pre_mean = float(cal["fix"]["complex"]["clean"]["mean_man_hours"])
 
-        # Stand in for the one legacy signal a real pre-rework project would
-        # have carried on its own (no real command in this codebase can
-        # produce a "cost"-calibrated scope bucket any more — see the class
-        # docstring).
         y, cal = pm.load_calibration(fresh_root)
-        cal["scope"]["standard"] = {"cost": {"samples": [1.0]}}
+        del cal[pm.CALIBRATION_METRICS_MARKER]
         pm.save_calibration(y, cal, fresh_root)
 
         y, cal = pm.load_calibration(fresh_root)
@@ -1899,10 +1958,15 @@ class TestStorySampling(unittest.TestCase):
         _, cal = pm.load_calibration(self.root)
         self.assertEqual(cal["version"], pm.CALIBRATION_SCHEMA_VERSION)
         self.assertTrue(os.path.exists(p + ".v1"))
-        # migration seeds scope["complex"]["man_hours"] with the old blended
-        # ratio as one sample; record_story_sample appends a second on top —
-        # proof the migrated structure, not a corrupted v1 shape, took the write.
-        self.assertEqual(len(pm._component_samples(cal, "scope", "complex", "man_hours")), 2)
+        # The v1->v2 migration seeds scope["complex"]["man_hours"] with the
+        # old blended ratio as one sample; the metrics migration (Task 11)
+        # then runs in the SAME record_story_sample call, immediately after,
+        # and quarantines that seed — it is exactly as pre-rework as any
+        # other legacy man_hours sample, just arrived via a different
+        # upgrade path. Only the fresh sample this call itself derives lands
+        # in scope; the v1 seed survives, moved, under `legacy`.
+        self.assertEqual(len(pm._component_samples(cal, "scope", "complex", "man_hours")), 1)
+        self.assertEqual(cal["legacy"]["scope"]["complex"]["man_hours"]["samples"], [1.3])
         self.assertEqual(int(cal["fix"]["complex"]["clean"]["samples"]), 1)
 
 
@@ -2784,6 +2848,13 @@ class TestConvergence(TestLayoutResolution):
     def test_calibrated_component_does_not_drift_on_a_perfect_estimate(self):
         y, cal = pm.load_calibration(self.root)
         cal["scope"]["complex"] = {"man_hours": {"samples": [2.0, 2.0, 2.0]}}
+        # This fixture simulates an ONGOING project that already has 3 real
+        # calibrated samples — not a legacy import — so it must also carry
+        # the migration marker: a real post-Task-11 deployment's file always
+        # does after its first write, and without it the very next
+        # set-actual below would (correctly, for a genuinely unmigrated
+        # file) quarantine this seed as pre-rework data.
+        cal[pm.CALIBRATION_METRICS_MARKER] = pm._now_iso()
         pm.save_calibration(y, cal, self.root)
         for i in range(20, 26):
             key = self._new_story(i)

@@ -720,67 +720,62 @@ def weighted_ratio(samples: list) -> float:
 # never drops or corrects the sample itself.
 TOKENS_SANITY_RANGE = (0.5, 2.0)
 
-# Keys that ONLY EVER existed under the pre-metrics-rework rules: `cost` was
-# calibrated per-metric before Task 10 derived it from tokens x rates instead,
-# and `time_hours` was the scope/closure bucket key before Task 8 renamed it
-# to `elapsed_hours`. New code never writes either again — which is exactly
-# what makes them safe, unambiguous migration triggers, and what makes this
-# migration naturally idempotent with no stored flag: once a bucket has been
-# through it, neither key can reappear there. `man_hours` is deliberately
-# NOT one of these — it is still calibrated post-rework, just under a new
-# definition, and is structurally identical old vs new. Quarantining it is
-# only ever done in a bucket that ALSO shows one of these two markers, never
-# on its own — see migrate_calibration_metrics.
-_LEGACY_METRIC_MARKERS = ("cost", "time_hours")
-
-
-def _calibration_has_legacy_markers(cal) -> bool:
-    for component in ("scope", "closure"):
-        for metrics in (cal.get(component) or {}).values():
-            if hasattr(metrics, "get") and any(k in metrics for k in _LEGACY_METRIC_MARKERS):
-                return True
-    return False
+# Stamped once, at the top level of the calibration file itself, the first
+# time migrate_calibration_metrics finishes a real pass over it — including
+# a pass that finds nothing to migrate. This is NOT a version bump: `version`
+# stays CALIBRATION_SCHEMA_VERSION == 2. A timestamp recording that a reshape
+# happened is data about the file, exactly like `orchestration`, `token_mix`,
+# and `legacy` below — not a schema generation.
+#
+# This replaces an earlier, REJECTED design that inferred "already migrated"
+# from the presence/absence of the old `cost`/`time_hours` keys. That
+# inference has a silent blind spot: a non-Claude-runtime project never
+# accumulates `cost` samples (cost is N/A there and skipped by calibration),
+# so a file that also happens to have no `time_hours` samples — for any
+# reason — would read as "already migrated" under that design and never have
+# its old-definition `man_hours`/`fix` samples quarantined. No error, no log
+# line, just silently wrong ratios applied to every future estimate — the
+# exact failure this migration exists to prevent. A positive marker has no
+# such blind spot: its absence always means "run it," regardless of which
+# sample types the file happens to contain.
+CALIBRATION_METRICS_MARKER = "metrics_migrated_at"
 
 
 def migrate_calibration_metrics(y, cal, state_root: str) -> list:
     """Reshape a pre-metrics-rework calibration file in place. Returns a
     change log (empty when there was nothing to migrate).
 
-    Mirrors migrate_calibration's shape (backup, reshape, save-by-caller) but
-    is triggered and gated differently: `version` stays 2 deliberately — see
-    the module-level note by CALIBRATION_SCHEMA_VERSION — so there is no
-    version flip to detect "not yet migrated" the way v1->v2 does. Instead
-    detection is by the two UNAMBIGUOUS legacy key names
-    (_LEGACY_METRIC_MARKERS): a bucket showing either one can only have been
-    written before Tasks 8/10 shipped, since current code never writes them
-    again. A bucket that shows NEITHER is left completely alone, even if it
-    carries `man_hours` — that metric is still calibrated going forward under
-    a new definition, and with no marker of its own there is nothing to
-    justify treating it as legacy (see
-    test_man_hours_alone_is_never_quarantined_without_a_corroborating_marker).
+    Gated on CALIBRATION_METRICS_MARKER, a positive marker stamped at the end
+    of every real pass through this function — even a no-op one. A brand-new
+    project has nothing to migrate on its first write, but still gets
+    stamped right there, before that same write appends its first (entirely
+    legitimate) sample: this is what stops a LATER real man_hours or fix
+    sample from ever being revisited and wrongly quarantined (see
+    test_man_hours_written_after_the_one_time_cutover_is_never_revisited).
 
-    Idempotent for free, not via a stored flag: once a bucket has been
-    reshaped, it can never show a legacy marker again, so a second call finds
-    nothing anywhere and returns [] without touching the file (this is also
-    why read-only commands calling this would be safe to skip calling it, and
-    why they simply never call it at all — see cmd_calibration).
+    Once past the gate, `man_hours` and `fix` quarantine UNCONDITIONALLY —
+    no corroborating cost/time_hours marker is required in the same bucket
+    or file (see test_man_hours_quarantined_even_without_cost_or_time_hours_markers,
+    the case that falsified an earlier key-presence-based design). `version`
+    stays 2 throughout: compatibility is by shape-tolerant reads, never a
+    version gate.
     """
+    if cal.get(CALIBRATION_METRICS_MARKER):
+        return []
+
     log = []
-    found_legacy = _calibration_has_legacy_markers(cal)
-    if found_legacy:
-        p = calibration_path(state_root)
-        backup = p + ".pre-metrics"
-        if os.path.exists(p) and not os.path.exists(backup):
-            import shutil
-            shutil.copy2(p, backup)
-            log.append(f"backup {os.path.basename(backup)}")
+    p = calibration_path(state_root)
+    backup = p + ".pre-metrics"
+    if os.path.exists(p) and not os.path.exists(backup):
+        import shutil
+        shutil.copy2(p, backup)
+        log.append(f"backup {os.path.basename(backup)}")
 
     def _reshape(component: str):
         buckets = cal.get(component) or {}
         for bucket, metrics in list(buckets.items()):
             if not hasattr(metrics, "items"):
                 continue
-            has_marker = any(k in metrics for k in _LEGACY_METRIC_MARKERS)
             if "cost" in metrics:
                 del metrics["cost"]
                 log.append(f"DROP {component}.{bucket}.cost (derived from tokens x rates "
@@ -788,7 +783,7 @@ def migrate_calibration_metrics(y, cal, state_root: str) -> list:
             if "time_hours" in metrics:
                 metrics["elapsed_hours"] = metrics.pop("time_hours")
                 log.append(f"RENAME {component}.{bucket}.time_hours -> elapsed_hours")
-            if has_marker and "man_hours" in metrics:
+            if "man_hours" in metrics:
                 from ruamel.yaml.comments import CommentedMap
                 dest = (cal.setdefault("legacy", CommentedMap())
                            .setdefault(component, CommentedMap())
@@ -797,37 +792,44 @@ def migrate_calibration_metrics(y, cal, state_root: str) -> list:
                 log.append(f"QUARANTINE {component}.{bucket}.man_hours (definition changed: "
                            f"human attention -> counterfactual developer effort — old "
                            f"samples are incomparable, preserved under legacy.{component}.{bucket})")
-            if has_marker:
-                samples = list((metrics.get("tokens_k") or {}).get("samples") or [])
-                if samples:
-                    r = weighted_ratio(samples)
-                    if r is not None and not (TOKENS_SANITY_RANGE[0] <= r <= TOKENS_SANITY_RANGE[1]):
-                        log.append(
-                            f"FLAG {component}.{bucket}.tokens_k ratio={r:.2f} outside "
-                            f"{TOKENS_SANITY_RANGE} — carried forward as-is, but review "
-                            f"before trusting (possible orchestration overhead swept "
-                            f"into story samples under the old rules)")
+            samples = list((metrics.get("tokens_k") or {}).get("samples") or [])
+            if samples:
+                r = weighted_ratio(samples)
+                if r is not None and not (TOKENS_SANITY_RANGE[0] <= r <= TOKENS_SANITY_RANGE[1]):
+                    log.append(
+                        f"FLAG {component}.{bucket}.tokens_k ratio={r:.2f} outside "
+                        f"{TOKENS_SANITY_RANGE} — carried forward as-is, but review "
+                        f"before trusting (possible orchestration overhead swept "
+                        f"into story samples under the old rules)")
 
     for component in ("scope", "closure"):
         _reshape(component)
 
-    if found_legacy:
-        fix = cal.get("fix") or {}
-        fix_had_content = any(bool(v) for v in fix.values())
-        if fix_had_content:
-            from ruamel.yaml.comments import CommentedMap
-            cal.setdefault("legacy", CommentedMap())["fix"] = fix
-            cal["fix"] = CommentedMap((c, CommentedMap()) for c in CLASSIFICATIONS)
-            log.append("QUARANTINE fix (wholesale — every cohort is measured in "
-                       "mean_man_hours, the same definition change as scope/closure "
-                       "man_hours; fix has no per-metric split to act on selectively, "
-                       "preserved under legacy.fix)")
+    fix = cal.get("fix") or {}
+    fix_had_content = any(bool(v) for v in fix.values())
+    if fix_had_content:
+        from ruamel.yaml.comments import CommentedMap
+        cal.setdefault("legacy", CommentedMap())["fix"] = fix
+        cal["fix"] = CommentedMap((c, CommentedMap()) for c in CLASSIFICATIONS)
+        log.append("QUARANTINE fix (wholesale — every cohort is measured in "
+                   "mean_man_hours, the same definition change as scope/closure "
+                   "man_hours; fix has no per-metric split to act on selectively, "
+                   "preserved under legacy.fix)")
 
-        if "token_mix" not in cal:
-            from ruamel.yaml.comments import CommentedMap
-            cal["token_mix"] = CommentedMap((("samples", []),))
-            log.append("SEED token_mix (empty — new component, nothing to migrate from)")
+    # token_mix seeding stays tied to "did this pass actually find and move
+    # legacy content" (log non-empty), NOT to the marker gate above: seeding
+    # it unconditionally on every first-ever pass (including a no-op one on
+    # a brand-new project) would recreate the exact conflict Task 9 hit and
+    # routed around for new_calibration — see
+    # test_record_skips_token_mix_when_actual_lacks_a_total, which asserts
+    # token_mix stays ABSENT on a fresh project's first write when there is
+    # nothing to observe yet.
+    if log and "token_mix" not in cal:
+        from ruamel.yaml.comments import CommentedMap
+        cal["token_mix"] = CommentedMap((("samples", []),))
+        log.append("SEED token_mix (empty — new component, nothing to migrate from)")
 
+    cal[CALIBRATION_METRICS_MARKER] = _now_iso()
     return log
 
 
