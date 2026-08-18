@@ -2,6 +2,8 @@
 
 All notable changes to this project will be documented in this file. See [commit-and-tag-version](https://github.com/absolute-version/commit-and-tag-version) for commit guidelines.
 
+## [2.4.2](https://github.com/ravensorb/bmad-extensions/compare/2.1.5...2.4.2) (2026-08-18)
+
 ## [2.1.5](https://github.com/ravensorb/bmad-extensions/compare/2.1.4...2.1.5) (2026-08-18)
 
 
