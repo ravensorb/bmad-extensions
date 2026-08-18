@@ -509,6 +509,45 @@ class TestHitlHours(TestLayoutResolution):
         _, node = pm.load_node(pm.story_file(self.root, "E001-S01-003"))
         self.assertAlmostEqual(float(node["actual"]["hitl_hours"]), 0.3, places=2)
 
+    def test_set_actual_hitl_hours_produces_scope_sample(self):
+        """A metric recorded on the node but never sampled can never calibrate.
+        This drives the real CLI path (set-estimate then set-actual, calibration
+        left ON) and reads pm-calibration.yaml back, so a regression that once
+        again drops hitl_hours from derive_story_sample's metric loop fails
+        here — asserting on the node alone would not have caught it."""
+        code, out = self.run_main(["set-estimate", "--state-root", self.root,
+                                   "--story", "E001-S01-003", "--hitl-hours", "0.5",
+                                   "--fix-factor", "1.0"])
+        self.assertEqual(code, 0, out)
+
+        code, out = self.run_main(["set-actual", "--state-root", self.root, "--node", "story",
+                                   "--story", "E001-S01-003", "--hitl-hours", "0.6",
+                                   "--runtime", "other"])
+        self.assertEqual(code, 0, out)
+
+        _, cal = pm.load_calibration(self.root)
+        # no classification was set on the fixture story -> derive_story_sample's
+        # default bucket, "standard"
+        samples = pm._component_samples(cal, "scope", "standard", "hitl_hours")
+        self.assertEqual(len(samples), 1, cal)
+        # fix_factor=1.0, no completion_evidence -> provenance "backout":
+        # sample = actual x applied_ratio(1.0, none recorded) / estimate
+        self.assertAlmostEqual(samples[0], 0.6 * 1.0 / 0.5, places=4)
+
+    def test_calibration_show_lists_hitl_hours_rows(self):
+        """cmd_calibration's display loops must enumerate hitl_hours too, or a
+        component that IS calibrating (see the test above) would still never
+        show up in `calibration show` — same-shaped blind spot, different
+        symptom."""
+        code, out = self.run_main(["calibration", "show", "--state-root", self.root,
+                                   "--format", "json"])
+        self.assertEqual(code, 0, out)
+        data = json.loads(out)
+        buckets = [c["bucket"] for c in data["components"] if c["component"] == "scope"]
+        self.assertTrue(any(b.endswith("/hitl_hours") for b in buckets), buckets)
+        buckets = [c["bucket"] for c in data["components"] if c["component"] == "closure"]
+        self.assertTrue(any(b.endswith("/hitl_hours") for b in buckets), buckets)
+
 
 class TestAtomicAndCLI(TestLayoutResolution):
     """Reuses TestLayoutResolution's tree fixture."""
@@ -1309,6 +1348,16 @@ class TestStorySampling(unittest.TestCase):
         # estimate.elapsed_hours 1.5 vs actual.elapsed_hours 1.8, fix_factor 1.25
         s = pm.derive_story_sample(self._story(0))
         self.assertAlmostEqual(s["scope_ratios"]["elapsed_hours"], 1.8 * 1.25 / 1.5)
+
+    def test_scope_ratio_computed_correctly_for_hitl_hours(self):
+        # derive_story_sample iterates METRIC_FIELDS, not a hand-restated tuple —
+        # this proves hitl_hours flows through the same as every other metric.
+        est = {"man_hours": 6, "hitl_hours": 0.5, "elapsed_hours": 1.5, "tokens_k": 320,
+               "cost": 4.80, "fix_factor": 1.25, "scope_ratio": 1.0}
+        act = {"man_hours": 7, "hitl_hours": 0.6, "elapsed_hours": 1.8, "tokens_k": 355,
+               "cost": 5.32}
+        s = pm.derive_story_sample(self._story(0, est=est, act=act))
+        self.assertAlmostEqual(s["scope_ratios"]["hitl_hours"], 0.6 * 1.25 / 0.5)
 
     def test_na_metrics_are_skipped_not_zeroed(self):
         act = {"man_hours": 7, "elapsed_hours": 1.8, "tokens_k": "N/A", "cost": "N/A"}

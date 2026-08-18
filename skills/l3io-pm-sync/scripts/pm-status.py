@@ -794,7 +794,7 @@ def derive_story_sample(node):
         provenance = "backout"
 
     ratios = {}
-    for metric in ("man_hours", "elapsed_hours", "tokens_k", "cost"):
+    for metric in METRIC_FIELDS:
         e_num, a_num = _num_or_none(est.get(metric)), _num_or_none(act.get(metric))
         if e_num is None or a_num is None:
             continue          # missing, N/A, or non-numeric — never coerced to zero
@@ -1087,12 +1087,12 @@ def cmd_calibration(args) -> int:
     exists = os.path.exists(calibration_path(args.state_root))
     rows = []
     for c in CLASSIFICATIONS:
-        for m in ("man_hours", "elapsed_hours", "tokens_k", "cost"):
+        for m in METRIC_FIELDS:
             n = len(_component_samples(cal, "scope", c, m))
             r = active_scope_ratio(cal, c, m)
             rows.append(("scope", f"{c}/{m}", n, r))
     for lv in CLOSURE_LEVELS:
-        for m in ("man_hours", "elapsed_hours", "tokens_k", "cost"):
+        for m in METRIC_FIELDS:
             n = len(_component_samples(cal, "closure", lv, m))
             r = active_closure_ratio(cal, lv, m)
             rows.append(("closure", f"{lv}/{m}", n, r))
