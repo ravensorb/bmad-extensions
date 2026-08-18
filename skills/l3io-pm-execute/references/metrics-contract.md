@@ -208,7 +208,9 @@ a mapping from. Every reader that needs a metric's numeric value — `_estimate_
 treating a bare scalar as the total, so both shapes read correctly; but a story estimated by
 hand through `set-estimate` will show a scalar `tokens_k` next to a mechanized sibling's
 mapping. Prefer `estimate-story`/`estimate-rollup` for anything that should carry a class
-split.
+split. On the **actual** side the scalar shape is not merely inferior, it **fails**
+`verify --runtime claude` (§5): with no class split there is nothing to price `cost` against,
+so the cost invariant cannot run.
 
 **Divergence 2 — `cost`'s on-disk type depends on which path wrote it, not on which
 subcommand.** `set-actual` writes an **unquoted float** in the normal, token-given path —
@@ -349,11 +351,12 @@ that matches the node kind.
 
 `--confidence` is optional. When omitted and no confidence is already set, it is **derived**:
 `medium` if every field for that kind is present, `low` otherwise. It is never derived as
-`high` — pass `--confidence high` explicitly when the calibration data justifies it (§8). Note
-that `set-estimate`'s own completeness check for a story still names `cost` among the fields
-it looks for even though `set-estimate` itself never writes `cost` (only `estimate-story`
-does) — a story estimated purely by hand through `set-estimate` therefore never reaches
-`medium` confidence on that path alone.
+`high` — pass `--confidence high` explicitly when the calibration data justifies it (§8). The
+completeness check names only the fields `set-estimate` can actually write — the four
+calibrated metrics (story form) or their eight range keys (sprint/epic form). `cost` is in
+neither list: `set-estimate` rejects `--cost*` outright, so requiring it would have made every
+hand-written estimate permanently `low` no matter how complete it was, and the derivation could
+only ever have reported one of its two values.
 
 Write the actual, the completion evidence, and the status transition as separate calls, then
 gate on `verify`. Story closeout additionally requires `completion_evidence` (written via
@@ -368,15 +371,24 @@ run.
 
 Under `--runtime claude`, passing `--tokens-na` (in place of the `--tokens-*` counts) is a
 **usage error, exit 2**, with a message pointing at the exact per-class capture procedure in
-this file. `--cost`/`--cost-low`/`--cost-high` are rejected on **every** runtime, unconditionally
-— cost has no runtime exemption because it is never entered at all.
+this file. Also under `--runtime claude`, giving **any** `--tokens-*` flag requires **all
+four** — a partial set is a usage error, exit 2, naming the missing flags. An explicit `0` is
+a valid value: the requirement is that the capturer looked at all four classes, not that all
+four are nonzero. Without this, an omitted class was silently zero-filled, `total` summed only
+what was passed, `cost` derived from that, and `verify` then confirmed all three agreed with
+each other — internally consistent and therefore unfalsifiable, while understating the node by
+an order of magnitude (cache classes dominate real runs). `--runtime other` stays permissive: a
+runtime that exposes only some classes is exactly what it is for.
+
+`--cost`/`--cost-low`/`--cost-high` are rejected on **every** runtime, unconditionally — cost
+has no runtime exemption because it is never entered at all.
 
 Limits of this check, which the orchestrator must compensate for:
 
 - It only inspects metrics **actually passed**. `set-actual` requires at least one of
   `--elapsed-hours`/`--man-hours`/`--hitl-hours`/`--tokens-*`/`--tokens-na`, not all of them —
-  under `--runtime claude`, simply *omitting* the token flags succeeds (exit 0). Always pass
-  every metric in one call.
+  under `--runtime claude`, omitting the token flags *entirely* still succeeds (exit 0); only a
+  partial class set is rejected. Always pass every metric in one call.
 - It does not apply to `elapsed_hours`, `man_hours`, or `hitl_hours`; those are caught later by
   `verify`, which requires them to be numeric on every runtime.
 
@@ -393,6 +405,12 @@ of one node**:
 - when `tokens_k` is the structured mapping, `tokens_k.total` must equal the sum of its four
   classes (tolerance 0.01, wider than `cost`'s because `total` is rounded at write time and an
   unrounded re-sum can legitimately differ by up to half the last decimal place)
+- when `tokens_k` is present but is **not** the mapping and not `N/A` — a bare scalar, the
+  pre-rework shape — it **fails** under `--runtime claude` or `--require-tokens`. There is no
+  class split to price, so the cost invariant below cannot run at all, and skipping it was a
+  one-line way around design §4.3's "a hand-edited cost cannot survive": `tokens_k: 500` beside
+  `cost: 9999.99` used to return PASS. The scalar form stays valid under `--runtime other`,
+  where `set-estimate` writes it and a runtime with no per-class visibility has nothing better
 - `cost` must equal what `tokens_k` prices out to under the node's own `model` and the
   effective rate table (tolerance $0.005 — half of the smallest unit either figure can carry).
   A hand-edited `cost`, or a `tokens_k` edited without re-deriving `cost`, fails here. A missing

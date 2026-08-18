@@ -3735,6 +3735,163 @@ class TestDispatchEvents(Base):
         self.assertEqual(pm.open_dispatches(self.root, 15), [])
 
 
+class TestPartialTokenClasses(TestLayoutResolution):
+    """I3: under runtime=claude an incomplete class set was zero-filled and then
+    blessed by verify. `--tokens-output 10` alone wrote total=10 with three
+    classes at 0, derived a cost from that, and verify PASSed — internally
+    consistent, therefore unfalsifiable. Cache classes dominate real runs, so one
+    forgotten flag understates a node by an order of magnitude."""
+
+    def run_main(self, argv):
+        buf, err = io.StringIO(), io.StringIO()
+        try:
+            with redirect_stdout(buf), redirect_stderr(err):
+                code = pm.main(argv)
+        except SystemExit as e:
+            code = e.code
+        return code, buf.getvalue() + err.getvalue()
+
+    def _set(self, extra):
+        return self.run_main(["set-actual", "--state-root", self.root, "--node", "story",
+                              "--story", "E001-S01-003", "--model", "claude-opus-5",
+                              "--no-calibrate"] + extra)
+
+    def test_claude_rejects_a_single_class(self):
+        code, out = self._set(["--runtime", "claude", "--tokens-output", "10"])
+        self.assertEqual(code, 2, out)
+        self.assertIn("all four token classes", out)
+        self.assertIn("--tokens-input", out)
+        self.assertIn("--tokens-cache-write", out)
+        self.assertIn("--tokens-cache-read", out)
+
+    def test_claude_rejects_three_of_four(self):
+        code, out = self._set(["--runtime", "claude", "--tokens-input", "1",
+                               "--tokens-output", "2", "--tokens-cache-write", "3"])
+        self.assertEqual(code, 2, out)
+        self.assertIn("cache-read", out)
+
+    def test_explicit_zero_counts_as_given(self):
+        code, out = self._set(["--runtime", "claude", "--tokens-input", "10",
+                               "--tokens-output", "0", "--tokens-cache-write", "0",
+                               "--tokens-cache-read", "0"])
+        self.assertEqual(code, 0, out)
+        _, node = pm.load_node(pm.story_file(self.root, "E001-S01-003"))
+        self.assertEqual(int(node["actual"]["tokens_k"]["total"]), 10)
+
+    def test_runtime_other_still_accepts_a_partial_set(self):
+        # A runtime that exposes only some classes is exactly what --runtime
+        # other is for; the strict rule must not leak into it.
+        code, out = self._set(["--runtime", "other", "--tokens-output", "10"])
+        self.assertEqual(code, 0, out)
+
+    def test_nothing_is_written_when_the_partial_set_is_rejected(self):
+        self._set(["--runtime", "claude", "--tokens-output", "10"])
+        _, node = pm.load_node(pm.story_file(self.root, "E001-S01-003"))
+        self.assertNotIn("actual", node)
+
+
+class TestVerifyRejectsScalarTokens(TestLayoutResolution):
+    """I4: verify skipped the cost invariant entirely when tokens_k was a bare
+    scalar (`if hasattr(tk, "get")`), so `tokens_k: 500` beside `cost: 9999.99`
+    returned PASS under runtime=claude. Design §4.3 says a hand-edited cost
+    cannot survive verify."""
+
+    def run_main(self, argv):
+        buf = io.StringIO()
+        try:
+            with redirect_stdout(buf):
+                code = pm.main(argv)
+        except SystemExit as e:
+            code = e.code
+        return code, buf.getvalue()
+
+    def _scalar_node(self, cost=9999.99):
+        p = pm.story_file(self.root, "E001-S01-003")
+        y, node = pm.load_node(p)
+        node["status"] = "done"
+        node["completion_evidence"] = {"fix_iterations": 0}
+        node["actual"] = {"elapsed_hours": 1.0, "man_hours": 8, "hitl_hours": 0.2,
+                          "tokens_k": 500, "cost": cost, "model": "claude-opus-5"}
+        pm.save_node(y, node, p)
+
+    def test_scalar_tokens_fail_under_runtime_claude(self):
+        self._scalar_node()
+        code, out = self.run_main(["verify", "--state-root", self.root, "--scope", "story",
+                                   "--story", "E001-S01-003", "--runtime", "claude"])
+        self.assertEqual(code, 4, out)
+        self.assertIn("not the per-class mapping", out)
+
+    def test_scalar_tokens_fail_under_require_tokens(self):
+        self._scalar_node()
+        code, out = self.run_main(["verify", "--state-root", self.root, "--scope", "story",
+                                   "--story", "E001-S01-003", "--require-tokens"])
+        self.assertEqual(code, 4, out)
+
+    def test_scalar_tokens_still_pass_under_runtime_other(self):
+        # set-estimate writes a scalar, and a runtime with no per-class
+        # visibility has nothing better — the scalar form stays legitimate here.
+        self._scalar_node()
+        code, out = self.run_main(["verify", "--state-root", self.root, "--scope", "story",
+                                   "--story", "E001-S01-003", "--runtime", "other"])
+        self.assertEqual(code, 0, out)
+
+    def test_na_tokens_are_not_reported_as_a_scalar(self):
+        p = pm.story_file(self.root, "E001-S01-003")
+        y, node = pm.load_node(p)
+        node["status"] = "done"
+        node["completion_evidence"] = {"fix_iterations": 0}
+        node["actual"] = {"elapsed_hours": 1.0, "man_hours": 8, "hitl_hours": 0.2,
+                          "tokens_k": "N/A", "cost": "N/A"}
+        pm.save_node(y, node, p)
+        code, out = self.run_main(["verify", "--state-root", self.root, "--scope", "story",
+                                   "--story", "E001-S01-003", "--runtime", "claude"])
+        self.assertEqual(code, 4, out)
+        self.assertNotIn("not the per-class mapping", out)
+        self.assertIn("N/A", out)
+
+
+class TestMalformedEventLog(Base):
+    """I5/M3: open_dispatches dereferenced every valid-JSON line without an
+    isinstance guard and read the file without an OSError guard, while
+    build_events_index next door had both. A line containing `42` — a torn write
+    on an append-only log with concurrent writers — crashed `report` with
+    AttributeError and exit 1, taking down the stall dashboard itself."""
+
+    def setUp(self):
+        super().setUp()
+        self.root = os.path.join(self.d, "state")
+        os.makedirs(os.path.join(self.root, "active"))
+
+    def _append(self, raw):
+        with open(pm.events_path(self.root), "a", encoding="utf-8") as fh:
+            fh.write(raw + "\n")
+
+    def test_bare_scalar_line_does_not_crash_open_dispatches(self):
+        self.run_main(["dispatch", "--state-root", self.root, "--event", "open",
+                       "--agent", "dev-story", "--epic", "E001", "--sprint", "S01"])
+        self._append("42")
+        stalled = pm.open_dispatches(self.root, 0)
+        self.assertEqual(len(stalled), 1)
+        self.assertEqual(stalled[0]["agent"], "dev-story")
+
+    def test_json_list_line_is_skipped_too(self):
+        self._append('["dispatch_open"]')
+        self.run_main(["dispatch", "--state-root", self.root, "--event", "open",
+                       "--agent", "code-review", "--epic", "E001"])
+        self.assertEqual(len(pm.open_dispatches(self.root, 0)), 1)
+
+    def test_report_survives_a_torn_line(self):
+        self.run_main(["dispatch", "--state-root", self.root, "--event", "open",
+                       "--agent", "dev-story", "--epic", "E001", "--sprint", "S01"])
+        self._append("42")
+        self._append('{"ts": "bogus", "event": ')       # torn: invalid JSON
+        code, out = self.run_main(["report", "--state-root", self.root,
+                                   "--stall-minutes", "0"])
+        self.assertEqual(code, 0, out)
+        self.assertIn("STALLED DISPATCH", out)
+        self.assertIn("dev-story", out)
+
+
 class TestReportStalls(Base):
     def setUp(self):
         super().setUp()
@@ -3792,6 +3949,31 @@ class TestRates(Base):
     def test_rates_subcommand_rejects_unknown_model(self):
         code, out = self.run_main(["rates", "--model", "nope"])
         self.assertEqual(code, 2, out)
+
+    def test_rates_lists_override_only_models(self):
+        # design §5: `rates` prints the EFFECTIVE table after config overrides.
+        # Listing sorted(TOKEN_RATES) alone hid exactly the models a project had
+        # to add by hand (Bedrock/Vertex cards), which is when inspecting the
+        # table matters most.
+        over = json.dumps({"bedrock-opus": {"input": 6.0, "output": 30.0,
+                                            "cache_write": 7.5, "cache_read": 0.6}})
+        code, out = self.run_main(["rates", "--token-rates", over])
+        self.assertEqual(code, 0, out)
+        self.assertIn("bedrock-opus", out)
+        self.assertIn("claude-opus-5", out)
+
+    def test_rates_reports_a_partial_override_model_without_crashing(self):
+        over = json.dumps({"partial-model": {"input": 6.0}})
+        code, out = self.run_main(["rates", "--token-rates", over])
+        self.assertEqual(code, 0, out)
+        self.assertIn("partial-model", out)
+        self.assertIn("cache_read=n/a", out)
+
+    def test_partial_rate_card_is_a_hard_error_when_pricing(self):
+        over = {"partial-model": {"input": 6.0}}
+        with self.assertRaises(KeyError) as ctx:
+            pm.cost_from_tokens({"input": 1, "cache_read": 1}, "partial-model", over)
+        self.assertIn("cache_read", ctx.exception.args[0])
 
 
 class TestOrchestrationBlock(TestLayoutResolution):

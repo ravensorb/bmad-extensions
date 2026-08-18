@@ -377,7 +377,10 @@ assume they are the same test at a different granularity.
   `elapsed_hours`/`man_hours`/`hitl_hours`; `tokens_k`/`cost` may only be `N/A` under a
   non-Claude runtime), a structured `tokens_k.total` matching the sum of its four classes, and
   `cost` matching what those classes price out to under the node's own `model` field — a
-  hand-edited cost cannot pass — and, for stories, `completion_evidence` present.
+  hand-edited cost cannot pass — and, for stories, `completion_evidence` present. A bare
+  scalar `tokens_k` (the pre-rework shape) also fails under `--runtime claude` or
+  `--require-tokens`: with no class split there is nothing to price `cost` against, so the
+  cost check would otherwise be skipped entirely.
 
 Activation depends on this distinction: it always runs `verify --scope epic` (structural),
 never `--scope story`/`--scope sprint`, because activation is checking "is this file usable"

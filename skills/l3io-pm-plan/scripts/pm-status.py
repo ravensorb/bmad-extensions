@@ -31,7 +31,9 @@ Subcommands
   set-actual    --state-root S   --node {story,sprint,epic}  (--story KEY | --epic ID [--sprint ID])
                 [--elapsed-hours H] [--man-hours H] [--hitl-hours H]
                 [--tokens-input K] [--tokens-output K] [--tokens-cache-write K] [--tokens-cache-read K]
-                (any --tokens-* requires --model M; [--token-rates JSON] overrides its rate card;
+                (any --tokens-* requires --model M; under --runtime claude ALL FOUR are
+                required once any is given — an explicit 0 counts; [--token-rates JSON]
+                overrides its rate card;
                 cost is DERIVED from tokens x rates — --cost is declared but always rejected)
                 [--tokens-na]   (in place of --tokens-*; runtime=other only, forbidden under runtime=claude)
                 [--runtime {claude,other}] [--flock] [--no-events] [--session-id ID]
@@ -473,28 +475,40 @@ def open_dispatches(state_root: str, threshold_minutes: float, now=None) -> list
     Cannot interrupt a hang — makes it visible. A close with no matching open is
     ignored rather than treated as an error: events.jsonl is append-only and may
     begin mid-run on a pre-existing project.
+
+    Reads defensively, exactly as `build_events_index` does over the same file:
+    the log is appended to by concurrent flock'd writers and is documented as
+    possibly torn, so a valid-JSON line that is not an object (a bare `42` from a
+    torn write or a hand-edit) must be skipped, not dereferenced, and an OSError
+    must warn rather than abort. This is the read behind `report --watch`, the
+    stall dashboard — a crash here takes down precisely the surface the stall
+    feature exists to provide.
     """
-    import datetime
     path = events_path(state_root)
     if not os.path.exists(path):
         return []
     pending: dict = {}
-    with open(path, "r", encoding="utf-8") as f:
-        for line in f:
-            line = line.strip()
-            if not line:
-                continue
-            try:
-                rec = json.loads(line)
-            except ValueError:
-                continue
-            ev = rec.get("event")
-            if ev == "dispatch_open":
-                pending[_dispatch_identity(rec)] = rec
-            elif ev == "dispatch_close":
-                pending.pop(_dispatch_identity(rec), None)
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            for line in f:
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    rec = json.loads(line)
+                except ValueError:
+                    continue
+                if not isinstance(rec, dict):
+                    continue
+                ev = rec.get("event")
+                if ev == "dispatch_open":
+                    pending[_dispatch_identity(rec)] = rec
+                elif ev == "dispatch_close":
+                    pending.pop(_dispatch_identity(rec), None)
+    except OSError as e:
+        sys.stderr.write(f"pm-status.py: warning — could not read event log: {e}\n")
     if now is None:
-        now = datetime.datetime.now(datetime.timezone.utc)
+        now = datetime.now(timezone.utc)
     out = []
     for rec in pending.values():
         opened = _parse_iso(rec.get("ts"))
@@ -1499,8 +1513,9 @@ def cmd_calibration(args) -> int:
     for lv in CLOSURE_LEVELS:
         # Orchestration never calibrates `cost` (derived from tokens x
         # rates — see record_orchestration_sample), so this loop uses
-        # CALIBRATED_METRIC_FIELDS like the scope loop above, not the full
-        # METRIC_FIELDS the closure loop above deliberately keeps.
+        # CALIBRATED_METRIC_FIELDS, exactly like the scope and closure loops
+        # above. All three agree; none of them iterates the full METRIC_FIELDS
+        # any more.
         for m in CALIBRATED_METRIC_FIELDS:
             n = len(_component_samples(cal, "orchestration", lv, m))
             r = active_orchestration_fraction(cal, lv, m)
@@ -1573,6 +1588,14 @@ def cost_from_tokens(tokens: dict, model: str, overrides=None) -> float:
         v = _num_or_none((tokens or {}).get(cls))
         if v is None:
             continue
+        # An override-only model can define a subset of the four classes. A bare
+        # rates[cls] would surface as KeyError('cache_read') — which callers
+        # print verbatim as e.args[0], giving the user the single word
+        # "cache_read". Same hard-error policy as an unknown model, but with a
+        # message that says what to do.
+        if cls not in rates:
+            raise KeyError(f"model {model!r} has no {cls!r} rate — modules.l3io-pm.token_rates "
+                           f"must define all of {list(TOKEN_CLASSES)} for a model it adds")
         total += v * rates[cls]
     return round(total / 1000.0, 2)
 
@@ -1615,7 +1638,12 @@ def cmd_rates(args) -> int:
     force — including any --token-rates override — is inspectable without
     reading source or guessing."""
     overrides = rate_overrides(args)
-    models = [args.model] if args.model else sorted(TOKEN_RATES)
+    # The EFFECTIVE table, per design §5 — so an override-only model (one that
+    # exists solely in modules.l3io-pm.token_rates, e.g. a Bedrock or Vertex
+    # rate card) is listed rather than silently omitted. Listing sorted(TOKEN_RATES)
+    # alone made `rates` report the shipped defaults while pricing used something
+    # else, which is the one thing this read-only subcommand exists to prevent.
+    models = [args.model] if args.model else sorted(set(TOKEN_RATES) | set(overrides or {}))
     for m in models:
         try:
             r = resolve_rates(m, overrides)
@@ -1624,7 +1652,12 @@ def cmd_rates(args) -> int:
             # which would double-wrap a message that already reads as prose.
             sys.stderr.write(f"pm-status.py: {e.args[0]}\n")
             return 2
-        cells = "  ".join(f"{c}={r[c]:.2f}" for c in TOKEN_CLASSES)
+        # `r.get`, not `r[...]`: an override-only model (one this table has no
+        # shipped defaults to merge over) can legitimately define a subset of
+        # the four classes, and listing it must report the gap rather than
+        # raise KeyError on the model the user added by hand.
+        cells = "  ".join(f"{c}=" + (f"{r[c]:.2f}" if _is_number(r.get(c)) else "n/a")
+                          for c in TOKEN_CLASSES)
         sys.stdout.write(f"{m:<22} {cells}\n")
     return 0
 
@@ -2488,6 +2521,26 @@ def cmd_set_actual(args) -> int:
         provided["tokens_k"] = "N/A"
         provided["cost"] = "N/A"
     elif given:
+        # Under runtime=claude an incomplete class set is a usage error, not a
+        # zero-fill. `tokens_block` defaults an omitted class to 0, `total` sums
+        # to the classes that were passed, `cost` derives from those, and
+        # `verify` then confirms all three agree with each other — internally
+        # consistent and therefore unfalsifiable. One forgotten flag understates
+        # a node by an order of magnitude: cache classes dominate real runs
+        # (99.8% cache_creation on the motivating run), so an omitted
+        # --tokens-cache-write is not a rounding error. An explicit 0 stays
+        # valid — the requirement is that the capturer looked at all four, not
+        # that all four are nonzero. runtime=other stays permissive: a runtime
+        # that exposes only some classes is exactly what --runtime other is for.
+        if args.runtime == "claude" and len(given) < len(TOKEN_CLASSES):
+            missing = [c for c in TOKEN_CLASSES if c not in given]
+            _die_usage(
+                "runtime=claude requires all four token classes when any is given — "
+                f"missing: {', '.join('--tokens-' + m.replace('_', '-') for m in missing)}. "
+                "Read input_tokens, output_tokens, cache_creation_input_tokens and "
+                "cache_read_input_tokens from the session transcript's usage fields "
+                "(metrics-contract.md §3); pass an explicit 0 for a class that really "
+                "is zero.")
         if not args.model:
             _die_usage("--model is required whenever token counts are given — the same "
                        "token count prices 2x apart between a $5/M and a $10/M tier")
@@ -2728,13 +2781,17 @@ def cmd_set_estimate(args) -> int:
     if args.confidence:
         est["confidence"] = args.confidence
     elif "confidence" not in est:
-        # No cost_low/cost_high here: set-estimate never writes them (cost is
-        # derived, not settable — see the rejection above), so requiring them
-        # would make a sprint/epic estimate permanently "low" confidence.
+        # No cost/cost_low/cost_high in EITHER list: set-estimate never writes
+        # any of them (cost is derived, not settable — see the rejection above),
+        # so requiring one would make the estimate permanently "low" confidence.
+        # The story list used to name `cost`, which set-estimate rejects at the
+        # top of this function and can therefore never satisfy — so every
+        # hand-written story estimate came out `low` no matter how complete it
+        # was, and the derivation could only ever report one of its two values.
         range_keys = ["man_hours_low", "man_hours_high", "hitl_hours_low", "hitl_hours_high",
                       "elapsed_hours_low", "elapsed_hours_high",
                       "tokens_k_min", "tokens_k_max"]
-        story_keys = ["man_hours", "hitl_hours", "elapsed_hours", "tokens_k", "cost"]
+        story_keys = ["man_hours", "hitl_hours", "elapsed_hours", "tokens_k"]
         check = story_keys if kind == "story" else range_keys
         est["confidence"] = "medium" if all(k in est for k in check) else "low"
 
@@ -3118,6 +3175,20 @@ def cmd_verify(args) -> int:
                 if got is None or abs(got - expect) > 0.005:
                     problems.append(f"actual.cost={got!r} != derived {expect} "
                                     f"for model {model}")
+    elif "tokens_k" in actual and not _is_na(tk):
+        # A bare scalar tokens_k has no class split, so the cost invariant above
+        # cannot run at all — `tokens_k: 500` next to `cost: 9999.99` used to
+        # return PASS. Design §4.3 says a hand-edited cost cannot survive verify;
+        # keeping the pre-rework scalar shape was a one-line way around it. The
+        # scalar form stays legitimate under runtime=other (set-estimate writes
+        # it, and a runtime with no per-class visibility has nothing better), so
+        # this fires only where exact per-class capture is required.
+        if args.require_tokens or args.runtime == "claude":
+            problems.append(
+                f"actual.tokens_k={tk!r} is not the per-class mapping — cost cannot be "
+                f"verified against it. Re-capture the four classes with set-actual "
+                f"--tokens-input/--tokens-output/--tokens-cache-write/--tokens-cache-read "
+                f"and --model (metrics-contract.md §3)")
 
     if kind == "story" and "completion_evidence" not in node:
         problems.append("completion_evidence absent")

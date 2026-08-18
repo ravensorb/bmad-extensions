@@ -226,8 +226,9 @@ set-actual    --state-root S  --node {story,sprint,epic}  (--story KEY | --epic 
               [--block {actual,orchestration}]   (orchestration: sprint/epic only, never story)
               [--elapsed-hours H] [--man-hours H] [--hitl-hours H]
               [--tokens-input K] [--tokens-output K] [--tokens-cache-write K] [--tokens-cache-read K]
-              (any --tokens-* requires --model M; cost is DERIVED from tokens x rates —
-              --cost is rejected, exit 2)
+              (any --tokens-* requires --model M; under --runtime claude ALL FOUR are
+              required once any is given — an explicit 0 counts, a partial set exits 2;
+              cost is DERIVED from tokens x rates — --cost is rejected, exit 2)
               [--tokens-na]   (runtime=other only; forbidden under runtime=claude)
               [--runtime {claude,other}] [--flock] [--no-calibrate]
 set-estimate  --state-root S  (--story KEY | --epic ID [--sprint ID])
@@ -280,9 +281,11 @@ table` and frozen; `--cost*` is rejected on every runtime (exit 2). Fix the toke
 
 Under `--runtime claude`, token actuals are read **exactly** from the session transcript's
 `usage` fields, split by class, passed with `--model`, and `set-actual`/`verify` **reject**
-`N/A` for tokens. Under any other runtime, capture what is exposed or pass `--tokens-na` and
-record `N/A` — **never a guess**. `man_hours` and `hitl_hours` have no `N/A` path on any
-runtime.
+`N/A` for tokens. All four classes are required together: a partial set exits 2, and a bare
+scalar `tokens_k` on an actual fails `verify` (there is no class split to price `cost`
+against). Pass an explicit `0` for a class that really is zero. Under any other runtime,
+capture what is exposed or pass `--tokens-na` and record `N/A` — **never a guess**.
+`man_hours` and `hitl_hours` have no `N/A` path on any runtime.
 
 `set-actual` derives the calibration sample itself. Write
 `completion_evidence.fix_iterations` **before** calling it, or the scope-versus-fix split
