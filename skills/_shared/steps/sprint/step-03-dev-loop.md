@@ -33,6 +33,10 @@ Spawn `bmad-dev-story` subagent with:
 - Project context: the config resolved at activation (`references/config-resolution.md`) —
   pass the bound values, not a config file path
 - Sprint root: `{sprint_root}`
+- **You have no inbox.** No reply will arrive. If you need a decision you cannot
+  make, write it to disk and end with `BLOCKED: <reason>`. Never wait.
+- Your final line must be exactly one of `DONE — [brief metrics]`,
+  `BLOCKED: [one-line reason]`, or `FAILED: [one-line reason]`.
 
 On completion, collect: files changed, tests passing (boolean), fix iterations attempted.
 
@@ -43,6 +47,10 @@ Skip if `{work_type}` is DOCS or CONFIG.
 Spawn `bmad-code-review` subagent with:
 - Story file path
 - Files changed by dev subagent
+- **You have no inbox.** No reply will arrive. If you need a decision you cannot
+  make, write it to disk and end with `BLOCKED: <reason>`. Never wait.
+- Your final line must be exactly one of `DONE — [brief metrics]`,
+  `BLOCKED: [one-line reason]`, or `FAILED: [one-line reason]`.
 
 Code review returns findings by severity.
 

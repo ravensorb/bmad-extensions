@@ -192,6 +192,21 @@ digest is last — treat it as stale if it conflicts.
 - Backlog item `BL-E{nnn}-{nnn}` (`BL-E000-{nnn}` for repo-global)
 - Zero-padded always. Node fields use `key:`, never `id:`.
 
+### You have no inbox
+
+No message will ever arrive. Nothing you send can be answered. Every hand-off in
+this system is a file on disk — that is the context boundary, and it has no
+exception for "just one quick question".
+
+If you need a decision you cannot make yourself:
+
+1. Write what you know, and what you need decided, to the node or the closure
+   artifact.
+2. End your turn with `BLOCKED: <one-line reason>`.
+
+Waiting is never correct and is never cheap: a blocked wait outlives the prompt
+cache, and the next turn re-creates the entire context prefix at full price.
+
 ### Never build a state path by hand for a write
 
 `pm-status.py` is the only component that resolves a key to a location for writes. Address
