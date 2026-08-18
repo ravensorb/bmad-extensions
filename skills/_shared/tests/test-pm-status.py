@@ -3850,6 +3850,133 @@ class TestVerifyRejectsScalarTokens(TestLayoutResolution):
         self.assertIn("N/A", out)
 
 
+class TestSpendBreakout(Base):
+    """I8: design §9 specifies `report` breaking spend out by story / closure /
+    orchestration. `_accumulate_actuals` read only `node["actual"]`, and neither
+    `rollup_sprint` nor `build_progress_model` ever read `orchestration` — so the
+    72%-of-spend term this whole rework exists to surface was written to disk and
+    then omitted from every report that renders it.
+    """
+
+    def setUp(self):
+        super().setUp()
+        self.root = os.path.join(self.d, "state")
+        self.sd = os.path.join(self.root, "active", "epic-001", "sprint-01")
+        os.makedirs(self.sd)
+        self._w(os.path.join(self.root, "active", "epic-001", "epic.yaml"),
+                {"key": "E001", "title": "Foundation", "status": "in-progress",
+                 "actual": self._m(3.0, 12, 0.7, 2600),
+                 "orchestration": self._m(0.3, 0, 0.05, 1000)})
+        self._w(os.path.join(self.sd, "sprint.yaml"),
+                {"key": "S01", "epic": "E001", "status": "done",
+                 "actual": self._m(2.5, 10, 0.5, 2400),
+                 "orchestration": self._m(0.6, 0, 0.1, 7200)})
+        for i in (1, 2):
+            self._w(os.path.join(self.sd, f"E001-S01-{i:03d}.yaml"),
+                    {"key": f"E001-S01-{i:03d}", "epic": "E001", "sprint": "S01",
+                     "status": "done", "actual": self._m(1.0, 4, 0.2, 1000)})
+
+    @staticmethod
+    def _m(elapsed, man, hitl, tokens):
+        tk = {"total": tokens, "input": tokens, "output": 0,
+              "cache_write": 0, "cache_read": 0}
+        return {"elapsed_hours": elapsed, "man_hours": man, "hitl_hours": hitl,
+                "tokens_k": tk, "cost": pm.cost_from_tokens(tk, "claude-opus-5"),
+                "model": "claude-opus-5"}
+
+    @staticmethod
+    def _w(path, mapping):
+        y = pm._yaml()
+        with open(path, "w") as f:
+            y.dump(mapping, f)
+
+    # --- roll-ups ---------------------------------------------------------- #
+    def test_sprint_rollup_splits_the_three_buckets(self):
+        r = pm.rollup_sprint(self.root, "E001", "S01")
+        self.assertEqual(r["spend"]["stories"]["tokens_k"], 2000)
+        self.assertEqual(r["spend"]["closure"]["tokens_k"], 400)      # 2400 - 2000
+        self.assertEqual(r["spend"]["orchestration"]["tokens_k"], 7200)
+
+    def test_epic_rollup_adds_its_own_closure_and_orchestration(self):
+        r = pm.rollup_epic(self.root, "E001")
+        self.assertEqual(r["spend"]["stories"]["tokens_k"], 2000)
+        # sprint closure 400 + epic closure (2600 - 2400) = 600
+        self.assertEqual(r["spend"]["closure"]["tokens_k"], 600)
+        self.assertEqual(r["spend"]["orchestration"]["tokens_k"], 8200)
+        self.assertEqual(pm._spend_total(r["spend"])["tokens_k"], 10800)
+
+    def test_buckets_partition_the_spend_without_double_counting(self):
+        r = pm.rollup_epic(self.root, "E001")
+        total = pm._spend_total(r["spend"])["tokens_k"]
+        parts = sum(r["spend"][b].get("tokens_k", 0) for b in pm.SPEND_BUCKETS)
+        self.assertEqual(total, parts)
+
+    def test_missing_parent_actual_yields_no_closure_rather_than_a_bogus_one(self):
+        self._w(os.path.join(self.sd, "sprint.yaml"),
+                {"key": "S01", "epic": "E001", "status": "done"})
+        r = pm.rollup_sprint(self.root, "E001", "S01")
+        self.assertEqual(r["spend"]["closure"], {})
+        self.assertEqual(r["spend"]["stories"]["tokens_k"], 2000)
+
+    def test_negative_residual_clamps_to_zero_not_negative_spend(self):
+        self._w(os.path.join(self.sd, "sprint.yaml"),
+                {"key": "S01", "epic": "E001", "status": "done",
+                 "actual": self._m(0.5, 1, 0.0, 100)})     # below the children's sum
+        r = pm.rollup_sprint(self.root, "E001", "S01")
+        self.assertEqual(r["spend"]["closure"]["tokens_k"], 0)
+
+    # --- rendered surfaces ------------------------------------------------- #
+    def test_show_prints_the_breakout(self):
+        code, out = self.run_main(["show", "--state-root", self.root, "--epic", "E001"])
+        self.assertEqual(code, 0, out)
+        self.assertIn("spend/orchestration", out)
+        self.assertIn("tokens_k=8200", out)
+        self.assertIn("spend/TOTAL", out)
+
+    def test_report_tree_carries_orchestration(self):
+        code, out = self.run_main(["report", "--state-root", self.root])
+        self.assertEqual(code, 0, out)
+        self.assertIn("Spend (actual, by attribution", out)
+        self.assertIn("orchestration", out)
+        self.assertIn("tokens_k=8200", out)
+        self.assertIn("tokens_k=10800", out)
+
+    def test_report_md_carries_orchestration(self):
+        code, out = self.run_main(["report", "--state-root", self.root, "--format", "md"])
+        self.assertEqual(code, 0, out)
+        self.assertIn("## Spend", out)
+        self.assertIn("| orchestration |", out)
+        self.assertIn("8200", out)
+
+    def test_report_json_carries_the_buckets(self):
+        code, out = self.run_main(["report", "--state-root", self.root, "--format", "json"])
+        self.assertEqual(code, 0, out)
+        model = json.loads(out)
+        self.assertEqual(model["spend"]["orchestration"]["tokens_k"], 8200)
+        self.assertEqual(model["spend_total"]["tokens_k"], 10800)
+
+    def test_spend_covers_archived_epics_even_when_the_listing_does_not(self):
+        # "what has this project cost" must not change with the display filter.
+        code, out = self.run_main(["report", "--state-root", self.root,
+                                   "--status", "archived", "--format", "json"])
+        self.assertEqual(code, 0, out)
+        model = json.loads(out)
+        self.assertEqual(model["spend"]["orchestration"]["tokens_k"], 8200)
+
+    def test_spend_section_is_omitted_when_nothing_was_spent(self):
+        empty = os.path.join(self.d, "empty-state")
+        os.makedirs(os.path.join(empty, "active"))
+        code, out = self.run_main(["report", "--state-root", empty])
+        self.assertEqual(code, 0, out)
+        self.assertNotIn("Spend (actual", out)
+
+    def test_float_summation_noise_is_not_rendered(self):
+        code, out = self.run_main(["report", "--state-root", self.root])
+        self.assertEqual(code, 0, out)
+        self.assertNotIn("0000000", out)
+        self.assertIn("elapsed_hours=3.9", out)
+
+
 class TestMalformedEventLog(Base):
     """I5/M3: open_dispatches dereferenced every valid-JSON line without an
     isinstance guard and read the file without an OSError guard, while

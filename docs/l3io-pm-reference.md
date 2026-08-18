@@ -399,8 +399,8 @@ epic:   backlog → in-progress → done
 | `set-status`, `set-actual` extras | `--no-events` skips the `events.jsonl` append; `--session-id ID` stamps it |
 | `estimate-story` | `--state-root --story KEY --classification {simple,standard,complex}` |
 | `estimate-rollup` | `--state-root --epic ID [--sprint ID]` — sums children, widens by the closure band |
-| `show` | `--state-root --epic ID [--sprint ID]` — computed roll-up to stdout, never a committed file |
-| `report` | `--state-root` + optional `--plan <plan-output-meta.yaml>` `--format {tree,json,md}` `--out FILE` `--status planned,active,archived` `--all` `--watch SECS` — walks every epic; addresses none individually. Read-only unless `--out` is given. `--status` narrows the **display** only (default `planned,active`); totals and phase denominators always cover every epic |
+| `show` | `--state-root --epic ID [--sprint ID]` — computed roll-up to stdout, never a committed file. Prints the children's actuals plus a `spend/` breakout by story / closure / orchestration |
+| `report` | `--state-root` + optional `--plan <plan-output-meta.yaml>` `--format {tree,json,md}` `--out FILE` `--status planned,active,archived` `--all` `--watch SECS` — walks every epic; addresses none individually. Read-only unless `--out` is given. `--status` narrows the **display** only (default `planned,active`); totals, phase denominators, and the spend breakout always cover every epic. Every format carries a **Spend** section attributing actual spend to story / closure / orchestration, plus a stalled-dispatch section (`--stall-minutes`, default 15) |
 | `dispatch` | `--state-root --event {open,close} --agent NAME` + optional `--epic`/`--sprint`/`--story`/`--session-id` — records a subagent dispatch open/close into `events.jsonl`; feeds `report`'s stalled-dispatch flags |
 | `set-lock`, `clear-lock`, `check-lock` | `--state-root --epic ID` (epics only) |
 | `move-epic`, `archive-epic` | `--state-root --epic ID [--to {planned,active,archived}]` |

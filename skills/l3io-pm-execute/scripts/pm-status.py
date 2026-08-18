@@ -1986,6 +1986,83 @@ def _accumulate_actuals(totals: dict, node) -> None:
         totals[m] = totals.get(m, 0.0) + v
 
 
+# --------------------------------------------------------------------------- #
+# spend attribution — the three buckets metrics-contract.md §6 defines
+#
+# The estimate has three terms (children + closure band + orchestration band), so
+# a report of what was actually spent has to have the same three, or the largest
+# term stays invisible: on the run that motivated this model, orchestration was
+# 72% of total spend and stories were 24%. Recording it on disk and omitting it
+# from every rendered report leaves the number nobody can act on. Design §9's CLI
+# table specifies this breakout for `report`; `show` carries it too, since it is
+# the per-node view of the same three buckets.
+# --------------------------------------------------------------------------- #
+SPEND_BUCKETS = ("stories", "closure", "orchestration")
+
+
+def _block_totals(node, block: str = "actual") -> dict:
+    """One metric block's numeric values. Absent and `N/A` entries are omitted
+    rather than coerced to zero — a missing measurement is not a measured zero."""
+    b = (node or {}).get(block) or {}
+    out = {}
+    for m in METRIC_FIELDS:
+        v = _actual_metric(b, m)
+        if v is not None:
+            out[m] = v
+    return out
+
+
+def _add_totals(dst: dict, src: dict) -> None:
+    for k, v in (src or {}).items():
+        dst[k] = dst.get(k, 0.0) + v
+
+
+def _closure_totals(parent_actual: dict, children_total: dict) -> dict:
+    """A node's own closure-phase spend: its `actual` minus its children's sum.
+
+    The same residual `derive_closure_sample` measures its component from, so the
+    report and the calibration loop can never disagree about what "closure" means.
+    Only metrics BOTH sides carry are reported — a parent metric with no comparable
+    children sum has no residual, not a residual equal to the whole parent. Clamped
+    at zero for display: a negative residual is a wall-clock overlap or a miscount
+    (`derive_closure_sample` names which), not negative spend.
+    """
+    out = {}
+    for m, pv in (parent_actual or {}).items():
+        cv = (children_total or {}).get(m)
+        if cv is None:
+            continue
+        out[m] = max(0.0, pv - cv)
+    return out
+
+
+def _new_spend() -> dict:
+    return {b: {} for b in SPEND_BUCKETS}
+
+
+def _merge_spend(dst: dict, src: dict) -> None:
+    for b in SPEND_BUCKETS:
+        _add_totals(dst[b], (src or {}).get(b) or {})
+
+
+def _spend_total(spend: dict) -> dict:
+    """The three buckets summed — what the level actually cost, end to end."""
+    out = {}
+    for b in SPEND_BUCKETS:
+        _add_totals(out, (spend or {}).get(b) or {})
+    return out
+
+
+def _sprint_spend(story_totals: dict, snode) -> dict:
+    return {"stories": dict(story_totals),
+            "closure": _closure_totals(_block_totals(snode, "actual"), story_totals),
+            "orchestration": _block_totals(snode, "orchestration")}
+
+
+def _has_spend(spend: dict) -> bool:
+    return any((spend or {}).get(b) for b in SPEND_BUCKETS)
+
+
 def rollup_sprint(state_root: str, epic_key: str, sprint_key: str) -> dict:
     by_status, totals, stories = {}, {}, []
     for p in list_story_files(state_root, epic_key, sprint_key):
@@ -2004,12 +2081,15 @@ def rollup_sprint(state_root: str, epic_key: str, sprint_key: str) -> dict:
         "story_count": len(stories),
         "by_status": by_status,
         "actual_totals": totals,
+        "node_actual": _block_totals(snode, "actual"),
+        "spend": _sprint_spend(totals, snode),
         "stories": stories,
     }
 
 
 def rollup_epic(state_root: str, epic_key: str) -> dict:
     by_status, totals, sprints, story_count = {}, {}, [], 0
+    spend, sprint_actual_sum = _new_spend(), {}
     for sd in list_sprint_dirs(state_root, epic_key):
         skey = _sprint_key_from_dir(sd)
         r = rollup_sprint(state_root, epic_key, skey)
@@ -2019,8 +2099,15 @@ def rollup_epic(state_root: str, epic_key: str) -> dict:
             by_status[k] = by_status.get(k, 0) + v
         for k, v in r["actual_totals"].items():
             totals[k] = totals.get(k, 0.0) + v
+        _merge_spend(spend, r["spend"])
+        _add_totals(sprint_actual_sum, r["node_actual"])
     ep = epic_file(state_root, epic_key)
     _, enode = load_node(ep) if ep else (None, None)
+    # The epic's OWN closure residual sits on top of its sprints' — one bucket,
+    # two levels, because both are "the closing level's own closure phases".
+    _add_totals(spend["closure"],
+                _closure_totals(_block_totals(enode, "actual"), sprint_actual_sum))
+    _add_totals(spend["orchestration"], _block_totals(enode, "orchestration"))
     return {
         "key": epic_key,
         "status": str((enode or {}).get("status", "unknown")),
@@ -2028,13 +2115,31 @@ def rollup_epic(state_root: str, epic_key: str) -> dict:
         "story_count": story_count,
         "by_status": by_status,
         "actual_totals": totals,
+        "node_actual": _block_totals(enode, "actual"),
+        "spend": spend,
         "sprints": sprints,
     }
 
 
 def _fmt_actuals(totals: dict) -> str:
     """Render an actuals dict in stable METRIC_FIELDS order."""
-    return "  ".join(f"{m}={totals.get(m, 0)}" for m in METRIC_FIELDS)
+    return "  ".join(f"{m}={_norm_spend(totals.get(m))}" for m in METRIC_FIELDS)
+
+
+def _norm_spend(v):
+    """Display form for a summed metric: 0 when absent, trimmed of float noise.
+
+    Summing floats produces 3.9000000000000004; a report that prints that is
+    reporting its own arithmetic rather than the number. Rounded to 4 places
+    (well past any metric's real precision) and shown as an int when integral.
+    """
+    if v is None:
+        return 0
+    try:
+        f = round(float(v), 4)
+    except (TypeError, ValueError):
+        return v
+    return int(f) if f.is_integer() else f
 
 
 # --------------------------------------------------------------------------- #
@@ -2116,6 +2221,8 @@ def _build_sprint_detail(state_root: str, epic_key: str, sprint_key: str,
 
     return {"key": sprint_key, "status": s_status, "story_count": len(stories),
             "by_status": by_status, "actual_totals": totals,
+            "node_actual": _block_totals(snode, "actual"),
+            "spend": _sprint_spend(totals, snode),
             "estimate": dict(snode.get("estimate") or {}),
             "updated_at": snode.get("updated_at"),
             "dwell_hours": None if s_dwell is None else round(s_dwell, 2),
@@ -2180,6 +2287,7 @@ def build_epic_detail(state_root: str, epic_key: str, dir_status: str,
     flags += compute_flags("epic", epic_key, status, dwell, exact)
 
     sprints, totals, by_status, story_count = [], {}, {}, 0
+    spend, sprint_actual_sum = _new_spend(), {}
     for sd in list_sprint_dirs(state_root, epic_key):
         skey = _sprint_key_from_dir(sd)
         s_detail = _build_sprint_detail(state_root, epic_key, skey, events_index, now)
@@ -2189,13 +2297,19 @@ def build_epic_detail(state_root: str, epic_key: str, dir_status: str,
             by_status[k] = by_status.get(k, 0) + v
         for k, v in s_detail["actual_totals"].items():
             totals[k] = totals.get(k, 0.0) + v
+        _merge_spend(spend, s_detail["spend"])
+        _add_totals(sprint_actual_sum, s_detail["node_actual"])
+    _add_totals(spend["closure"],
+                _closure_totals(_block_totals(enode, "actual"), sprint_actual_sum))
+    _add_totals(spend["orchestration"], _block_totals(enode, "orchestration"))
 
     return {
         "key": epic_key, "title": enode.get("title"), "status": status,
         "dir_status": dir_status, "sprint_count": len(sprints),
         "story_count": story_count, "by_status": by_status,
         "estimate": dict(enode.get("estimate") or {}),
-        "actual_totals": totals, "updated_at": enode.get("updated_at"),
+        "actual_totals": totals, "node_actual": _block_totals(enode, "actual"),
+        "spend": spend, "updated_at": enode.get("updated_at"),
         "dwell_hours": None if dwell is None else round(dwell, 2),
         "dwell_exact": exact, "lock": lock, "flags": flags, "sprints": sprints,
     }
@@ -2266,11 +2380,16 @@ def build_progress_model(state_root: str, plan=None, statuses=None,
     events_index = build_events_index(state_root)
     details, flags = {}, []
     totals = {"epics": {}, "sprints": {}, "stories": {}}
+    spend = _new_spend()
 
     for epic_key, dir_status in list_all_epics(state_root):
         d = build_epic_detail(state_root, epic_key, dir_status, events_index, now)
         details[epic_key] = d
         flags += _collect_flags(d)
+        # Spend, like the status counts below, is summed over EVERY epic, not only
+        # the visible ones: "what has this project cost" must not change because
+        # the caller narrowed the listing to `active`.
+        _merge_spend(spend, d["spend"])
         totals["epics"][d["status"]] = totals["epics"].get(d["status"], 0) + 1
         for sp in d["sprints"]:
             totals["sprints"][sp["status"]] = totals["sprints"].get(sp["status"], 0) + 1
@@ -2302,6 +2421,8 @@ def build_progress_model(state_root: str, plan=None, statuses=None,
         "unplanned_epics": [d for k, d in sorted(details.items())
                             if k not in claimed and visible(d)],
         "totals": totals,
+        "spend": spend,
+        "spend_total": _spend_total(spend),
         "flags": flags,
     }
 
@@ -2396,6 +2517,14 @@ def render_tree(model: dict) -> str:
         body = "  ".join(f"{k}={v}" for k, v in sorted(counts.items())) or "none"
         out.append(f"  {level:<9} {body}")
 
+    spend = model.get("spend") or {}
+    if _has_spend(spend):
+        out.append("")
+        out.append("Spend (actual, by attribution — covers every epic, not just those listed)")
+        for bucket in SPEND_BUCKETS:
+            out.append(f"  {bucket:<14} {_fmt_actuals(spend.get(bucket) or {})}")
+        out.append(f"  {'TOTAL':<14} {_fmt_actuals(model.get('spend_total') or {})}")
+
     other = [f for f in model["flags"] if f["kind"] != "stuck"]
     if other:
         out.append("")
@@ -2461,6 +2590,22 @@ def render_md(model: dict) -> str:
         body = ", ".join(f"{k}={v}" for k, v in sorted(counts.items())) or "none"
         out.append(f"| {level} | {body} |")
     out.append("")
+
+    spend = model.get("spend") or {}
+    if _has_spend(spend):
+        out += ["## Spend", "",
+                "Actual spend by attribution, over every epic in the tree (not only the "
+                "epics listed above). `stories` is the sum of the leaf actuals, `closure` "
+                "each level's own closure-phase residual, `orchestration` the separate "
+                "orchestration block.", "",
+                "| Attribution | " + " | ".join(METRIC_FIELDS) + " |",
+                "|---|" + "---|" * len(METRIC_FIELDS)]
+        rows = [(b, spend.get(b) or {}) for b in SPEND_BUCKETS]
+        rows.append(("**total**", model.get("spend_total") or {}))
+        for label, vals in rows:
+            cells = " | ".join(str(_norm_spend(vals.get(m))) for m in METRIC_FIELDS)
+            out.append(f"| {label} | {cells} |")
+        out.append("")
     return "\n".join(out) + "\n"
 
 
@@ -3012,6 +3157,7 @@ def cmd_show(args) -> int:
         for s in r["stories"]:
             sys.stdout.write(f"  {s['key']:<20} {s['status']}\n")
         sys.stdout.write(f"  actuals: {_fmt_actuals(r['actual_totals'])}\n")
+        _write_spend(r["spend"])
         return 0
 
     r = rollup_epic(args.state_root, args.epic)
@@ -3020,7 +3166,25 @@ def cmd_show(args) -> int:
     for sp in r["sprints"]:
         sys.stdout.write(f"  {sp['key']:<8} status={sp['status']:<12} stories={sp['story_count']}\n")
     sys.stdout.write(f"  actuals: {_fmt_actuals(r['actual_totals'])}\n")
+    _write_spend(r["spend"])
     return 0
+
+
+def _write_spend(spend: dict) -> None:
+    """The three-bucket breakout under a `show` roll-up.
+
+    The `actuals:` line above is the CHILDREN's sum only — that is what it has
+    always been, and callers parse it. Closure and orchestration are printed
+    beside it rather than folded into it, because the whole point of the model is
+    that the three are separately attributable (metrics-contract.md §6).
+    """
+    if not _has_spend(spend):
+        return
+    for bucket in SPEND_BUCKETS:
+        vals = (spend or {}).get(bucket) or {}
+        if vals:
+            sys.stdout.write(f"  spend/{bucket:<14} {_fmt_actuals(vals)}\n")
+    sys.stdout.write(f"  spend/{'TOTAL':<14} {_fmt_actuals(_spend_total(spend))}\n")
 
 
 def cmd_report(args) -> int:
