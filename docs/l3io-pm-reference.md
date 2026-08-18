@@ -393,11 +393,13 @@ epic:   backlog → in-progress → done
 | `estimate-rollup` | `--state-root --epic ID [--sprint ID]` — sums children, widens by the closure band |
 | `show` | `--state-root --epic ID [--sprint ID]` — computed roll-up to stdout, never a committed file |
 | `report` | `--state-root` + optional `--plan <plan-output-meta.yaml>` `--format {tree,json,md}` `--out FILE` `--status planned,active,archived` `--all` `--watch SECS` — walks every epic; addresses none individually. Read-only unless `--out` is given. `--status` narrows the **display** only (default `planned,active`); totals and phase denominators always cover every epic |
+| `dispatch` | `--state-root --event {open,close} --agent NAME` + optional `--epic`/`--sprint`/`--story`/`--session-id` — records a subagent dispatch open/close into `events.jsonl`; feeds `report`'s stalled-dispatch flags |
 | `set-lock`, `clear-lock`, `check-lock` | `--state-root --epic ID` (epics only) |
 | `move-epic`, `archive-epic` | `--state-root --epic ID [--to {planned,active,archived}]` |
 | `append-issue` | `--file` — the one path-addressed exception |
 | `list-issues` | `--state-root` + optional `--epic`/`--sprint`/`--severity`/`--format` |
 | `calibration show` | `--state-root [--format {text,json}]` |
+| `rates` | optional `--model ID` (all models if omitted) `--token-rates JSON` — prints the effective per-model token rate table (read-only); an unknown `--model` exits 2 rather than guessing a default |
 
 Exit codes: `0` success · `2` usage error · `3` node not found · `4` verification failure · `5` epic locked by another session.
 

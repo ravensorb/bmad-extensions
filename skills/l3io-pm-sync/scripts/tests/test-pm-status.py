@@ -2574,5 +2574,43 @@ class TestReportStalls(Base):
         self.assertNotIn("STALLED DISPATCH", out)
 
 
+class TestRates(Base):
+    def test_cost_from_tokens_opus5(self):
+        tokens = {"input": 174, "output": 58, "cache_write": 348, "cache_read": 580}
+        # (174*5 + 58*25 + 348*6.25 + 580*0.50) / 1000
+        self.assertAlmostEqual(pm.cost_from_tokens(tokens, "claude-opus-5"), 4.79, places=2)
+
+    def test_same_tokens_cost_double_on_a_10_per_m_tier(self):
+        tokens = {"input": 174, "output": 58, "cache_write": 348, "cache_read": 580}
+        self.assertAlmostEqual(pm.cost_from_tokens(tokens, "claude-fable-5"), 9.57, places=2)
+
+    def test_cache_write_dominates_a_cache_heavy_mix(self):
+        tokens = {"input": 412, "output": 34, "cache_write": 4300, "cache_read": 253}
+        self.assertAlmostEqual(pm.cost_from_tokens(tokens, "claude-opus-5"), 29.91, places=2)
+
+    def test_unknown_model_is_a_hard_error(self):
+        with self.assertRaises(KeyError):
+            pm.cost_from_tokens({"input": 1}, "claude-not-a-model")
+
+    def test_missing_class_counts_as_zero(self):
+        self.assertAlmostEqual(pm.cost_from_tokens({"output": 10}, "claude-opus-5"), 0.25, places=2)
+
+    def test_overrides_win(self):
+        over = {"claude-opus-5": {"input": 1.0, "output": 1.0,
+                                 "cache_write": 1.0, "cache_read": 1.0}}
+        self.assertAlmostEqual(
+            pm.cost_from_tokens({"input": 1000}, "claude-opus-5", over), 1.00, places=2)
+
+    def test_rates_subcommand_prints_the_effective_table(self):
+        code, out = self.run_main(["rates", "--model", "claude-opus-5"])
+        self.assertEqual(code, 0, out)
+        self.assertIn("cache_write", out)
+        self.assertIn("6.25", out)
+
+    def test_rates_subcommand_rejects_unknown_model(self):
+        code, out = self.run_main(["rates", "--model", "nope"])
+        self.assertEqual(code, 2, out)
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

@@ -1210,7 +1210,9 @@ def cmd_rates(args) -> int:
         try:
             r = resolve_rates(m, overrides)
         except KeyError as e:
-            sys.stderr.write(f"{e}\n")
+            # e.args[0], not str(e) — KeyError.__str__ repr-quotes its argument,
+            # which would double-wrap a message that already reads as prose.
+            sys.stderr.write(f"pm-status.py: {e.args[0]}\n")
             return 2
         cells = "  ".join(f"{c}={r[c]:.2f}" for c in TOKEN_CLASSES)
         sys.stdout.write(f"{m:<22} {cells}\n")
