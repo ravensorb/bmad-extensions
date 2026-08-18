@@ -2,6 +2,70 @@
 
 All notable changes to this project will be documented in this file. See [commit-and-tag-version](https://github.com/absolute-version/commit-and-tag-version) for commit guidelines.
 
+## [2.1.3](https://github.com/ravensorb/bmad-extensions/compare/2.1.2...2.1.3) (2026-08-18)
+
+
+### Features
+
+* **infra:** budget the activation digest ([25072d5](https://github.com/ravensorb/bmad-extensions/commit/25072d53f9bf3f11481d259e60b4b92f7eeb0dbb))
+* **infra:** gate the documented metric list and tighten the CLI-surface check ([8592183](https://github.com/ravensorb/bmad-extensions/commit/85921831a15997012597a191a66fb484f7c3a6c0))
+* **l3io-pm:** add a model-keyed token rate table and cost derivation ([54f1f1d](https://github.com/ravensorb/bmad-extensions/commit/54f1f1db8d8495ebdfaccfa569fccfb92292464a))
+* **l3io-pm:** add hitl_hours, separating supervision time from developer effort ([c3a107d](https://github.com/ravensorb/bmad-extensions/commit/c3a107d475a762054b5e63969cc7485240d20b4a))
+* **l3io-pm:** attribute orchestration spend and learn it as a fourth component ([524dd3f](https://github.com/ravensorb/bmad-extensions/commit/524dd3fa8cbe3adc0a18ccc46b6f38cd58e48728))
+* **l3io-pm:** break actual spend out by story, closure, and orchestration ([dbaa49d](https://github.com/ravensorb/bmad-extensions/commit/dbaa49d12d0add938b839552969b772be9a0b071))
+* **l3io-pm:** close the wait protocol over every spawn site ([3242ef3](https://github.com/ravensorb/bmad-extensions/commit/3242ef345a1333faab00c21c2429a34479c7b5ca))
+* **l3io-pm:** derive estimate cost from a banded token total and observed mix ([621f235](https://github.com/ravensorb/bmad-extensions/commit/621f235e78bfea749a6a99144f4a14f6ef4aaaa1))
+* **l3io-pm:** make verify recompute cost and enforce the token total invariant ([c0938cf](https://github.com/ravensorb/bmad-extensions/commit/c0938cfdc93412fe8d3327f763802123f0ce5ab1))
+* **l3io-pm:** migrate calibration to the new metric shape without a version bump ([b0c5a26](https://github.com/ravensorb/bmad-extensions/commit/b0c5a263632faf8937ca200b3acd2a2f8ac3ce08))
+* **l3io-pm:** record dispatch open/close events and flag stalled dispatches ([803fb28](https://github.com/ravensorb/bmad-extensions/commit/803fb28ae4164b8e7bb7df6e41f098398056a5fe))
+* **l3io-pm:** roll orchestration overhead into sprint and epic estimates ([828a1e7](https://github.com/ravensorb/bmad-extensions/commit/828a1e77213c844f6b847c3e282b10ee2108b025))
+* **l3io-pm:** structure actual tokens by class and derive cost from them ([57afc2f](https://github.com/ravensorb/bmad-extensions/commit/57afc2f7867c2495f4d8d27a5540654e8fdfba54))
+
+
+### Fixes
+
+* **l3io-pm:** bracket the sprint dispatch and write the real attribution rule ([ae6a8f2](https://github.com/ravensorb/bmad-extensions/commit/ae6a8f2e3cd096dfc0944f4dfd491f80e946d365))
+* **l3io-pm:** close the tokens_k mapping blind spot in derive_story_sample ([401b1e8](https://github.com/ravensorb/bmad-extensions/commit/401b1e8c36271a31b1f1a0bb8dc3ba3bfe323ca2))
+* **l3io-pm:** close three unfalsifiable-metric holes in set-actual, verify, and report ([6c73e03](https://github.com/ravensorb/bmad-extensions/commit/6c73e03d0d2292a2e34655bb6caaa67d7e85221b))
+* **l3io-pm:** compare the closure residual against a tolerance, not exact zero ([765430d](https://github.com/ravensorb/bmad-extensions/commit/765430da031d92806746fd381387682e8fb5f748))
+* **l3io-pm:** correct set-actual usage banner and KeyError message quoting ([1b5a8a4](https://github.com/ravensorb/bmad-extensions/commit/1b5a8a42492db3b47a79430c5b8cb269b6b7cbe4))
+* **l3io-pm:** gate the metrics migration on a positive marker, not legacy keys ([78fb082](https://github.com/ravensorb/bmad-extensions/commit/78fb082b6fe4828a713be014d4f908517e3b1278))
+* **l3io-pm:** guard observed_mix against a non-mapping calibration sample ([273a06e](https://github.com/ravensorb/bmad-extensions/commit/273a06e50d5022fea348bd5de22820f86691d1d2))
+* **l3io-pm:** guard the orchestration sample against replay with its own marker ([6a801b5](https://github.com/ravensorb/bmad-extensions/commit/6a801b5a34c8a342ae43207203b4d3f287d1bbfb))
+* **l3io-pm:** make set-estimate cost-rejection tests exercise the real path ([70911cd](https://github.com/ravensorb/bmad-extensions/commit/70911cda14f6211424544d577b9d45ae3c247b47))
+* **l3io-pm:** make the closure component measure closure, not closure-plus-orchestration ([949349b](https://github.com/ravensorb/bmad-extensions/commit/949349b8a8b79b939d001e11303cf111319feb7a))
+* **l3io-pm:** resolve default_model and token_rates, and pass them through ([240b5af](https://github.com/ravensorb/bmad-extensions/commit/240b5afc081b07008de0cafec9e9c4addf67294b))
+* **l3io-pm:** route hitl_hours through calibration, not just storage ([66596dd](https://github.com/ravensorb/bmad-extensions/commit/66596dd9f09d91d8a026cc6d00e38e59cbdc32d9))
+* **l3io-pm:** sync rate-table payload copies, document rates/dispatch, fix cmd_rates error format ([4128797](https://github.com/ravensorb/bmad-extensions/commit/41287971e350c4e88874fe156367d9d5b5e3c8b3))
+* **l3io-pm:** tighten verify's cost tolerance and cover --token-rates wiring ([8cae964](https://github.com/ravensorb/bmad-extensions/commit/8cae964c6c1b63f81c31bd41ed605b153f439376))
+* **l3io-util,l3io-pm:** stop two shipped skills reading and writing the retired schema ([e399f76](https://github.com/ravensorb/bmad-extensions/commit/e399f7648a81f3d6a90b86d27a58f6d699b0e174))
+
+
+### Performance
+
+* **l3io-pm:** batch story enrichment instead of spawning per story ([b01fd3b](https://github.com/ravensorb/bmad-extensions/commit/b01fd3ba36ad30427162f6f67c9d23567880b950))
+* **l3io-pm:** let dispatched subagents inherit activation ([0adf95f](https://github.com/ravensorb/bmad-extensions/commit/0adf95f37be44e0a4438f783e7e5e9581f14ff7a))
+
+
+### Refactoring
+
+* **l3io-pm:** split the calibration model out of the metrics contract ([3e163cb](https://github.com/ravensorb/bmad-extensions/commit/3e163cbe96565855c03d5450dfe1295c2b67c2f2))
+* **l3io-pm:** unify estimate time_hours and actual elapsed_hours to one name ([b94fff3](https://github.com/ravensorb/bmad-extensions/commit/b94fff34cb786055a3f59036900a3369e0c310d8))
+
+
+### Documentation
+
+* **l3io-pm:** add the metrics model rework design and implementation plan ([5ff1e8e](https://github.com/ravensorb/bmad-extensions/commit/5ff1e8e7b1c05db2e4bd10afc93da7d2723d420e))
+* **l3io-pm:** document the five-metric model, derived cost, and orchestration ([5c01104](https://github.com/ravensorb/bmad-extensions/commit/5c01104b887a57a255ee125b924fbf578cb4499b))
+* **l3io-pm:** fix two factual errors in the metrics contract from review ([9a529d5](https://github.com/ravensorb/bmad-extensions/commit/9a529d57f7b0d5a15d856e6b11bea66f9514e2ca))
+* **l3io-pm:** make the no-in-memory-handoff rule operative for subagents ([55e6a45](https://github.com/ravensorb/bmad-extensions/commit/55e6a459296794e0c970b51cf674fbfac664cbb8))
+* **l3io-pm:** recompute every cost in the shipped schema examples from the rate card ([c685ee5](https://github.com/ravensorb/bmad-extensions/commit/c685ee50a3d1c31f09045d9aa8faa33e8218a183))
+
+
+### Maintenance
+
+* **l3io-pm:** bump pm-status.py to 2.4.0 so self-install propagates this fix wave ([8849d34](https://github.com/ravensorb/bmad-extensions/commit/8849d347b683d8b226261632948c647b6c4ca290))
+
 ## [2.1.2](https://github.com/ravensorb/bmad-extensions/compare/2.1.1...2.1.2) (2026-08-17)
 
 
