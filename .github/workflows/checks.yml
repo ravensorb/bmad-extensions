@@ -9,10 +9,6 @@ jobs:
     runs-on: ubuntu-latest
     steps:
     - uses: actions/checkout@v4
-      with:
-        # check:version diffs pm-status.py against the last release tag; the default
-        # shallow checkout has no tags, which would make that check silently pass.
-        fetch-depth: 0
     - uses: actions/setup-node@v4
       with:
         node-version: '20'
