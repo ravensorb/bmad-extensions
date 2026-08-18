@@ -711,6 +711,126 @@ def weighted_ratio(samples: list) -> float:
     return num / den if den else None
 
 
+# A calibration sample outside this range is not wrong by construction — it
+# is a ratio (actual/estimate-ish, see derive_story_sample), and most real
+# ratios sit near 1.0 — but one this far off is exactly the shape a story
+# sample would have if orchestration-shaped overhead (a defect this rework
+# separately isolates into its own `orchestration` component) leaked into
+# it under the old rules. FLAG surfaces that suspicion for human review; it
+# never drops or corrects the sample itself.
+TOKENS_SANITY_RANGE = (0.5, 2.0)
+
+# Keys that ONLY EVER existed under the pre-metrics-rework rules: `cost` was
+# calibrated per-metric before Task 10 derived it from tokens x rates instead,
+# and `time_hours` was the scope/closure bucket key before Task 8 renamed it
+# to `elapsed_hours`. New code never writes either again — which is exactly
+# what makes them safe, unambiguous migration triggers, and what makes this
+# migration naturally idempotent with no stored flag: once a bucket has been
+# through it, neither key can reappear there. `man_hours` is deliberately
+# NOT one of these — it is still calibrated post-rework, just under a new
+# definition, and is structurally identical old vs new. Quarantining it is
+# only ever done in a bucket that ALSO shows one of these two markers, never
+# on its own — see migrate_calibration_metrics.
+_LEGACY_METRIC_MARKERS = ("cost", "time_hours")
+
+
+def _calibration_has_legacy_markers(cal) -> bool:
+    for component in ("scope", "closure"):
+        for metrics in (cal.get(component) or {}).values():
+            if hasattr(metrics, "get") and any(k in metrics for k in _LEGACY_METRIC_MARKERS):
+                return True
+    return False
+
+
+def migrate_calibration_metrics(y, cal, state_root: str) -> list:
+    """Reshape a pre-metrics-rework calibration file in place. Returns a
+    change log (empty when there was nothing to migrate).
+
+    Mirrors migrate_calibration's shape (backup, reshape, save-by-caller) but
+    is triggered and gated differently: `version` stays 2 deliberately — see
+    the module-level note by CALIBRATION_SCHEMA_VERSION — so there is no
+    version flip to detect "not yet migrated" the way v1->v2 does. Instead
+    detection is by the two UNAMBIGUOUS legacy key names
+    (_LEGACY_METRIC_MARKERS): a bucket showing either one can only have been
+    written before Tasks 8/10 shipped, since current code never writes them
+    again. A bucket that shows NEITHER is left completely alone, even if it
+    carries `man_hours` — that metric is still calibrated going forward under
+    a new definition, and with no marker of its own there is nothing to
+    justify treating it as legacy (see
+    test_man_hours_alone_is_never_quarantined_without_a_corroborating_marker).
+
+    Idempotent for free, not via a stored flag: once a bucket has been
+    reshaped, it can never show a legacy marker again, so a second call finds
+    nothing anywhere and returns [] without touching the file (this is also
+    why read-only commands calling this would be safe to skip calling it, and
+    why they simply never call it at all — see cmd_calibration).
+    """
+    log = []
+    found_legacy = _calibration_has_legacy_markers(cal)
+    if found_legacy:
+        p = calibration_path(state_root)
+        backup = p + ".pre-metrics"
+        if os.path.exists(p) and not os.path.exists(backup):
+            import shutil
+            shutil.copy2(p, backup)
+            log.append(f"backup {os.path.basename(backup)}")
+
+    def _reshape(component: str):
+        buckets = cal.get(component) or {}
+        for bucket, metrics in list(buckets.items()):
+            if not hasattr(metrics, "items"):
+                continue
+            has_marker = any(k in metrics for k in _LEGACY_METRIC_MARKERS)
+            if "cost" in metrics:
+                del metrics["cost"]
+                log.append(f"DROP {component}.{bucket}.cost (derived from tokens x rates "
+                           f"since Task 10 — never independently calibrated again)")
+            if "time_hours" in metrics:
+                metrics["elapsed_hours"] = metrics.pop("time_hours")
+                log.append(f"RENAME {component}.{bucket}.time_hours -> elapsed_hours")
+            if has_marker and "man_hours" in metrics:
+                from ruamel.yaml.comments import CommentedMap
+                dest = (cal.setdefault("legacy", CommentedMap())
+                           .setdefault(component, CommentedMap())
+                           .setdefault(bucket, CommentedMap()))
+                dest["man_hours"] = metrics.pop("man_hours")
+                log.append(f"QUARANTINE {component}.{bucket}.man_hours (definition changed: "
+                           f"human attention -> counterfactual developer effort — old "
+                           f"samples are incomparable, preserved under legacy.{component}.{bucket})")
+            if has_marker:
+                samples = list((metrics.get("tokens_k") or {}).get("samples") or [])
+                if samples:
+                    r = weighted_ratio(samples)
+                    if r is not None and not (TOKENS_SANITY_RANGE[0] <= r <= TOKENS_SANITY_RANGE[1]):
+                        log.append(
+                            f"FLAG {component}.{bucket}.tokens_k ratio={r:.2f} outside "
+                            f"{TOKENS_SANITY_RANGE} — carried forward as-is, but review "
+                            f"before trusting (possible orchestration overhead swept "
+                            f"into story samples under the old rules)")
+
+    for component in ("scope", "closure"):
+        _reshape(component)
+
+    if found_legacy:
+        fix = cal.get("fix") or {}
+        fix_had_content = any(bool(v) for v in fix.values())
+        if fix_had_content:
+            from ruamel.yaml.comments import CommentedMap
+            cal.setdefault("legacy", CommentedMap())["fix"] = fix
+            cal["fix"] = CommentedMap((c, CommentedMap()) for c in CLASSIFICATIONS)
+            log.append("QUARANTINE fix (wholesale — every cohort is measured in "
+                       "mean_man_hours, the same definition change as scope/closure "
+                       "man_hours; fix has no per-metric split to act on selectively, "
+                       "preserved under legacy.fix)")
+
+        if "token_mix" not in cal:
+            from ruamel.yaml.comments import CommentedMap
+            cal["token_mix"] = CommentedMap((("samples", []),))
+            log.append("SEED token_mix (empty — new component, nothing to migrate from)")
+
+    return log
+
+
 def _component_samples(cal, component: str, bucket: str, metric: str) -> list:
     node = ((cal.get(component) or {}).get(bucket) or {}).get(metric) or {}
     return list(node.get("samples") or [])
@@ -960,6 +1080,8 @@ def record_story_sample(state_root: str, node, node_path: str = None, y=None) ->
         y_cal, cal = load_calibration(state_root)
         if cal.get("version") != CALIBRATION_SCHEMA_VERSION:
             cal = migrate_calibration(y_cal, cal, state_root)
+        for line in migrate_calibration_metrics(y_cal, cal, state_root):
+            sys.stderr.write(f"pm-status.py: calibration migration: {line}\n")
         cls = sample["classification"]
 
         bucket = cal["scope"].setdefault(cls, CommentedMap())
@@ -1177,6 +1299,8 @@ def record_closure_sample(state_root: str, level: str, epic_key: str, sprint_key
         y, cal = load_calibration(state_root)
         if cal.get("version") != CALIBRATION_SCHEMA_VERSION:
             cal = migrate_calibration(y, cal, state_root)
+        for line in migrate_calibration_metrics(y, cal, state_root):
+            sys.stderr.write(f"pm-status.py: calibration migration: {line}\n")
         bucket = cal["closure"].setdefault(level, CommentedMap())
         for metric, ratio in sample["ratios"].items():
             entry = bucket.setdefault(metric, CommentedMap())
@@ -1279,6 +1403,8 @@ def record_orchestration_sample(state_root: str, level: str, epic_key: str,
         y, cal = load_calibration(state_root)
         if cal.get("version") != CALIBRATION_SCHEMA_VERSION:
             cal = migrate_calibration(y, cal, state_root)
+        for line in migrate_calibration_metrics(y, cal, state_root):
+            sys.stderr.write(f"pm-status.py: calibration migration: {line}\n")
         bucket = cal.setdefault("orchestration", CommentedMap()).setdefault(level, CommentedMap())
         for metric, frac in recorded.items():
             entry = bucket.setdefault(metric, CommentedMap())
@@ -1294,6 +1420,18 @@ def record_orchestration_sample(state_root: str, level: str, epic_key: str,
 
 
 def cmd_calibration(args) -> int:
+    if getattr(args, "action", "show") == "migrate-metrics":
+        with calibration_lock(args.state_root):
+            y, cal = load_calibration(args.state_root)
+            if cal.get("version") != CALIBRATION_SCHEMA_VERSION:
+                cal = migrate_calibration(y, cal, args.state_root)
+            log = migrate_calibration_metrics(y, cal, args.state_root)
+            save_calibration(y, cal, args.state_root)
+        for line in log:
+            sys.stdout.write(line + "\n")
+        sys.stdout.write(f"OK calibration migrate-metrics ({len(log)} changes)\n")
+        return 0
+
     _, cal = load_calibration(args.state_root)
     exists = os.path.exists(calibration_path(args.state_root))
     rows = []
@@ -3166,7 +3304,7 @@ def build_parser() -> argparse.ArgumentParser:
     ae.set_defaults(func=cmd_move_epic, to="archived")
 
     cal = sub.add_parser("calibration", help="inspect the calibration file")
-    cal.add_argument("action", choices=["show"])
+    cal.add_argument("action", choices=["show", "migrate-metrics"])
     cal.add_argument("--state-root", required=True)
     cal.add_argument("--format", choices=["text", "json"], default="text")
     cal.set_defaults(func=cmd_calibration)

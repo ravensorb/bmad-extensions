@@ -1475,6 +1475,276 @@ class TestCalibrationIO(unittest.TestCase):
         self.assertIn("cold-start", buf.getvalue().lower())
 
 
+class TestCalibrationMetricsMigration(unittest.TestCase):
+    """`migrate_calibration_metrics` reshapes a pre-metrics-rework calibration
+    file in place, without bumping `version` (still 2 — compatibility is by
+    shape-tolerant reads, never a version gate).
+
+    The "before" fixture here is hand-authored, not built by running a real
+    command: `git log -S` over this file's whole history turns up no commit
+    where a calibration SCOPE/CLOSURE bucket ever used a literal "time_hours"
+    key (METRIC_FIELDS already read "elapsed_hours" as far back as the file
+    goes) or calibrated `cost` unconditionally without excluding it — the
+    "old rules" this task migrates away from predate what this repo tracks.
+    There is no real command left in this codebase whose output would
+    produce that shape, so hand-authoring the fixture (matching the task
+    brief's own Step-1 fixture) is the only option. Where a REAL write path
+    can produce genuine data instead (the `fix` cohort structure has not
+    changed shape at all), the tests below use it — see
+    test_fix_cohort_built_via_real_writes_is_quarantined_wholesale and
+    test_man_hours_alone_is_never_quarantined_without_a_corroborating_marker.
+    """
+
+    def setUp(self):
+        self.d = tempfile.mkdtemp()
+        self.root = os.path.join(self.d, "state")
+        os.makedirs(self.root)
+        with open(pm.calibration_path(self.root), "w") as f:
+            f.write(
+                "version: 2\n"
+                "granularity: story\n"
+                "scope:\n"
+                "  complex:\n"
+                "    man_hours: {samples: [1.1, 1.2, 1.3]}\n"
+                "    time_hours: {samples: [0.9, 1.0, 1.1]}\n"
+                "    tokens_k: {samples: [4.0, 4.5, 5.0]}\n"
+                "    cost: {samples: [2.0, 2.1, 2.2]}\n"
+                "closure:\n"
+                "  sprint:\n"
+                "    cost: {samples: [1.5]}\n"
+            )
+
+    def tearDown(self):
+        import shutil
+        shutil.rmtree(self.d, ignore_errors=True)
+
+    def _migrate(self):
+        y, cal = pm.load_calibration(self.root)
+        log = pm.migrate_calibration_metrics(y, cal, self.root)
+        pm.save_calibration(y, cal, self.root)
+        return cal, log
+
+    def test_version_is_not_bumped(self):
+        cal, _ = self._migrate()
+        self.assertEqual(int(cal["version"]), 2)
+
+    def test_cost_component_is_dropped(self):
+        cal, _ = self._migrate()
+        self.assertNotIn("cost", cal["scope"]["complex"])
+        self.assertNotIn("cost", cal["closure"]["sprint"])
+
+    def test_man_hours_is_quarantined_not_deleted(self):
+        cal, _ = self._migrate()
+        self.assertNotIn("man_hours", cal["scope"]["complex"])
+        self.assertEqual(cal["legacy"]["scope"]["complex"]["man_hours"]["samples"],
+                         [1.1, 1.2, 1.3])
+
+    def test_time_hours_carried_forward_under_the_new_name(self):
+        cal, _ = self._migrate()
+        self.assertNotIn("time_hours", cal["scope"]["complex"])
+        self.assertEqual(cal["scope"]["complex"]["elapsed_hours"]["samples"],
+                         [0.9, 1.0, 1.1])
+
+    def test_tokens_carried_and_flagged_when_out_of_range(self):
+        cal, log = self._migrate()
+        self.assertIn("tokens_k", cal["scope"]["complex"])
+        self.assertTrue(any("FLAG" in line and "tokens_k" in line for line in log))
+
+    def test_new_components_are_seeded_empty(self):
+        cal, _ = self._migrate()
+        self.assertEqual(cal["orchestration"]["sprint"], {})
+        self.assertEqual(cal["token_mix"]["samples"], [])
+
+    def test_pre_migration_file_reads_as_cold_start_not_an_error(self):
+        """Shape-tolerant reads are what let `version` stay at 2: a read-only
+        command must handle an unmigrated file without raising and without
+        migrating it."""
+        _, cal = pm.load_calibration(self.root)
+        self.assertIsNone(pm.active_orchestration_fraction(cal, "sprint", "tokens_k"))
+        self.assertEqual(pm.observed_mix(cal), pm.COLD_START_TOKEN_MIX)
+        self.assertFalse(os.path.exists(pm.calibration_path(self.root) + ".pre-metrics"))
+
+    def test_backup_written_and_migration_idempotent(self):
+        self._migrate()
+        self.assertTrue(os.path.exists(pm.calibration_path(self.root) + ".pre-metrics"))
+        cal2, log2 = self._migrate()
+        self.assertEqual(log2, [])
+        self.assertEqual(cal2["scope"]["complex"]["elapsed_hours"]["samples"],
+                         [0.9, 1.0, 1.1])
+
+    def test_backup_preserves_the_exact_pre_migration_bytes(self):
+        # Not just "a backup exists" — it must be the file as it stood BEFORE
+        # any reshaping, taken before the drop/rename/quarantine mutations,
+        # not some already-mutated snapshot.
+        with open(pm.calibration_path(self.root), "rb") as f:
+            original = f.read()
+        self._migrate()
+        with open(pm.calibration_path(self.root) + ".pre-metrics", "rb") as f:
+            backed_up = f.read()
+        self.assertEqual(backed_up, original)
+
+    def test_closure_bucket_left_empty_not_removed_after_its_only_key_drops(self):
+        # closure.sprint had only `cost`; dropping it must leave an empty
+        # mapping behind, not delete the "sprint" bucket itself (a future
+        # closure sample still needs somewhere to land under "sprint").
+        cal, _ = self._migrate()
+        self.assertIn("sprint", cal["closure"])
+        self.assertEqual(len(cal["closure"]["sprint"]), 0)
+
+    def test_man_hours_alone_is_never_quarantined_without_a_corroborating_marker(self):
+        """Data-safety proof, built via the REAL write path (not a hand-authored
+        fixture): `man_hours` is still a legitimately-calibrated metric after
+        the rework, under a new definition, and is structurally identical old
+        vs new — there is no marker on a lone man_hours sample. Migration must
+        therefore never touch a bucket that shows no unambiguous legacy key
+        (`cost`/`time_hours`) of its own, or it would quarantine a perfectly
+        valid post-rework sample with nothing to justify it.
+
+        This uses a SEPARATE fresh root (not self.root, which is pre-seeded
+        with a legacy `complex` bucket) so the "standard" bucket this test
+        writes into never carries a legacy marker at all.
+        """
+        fresh_root = os.path.join(self.d, "fresh-state")
+        os.makedirs(fresh_root)
+        est = {"man_hours": 6, "elapsed_hours": 1.5, "tokens_k": 320,
+               "cost": 4.80, "fix_factor": 1.25, "scope_ratio": 1.0}
+        act = {"man_hours": 7, "elapsed_hours": 1.8, "tokens_k": {"total": 355},
+               "cost": 5.32}
+        node = {"key": "E001-S01-003", "classification": "standard",
+                "estimate": est, "actual": act, "completion_evidence": {"fix_iterations": 0}}
+        pm.record_story_sample(fresh_root, node)  # real write path, real hook
+        _, cal = pm.load_calibration(fresh_root)
+        self.assertEqual(len(pm._component_samples(cal, "scope", "standard", "man_hours")), 1)
+        self.assertNotIn("legacy", cal)  # nothing was ever found to quarantine
+
+    def test_fix_cohort_built_via_real_writes_is_quarantined_wholesale(self):
+        """The `fix` payload here is 100% real: built by calling
+        `record_story_sample` (the actual write path) three times, on a
+        FRESH root with no legacy markers of its own, so the `clean` cohort
+        crosses MIN_SAMPLES exactly as a real project would — and so those
+        three real writes never trip the migration hook themselves (nothing
+        legacy-shaped is present yet to trigger it).
+
+        `fix` itself carries no structural marker distinguishing old from new
+        (decision: quarantine wholesale, not per-metric), so the trigger for
+        treating the FILE as legacy has to come from elsewhere — a
+        `cost` key hand-injected into an unrelated scope bucket after the
+        real writes, standing in for the one signal a genuinely pre-rework
+        project would have shown on its own. Everything downstream of that
+        trigger (the fix cohort itself, and the assertion that it moved
+        intact) is real, not hand-authored.
+        """
+        fresh_root = os.path.join(self.d, "fix-quarantine-state")
+        os.makedirs(fresh_root)
+        for i in range(3):
+            node = {"key": f"E001-S01-{i:03d}", "classification": "complex",
+                    "estimate": {"man_hours": 6, "elapsed_hours": 1.5, "tokens_k": 320,
+                                 "cost": 4.80, "fix_factor": 1.25, "scope_ratio": 1.0},
+                    "actual": {"man_hours": 7, "elapsed_hours": 1.8,
+                               "tokens_k": {"total": 355}, "cost": 5.32},
+                    "completion_evidence": {"fix_iterations": 0}}
+            pm.record_story_sample(fresh_root, node)
+        _, cal = pm.load_calibration(fresh_root)
+        self.assertEqual(int(cal["fix"]["complex"]["clean"]["samples"]), 3)
+        self.assertNotIn("legacy", cal)  # the 3 real writes alone triggered nothing
+        pre_mean = float(cal["fix"]["complex"]["clean"]["mean_man_hours"])
+
+        # Stand in for the one legacy signal a real pre-rework project would
+        # have carried on its own (no real command in this codebase can
+        # produce a "cost"-calibrated scope bucket any more — see the class
+        # docstring).
+        y, cal = pm.load_calibration(fresh_root)
+        cal["scope"]["standard"] = {"cost": {"samples": [1.0]}}
+        pm.save_calibration(y, cal, fresh_root)
+
+        y, cal = pm.load_calibration(fresh_root)
+        log = pm.migrate_calibration_metrics(y, cal, fresh_root)
+        pm.save_calibration(y, cal, fresh_root)
+
+        self.assertTrue(any("QUARANTINE" in line and "fix" in line for line in log))
+        self.assertEqual(len(cal["fix"]["complex"]), 0)
+        self.assertAlmostEqual(float(cal["legacy"]["fix"]["complex"]["clean"]["mean_man_hours"]),
+                               pre_mean)
+        self.assertEqual(int(cal["legacy"]["fix"]["complex"]["clean"]["samples"]), 3)
+
+    def test_cli_migrate_metrics_action_reports_changes_then_zero(self):
+        buf = io.StringIO()
+        with redirect_stdout(buf):
+            code = pm.main(["calibration", "migrate-metrics", "--state-root", self.root])
+        self.assertEqual(code, 0)
+        first = buf.getvalue()
+        self.assertIn("OK calibration migrate-metrics", first)
+        self.assertNotIn("(0 changes)", first)
+
+        buf2 = io.StringIO()
+        with redirect_stdout(buf2):
+            code2 = pm.main(["calibration", "migrate-metrics", "--state-root", self.root])
+        self.assertEqual(code2, 0)
+        self.assertIn("(0 changes)", buf2.getvalue())
+
+
+class TestCalibrationMetricsMigrationReadOnlySafety(TestLayoutResolution):
+    """Read-only commands (`calibration show`, `estimate-story`,
+    `estimate-rollup`) must never trigger the metrics migration — proved by
+    comparing the calibration file's raw BYTES before and after, not merely
+    checking that no exception was raised.
+    """
+
+    LEGACY_YAML = (
+        "version: 2\n"
+        "granularity: story\n"
+        "scope:\n"
+        "  complex:\n"
+        "    man_hours: {samples: [1.1, 1.2, 1.3]}\n"
+        "    time_hours: {samples: [0.9, 1.0, 1.1]}\n"
+        "    tokens_k: {samples: [4.0, 4.5, 5.0]}\n"
+        "    cost: {samples: [2.0, 2.1, 2.2]}\n"
+        "closure:\n"
+        "  sprint:\n"
+        "    cost: {samples: [1.5]}\n"
+    )
+
+    def setUp(self):
+        super().setUp()
+        with open(pm.calibration_path(self.root), "w") as f:
+            f.write(self.LEGACY_YAML)
+        with open(pm.calibration_path(self.root), "rb") as f:
+            self.before = f.read()
+
+    def _unchanged(self):
+        with open(pm.calibration_path(self.root), "rb") as f:
+            after = f.read()
+        self.assertEqual(after, self.before)
+
+    def test_calibration_show_leaves_file_untouched(self):
+        buf = io.StringIO()
+        with redirect_stdout(buf):
+            code = pm.main(["calibration", "show", "--state-root", self.root])
+        self.assertEqual(code, 0)
+        self._unchanged()
+
+    def test_estimate_story_leaves_calibration_file_untouched(self):
+        buf = io.StringIO()
+        with redirect_stdout(buf):
+            code = pm.main(["estimate-story", "--state-root", self.root,
+                            "--story", "E001-S01-003", "--classification", "complex"])
+        self.assertEqual(code, 0, buf.getvalue())
+        self._unchanged()
+
+    def test_estimate_rollup_leaves_calibration_file_untouched(self):
+        sd = os.path.join(self.root, "active", "epic-001", "sprint-01")
+        with open(os.path.join(sd, "E001-S01-003.yaml"), "w") as f:
+            f.write("key: 'E001-S01-003'\nepic: 'E001'\nsprint: 'S01'\n"
+                    "estimate:\n  man_hours: 4\n  elapsed_hours: 1\n"
+                    "  tokens_k: 10\n  cost: 0.5\n")
+        buf = io.StringIO()
+        with redirect_stdout(buf):
+            code = pm.main(["estimate-rollup", "--state-root", self.root,
+                            "--epic", "E001", "--sprint", "S01"])
+        self.assertEqual(code, 0, buf.getvalue())
+        self._unchanged()
+
+
 class TestEstimateFactors(TestLayoutResolution):
     def run_main(self, argv):
         buf = io.StringIO()
