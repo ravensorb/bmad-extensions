@@ -419,6 +419,78 @@ def build_events_index(state_root: str) -> dict:
     return idx
 
 
+DEFAULT_STALL_MINUTES = 15
+
+
+def cmd_dispatch(args) -> int:
+    """Record a subagent dispatch opening or closing.
+
+    This is the attribution boundary for orchestration spend (metrics-contract
+    §6) AND the input to stall detection. Both need the same two timestamps, so
+    they share one event pair rather than two parallel logs that can disagree.
+    """
+    payload = {"ts": _now_iso(),
+               "event": "dispatch_open" if args.event == "open" else "dispatch_close",
+               "agent": args.agent,
+               "session": getattr(args, "session_id", None)}
+    for k in ("epic", "sprint", "story"):
+        v = getattr(args, k, None)
+        if v:
+            payload[k] = v
+    append_event(args.state_root, payload)
+    sys.stdout.write(f"OK dispatch {args.event} {args.agent}\n")
+    return 0
+
+
+def _dispatch_identity(rec: dict) -> tuple:
+    """What makes two dispatch records the same dispatch. Agent plus node keys —
+    a story-level retry of the same agent reuses the identity deliberately, so a
+    close always cancels the most recent matching open."""
+    return (rec.get("agent"), rec.get("epic"), rec.get("sprint"), rec.get("story"))
+
+
+def open_dispatches(state_root: str, threshold_minutes: float, now=None) -> list:
+    """Dispatches opened and never closed, older than the threshold, oldest first.
+
+    Cannot interrupt a hang — makes it visible. A close with no matching open is
+    ignored rather than treated as an error: events.jsonl is append-only and may
+    begin mid-run on a pre-existing project.
+    """
+    import datetime
+    path = events_path(state_root)
+    if not os.path.exists(path):
+        return []
+    pending: dict = {}
+    with open(path, "r", encoding="utf-8") as f:
+        for line in f:
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                rec = json.loads(line)
+            except ValueError:
+                continue
+            ev = rec.get("event")
+            if ev == "dispatch_open":
+                pending[_dispatch_identity(rec)] = rec
+            elif ev == "dispatch_close":
+                pending.pop(_dispatch_identity(rec), None)
+    if now is None:
+        now = datetime.datetime.now(datetime.timezone.utc)
+    out = []
+    for rec in pending.values():
+        opened = _parse_iso(rec.get("ts"))
+        if opened is None:
+            continue
+        age = (now - opened).total_seconds() / 60.0
+        if age < threshold_minutes:
+            continue
+        out.append({"agent": rec.get("agent"), "epic": rec.get("epic"),
+                    "sprint": rec.get("sprint"), "story": rec.get("story"),
+                    "opened_at": rec.get("ts"), "age_minutes": round(age, 1)})
+    return sorted(out, key=lambda r: r["opened_at"])
+
+
 def dwell_hours(node, events_index: dict, now=None):
     """Hours the node has been in its CURRENT status.
 
@@ -2241,9 +2313,20 @@ def cmd_report(args) -> int:
     def once() -> str:
         plan = load_plan(args.plan) if args.plan else None
         model = build_progress_model(args.state_root, plan=plan, statuses=statuses)
+        stalled = open_dispatches(args.state_root,
+                                  getattr(args, "stall_minutes", DEFAULT_STALL_MINUTES))
         if args.format == "json":
+            model["stalled_dispatches"] = stalled
             return json.dumps(model, indent=2, sort_keys=True) + "\n"
-        return render_md(model) if args.format == "md" else render_tree(model)
+        text = render_md(model) if args.format == "md" else render_tree(model)
+        if stalled:
+            lines = ["", "STALLED DISPATCH (open past threshold):"]
+            for s in stalled:
+                where = " ".join(x for x in (s["epic"], s["sprint"], s["story"]) if x)
+                lines.append(f"  {s['agent']:<20} {where:<28} "
+                             f"{s['age_minutes']}m  since {s['opened_at']}")
+            text = text + "\n".join(lines) + "\n"
+        return text
 
     if args.watch:
         import time
@@ -2434,7 +2517,20 @@ def build_parser() -> argparse.ArgumentParser:
                          "denominators always see the whole tree")
     rp.add_argument("--watch", type=int, default=0, metavar="SECS",
                     help="re-render on an interval (tree only in practice)")
+    rp.add_argument("--stall-minutes", dest="stall_minutes", type=float,
+                    default=DEFAULT_STALL_MINUTES,
+                    help="flag dispatches open longer than this (default 15)")
     rp.set_defaults(func=cmd_report)
+
+    dp = sub.add_parser("dispatch", help="record a subagent dispatch open/close")
+    dp.add_argument("--state-root", required=True)
+    dp.add_argument("--event", required=True, choices=["open", "close"])
+    dp.add_argument("--agent", required=True)
+    dp.add_argument("--epic", default="")
+    dp.add_argument("--sprint", default="")
+    dp.add_argument("--story", default="")
+    dp.add_argument("--session-id", dest="session_id", default=None)
+    dp.set_defaults(func=cmd_dispatch)
 
     si = sub.add_parser("self-install", help="copy this script to --dest, version-guarded")
     si.add_argument("--dest", required=True, help="target path, e.g. {project-root}/_bmad/scripts/pm-status.py")

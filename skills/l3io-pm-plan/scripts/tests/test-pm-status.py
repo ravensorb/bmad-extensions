@@ -2521,5 +2521,58 @@ class TestStatusFilter(TestPlanJoin):
         self.assertNotIn("E004", out)
 
 
+class TestDispatchEvents(Base):
+    def setUp(self):
+        super().setUp()
+        self.root = os.path.join(self.d, "state")
+        os.makedirs(self.root)
+
+    def test_open_then_close_leaves_nothing_open(self):
+        code, out = self.run_main(["dispatch", "--state-root", self.root, "--event", "open",
+                                   "--agent", "dev-story", "--epic", "E001", "--sprint", "S01",
+                                   "--story", "E001-S01-003"])
+        self.assertEqual(code, 0, out)
+        code, out = self.run_main(["dispatch", "--state-root", self.root, "--event", "close",
+                                   "--agent", "dev-story", "--epic", "E001", "--sprint", "S01",
+                                   "--story", "E001-S01-003"])
+        self.assertEqual(code, 0, out)
+        self.assertEqual(pm.open_dispatches(self.root, 0), [])
+
+    def test_unclosed_dispatch_past_threshold_is_reported(self):
+        self.run_main(["dispatch", "--state-root", self.root, "--event", "open",
+                       "--agent", "code-review", "--epic", "E001", "--sprint", "S01"])
+        # 0-minute threshold: any open dispatch qualifies
+        stalled = pm.open_dispatches(self.root, 0)
+        self.assertEqual(len(stalled), 1)
+        self.assertEqual(stalled[0]["agent"], "code-review")
+        self.assertEqual(stalled[0]["sprint"], "S01")
+
+    def test_threshold_excludes_young_dispatches(self):
+        self.run_main(["dispatch", "--state-root", self.root, "--event", "open",
+                       "--agent", "dev-story", "--epic", "E001"])
+        self.assertEqual(pm.open_dispatches(self.root, 15), [])
+
+
+class TestReportStalls(Base):
+    def setUp(self):
+        super().setUp()
+        self.root = os.path.join(self.d, "state")
+        os.makedirs(os.path.join(self.root, "active"))
+
+    def test_report_lists_stalled_dispatch(self):
+        self.run_main(["dispatch", "--state-root", self.root, "--event", "open",
+                       "--agent", "dev-story", "--epic", "E001", "--sprint", "S01"])
+        code, out = self.run_main(["report", "--state-root", self.root,
+                                   "--stall-minutes", "0"])
+        self.assertEqual(code, 0, out)
+        self.assertIn("STALLED DISPATCH", out)
+        self.assertIn("dev-story", out)
+
+    def test_report_silent_when_nothing_stalled(self):
+        code, out = self.run_main(["report", "--state-root", self.root])
+        self.assertEqual(code, 0, out)
+        self.assertNotIn("STALLED DISPATCH", out)
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)
