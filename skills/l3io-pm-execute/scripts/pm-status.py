@@ -753,6 +753,16 @@ def _applied_scope_ratio(est, metric):
     return v if v is not None and v > 0 else 1.0
 
 
+def _actual_metric(actual: dict, metric: str):
+    """A metric's numeric actual. tokens_k is a mapping now — the total is what
+    is banded and calibrated; the class split prices cost and nothing else.
+    """
+    v = (actual or {}).get(metric)
+    if metric == "tokens_k" and hasattr(v, "get"):
+        v = v.get("total")
+    return _num_or_none(v)
+
+
 def derive_story_sample(node):
     """Compute a story's scope samples and its fix cohort. None when not derivable.
 
@@ -795,7 +805,7 @@ def derive_story_sample(node):
 
     ratios = {}
     for metric in METRIC_FIELDS:
-        e_num, a_num = _num_or_none(est.get(metric)), _num_or_none(act.get(metric))
+        e_num, a_num = _num_or_none(est.get(metric)), _actual_metric(act, metric)
         if e_num is None or a_num is None:
             continue          # missing, N/A, or non-numeric — never coerced to zero
         if e_num == 0:
@@ -989,7 +999,7 @@ def derive_closure_sample(state_root: str, level: str, epic_key: str, sprint_key
         total = 0.0
         complete = True
         for cn in children:
-            cv = _num_or_none(((cn or {}).get("actual") or {}).get(metric)) if cn is not None else None
+            cv = _actual_metric((cn or {}).get("actual"), metric) if cn is not None else None
             if cv is None:
                 complete = False   # missing, N/A, or non-numeric child actual
                 break
@@ -997,7 +1007,7 @@ def derive_closure_sample(state_root: str, level: str, epic_key: str, sprint_key
         if not complete:
             skipped[metric] = "a child is missing this metric's actual"
             continue
-        pv = _num_or_none(pact.get(metric))
+        pv = _actual_metric(pact, metric)
         if pv is None:
             skipped[metric] = f"{level} actual is missing or N/A for this metric"
             continue
@@ -1166,6 +1176,28 @@ def cost_from_tokens(tokens: dict, model: str, overrides=None) -> float:
             continue
         total += v * rates[cls]
     return round(total / 1000.0, 2)
+
+
+def tokens_block(counts: dict):
+    """A tokens_k mapping: the four classes plus their validated total.
+
+    `total` is stored rather than recomputed on read so that a node remains
+    self-describing when read by anything that does not know the class list.
+    It is always the sum — never an independently-entered number.
+    """
+    from ruamel.yaml.comments import CommentedMap
+
+    tk = CommentedMap()
+    total = 0.0
+    for cls in TOKEN_CLASSES:
+        v = _num_or_none(counts.get(cls)) or 0.0
+        tk[cls] = int(v) if float(v).is_integer() else v
+        total += v
+    out = CommentedMap()
+    out["total"] = int(total) if float(total).is_integer() else round(total, 2)
+    for cls in TOKEN_CLASSES:
+        out[cls] = tk[cls]
+    return out
 
 
 def rate_overrides(args):
@@ -1370,13 +1402,10 @@ def list_story_files(state_root: str, epic_key: str, sprint_key: str) -> list:
 def _accumulate_actuals(totals: dict, node) -> None:
     actual = (node or {}).get("actual") or {}
     for m in METRIC_FIELDS:
-        v = actual.get(m)
-        if v is None or _is_na(v):
+        v = _actual_metric(actual, m)
+        if v is None:
             continue
-        try:
-            totals[m] = totals.get(m, 0.0) + float(v)
-        except (TypeError, ValueError):
-            continue
+        totals[m] = totals.get(m, 0.0) + v
 
 
 def rollup_sprint(state_root: str, epic_key: str, sprint_key: str) -> dict:
@@ -1893,19 +1922,38 @@ def cmd_set_actual(args) -> int:
         "elapsed_hours": args.elapsed_hours,
         "man_hours": args.man_hours,
         "hitl_hours": args.hitl_hours,
-        "tokens_k": args.tokens_k,
-        "cost": args.cost,
     }
+
+    if args.cost is not None:
+        _die_usage("--cost is not accepted: cost is derived from tokens x rates. "
+                   "Fix the token counts or modules.l3io-pm.token_rates instead.")
+
+    classes = {c: getattr(args, "tokens_" + c) for c in TOKEN_CLASSES}
+    given = {c: v for c, v in classes.items() if v is not None}
+    if args.tokens_na and given:
+        _die_usage("--tokens-na cannot be combined with explicit token counts")
+    if args.tokens_na:
+        if args.runtime == "claude":
+            _die_usage("runtime=claude forbids tokens=N/A — capture the exact per-class "
+                       "counts from the session transcript (see metrics-contract.md §3)")
+        provided["tokens_k"] = "N/A"
+        provided["cost"] = "N/A"
+    elif given:
+        if not args.model:
+            _die_usage("--model is required whenever token counts are given — the same "
+                       "token count prices 2x apart between a $5/M and a $10/M tier")
+        try:
+            cost = cost_from_tokens(given, args.model, rate_overrides(args))
+        except KeyError as e:
+            _die_usage(str(e))
+        provided["tokens_k"] = tokens_block(given)
+        provided["cost"] = cost
+        provided["model"] = args.model
+
     provided = {k: v for k, v in provided.items() if v is not None}
     if not provided:
-        _die_usage("set-actual needs at least one of "
-                   "--elapsed-hours/--man-hours/--hitl-hours/--tokens-k/--cost")
-
-    # HARD RULE: under Claude, token/cost must be a real value, never absent or N/A.
-    if args.runtime == "claude":
-        for m in ("tokens_k", "cost"):
-            if m in provided and _is_na(provided[m]):
-                _die_usage(f"runtime=claude forbids {m}=N/A — capture the exact value (see metrics-contract.md)")
+        _die_usage("set-actual needs at least one of --elapsed-hours/--man-hours/"
+                   "--hitl-hours/--tokens-* /--tokens-na")
 
     actual = node.get("actual")
     if actual is None:
@@ -1914,7 +1962,7 @@ def cmd_set_actual(args) -> int:
         actual = CommentedMap()
         node["actual"] = actual
     for k, v in provided.items():
-        actual[k] = _coerce(k, v)
+        actual[k] = v if not isinstance(v, str) else _coerce(k, v)
 
     save_node(y, node, path, getattr(args, "flock", False))
 
@@ -2495,16 +2543,13 @@ def _is_number(v) -> bool:
 
 
 def _coerce(field: str, v: str):
-    """cost stays a string ($X.XX / N/A); numeric metrics become int/float unless N/A."""
-    if field == "cost":
-        from ruamel.yaml.scalarstring import SingleQuotedScalarString
-
-        return SingleQuotedScalarString(v)  # match the schema's quoted '$X.XX' style
+    """Numeric metrics become int/float unless N/A. `cost` is derived, not entered;
+    the only string it can be here is N/A."""
     if _is_na(v):
         return v
     try:
         f = float(v)
-        return int(f) if field == "tokens_k" and f.is_integer() else f
+        return int(f) if f.is_integer() and field != "cost" else f
     except ValueError:
         return v
 
@@ -2542,8 +2587,16 @@ def build_parser() -> argparse.ArgumentParser:
     a.add_argument("--man-hours", dest="man_hours")
     a.add_argument("--hitl-hours", dest="hitl_hours",
                    help="human attention actually spent supervising (hours)")
-    a.add_argument("--tokens-k", dest="tokens_k")
-    a.add_argument("--cost")
+    a.add_argument("--tokens-input", dest="tokens_input")
+    a.add_argument("--tokens-output", dest="tokens_output")
+    a.add_argument("--tokens-cache-write", dest="tokens_cache_write")
+    a.add_argument("--tokens-cache-read", dest="tokens_cache_read")
+    a.add_argument("--tokens-na", dest="tokens_na", action="store_true",
+                   help="record tokens/cost as N/A (runtime=other only)")
+    a.add_argument("--model", default="", help="model id that priced these tokens")
+    a.add_argument("--token-rates", dest="token_rates", default="",
+                   help="JSON object of per-model rate overrides")
+    a.add_argument("--cost", default=None, help=argparse.SUPPRESS)
     a.add_argument("--runtime", choices=["claude", "other"], default="other")
     a.add_argument("--flock", action="store_true", help="acquire exclusive flock before write")
     a.add_argument("--no-calibrate", dest="no_calibrate", action="store_true",

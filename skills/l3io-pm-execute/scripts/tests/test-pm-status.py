@@ -611,16 +611,17 @@ class TestKeyBasedAddressing(TestLayoutResolution):
     def test_set_actual_writes_all_four_metrics(self):
         code, out = self.run_main(
             ["set-actual", "--state-root", self.root, "--node", "story", "--story", "E001-S01-003",
-             "--elapsed-hours", "1.8", "--man-hours", "7", "--tokens-k", "355", "--cost", "5.32"])
+             "--elapsed-hours", "1.8", "--man-hours", "7", "--tokens-input", "300",
+             "--tokens-output", "55", "--model", "claude-sonnet-5"])
         self.assertEqual(code, 0, out)
         _, node = pm.load_node(pm.story_file(self.root, "E001-S01-003"))
-        self.assertEqual(node["actual"]["tokens_k"], 355)
+        self.assertEqual(int(node["actual"]["tokens_k"]["total"]), 355)
         self.assertEqual(node["actual"]["man_hours"], 7)
 
     def test_claude_runtime_still_rejects_na(self):
         code, _ = self.run_main(
             ["set-actual", "--state-root", self.root, "--node", "story", "--story", "E001-S01-003",
-             "--tokens-k", "N/A", "--runtime", "claude"])
+             "--tokens-na", "--runtime", "claude"])
         self.assertEqual(code, 2)
 
     def test_set_estimate_story_uses_single_values(self):
@@ -647,6 +648,56 @@ class TestKeyBasedAddressing(TestLayoutResolution):
         code, _ = self.run_main(
             ["set-status", "--state-root", self.root, "--story", "E001-S01-003", "--status", "done"])
         self.assertEqual(code, 4)
+
+
+class TestStructuredActualTokens(TestLayoutResolution):
+    def run_main(self, argv):
+        buf = io.StringIO()
+        try:
+            with redirect_stdout(buf):
+                code = pm.main(argv)
+        except SystemExit as e:
+            code = e.code
+        return code, buf.getvalue()
+
+    def _set(self, *extra):
+        return self.run_main(["set-actual", "--state-root", self.root, "--node", "story",
+                              "--story", "E001-S01-003", "--no-calibrate"] + list(extra))
+
+    def test_writes_classes_total_and_derived_cost(self):
+        code, out = self._set("--tokens-input", "412", "--tokens-output", "34",
+                              "--tokens-cache-write", "4300", "--tokens-cache-read", "253",
+                              "--model", "claude-opus-5", "--runtime", "claude")
+        self.assertEqual(code, 0, out)
+        _, node = pm.load_node(pm.story_file(self.root, "E001-S01-003"))
+        tk = node["actual"]["tokens_k"]
+        self.assertEqual(int(tk["total"]), 4999)
+        self.assertEqual(int(tk["cache_write"]), 4300)
+        self.assertAlmostEqual(float(node["actual"]["cost"]), 29.91, places=2)
+        self.assertEqual(str(node["actual"]["model"]), "claude-opus-5")
+
+    def test_cost_flag_is_rejected(self):
+        code, out = self._set("--cost", "12.00")
+        self.assertEqual(code, 2, out)
+
+    def test_tokens_require_a_model(self):
+        code, out = self._set("--tokens-input", "100")
+        self.assertEqual(code, 2, out)
+
+    def test_unknown_model_is_rejected(self):
+        code, out = self._set("--tokens-input", "100", "--model", "nope")
+        self.assertEqual(code, 2, out)
+
+    def test_tokens_na_allowed_under_runtime_other(self):
+        code, out = self._set("--tokens-na", "--runtime", "other")
+        self.assertEqual(code, 0, out)
+        _, node = pm.load_node(pm.story_file(self.root, "E001-S01-003"))
+        self.assertTrue(pm._is_na(node["actual"]["tokens_k"]))
+        self.assertTrue(pm._is_na(node["actual"]["cost"]))
+
+    def test_tokens_na_forbidden_under_runtime_claude(self):
+        code, out = self._set("--tokens-na", "--runtime", "claude")
+        self.assertEqual(code, 2, out)
 
 
 class TestVerify(TestLayoutResolution):
@@ -1319,7 +1370,9 @@ class TestStorySampling(unittest.TestCase):
     def _story(self, iterations, est=None, act=None):
         est = est or {"man_hours": 6, "elapsed_hours": 1.5, "tokens_k": 320,
                       "cost": 4.80, "fix_factor": 1.25, "scope_ratio": 1.0}
-        act = act or {"man_hours": 7, "elapsed_hours": 1.8, "tokens_k": 355,
+        # tokens_k is a mapping on actuals (Task 6) — only "total" is read by
+        # the sampler, so these fixtures carry just that key.
+        act = act or {"man_hours": 7, "elapsed_hours": 1.8, "tokens_k": {"total": 355},
                       "cost": 5.32}
         node = {"key": "E001-S01-003", "classification": "complex",
                 "estimate": est, "actual": act}
@@ -1354,8 +1407,8 @@ class TestStorySampling(unittest.TestCase):
         # this proves hitl_hours flows through the same as every other metric.
         est = {"man_hours": 6, "hitl_hours": 0.5, "elapsed_hours": 1.5, "tokens_k": 320,
                "cost": 4.80, "fix_factor": 1.25, "scope_ratio": 1.0}
-        act = {"man_hours": 7, "hitl_hours": 0.6, "elapsed_hours": 1.8, "tokens_k": 355,
-               "cost": 5.32}
+        act = {"man_hours": 7, "hitl_hours": 0.6, "elapsed_hours": 1.8,
+               "tokens_k": {"total": 355}, "cost": 5.32}
         s = pm.derive_story_sample(self._story(0, est=est, act=act))
         self.assertAlmostEqual(s["scope_ratios"]["hitl_hours"], 0.6 * 1.25 / 0.5)
 
@@ -1371,7 +1424,7 @@ class TestStorySampling(unittest.TestCase):
         # numeric guard must not drop them before the '$' is stripped.
         est = {"man_hours": 6, "elapsed_hours": 1.5, "tokens_k": 320,
                "cost": "$4.80", "fix_factor": 1.25, "scope_ratio": 1.0}
-        act = {"man_hours": 7, "elapsed_hours": 1.8, "tokens_k": 355,
+        act = {"man_hours": 7, "elapsed_hours": 1.8, "tokens_k": {"total": 355},
                "cost": "$5.32"}
         s = pm.derive_story_sample(self._story(0, est=est, act=act))
         self.assertIn("cost", s["scope_ratios"])
@@ -1568,7 +1621,7 @@ class TestSetActualCalibrates(TestLayoutResolution):
         code, out = self.run_main(
             ["set-actual", "--state-root", self.root, "--node", "story",
              "--story", "E001-S01-003", "--elapsed-hours", "1.8",
-             "--man-hours", "7", "--tokens-k", "355", "--cost", "5.32"])
+             "--man-hours", "7", "--tokens-input", "355", "--model", "claude-sonnet-5"])
         self.assertEqual(code, 0, out)
         _, cal = pm.load_calibration(self.root)
         self.assertEqual(len(pm._component_samples(cal, "scope", "complex", "man_hours")), 1)
@@ -1604,7 +1657,7 @@ class TestSetActualCalibrates(TestLayoutResolution):
         self._estimated_story()
         code, _ = self.run_main(
             ["set-actual", "--state-root", self.root, "--node", "story",
-             "--story", "E001-S01-003", "--tokens-k", "N/A", "--runtime", "claude"])
+             "--story", "E001-S01-003", "--tokens-na", "--runtime", "claude"])
         self.assertEqual(code, 2)
 
 
@@ -2124,8 +2177,8 @@ class TestEvents(Base):
     def test_set_actual_appends_actual_event(self):
         self.run_main(["set-actual", "--state-root", self.root, "--node", "story",
                        "--story", "E001-S01-001", "--elapsed-hours", "2",
-                       "--man-hours", "3", "--tokens-k", "10", "--cost", "1.5",
-                       "--no-calibrate"])
+                       "--man-hours", "3", "--tokens-input", "10",
+                       "--model", "claude-sonnet-5", "--no-calibrate"])
         evs = [e for e in self.read_events() if e["event"] == "actual"]
         self.assertEqual(len(evs), 1)
         self.assertEqual(evs[0]["key"], "E001-S01-001")
