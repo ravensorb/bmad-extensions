@@ -19,6 +19,7 @@
 //   4. cli-surface   documented pm-status.py subcommands and the real CLI agree, both ways
 //   5. config-values values quoted in prose match the defaults customize.toml ships
 //   6. status-values --status filters named in skill phrase tables are real state folders
+//   7. metric-list   metrics-contract.md documents exactly the metrics in METRIC_FIELDS
 //
 // Usage:
 //   node scripts/check-docs.mjs        # report and exit nonzero on any failure (CI)
@@ -299,19 +300,49 @@ function checkCliSurface() {
   }
 
   // Reverse. The reference doc is where a reader looks for the complete surface.
+  //
+  // Caught in practice: `dispatch` (added while this branch was in flight) sat undocumented
+  // for eleven tasks while this very check stayed green, because it matched on
+  // `\b${name}\b` against the whole file — and "epics dispatch concurrently up to
+  // max_parallel_subagents" in unrelated prose about dispatching subagents is a real,
+  // whole-word "dispatch" that satisfies a word-boundary test without naming the
+  // subcommand at all. Any subcommand whose name is a common English word could skip
+  // documentation entirely and this check would never notice.
+  //
+  // Tightened to require a real documented entry: a markdown table row whose first cell
+  // backtick-quotes the name, e.g. `| \`dispatch\` | ... |` or a comma-separated
+  // `| \`set-lock\`, \`clear-lock\`, \`check-lock\` | ... |`. A namespaced doc entry like
+  // `| \`calibration show\` | ... |` also counts — its first word is the real subcommand.
+  // Prose mentioning the word, however emphatic, no longer counts.
   const refText = exists(CLI_REFERENCE_DOC) ? read(CLI_REFERENCE_DOC) : "";
+  const documented = tableRowSubcommands(refText);
   for (const name of real) {
     if (name === "self-install") continue; // internal plumbing, deliberately not user-facing
     checked += 1;
-    // Word-boundary, not substring: `includes("estimate-rollup")` is satisfied by the typo
-    // "estimate-rollupX", so a renamed-but-not-removed command would slip through.
-    if (new RegExp(`\\b${name}\\b`).test(refText)) continue;
+    if (documented.has(name)) continue;
     failures.push(
-      `${CLI_REFERENCE_DOC}: does not document pm-status.py subcommand '${name}'\n` +
-        `      every CLI subcommand should appear in the reference`,
+      `${CLI_REFERENCE_DOC}: does not document pm-status.py subcommand '${name}' as a table row\n` +
+        `      every CLI subcommand should appear as a '| \`${name}\` | ... |' row in the subcommand table`,
     );
   }
   if (verbose) console.log(`  cli-surface:    ${checked} subcommand claim(s) checked both ways`);
+}
+
+// Subcommand names documented as real table-row entries: the first cell of a markdown
+// table row that backtick-quotes one or more names, comma-separated, optionally
+// namespaced ("calibration show" documents "calibration"). Prose anywhere else in the
+// file does not count, however word-boundary-clean the match would be.
+function tableRowSubcommands(text) {
+  const names = new Set();
+  for (const line of text.split("\n")) {
+    const trimmed = line.trimStart();
+    if (!trimmed.startsWith("|")) continue;
+    const firstCell = trimmed.slice(1).split("|")[0];
+    for (const m of firstCell.matchAll(/`([^`]+)`/g)) {
+      names.add(m[1].trim().split(/\s+/)[0]);
+    }
+  }
+  return names;
 }
 
 // ---------------------------------------------------------------------------
@@ -433,6 +464,66 @@ function checkStatusValues() {
 }
 
 // ---------------------------------------------------------------------------
+// 7. metrics-contract.md documents exactly the metrics in METRIC_FIELDS.
+//
+// The metric list has drifted before: the wall-clock name was renamed from a "time hours"
+// spelling to elapsed_hours, and the old name survives in the file only as history (the
+// migration's description of what it renames) and as the deprecated `--time-hours` CLI
+// alias — never as a current metric. Checked both directions: a code metric the docs never
+// mention as current, and the removed name resurfacing as if it were still live.
+//
+// The historical-vs-current line is drawn on the backtick: the metric table and prose
+// throughout §2 name every current metric in backticks (`elapsed_hours`, `man_hours`, ...);
+// the retired name is deliberately never given that treatment, appearing only as bare prose
+// ("a differently-spelled wall-clock key ... a 'time hours' name") or inside the
+// `--time-hours` flag name. So "does `` `time_hours` `` appear" cleanly separates "documented
+// as a live metric" from "mentioned while explaining history" without forcing anyone to
+// scrub accurate prose about the rename.
+// ---------------------------------------------------------------------------
+const METRICS_CONTRACT = "skills/_shared/metrics-contract.md";
+
+function metricFields() {
+  const src = read(PM_STATUS);
+  const m = src.match(/^METRIC_FIELDS\s*=\s*\(([^)]*)\)/m);
+  if (!m) return null;
+  return m[1]
+    .split(",")
+    .map((s) => s.trim().replace(/^["']|["']$/g, ""))
+    .filter(Boolean);
+}
+
+function checkMetricList() {
+  const code = metricFields();
+  if (!code || code.length === 0) {
+    failures.push(`${PM_STATUS}: METRIC_FIELDS not found — has the metric tuple moved or been renamed?`);
+    return;
+  }
+
+  const doc = read(METRICS_CONTRACT);
+  const missing = code.filter((name) => !new RegExp("`" + name + "`").test(doc));
+  if (missing.length) {
+    failures.push(
+      `${METRICS_CONTRACT}: does not document metric(s): ${missing.join(", ")}\n` +
+        `      ${PM_STATUS} METRIC_FIELDS has: ${code.join(", ")} — add the missing metric(s) to §2, ` +
+        `or if the code renamed/dropped one, update METRIC_FIELDS to match`,
+    );
+  }
+
+  // time_hours is the retired wall-clock name (superseded by elapsed_hours). It may
+  // legitimately appear un-backticked in historical prose or as the deprecated
+  // --time-hours CLI alias; it must never reappear backticked as a live metric name.
+  if (/`time_hours`/.test(doc)) {
+    failures.push(
+      `${METRICS_CONTRACT}: documents \`time_hours\` as a current metric, but it was renamed ` +
+        `to elapsed_hours — ${PM_STATUS} METRIC_FIELDS is: ${code.join(", ")} (no time_hours)`,
+    );
+  }
+  if (verbose) {
+    console.log(`  metric-list:    ${code.length} metric(s) checked against ${METRICS_CONTRACT}`);
+  }
+}
+
+// ---------------------------------------------------------------------------
 
 checkSkillNames();
 checkGatingTables();
@@ -440,6 +531,7 @@ checkSectionRefs();
 checkCliSurface();
 checkConfigValues();
 checkStatusValues();
+checkMetricList();
 
 for (const note of notes) if (verbose) console.log(`  note: ${note}`);
 
