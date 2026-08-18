@@ -42,32 +42,35 @@ If user types `skip`, go to step 7 (output status line without elaborating).
 
 If `{auto_elaborate}` is `true`, proceed directly to step 4 without prompting.
 
-## 4. Elaborate each thin story
-
-For each thin story in sequence:
+## 4. Elaborate the thin stories
 
 ```
-Elaborating {story_key}: {story_title}...
+Elaborating {N} thin stories...
 ```
 
-Bracket the spawn with `dispatch --event open` / `--event close`, same
-`--agent bmad-create-story --epic {epic_key} --story {story_key} --session-id {session_id}`
-identity on both, closed on every exit path, so a hung elaboration shows up in
-`report --stall-minutes` rather than at invoice time. Planning spend sits outside the
-execution roll-up, so the bracket here is for stall detection only — there is no bucket to
-attribute it to.
+**One spawn per epic's worth of thin stories, not one per story** — and this step is where
+that matters most, because planning runs across the whole backlog at once. An elaboration
+agent's cost is dominated by reading the project, and that read is identical whether it then
+enriches one story or twelve. Batch in groups of at most 8; past that a single agent's
+attention per story thins out.
+
+Bracket each batch with `dispatch --event open` / `--event close`, same
+`--agent bmad-create-story --epic {epic_key} --session-id {session_id}` identity on both,
+closed on every exit path, so a hung elaboration shows up in `report --stall-minutes` rather
+than at invoice time. Planning spend sits outside the execution roll-up, so the bracket here
+is for stall detection only — there is no bucket to attribute it to.
 
 Spawn `bmad-create-story` with:
-- The existing story file path as the input artifact to enrich
-- Instruction to add technical ACs covering: interface contracts, data model changes,
-  error handling and edge cases, observability requirements, security considerations,
-  testability (unit + integration test anchors)
+- Every thin story file path in the batch, as input artifacts to enrich in place
+- Instruction to add technical ACs to **each** story, covering: interface contracts, data
+  model changes, error handling and edge cases, observability requirements, security
+  considerations, testability (unit + integration test anchors) — treating each story on its
+  own terms rather than applying one answer across the batch
 - Context preamble: `epic_key: {epic_key}`, `work_type: {work_type}`, `skill: l3io-pm-plan`
-- `{agent_contract}` (verbatim — see `step-00-activate.md` §8)
+- `{agent_contract}` (verbatim — see `steps/shared/step-00-digest.md`)
 
-Elaborate stories one at a time: the next spawn is issued only after the previous one has
-returned. That is sequencing, not waiting on a reply — nothing is ever awaited from a
-subagent that has not returned.
+Issue the next batch only after the previous one has returned. That is sequencing, not waiting
+on a reply — nothing is ever awaited from a subagent that has not returned.
 
 Record result: `elaborated` or `failed` (if bmad-create-story is not installed or errors).
 

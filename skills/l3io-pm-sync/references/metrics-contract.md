@@ -5,7 +5,7 @@ Communicate all responses in `{communication_language}`.
 This file is the single source of truth for **which** numbers l3io-pm records, **what they
 are called on disk**, **how they are captured**, **where they are enforced**, and **how
 estimates learn from them**. It is a **deep reference, consulted on demand** — do not load it
-at activation. `steps/shared/step-00-activate.md` §8 carries the HARD RULE and the runtime
+at activation. `steps/shared/step-00-digest.md` carries the HARD RULE and the runtime
 capture rule, plus a routing table naming the section to read for each case that needs this
 file: token/cost capture detail (§3), writing an estimate or actual by hand (§4), explaining a
 calibration result (§8), or a worked example (§10).
@@ -532,7 +532,7 @@ home:
 
 | Spawn site | Bucket | Recorded in |
 |---|---|---|
-| `sprint/step-02-story-prep.md` — `bmad-create-story` | child | that story's `actual` |
+| `sprint/step-02-story-prep.md` — `bmad-create-story` (batched per sprint) | child | split evenly across the `actual` of each story the batch enriched |
 | `sprint/step-03-dev-loop.md` §2/§3 — dev, code review, fix passes | child | that story's `actual` |
 | `execute/step-05-epic-loop.md` §5 — sprint subagent | child | that sprint's `actual` |
 | `closure/sprint-closure.md`, `closure/epic-closure.md` — every phase | closure | the parent's own `actual`, on top of the children's sum |

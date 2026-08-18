@@ -36,28 +36,50 @@ and hold the story to those standards as well.
 
 **If technical ACs are missing (gate: "block" — always enforced):**
 
-For each story missing technical ACs:
-1. Bracket the spawn with `dispatch --event open` / `--event close`, same
-   `--agent bmad-create-story --epic {epic_key} --sprint {sprint_num} --story {story_key}
-   --session-id {session_id}` identity on both, closing on every exit path. Prep is the
-   story's own spend, so the bracketed span lands in that story's `actual`
-   (`references/metrics-contract.md` §6). Then spawn `bmad-create-story` with
-   `{agent_contract}` (verbatim — see `step-00-activate.md` §8) and this context:
-   ```
-   Enrich this story with technical ACs. Preserve all existing content. Add:
-   - Interface contracts
-   - Error and edge case handling
-   - Observability requirements
-   - Security considerations
-   - Testability approach
-   Story file: {sprint_root}/stories/{story_key}.md
-   Epic goal: {epic_goal}
-   work_type: {work_type}
-   ```
-2. After enrichment, re-check: if still missing after one elaboration pass:
-   ```
-   BLOCKED: story {story_key} still missing technical ACs after elaboration. Investigate manually.
-   ```
+Bind `{thin_story_keys}` = every story in `{story_keys}` that failed the check. If it is
+empty, go to §3.
+
+**One spawn for the whole sprint, not one per story.** An enrichment agent's cost is
+dominated by reading the project — the specs, the architecture, the standards — and that read
+is the same whether it then enriches one story or five. Spawning per story pays it per story.
+Batching pays it once and is the single largest saving available in this step: a five-story
+sprint goes from five cold reads to one. If `{thin_story_keys}` exceeds 8, split into batches
+of at most 8 — past that a single agent's attention per story starts to thin, which is the
+thing being bought here.
+
+Bracket the spawn with `dispatch --event open` / `--event close`, same
+`--agent bmad-create-story --epic {epic_key} --sprint {sprint_num} --session-id {session_id}`
+identity on both, closing on every exit path. The bracket carries no `--story` because the
+span covers several.
+
+```
+Enrich each story listed below with technical ACs. Preserve all existing content in every
+file. For each story add:
+- Interface contracts
+- Error and edge case handling
+- Observability requirements
+- Security considerations
+- Testability approach
+
+Treat each story on its own terms — shared context is why these are batched, but a story
+that needs a different interface contract from its neighbour must get one.
+
+Story files (enrich every one):
+{one {sprint_root}/stories/{story_key}.md per line, for each key in {thin_story_keys}}
+Epic goal: {epic_goal}
+work_type: {work_type}
+{agent_contract}
+```
+
+Attribution: the span enriched `len({thin_story_keys})` stories, so split its spend evenly
+across their `actual` blocks (`references/metrics-contract.md` §6). The even split is an
+approximation and is meant to be — the alternative is paying N project reads to measure a
+number that feeds calibration as a ratio, and prep cost does scale roughly with story count.
+
+After enrichment, re-check every key in `{thin_story_keys}`. For any still missing ACs:
+```
+BLOCKED: story {story_key} still missing technical ACs after elaboration. Investigate manually.
+```
 
 ## 3. Write story estimates
 
