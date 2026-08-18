@@ -452,6 +452,35 @@ sprint.estimate = Σ story.estimate + calibrated sprint-closure band + calibrate
 epic.estimate   = Σ sprint.estimate  + calibrated epic-closure band + calibrated orchestration band
 ```
 
+### Attribution — which spend belongs to which block
+
+The estimate above has three terms, so the actuals must have three matching buckets, and every
+unit of spend must land in **exactly one** of them. This is what makes the estimate and the
+actual comparable at all, and it is what `derive_closure_sample` and
+`record_orchestration_sample` each measure their own component from.
+
+| Bucket | Where it is recorded | What belongs in it |
+|---|---|---|
+| children | each child node's own `actual` | everything a story (or, one level up, a sprint) spent on itself |
+| closure | **inside the parent's `actual`, on top of the children's sum** | the closing level's own closure phases — adversarial analysis, QA generation, retrospective, the fix passes they trigger |
+| orchestration | the parent's separate `orchestration` block | the orchestrator's own coordination: dispatching subagents, deciding, and waiting on them |
+
+> **A parent's `actual` is `Σ children + that level's own closure-phase spend` — never the
+> bare sum.** Writing the bare sum attributes the closure phases' spend to nothing at all:
+> not to a child, not to the parent, not to `orchestration` (a different bucket, per the table
+> above). The closure component is measured from exactly that residual, so a bare sum makes it
+> identically zero and, after three closes, trains the closure band to contribute nothing to
+> every future estimate. `set-actual` refuses a zero residual for this reason (§8), and the
+> closure step files
+> (`steps/sprint/step-04-sprint-closure.md` §3, `steps/execute/step-06-epic-closure.md` §3)
+> state the sum-plus-closure rule per metric.
+
+`man_hours` is the one exception, and it is not a sum in the first place: it is the
+counterfactual re-assessment of the whole level (§2), which already covers the closure
+work that level delivered. `elapsed_hours`, `hitl_hours`, and the four `tokens_k` classes are
+summed and then extended by the closure phases' own measured spend, captured exactly as for a
+story (§3).
+
 ### Base bands (cold-start priors, per story)
 
 `BASE_BANDS` in `pm-status.py` is the single source for these — do not copy the numbers into
@@ -719,23 +748,46 @@ missing/`N/A`/zero.
 ### Closure sampling — the residual and its denominator
 
 ```
-closure actual   = actual(parent) − Σ actual(children)
-closure expected = midpoint(parent estimate) − Σ estimate(children)
-sample           = closure actual × closure_ratio_applied / closure expected
+Σ children estimate = E
+closure actual      = actual(parent) − Σ actual(children)
+closure expected    = midpoint(parent estimate) − E − E × orchestration_fraction_applied × mid(ORCH_SPREAD)
+sample              = closure actual × closure_ratio_applied / closure expected
 ```
 
 **The denominator must be the quantity the ratio is applied to.** `estimate-rollup` applies
-the learned ratio to the closure band alone (`total × (1 + ratio × band)`), so dividing the
-residual by the *whole* parent estimate midpoint measures a different quantity than the one
-being corrected and the loop cannot converge — with a perfectly consistent history it moved
-the roll-up *away* from the observed total. And, exactly as with `scope`, the estimated
-overhead already contains the ratio that was applied when the parent estimate was written
-(`estimate.closure_ratios[metric]`, `1.0` when absent), so that ratio is divided back out.
+the learned ratio to the closure band alone (`total × (1 + ratio × closure band + fraction ×
+ORCH_SPREAD)`), so dividing the residual by the *whole* parent estimate midpoint measures a
+different quantity than the one being corrected and the loop cannot converge — with a
+perfectly consistent history it moved the roll-up *away* from the observed total. And,
+exactly as with `scope`, the estimated overhead already contains the ratio that was applied
+when the parent estimate was written (`estimate.closure_ratios[metric]`, `1.0` when absent),
+so that ratio is divided back out.
 
-Worked: four children estimated 10 each (Σ 40), true closure overhead 8 every time, true
-total 48. Cold start rolls up to `40 × (1 + 1.0 × 0.175) = 47`, expected overhead 7, sample
-`8 × 1.0 / 7 = 1.143`. Once active, `40 × (1 + 1.143 × 0.175) = 48.0` — the observed total —
-and every later generation samples `8 × 1.143 / 8 = 1.143` again, so the ratio holds.
+**The orchestration band is subtracted off before dividing, for the same reason.** Since
+orchestration joined the roll-up, `midpoint − Σ children estimate` is the closure band **plus**
+the orchestration band — while the residual it divides is closure-only, because orchestration
+is a separate block outside `actual` (see "Attribution" in §6). Leaving it in the denominator
+understates every closure sample by exactly the factor the two bands differ by: with children
+summing to 20, an active orchestration fraction of `0.5`, and a true closure overhead of `5`,
+the recorded sample is `0.3704` instead of the correct `1.4286` — 3.9× low, and worse as the
+fraction grows. `derive_closure_sample` therefore subtracts `Σ children estimate ×
+estimate.orchestration_ratios[metric] × mid(ORCH_SPREAD)` (`ORCH_MID`, `1.0` for the shipped
+`(0.8, 1.2)`) before dividing, leaving exactly the closure band.
+
+Worked, with orchestration inactive: four children estimated 10 each (Σ 40), true closure
+overhead 8 every time, true total 48. Cold start rolls up to `40 × (1 + 1.0 × 0.175) = 47`,
+expected overhead 7, sample `8 × 1.0 / 7 = 1.143`. Once active, `40 × (1 + 1.143 × 0.175) =
+48.0` — the observed total — and every later generation samples `8 × 1.143 / 8 = 1.143` again,
+so the ratio holds.
+
+Worked, with orchestration **active** at fraction `0.5`: two children estimated 10 each (Σ 20),
+true closure overhead 5. The roll-up is `20 × (1 + 1.0 × 0.10 + 0.5 × 0.8) = 30` to
+`20 × (1 + 1.0 × 0.25 + 0.5 × 1.2) = 37`, midpoint `33.5`. Expected closure overhead is
+`33.5 − 20 − 20 × 0.5 × 1.0 = 3.5`, so the sample is `5 × 1.0 / 3.5 = 1.4286`. Feeding it
+back: `20 × (1 + 1.4286 × 0.10 + 0.4) = 30.857` to `20 × (1 + 1.4286 × 0.25 + 0.6) = 39.143`,
+midpoint `35.0`, expected overhead `35.0 − 20 − 10 = 5.0`, and the next sample is
+`5 × 1.4286 / 5 = 1.4286` — stable, and the midpoint now reconciles as
+children `20` + closure `5` + orchestration `10`.
 
 Closure sampling skips **per metric, with a reason**, never aborting the other metrics'
 samples: a child missing that metric's actual or estimate (a partial sum understates
@@ -743,8 +795,17 @@ overhead, permanently, since a low ratio has no marker saying it was incomplete)
 estimated closure overhead of `≤ 0` (nothing to measure the residual against); a negative
 residual (a miscount — except for `elapsed_hours`, where a negative residual is *expected*
 if children ever overlap in wall-clock time; today's step files run children strictly in
-order, so this is defensive, not currently reachable); and an `N/A` `tokens_k` on either
-side. Only when *no* calibrated metric produces a residual is the whole sample skipped.
+order, so this is defensive, not currently reachable); a **zero** residual; and an `N/A`
+`tokens_k` on either side. Only when *no* calibrated metric produces a residual is the whole
+sample skipped.
+
+**A zero residual is a skip, not a sample of `0.0`.** A parent actual exactly equal to the sum
+of its children means this level's own closure-phase spend was attributed to nothing (see
+"Attribution" in §6). Recording that as a legitimate `0.0` is strictly worse than recording
+nothing: `0.0` is not `None`, so after three such closes `active_closure_ratio` returns `0.0`,
+`estimate-rollup` accepts it, and the closure band contributes nothing to any future estimate
+— permanently, with nothing on disk saying why. The skip reason names the defect and points
+back at the capture rule.
 
 ### The orchestration sample — denominator completeness
 

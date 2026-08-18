@@ -2056,6 +2056,46 @@ class TestClosureSampling(TestLayoutResolution):
         s, _ = pm.derive_closure_sample(self.root, "sprint", "E001", "S01")
         self.assertAlmostEqual(s["ratios"]["man_hours"], 2.0 * 2.0 / 1.5)
 
+    def test_parent_actual_equal_to_children_sum_is_skipped_not_sampled_as_zero(self):
+        """C2: the pre-fix closure step files instructed an EXACT sum of children,
+        which makes the residual identically zero. `residual < 0` was guarded;
+        `residual == 0` was not, so a 0.0 landed in the sample list as if it were
+        a measurement. Exercise the number those step files actually produced."""
+        self._sprint_with_stories([3.0, 4.0], 7.0,
+                                  {"man_hours_low": 8.0, "man_hours_high": 9.0},
+                                  story_estimates=[3.0, 4.0])
+        s, reason = pm.derive_closure_sample(self.root, "sprint", "E001", "S01")
+        self.assertIsNone(s, f"a bare-sum actual must produce NO sample, got {s}")
+        self.assertIn("zero residual", reason)
+        pm.record_closure_sample(self.root, "sprint", "E001", "S01")
+        _, cal = pm.load_calibration(self.root)
+        self.assertEqual(pm._component_samples(cal, "closure", "sprint", "man_hours"), [])
+
+    def test_three_bare_sum_closes_never_train_the_ratio_to_zero(self):
+        """The composite failure, not the single sample: three sprints closed with
+        `actual == Σ children` used to leave `closure.sprint.man_hours` holding
+        [0.0, 0.0, 0.0]. `weighted_ratio` returns 0.0 for that, 0.0 is not None,
+        and `cmd_estimate_rollup` accepts it — so the closure band contributed
+        nothing to every later estimate, permanently. The component must stay
+        cold-start (None) instead."""
+        for n in range(1, 4):
+            skey = f"S{n:02d}"
+            sd = os.path.join(self.root, "active", "epic-001", f"sprint-{n:02d}")
+            os.makedirs(sd, exist_ok=True)
+            for i in (1, 2):
+                self._write(os.path.join(sd, f"E001-{skey}-{i:03d}.yaml"),
+                            {"key": f"E001-{skey}-{i:03d}", "epic": "E001", "sprint": skey,
+                             "status": "done", "estimate": {"man_hours": 5.0},
+                             "actual": {"man_hours": 5.0}})
+            self._write(os.path.join(sd, "sprint.yaml"),
+                        {"key": skey, "epic": "E001", "status": "done",
+                         "estimate": {"man_hours_low": 11.0, "man_hours_high": 13.0},
+                         "actual": {"man_hours": 10.0}})   # the BARE SUM
+            pm.record_closure_sample(self.root, "sprint", "E001", skey)
+        _, cal = pm.load_calibration(self.root)
+        self.assertEqual(pm._component_samples(cal, "closure", "sprint", "man_hours"), [])
+        self.assertIsNone(pm.active_closure_ratio(cal, "sprint", "man_hours"))
+
     def test_zero_estimated_overhead_skips_the_metric(self):
         # parent estimated exactly its children -> nothing to measure against
         self._sprint_with_stories([3.0, 4.0], 9.0,
@@ -2113,6 +2153,141 @@ class TestClosureSampling(TestLayoutResolution):
         self.assertEqual(cal["version"], pm.CALIBRATION_SCHEMA_VERSION)
         self.assertTrue(os.path.exists(p + ".v1"))
         self.assertEqual(len(pm._component_samples(cal, "closure", "sprint", "man_hours")), 1)
+
+
+class TestClosureComposedWithOrchestration(TestLayoutResolution):
+    """C1: the closure and orchestration components COMPOSED, which no test did.
+
+    Each component was correct alone. Together they were not: since the
+    orchestration band joined the roll-up, `pmid - Σ children estimate` is the
+    closure band PLUS the orchestration band, while the residual it divides
+    (`parent actual - Σ children actual`) is closure-only — orchestration lives
+    in its own block. Every test of closure ran with the orchestration
+    component inactive (fraction 0, band contributing nothing), so the extra
+    term was always zero and the defect was invisible across 648 green tests.
+
+    The numbers here are the reviewer's, measured on the shipped code: children
+    summing to 20, an ACTIVE orchestration fraction of 0.5, a true closure
+    overhead of 5. The sample must be 1.4286; the pre-fix code recorded 0.3704.
+    """
+
+    CHILD = 10.0          # each of two children, estimated and actualed at 10
+    TRUE_CLOSURE = 5.0    # the closing level's own closure-phase spend
+    ORCH_FRACTION = 0.5
+
+    def run_main(self, argv):
+        buf, err = io.StringIO(), io.StringIO()
+        try:
+            with redirect_stdout(buf), redirect_stderr(err):
+                code = pm.main(argv)
+        except SystemExit as e:
+            code = e.code
+        self.assertEqual(code, 0, buf.getvalue() + err.getvalue())
+        return buf.getvalue()
+
+    def _write(self, path, mapping):
+        y = pm._yaml()
+        with open(path, "w") as f:
+            y.dump(mapping, f)
+
+    def _children(self, skey="S01", n=2):
+        sd = os.path.join(self.root, "active", "epic-001",
+                          "sprint-" + skey.lstrip("S").zfill(2))
+        os.makedirs(sd, exist_ok=True)
+        for f in os.listdir(sd):
+            if f.endswith(".yaml") and f != "sprint.yaml":
+                os.remove(os.path.join(sd, f))
+        for i in range(1, n + 1):
+            self._write(os.path.join(sd, f"E001-{skey}-{i:03d}.yaml"),
+                        {"key": f"E001-{skey}-{i:03d}", "epic": "E001", "sprint": skey,
+                         "status": "done", "estimate": {"man_hours": self.CHILD},
+                         "actual": {"man_hours": self.CHILD}})
+        self._write(os.path.join(sd, "sprint.yaml"),
+                    {"key": skey, "epic": "E001", "status": "in-progress"})
+
+    def _seed(self, orchestration=None, closure=None):
+        with pm.calibration_lock(self.root):
+            y, cal = pm.load_calibration(self.root)
+            if orchestration is not None:
+                cal["orchestration"]["sprint"]["man_hours"] = {"samples": [orchestration] * 3}
+            if closure is not None:
+                cal["closure"]["sprint"]["man_hours"] = {"samples": [closure] * 3}
+            # an ongoing project's file always carries this after its first write;
+            # without it the next set-actual would quarantine the seed as pre-rework
+            cal[pm.CALIBRATION_METRICS_MARKER] = pm._now_iso()
+            pm.save_calibration(y, cal, self.root)
+
+    def _rollup_mid(self, skey="S01"):
+        self.run_main(["estimate-rollup", "--state-root", self.root,
+                       "--epic", "E001", "--sprint", skey])
+        _, node = pm.load_node(pm.sprint_file(self.root, "E001", skey))
+        est = node["estimate"]
+        return (float(est["man_hours_low"]) + float(est["man_hours_high"])) / 2.0
+
+    def test_active_orchestration_band_is_not_counted_as_closure_overhead(self):
+        self._children()
+        self._seed(orchestration=self.ORCH_FRACTION)
+        mid = self._rollup_mid()
+        # 20 x (1 + 1.0x0.10 + 0.5x0.8) = 30 ... 20 x (1 + 1.0x0.25 + 0.5x1.2) = 37
+        self.assertAlmostEqual(mid, 33.5, places=4)
+        _, node = pm.load_node(pm.sprint_file(self.root, "E001", "S01"))
+        self.assertAlmostEqual(
+            float(node["estimate"]["orchestration_ratios"]["man_hours"]), 0.5, places=4)
+
+        parent_actual = 2 * self.CHILD + self.TRUE_CLOSURE      # 25
+        self.run_main(["set-actual", "--state-root", self.root, "--node", "sprint",
+                       "--epic", "E001", "--sprint", "S01",
+                       "--man-hours", str(parent_actual)])
+        _, cal = pm.load_calibration(self.root)
+        samples = pm._component_samples(cal, "closure", "sprint", "man_hours")
+        self.assertEqual(len(samples), 1)
+        # expected closure overhead = 33.5 - 20 - 20x0.5x1.0 = 3.5  ->  5 / 3.5
+        self.assertAlmostEqual(float(samples[0]), 1.4286, places=4)
+        # the pre-fix denominator (33.5 - 20 = 13.5) gave 5/13.5 = 0.3704
+        self.assertNotAlmostEqual(float(samples[0]), 0.3704, places=3)
+
+    def test_learned_closure_ratio_reconciles_children_plus_closure_plus_orchestration(self):
+        """Design §6.1's central claim: the roll-up IS Σ children + closure +
+        orchestration. With both components active at their observed values the
+        midpoint must land on 20 + 5 + 10 = 35 exactly."""
+        self._children()
+        self._seed(orchestration=self.ORCH_FRACTION, closure=1.4286)
+        mid = self._rollup_mid()
+        expected = (2 * self.CHILD) + self.TRUE_CLOSURE + (2 * self.CHILD * self.ORCH_FRACTION)
+        self.assertAlmostEqual(mid, expected, places=2)
+
+    def test_sample_is_stable_once_the_ratio_is_active(self):
+        """A correct denominator makes the loop a fixed point: re-observing the
+        same 5.0 of overhead against an estimate built with ratio 1.4286
+        reproduces 1.4286. With the orchestration band left in the denominator
+        it did not — it shrank on every generation."""
+        self._children()
+        self._seed(orchestration=self.ORCH_FRACTION, closure=1.4286)
+        self._rollup_mid()
+        self.run_main(["set-actual", "--state-root", self.root, "--node", "sprint",
+                       "--epic", "E001", "--sprint", "S01",
+                       "--man-hours", str(2 * self.CHILD + self.TRUE_CLOSURE)])
+        _, cal = pm.load_calibration(self.root)
+        samples = pm._component_samples(cal, "closure", "sprint", "man_hours")
+        self.assertAlmostEqual(float(samples[-1]), 1.4286, places=3)
+
+    def test_inactive_orchestration_leaves_the_denominator_untouched(self):
+        """The guard must be a no-op when the component is cold-start, or it
+        would silently change every existing closure sample."""
+        self._children()
+        self._seed()
+        mid = self._rollup_mid()
+        self.assertAlmostEqual(mid, 20 * 1.175, places=4)     # closure band only
+        self.run_main(["set-actual", "--state-root", self.root, "--node", "sprint",
+                       "--epic", "E001", "--sprint", "S01",
+                       "--man-hours", str(2 * self.CHILD + self.TRUE_CLOSURE)])
+        _, cal = pm.load_calibration(self.root)
+        samples = pm._component_samples(cal, "closure", "sprint", "man_hours")
+        self.assertAlmostEqual(float(samples[0]), round(5.0 / (20 * 0.175), 4), places=4)
+
+    def test_orch_mid_tracks_the_spread_it_is_derived_from(self):
+        self.assertAlmostEqual(pm.ORCH_MID,
+                               (pm.ORCH_SPREAD[0] + pm.ORCH_SPREAD[1]) / 2.0)
 
 
 class TestSetActualCalibrates(TestLayoutResolution):

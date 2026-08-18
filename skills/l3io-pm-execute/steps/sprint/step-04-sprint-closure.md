@@ -25,21 +25,46 @@ result. Only after it is bound may you read the sprint's estimate, for any other
 
 Execute it fully. It returns: issues found (with severities), retrospective text, carry_over count.
 
-## 3. Sum story actuals → write sprint actual
+## 3. Story actuals **plus this sprint's own closure spend** → write sprint actual
 
 ```bash
 python3 {pm_status} show --state-root {pm_state_root} --epic {epic_key} --sprint {sprint_num}
 ```
 
-Sum `actual.elapsed_hours`, `actual.hitl_hours`, and each `actual.tokens_k` class across all
-stories in `{sprint_num}` with `status: done` (the roll-up above lists each story's `actual`
-totals; read per-class token counts from each story's own node file — `show` reports only the
-`tokens_k.total`). `man_hours` is **not** summed from stories — use `{sprint_man_hours}` from
-§1, the sprint-level re-assessment, since a sum of story-level counterfactuals does not equal
-the counterfactual effort for the sprint as a whole (it omits integration and cross-story
-work). Under `--runtime claude`, pass the summed token classes with `--model`; `set-actual`
-derives `cost` — never pass `--cost`. Under any other runtime, pass `--tokens-na` if tokens
-are not observable.
+**The sprint actual is the sum of its children plus what closing the sprint itself cost —
+never the bare sum.** Sprint closure is real, measurable work: the adversarial analysis, the
+QA generation, the retrospective, and the fix passes they trigger. On the motivating run that
+was 4% of total spend. If you write the bare sum, that spend is attributed to nothing — not
+to a story, not to this sprint, not to `orchestration` (§4 scopes that to *dispatching,
+deciding, and waiting*, which is a different bucket) — and the residual `pm-status.py`
+measures the closure calibration component from is identically zero. Three such sprints and
+the closure band is trained to contribute nothing to every future estimate. `set-actual`
+now **refuses** a zero residual and says so in its `[...]` suffix; that message means this
+step was performed wrong, not that anything is broken.
+
+So, for each metric:
+
+```
+sprint.actual.<metric> = Σ (done stories' actual.<metric>) + this sprint's own closure-phase spend
+```
+
+- `elapsed_hours` — sum the done stories' `actual.elapsed_hours` (the roll-up above lists
+  them), **plus** the wall-clock the closure phases in §2 themselves took.
+- `hitl_hours` — same shape: the stories' sum **plus** human attention spent on closure.
+- `tokens_k` — sum **each of the four classes** across the done stories (read the per-class
+  counts from each story's own node file; `show` reports only `tokens_k.total`), **plus** the
+  per-class counts the closure phases consumed, captured from the session transcript's `usage`
+  fields exactly as for a story (`references/metrics-contract.md` §3). Sum per class, then
+  pass the four totals — do not add a lump sum to `total` only; `verify` checks that `total`
+  equals the class sum.
+- `man_hours` is **not** summed from stories at all — use `{sprint_man_hours}` from §1, the
+  sprint-level counterfactual re-assessment. A sum of story-level counterfactuals does not
+  equal the counterfactual effort for the sprint as a whole (it omits integration and
+  cross-story work), and the re-assessment already covers the closure work it delivered.
+
+Under `--runtime claude`, pass the summed token classes with `--model`; `set-actual` derives
+`cost` — never pass `--cost`. Under any other runtime, pass `--tokens-na` if tokens are not
+observable.
 
 ```bash
 python3 {pm_status} set-actual \
@@ -125,10 +150,17 @@ step 4 already derived and appended its own orchestration sample, both as a side
 those writes (unless `--no-calibrate` was passed). Skips are **reported on stdout**, in the
 `[...]` suffix of each call's own `OK set-actual …` line, not here and not on stderr. Each
 names its metric and its reason (missing child actual or estimate, no comparable estimate
-range, estimated closure overhead ≤ 0, negative residual); a skipped metric does not stop the
-others from recording. An `elapsed_hours` skip naming parallel execution is expected whenever
-the sprint's stories ran concurrently — the sprint's wall-clock is legitimately below their
-sum. See `references/metrics-contract.md` §8.
+range, estimated closure overhead ≤ 0, negative residual, zero residual); a skipped metric
+does not stop the others from recording. An `elapsed_hours` skip naming parallel execution is
+expected whenever the sprint's stories ran concurrently — the sprint's wall-clock is
+legitimately below their sum. A **zero residual** skip is not expected and is not benign: it
+means §3's actual was written as the bare sum of the stories, omitting this sprint's own
+closure-phase spend. Go back to §3, capture that spend, and re-run the `set-actual`. If
+**every** metric was skipped the node carries no `calibration_sampled_at` marker, so the
+corrected call records normally; if only some metrics were skipped the marker is already set
+and the re-run reports `skipped (replay)` — the actual is still corrected on disk, but that
+sprint contributes no closure sample for the skipped metrics. Either way, report it in the
+closure output rather than treating it as noise. See `references/metrics-contract.md` §8.
 
 ## 8. Progress render and report regeneration
 

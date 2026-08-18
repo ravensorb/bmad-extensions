@@ -1169,11 +1169,27 @@ def derive_closure_sample(state_root: str, level: str, epic_key: str, sprint_key
 
     THE RATIO'S DENOMINATOR MUST BE THE QUANTITY THE RATIO IS APPLIED TO.
     `estimate-rollup` applies the learned ratio to the CLOSURE BAND alone
-    (`total x (1 + ratio x band)`), so the residual has to be divided by the
-    ESTIMATED CLOSURE OVERHEAD (`parent estimate midpoint - sum(child
-    estimates)`), never by the whole parent estimate. Dividing by the whole
-    parent made learn and apply different quantities, and a perfectly
-    consistent history moved the estimate AWAY from its own observed truth.
+    (`total x (1 + ratio x closure_band + fraction x ORCH_SPREAD)`), so the
+    residual has to be divided by the ESTIMATED CLOSURE OVERHEAD ALONE, never
+    by the whole parent estimate and never by closure-plus-orchestration.
+    Dividing by the whole parent made learn and apply different quantities,
+    and a perfectly consistent history moved the estimate AWAY from its own
+    observed truth.
+
+    THE ORCHESTRATION BAND IS NOT PART OF THIS DENOMINATOR. Since the
+    orchestration term joined the roll-up, `pmid - sum(child estimates)` is
+    the closure band PLUS the orchestration band, while the residual it
+    divides (`parent actual - sum(children actual)`) is closure-only —
+    orchestration lives in its own `orchestration` block, outside `actual`.
+    Leaving the orchestration band in the denominator understated every
+    closure sample by exactly the factor the two bands differ by (with an
+    active fraction of 0.5 and children summing to 20, a true overhead of 5
+    recorded as 0.3704 instead of 1.4286 — 3.9x low, and worse as the
+    fraction grows). So the applied fraction (`estimate.orchestration_ratios`,
+    the same divide-it-back-out record `closure_ratios` and `scope_ratios`
+    are) is subtracted back off at its band MIDPOINT (`ORCH_MID`), leaving
+    exactly `est_total x closure_ratio_applied x mid(COLD_START_CLOSURE_BAND)`
+    — the quantity the closure ratio is applied to and nothing else.
 
     And, as with the story scope ratio, the estimated overhead already contains
     the ratio that was applied when the parent estimate was written, so that
@@ -1188,9 +1204,22 @@ def derive_closure_sample(state_root: str, level: str, epic_key: str, sprint_key
     the whole sample: any child missing that metric's actual (a partial sum
     understates overhead and biases the ratio low, permanently); a negative
     residual (a miscount — except for wall-clock, where parallel execution makes
-    it expected); an estimated overhead <= 0 (nothing to measure against); and
-    N/A tokens, which skips just that metric while man-hours still record
-    under non-Claude runtimes where tokens are legitimately absent.
+    it expected); a ZERO residual (see below); an estimated overhead <= 0
+    (nothing to measure against); and N/A tokens, which skips just that metric
+    while man-hours still record under non-Claude runtimes where tokens are
+    legitimately absent.
+
+    A ZERO RESIDUAL IS A SKIP, NOT A SAMPLE OF 0.0. A parent actual exactly
+    equal to the sum of its children means the closure phases' own spend
+    (adversarial analysis, retrospective, QA generation — real, measurable
+    work) was attributed to nothing. Recording that as a legitimate 0.0
+    sample is worse than recording nothing: 0.0 is not None, so after three
+    such sprints `active_closure_ratio` returns 0.0, `cmd_estimate_rollup`
+    accepts it, and the closure band contributes nothing to any future
+    estimate — permanently, with no marker saying why. The step files now
+    instruct the parent actual as "sum of children PLUS this level's own
+    closure-phase spend" precisely so this does not arise; when it does, it
+    is a capture defect and must be reported as one, not learned from.
 
     Iterates CALIBRATED_METRIC_FIELDS, not CLOSURE_RANGE_KEYS or the full
     METRIC_FIELDS: `cost` never produces a closure sample (Task 10) — it is
@@ -1216,6 +1245,7 @@ def derive_closure_sample(state_root: str, level: str, epic_key: str, sprint_key
         children.append(cn)
 
     applied_ratios = pest.get("closure_ratios")
+    applied_orch = pest.get("orchestration_ratios")
     closure, ratios, skipped = {}, {}, {}
     for metric in CALIBRATED_METRIC_FIELDS:
         total = 0.0
@@ -1242,6 +1272,14 @@ def derive_closure_sample(state_root: str, level: str, epic_key: str, sprint_key
                 skipped[metric] = (f"negative residual (parent {pv} below children sum "
                                    f"{total}) — miscounted")
             continue
+        if residual == 0:
+            skipped[metric] = (
+                f"zero residual (parent {pv} exactly equals children sum {total}) — this "
+                f"{level}'s own closure-phase spend was attributed to nothing; a 0.0 sample "
+                f"would train the closure component to zero permanently. Re-capture the "
+                f"{level} actual as children + this level's closure-phase spend "
+                f"(metrics-contract.md §6)")
+            continue
         closure[metric] = residual
 
         lo, hi = CLOSURE_RANGE_KEYS[metric]
@@ -1259,7 +1297,14 @@ def derive_closure_sample(state_root: str, level: str, epic_key: str, sprint_key
         if not all_est:
             skipped[metric] = "a child is missing this metric's estimate"
             continue
-        expected = pmid - est_total
+        # Back out the orchestration band before dividing: `pmid - est_total` is
+        # closure band PLUS orchestration band, and `residual` is closure-only.
+        orch_f = 0.0
+        if hasattr(applied_orch, "get"):
+            f = _num_or_none(applied_orch.get(metric))
+            if f is not None and f > 0:
+                orch_f = f
+        expected = pmid - est_total - est_total * orch_f * ORCH_MID
         if expected <= 0:
             skipped[metric] = (f"estimated closure overhead is {round(expected, 4)} (<= 0) — "
                                f"nothing to measure the residual against")
@@ -1741,6 +1786,14 @@ COLD_START_CLOSURE_BAND = (0.10, 0.25)
 # warning `cmd_estimate_rollup` emits while unseeded is what stands in for
 # that number instead.
 ORCH_SPREAD = (0.8, 1.2)
+
+# The orchestration band's contribution to the roll-up MIDPOINT, per unit of
+# applied fraction. `derive_closure_sample` subtracts `est_total x fraction x
+# ORCH_MID` off the parent estimate midpoint so what remains is the closure
+# band alone — the quantity the closure ratio is actually applied to. Derived
+# from ORCH_SPREAD rather than restated as `1.0`, so widening the spread
+# asymmetrically can never silently desynchronise the two.
+ORCH_MID = (ORCH_SPREAD[0] + ORCH_SPREAD[1]) / 2.0
 
 
 def _child_estimate_value(node, metric):
