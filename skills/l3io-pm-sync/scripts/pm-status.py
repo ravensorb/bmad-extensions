@@ -889,15 +889,22 @@ def _bump_cohort(entry, cohort: str, man_hours):
 
 
 CALIBRATION_MARKER = "calibration_sampled_at"
+# The orchestration sample is a SEPARATE fact from the actual/closure sample,
+# and a sprint or epic node can carry both — one marker cannot gate both
+# without one silently suppressing the other (a closed sprint's closure
+# sample would forever block its later orchestration sample, or vice versa).
+# So orchestration gets its own marker, using the exact same guard mechanism
+# below (a `marker` parameter), rather than a second copy of the mechanism.
+ORCHESTRATION_MARKER = "orchestration_sampled_at"
 
 
-def _already_sampled(node):
+def _already_sampled(node, marker=CALIBRATION_MARKER):
     """The replay guard: a node that already emitted its sample carries a marker."""
-    v = (node or {}).get(CALIBRATION_MARKER)
+    v = (node or {}).get(marker)
     return str(v) if v else None
 
 
-def _mark_sampled(node, node_path, y=None) -> None:
+def _mark_sampled(node, node_path, y=None, marker=CALIBRATION_MARKER) -> None:
     """Stamp the node so a second set-actual on it cannot double-count.
 
     Idempotency lives on the node, not in the caller: `--no-calibrate` only
@@ -906,7 +913,7 @@ def _mark_sampled(node, node_path, y=None) -> None:
     """
     if node is None or not node_path:
         return
-    node[CALIBRATION_MARKER] = _now_iso()
+    node[marker] = _now_iso()
     _atomic_dump(y or _yaml(), node, node_path)
 
 
@@ -1179,11 +1186,25 @@ def record_orchestration_sample(state_root: str, level: str, epic_key: str,
     derived from tokens x rates, so its fraction is already implied by the
     tokens_k fraction and a second, independently-drifting copy would add
     nothing but disagreement.
+
+    REPLAY-GUARDED, like every other record_*_sample here: a second
+    `set-actual --block orchestration` on the same node (a retry, a
+    corrected number, a replayed closure step) must not append a second
+    sample and skew the learned fraction with nothing on disk to explain it.
+    Gated on its own ORCHESTRATION_MARKER rather than the closure/story
+    CALIBRATION_MARKER, because a sprint or epic node carries both an
+    actual/closure sample and an orchestration sample — one marker would let
+    whichever writes first silently suppress the other. `_closure_nodes`
+    resolves the same parent path for both sprint and epic level, so this
+    one guard covers both without a level-specific branch.
     """
     ppath, cpaths = _closure_nodes(state_root, level, epic_key, sprint_key)
     if ppath is None:
         return ""
-    _, pnode = load_node(ppath)
+    y_node, pnode = load_node(ppath)
+    prior = _already_sampled(pnode, marker=ORCHESTRATION_MARKER)
+    if prior:
+        return f"sample already recorded at {prior} — skipped (replay)"
     orch = (pnode or {}).get("orchestration") or {}
     if not orch:
         return ""
@@ -1230,6 +1251,7 @@ def record_orchestration_sample(state_root: str, level: str, epic_key: str,
             entry.setdefault("samples", [])
             entry["samples"].append(frac)
         save_calibration(y, cal, state_root)
+    _mark_sampled(pnode, ppath, y_node, marker=ORCHESTRATION_MARKER)
 
     note = f"orchestration {level} +{len(recorded)} metrics"
     if skipped:

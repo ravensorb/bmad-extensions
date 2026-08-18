@@ -3199,6 +3199,84 @@ class TestOrchestrationBlock(TestLayoutResolution):
         _, cal = pm.load_calibration(self.root)
         self.assertEqual(len(cal["orchestration"]["sprint"]), 0)
 
+    def test_second_orchestration_call_does_not_double_count(self):
+        # Assert on the calibration file's sample COUNT, not the command's
+        # exit code — a replay that is silently accepted (exit 0, no new
+        # sample) must read as success to the caller while still recording
+        # nothing extra in the shared file.
+        self._story_actual(1000)
+        argv = ["set-actual", "--state-root", self.root, "--node", "sprint",
+                "--epic", "E001", "--sprint", "S01", "--block", "orchestration",
+                "--tokens-input", "3000", "--model", "claude-opus-5"]
+        code1, out1 = self.run_main(argv)
+        self.assertEqual(code1, 0, out1)
+        code2, out2 = self.run_main(list(argv))
+        self.assertEqual(code2, 0, out2)
+        self.assertIn("replay", out2.lower())
+        _, cal = pm.load_calibration(self.root)
+        samples = cal["orchestration"]["sprint"]["tokens_k"]["samples"]
+        self.assertEqual(len(samples), 1)
+
+    def test_orchestration_marker_is_distinct_from_closure_marker(self):
+        # The whole reason for a SEPARATE marker: a sprint node carries both
+        # a closure/actual sample and an orchestration sample. If they shared
+        # CALIBRATION_MARKER, whichever ran first would silently suppress
+        # the other. Record a closure sample first, then confirm the
+        # orchestration sample still records.
+        self._story_actual(1000)
+        story_path = pm.story_file(self.root, "E001-S01-003")
+        _, story_node = pm.load_node(story_path)
+        story_node["estimate"] = {"man_hours_low": 3, "man_hours_high": 3}
+        pm.save_node(pm._yaml(), story_node, story_path)
+        sprint_path = pm.sprint_file(self.root, "E001", "S01")
+        _, sprint_node = pm.load_node(sprint_path)
+        sprint_node["estimate"] = {"man_hours_low": 12, "man_hours_high": 12}
+        pm.save_node(pm._yaml(), sprint_node, sprint_path)
+        code, out = self.run_main(
+            ["set-actual", "--state-root", self.root, "--node", "sprint",
+             "--epic", "E001", "--sprint", "S01", "--man-hours", "9"])
+        self.assertEqual(code, 0, out)
+        _, node_after_closure = pm.load_node(sprint_path)
+        self.assertIn(pm.CALIBRATION_MARKER, node_after_closure)
+        self.assertNotIn(pm.ORCHESTRATION_MARKER, node_after_closure)
+
+        code, out = self.run_main(
+            ["set-actual", "--state-root", self.root, "--node", "sprint",
+             "--epic", "E001", "--sprint", "S01", "--block", "orchestration",
+             "--tokens-input", "3000", "--model", "claude-opus-5"])
+        self.assertEqual(code, 0, out)
+        self.assertNotIn("replay", out.lower())
+        _, cal = pm.load_calibration(self.root)
+        self.assertEqual(len(cal["orchestration"]["sprint"]["tokens_k"]["samples"]), 1)
+        _, node_after_both = pm.load_node(sprint_path)
+        self.assertIn(pm.ORCHESTRATION_MARKER, node_after_both)
+
+    def test_epic_level_replay_guard_does_not_double_count(self):
+        # Same exposure exists at epic level: _closure_nodes resolves the
+        # epic's own file as the parent for level="epic", so the guard added
+        # in record_orchestration_sample covers it via the same code path,
+        # with no epic-specific branch needed. Proven here rather than
+        # asserted.
+        sprint_path = pm.sprint_file(self.root, "E001", "S01")
+        _, sprint_node = pm.load_node(sprint_path)
+        sprint_node["actual"] = {"elapsed_hours": 1.0, "man_hours": 8, "hitl_hours": 0.2,
+                                 "tokens_k": {"total": 1000, "input": 1000, "output": 0,
+                                              "cache_write": 0, "cache_read": 0},
+                                 "cost": pm.cost_from_tokens({"input": 1000}, "claude-opus-5"),
+                                 "model": "claude-opus-5"}
+        pm.save_node(pm._yaml(), sprint_node, sprint_path)
+        argv = ["set-actual", "--state-root", self.root, "--node", "epic",
+                "--epic", "E001", "--block", "orchestration",
+                "--tokens-input", "3000", "--model", "claude-opus-5"]
+        code1, out1 = self.run_main(argv)
+        self.assertEqual(code1, 0, out1)
+        code2, out2 = self.run_main(list(argv))
+        self.assertEqual(code2, 0, out2)
+        self.assertIn("replay", out2.lower())
+        _, cal = pm.load_calibration(self.root)
+        samples = cal["orchestration"]["epic"]["tokens_k"]["samples"]
+        self.assertEqual(len(samples), 1)
+
     def test_calibration_show_lists_orchestration_component(self):
         y, cal = pm.load_calibration(self.root)
         cal["orchestration"]["sprint"]["tokens_k"] = {"samples": [2.0, 2.0, 2.0]}
