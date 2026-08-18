@@ -472,6 +472,44 @@ class TestElapsedHoursUnification(TestLayoutResolution):
         self.assertEqual(pm.WALL_CLOCK_METRICS, ("elapsed_hours",))
 
 
+class TestHitlHours(TestLayoutResolution):
+    """hitl_hours is the fifth metric: real, observed supervision time — distinct
+    from man_hours, which stays a counterfactual developer-effort estimate."""
+
+    def run_main(self, argv):
+        buf = io.StringIO()
+        try:
+            with redirect_stdout(buf):
+                code = pm.main(argv)
+        except SystemExit as e:
+            code = e.code
+        return code, buf.getvalue()
+
+    def test_metric_fields_has_five_in_canonical_order(self):
+        self.assertEqual(pm.METRIC_FIELDS,
+                         ("elapsed_hours", "man_hours", "hitl_hours", "tokens_k", "cost"))
+
+    def test_bands_carry_hitl_for_every_classification(self):
+        for cls in pm.CLASSIFICATIONS:
+            self.assertIn("hitl_hours", pm.BASE_BANDS[cls])
+
+    def test_estimate_story_emits_hitl_hours(self):
+        code, out = self.run_main(["estimate-story", "--state-root", self.root,
+                                   "--story", "E001-S01-003", "--classification", "complex"])
+        self.assertEqual(code, 0, out)
+        _, node = pm.load_node(pm.story_file(self.root, "E001-S01-003"))
+        # complex band 0.3-1.0, midpoint 0.65, x cold-start scope 1.0 x fix 1.25
+        self.assertAlmostEqual(float(node["estimate"]["hitl_hours"]), 0.81, places=2)
+
+    def test_set_actual_accepts_hitl_hours(self):
+        code, out = self.run_main(["set-actual", "--state-root", self.root, "--node", "story",
+                                   "--story", "E001-S01-003", "--hitl-hours", "0.3",
+                                   "--no-calibrate"])
+        self.assertEqual(code, 0, out)
+        _, node = pm.load_node(pm.story_file(self.root, "E001-S01-003"))
+        self.assertAlmostEqual(float(node["actual"]["hitl_hours"]), 0.3, places=2)
+
+
 class TestAtomicAndCLI(TestLayoutResolution):
     """Reuses TestLayoutResolution's tree fixture."""
 

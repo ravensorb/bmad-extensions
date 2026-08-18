@@ -29,7 +29,7 @@ Subcommands
   set-status    --state-root S  (--story KEY | --epic ID [--sprint ID])  --status S
                 [--title T] [--flock] [--no-events] [--session-id ID]
   set-actual    --state-root S   --node {story,sprint,epic}  (--story KEY | --epic ID [--sprint ID])
-                [--elapsed-hours H] [--man-hours H] [--tokens-k K] [--cost C]
+                [--elapsed-hours H] [--man-hours H] [--hitl-hours H] [--tokens-k K] [--cost C]
                 [--runtime {claude,other}] [--flock] [--no-events] [--session-id ID]
                 [--no-calibrate]
                 (derives the node's calibration sample inline — write
@@ -37,12 +37,13 @@ Subcommands
                 split cannot see it; the sample is emitted at most once per node,
                 guarded by a `calibration_sampled_at` marker)
   set-estimate  --state-root S  (--story KEY | --epic ID [--sprint ID])
-                [--man-hours-low H] [--man-hours-high H] [--elapsed-hours-low H] [--elapsed-hours-high H]
+                [--man-hours-low H] [--man-hours-high H] [--hitl-hours-low H] [--hitl-hours-high H]
+                [--elapsed-hours-low H] [--elapsed-hours-high H]
                 [--tokens-k-min K] [--tokens-k-max K] [--cost-low C] [--cost-high C]
                 (sprint/epic ranges; kind is inferred from --story vs --epic[/--sprint] —
                 a story node instead takes the single-value aliases --man-hours H,
-                --elapsed-hours H, --tokens-k K, --cost C; --time-hours* accepted as a
-                deprecated alias for --elapsed-hours*)
+                --hitl-hours H, --elapsed-hours H, --tokens-k K, --cost C;
+                --time-hours* accepted as a deprecated alias for --elapsed-hours*)
                 [--confidence {low,medium,high}] [--flock]
   set-field     --state-root S  (--story KEY | --epic ID [--sprint ID])  --field NAME --value V
   verify        --state-root S  --scope {story,sprint,epic}  (--story KEY | --epic ID [--sprint ID])
@@ -97,7 +98,7 @@ PM_STATUS_VERSION = "2.3.0"  # keep in sync with the top-of-file `# pm-status-ve
 VALID_STORY_STATUS = {"backlog", "ready-for-dev", "in-progress", "review", "done"}
 VALID_SPRINT_STATUS = {"backlog", "in-progress", "done"}
 VALID_EPIC_STATUS = {"backlog", "in-progress", "done"}
-METRIC_FIELDS = ("elapsed_hours", "man_hours", "tokens_k", "cost")
+METRIC_FIELDS = ("elapsed_hours", "man_hours", "hitl_hours", "tokens_k", "cost")
 
 
 def _yaml() -> YAML:
@@ -739,7 +740,7 @@ def _applied_scope_ratio(est, metric):
     """The scope ratio that was applied to `metric` when this estimate was written.
 
     `estimate-story` records one ratio PER METRIC (`scope_ratios`), because the
-    four metrics calibrate independently. A single scalar `scope_ratio` is the
+    five metrics calibrate independently. A single scalar `scope_ratio` is the
     older/manual form (`set-estimate --scope-ratio`) and is accepted as a
     fallback for every metric. Missing entirely -> 1.0.
     """
@@ -906,6 +907,7 @@ def _mid(est, low_key: str, high_key: str):
 
 CLOSURE_RANGE_KEYS = {
     "man_hours":     ("man_hours_low", "man_hours_high"),
+    "hitl_hours":    ("hitl_hours_low", "hitl_hours_high"),
     "elapsed_hours": ("elapsed_hours_low", "elapsed_hours_high"),
     "tokens_k":      ("tokens_k_min", "tokens_k_max"),
     "cost":          ("cost_low", "cost_high"),
@@ -1199,9 +1201,12 @@ def cmd_rates(args) -> int:
 # Cold-start base bands (low, high) per classification. These were previously a
 # markdown table in steps/shared/step-estimate.md; this is now the single source.
 BASE_BANDS = {
-    "simple":   {"man_hours": (2, 4),  "elapsed_hours": (0.5, 1.5), "tokens_k": (20, 50),  "cost": (0.10, 0.35)},
-    "standard": {"man_hours": (4, 8),  "elapsed_hours": (1, 3),     "tokens_k": (40, 100), "cost": (0.25, 0.70)},
-    "complex":  {"man_hours": (8, 16), "elapsed_hours": (2, 6),     "tokens_k": (80, 200), "cost": (0.55, 1.40)},
+    "simple":   {"man_hours": (2, 4),  "hitl_hours": (0.1, 0.3), "elapsed_hours": (0.5, 1.5),
+                 "tokens_k": (20, 50),  "cost": (0.10, 0.35)},
+    "standard": {"man_hours": (4, 8),  "hitl_hours": (0.2, 0.5), "elapsed_hours": (1, 3),
+                 "tokens_k": (40, 100), "cost": (0.25, 0.70)},
+    "complex":  {"man_hours": (8, 16), "hitl_hours": (0.3, 1.0), "elapsed_hours": (2, 6),
+                 "tokens_k": (80, 200), "cost": (0.55, 1.40)},
 }
 
 
@@ -1212,12 +1217,12 @@ def cmd_estimate_story(args) -> int:
 
     Each metric queries its own calibrated scope ratio — man_hours and tokens_k may
     be calibrated independently once each has >=3 samples, so ratios are looked up
-    per metric, never hoisted out and reused across all four.
+    per metric, never hoisted out and reused across all five.
 
-    All four applied ratios are recorded as `estimate.scope_ratios`, per metric.
+    All five applied ratios are recorded as `estimate.scope_ratios`, per metric.
     This is load-bearing, not provenance: `derive_story_sample` divides the applied
     ratio back out to measure the next sample against the base band, and one
-    scalar cannot reconstruct four metrics' corrections.
+    scalar cannot reconstruct five metrics' corrections.
     """
     path = story_file(args.state_root, args.story)
     if path is None:
@@ -1887,12 +1892,14 @@ def cmd_set_actual(args) -> int:
     provided = {
         "elapsed_hours": args.elapsed_hours,
         "man_hours": args.man_hours,
+        "hitl_hours": args.hitl_hours,
         "tokens_k": args.tokens_k,
         "cost": args.cost,
     }
     provided = {k: v for k, v in provided.items() if v is not None}
     if not provided:
-        _die_usage("set-actual needs at least one of --elapsed-hours/--man-hours/--tokens-k/--cost")
+        _die_usage("set-actual needs at least one of "
+                   "--elapsed-hours/--man-hours/--hitl-hours/--tokens-k/--cost")
 
     # HARD RULE: under Claude, token/cost must be a real value, never absent or N/A.
     if args.runtime == "claude":
@@ -2086,6 +2093,7 @@ def cmd_set_estimate(args) -> int:
     if kind == "story":
         # Stories: single values (not ranges)
         _maybe_set(est, "man_hours", args.man_hours, float)
+        _maybe_set(est, "hitl_hours", args.hitl_hours, float)
         _maybe_set(est, "elapsed_hours", args.elapsed_hours, float)
         _maybe_set(est, "tokens_k", args.tokens_k_min, int)
         _maybe_set(est, "cost", args.cost_low, str)
@@ -2093,6 +2101,8 @@ def cmd_set_estimate(args) -> int:
         # Sprints and epics: low/high ranges
         _maybe_set(est, "man_hours_low", args.man_hours_low, float)
         _maybe_set(est, "man_hours_high", args.man_hours_high, float)
+        _maybe_set(est, "hitl_hours_low", args.hitl_hours_low, float)
+        _maybe_set(est, "hitl_hours_high", args.hitl_hours_high, float)
         _maybe_set(est, "elapsed_hours_low", args.elapsed_hours_low, float)
         _maybe_set(est, "elapsed_hours_high", args.elapsed_hours_high, float)
         _maybe_set(est, "tokens_k_min", args.tokens_k_min, int)
@@ -2108,9 +2118,10 @@ def cmd_set_estimate(args) -> int:
     if args.confidence:
         est["confidence"] = args.confidence
     elif "confidence" not in est:
-        range_keys = ["man_hours_low", "man_hours_high", "elapsed_hours_low", "elapsed_hours_high",
+        range_keys = ["man_hours_low", "man_hours_high", "hitl_hours_low", "hitl_hours_high",
+                      "elapsed_hours_low", "elapsed_hours_high",
                       "tokens_k_min", "tokens_k_max", "cost_low", "cost_high"]
-        story_keys = ["man_hours", "elapsed_hours", "tokens_k", "cost"]
+        story_keys = ["man_hours", "hitl_hours", "elapsed_hours", "tokens_k", "cost"]
         check = story_keys if kind == "story" else range_keys
         est["confidence"] = "medium" if all(k in est for k in check) else "low"
 
@@ -2529,6 +2540,8 @@ def build_parser() -> argparse.ArgumentParser:
     node_args(a)
     a.add_argument("--elapsed-hours", dest="elapsed_hours")
     a.add_argument("--man-hours", dest="man_hours")
+    a.add_argument("--hitl-hours", dest="hitl_hours",
+                   help="human attention actually spent supervising (hours)")
     a.add_argument("--tokens-k", dest="tokens_k")
     a.add_argument("--cost")
     a.add_argument("--runtime", choices=["claude", "other"], default="other")
@@ -2612,6 +2625,8 @@ def build_parser() -> argparse.ArgumentParser:
     # Range fields (sprint/epic)
     se.add_argument("--man-hours-low", dest="man_hours_low")
     se.add_argument("--man-hours-high", dest="man_hours_high")
+    se.add_argument("--hitl-hours-low", dest="hitl_hours_low")
+    se.add_argument("--hitl-hours-high", dest="hitl_hours_high")
     se.add_argument("--elapsed-hours-low", "--time-hours-low", dest="elapsed_hours_low")
     se.add_argument("--elapsed-hours-high", "--time-hours-high", dest="elapsed_hours_high")
     se.add_argument("--tokens-k-min", dest="tokens_k_min")
@@ -2620,6 +2635,8 @@ def build_parser() -> argparse.ArgumentParser:
     se.add_argument("--cost-high", dest="cost_high")
     # Single-value fields (story)
     se.add_argument("--man-hours", dest="man_hours")
+    se.add_argument("--hitl-hours", dest="hitl_hours",
+                    help="human attention actually spent supervising (hours)")
     se.add_argument("--elapsed-hours", "--time-hours", dest="elapsed_hours",
                     help="--time-hours is a deprecated alias")
     se.add_argument("--tokens-k", dest="tokens_k_min")  # alias to tokens_k_min for story use
