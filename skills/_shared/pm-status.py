@@ -1143,6 +1143,80 @@ def cmd_calibration(args) -> int:
     return 0
 
 
+TOKEN_CLASSES = ("input", "output", "cache_write", "cache_read")
+
+# USD per 1M tokens, Anthropic first-party API rates as of 2026-06-24.
+# cache_write is 1.25x input; cache_read is 0.1x input.
+# Partner-operated platforms (Bedrock, Vertex) price separately and need a
+# config override at modules.l3io-pm.token_rates.
+TOKEN_RATES = {
+    "claude-opus-5":      {"input": 5.00,  "output": 25.00, "cache_write": 6.25,  "cache_read": 0.50},
+    "claude-opus-5-fast": {"input": 10.00, "output": 50.00, "cache_write": 12.50, "cache_read": 1.00},
+    "claude-fable-5":     {"input": 10.00, "output": 50.00, "cache_write": 12.50, "cache_read": 1.00},
+    "claude-sonnet-5":    {"input": 3.00,  "output": 15.00, "cache_write": 3.75,  "cache_read": 0.30},
+    "claude-sonnet-4-6":  {"input": 3.00,  "output": 15.00, "cache_write": 3.75,  "cache_read": 0.30},
+    "claude-haiku-4-5":   {"input": 1.00,  "output": 5.00,  "cache_write": 1.25,  "cache_read": 0.10},
+}
+
+
+def resolve_rates(model: str, overrides=None) -> dict:
+    """The rate card for `model`, config overrides winning per model.
+
+    An unknown model is a KeyError, never a default. A silently-wrong rate is
+    exactly the failure this whole change exists to remove: the same token count
+    prices 2x apart between a $5/M and a $10/M tier.
+    """
+    table = dict(TOKEN_RATES)
+    if overrides:
+        for k, v in overrides.items():
+            table[k] = {**table.get(k, {}), **v}
+    if model not in table:
+        raise KeyError(f"unknown model {model!r} — add it to modules.l3io-pm.token_rates "
+                       f"or use one of {sorted(table)}")
+    return table[model]
+
+
+def cost_from_tokens(tokens: dict, model: str, overrides=None) -> float:
+    """USD for a per-class token count. `tokens` values are in THOUSANDS, rates
+    are per million, hence the /1000."""
+    rates = resolve_rates(model, overrides)
+    total = 0.0
+    for cls in TOKEN_CLASSES:
+        v = _num_or_none((tokens or {}).get(cls))
+        if v is None:
+            continue
+        total += v * rates[cls]
+    return round(total / 1000.0, 2)
+
+
+def rate_overrides(args):
+    """Parse --token-rates into the overrides dict resolve_rates expects."""
+    raw = getattr(args, "token_rates", "") or ""
+    if not raw.strip():
+        return None
+    try:
+        return json.loads(raw)
+    except ValueError as e:
+        _die_usage(f"--token-rates is not valid JSON: {e}")
+
+
+def cmd_rates(args) -> int:
+    """Print the effective rate table. Read-only; exists so the value actually in
+    force — including any --token-rates override — is inspectable without
+    reading source or guessing."""
+    overrides = rate_overrides(args)
+    models = [args.model] if args.model else sorted(TOKEN_RATES)
+    for m in models:
+        try:
+            r = resolve_rates(m, overrides)
+        except KeyError as e:
+            sys.stderr.write(f"{e}\n")
+            return 2
+        cells = "  ".join(f"{c}={r[c]:.2f}" for c in TOKEN_CLASSES)
+        sys.stdout.write(f"{m:<22} {cells}\n")
+    return 0
+
+
 # Cold-start base bands (low, high) per classification. These were previously a
 # markdown table in steps/shared/step-estimate.md; this is now the single source.
 BASE_BANDS = {
@@ -2636,6 +2710,12 @@ def build_parser() -> argparse.ArgumentParser:
     er.add_argument("--epic", required=True)
     er.add_argument("--sprint", default="")
     er.set_defaults(func=cmd_estimate_rollup)
+
+    rt = sub.add_parser("rates", help="print the effective token rate table (read-only)")
+    rt.add_argument("--model", default="")
+    rt.add_argument("--token-rates", dest="token_rates", default="",
+                    help="JSON object of per-model rate overrides")
+    rt.set_defaults(func=cmd_rates)
 
     p.add_argument("--version", action="version", version=f"pm-status.py {PM_STATUS_VERSION}")
     return p
