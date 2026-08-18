@@ -762,6 +762,7 @@ TOKENS_SANITY_RANGE = (0.5, 2.0)
 # such blind spot: its absence always means "run it," regardless of which
 # sample types the file happens to contain.
 CALIBRATION_METRICS_MARKER = "metrics_migrated_at"
+TOKEN_BASIS_MARKER = "token_basis_migrated_at"
 
 
 def migrate_calibration_metrics(y, cal, state_root: str) -> list:
@@ -856,12 +857,71 @@ def migrate_calibration_metrics(y, cal, state_root: str) -> list:
     return log
 
 
+def migrate_calibration_token_basis(y, cal, state_root: str) -> list:
+    """Drop scope tokens_k samples measured on the pre-fresh basis. Once, in place.
+
+    Those samples are `cache_inclusive_actual / fresh_scale_band`, so they carry a
+    basis error of roughly three orders of magnitude (see FRESH_TOKEN_CLASSES).
+    They cannot be repaired here: a stored sample is a bare rounded ratio, with no
+    raw counts to recompute from. Purging is the only honest option, and it is
+    enough -- the nodes still hold their per-class actuals, so the buckets refill
+    correctly on the next closes, now on the right basis.
+
+    What deliberately SURVIVES:
+
+    - `token_mix` samples. They are per-class FRACTIONS of a total, so they never
+      depended on which classes the scope basis counted. They are also what now
+      projects cache_read at estimate time, and they are the only measured record
+      of how extreme the real split is -- discarding them would throw away the
+      evidence that motivated this change.
+    - every non-tokens_k component. man_hours, hitl_hours and elapsed_hours were
+      never measured in tokens and are untouched by the basis error.
+
+    `version` stays 2. Compatibility here is by shape-tolerant reads and a
+    positive marker, never a version gate.
+    """
+    if cal.get(TOKEN_BASIS_MARKER):
+        return []
+
+    log = []
+    p = calibration_path(state_root)
+    backup = p + ".pre-token-basis"
+    if os.path.exists(p) and not os.path.exists(backup):
+        import shutil
+        shutil.copy2(p, backup)
+        log.append(f"backup {os.path.basename(backup)}")
+
+    for bucket, metrics in list((cal.get("scope") or {}).items()):
+        if not hasattr(metrics, "items"):
+            continue
+        entry = metrics.get("tokens_k")
+        if not hasattr(entry, "get"):
+            continue
+        n = len(entry.get("samples") or [])
+        if n:
+            entry["samples"] = []
+            log.append(f"PURGE scope.{bucket}.tokens_k ({n} sample(s) measured against a "
+                       f"cache-inclusive actual over a fresh-token band — unrecoverable, "
+                       f"the stored form is a bare ratio; the bucket refills on the next closes)")
+
+    cal[TOKEN_BASIS_MARKER] = _now_iso()
+    return log
+
+
 def _component_samples(cal, component: str, bucket: str, metric: str) -> list:
     node = ((cal.get(component) or {}).get(bucket) or {}).get(metric) or {}
     return list(node.get("samples") or [])
 
 
 def active_scope_ratio(cal, classification: str, metric: str):
+    if metric == "tokens_k" and not (cal or {}).get(TOKEN_BASIS_MARKER):
+        # Pre-basis file: any tokens_k scope samples here were measured as a
+        # cache-inclusive actual over a fresh-token band and are wrong by orders
+        # of magnitude (see FRESH_TOKEN_CLASSES). The purge runs on the next
+        # WRITE, but read-only callers -- estimate-story, estimate-rollup,
+        # calibration show -- must not migrate, and must not apply them either.
+        # Cold start is the correct answer until a write cleans the file.
+        return None
     s = _component_samples(cal, "scope", classification, metric)
     return weighted_ratio(s) if len(s) >= MIN_SAMPLES else None
 
@@ -1017,6 +1077,25 @@ def derive_story_sample(node):
     ratios = {}
     for metric in CALIBRATED_METRIC_FIELDS:
         e_num, a_num = _estimate_metric(est, metric), _actual_metric(act, metric)
+        if metric == "tokens_k":
+            # Measure SCOPE against the fresh classes only -- on BOTH sides.
+            #
+            # The actual side is the defect being fixed: a cache-inclusive actual
+            # over a fresh-scale band, ~1000x apart (see FRESH_TOKEN_CLASSES).
+            # The estimate side matters just as much and is easy to miss: the
+            # cancellation that reduces this expression to `actual / band_mid`
+            # only holds while the denominator IS `band_mid x applied x fix`.
+            # Since estimate-story now adds a projected cache_read on top of the
+            # banded fresh total, `tokens_k.total` is no longer that quantity, and
+            # dividing by it would reintroduce a basis error in the other
+            # direction. The estimate's fresh sum is the banded quantity.
+            a_tk, e_tk = (act or {}).get("tokens_k"), (est or {}).get("tokens_k")
+            a_num = fresh_tokens(a_tk) if hasattr(a_tk, "get") else None
+            if hasattr(e_tk, "get"):
+                e_fresh = fresh_tokens(e_tk)
+                e_num = e_fresh if e_fresh > 0 else e_num
+            if a_num is not None and a_num <= 0:
+                a_num = None      # no fresh tokens recorded -> no scope signal
         if e_num is None or a_num is None:
             continue          # missing, N/A, or non-numeric — never coerced to zero
         if e_num == 0:
@@ -1106,6 +1185,8 @@ def record_story_sample(state_root: str, node, node_path: str = None, y=None) ->
         if cal.get("version") != CALIBRATION_SCHEMA_VERSION:
             cal = migrate_calibration(y_cal, cal, state_root)
         for line in migrate_calibration_metrics(y_cal, cal, state_root):
+            sys.stderr.write(f"pm-status.py: calibration migration: {line}\n")
+        for line in migrate_calibration_token_basis(y_cal, cal, state_root):
             sys.stderr.write(f"pm-status.py: calibration migration: {line}\n")
         cls = sample["classification"]
 
@@ -1388,6 +1469,8 @@ def record_closure_sample(state_root: str, level: str, epic_key: str, sprint_key
             cal = migrate_calibration(y, cal, state_root)
         for line in migrate_calibration_metrics(y, cal, state_root):
             sys.stderr.write(f"pm-status.py: calibration migration: {line}\n")
+        for line in migrate_calibration_token_basis(y, cal, state_root):
+            sys.stderr.write(f"pm-status.py: calibration migration: {line}\n")
         bucket = cal["closure"].setdefault(level, CommentedMap())
         for metric, ratio in sample["ratios"].items():
             entry = bucket.setdefault(metric, CommentedMap())
@@ -1492,6 +1575,8 @@ def record_orchestration_sample(state_root: str, level: str, epic_key: str,
             cal = migrate_calibration(y, cal, state_root)
         for line in migrate_calibration_metrics(y, cal, state_root):
             sys.stderr.write(f"pm-status.py: calibration migration: {line}\n")
+        for line in migrate_calibration_token_basis(y, cal, state_root):
+            sys.stderr.write(f"pm-status.py: calibration migration: {line}\n")
         bucket = cal.setdefault("orchestration", CommentedMap()).setdefault(level, CommentedMap())
         for metric, frac in recorded.items():
             entry = bucket.setdefault(metric, CommentedMap())
@@ -1513,6 +1598,11 @@ def cmd_calibration(args) -> int:
             if cal.get("version") != CALIBRATION_SCHEMA_VERSION:
                 cal = migrate_calibration(y, cal, args.state_root)
             log = migrate_calibration_metrics(y, cal, args.state_root)
+            # Same explicit entry point, because an operator reaching for a migration
+            # wants the file correct, not correct-except-for-one-component. Both are
+            # separately marker-gated, so running this on an already-migrated file is
+            # a no-op rather than a second purge.
+            log = log + migrate_calibration_token_basis(y, cal, args.state_root)
             save_calibration(y, cal, args.state_root)
         for line in log:
             sys.stdout.write(line + "\n")
@@ -1624,6 +1714,43 @@ def cost_from_tokens(tokens: dict, model: str, overrides=None) -> float:
                            f"must define all of {list(TOKEN_CLASSES)} for a model it adds")
         total += v * rates[cls]
     return round(total / 1000.0, 2)
+
+
+FRESH_TOKEN_CLASSES = ("input", "output", "cache_write")
+"""The classes a story's SIZE predicts.
+
+`cache_read` is deliberately absent. It is a function of corpus size times agent
+count -- how much context each dispatched agent re-reads -- not of how much work
+the story asks for. A story that touches one file in a large repo reads the same
+corpus as one that touches ten. Folding it into the scope basis made the ratio
+measure the repo, not the story.
+
+This is not theoretical. BASE_BANDS' tokens_k numbers (20-200k) were authored as
+fresh-token bands, but actuals are captured cache-inclusive: one observed story
+measured 182,121k with 97.4% of it cache reads. Dividing a cache-inclusive actual
+by a fresh-scale band gave a scope ratio absorbing a ~1000x basis gap in silence,
+and the per-class evidence is unambiguous about it being a basis error rather
+than a real signal -- the complex bucket read 285.291 across five samples that
+straddled the accounting change, while standard read 7.386 across three that did
+not. Only the poisoned bucket moved.
+
+cache_read is still captured, still priced, and still rolled up. It is simply not
+what `scope` learns from; it belongs to the orchestration term, which is measured
+as a fraction of children rather than predicted from a band.
+"""
+
+
+def fresh_tokens(block) -> float:
+    """Sum of the fresh classes in a tokens_k mapping. 0.0 for a non-mapping."""
+    if not hasattr(block, "get"):
+        return 0.0
+    return sum(_num_or_none(block.get(c)) or 0.0 for c in FRESH_TOKEN_CLASSES)
+
+
+def fresh_share(mix: dict) -> float:
+    """The fraction of a token mix that is fresh. Guarded against a degenerate mix."""
+    f = sum(float(mix.get(c, 0.0)) for c in FRESH_TOKEN_CLASSES)
+    return f if f > 0 else sum(COLD_START_TOKEN_MIX[c] for c in FRESH_TOKEN_CLASSES)
 
 
 def tokens_block(counts: dict):
@@ -1743,6 +1870,11 @@ def split_tokens(total: float, mix: dict) -> dict:
 # cmd_estimate_story. Keeping a separate cost band was the original defect: a
 # cost estimate with no arithmetic relationship to the token estimate it should
 # follow, drifting apart from it as the two calibrated independently.
+# `tokens_k` here is a FRESH-token band (input + output + cache_write) -- it always
+# was, but nothing said so, and the actual it was divided by is cache-inclusive.
+# That mismatch is the defect FRESH_TOKEN_CLASSES documents. Do not "correct" these
+# numbers upward to meet a cache-inclusive actual: cache_read is projected from the
+# observed mix at estimate time and belongs to orchestration, not scope.
 BASE_BANDS = {
     "simple":   {"man_hours": (2, 4),  "hitl_hours": (0.1, 0.3), "elapsed_hours": (0.5, 1.5),
                  "tokens_k": (20, 50)},
@@ -1803,8 +1935,15 @@ def cmd_estimate_story(args) -> int:
         value = mid * ratio * fix
         est[metric] = int(round(value)) if metric == "tokens_k" else round(value, 2)
 
-    total_tokens = est.pop("tokens_k")
-    counts = split_tokens(total_tokens, observed_mix(cal))
+    # The band produces FRESH tokens, matching what the scope ratio now measures.
+    # cache_read is then projected from the observed mix rather than banded: it
+    # tracks corpus x agent count, so a story-size band cannot predict it, but the
+    # ratio it bears to fresh tokens is exactly what token_mix samples record.
+    fresh_total = est.pop("tokens_k")
+    mix = observed_mix(cal)
+    fshare = fresh_share(mix)
+    counts = split_tokens(fresh_total, {c: mix.get(c, 0.0) / fshare for c in FRESH_TOKEN_CLASSES})
+    counts["cache_read"] = int(round(fresh_total * (mix.get("cache_read", 0.0) / fshare)))
     est["tokens_k"] = tokens_block(counts)
     model = args.model or DEFAULT_ESTIMATE_MODEL
     try:

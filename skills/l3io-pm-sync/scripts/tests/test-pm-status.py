@@ -2462,10 +2462,15 @@ class TestSetActualCalibrates(TestLayoutResolution):
         _, cal = pm.load_calibration(self.root)
         samples = pm._component_samples(cal, "scope", "standard", "tokens_k")
         self.assertEqual(len(samples), 1, cal)
-        # estimate total 88 (band mid 70 x cold-start ratio 1.0 x fix 1.25);
-        # actual total 20+8+30+50=108; no completion_evidence -> provenance
-        # "backout": sample = actual x applied(1.0) / estimate = 108/88
-        self.assertAlmostEqual(float(samples[0]), 108.0 / 88.0, places=4)
+        # Both sides are FRESH (input + output + cache_write), never the total.
+        # estimate fresh 88 (band mid 70 x cold-start ratio 1.0 x fix 1.25);
+        # actual fresh 20+8+30 = 58 -- the 50 cache_read is excluded, because it
+        # measures corpus x agent count rather than the size of this story.
+        # No completion_evidence -> provenance "backout":
+        #   sample = actual_fresh x applied(1.0) / estimate_fresh = 58/88
+        self.assertAlmostEqual(float(samples[0]), 58.0 / 88.0, places=4)
+        self.assertLess(float(samples[0]), 108.0 / 88.0,
+                        "the old total-based basis is what this replaced")
 
 
 class TestEstimateStory(TestLayoutResolution):
@@ -2555,9 +2560,16 @@ class TestEstimateTokensAndCost(TestLayoutResolution):
         _, node = pm.load_node(pm.story_file(self.root, "E001-S01-003"))
         est = node["estimate"]
         tk = est["tokens_k"]
-        # standard band 40-100, midpoint 70, x scope 1.0 x fix 1.25 = 88 total
-        self.assertEqual(int(tk["total"]), 88)
-        self.assertEqual(sum(int(tk[c]) for c in pm.TOKEN_CLASSES), 88)
+        # standard band 40-100, midpoint 70, x scope 1.0 x fix 1.25 = 88 FRESH tokens.
+        # The band is fresh-scale (see FRESH_TOKEN_CLASSES), so cache_read is projected
+        # from the mix on top rather than carved out of the band: under the cold-start
+        # mix the fresh share is 0.15+0.05+0.30 = 0.50 and cache_read is 0.50, so
+        # cache_read = 88 x (0.50/0.50) = 88 and the total is 176. The total exceeding
+        # the band is the point -- it used to equal it, which is what put a
+        # cache-inclusive actual and a fresh band on bases ~1000x apart.
+        self.assertEqual(sum(int(tk[c]) for c in pm.FRESH_TOKEN_CLASSES), 88)
+        self.assertEqual(int(tk["total"]), 176)
+        self.assertEqual(sum(int(tk[c]) for c in pm.TOKEN_CLASSES), 176)
         self.assertAlmostEqual(float(est["cost"]),
                                pm.cost_from_tokens(tk, "claude-opus-5"), places=2)
 
@@ -2756,8 +2768,10 @@ class TestRollupOrchestrationBand(TestLayoutResolution):
         _, node = pm.load_node(pm.sprint_file(self.root, "E001", "S01"))
         est = node["estimate"]
         self.assertAlmostEqual(float(est["orchestration_ratios"]["tokens_k"]), 2.0, places=2)
-        # 88 total x (1 + closure 0.10 + orchestration 2.0*0.8) = 88 * 2.70
-        self.assertEqual(int(est["tokens_k_min"]), 238)
+        # story total 176 (88 fresh + 88 projected cache_read, see
+        # test_estimate_story_derives_cost_from_the_split) x
+        # (1 + closure 0.10 + orchestration 2.0*0.8) = 176 * 2.70 = 475.2
+        self.assertEqual(int(est["tokens_k_min"]), 475)
 
     def test_rollup_derives_cost_from_rolled_up_tokens(self):
         """cost is no longer banded independently (Task 10): it must be priced
@@ -4384,6 +4398,94 @@ class TestOrchestrationBlock(TestLayoutResolution):
         self.assertIn("orchestration", out)
         self.assertIn("sprint/tokens_k", out)
 
+
+
+class TestFreshTokenScopeBasis(Base):
+    """The scope ratio measures fresh tokens, not the cache-inclusive total.
+
+    BASE_BANDS' tokens_k numbers are fresh-token scale (20-200k) while actuals are
+    captured cache-inclusive. A real story measured 182,121k with 97.4% cache reads,
+    so `actual.total / band` silently absorbed a ~1000x basis gap. The per-class
+    evidence showed it was a basis error and not signal: the complex bucket read
+    285.291 over five samples straddling the accounting change, standard 7.386 over
+    three that did not.
+    """
+
+    def _story(self, fresh, cache_read, band_mid=140.0):
+        """A closed story whose estimate came from the complex band."""
+        return {
+            "key": "E001-S01-001", "classification": "complex",
+            "estimate": {"fix_factor": 1.0,
+                         "scope_ratios": {"tokens_k": 1.0},
+                         "tokens_k": {"total": band_mid}},
+            "actual": {"tokens_k": {"total": fresh + cache_read,
+                                    "input": fresh * 0.2, "output": fresh * 0.1,
+                                    "cache_write": fresh * 0.7,
+                                    "cache_read": cache_read}},
+            "completion_evidence": {"fix_iterations": 0},
+        }
+
+    def test_ratio_ignores_cache_read(self):
+        fresh, cache_read = 4735.0, 177386.0        # the observed 97.4% split
+        sample = pm.derive_story_sample(self._story(fresh, cache_read))
+        got = sample["scope_ratios"]["tokens_k"]
+        self.assertAlmostEqual(got, fresh / 140.0, places=3)
+        poisoned = (fresh + cache_read) / 140.0
+        self.assertGreater(poisoned / got, 30,
+                           "premise: the old basis was orders of magnitude larger")
+
+    def test_cache_read_volume_does_not_move_the_ratio(self):
+        """Same story, ten times the corpus. Scope is unchanged, so the ratio must be."""
+        a = pm.derive_story_sample(self._story(4735.0, 177386.0))["scope_ratios"]["tokens_k"]
+        b = pm.derive_story_sample(self._story(4735.0, 1773860.0))["scope_ratios"]["tokens_k"]
+        self.assertAlmostEqual(a, b, places=6)
+
+    def test_no_fresh_tokens_yields_no_scope_sample(self):
+        n = self._story(0.0, 177386.0)
+        sample = pm.derive_story_sample(n)
+        self.assertNotIn("tokens_k", (sample or {}).get("scope_ratios", {}))
+
+
+class TestTokenBasisMigration(Base):
+    def _cal(self, extra=""):
+        root = os.path.join(self.d, "state")
+        os.makedirs(root, exist_ok=True)
+        with open(os.path.join(root, "pm-calibration.yaml"), "w", encoding="utf-8") as fh:
+            fh.write("version: 2\nmetrics_migrated_at: '2026-01-01T00:00:00+00:00'\n"
+                     "scope:\n  complex:\n    tokens_k:\n      samples: [285.291, 300.0, 270.0]\n"
+                     "    man_hours:\n      samples: [1.1, 1.2, 1.3]\n"
+                     "token_mix:\n  samples:\n  - {input: 0.01, output: 0.005, "
+                     "cache_write: 0.011, cache_read: 0.974}\n" + extra)
+        return root
+
+    def test_purges_poisoned_tokens_k_but_keeps_everything_else(self):
+        root = self._cal()
+        y, cal = pm.load_calibration(root)
+        log = pm.migrate_calibration_token_basis(y, cal, root)
+        self.assertTrue(any("PURGE" in l for l in log), log)
+        self.assertEqual(cal["scope"]["complex"]["tokens_k"]["samples"], [])
+        self.assertEqual(cal["scope"]["complex"]["man_hours"]["samples"], [1.1, 1.2, 1.3],
+                         "man_hours was never measured in tokens")
+        self.assertEqual(len(cal["token_mix"]["samples"]), 1,
+                         "token_mix is per-class fractions — basis-independent, and the "
+                         "evidence for this very change")
+        self.assertEqual(cal.get("version"), 2, "no schema version bump")
+
+    def test_migration_is_one_shot(self):
+        root = self._cal()
+        y, cal = pm.load_calibration(root)
+        pm.migrate_calibration_token_basis(y, cal, root)
+        cal["scope"]["complex"]["tokens_k"]["samples"] = [1.0, 1.1, 1.2]
+        self.assertEqual(pm.migrate_calibration_token_basis(y, cal, root), [])
+        self.assertEqual(cal["scope"]["complex"]["tokens_k"]["samples"], [1.0, 1.1, 1.2],
+                         "post-migration samples are on the new basis and must survive")
+
+    def test_read_only_never_applies_a_pre_basis_ratio(self):
+        cal = {"scope": {"complex": {"tokens_k": {"samples": [285.291, 300.0, 270.0]}}}}
+        self.assertIsNone(pm.active_scope_ratio(cal, "complex", "tokens_k"),
+                          "an unmigrated file must fall back to cold start, not apply 285x")
+        cal[pm.TOKEN_BASIS_MARKER] = "2026-01-01T00:00:00+00:00"
+        self.assertIsNotNone(pm.active_scope_ratio(cal, "complex", "tokens_k"))
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)

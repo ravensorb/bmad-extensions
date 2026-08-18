@@ -604,8 +604,47 @@ the rolled-up `tokens_k_min`/`tokens_k_max` range. This keeps `cost` arithmetica
 the token estimate it prices — it cannot drift apart from it the way an independently banded
 and independently calibrated cost figure could (and, before this rework, did).
 
+#### The band is FRESH tokens; `cache_read` is projected, not banded
+
+`BASE_BANDS`' `tokens_k` numbers (20–200k) are **fresh tokens** — `input + output +
+cache_write` — and always were. `cache_read` is not in them and must never be added to them.
+
+The reason is what each measures. Fresh tokens track how much work a story asks for.
+`cache_read` tracks corpus size × agent count: how much context each dispatched agent
+re-reads, which is the same whether the story touches one file or ten. It is an
+orchestration driver wearing a scope metric's clothes.
+
+Leaving that unstated cost a real project its estimates. Actuals are captured
+cache-inclusive, so the scope ratio was computing `cache_inclusive_actual / fresh_band` —
+a basis gap of roughly three orders of magnitude, absorbed in silence because a ratio has
+no units to disagree about. One story measured **182,121k tokens, 97.4% of it cache reads**.
+The per-class split is what proved it was a basis error rather than signal: only the bucket
+whose samples straddled the accounting change moved, reading **285.291 across five samples**
+against `standard`'s **7.386 across three** that did not.
+
+So, on both sides of the ratio:
+
+- **`derive_story_sample`** measures the fresh sum of the actual against the fresh sum of the
+  estimate. Not `tokens_k.total`, on either side — the cancellation to `actual / band_mid`
+  only holds while the denominator is the banded quantity, and since the estimate now carries
+  a projected `cache_read` on top, its `total` no longer is.
+- **`estimate-story`** bands fresh tokens, splits them across the three fresh classes by the
+  mix renormalized over those three, then projects `cache_read = fresh × (mix.cache_read /
+  mix.fresh_share)`. The estimate's `total` therefore *exceeds* its band, which is correct
+  and is the visible sign the two are on the same footing.
+
+Samples recorded before this are unrecoverable — a stored sample is a bare rounded ratio with
+no raw counts behind it — so the purge drops `scope.*.tokens_k` once, under its own
+marker, keeping every other component and every `token_mix` sample. It runs automatically on
+the next sample write, and `pm-status.py calibration migrate-metrics` triggers it explicitly. Until that
+purge runs, `active_scope_ratio` refuses to apply a `tokens_k` ratio at all, so a read-only
+`estimate-story` falls back to cold start rather than applying a poisoned one.
+
 `COLD_START_TOKEN_MIX` is an **assumption, not a measurement** — it affects only how a banded
-total is *split* across classes, never the banded total itself. `observed_mix` reads
+fresh total is *split*, and what `cache_read` is projected against, never the band itself.
+Note how far it sits from the one project measured so far (0.50 assumed against 0.974
+observed): it is superseded by `observed_mix` after three story closes, and that supersession
+is the mechanism, not a fallback. `observed_mix` reads
 `cal["token_mix"]["samples"]`, a list of per-story observed class fractions recorded by
 `record_story_sample` whenever a story's actual `tokens_k` mapping has a positive `total`; it
 is a derived statistic, not a calibration *component* — it has no activation threshold beyond
