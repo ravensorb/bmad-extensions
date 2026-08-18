@@ -56,10 +56,7 @@ Spawn `bmad-dev-story` subagent with:
 - Project context: the config resolved at activation (`references/config-resolution.md`) —
   pass the bound values, not a config file path
 - Sprint root: `{sprint_root}`
-- **You have no inbox.** No reply will arrive. If you need a decision you cannot
-  make, write it to disk and end with `BLOCKED: <reason>`. Never wait.
-- Your final line must be exactly one of `DONE — [brief metrics]`,
-  `BLOCKED: [one-line reason]`, or `FAILED: [one-line reason]`.
+- `{agent_contract}` (verbatim — see `step-00-activate.md` §8)
 
 ```bash
 python3 {pm_status} dispatch --state-root {pm_state_root} --event close \
@@ -82,10 +79,7 @@ python3 {pm_status} dispatch --state-root {pm_state_root} --event open \
 Spawn `bmad-code-review` subagent with:
 - Story file path
 - Files changed by dev subagent
-- **You have no inbox.** No reply will arrive. If you need a decision you cannot
-  make, write it to disk and end with `BLOCKED: <reason>`. Never wait.
-- Your final line must be exactly one of `DONE — [brief metrics]`,
-  `BLOCKED: [one-line reason]`, or `FAILED: [one-line reason]`.
+- `{agent_contract}` (verbatim — see `step-00-activate.md` §8)
 
 ```bash
 python3 {pm_status} dispatch --state-root {pm_state_root} --event close \

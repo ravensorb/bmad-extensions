@@ -44,6 +44,24 @@ ls {implementation_artifacts}/epic-{epic_nnn}/*/stories/*.md 2>/dev/null
 ```
 Bind `{story_file_paths}` = full list of story markdown files across all sprints of the scoped epics.
 
+## 3a. Dispatch rule for every spawn in this step
+
+Applies to the reviewers in §4 and the ADR subagents in §6 alike. Bracket each spawn with
+`dispatch --event open` / `--event close`, same `--agent <name> --epic {epic_key}
+--session-id {session_id}` identity on both, and **close on every exit path** — including a
+reviewer that returns BLOCKER findings. Parallel reviewers make this load-bearing: without a
+close, a hung reviewer is invisible to `report --stall-minutes` and stalls the whole epic
+before any sprint has run.
+
+Include `{agent_contract}` (verbatim — see `step-00-activate.md` §8) in every spawn prompt.
+A `bmad-*` or `l3io-arch-review` subagent loads no part of the activation digest, so a
+reviewer that waits for an answer it can never receive is exactly the failure that clause
+exists to prevent.
+
+This gate is epic-level work that belongs to no sprint and is not a closure phase, so its
+bracketed spend is recorded in the **epic's `orchestration` block**, not in any child's
+`actual` (`references/metrics-contract.md` §6).
+
 ## 4. Spawn reviewers in parallel
 
 For each reviewer in `{active_reviewers}`, spawn a subagent in parallel. Each receives:

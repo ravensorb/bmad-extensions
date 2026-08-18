@@ -4,6 +4,22 @@ Communicate all responses in `{communication_language}`.
 
 This file is loaded by step-06-epic-closure.md. Run each section in order.
 
+## Dispatch rule for every spawn in this file
+
+Every phase below that spawns or invokes a subagent — retrospective, adversarial review,
+red team, UX, arch drift, and any fix-loop re-dispatch — brackets it with
+`dispatch --event open` / `--event close`, same `--agent <name> --epic {epic_key}
+--session-id {session_id}` identity on both, closed on **every** exit path.
+
+Include `{agent_contract}` (verbatim — see `step-00-activate.md` §8) in every spawn prompt.
+These are `bmad-*` and `l3io-*` agents that load no part of the activation digest; without it
+they have no instruction to stop rather than wait.
+
+Attribution is unchanged by the bracket: closure phases are **closure** spend, added on top of
+the children's sum in the epic's own `actual` — never a child's `actual` and never
+`orchestration` (`references/metrics-contract.md` §6). The bracket here buys stall detection,
+not a change of bucket.
+
 ## 1. Retrospective
 
 Spawn `bmad-retrospective` (or inline if not installed):

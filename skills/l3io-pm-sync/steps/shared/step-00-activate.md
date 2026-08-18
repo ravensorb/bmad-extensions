@@ -190,9 +190,10 @@ owning session. Generate it once here; never regenerate it in later steps.
 ## 8. State and metrics digest — keep this in context
 
 This is everything a normal run needs from the state and metrics contracts. **Do not load
-`references/status-files.md` or `references/metrics-contract.md` unless the routing table at
-the end of this section sends you there** — they run well over a thousand lines combined, and
-re-reading them per subagent is the single largest avoidable token cost in the system.
+`references/status-files.md`, `references/metrics-contract.md`, or
+`references/calibration-model.md` unless the routing table at the end of this section sends
+you there** — re-reading them per subagent is the single largest avoidable token cost in the
+system.
 
 **Precedence.** `pm-status.py` is the authority: it enforces every rule below mechanically, so
 if its behavior and this digest disagree, the script is right. Then the full reference. This
@@ -220,6 +221,18 @@ If you need a decision you cannot make yourself:
 Waiting is never correct and is never cheap: a blocked wait outlives the prompt
 cache, and the next turn re-creates the entire context prefix at full price.
 
+**This rule reaches a spawned subagent only if you put it there.** A `bmad-*` agent
+loads none of this file. Bind `{agent_contract}` to the four lines below and include
+them verbatim in **every** spawn prompt you issue — that binding is the single source,
+so a step file names it rather than restating it:
+
+```
+- You have no inbox. No reply will arrive. If you need a decision you cannot make,
+  write it to disk and end with `BLOCKED: <one-line reason>`. Never wait.
+- Your final line must be exactly one of `DONE — [brief metrics]`,
+  `BLOCKED: [one-line reason]`, or `FAILED: [one-line reason]`.
+```
+
 ### Never build a state path by hand for a write
 
 `pm-status.py` is the only component that resolves a key to a location for writes. Address
@@ -239,18 +252,16 @@ set-actual    --state-root S  --node {story,sprint,epic}  (--story KEY | --epic 
               [--block {actual,orchestration}]   (orchestration: sprint/epic only, never story)
               [--elapsed-hours H] [--man-hours H] [--hitl-hours H]
               [--tokens-input K] [--tokens-output K] [--tokens-cache-write K] [--tokens-cache-read K]
-              (any --tokens-* requires --model M; under --runtime claude ALL FOUR are
-              required once any is given — an explicit 0 counts, a partial set exits 2;
-              cost is DERIVED from tokens x rates — --cost is rejected, exit 2)
+              (any --tokens-* requires --model M; --cost rejected, exit 2 — see the
+              HARD RULE below for the all-four-classes and derived-cost rules)
               [--tokens-na]   (runtime=other only; forbidden under runtime=claude)
               [--runtime {claude,other}] [--flock] [--no-calibrate]
 set-estimate  --state-root S  (--story KEY | --epic ID [--sprint ID])
               story: --man-hours H --hitl-hours H --elapsed-hours H --tokens-k K
               sprint/epic: --man-hours-low/-high, --hitl-hours-low/-high,
                            --elapsed-hours-low/-high, --tokens-k-min/-max
-              (--time-hours* accepted as a deprecated alias for --elapsed-hours*;
-              --cost/--cost-low/--cost-high are rejected, exit 2 — cost is derived,
-              never entered; use estimate-story/estimate-rollup)
+              (--time-hours* = deprecated alias for --elapsed-hours*;
+              --cost* rejected, exit 2 — use estimate-story/estimate-rollup)
               [--confidence {low,medium,high}] [--flock]
 set-field     --state-root S  (--story KEY | --epic ID [--sprint ID])  --field NAME --value V
 estimate-story   --state-root S  --story KEY  --classification {simple,standard,complex}
@@ -288,8 +299,8 @@ at closure from the delivered diff/tests/scope, never observed), `hitl_hours` (h
 actually spent supervising — observable), `tokens_k` (a mapping of `total` plus the four token
 classes), and `cost`. This is enforced at write time, not advisory.
 
-**`cost` is derived, never entered.** It is computed once from `tokens_k × the model's rate
-table` and frozen; `--cost*` is rejected on every runtime (exit 2). Fix the token counts or
+**`cost` is derived, never entered** — computed once from `tokens_k × the model's rate table`
+and frozen; `--cost*` exits 2 on every runtime. Fix the token counts or
 `modules.l3io-pm.token_rates`, never the cost field.
 
 Under `--runtime claude`, token actuals are read **exactly** from the session transcript's
@@ -317,7 +328,7 @@ cannot see it.
 | capture token/cost actuals correctly | `references/metrics-contract.md` §3 (Runtime detection and capture) |
 | write an estimate or actual by hand | `references/metrics-contract.md` §4 (Writing estimates and actuals) |
 | apply the estimation roll-up, fix-reserve, or orchestration-band model | `references/metrics-contract.md` §6 (The estimation roll-up) and §7 (The fix reserve) |
-| explain a calibration result, or run the one-time metrics migration | `references/metrics-contract.md` §8 (Calibration) |
+| explain a calibration result, or run the one-time metrics migration | `references/calibration-model.md` (whole file — do not go via `metrics-contract.md`) |
 | record the orchestrator's own overhead, or the token rate table | `references/metrics-contract.md` §3 and §6 |
 | see a full worked example | `references/metrics-contract.md` §10 (Worked example) |
 

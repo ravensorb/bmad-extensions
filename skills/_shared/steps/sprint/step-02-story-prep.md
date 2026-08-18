@@ -37,7 +37,12 @@ and hold the story to those standards as well.
 **If technical ACs are missing (gate: "block" — always enforced):**
 
 For each story missing technical ACs:
-1. Spawn `bmad-create-story` subagent with the story file path and this context:
+1. Bracket the spawn with `dispatch --event open` / `--event close`, same
+   `--agent bmad-create-story --epic {epic_key} --sprint {sprint_num} --story {story_key}
+   --session-id {session_id}` identity on both, closing on every exit path. Prep is the
+   story's own spend, so the bracketed span lands in that story's `actual`
+   (`references/metrics-contract.md` §6). Then spawn `bmad-create-story` with
+   `{agent_contract}` (verbatim — see `step-00-activate.md` §8) and this context:
    ```
    Enrich this story with technical ACs. Preserve all existing content. Add:
    - Interface contracts

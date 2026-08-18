@@ -50,14 +50,24 @@ For each thin story in sequence:
 Elaborating {story_key}: {story_title}...
 ```
 
+Bracket the spawn with `dispatch --event open` / `--event close`, same
+`--agent bmad-create-story --epic {epic_key} --story {story_key} --session-id {session_id}`
+identity on both, closed on every exit path, so a hung elaboration shows up in
+`report --stall-minutes` rather than at invoice time. Planning spend sits outside the
+execution roll-up, so the bracket here is for stall detection only — there is no bucket to
+attribute it to.
+
 Spawn `bmad-create-story` with:
 - The existing story file path as the input artifact to enrich
 - Instruction to add technical ACs covering: interface contracts, data model changes,
   error handling and edge cases, observability requirements, security considerations,
   testability (unit + integration test anchors)
 - Context preamble: `epic_key: {epic_key}`, `work_type: {work_type}`, `skill: l3io-pm-plan`
+- `{agent_contract}` (verbatim — see `step-00-activate.md` §8)
 
-Wait for the subagent to complete before elaborating the next story.
+Elaborate stories one at a time: the next spawn is issued only after the previous one has
+returned. That is sequencing, not waiting on a reply — nothing is ever awaited from a
+subagent that has not returned.
 
 Record result: `elaborated` or `failed` (if bmad-create-story is not installed or errors).
 
