@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file. See [commit-and-tag-version](https://github.com/absolute-version/commit-and-tag-version) for commit guidelines.
 
+## [2.1.4](https://github.com/ravensorb/bmad-extensions/compare/2.1.3...2.1.4) (2026-08-18)
+
+
+### Performance
+
+* **l3io-util:** route doctor modes from steps/ instead of inlining them ([c7b87b8](https://github.com/ravensorb/bmad-extensions/commit/c7b87b86928ae81c9e101638004646ba6b2d1692))
+
 ## [2.1.3](https://github.com/ravensorb/bmad-extensions/compare/2.1.2...2.1.3) (2026-08-18)
 
 
