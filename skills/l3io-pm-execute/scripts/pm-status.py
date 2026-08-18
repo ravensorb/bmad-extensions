@@ -599,6 +599,10 @@ def new_calibration(granularity: str = "story"):
     cal["scope"] = CommentedMap((c, CommentedMap()) for c in CLASSIFICATIONS)
     cal["closure"] = CommentedMap((lv, CommentedMap()) for lv in CLOSURE_LEVELS)
     cal["fix"] = CommentedMap((c, CommentedMap()) for c in CLASSIFICATIONS)
+    # Unlike closure, orchestration has no estimated band to measure a ratio
+    # against (it ships null by design — see record_orchestration_sample), so
+    # it is seeded empty here and filled by set-actual --block orchestration.
+    cal["orchestration"] = CommentedMap((lv, CommentedMap()) for lv in CLOSURE_LEVELS)
     return cal
 
 
@@ -609,7 +613,7 @@ def load_calibration(state_root: str):
     if data is None:
         return _yaml(), new_calibration()
     for key, default in (("scope", CLASSIFICATIONS), ("fix", CLASSIFICATIONS),
-                         ("closure", CLOSURE_LEVELS)):
+                         ("closure", CLOSURE_LEVELS), ("orchestration", CLOSURE_LEVELS)):
         if key not in data or data[key] is None:
             from ruamel.yaml.comments import CommentedMap
             data[key] = CommentedMap((k, CommentedMap()) for k in default)
@@ -720,6 +724,29 @@ def active_scope_ratio(cal, classification: str, metric: str):
 def active_closure_ratio(cal, level: str, metric: str):
     s = _component_samples(cal, "closure", level, metric)
     return weighted_ratio(s) if len(s) >= MIN_SAMPLES else None
+
+
+def active_orchestration_fraction(cal, level: str, metric: str):
+    """Learned orchestration overhead as a FRACTION of the children's total.
+
+    Every other component here (scope, closure) learns a RATIO: actual over
+    an estimate, correcting a number that already exists. Orchestration has
+    no such number to correct — the band ships `null` (spec §6.4) because
+    every measurement available at design time was contaminated by an
+    operational defect (repeated cache-eviction on blocking waits), and
+    sizing a prior on contaminated data would commit that bug to every future
+    estimate. So there is nothing to measure a ratio against, and a
+    ratio-based component could never bootstrap from its first sample.
+
+    Instead the sample IS the band: orchestration_actual / sum(children
+    actual), directly observable from the first closed sprint or epic. A
+    future maintainer tempted to "fix" this into a ratio for consistency with
+    closure would remove the one thing that lets it start learning at all.
+
+    None until MIN_SAMPLES, same decay as every other component.
+    """
+    samples = _component_samples(cal, "orchestration", level, metric)
+    return weighted_ratio(samples) if len(samples) >= MIN_SAMPLES else None
 
 
 def active_fix_factor(cal, classification: str):
@@ -1122,6 +1149,94 @@ def record_closure_sample(state_root: str, level: str, epic_key: str, sprint_key
     return note
 
 
+def record_orchestration_sample(state_root: str, level: str, epic_key: str,
+                                 sprint_key=None) -> str:
+    """Append one closed sprint/epic's orchestration-vs-children fraction.
+
+    THE FRACTION, NOT A RATIO. Every other component here (scope, closure)
+    learns a ratio — actual over an ESTIMATE, correcting a number that
+    already exists. Orchestration has nothing to correct: the band ships
+    `null` by design, because every number available when this was built was
+    contaminated by an operational defect (roughly thirty blocking waits each
+    outlived the prompt cache and re-created a ~93k-token prefix), and sizing
+    a prior on that would commit the bug to every future estimate. So there
+    is no estimate to divide by, and a ratio-based component could never
+    bootstrap — it would need the very thing it doesn't have. Instead the
+    sample IS the band: orchestration_actual / sum(children actual), directly
+    observable from the first closed sprint or epic. Do not "fix" this into a
+    ratio for consistency with closure — that would remove the one thing
+    that lets it start learning at all.
+
+    THE DENOMINATOR MUST BE COMPLETE, per metric, the same guard
+    derive_closure_sample applies to its residual: if any child that exists
+    is missing that metric's actual, the sum silently understates the true
+    total and the fraction is inflated — a wrong number that looks right, and
+    permanently so once it feeds calibration. So a metric is sampled only
+    when EVERY child carries a numeric actual for it; a partial sum is
+    treated as no sample, not as a smaller one.
+
+    `cost` is deliberately absent from CALIBRATED_METRIC_FIELDS: it is
+    derived from tokens x rates, so its fraction is already implied by the
+    tokens_k fraction and a second, independently-drifting copy would add
+    nothing but disagreement.
+    """
+    ppath, cpaths = _closure_nodes(state_root, level, epic_key, sprint_key)
+    if ppath is None:
+        return ""
+    _, pnode = load_node(ppath)
+    orch = (pnode or {}).get("orchestration") or {}
+    if not orch:
+        return ""
+
+    children = []
+    for cp in cpaths:
+        if cp is None:
+            children.append(None)
+            continue
+        _, cn = load_node(cp)
+        children.append(cn)
+
+    from ruamel.yaml.comments import CommentedMap
+    recorded, skipped = {}, {}
+    for metric in CALIBRATED_METRIC_FIELDS:
+        over = _actual_metric(orch, metric)
+        if over is None:
+            continue  # orchestration itself has no actual for this metric
+        total, complete = 0.0, True
+        for cn in children:
+            cv = _actual_metric((cn or {}).get("actual"), metric) if cn is not None else None
+            if cv is None:
+                complete = False
+                break
+            total += cv
+        if not complete:
+            skipped[metric] = "a child is missing this metric's actual"
+            continue
+        if total <= 0:
+            skipped[metric] = "children's total is zero or negative — nothing to divide by"
+            continue
+        recorded[metric] = round(over / total, 4)
+
+    if not recorded:
+        return "" if not skipped else "no orchestration sample: " + _skip_summary(skipped)
+
+    with calibration_lock(state_root):
+        y, cal = load_calibration(state_root)
+        if cal.get("version") != CALIBRATION_SCHEMA_VERSION:
+            cal = migrate_calibration(y, cal, state_root)
+        bucket = cal.setdefault("orchestration", CommentedMap()).setdefault(level, CommentedMap())
+        for metric, frac in recorded.items():
+            entry = bucket.setdefault(metric, CommentedMap())
+            entry.setdefault("samples", [])
+            entry["samples"].append(frac)
+        save_calibration(y, cal, state_root)
+
+    note = f"orchestration {level} +{len(recorded)} metrics"
+    if skipped:
+        note += f" (skipped — {_skip_summary(skipped)})"
+    return note
+
+
 def cmd_calibration(args) -> int:
     _, cal = load_calibration(args.state_root)
     exists = os.path.exists(calibration_path(args.state_root))
@@ -1139,6 +1254,15 @@ def cmd_calibration(args) -> int:
             n = len(_component_samples(cal, "closure", lv, m))
             r = active_closure_ratio(cal, lv, m)
             rows.append(("closure", f"{lv}/{m}", n, r))
+    for lv in CLOSURE_LEVELS:
+        # Orchestration never calibrates `cost` (derived from tokens x
+        # rates — see record_orchestration_sample), so this loop uses
+        # CALIBRATED_METRIC_FIELDS like the scope loop above, not the full
+        # METRIC_FIELDS the closure loop above deliberately keeps.
+        for m in CALIBRATED_METRIC_FIELDS:
+            n = len(_component_samples(cal, "orchestration", lv, m))
+            r = active_orchestration_fraction(cal, lv, m)
+            rows.append(("orchestration", f"{lv}/{m}", n, r))
     for c in CLASSIFICATIONS:
         entry = (cal.get("fix") or {}).get(c) or {}
         n = min(int((entry.get("clean") or {}).get("samples", 0)),
@@ -1158,10 +1282,10 @@ def cmd_calibration(args) -> int:
     if not exists:
         sys.stdout.write("No calibration file yet — all components cold-start.\n")
     sys.stdout.write(f"granularity: {cal.get('granularity', 'story')}\n")
-    sys.stdout.write(f"{'COMPONENT':<10} {'BUCKET':<22} {'SAMPLES':>7}  RATIO\n")
+    sys.stdout.write(f"{'COMPONENT':<14} {'BUCKET':<22} {'SAMPLES':>7}  RATIO\n")
     for a, b, n, r in rows:
         shown = f"{r:.3f}" if r is not None else f"(cold-start, needs {MIN_SAMPLES})"
-        sys.stdout.write(f"{a:<10} {b:<22} {n:>7}  {shown}\n")
+        sys.stdout.write(f"{a:<14} {b:<22} {n:>7}  {shown}\n")
     return 0
 
 
@@ -2022,6 +2146,10 @@ def cmd_set_status(args) -> int:
 
 def cmd_set_actual(args) -> int:
     kind = args.node
+    block = getattr(args, "block", "actual")
+    if block == "orchestration" and kind == "story":
+        _die_usage("--block orchestration is only valid on a sprint or epic — a story's "
+                   "orchestration belongs to its parent sprint")
     y, node, path, label = _load_checked(args.state_root, args, kind)
 
     provided = {
@@ -2063,14 +2191,14 @@ def cmd_set_actual(args) -> int:
         _die_usage("set-actual needs at least one of --elapsed-hours/--man-hours/"
                    "--hitl-hours/--tokens-* /--tokens-na")
 
-    actual = node.get("actual")
-    if actual is None:
+    block_data = node.get(block)
+    if block_data is None:
         from ruamel.yaml.comments import CommentedMap
 
-        actual = CommentedMap()
-        node["actual"] = actual
+        block_data = CommentedMap()
+        node[block] = block_data
     for k, v in provided.items():
-        actual[k] = v if not isinstance(v, str) else _coerce(k, v)
+        block_data[k] = v if not isinstance(v, str) else _coerce(k, v)
 
     save_node(y, node, path, getattr(args, "flock", False))
 
@@ -2080,7 +2208,11 @@ def cmd_set_actual(args) -> int:
         # actuals write, which is the primary record — but it must be visible,
         # not silent.
         try:
-            if kind == "story":
+            if block == "orchestration":
+                # kind is "sprint" or "epic" here — a story was already rejected above.
+                calib_note = record_orchestration_sample(
+                    args.state_root, kind, args.epic, args.sprint if kind == "sprint" else None)
+            elif kind == "story":
                 # path + y so the sample can stamp its replay marker on the node
                 calib_note = record_story_sample(args.state_root, node, path, y)
             elif kind == "sprint":
@@ -2744,6 +2876,8 @@ def build_parser() -> argparse.ArgumentParser:
     a.add_argument("--state-root", required=True, help="path to {implementation_artifacts}/state")
     a.add_argument("--node", required=True, choices=["story", "sprint", "epic"])
     node_args(a)
+    a.add_argument("--block", choices=["actual", "orchestration"], default="actual",
+                   help="which metric block to write (orchestration: sprint/epic only)")
     a.add_argument("--elapsed-hours", dest="elapsed_hours")
     a.add_argument("--man-hours", dest="man_hours")
     a.add_argument("--hitl-hours", dest="hitl_hours",

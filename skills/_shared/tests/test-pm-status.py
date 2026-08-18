@@ -3088,5 +3088,126 @@ class TestRates(Base):
         self.assertEqual(code, 2, out)
 
 
+class TestOrchestrationBlock(TestLayoutResolution):
+    """The orchestration component: a FRACTION of children's actuals, not a
+    ratio against an estimate — see pm.record_orchestration_sample's docstring
+    for why. Sprint/epic only; a story's orchestration is its parent sprint's.
+    """
+
+    def run_main(self, argv):
+        buf = io.StringIO()
+        try:
+            with redirect_stdout(buf):
+                code = pm.main(argv)
+        except SystemExit as e:
+            code = e.code
+        return code, buf.getvalue()
+
+    def _story_actual(self, tokens_total):
+        p = pm.story_file(self.root, "E001-S01-003")
+        y, node = pm.load_node(p)
+        node["status"] = "done"
+        node["actual"] = {"elapsed_hours": 1.0, "man_hours": 8, "hitl_hours": 0.2,
+                          "tokens_k": {"total": tokens_total, "input": tokens_total,
+                                       "output": 0, "cache_write": 0, "cache_read": 0},
+                          "cost": pm.cost_from_tokens({"input": tokens_total},
+                                                      "claude-opus-5"),
+                          "model": "claude-opus-5"}
+        pm.save_node(y, node, p)
+
+    def test_orchestration_writes_to_its_own_block(self):
+        code, out = self.run_main(["set-actual", "--state-root", self.root, "--node", "sprint",
+                                   "--epic", "E001", "--sprint", "S01",
+                                   "--block", "orchestration",
+                                   "--tokens-input", "1000", "--model", "claude-opus-5",
+                                   "--elapsed-hours", "2", "--no-calibrate"])
+        self.assertEqual(code, 0, out)
+        _, node = pm.load_node(pm.sprint_file(self.root, "E001", "S01"))
+        self.assertIn("orchestration", node)
+        self.assertNotIn("orchestration", node.get("actual") or {})
+        self.assertEqual(int(node["orchestration"]["tokens_k"]["total"]), 1000)
+
+    def test_orchestration_block_rejected_on_a_story(self):
+        err = io.StringIO()
+        try:
+            with redirect_stderr(err):
+                code = pm.main(["set-actual", "--state-root", self.root, "--node", "story",
+                                "--story", "E001-S01-003", "--block", "orchestration",
+                                "--elapsed-hours", "1"])
+        except SystemExit as e:
+            code = e.code
+        self.assertEqual(code, 2, err.getvalue())
+        self.assertIn("orchestration", err.getvalue().lower())
+        self.assertIn("sprint", err.getvalue().lower())
+
+    def test_fraction_sample_is_orchestration_over_children(self):
+        self._story_actual(1000)
+        code, out = self.run_main(
+            ["set-actual", "--state-root", self.root, "--node", "sprint",
+             "--epic", "E001", "--sprint", "S01", "--block", "orchestration",
+             "--tokens-input", "3000", "--model", "claude-opus-5"])
+        self.assertEqual(code, 0, out)
+        _, cal = pm.load_calibration(self.root)
+        samples = cal["orchestration"]["sprint"]["tokens_k"]["samples"]
+        self.assertAlmostEqual(float(samples[-1]), 3.0, places=3)
+
+    def test_fraction_inactive_below_three_samples(self):
+        cal = pm.new_calibration()
+        self.assertIsNone(pm.active_orchestration_fraction(cal, "sprint", "tokens_k"))
+
+    def test_fraction_active_at_three_samples(self):
+        cal = pm.new_calibration()
+        cal["orchestration"]["sprint"]["tokens_k"] = {"samples": [2.0, 2.0, 2.0]}
+        self.assertAlmostEqual(
+            pm.active_orchestration_fraction(cal, "sprint", "tokens_k"), 2.0, places=3)
+
+    def test_fraction_still_inactive_at_two_samples_boundary(self):
+        # Proves activation is a strict >= MIN_SAMPLES (3), not off-by-one at 2.
+        cal = pm.new_calibration()
+        cal["orchestration"]["sprint"]["tokens_k"] = {"samples": [2.0, 2.0]}
+        self.assertIsNone(pm.active_orchestration_fraction(cal, "sprint", "tokens_k"))
+
+    def test_orchestration_never_calibrates_cost(self):
+        # cost is derived from tokens x rates — a second, drift-capable
+        # fraction for it would be redundant with the token fraction.
+        self._story_actual(1000)
+        self.run_main(
+            ["set-actual", "--state-root", self.root, "--node", "sprint",
+             "--epic", "E001", "--sprint", "S01", "--block", "orchestration",
+             "--tokens-input", "3000", "--model", "claude-opus-5"])
+        _, cal = pm.load_calibration(self.root)
+        self.assertNotIn("cost", cal["orchestration"]["sprint"])
+
+    def test_denominator_requires_every_child_not_just_some(self):
+        # A second story in the same sprint, WITHOUT an actual. A naive
+        # partial-sum denominator (sum whatever children happen to have)
+        # would still produce a tokens_k sample from the one story that does
+        # have an actual — silently understating the true children total and
+        # permanently inflating the fraction. record_orchestration_sample
+        # must treat that as no sample for the metric, not a smaller one.
+        self._story_actual(1000)
+        sd = os.path.join(self.root, "active", "epic-001", "sprint-01")
+        with open(os.path.join(sd, "E001-S01-004.yaml"), "w") as f:
+            f.write("key: 'E001-S01-004'\nepic: 'E001'\nsprint: 'S01'\nstatus: review\n")
+        code, out = self.run_main(
+            ["set-actual", "--state-root", self.root, "--node", "sprint",
+             "--epic", "E001", "--sprint", "S01", "--block", "orchestration",
+             "--tokens-input", "3000", "--model", "claude-opus-5"])
+        self.assertEqual(code, 0, out)
+        self.assertIn("no orchestration sample", out.lower())
+        self.assertIn("missing this metric's actual", out.lower())
+        _, cal = pm.load_calibration(self.root)
+        self.assertEqual(len(cal["orchestration"]["sprint"]), 0)
+
+    def test_calibration_show_lists_orchestration_component(self):
+        y, cal = pm.load_calibration(self.root)
+        cal["orchestration"]["sprint"]["tokens_k"] = {"samples": [2.0, 2.0, 2.0]}
+        pm.save_calibration(y, cal, self.root)
+        code, out = self.run_main(["calibration", "show", "--state-root", self.root])
+        self.assertEqual(code, 0, out)
+        self.assertIn("orchestration", out)
+        self.assertIn("sprint/tokens_k", out)
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)
