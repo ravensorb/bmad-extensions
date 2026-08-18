@@ -2638,6 +2638,15 @@ def cmd_verify(args) -> int:
     if hasattr(tk, "get"):
         parts = sum(_num_or_none(tk.get(c)) or 0.0 for c in TOKEN_CLASSES)
         total = _num_or_none(tk.get("total"))
+        # Unlike cost (below), total and parts are NOT on the same rounding grid:
+        # `total` was rounded to 2dp once at write time (tokens_block), but
+        # `parts` here is an unrounded re-sum of the class values. That write-time
+        # rounding alone can separate a legitimate total from its exact sum by up
+        # to half the last decimal place (0.005) with no error involved at all —
+        # so tightening this to cost's 0.005 would risk failing correctly-rounded
+        # data. 0.01 keeps a safe margin above that rounding noise while still
+        # catching any genuine (typically integer-scale, since counts are whole
+        # thousands of tokens) divergence.
         if total is None or abs(total - parts) > 0.01:
             problems.append(f"actual.tokens_k.total={total!r} != sum of classes ({parts})")
         model = actual.get("model")
@@ -2652,7 +2661,14 @@ def cmd_verify(args) -> int:
                 problems.append(e.args[0])
             else:
                 got = _num_or_none(actual.get("cost"))
-                if got is None or abs(got - expect) > 0.01:
+                # Both got and expect are already rounded to cents (the smallest
+                # unit either can carry), so the smallest genuine divergence is
+                # exactly one cent (0.01). A tolerance of 0.01 would not fire on
+                # it — the tolerance would be exactly the size of the error it
+                # exists to catch. Half the discrete unit still absorbs true
+                # float-summation noise (~1e-9 to 1e-14) with enormous margin
+                # while catching any one-cent divergence.
+                if got is None or abs(got - expect) > 0.005:
                     problems.append(f"actual.cost={got!r} != derived {expect} "
                                     f"for model {model}")
 

@@ -797,7 +797,34 @@ class TestVerifyDerivedCost(TestLayoutResolution):
         code, out = self.run_main(["verify", "--state-root", self.root, "--scope", "story",
                                    "--story", "E001-S01-003", "--runtime", "claude"])
         self.assertEqual(code, 4, out)
-        self.assertIn("cost", out)
+        # Pinned to the mismatch semantics, not just the word "cost" — a fixture
+        # that produced any other failure mentioning "cost" would wrongly pass.
+        self.assertIn("actual.cost=9.99 != derived 29.91", out)
+
+    def test_fails_when_cost_is_off_by_exactly_one_cent(self):
+        # The boundary that matters: both the stored and derived cost are
+        # already rounded to cents, so the smallest genuine divergence is
+        # exactly one cent. A tolerance of > 0.01 does not reliably fire on
+        # that divergence — verified concretely: 30k input tokens at
+        # claude-haiku-4-5 ($1.00/M) derives to exactly 0.03; a hand-edited
+        # 0.02 is one cent off, and in float64 abs(0.02 - 0.03) equals
+        # 0.009999999999999998, which is NOT > 0.01 (the old tolerance would
+        # have let this pass) but IS > 0.005 (the new tolerance catches it).
+        # This is not float noise working in our favor by luck in one
+        # direction — it is the precise case the old tolerance was blind to.
+        p = pm.story_file(self.root, "E001-S01-003")
+        y, node = pm.load_node(p)
+        node["status"] = "done"
+        node["completion_evidence"] = {"fix_iterations": 0}
+        node["actual"] = {"elapsed_hours": 1.0, "man_hours": 2, "hitl_hours": 0.1,
+                          "tokens_k": {"total": 30, "input": 30, "output": 0,
+                                       "cache_write": 0, "cache_read": 0},
+                          "cost": 0.02, "model": "claude-haiku-4-5"}
+        pm.save_node(y, node, p)
+        code, out = self.run_main(["verify", "--state-root", self.root, "--scope", "story",
+                                   "--story", "E001-S01-003", "--runtime", "claude"])
+        self.assertEqual(code, 4, out)
+        self.assertIn("actual.cost=0.02 != derived 0.03", out)
 
     def test_fails_when_total_is_not_the_sum(self):
         self._done_story(29.91, total=999)
@@ -818,6 +845,54 @@ class TestVerifyDerivedCost(TestLayoutResolution):
                                    "--story", "E001-S01-003"])
         self.assertEqual(code, 4, out)
         self.assertIn("hitl_hours", out)
+
+
+class TestVerifyTokenRatesWiring(TestLayoutResolution):
+    """--token-rates on `verify` (Decision 1 of the task-8 brief, not in the
+    original design doc): without this wiring, a project using
+    modules.l3io-pm.token_rates overrides would have every node recomputed at
+    DEFAULT rates and fail verification universally. This is the permanent
+    covering test for that wiring — a prior version of this proof lived only
+    in a throwaway script and left the wiring one refactor away from silently
+    regressing with the full suite still green."""
+
+    def run_main(self, argv):
+        buf = io.StringIO()
+        try:
+            with redirect_stdout(buf):
+                code = pm.main(argv)
+        except SystemExit as e:
+            code = e.code
+        return code, buf.getvalue()
+
+    def _done_story_priced_only_under_override(self):
+        p = pm.story_file(self.root, "E001-S01-003")
+        y, node = pm.load_node(p)
+        node["status"] = "done"
+        node["completion_evidence"] = {"fix_iterations": 0}
+        # "acme-model" does not exist in TOKEN_RATES; it is priced only by the
+        # --token-rates override below (input $10/M, everything else free).
+        # 100k input tokens -> 100 * 10.0 / 1000 = 1.00.
+        node["actual"] = {"elapsed_hours": 1.0, "man_hours": 2, "hitl_hours": 0.1,
+                          "tokens_k": {"total": 100, "input": 100, "output": 0,
+                                       "cache_write": 0, "cache_read": 0},
+                          "cost": 1.00, "model": "acme-model"}
+        pm.save_node(y, node, p)
+
+    def test_fails_with_unknown_model_message_without_override(self):
+        self._done_story_priced_only_under_override()
+        code, out = self.run_main(["verify", "--state-root", self.root, "--scope", "story",
+                                   "--story", "E001-S01-003"])
+        self.assertEqual(code, 4, out)
+        self.assertIn("unknown model 'acme-model'", out)
+
+    def test_passes_when_token_rates_override_supplies_the_model(self):
+        self._done_story_priced_only_under_override()
+        overrides = json.dumps({"acme-model": {"input": 10.0, "output": 0,
+                                                "cache_write": 0, "cache_read": 0}})
+        code, out = self.run_main(["verify", "--state-root", self.root, "--scope", "story",
+                                   "--story", "E001-S01-003", "--token-rates", overrides])
+        self.assertEqual(code, 0, out)
 
 
 class TestVerifyEpicScope(TestLayoutResolution):
