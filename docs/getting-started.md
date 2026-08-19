@@ -202,7 +202,9 @@ To split: provide story key groups
   (e.g. Sprint 1: E001-S01-001, E001-S01-002 / Sprint 2: E001-S01-003, …)
 ```
 
-Confirm the grouping or provide a custom split. The orchestrator dispatches one *headless* subagent invocation of itself per sprint (no per-sprint scope-confirmation prompt), then runs epic-level closure after all sprints complete. Between sprints, the orchestrator continues immediately to the next sprint without prompting. Epic closure auto-triages findings the same way sprints do; only halts if its closure fix loop hits the `max_fix_iterations` cap.
+Confirm the grouping or provide a custom split. From there the orchestrator dispatches *headless* subagent invocations of itself — **one to prep the sprint, one per story, and one to close the sprint** (no per-sprint scope-confirmation prompt) — then runs epic-level closure after all sprints complete.
+
+You will see more agents than you might expect, and that is the point: cost grows with the number of turns a single session accumulates, not with the number of sessions. Splitting a sprint across short-lived agents is cheaper than one long one, and costs nothing in continuity because every hand-off is a file on disk. Between sprints, the orchestrator continues immediately to the next sprint without prompting. Epic closure auto-triages findings the same way sprints do; only halts if its closure fix loop hits the `max_fix_iterations` cap.
 
 ## Checking Progress
 

@@ -90,7 +90,7 @@ This extension standardizes those patterns so teams can run a repeatable, audita
 | Slash command | What it does |
 |---------------|--------------|
 | `/l3io-pm-plan` | Validate readiness, elaborate stories, estimate, analyze epic `depends_on` declarations, and produce a phased parallel-optimized execution plan — critical path and wall-clock estimates, written as a dated snapshot plus the `plan-output-meta.yaml` pointer. `/l3io-pm-plan estimate [E{nnn}\|E{nnn}-S{nn}]` re-estimates only |
-| `/l3io-pm-execute` | Run the plan — full, single epic (`E001`), or single sprint (`E001-S01`). Per story: prep → dev → code review → QA → fix loop (capped at `max_fix_iterations`, default 3); at sprint and epic closure: retro → clean release → adversarial → red team → UX → arch drift → auto-triage + closure fix loop (same cap). Nothing closes until all Critical/High/Medium findings are resolved; Low findings auto-defer to the backlog with no prompts. Renders a plan-aware progress tree at each phase boundary |
+| `/l3io-pm-execute` | Run the plan — full, single epic (`E001`), or single sprint (`E001-S01`). Dispatches **one agent to prep the sprint, one per story, one to close it** — short sessions, because cost grows with the turns a session accumulates. Per story: dev → code review → fix loop (capped at `max_fix_iterations`, default 3). At sprint and epic closure: retro → clean-release + adversarial (one call) → red team → UX → arch drift → auto-triage + closure fix loop (same cap). Nothing closes until all Critical/High/Medium findings are resolved; Low findings auto-defer to the backlog with no prompts. Renders a plan-aware progress tree at each phase boundary |
 | `/l3io-pm-help` | Read project state and recommend the exact next action. `/l3io-pm-help progress` renders the plan-aware progress tree — which phase, epic, sprint, and stories are in flight, with per-status dwell times and stuck-item flags |
 | `/l3io-pm-sync` | Bidirectional sync between l3io-pm state and GitHub Issues — `setup`, `push`, `pull`, `sync`, `status` (default) |
 | `/l3io-sec-redteam` | Adversarial security review through five threat lenses — external attacker, malicious insider, chaos engineer, abusive legitimate user, and design/architecture red team — with AI poisoning cross-cut and live cloud/platform best practices research |
@@ -110,6 +110,28 @@ Execution defaults to sequential and only parallelizes when work is independent 
 - `max_parallel_subagents = 4` (default, per-skill in `customize.toml`) — bounds how many epics dispatch concurrently within a plan phase marked parallel; sprints within an epic are always sequential
 - safety fallback: force sequential when independence or state safety is unclear
 - per-story dependencies respected: a story cannot enter development until all declared dependencies are `done`
+
+## Cost Model
+
+Cost tracks **turns**, not tokens-per-turn and not repository size. Every turn re-reads the
+accumulated prefix, so a session's spend grows with roughly the square of its turn count. The
+repository-size hypothesis was tested directly and failed — deleting 4,415 lines moved the
+token composition not at all, and `cache_read` stayed 75–94% of every story either way.
+
+Execution is shaped around that:
+
+- **One agent per story**, plus one to prep the sprint and one to close it — short sessions
+  beat long ones, and cost nothing in continuity because every hand-off is a file on disk
+- **Never poll**: a spawned agent arms one background wait and stops. A one-line "still
+  running?" costs what the whole conversation costs
+- **Reviewers get a diff and named spec sections**, never the repository
+- **Fix loop capped at 3** — each iteration is a turn multiplier
+- **Actuals are read by `pm-status.py usage`**, which resolves its own transcript and refuses
+  to sum a file it cannot confirm is yours
+
+See [l3io-pm Run Anatomy]([redacted])
+for the walk-through, or [architecture.md](docs/architecture.md#cost-model) for where each rule
+is enforced.
 
 ## Artifact Conventions
 
@@ -168,6 +190,7 @@ runs automatically on first use, or on demand via the module's `configure` actio
 - [l3io-util reference](docs/l3io-util-reference.md)
 - [l3io-arch reference](docs/l3io-arch-reference.md)
 - [Architecture and execution model](docs/architecture.md)
+- [l3io-pm Run Anatomy]([redacted]) — visual walk-through of a run: the seven stages, where each guard bites, and the measured evidence behind them
 - [Contributing](CONTRIBUTING.md)
 
 For BMad core guidance, see [BMad docs](https://docs.bmad-method.org/).

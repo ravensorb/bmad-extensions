@@ -23,18 +23,27 @@ l3io-pm-plan          (read-only — produces the plan snapshot + plan-output-me
 l3io-pm-execute  (normal mode — epic orchestrator)
     |
     |-- spawns --> l3io-arch-review Mode B  (step-04 arch gate, before any sprint)
-    |-- spawns --> bmad-agent-architect / superpowers  (additional gate reviewers, if present)
+    |                  \-- escalates to bmad-agent-architect / superpowers
+    |                      ONLY on a BLOCKER or MAJOR (see Pre-Execution Architecture Gate)
     |
-    |-- spawns --> l3io-pm-execute (headless: true — one per sprint, always sequential)
-                       |
-                       |-- spawns --> bmad-create-story      (story prep)
-                       |-- spawns --> bmad-dev-story         (dev + fix loop)
-                       |-- spawns --> bmad-code-review       (code review)
-                       |-- spawns --> bmad-retrospective     (closure)
+    |   Per sprint, THREE kinds of headless l3io-pm-execute agent, each ending when its
+    |   piece is done. Sprints stay sequential; stories within a sprint are sequential too.
+    |
+    |-- spawns --> [prep]    step-02-story-prep            (once per sprint)
+    |                  \-- spawns --> bmad-create-story    (one batched enrichment call)
+    |
+    |-- spawns --> [story]   step-03-dev-loop              (ONE PER STORY)
+    |                  |-- spawns --> bmad-dev-story       (dev, then each fix iteration)
+    |                  \-- spawns --> bmad-code-review     (review, cap 3 fix iterations)
+    |
+    \-- spawns --> [closure] step-04-sprint-closure        (once per sprint)
+                       |-- spawns --> bmad-retrospective
                        |-- spawns --> bmad-review-adversarial-general
-                       |-- spawns --> l3io-sec-redteam       (closure, if installed)
-                       |-- spawns --> bmad-ux-review         (closure, if installed)
-                       |-- spawns --> l3io-arch-review Mode C (drift audit, if installed)
+                       |                  (clean-release + adversarial in ONE call
+                       |                   where the phase matrix runs both)
+                       |-- spawns --> l3io-sec-redteam       (if installed)
+                       |-- spawns --> bmad-ux-review         (if installed)
+                       \-- spawns --> l3io-arch-review Mode C (drift audit, if installed)
 
 l3io-pm-help            (read-only — recommends the next action)
 l3io-pm-sync            (bidirectional GitHub Issues sync)
@@ -153,7 +162,7 @@ Before any sprint runs, `l3io-pm-execute` step-04 gates the whole epic's design.
 
 The gate is **skipped entirely** for `DOCS` and `CONFIG` work types, and when `l3io-arch-review` is absent — it never partially skips, because at least one reviewer must run for the gate to mean anything.
 
-Reviewers run in parallel (`l3io-arch-review` Mode B always; `bmad-agent-architect` and superpowers when detected), and their findings are consolidated by explicit rules:
+`l3io-arch-review` Mode B runs **first and alone**. The other detected reviewers (`bmad-agent-architect`, superpowers) spawn in parallel **only if it reports a BLOCKER or MAJOR** — the consolidation table below is why: a single MAJOR already blocks, so extra reviewers cannot turn a clean verdict into a blocking one and were buying a corroboration label for two more full-epic reads on the common path. Once something is wrong, the extra perspectives earn their cost. Findings are consolidated by explicit rules:
 
 | Finding | Rule |
 |---|---|
@@ -176,11 +185,36 @@ Parallelism is used only where it is provably safe, and the safety comes from th
 | Epics within a plan phase | Parallel, up to `max_parallel_subagents` (default 4) |
 | Sprints within an epic | **Always sequential** |
 | Stories within a sprint | Sequential, ordered by `depends_on` |
-| Arch gate reviewers | Parallel across detected reviewers |
+| Arch gate reviewers | One by default; parallel across the rest **only on escalation** |
 
-Across phases, the orchestrator verifies every prerequisite epic is `status: done` before starting the next phase. Within an epic, a story with `depends_on` waits until each referenced story is `done`; if a dependency is not in this sprint's scope, the story moves to the end of the queue rather than blocking the sprint.
+Across phases, the orchestrator verifies every prerequisite epic is `status: done` before starting the next phase. Within an epic, the orchestrator dispatches stories in dependency order, one agent each. A story whose `depends_on` is still unmet ends `BLOCKED` rather than re-queueing: with one story per session there is no queue left to reorder, and nothing changes inside that session — an unmet dependency means the ordering or the graph is wrong, which is worth surfacing.
 
 Epic-level parallelism is additionally bounded by the ownership lock: an epic already claimed by a live session is skipped with a `BLOCKED` line rather than double-executed.
+
+## Cost Model
+
+**Cost tracks turns.** Not tokens-per-turn, and not repository size. Every turn re-reads the
+whole accumulated prefix, so a session's spend grows with roughly the square of its turn
+count — a 263-turn agent pays for its own history 263 times.
+
+The repository-size hypothesis was tested directly and failed: deleting 4,415 lines from a
+project moved the token composition not at all, and `cache_read` stayed 75–94% of every
+story's tokens either way. Architecture here is shaped by that finding rather than by
+intuitions about context size.
+
+| Rule | Where it is enforced | What it prevents |
+|---|---|---|
+| One story per agent session | `step-05-epic-loop.md` §5b | A single session accumulating a whole sprint's turns. The sprint agent used to run prep, every story, every fix round and closure in one context. |
+| Never poll — arm one wait and stop | `{agent_contract}`, in every spawn prompt | One-line status turns priced as full turns. One measured story spent ~130 of its 263 turns polling, against ~62 turns of implementation. |
+| You have no inbox — end `BLOCKED` | `{agent_contract}` | An agent waiting for a reply that cannot arrive. Blocking waits once made orchestration 76% of a sprint's spend. |
+| Fix loop capped at 3 | `step-01-classify-work.md` §5 | A retry tail bought at the steepest part of the turn curve. Was 10. |
+| Reviewers get a diff and named sections | every review spawn | A reviewer reading the corpus before its first thought. Scoped, review is ~3.4% of a story's tokens. |
+| Escalate the arch gate on signal | `step-04-arch-gate.md` §4 | Two extra full-epic reads buying a corroboration label — a single MAJOR already blocks. |
+| Subagents inherit activation | `step-05-epic-loop.md` §5 | Re-running config resolution, self-install, layout detection and schema verify once per dispatch. |
+
+A visual walk-through of the whole run, with the measured evidence behind each rule, is
+published at
+[l3io-pm Run Anatomy]([redacted]).
 
 ## Quality Gate Contracts
 

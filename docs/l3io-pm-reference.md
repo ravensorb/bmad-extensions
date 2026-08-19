@@ -189,13 +189,42 @@ Per epic: `move-epic --to active` (a no-op if already active, so it is always sa
 
 A progress tree renders at phase start and phase end. Inside a parallel phase, per-epic and per-sprint renders are suppressed — concurrent epic subagents would interleave their output — so phase end is the first point the whole phase can be shown coherently. See [Progress Reporting](#progress-reporting).
 
+### The technical-AC gate — six dimensions
+
+Every story is checked against all six before it can reach `ready-for-dev`. This is **not** an
+any-one-of check: each dimension is either satisfied or explicitly marked `N/A — <reason>` in
+the story.
+
+| # | Dimension | Satisfied when the story states… |
+|---|---|---|
+| 1 | Interface contracts | API signatures, data models, events the story adds or changes |
+| 2 | Error and edge cases | what fails, how it fails, and what the caller sees |
+| 3 | Observability | the logging, metrics or tracing the change must emit |
+| 4 | Security | auth, validation, and how data is handled |
+| 5 | Testability | test entry points and mock boundaries |
+| 6 | **Existing-library check** | which library or platform capability covers this, or why none does and custom code is warranted |
+
+"Not applicable" is a legitimate answer — a pure refactor adds no interface, a background job
+faces no auth — but it has to be *stated*, because an absent dimension and an inapplicable one
+are otherwise indistinguishable.
+
+Dimension 6 is paired with a **reused-before-written check** in the dev loop's code review,
+which flags hand-rolled retries, date handling, config merging, HTTP clients, parsing,
+validation and caching — normally HIGH, since a hand-rolled equivalent must be maintained
+forever to reach parity a dependency already has. The story states the intent; the review
+checks the code matches it, rather than re-litigating a justified decision.
+
+Until 2.4.4 the step file read "at least one of" five dimensions, which made the gate five
+times weaker than documented — a story carrying interface contracts alone advanced. Everything
+downstream assumes stories arrive with technical ACs; this gate is what makes that true.
+
 ### Per-story phases (step-03 dev loop)
 
 Stories process in order; a story with `depends_on` waits until each referenced story is `done`. A dependency outside this sprint's scope moves the story to the end of the queue rather than blocking the sprint.
 
 | Phase | What happens |
 |---|---|
-| Story prep | Technical-AC gate; `bmad-create-story` enriches stories missing technical ACs. Estimates written, status → `ready-for-dev` |
+| Story prep | Technical-AC gate over **six** dimensions (below); `bmad-create-story` enriches what is missing, in one batched call for the sprint. Estimates written, status → `ready-for-dev` |
 | Development | Status → `in-progress`. `bmad-dev-story` implements all tasks |
 | Code review | `bmad-code-review` on changed files. Skipped for `DOCS`/`CONFIG` |
 | Fix loop | CRITICAL/HIGH re-invoke the dev subagent, capped at `{max_fix_iterations}` iterations per story |
@@ -593,14 +622,13 @@ Calibration:  none yet — formula baseline (components calibrate at ≥3 sample
 | Phase | Skill invoked |
 |-------|--------------|
 | Readiness check (plan) | `bmad-check-implementation-readiness` (optional; presence-gated, CODE/MIXED stories only) |
-| Story prep / elaboration | `bmad-create-story` |
+| Story prep / elaboration | `bmad-create-story` — **one batched call per sprint**, not one per story |
 | Development | `bmad-dev-story` |
 | Fix loop | `bmad-dev-story` |
 | Code review | `bmad-code-review` |
 | Retrospective (sprint + epic) | `bmad-retrospective` |
-| Clean release review (sprint) | `bmad-review-adversarial-general`, scope `clean-release` |
-| Adversarial analysis (sprint) | `bmad-review-adversarial-general`, scope `adversarial` |
-| Architecture gate (epic) | `l3io-arch-review` Mode B, `bmad-agent-architect`, superpowers (optional) |
+| Clean release + adversarial (sprint) | `bmad-review-adversarial-general` — **one call carrying both scopes** where the phase matrix runs both (CODE/MIXED). CONFIG runs `clean-release` alone, since the matrix skips adversarial there; DOCS runs neither |
+| Architecture gate (epic) | `l3io-arch-review` Mode B **alone**; `bmad-agent-architect` and superpowers escalate in parallel only on a BLOCKER or MAJOR |
 | Architectural drift (sprint + epic) | `l3io-arch-review` Mode C (optional) |
 | Red-team review (sprint) | `l3io-sec-redteam` (optional) |
 | UX review (sprint) | `bmad-ux-review` (optional) |
