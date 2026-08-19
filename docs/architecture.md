@@ -212,10 +212,6 @@ intuitions about context size.
 | Escalate the arch gate on signal | `step-04-arch-gate.md` §4 | Two extra full-epic reads buying a corroboration label — a single MAJOR already blocks. |
 | Subagents inherit activation | `step-05-epic-loop.md` §5 | Re-running config resolution, self-install, layout detection and schema verify once per dispatch. |
 
-A visual walk-through of the whole run, with the measured evidence behind each rule, is
-published at
-[l3io-pm Run Anatomy]([redacted]).
-
 ## Quality Gate Contracts
 
 ### Sprint closure

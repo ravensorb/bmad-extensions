@@ -4492,7 +4492,7 @@ class TestTranscriptUsage(Base):
     """The three traps in "read the usage fields", each reproduced.
 
     Two inflate and one deflates, which is why an agent that hit all three produced a
-    plausible-looking wrong answer (a plausible-looking wrong answer) rather than an
+    plausible-looking wrong answer (the errors partly cancel) rather than an
     obviously broken one. Shapes here match a real transcript: 2,482 assistant records
     over 953 distinct message ids, with nested cache_creation summing to the flat field
     in every record.
@@ -4585,7 +4585,8 @@ class TestTranscriptIdentity(Base):
     """"Which transcript is mine" — the trap that produced the original bad number.
 
     Pointed at a task `.output` artifact rather than a session transcript, a count
-    reported an output figure several times below the running agent's own. The cache
+    reported an output count several times below what the agent that ran the story
+    reported. The cache
     figures matched closely, so nothing looked wrong: it was file choice, not arithmetic.
     A reader that can be aimed at the wrong file has not fixed that, it has moved it one
     step earlier — so identity is checked before any summing happens.

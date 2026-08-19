@@ -129,9 +129,8 @@ Execution is shaped around that:
 - **Actuals are read by `pm-status.py usage`**, which resolves its own transcript and refuses
   to sum a file it cannot confirm is yours
 
-See [l3io-pm Run Anatomy]([redacted])
-for the walk-through, or [architecture.md](docs/architecture.md#cost-model) for where each rule
-is enforced.
+See [architecture.md](docs/architecture.md#cost-model) for where each rule is enforced and the
+measurement behind it.
 
 ## Artifact Conventions
 
@@ -190,7 +189,6 @@ runs automatically on first use, or on demand via the module's `configure` actio
 - [l3io-util reference](docs/l3io-util-reference.md)
 - [l3io-arch reference](docs/l3io-arch-reference.md)
 - [Architecture and execution model](docs/architecture.md)
-- [l3io-pm Run Anatomy]([redacted]) — visual walk-through of a run: the seven stages, where each guard bites, and the measured evidence behind them
 - [Contributing](CONTRIBUTING.md)
 
 For BMad core guidance, see [BMad docs](https://docs.bmad-method.org/).

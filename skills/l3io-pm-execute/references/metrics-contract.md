@@ -316,11 +316,11 @@ It prints the four class totals and the exact `--tokens-*` flags to paste into `
 
 "Read the usage fields and sum them" is not an executable instruction, and an agent asked to
 follow it by hand hit all three traps in the file format at once. Two inflate and one
-deflates, so the result looked plausible rather than broken: **a plausible-looking wrong answer**.
+deflates, so the errors partly cancel and the result looks plausible rather than broken.
 
 | Trap | Direction | What actually happens |
 |---|---|---|
-| **Which transcript is mine** | **unrelated** | The first and worst. Pointed at a task `.output` artifact rather than a session transcript, a count reported an output figure several times below the running agent's own — while the cache figures matched closely, so nothing looked wrong. Not arithmetic: file choice. |
+| **Which transcript is mine** | **unrelated** | The first and worst. Pointed at a task `.output` artifact rather than a session transcript, a count reported an output figure several times below what the running agent reported — while the cache figures matched closely, so nothing looked wrong. Not arithmetic: file choice. |
 | One message, many records | **inflates** | A streaming message is rewritten repeatedly with the same `message.id` and identical `usage`. A real transcript held 2,482 assistant records for 953 distinct ids — summing records overstates by ~2.6×. |
 | `cache_creation` twice | **inflates** | `usage` carries both flat `cache_creation_input_tokens` and a nested `cache_creation` mapping. They are the same tokens (equal in 2,482 of 2,482 records). Adding both double-counts the most expensive class. |
 | Subagent turns missed | **deflates** | Dispatched work is recorded with `isSidechain: true`, often in a different file. Reading one file, or filtering sidechains out, drops whole phases. |

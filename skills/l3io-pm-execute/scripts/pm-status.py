@@ -2996,7 +2996,7 @@ def read_transcript_usage(paths) -> dict:
 
     That instruction was not executable, and an agent asked to follow it by hand hit
     every trap below at once. Two of them inflate and one deflates, so the wrong answer
-    came out plausible rather than obviously broken -- a plausible-looking wrong answer.
+    came out plausible rather than obviously broken: the errors partly cancel.
     Each is handled here, and each is a property of the real file format, verified
     against a 2,482-record transcript rather than assumed:
 
@@ -3081,9 +3081,9 @@ def cmd_usage(args) -> int:
     IDENTITY IS CHECKED BEFORE ARITHMETIC. Summing the wrong file is the failure this
     command exists to prevent, and it is the one that produced the original bad number:
     pointed at a task `.output` artifact instead of a session transcript, a hand-count
-    reported an output figure several times below the running agent's own.
-    The cache figures matched closely, so nothing looked wrong -- it was file choice, not
-    arithmetic. A reader that can be aimed at the wrong file has not fixed that; it has
+    reported an output figure several times below what the agent that ran the story had
+    itself reported. The cache figures matched closely, so nothing looked wrong -- it was
+    file choice, not arithmetic. A reader that can be aimed at the wrong file has not fixed that; it has
     moved it one step earlier.
 
     So: with no path, resolve this session's own transcript from the environment. With a
