@@ -2,6 +2,18 @@
 
 All notable changes to this project will be documented in this file. See [commit-and-tag-version](https://github.com/absolute-version/commit-and-tag-version) for commit guidelines.
 
+## [2.4.5](https://github.com/ravensorb/bmad-extensions/compare/2.4.4...2.4.5) (2026-08-19)
+
+
+### Features
+
+* **l3io-pm:** add a transcript usage reader, replacing "read the usage fields" ([0cc3f3c](https://github.com/ravensorb/bmad-extensions/commit/0cc3f3c0f33d8479b3c0088965e1355e70b774da))
+
+
+### Performance
+
+* **l3io-pm:** forbid polling, and scope every reviewer to a diff ([db8383c](https://github.com/ravensorb/bmad-extensions/commit/db8383c3d6c1ae427aa15f5b55e04e2ede60925e))
+
 ## [2.4.4](https://github.com/ravensorb/bmad-extensions/compare/2.4.3...2.4.4) (2026-08-19)
 
 
