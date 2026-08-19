@@ -2940,6 +2940,56 @@ def _file_sha(path: str):
         return None
 
 
+CLAUDE_SESSION_ENV = "CLAUDE_CODE_SESSION_ID"
+
+
+def resolve_session_transcript(session_id: str = "") -> tuple:
+    """(paths, session_id) for a Claude session's own transcript. ([], id) if not found.
+
+    A session transcript is named `<session-id>.jsonl` under
+    `~/.claude/projects/<slugified-cwd>/`, and every record inside carries the same
+    `sessionId`. The id itself is in the environment as CLAUDE_CODE_SESSION_ID. So a
+    session can identify its own transcript exactly, and does not have to be told.
+
+    Searched across every project directory rather than only the slug for the current
+    cwd: a subagent may run with a different working directory than the session that
+    spawned it, and guessing the slug would reintroduce exactly the ambiguity this
+    function exists to remove.
+    """
+    session_id = session_id or os.environ.get(CLAUDE_SESSION_ENV, "")
+    if not session_id:
+        return [], ""
+    root = os.path.expanduser("~/.claude/projects")
+    if not os.path.isdir(root):
+        return [], session_id
+    hits = []
+    for d in sorted(os.listdir(root)):
+        fp = os.path.join(root, d, f"{session_id}.jsonl")
+        if os.path.exists(fp):
+            hits.append(fp)
+    return hits, session_id
+
+
+def transcript_sessions(path: str) -> set:
+    """The distinct `sessionId` values in a .jsonl file. Empty set if it carries none."""
+    out = set()
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            for line in f:
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    rec = json.loads(line)
+                except ValueError:
+                    continue
+                if isinstance(rec, dict) and rec.get("sessionId"):
+                    out.add(str(rec["sessionId"]))
+    except OSError:
+        return set()
+    return out
+
+
 def read_transcript_usage(paths) -> dict:
     """Sum a session transcript's real token usage, by class. THE executable form of
     "read the usage fields".
@@ -3026,11 +3076,79 @@ def read_transcript_usage(paths) -> dict:
 
 
 def cmd_usage(args) -> int:
-    """Print a transcript's token usage, and the set-actual flags to record it."""
-    res = read_transcript_usage(list(args.transcript))
+    """Print a transcript's token usage, and the set-actual flags to record it.
+
+    IDENTITY IS CHECKED BEFORE ARITHMETIC. Summing the wrong file is the failure this
+    command exists to prevent, and it is the one that produced the original bad number:
+    pointed at a task `.output` artifact instead of a session transcript, a hand-count
+    reported an output figure several times below the running agent's own.
+    The cache figures matched closely, so nothing looked wrong -- it was file choice, not
+    arithmetic. A reader that can be aimed at the wrong file has not fixed that; it has
+    moved it one step earlier.
+
+    So: with no path, resolve this session's own transcript from the environment. With a
+    path, verify the file actually is a session transcript and belongs to the expected
+    session. Refuse rather than guess. `--allow-unidentified` is the deliberate override,
+    and it has to be typed.
+    """
+    want = args.claude_session or os.environ.get(CLAUDE_SESSION_ENV, "")
+    paths = list(args.transcript)
+    resolved = False
+
+    if not paths:
+        paths, want = resolve_session_transcript(args.claude_session)
+        resolved = True
+        if not paths:
+            sys.stderr.write(
+                "pm-status.py: cannot resolve this session's transcript — "
+                + (f"no ~/.claude/projects/*/{want}.jsonl found\n" if want else
+                   f"{CLAUDE_SESSION_ENV} is not set\n")
+                + "  Pass the transcript path explicitly, or --claude-session ID. Refusing to\n"
+                  "  guess: summing the wrong file is the error this command exists to prevent.\n")
+            return 2
+
+    if not args.allow_unidentified:
+        problems = []
+        for fp in paths:
+            targets = [fp]
+            if os.path.isdir(fp):
+                targets = [os.path.join(r, n) for r, _d, ns in os.walk(fp)
+                           for n in sorted(ns) if n.endswith(".jsonl")]
+            for t in targets:
+                found = transcript_sessions(t)
+                if not found:
+                    problems.append(f"{t}: carries no sessionId — this is not a session "
+                                    f"transcript (a task .output artifact looks like this)")
+                elif len(found) > 1:
+                    # Checked BEFORE membership: a file holding two sessions is malformed
+                    # whatever we were expecting, and "mixes N sessions" is the actionable
+                    # diagnosis. Testing membership first reported it as a plain mismatch
+                    # and hid the fact that the file itself is wrong.
+                    problems.append(f"{t}: mixes {len(found)} sessions {sorted(found)}")
+                elif want and want not in found:
+                    problems.append(f"{t}: belongs to session(s) {sorted(found)}, not {want}")
+        if problems:
+            sys.stderr.write("pm-status.py: refusing to sum — cannot confirm whose transcript "
+                             "this is:\n")
+            for pr in problems:
+                sys.stderr.write(f"  {pr}\n")
+            sys.stderr.write("  Pass the right file, set --claude-session, or --allow-unidentified\n"
+                             "  to override deliberately.\n")
+            return 2
+
+    res = read_transcript_usage(paths)
     if not res["files"]:
         sys.stderr.write("pm-status.py: no .jsonl transcript found at the given path(s)\n")
         return 3
+    # Only claim a session when identity was actually CHECKED. Printing the id from the
+    # environment beside numbers read out of an unverified file is the same lie in a new
+    # place -- a header that asserts provenance it does not have.
+    verified = not args.allow_unidentified
+    res["session"] = (want or "(unverified)") if verified else "(UNVERIFIED — --allow-unidentified)"
+    res["source"] = ("resolved from environment" if resolved
+                     else "given on the command line, identity checked" if verified
+                     else "given on the command line, identity NOT checked")
+    res["paths"] = paths
     t = res["tokens"]
     total = sum(t.values())
     if args.format == "json":
@@ -3038,6 +3156,9 @@ def cmd_usage(args) -> int:
         return 0
 
     k = {c: t[c] / 1000.0 for c in TOKEN_CLASSES}
+    sys.stdout.write(f"session {res['session']} ({res['source']})\n")
+    for fp in res["paths"]:
+        sys.stdout.write(f"  {fp}\n")
     sys.stdout.write(
         f"files={res['files']} records={res['records']} "
         f"unique={res['unique_messages']} sidechain={res['sidechain_messages']}\n")
@@ -3917,8 +4038,14 @@ def build_parser() -> argparse.ArgumentParser:
     ae.set_defaults(func=cmd_move_epic, to="archived")
 
     up = sub.add_parser("usage", help="sum a session transcript's token usage, by class")
-    up.add_argument("transcript", nargs="+",
-                    help="transcript .jsonl file(s) or directory(ies) to walk")
+    up.add_argument("transcript", nargs="*",
+                    help="transcript .jsonl file(s) or directory(ies); omit to resolve this "
+                         "session's own transcript from $" + CLAUDE_SESSION_ENV)
+    up.add_argument("--claude-session", dest="claude_session", default="",
+                    help="the Claude session id the transcript must belong to (NOT the l3io "
+                         "run --session-id); defaults to $" + CLAUDE_SESSION_ENV)
+    up.add_argument("--allow-unidentified", action="store_true",
+                    help="sum a file that cannot be confirmed as this session's transcript")
     up.add_argument("--model", default="", help="also price the total at this model's rates")
     up.add_argument("--token-rates", dest="token_rates", default="",
                     help="JSON overrides for the rate table")

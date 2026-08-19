@@ -48,9 +48,8 @@ dispatched — **arm a single wait for it and end your turn.** Do not loop, do n
 do not "just confirm it's still running". If you cannot arm a wait, end with `BLOCKED`
 naming what you were waiting for.
 
-**Every poll is a full turn, and a turn costs your whole history, not one line.** Cost here
-tracks turns — not tokens-per-turn, and not repository size. Measured evidence:
-`steps/execute/step-05-epic-loop.md` §5.
+**Every poll is a full turn, and a turn costs your whole history, not one line.** Cost tracks
+turns — not tokens-per-turn, not repo size. Evidence: `steps/execute/step-05-epic-loop.md` §5.
 
 **These rules reach a spawned subagent only if you put them there** — a `bmad-*` agent
 loads none of this file. Bind `{agent_contract}` to the lines below and include them
@@ -114,16 +113,17 @@ move-epic     --state-root S  --epic ID  --to {planned,active,archived}
 archive-epic  --state-root S  --epic ID  (alias for move-epic --to archived)
 append-issue  --file F  --key BL-E{nnn}-{nnn}  --epic {nnn}  [--sprint S]  --title T
               --source S  --severity {Low,Medium,High,Critical}  [--description D]
-rates         [--model ID] [--token-rates JSON]   (read-only; prints the effective rate table)
-usage         TRANSCRIPT... [--model ID] [--format text|json]   (read-only; files or dirs.
-              Prints per-class tokens + the --tokens-* flags. ALWAYS use instead of hand-summing.)
+rates         [--model ID] [--token-rates JSON]   (read-only; the effective rate table)
+usage         [TRANSCRIPT...] [--claude-session ID] [--model ID]   (read-only. NO ARGUMENT =
+              this session's transcript; verifies identity, exits 2 rather than guess. Prints
+              per-class tokens + --tokens-* flags. NEVER hand-sum usage fields.)
 ```
 
-Exit codes: `0` success · `2` usage error · `3` node not found · `4` verification failure ·
-`5` epic locked by another session. Branch on these rather than parsing stdout.
+Exit codes: `0` ok · `2` usage error · `3` not found · `4` verification failure · `5` epic
+locked elsewhere. Branch on these rather than parsing stdout.
 
-`set-status` and `set-actual` append to `state/events.jsonl` automatically. You never write
-that file, and you never pass a flag to make it happen.
+`set-status` and `set-actual` append to `state/events.jsonl` automatically — you never write
+that file, and never pass a flag to make it happen.
 
 ### Estimates and actuals — the HARD RULE
 
@@ -160,7 +160,7 @@ cannot see it.
 | handle a migration or legacy layout | `references/status-files.md` §10 (Read resolution at activation) |
 | declare or read `depends_on` | `references/status-files.md` §11 (Dependency fields) |
 | resolve an epic lock question | `references/status-files.md` §6 (Ownership lock) |
-| capture token/cost actuals correctly | run `{pm_status} usage <transcript>` — never hand-sum; `references/metrics-contract.md` §3 |
+| capture token/cost actuals correctly | run `{pm_status} usage` — never hand-sum; `references/metrics-contract.md` §3 |
 | write an estimate or actual by hand | `references/metrics-contract.md` §4 (Writing estimates and actuals) |
 | apply the estimation roll-up, fix-reserve, or orchestration-band model | `references/metrics-contract.md` §6 (The estimation roll-up) and §7 (The fix reserve) |
 | explain a calibration result, or run the one-time metrics migration | `references/calibration-model.md` (whole file — do not go via `metrics-contract.md`) |

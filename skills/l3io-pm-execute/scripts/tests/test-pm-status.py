@@ -4568,12 +4568,105 @@ class TestTranscriptUsage(Base):
                         "summing records rather than ids overstates")
 
     def test_usage_command_emits_pasteable_set_actual_flags(self):
-        p = self._write("t.jsonl", [self._asst("m", 1000, 2000, 3000, 4000)])
-        code, out = self.run_main(["usage", p, "--model", "claude-opus-5"])
+        # A realistic fixture carries sessionId: the CLI checks identity before summing,
+        # so a transcript without one is refused (see TestTranscriptIdentity).
+        rec = self._asst("m", 1000, 2000, 3000, 4000)
+        rec["sessionId"] = "SESS-1"
+        p = self._write("t.jsonl", [rec])
+        code, out = self.run_main(["usage", p, "--claude-session", "SESS-1",
+                                   "--model", "claude-opus-5"])
         self.assertEqual(code, 0, out)
         self.assertIn("--tokens-input 1.000", out)
         self.assertIn("--tokens-cache-write 3.000", out)
         self.assertIn("cost", out)
+
+
+class TestTranscriptIdentity(Base):
+    """"Which transcript is mine" — the trap that produced the original bad number.
+
+    Pointed at a task `.output` artifact rather than a session transcript, a count
+    reported an output figure several times below the running agent's own. The cache
+    figures matched closely, so nothing looked wrong: it was file choice, not arithmetic.
+    A reader that can be aimed at the wrong file has not fixed that, it has moved it one
+    step earlier — so identity is checked before any summing happens.
+    """
+
+    def _sess_file(self, name, sid, n=2):
+        p = os.path.join(self.d, name)
+        with open(p, "w", encoding="utf-8") as fh:
+            for i in range(n):
+                fh.write(json.dumps({
+                    "type": "assistant", "sessionId": sid,
+                    "message": {"id": f"m{i}", "usage": {
+                        "input_tokens": 1, "output_tokens": 1,
+                        "cache_creation_input_tokens": 1, "cache_read_input_tokens": 1}}}) + "\n")
+        return p
+
+    def test_refuses_a_file_carrying_no_session_id(self):
+        """The .output artifact shape: assistant records, plausible usage, no sessionId."""
+        p = os.path.join(self.d, "task.output.jsonl")
+        with open(p, "w", encoding="utf-8") as fh:
+            fh.write(json.dumps({"type": "assistant",
+                                 "message": {"id": "m", "usage": {"output_tokens": 11931}}}) + "\n")
+        buf = io.StringIO()
+        with redirect_stderr(buf):
+            code, _ = self.run_main(["usage", p, "--claude-session", "S1"])
+        self.assertEqual(code, 2)
+        self.assertIn("not a session transcript", buf.getvalue())
+
+    def test_refuses_a_transcript_belonging_to_another_session(self):
+        p = self._sess_file("other.jsonl", "SOMEONE-ELSE")
+        buf = io.StringIO()
+        with redirect_stderr(buf):
+            code, _ = self.run_main(["usage", p, "--claude-session", "MINE"])
+        self.assertEqual(code, 2)
+        self.assertIn("SOMEONE-ELSE", buf.getvalue())
+
+    def test_refuses_a_file_mixing_sessions(self):
+        p = os.path.join(self.d, "mixed.jsonl")
+        with open(p, "w", encoding="utf-8") as fh:
+            for sid in ("A", "B"):
+                fh.write(json.dumps({"type": "assistant", "sessionId": sid,
+                                     "message": {"id": sid, "usage": {"output_tokens": 1}}}) + "\n")
+        buf = io.StringIO()
+        with redirect_stderr(buf):
+            code, _ = self.run_main(["usage", p])
+        self.assertEqual(code, 2)
+        self.assertIn("mixes", buf.getvalue())
+
+    def test_accepts_the_matching_session(self):
+        p = self._sess_file("mine.jsonl", "MINE")
+        code, out = self.run_main(["usage", p, "--claude-session", "MINE"])
+        self.assertEqual(code, 0, out)
+        self.assertIn("MINE", out)
+        self.assertIn("identity checked", out)
+
+    def test_refuses_to_guess_when_nothing_identifies_the_session(self):
+        old = os.environ.pop("CLAUDE_CODE_SESSION_ID", None)
+        try:
+            buf = io.StringIO()
+            with redirect_stderr(buf):
+                code, _ = self.run_main(["usage"])
+            self.assertEqual(code, 2)
+            self.assertIn("Refusing to", buf.getvalue())
+        finally:
+            if old is not None:
+                os.environ["CLAUDE_CODE_SESSION_ID"] = old
+
+    def test_override_is_available_but_labels_the_result_unverified(self):
+        """The escape hatch must not let the output claim provenance it never checked."""
+        p = self._sess_file("other.jsonl", "SOMEONE-ELSE")
+        code, out = self.run_main(["usage", p, "--claude-session", "MINE",
+                                   "--allow-unidentified"])
+        self.assertEqual(code, 0, out)
+        self.assertIn("UNVERIFIED", out)
+        self.assertIn("identity NOT checked", out)
+        self.assertNotIn("session MINE ", out)
+
+    def test_resolver_finds_a_transcript_by_session_id(self):
+        paths, sid = pm.resolve_session_transcript("definitely-not-a-real-session-id")
+        self.assertEqual(paths, [])
+        self.assertEqual(sid, "definitely-not-a-real-session-id")
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)

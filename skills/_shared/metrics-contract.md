@@ -308,7 +308,8 @@ case, after stripping. An **absent** field is not the same as `N/A` — absence 
 ### Do not read the usage fields by hand — run `usage`
 
 ```bash
-python3 {pm_status} usage <transcript.jsonl | dir> [more...] [--model {model}]
+python3 {pm_status} usage [--model {model}]          # resolves THIS session's transcript
+python3 {pm_status} usage <file|dir>... [--model {model}]   # or name it explicitly
 ```
 
 It prints the four class totals and the exact `--tokens-*` flags to paste into `set-actual`.
@@ -319,12 +320,26 @@ deflates, so the result looked plausible rather than broken: **a plausible-looki
 
 | Trap | Direction | What actually happens |
 |---|---|---|
+| **Which transcript is mine** | **unrelated** | The first and worst. Pointed at a task `.output` artifact rather than a session transcript, a count reported an output figure several times below the running agent's own — while the cache figures matched closely, so nothing looked wrong. Not arithmetic: file choice. |
 | One message, many records | **inflates** | A streaming message is rewritten repeatedly with the same `message.id` and identical `usage`. A real transcript held 2,482 assistant records for 953 distinct ids — summing records overstates by ~2.6×. |
 | `cache_creation` twice | **inflates** | `usage` carries both flat `cache_creation_input_tokens` and a nested `cache_creation` mapping. They are the same tokens (equal in 2,482 of 2,482 records). Adding both double-counts the most expensive class. |
 | Subagent turns missed | **deflates** | Dispatched work is recorded with `isSidechain: true`, often in a different file. Reading one file, or filtering sidechains out, drops whole phases. |
 
-`usage` dedupes by message id, reads only the flat cache field, counts sidechain records, and
-accepts directories so a run split across files is summed whole. Pass every transcript the run
+**Identity is checked before arithmetic.** With no path, `usage` resolves this session's own
+transcript from `$CLAUDE_CODE_SESSION_ID` — every record carries a `sessionId` and the file is
+named for it, so a session can identify its transcript exactly rather than be told. With a
+path, it verifies the file *is* a session transcript and belongs to the expected session, and
+**refuses (exit 2) rather than guess**: a file carrying no `sessionId` is named as the
+`.output`-artifact shape, a file belonging to another session is named with that session's id,
+and a file mixing sessions is reported as malformed. `--allow-unidentified` overrides
+deliberately, and then the output labels itself `UNVERIFIED` rather than printing a session id
+it never checked.
+
+A reader that can be aimed at the wrong file does not fix trap 1 — it moves it one step
+earlier. Refusing is the fix.
+
+`usage` also dedupes by message id, reads only the flat cache field, counts sidechain records,
+and accepts directories so a run split across files is summed whole. Pass every transcript the run
 touched — it reports `files`, `records`, `unique` and `sidechain` counts so the read is
 checkable, and warns when a single file contains no sidechain turns at all.
 
