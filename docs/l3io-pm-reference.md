@@ -409,6 +409,7 @@ epic:   backlog → in-progress → done
 | `list-issues` | `--state-root` + optional `--epic`/`--sprint`/`--severity`/`--format` |
 | `calibration show` | `--state-root [--format {text,json}]` |
 | `rates` | optional `--model ID` (all models if omitted) `--token-rates JSON` — prints the effective per-model token rate table (read-only); an unknown `--model` exits 2 rather than guessing a default |
+| `usage` | one or more transcript `.jsonl` files **or directories**, plus optional `--model ID` `--token-rates JSON` `--format text\|json` — sums a session transcript's real per-class token usage and prints the `--tokens-*` flags to paste into `set-actual` (read-only). Use it instead of reading `usage` fields by hand: it deduplicates the many records a single streaming message writes (a real transcript held 2,482 assistant records for 953 distinct ids), reads only the flat `cache_creation_input_tokens` rather than adding the nested `cache_creation` mapping that repeats the same tokens, and counts `isSidechain` subagent turns rather than dropping them. Reports `files`/`records`/`unique`/`sidechain` so the read is checkable |
 
 Exit codes: `0` success · `2` usage error · `3` node not found · `4` verification failure · `5` epic locked by another session.
 

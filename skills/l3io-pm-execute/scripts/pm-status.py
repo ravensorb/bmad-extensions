@@ -2940,6 +2940,127 @@ def _file_sha(path: str):
         return None
 
 
+def read_transcript_usage(paths) -> dict:
+    """Sum a session transcript's real token usage, by class. THE executable form of
+    "read the usage fields".
+
+    That instruction was not executable, and an agent asked to follow it by hand hit
+    every trap below at once. Two of them inflate and one deflates, so the wrong answer
+    came out plausible rather than obviously broken -- a plausible-looking wrong answer.
+    Each is handled here, and each is a property of the real file format, verified
+    against a 2,482-record transcript rather than assumed:
+
+    1. INFLATES -- **the same API call appears many times.** Assistant records are
+       written repeatedly as a message streams and is revised, carrying an identical
+       `message.id` and identical `usage` each time. The sample held 2,482 assistant
+       records for 953 distinct ids: summing records rather than ids overstates by
+       roughly 2.6x. Deduplicated here by `message.id`, keeping the first occurrence.
+
+    2. INFLATES -- **cache creation is reported twice, two ways.** `usage` carries both
+       the flat `cache_creation_input_tokens` and a nested `cache_creation` mapping of
+       `ephemeral_5m/1h` counts. They are the same tokens: the nested values summed
+       equalled the flat field in 2,482 of 2,482 records. Adding both double-counts the
+       most expensive class. Only the flat field is read.
+
+    3. DEFLATES -- **subagent turns are easy to miss.** Work dispatched to a subagent is
+       recorded with `isSidechain: true`, and often in a different file entirely. Reading
+       one file, or filtering sidechains out, silently drops whole phases -- which is the
+       deflating half that made the net error look small. Sidechain records are counted,
+       and `paths` accepts directories so a run split across files is summed whole.
+
+    Returns the four class totals plus counts that let a caller sanity-check the read.
+    """
+    files = []
+    for entry in (paths if isinstance(paths, (list, tuple)) else [paths]):
+        if os.path.isdir(entry):
+            for root, _dirs, names in os.walk(entry):
+                files.extend(os.path.join(root, n) for n in sorted(names)
+                             if n.endswith(".jsonl"))
+        elif os.path.exists(entry):
+            files.append(entry)
+
+    totals = {c: 0 for c in TOKEN_CLASSES}
+    seen, records, sidechain = set(), 0, 0
+    for fp in files:
+        try:
+            fh = open(fp, "r", encoding="utf-8")
+        except OSError as e:
+            sys.stderr.write(f"pm-status.py: warning — cannot read {fp}: {e}\n")
+            continue
+        with fh:
+            for line in fh:
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    rec = json.loads(line)
+                except ValueError:
+                    continue          # torn or partial line; the log is appended to live
+                if not isinstance(rec, dict) or rec.get("type") != "assistant":
+                    continue
+                msg = rec.get("message")
+                if not isinstance(msg, dict):
+                    continue
+                usage = msg.get("usage")
+                if not isinstance(usage, dict):
+                    continue
+                # Trap 1: one id, one contribution. Fall back to identity when a record
+                # carries no id, so an unidentifiable turn is counted rather than dropped
+                # -- erring toward the inflating side is safe here, silently losing a
+                # turn is not.
+                key = msg.get("id") or f"{fp}:{records}"
+                records += 1
+                if key in seen:
+                    continue
+                seen.add(key)
+                if rec.get("isSidechain"):
+                    sidechain += 1
+                totals["input"] += _num_or_none(usage.get("input_tokens")) or 0
+                totals["output"] += _num_or_none(usage.get("output_tokens")) or 0
+                # Trap 2: the flat field only, never the nested mapping as well.
+                totals["cache_write"] += _num_or_none(usage.get("cache_creation_input_tokens")) or 0
+                totals["cache_read"] += _num_or_none(usage.get("cache_read_input_tokens")) or 0
+
+    return {"tokens": totals, "files": len(files), "records": records,
+            "unique_messages": len(seen), "sidechain_messages": sidechain}
+
+
+def cmd_usage(args) -> int:
+    """Print a transcript's token usage, and the set-actual flags to record it."""
+    res = read_transcript_usage(list(args.transcript))
+    if not res["files"]:
+        sys.stderr.write("pm-status.py: no .jsonl transcript found at the given path(s)\n")
+        return 3
+    t = res["tokens"]
+    total = sum(t.values())
+    if args.format == "json":
+        sys.stdout.write(json.dumps({**res, "total": total}, indent=2, sort_keys=True) + "\n")
+        return 0
+
+    k = {c: t[c] / 1000.0 for c in TOKEN_CLASSES}
+    sys.stdout.write(
+        f"files={res['files']} records={res['records']} "
+        f"unique={res['unique_messages']} sidechain={res['sidechain_messages']}\n")
+    if res["records"] > res["unique_messages"]:
+        dropped = res["records"] - res["unique_messages"]
+        sys.stdout.write(f"  deduplicated {dropped} repeated record(s) of the same message\n")
+    if res["sidechain_messages"] == 0 and res["files"] == 1:
+        sys.stdout.write("  note: no subagent (sidechain) turns seen in this file — if this "
+                         "run dispatched subagents, pass their transcripts too\n")
+    for c in TOKEN_CLASSES:
+        sys.stdout.write(f"  {c:<12} {t[c]:>12,}  ({k[c]:.1f}k)\n")
+    sys.stdout.write(f"  {'TOTAL':<12} {total:>12,}  ({total / 1000.0:.1f}k)\n\n")
+    if args.model:
+        try:
+            sys.stdout.write(f"cost {cost_from_tokens(k, args.model, rate_overrides(args)):.2f} "
+                             f"USD at {args.model} rates\n\n")
+        except KeyError as e:
+            _die_usage(e.args[0])
+    sys.stdout.write("set-actual flags:\n  " + " ".join(
+        f"--tokens-{c.replace('_', '-')} {k[c]:.3f}" for c in TOKEN_CLASSES) + "\n")
+    return 0
+
+
 def cmd_self_install(args) -> int:
     """Copy this script to --dest unless the destination is already this exact script.
 
@@ -3794,6 +3915,15 @@ def build_parser() -> argparse.ArgumentParser:
     ae.add_argument("--state-root", required=True)
     ae.add_argument("--epic", required=True)
     ae.set_defaults(func=cmd_move_epic, to="archived")
+
+    up = sub.add_parser("usage", help="sum a session transcript's token usage, by class")
+    up.add_argument("transcript", nargs="+",
+                    help="transcript .jsonl file(s) or directory(ies) to walk")
+    up.add_argument("--model", default="", help="also price the total at this model's rates")
+    up.add_argument("--token-rates", dest="token_rates", default="",
+                    help="JSON overrides for the rate table")
+    up.add_argument("--format", choices=["text", "json"], default="text")
+    up.set_defaults(func=cmd_usage)
 
     cal = sub.add_parser("calibration", help="inspect the calibration file")
     cal.add_argument("action", choices=["show", "migrate-metrics"])

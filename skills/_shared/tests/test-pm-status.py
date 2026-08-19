@@ -4487,5 +4487,93 @@ class TestTokenBasisMigration(Base):
         cal[pm.TOKEN_BASIS_MARKER] = "2026-01-01T00:00:00+00:00"
         self.assertIsNotNone(pm.active_scope_ratio(cal, "complex", "tokens_k"))
 
+
+class TestTranscriptUsage(Base):
+    """The three traps in "read the usage fields", each reproduced.
+
+    Two inflate and one deflates, which is why an agent that hit all three produced a
+    plausible-looking wrong answer (a plausible-looking wrong answer) rather than an
+    obviously broken one. Shapes here match a real transcript: 2,482 assistant records
+    over 953 distinct message ids, with nested cache_creation summing to the flat field
+    in every record.
+    """
+
+    def _write(self, name, records):
+        p = os.path.join(self.d, name)
+        with open(p, "w", encoding="utf-8") as fh:
+            for r in records:
+                fh.write(json.dumps(r) + "\n")
+        return p
+
+    def _asst(self, mid, inp, out, cw, cr, sidechain=False):
+        return {"type": "assistant", "isSidechain": sidechain,
+                "message": {"id": mid, "usage": {
+                    "input_tokens": inp, "output_tokens": out,
+                    "cache_creation_input_tokens": cw,
+                    "cache_read_input_tokens": cr,
+                    # the nested form carries the SAME tokens as the flat field
+                    "cache_creation": {"ephemeral_5m_input_tokens": cw,
+                                       "ephemeral_1h_input_tokens": 0}}}}
+
+    def test_trap1_repeated_records_of_one_message_count_once(self):
+        """A streaming message is written many times with identical id and usage."""
+        recs = [self._asst("msg_a", 10, 20, 30, 40)] * 5 + [self._asst("msg_b", 1, 2, 3, 4)]
+        res = pm.read_transcript_usage(self._write("t.jsonl", recs))
+        self.assertEqual(res["records"], 6)
+        self.assertEqual(res["unique_messages"], 2)
+        self.assertEqual(res["tokens"], {"input": 11, "output": 22,
+                                         "cache_write": 33, "cache_read": 44})
+
+    def test_trap2_nested_cache_creation_is_not_added_to_the_flat_field(self):
+        res = pm.read_transcript_usage(self._write("t.jsonl", [self._asst("m", 0, 0, 500, 0)]))
+        self.assertEqual(res["tokens"]["cache_write"], 500,
+                         "the nested mapping is the same tokens as the flat field")
+
+    def test_trap3_sidechain_subagent_turns_are_counted(self):
+        recs = [self._asst("main", 1, 1, 1, 1),
+                self._asst("sub", 100, 100, 100, 100, sidechain=True)]
+        res = pm.read_transcript_usage(self._write("t.jsonl", recs))
+        self.assertEqual(res["sidechain_messages"], 1)
+        self.assertEqual(res["tokens"]["input"], 101,
+                         "dropping subagent turns is the deflating half of the error")
+
+    def test_a_directory_sums_a_run_split_across_files(self):
+        sub = os.path.join(self.d, "run")
+        os.makedirs(sub)
+        self._write(os.path.join("run", "a.jsonl"), [self._asst("a", 1, 1, 1, 1)])
+        self._write(os.path.join("run", "b.jsonl"), [self._asst("b", 2, 2, 2, 2)])
+        res = pm.read_transcript_usage(sub)
+        self.assertEqual(res["files"], 2)
+        self.assertEqual(res["tokens"]["input"], 3)
+
+    def test_non_assistant_and_torn_lines_are_skipped_not_fatal(self):
+        p = os.path.join(self.d, "t.jsonl")
+        with open(p, "w", encoding="utf-8") as fh:
+            fh.write(json.dumps({"type": "user", "message": {"usage": {"input_tokens": 999}}}) + "\n")
+            fh.write("{not json\n")
+            fh.write("42\n")
+            fh.write(json.dumps(self._asst("m", 5, 0, 0, 0)) + "\n")
+        res = pm.read_transcript_usage(p)
+        self.assertEqual(res["tokens"]["input"], 5)
+
+    def test_all_three_traps_together_match_a_hand_check(self):
+        """The combined case: without the fixes this reads high on two axes and low on one."""
+        recs = ([self._asst("m1", 10, 10, 100, 1000)] * 3 +
+                [self._asst("m2", 10, 10, 100, 1000, sidechain=True)] * 2)
+        res = pm.read_transcript_usage(self._write("t.jsonl", recs))
+        self.assertEqual(res["tokens"], {"input": 20, "output": 20,
+                                         "cache_write": 200, "cache_read": 2000})
+        naive_records = 5 * 1000
+        self.assertLess(res["tokens"]["cache_read"], naive_records,
+                        "summing records rather than ids overstates")
+
+    def test_usage_command_emits_pasteable_set_actual_flags(self):
+        p = self._write("t.jsonl", [self._asst("m", 1000, 2000, 3000, 4000)])
+        code, out = self.run_main(["usage", p, "--model", "claude-opus-5"])
+        self.assertEqual(code, 0, out)
+        self.assertIn("--tokens-input 1.000", out)
+        self.assertIn("--tokens-cache-write 3.000", out)
+        self.assertIn("cost", out)
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

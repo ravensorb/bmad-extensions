@@ -52,10 +52,9 @@ naming what you were waiting for.
 tracks turns — not tokens-per-turn, and not repository size. Measured evidence:
 `steps/execute/step-05-epic-loop.md` §5.
 
-**This rule reaches a spawned subagent only if you put it there.** A `bmad-*` agent
-loads none of this file. Bind `{agent_contract}` to the four lines below and include
-them verbatim in **every** spawn prompt you issue — that binding is the single source,
-so a step file names it rather than restating it:
+**These rules reach a spawned subagent only if you put them there** — a `bmad-*` agent
+loads none of this file. Bind `{agent_contract}` to the lines below and include them
+verbatim in **every** spawn prompt you issue:
 
 ```
 - You have no inbox. No reply will arrive. If you need a decision you cannot make,
@@ -116,6 +115,8 @@ archive-epic  --state-root S  --epic ID  (alias for move-epic --to archived)
 append-issue  --file F  --key BL-E{nnn}-{nnn}  --epic {nnn}  [--sprint S]  --title T
               --source S  --severity {Low,Medium,High,Critical}  [--description D]
 rates         [--model ID] [--token-rates JSON]   (read-only; prints the effective rate table)
+usage         TRANSCRIPT... [--model ID] [--format text|json]   (read-only; files or dirs.
+              Prints per-class tokens + the --tokens-* flags. ALWAYS use instead of hand-summing.)
 ```
 
 Exit codes: `0` success · `2` usage error · `3` node not found · `4` verification failure ·
@@ -159,7 +160,7 @@ cannot see it.
 | handle a migration or legacy layout | `references/status-files.md` §10 (Read resolution at activation) |
 | declare or read `depends_on` | `references/status-files.md` §11 (Dependency fields) |
 | resolve an epic lock question | `references/status-files.md` §6 (Ownership lock) |
-| capture token/cost actuals correctly | `references/metrics-contract.md` §3 (Runtime detection and capture) |
+| capture token/cost actuals correctly | run `{pm_status} usage <transcript>` — never hand-sum; `references/metrics-contract.md` §3 |
 | write an estimate or actual by hand | `references/metrics-contract.md` §4 (Writing estimates and actuals) |
 | apply the estimation roll-up, fix-reserve, or orchestration-band model | `references/metrics-contract.md` §6 (The estimation roll-up) and §7 (The fix reserve) |
 | explain a calibration result, or run the one-time metrics migration | `references/calibration-model.md` (whole file — do not go via `metrics-contract.md`) |

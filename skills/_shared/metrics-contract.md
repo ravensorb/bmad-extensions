@@ -304,6 +304,30 @@ Values treated as `N/A` by `_is_na`: `N/A`, `NA`, `NONE`, and the empty string, 
 case, after stripping. An **absent** field is not the same as `N/A` — absence fails
 `verify`, an explicit `N/A` passes it under `--runtime other`.
 
+
+### Do not read the usage fields by hand — run `usage`
+
+```bash
+python3 {pm_status} usage <transcript.jsonl | dir> [more...] [--model {model}]
+```
+
+It prints the four class totals and the exact `--tokens-*` flags to paste into `set-actual`.
+
+"Read the usage fields and sum them" is not an executable instruction, and an agent asked to
+follow it by hand hit all three traps in the file format at once. Two inflate and one
+deflates, so the result looked plausible rather than broken: **a plausible-looking wrong answer**.
+
+| Trap | Direction | What actually happens |
+|---|---|---|
+| One message, many records | **inflates** | A streaming message is rewritten repeatedly with the same `message.id` and identical `usage`. A real transcript held 2,482 assistant records for 953 distinct ids — summing records overstates by ~2.6×. |
+| `cache_creation` twice | **inflates** | `usage` carries both flat `cache_creation_input_tokens` and a nested `cache_creation` mapping. They are the same tokens (equal in 2,482 of 2,482 records). Adding both double-counts the most expensive class. |
+| Subagent turns missed | **deflates** | Dispatched work is recorded with `isSidechain: true`, often in a different file. Reading one file, or filtering sidechains out, drops whole phases. |
+
+`usage` dedupes by message id, reads only the flat cache field, counts sidechain records, and
+accepts directories so a run split across files is summed whole. Pass every transcript the run
+touched — it reports `files`, `records`, `unique` and `sidechain` counts so the read is
+checkable, and warns when a single file contains no sidechain turns at all.
+
 ## 4. Writing estimates and actuals
 
 All writes go through `pm-status.py`. Never hand-edit a state file.
