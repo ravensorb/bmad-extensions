@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file. See [commit-and-tag-version](https://github.com/absolute-version/commit-and-tag-version) for commit guidelines.
 
+## [2.4.6](https://github.com/ravensorb/bmad-extensions/compare/2.4.5...2.4.6) (2026-08-19)
+
+
+### Fixes
+
+* **l3io-pm:** make the usage reader resolve and verify whose transcript it read ([45096c3](https://github.com/ravensorb/bmad-extensions/commit/45096c300c5ead2ee3d0af4f04d776dc05d20a90))
+
 ## [2.4.5](https://github.com/ravensorb/bmad-extensions/compare/2.4.4...2.4.5) (2026-08-19)
 
 
