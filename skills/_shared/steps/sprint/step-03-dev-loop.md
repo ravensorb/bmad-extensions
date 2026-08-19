@@ -92,6 +92,15 @@ python3 {pm_status} dispatch --state-root {pm_state_root} --event open \
 Spawn `bmad-code-review` subagent with:
 - Story file path
 - Files changed by dev subagent
+- Review against the story's technical ACs — all six dimensions
+  (`steps/sprint/step-02-story-prep.md` §2), not only whether the code works
+- **Reused-before-written check.** Flag any non-trivial logic that a maintained library or
+  a platform/stdlib capability already provides — retries and backoff, date and timezone
+  handling, config merging, HTTP clients, parsing, validation, caching. Severity by
+  consequence, as for any finding: a hand-rolled equivalent of a well-tested library is
+  normally HIGH, since it is code that must be maintained and reviewed forever to reach
+  parity a dependency already has. If the story's dimension-6 answer justified writing it,
+  that is the answer — check the code matches the justification rather than re-litigating it.
 - `{agent_contract}` (verbatim — see `steps/shared/step-00-digest.md`)
 
 ```bash

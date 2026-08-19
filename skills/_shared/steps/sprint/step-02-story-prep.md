@@ -23,12 +23,35 @@ For each story key in `{story_keys}`:
 
 Read story file at `{sprint_root}/stories/{story_key}.md`.
 
-Check for presence of technical ACs — the story must have at least one of:
-- Interface contracts (API signatures, data models, events)
-- Error and edge case handling specifications
-- Observability requirements (logging, metrics, tracing)
-- Security requirements (auth, validation, data handling)
-- Testability hooks (test entry points, mock boundaries)
+Check the story against **every** dimension below. This is not an any-one-of check:
+
+| # | Dimension | Satisfied when the story states… |
+|---|---|---|
+| 1 | Interface contracts | API signatures, data models, events the story adds or changes |
+| 2 | Error and edge cases | what fails, how it fails, and what the caller sees |
+| 3 | Observability | the logging, metrics or tracing the change must emit |
+| 4 | Security | auth, validation, and how data is handled |
+| 5 | Testability | test entry points and mock boundaries |
+| 6 | **Existing-library check** | which library or platform capability covers this, or why none does and custom code is warranted |
+
+**Every dimension is either satisfied or explicitly marked not-applicable with a one-line
+reason in the story.** "Not applicable" is a legitimate answer — a pure refactor may add no
+interface, a background job may face no auth — but it has to be *stated*, because an absent
+dimension and an inapplicable one look identical otherwise, and that ambiguity is what let
+this gate pass stories carrying one dimension out of six.
+
+That was the defect, and it was silent: this step read "at least one of" while the gate is
+documented as blocking on any unfilled *applicable* dimension. A story with interface
+contracts and nothing else — no error handling, no observability, no security, no
+testability — advanced to `ready-for-dev`. Everything downstream, the dev agent and the code
+review both, assumes stories arrive with technical ACs; this gate is the only thing making
+that true.
+
+Dimension 6 exists because the cheapest code is the code not written. A story that
+hand-rolls retry logic, date parsing, config merging or an HTTP client is a story whose
+review, fix loop and long-term maintenance you pay for indefinitely, and none of the other
+five dimensions would catch it — they all assume the code *should* exist and only ask
+whether it is well specified.
 
 Apply the built-in checklist above. If `l3io-arch-review` is installed, also load
 `l3io-arch-review/references/standards-core.md` (plus any overlay matching the story's stack)
@@ -54,12 +77,16 @@ span covers several.
 
 ```
 Enrich each story listed below with technical ACs. Preserve all existing content in every
-file. For each story add:
+file. For each story address ALL SIX dimensions, marking any that genuinely do not apply as
+"N/A — <one-line reason>" rather than omitting them:
 - Interface contracts
 - Error and edge case handling
 - Observability requirements
 - Security considerations
 - Testability approach
+- Existing-library check: name the library or platform capability that covers this work, or
+  state why none does and custom code is warranted. Do not propose hand-written code for a
+  problem a maintained library already solves.
 
 Treat each story on its own terms — shared context is why these are batched, but a story
 that needs a different interface contract from its neighbour must get one.
@@ -76,7 +103,8 @@ across their `actual` blocks (`references/metrics-contract.md` §6). The even sp
 approximation and is meant to be — the alternative is paying N project reads to measure a
 number that feeds calibration as a ratio, and prep cost does scale roughly with story count.
 
-After enrichment, re-check every key in `{thin_story_keys}`. For any still missing ACs:
+After enrichment, re-check every key in `{thin_story_keys}` against all six dimensions. For
+any still carrying an unfilled applicable dimension:
 ```
 BLOCKED: story {story_key} still missing technical ACs after elaboration. Investigate manually.
 ```
