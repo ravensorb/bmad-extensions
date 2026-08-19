@@ -55,7 +55,17 @@ adversarial coverage to CONFIG:
 | adversarial only | one invocation, `clean-release` scope alone (CONFIG) |
 | both | run nothing (DOCS) |
 
-Invoke `bmad-review-adversarial-general` with the scopes that survived that check:
+**Scope every reviewer to the diff and named sections — never the repository.** Pass the
+changed files (or the diff itself) plus the *specific* spec/standard sections that apply, by
+path and section number. Never point a reviewer at the project and let it decide what to
+read: a reviewer that loads the corpus pays a full `cache_write` over it before its first
+thought, and then re-reads that prefix on every turn it takes. Scoped this way a reviewer's
+spend measures at roughly **3.4% of a story's tokens**; unscoped it is a multiple of the work
+under review. If a reviewer says it lacks context, name the additional section — do not widen
+it to the repository.
+
+Invoke `bmad-review-adversarial-general` with **the sprint's diff** and the scopes that
+survived that check:
 
 - scope `clean-release` — dead code, commented-out code, debug artifacts, TODO markers,
   and any secrets or credentials in changed files.
@@ -75,7 +85,8 @@ If `l3io-sec-redteam` is installed:
 grep -qE "^[[:space:]]*-[[:space:]]*name:[[:space:]]*l3io-sec[[:space:]]*$" \
   {project-root}/_bmad/_config/manifest.yaml 2>/dev/null && echo "present" || echo "absent"
 ```
-If present: spawn l3io-sec-redteam with the sprint's changed files.
+If present: spawn l3io-sec-redteam with the sprint's **diff** and the threat-relevant
+spec sections by path — not the repository (see the scoping rule in §2–3).
 CRITICAL/HIGH findings: block until resolved. LOW: defer to issues file.
 
 ## 5. UX review (skip if in skip_phases)
@@ -91,7 +102,9 @@ HIGH: fix. LOW/MEDIUM: defer.
 
 ## 6. Sprint architectural drift review (skip if in skip_phases)
 
-If `l3io-arch-review` is installed: invoke Mode C (audit) on this sprint's stories and changed files.
+If `l3io-arch-review` is installed: invoke Mode C (audit) on this sprint's stories and
+**diff**, plus the ADRs and standard sections they bear on, by path — not the repository
+(see §2–3).
 CRITICAL/HIGH/MEDIUM: resolve before marking sprint done. LOW: defer to issues file.
 
 ## 7. Issue triage

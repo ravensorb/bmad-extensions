@@ -78,7 +78,9 @@ Escalation keeps what corroboration is actually for. Once something is wrong, a 
 third perspective sharpen severity, catch what the first missed, and turn a single-source
 MAJOR into a confirmed one before anybody writes an ADR against it.
 
-Each reviewer receives:
+Each reviewer receives **a named, bounded set of inputs — never the repository.** A reviewer
+left to decide what to read loads the corpus and pays a full `cache_write` over it before its
+first thought, then re-reads that prefix on every turn it takes:
 - Paths in `{story_file_paths}` (reads from disk)
 - Epic goal and scope context
 - l3io-pm context preamble (work_type, epic key, sprint plan)

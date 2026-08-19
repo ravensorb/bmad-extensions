@@ -43,9 +43,13 @@ grep -qE "^[[:space:]]*-[[:space:]]*name:[[:space:]]*l3io-arch[[:space:]]*$" \
 ```
 
 If present: invoke l3io-arch-review Mode C (audit — review what was built vs what was planned).
+**Scope it, do not hand it the repository.** A reviewer pointed at the project pays a full
+`cache_write` over the corpus before its first thought, then re-reads that prefix every turn.
 Pass:
 - ADR paths: `{implementation_artifacts}/epic-{epic_nnn}/arch/*.md`
 - Story file paths: `{implementation_artifacts}/epic-{epic_nnn}/*/stories/*.md`
+- The epic's cumulative **diff**, not the working tree
+- Named standard sections the ADRs invoke, by path and section number
 
 Findings:
 - CRITICAL/HIGH/MEDIUM: must be resolved before closure completes. Open fix loop (max `{max_fix_iterations}` iterations).

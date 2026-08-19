@@ -89,9 +89,20 @@ python3 {pm_status} dispatch --state-root {pm_state_root} --event open \
   --session-id {session_id}
 ```
 
+**Scope every reviewer to the diff and named sections — never the repository.** Pass the
+changed files (or the diff itself) plus the *specific* spec/standard sections that apply, by
+path and section number. Never point a reviewer at the project and let it decide what to
+read: a reviewer that loads the corpus pays a full `cache_write` over it before its first
+thought, and then re-reads that prefix on every turn it takes. Scoped this way a reviewer's
+spend measures at roughly **3.4% of a story's tokens**; unscoped it is a multiple of the work
+under review. If a reviewer says it lacks context, name the additional section — do not widen
+it to the repository.
+
 Spawn `bmad-code-review` subagent with:
 - Story file path
-- Files changed by dev subagent
+- **The diff** for the files the dev subagent changed — not the repository, not the
+  directories they sit in
+- Only the standard/spec sections the story's ACs invoke, by path and section number
 - Review against the story's technical ACs — all six dimensions
   (`steps/sprint/step-02-story-prep.md` §2), not only whether the code works
 - **Reused-before-written check.** Flag any non-trivial logic that a maintained library or

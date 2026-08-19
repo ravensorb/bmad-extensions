@@ -41,6 +41,17 @@ If you need a decision you cannot make yourself:
 Waiting is never correct and is never cheap: a blocked wait outlives the prompt
 cache, and the next turn re-creates the entire context prefix at full price.
 
+### Never poll — arm one background wait and stop
+
+When something runs outside your turn — a background command, a long build, a task you
+dispatched — **arm a single wait for it and end your turn.** Do not loop, do not re-check,
+do not "just confirm it's still running". If you cannot arm a wait, end with `BLOCKED`
+naming what you were waiting for.
+
+**Every poll is a full turn, and a turn costs your whole history, not one line.** Cost here
+tracks turns — not tokens-per-turn, and not repository size. Measured evidence:
+`steps/execute/step-05-epic-loop.md` §5.
+
 **This rule reaches a spawned subagent only if you put it there.** A `bmad-*` agent
 loads none of this file. Bind `{agent_contract}` to the four lines below and include
 them verbatim in **every** spawn prompt you issue — that binding is the single source,
@@ -49,6 +60,9 @@ so a step file names it rather than restating it:
 ```
 - You have no inbox. No reply will arrive. If you need a decision you cannot make,
   write it to disk and end with `BLOCKED: <one-line reason>`. Never wait.
+- Never poll. If something runs outside your turn, arm ONE background wait and stop.
+  Every poll is a full turn and a turn re-reads your entire history — a one-line
+  "still running?" costs what the whole conversation costs.
 - Your final line must be exactly one of `DONE — [brief metrics]`,
   `BLOCKED: [one-line reason]`, or `FAILED: [one-line reason]`.
 ```

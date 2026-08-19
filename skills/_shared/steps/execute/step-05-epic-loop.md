@@ -155,6 +155,18 @@ This is deliberately the opposite of "fewer, larger agents to amortise the proje
 reasoning treats the cold read as the dominant cost; it is not. The read is paid once per
 agent, the prefix is paid once per *turn*, and it is the second that runs away.
 
+**The corpus hypothesis was tested and failed.** Deleting 4,415 lines from the project moved
+the token composition not at all, and `cache_read` stayed 75–94% of every story. Repository
+size is not the driver. Turn count is: a 263-turn agent pays for its own history 263 times.
+
+**Polling is the worst form of this, and it is the one that actually happened.** One story
+measured 263 turns of which roughly 130 were one-line status polls, against ~62 turns of
+real implementation — the same implementation count as two sibling stories that cost $4.44
+and $5.52. Polling quadrupled it, and across a single run the habit was worth about $250.
+That is why `{agent_contract}` carries a never-poll clause: a turn conveying one line of new
+information costs exactly what a turn conveying a hundred does, because both re-read
+everything before them.
+
 `{skip_phases}` was bound by `step-01-classify-work.md` §4 from the phase matrix there. Pass it
 through unchanged to every dispatch — do not recompute it.
 

@@ -538,7 +538,13 @@ function checkMetricList() {
 // nothing about whether the content is good — only that adding to it is a decision someone
 // made on purpose.
 const DIGEST_FILE = "skills/_shared/steps/shared/step-00-digest.md";
-const DIGEST_BUDGET = 9600;
+// Raised 9,600 -> 10,400 on 2026-08-19 for the never-poll clause. Deliberate, per this
+// check's own rule: the addition is measured at roughly $250 per run (one story spent ~130
+// of its 263 turns on one-line status polls), which is worth far more than the ~650 B it
+// costs every agent. The supporting evidence was pushed out to
+// steps/execute/step-05-epic-loop.md §5 first, so what remains resident is the operative
+// rule and a citation -- raising the number was the last resort, not the first.
+const DIGEST_BUDGET = 10400;
 
 function checkDigestSize() {
   if (!exists(DIGEST_FILE)) {
