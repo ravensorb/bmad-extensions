@@ -2,6 +2,18 @@
 
 All notable changes to this project will be documented in this file. See [commit-and-tag-version](https://github.com/absolute-version/commit-and-tag-version) for commit guidelines.
 
+## [2.4.3](https://github.com/ravensorb/bmad-extensions/compare/2.4.2...2.4.3) (2026-08-19)
+
+
+### Fixes
+
+* **l3io-pm:** measure the tokens_k scope ratio on fresh tokens only ([76c406f](https://github.com/ravensorb/bmad-extensions/commit/76c406f671e03ba36961ceac9a7bc9d8389c3ead))
+
+
+### CI/CD
+
+* drop the full clone check:version no longer needs ([224d2ca](https://github.com/ravensorb/bmad-extensions/commit/224d2cae4c5c564bb524b0ea17b01c5f918ab8ae))
+
 ## [2.4.2](https://github.com/ravensorb/bmad-extensions/compare/2.1.5...2.4.2) (2026-08-18)
 
 ## [2.1.5](https://github.com/ravensorb/bmad-extensions/compare/2.1.4...2.1.5) (2026-08-18)
