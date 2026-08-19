@@ -2,6 +2,19 @@
 
 All notable changes to this project will be documented in this file. See [commit-and-tag-version](https://github.com/absolute-version/commit-and-tag-version) for commit guidelines.
 
+## [2.4.4](https://github.com/ravensorb/bmad-extensions/compare/2.4.3...2.4.4) (2026-08-19)
+
+
+### Fixes
+
+* **l3io-pm:** require every technical-AC dimension, and add the library check ([0d5f7f6](https://github.com/ravensorb/bmad-extensions/commit/0d5f7f65a94a73e2fdf84119cbe2f95c9234baf4))
+
+
+### Performance
+
+* **l3io-pm:** dispatch one agent per story, and cap the fix loop at 3 ([c00dafb](https://github.com/ravensorb/bmad-extensions/commit/c00dafbef77539ba35fe2e11b17a1fd8505adf90))
+* **l3io-pm:** stop paying twice for one review, and escalate the arch gate ([da51db2](https://github.com/ravensorb/bmad-extensions/commit/da51db2ad6e0c1ab633f4d0274f703f6dbee9292))
+
 ## [2.4.3](https://github.com/ravensorb/bmad-extensions/compare/2.4.2...2.4.3) (2026-08-19)
 
 
