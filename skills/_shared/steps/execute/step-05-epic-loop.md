@@ -135,37 +135,51 @@ For sprint scope (`{exec_scope}=sprint`), filter to `{scope_sprint_key}` only.
 
 Bind `{pending_sprints}` = ordered list of sprint `num` values (e.g. `["01", "02", "03"]`).
 
-## 5. Sprint dispatch loop
+## 5. Sprint dispatch loop — three agent kinds, one story at a time
 
-For each sprint in `{pending_sprints}` (always sequential — no parallel sprints within an epic):
+For each sprint in `{pending_sprints}` (always sequential — no parallel sprints within an epic).
+
+### Why a sprint is not one agent
+
+Spend inside a single agent grows with the square of its turn count, not linearly: every turn
+re-reads the whole accumulated prefix, and that prefix only grows. **Two 200-turn agents cost
+far less than one 400-turn agent doing the same work.** A sprint agent that ran story prep,
+then every story, then every fix round, then closure was the longest-lived session in the
+system and paid that curve at its steepest.
+
+So a sprint is dispatched as **prep, then one agent per story, then closure** — each ending
+when its piece is done. Nothing is lost by splitting: every hand-off in this system is already
+a file on disk, so a fresh agent picks up exactly what the previous one left.
+
+This is deliberately the opposite of "fewer, larger agents to amortise the project read". That
+reasoning treats the cold read as the dominant cost; it is not. The read is paid once per
+agent, the prefix is paid once per *turn*, and it is the second that runs away.
 
 `{skip_phases}` was bound by `step-01-classify-work.md` §4 from the phase matrix there. Pass it
-through unchanged — do not recompute it. Two computations of one variable is what this replaced.
+through unchanged to every dispatch — do not recompute it.
+
+**Pass `{session_id}` down unchanged** to all three kinds. It is the orchestrator's, and every
+subagent stamps its events and dispatch brackets with it. A subagent that generates its own
+splits one run across two ids in `events.jsonl`, so the run can no longer be filtered out of
+the log, and any `check-lock` from inside the sprint path sees the epic as owned by a stranger.
+
+**Bracket every dispatch** with `dispatch --event open` before and `--event close` after,
+same `--agent`/`--epic`/`--sprint`(/`--story`)/`--session-id` identity on both, closed on
+**every** exit path — `DONE`, `BLOCKED` and `FAILED` alike, and before any branch, so an early
+halt cannot skip it. A dispatch left open is not merely a missed close: the next dispatch that
+opens the same identity silently overwrites it in `pm-status.py`'s pending map, and the
+original hang's timestamp is lost. Per-story brackets are also what put each story's spend in
+its own `actual` rather than the parent's `orchestration`
+(`references/metrics-contract.md` §6).
+
+### 5a. Prep the sprint
 
 Compute `{story_keys}` = keys of all stories in this sprint with `status != done`.
 
-**Pass `{session_id}` down unchanged.** It is the orchestrator's, and every subagent stamps
-its events and dispatch brackets with it. A subagent that generates its own — which is what
-happened while the context block omitted the binding and `step-00-activate.md` §7 said to
-generate one — splits a single run across two ids in `events.jsonl`, so the run can no longer
-be filtered out of the log, and any `check-lock` from inside the sprint path sees the epic as
-owned by a stranger.
-
-**Dispatch tracking — always emit the matching close.** Bracket the sprint spawn exactly as
-`steps/sprint/step-03-dev-loop.md` §2 brackets a story spawn, with the same
-`--agent`/`--epic`/`--sprint`/`--session-id` identity on both calls. Without this bracket an
-epic's orchestration has no recorded boundary at all — only story-level dispatches are
-tracked, so a hung sprint subagent is invisible to `report --stall-minutes` and the epic's
-`orchestration` block has nothing to separate it from its sprints' spend
-(`references/metrics-contract.md` §6):
-
 ```bash
 python3 {pm_status} dispatch --state-root {pm_state_root} --event open \
-  --agent l3io-pm-sprint --epic {epic_key} --sprint {sprint_num} \
-  --session-id {session_id}
+  --agent l3io-pm-prep --epic {epic_key} --sprint {sprint_num} --session-id {session_id}
 ```
-
-Spawn headless sprint subagent with context block:
 
 ```
 # l3io-pm execution context [AUTHORITATIVE — read before any step file]
@@ -199,7 +213,90 @@ session_id: {session_id}
 Load and execute in order:
   {skill-root}/steps/shared/step-00-digest.md
   {skill-root}/steps/sprint/step-02-story-prep.md
+
+End with exactly one of:
+  DONE — Stories prepared: N, estimates written: N
+  BLOCKED: [one-line reason]
+  FAILED: [one-line reason]
+```
+
+Close the bracket. On `BLOCKED`/`FAILED`, halt this sprint — the stories are not ready.
+
+### 5b. One agent per story
+
+Order `{story_keys}` so that any story's `depends_on` entries come before it, then dispatch
+**one agent per story, sequentially**. Ordering here is what lets `step-03-dev-loop.md` treat
+a dependency it cannot satisfy as `BLOCKED` rather than re-queueing: with one story per agent
+there is no queue left to reorder.
+
+For each `{story_key}` in that order:
+
+```bash
+python3 {pm_status} dispatch --state-root {pm_state_root} --event open \
+  --agent l3io-pm-story --epic {epic_key} --sprint {sprint_num} --story {story_key} \
+  --session-id {session_id}
+```
+
+```
+# l3io-pm execution context [AUTHORITATIVE — read before any step file]
+work_type: {work_type}
+skip_phases: {skip_phases}
+max_fix_iterations: {max_fix_iterations}
+epic_key: {epic_key}
+epic_nnn: {epic_nnn}
+sprint_root: {implementation_artifacts}/epic-{epic_nnn}/sprint-{sprint_nn}/
+story_keys: [{story_key}]
+sprint_num: {sprint_num}
+execute_skill_root: {skill-root}
+single_epic_phase: {single_epic_phase}
+headless: true
+
+# Inherited activation — as in 5a. Do not re-run sections 1-7.
+communication_language: {communication_language}
+implementation_artifacts: {implementation_artifacts}
+planning_artifacts: {planning_artifacts}
+pm_status: {pm_status}
+pm_state_root: {pm_state_root}
+pm_issues_file: {pm_issues_file}
+pm_calibration_file: {pm_calibration_file}
+model: {model}
+token_rates_json: {token_rates_json}
+runtime: {runtime}
+session_id: {session_id}
+
+You are responsible for EXACTLY ONE story: {story_key}. Develop it, review it, run its
+fix loop, write its completion evidence and actuals, and end. Do not start another story.
+
+Load and execute in order:
+  {skill-root}/steps/shared/step-00-digest.md
   {skill-root}/steps/sprint/step-03-dev-loop.md
+
+End with exactly one of:
+  DONE — Story: {story_key}, fix iterations: N, issues deferred: N
+  BLOCKED: [one-line reason]
+  FAILED: [one-line reason]
+```
+
+Close the bracket, then branch:
+- `DONE` → continue to the next story
+- `BLOCKED` → log it, stop dispatching stories in this sprint, and skip to 5c only if at
+  least one story completed; otherwise halt the epic loop
+- `FAILED` → log it and continue to the next story (one story failing is not the sprint
+  failing); track the count
+
+### 5c. Close the sprint
+
+```bash
+python3 {pm_status} dispatch --state-root {pm_state_root} --event open \
+  --agent l3io-pm-closure --epic {epic_key} --sprint {sprint_num} --session-id {session_id}
+```
+
+Dispatch with the same context block as 5a, but `story_keys: [{story_keys}]` (the full sprint)
+and:
+
+```
+Load and execute in order:
+  {skill-root}/steps/shared/step-00-digest.md
   {skill-root}/steps/sprint/step-04-sprint-closure.md
 
 End with exactly one of:
@@ -208,20 +305,7 @@ End with exactly one of:
   FAILED: [one-line reason]
 ```
 
-On subagent completion, **first** close the dispatch — on every exit path, `DONE`, `BLOCKED`
-and `FAILED` alike, and before the branch below, so an early halt cannot skip it:
-
-```bash
-python3 {pm_status} dispatch --state-root {pm_state_root} --event close \
-  --agent l3io-pm-sprint --epic {epic_key} --sprint {sprint_num} \
-  --session-id {session_id}
-```
-
-A dispatch left open is not merely a missed close: the next sprint that opens the same
-identity silently overwrites it in `pm-status.py`'s pending map, and the original hang's
-timestamp is lost for good.
-
-Then branch:
+Close the bracket, then branch:
 - `DONE` → mark sprint done, continue to next sprint
 - `BLOCKED` → log reason, halt epic loop, output: `BLOCKED: sprint {sprint_num} of {epic_key} — {reason}`
 - `FAILED` → log reason, continue to next sprint (sprint failure is non-fatal at epic level); track count

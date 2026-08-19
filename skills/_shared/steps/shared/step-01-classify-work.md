@@ -75,7 +75,7 @@ For `{work_type}` = CODE or MIXED, `{skip_phases}` is empty unless an installed 
 
 | `{work_type}` | Binding |
 |---|---|
-| CODE, MIXED | `max_fix_iterations` (default 10) |
+| CODE, MIXED | `max_fix_iterations` (default 3) |
 | DOCS, CONFIG | `max_fix_iterations_non_code` (default 3) |
 
 Both come from the resolved `customize.toml` `[workflow]` table. This one integer is the cap for

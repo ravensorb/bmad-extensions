@@ -203,7 +203,7 @@ Stories process in order; a story with `depends_on` waits until each referenced 
 
 Severity routing: **CRITICAL/HIGH** open the fix loop; **MEDIUM** is fixed in the current iteration before done; **LOW** defers to `issues.yaml` without re-development.
 
-`{max_fix_iterations}` is bound at `step-01-classify-work.md` §5 from `customize.toml`: 10 for
+`{max_fix_iterations}` is bound at `step-01-classify-work.md` §5 from `customize.toml`: 3 for
 CODE/MIXED, 3 for DOCS/CONFIG (`max_fix_iterations_non_code`). The DOCS/CONFIG value is currently
 inert here — this fix loop only fires off a code-review finding, and code review itself is
 skipped for DOCS/CONFIG (row above), so the loop never runs for those work types today.
@@ -234,7 +234,7 @@ Closure also regenerates `{implementation_artifacts}/progress-report.md`, and re
 ### Epic closure (step-06)
 
 1. **Retrospective** — reviews every sprint retro for the epic; summarizes velocity, recurring pain points, and up to five learnings
-2. **Architectural drift** — `l3io-arch-review` Mode C over the epic's ADRs and story files. CODE/MIXED only, and only when installed. CRITICAL/HIGH/MEDIUM must resolve before closure, under the `{max_fix_iterations}` cap — 10, since this gate is CODE/MIXED only and never reaches the DOCS/CONFIG value of 3
+2. **Architectural drift** — `l3io-arch-review` Mode C over the epic's ADRs and story files. CODE/MIXED only, and only when installed. CRITICAL/HIGH/MEDIUM must resolve before closure, under the `{max_fix_iterations}` cap — 3
 3. **Issue triage** — re-reviews the epic's deferred Low items for promotion now that full epic context exists
 4. **Closure report** — epic goal and final status, estimate-vs-actual for all five metrics, sprint velocity, learnings, outstanding issues, ADRs produced
 

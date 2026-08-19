@@ -202,13 +202,13 @@ matrix is correct.
 | Sprint architectural drift | run | skip | run | run |
 | Issue triage | run | run | run | run |
 
-Severity routing is uniform across phases: **CRITICAL/HIGH** block closure and open a fix loop (capped at `{max_fix_iterations}` — 10 for CODE/MIXED, 3 for DOCS/CONFIG); **MEDIUM** is fixed in place before the sprint is marked done; **LOW** auto-defers to `issues.yaml` via `pm-status.py append-issue` — a `BL-` item, never a new story, and never a per-item prompt.
+Severity routing is uniform across phases: **CRITICAL/HIGH** block closure and open a fix loop (capped at `{max_fix_iterations}` — 3); **MEDIUM** is fixed in place before the sprint is marked done; **LOW** auto-defers to `issues.yaml` via `pm-status.py append-issue` — a `BL-` item, never a new story, and never a per-item prompt.
 
 ### Epic closure
 
 Retrospective across all sprint retros → architectural drift audit (`l3io-arch-review` Mode C, CODE/MIXED only) → issue triage, which re-reviews the epic's deferred Low items for promotion now that full epic context exists → closure report with the estimate-vs-actual table for all five metrics.
 
-CRITICAL/HIGH/MEDIUM drift findings must be resolved before closure completes, under the same `{max_fix_iterations}` fix-loop cap (default 10; see the note on the DOCS/CONFIG value in `CLAUDE.md`).
+CRITICAL/HIGH/MEDIUM drift findings must be resolved before closure completes, under the same `{max_fix_iterations}` fix-loop cap (default 3).
 
 ## Metrics Contract
 

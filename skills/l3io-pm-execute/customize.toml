@@ -7,7 +7,7 @@ persistent_facts         = [
 ]
 
 # Fix loops
-max_fix_iterations          = 10   # CODE and MIXED work
+max_fix_iterations          = 3    # CODE and MIXED work — each iteration is a turn multiplier
 max_fix_iterations_non_code = 3    # DOCS and CONFIG work
 
 # Concurrency

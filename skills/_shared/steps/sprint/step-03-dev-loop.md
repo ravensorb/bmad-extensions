@@ -5,18 +5,31 @@ Communicate all responses in `{communication_language}`.
 Execute each story in the sprint: develop, code review, iterate on fixes. Write actuals and
 completion evidence when done.
 
-## 1. Story iteration order
+## 1. Story scope and dependencies
 
-Process stories from `{story_keys}` in order. Stories with `depends_on` entries must wait until
-all referenced story keys are `status: done` (check each referenced story's own node file —
-`python3 {pm_status} show --state-root {pm_state_root} --epic {epic_key} --sprint {sprint_num}`
-lists every story in this sprint with its status — before starting each).
+`{story_keys}` normally holds **exactly one** story: `step-05-epic-loop.md` §5b dispatches one
+agent per story so that no session accumulates the turn count of a whole sprint. Process every
+key it does hold, in order, and then end — never look for more work.
 
-If a dependency story is not done and is not in this sprint's `{story_keys}`, log:
+Before starting a story, check that each of its `depends_on` entries is `status: done`:
+
+```bash
+python3 {pm_status} show --state-root {pm_state_root} --epic {epic_key} --sprint {sprint_num}
 ```
-⚠️  Story {story_key} depends on {dep_key} which is not done — skipping until dep resolves.
+
+lists every story in this sprint with its status.
+
+If a dependency is not done, **end with `BLOCKED`** — do not wait and do not re-queue:
+
 ```
-Move the blocked story to the end of the queue.
+BLOCKED: story {story_key} depends on {dep_key}, which is not done.
+```
+
+Re-queueing was the right move when one agent held the whole sprint and could come back to a
+story later. With one story per agent there is no queue to reorder, and nothing will change
+inside this session — the orchestrator already dispatches in dependency order, so a dependency
+that is still open means the ordering or the graph is wrong, and that is worth surfacing rather
+than working around.
 
 ## 2. For each story: develop
 
@@ -110,7 +123,7 @@ python3 {pm_status} dispatch --state-root {pm_state_root} --event close \
 Increment fix counter.
 
 **Fix loop cap:** `{max_fix_iterations}` iterations per story (bound at
-`step-01-classify-work.md` §5 — 10 for CODE/MIXED, 3 for DOCS/CONFIG). If findings persist
+`step-01-classify-work.md` §5 — 3 for every work type). If findings persist
 after `{max_fix_iterations}` iterations:
 ```
 FAILED: story {story_key} — {N} critical/high findings unresolved after {max_fix_iterations} fix iterations.
