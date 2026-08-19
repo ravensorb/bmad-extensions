@@ -37,18 +37,36 @@ Spawn `bmad-retrospective` (or inline if not installed):
 - Produce `retrospective_summary` (2–3 sentences) and `carry_over_count`
 - Write report to `{sprint_root}/closure/retrospective.md`
 
-## 2. Clean release review (skip if in skip_phases)
+## 2–3. Clean release review and adversarial analysis
 
-Invoke `bmad-review-adversarial-general` with scope `clean-release`:
-- Check for dead code, commented-out code, debug artifacts, TODO markers
-- Check for secrets or credentials in changed files
-- CRITICAL/HIGH: fix immediately (re-invoke dev subagent). MEDIUM/LOW: defer to issues.
+These are two phases with independent gating, run by **one agent** whenever both are in
+scope. They are the same reviewer (`bmad-review-adversarial-general`) over the same changed
+files, and a reviewer's cost is dominated by reading the project — inviting it twice paid
+that read twice for one pass's worth of context.
 
-## 3. Adversarial analysis (skip if in skip_phases)
+**Check each phase's gating separately; they differ.** Per the matrix in
+`steps/shared/step-01-classify-work.md` §4, CONFIG work runs clean-release but skips
+adversarial, so this is not an unconditional merge — collapsing them would silently extend
+adversarial coverage to CONFIG:
 
-Invoke `bmad-review-adversarial-general` with scope `adversarial`:
-- Threat-model the sprint's changes
-- CRITICAL/HIGH: block closure, fix loop (max `{max_fix_iterations}` iterations). MEDIUM: fix in place. LOW: defer.
+| In `{skip_phases}` | Do this |
+|---|---|
+| neither | **one** invocation, both scopes (CODE and MIXED) |
+| adversarial only | one invocation, `clean-release` scope alone (CONFIG) |
+| both | run nothing (DOCS) |
+
+Invoke `bmad-review-adversarial-general` with the scopes that survived that check:
+
+- scope `clean-release` — dead code, commented-out code, debug artifacts, TODO markers,
+  and any secrets or credentials in changed files.
+- scope `adversarial` — threat-model the sprint's changes.
+
+Return findings **tagged by which scope raised them**, so triage stays per phase and the
+closure report can still say which phases ran:
+
+- `clean-release` CRITICAL/HIGH: fix immediately (re-invoke dev subagent). MEDIUM/LOW: defer to issues.
+- `adversarial` CRITICAL/HIGH: block closure, fix loop (max `{max_fix_iterations}` iterations).
+  MEDIUM: fix in place. LOW: defer.
 
 ## 4. Red team (skip if in skip_phases)
 

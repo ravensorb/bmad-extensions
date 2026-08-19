@@ -62,9 +62,23 @@ This gate is epic-level work that belongs to no sprint and is not a closure phas
 bracketed spend is recorded in the **epic's `orchestration` block**, not in any child's
 `actual` (`references/metrics-contract.md` §6).
 
-## 4. Spawn reviewers in parallel
+## 4. Review, escalating only on signal
 
-For each reviewer in `{active_reviewers}`, spawn a subagent in parallel. Each receives:
+**Run `l3io-arch-review` first, alone.** Only if it reports a BLOCKER or MAJOR do the other
+detected reviewers in `{active_reviewers}` run, in parallel, on the same inputs.
+
+This is not a weakening of the gate, and §5's table is why. A BLOCKER from any reviewer
+blocks. A MAJOR from a single reviewer is "flagged (single-source)" and **still blocks**. So
+a second and third reviewer cannot change a clean verdict into a blocking one — the only
+thing corroboration alters is a label. Running all three every time bought that label at the
+price of two more full-epic reads, on the path that is taken most often: the one where the
+design is sound.
+
+Escalation keeps what corroboration is actually for. Once something is wrong, a second and
+third perspective sharpen severity, catch what the first missed, and turn a single-source
+MAJOR into a confirmed one before anybody writes an ADR against it.
+
+Each reviewer receives:
 - Paths in `{story_file_paths}` (reads from disk)
 - Epic goal and scope context
 - l3io-pm context preamble (work_type, epic key, sprint plan)
@@ -74,6 +88,9 @@ For each reviewer in `{active_reviewers}`, spawn a subagent in parallel. Each re
   - superpowers: broad software architecture principles, independent of either framework
 
 Each subagent returns a list of findings in format: `{severity}: {finding_text}`.
+
+Bind `{reviewers_run}` = the reviewers that actually ran. The closure report records it, so a
+clean gate is distinguishable from a gate that was never widened.
 
 ## 5. Consolidate findings (§9.3 rules)
 
@@ -88,6 +105,11 @@ Apply these rules to merge findings across reviewer outputs:
 | MINOR from 1 reviewer | → Auto-deferred to issues file. Not a gate finding. |
 
 Annotate each consolidated finding with its source reviewer(s).
+
+When only `l3io-arch-review` ran — the clean path — every finding is single-source by
+construction, and the rows above still resolve: it raised no BLOCKER and no MAJOR, or §4
+would have escalated before reaching here. Any MINORs it found auto-defer exactly as they
+would have.
 
 ## 6. Gate outcome
 
