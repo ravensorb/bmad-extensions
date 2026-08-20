@@ -1,7 +1,7 @@
 code: l3io-pm
 name: "LiquidLogicLabs PM"
 description: "Validates readiness, elaborates stories, builds the dependency graph, and produces an executable phased plan for l3io-pm projects."
-module_version: 2.4.6
+module_version: 2.4.7
 default_selected: false
 module_greeting: >
   LiquidLogicLabs PM module is configured!

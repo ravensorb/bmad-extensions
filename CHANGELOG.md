@@ -2,6 +2,24 @@
 
 All notable changes to this project will be documented in this file. See [commit-and-tag-version](https://github.com/absolute-version/commit-and-tag-version) for commit guidelines.
 
+## [2.4.7](https://github.com/ravensorb/bmad-extensions/compare/2.4.6...2.4.7) (2026-08-20)
+
+
+### Fixes
+
+* **l3io-pm:** scope the usage reader to a node, and find subagent transcripts ([a8edd85](https://github.com/ravensorb/bmad-extensions/commit/a8edd8560f5cd9a35882c73bcbe71f6c0edd77d9))
+* **l3io-pm:** type fix_iterations, and add calibration redrive to repair samples ([b497bf3](https://github.com/ravensorb/bmad-extensions/commit/b497bf31d24a5ec84dbe97d41ccca814cb0b1bb4))
+
+
+### Documentation
+
+* describe the run as it is now, and add the visual walk-through ([8e55c98](https://github.com/ravensorb/bmad-extensions/commit/8e55c988c5b28e43851052b803dc296433c41390))
+
+
+### Maintenance
+
+* remove internal identifiers and figures from the published package ([aa68588](https://github.com/ravensorb/bmad-extensions/commit/aa6858898d957d27be9fd089db59e4342c55fc87))
+
 ## [2.4.6](https://github.com/ravensorb/bmad-extensions/compare/2.4.5...2.4.6) (2026-08-19)
 
 
