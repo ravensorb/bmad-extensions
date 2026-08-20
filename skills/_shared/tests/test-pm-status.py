@@ -4572,8 +4572,13 @@ class TestTranscriptUsage(Base):
         # so a transcript without one is refused (see TestTranscriptIdentity).
         rec = self._asst("m", 1000, 2000, 3000, 4000)
         rec["sessionId"] = "SESS-1"
+        rec["timestamp"] = "2026-08-01T12:00:00.000Z"
         p = self._write("t.jsonl", [rec])
+        # Scoped, because the flags are withheld on an unscoped read: a session total is
+        # not a node's actual (see TestTranscriptScoping).
         code, out = self.run_main(["usage", p, "--claude-session", "SESS-1",
+                                   "--since", "2026-08-01T11:00:00.000Z",
+                                   "--until", "2026-08-01T13:00:00.000Z",
                                    "--model", "claude-opus-5"])
         self.assertEqual(code, 0, out)
         self.assertIn("--tokens-input 1.000", out)
@@ -4668,6 +4673,130 @@ class TestTranscriptIdentity(Base):
         paths, sid = pm.resolve_session_transcript("definitely-not-a-real-session-id")
         self.assertEqual(paths, [])
         self.assertEqual(sid, "definitely-not-a-real-session-id")
+
+
+class TestTranscriptScoping(Base):
+    """Identity is not scope. Both defects found in 2.4.6's reader.
+
+    The reader resolved the right transcript and verified it, then summed all of it.
+    A session file spans everything that session ever did: one observed file covered a
+    whole epic lineage and totalled ~66x the sprint being closed, which as a node actual
+    would have poisoned calibration for the rest of the epic. Separately, the no-argument
+    path reported sidechain=0 on every run, because subagent turns are not in the parent
+    file at all -- they live in <session-id>/subagents/agent-*.jsonl.
+    """
+
+    def _rec(self, mid, ts, out=10, sid="S1", side=False):
+        return {"type": "assistant", "sessionId": sid, "isSidechain": side,
+                "timestamp": ts,
+                "message": {"id": mid, "usage": {
+                    "input_tokens": 0, "output_tokens": out,
+                    "cache_creation_input_tokens": 0, "cache_read_input_tokens": 0}}}
+
+    def _write(self, name, recs):
+        p = os.path.join(self.d, name)
+        os.makedirs(os.path.dirname(p), exist_ok=True) if os.path.dirname(name) else None
+        with open(p, "w", encoding="utf-8") as fh:
+            for r in recs:
+                fh.write(json.dumps(r) + "\n")
+        return p
+
+    def test_window_excludes_records_outside_the_bracket(self):
+        p = self._write("t.jsonl", [
+            self._rec("before", "2026-08-01T10:00:00.000Z", out=1000),
+            self._rec("inside", "2026-08-01T12:00:00.000Z", out=7),
+            self._rec("after",  "2026-08-01T14:00:00.000Z", out=1000)])
+        res = pm.read_transcript_usage(
+            p, since=pm._parse_iso("2026-08-01T11:00:00.000Z"),
+            until=pm._parse_iso("2026-08-01T13:00:00.000Z"))
+        self.assertEqual(res["tokens"]["output"], 7)
+        self.assertEqual(res["outside_window"], 2)
+        self.assertTrue(res["windowed"])
+
+    def test_unwindowed_read_sums_the_whole_session(self):
+        """The defect, reproduced: without a window the total is the session, not the node."""
+        p = self._write("t.jsonl", [
+            self._rec("a", "2026-08-01T10:00:00.000Z", out=1000),
+            self._rec("b", "2026-08-01T12:00:00.000Z", out=7)])
+        res = pm.read_transcript_usage(p)
+        self.assertEqual(res["tokens"]["output"], 1007)
+        self.assertFalse(res["windowed"])
+
+    def test_dispatch_window_uses_first_open_and_last_close(self):
+        """A story is re-dispatched per fix iteration; all of it is that story's spend."""
+        root = os.path.join(self.d, "state")
+        os.makedirs(root, exist_ok=True)
+        with open(os.path.join(root, "events.jsonl"), "w", encoding="utf-8") as fh:
+            for ev, ts in [("dispatch_open", "2026-08-01T10:00:00+00:00"),
+                           ("dispatch_close", "2026-08-01T11:00:00+00:00"),
+                           ("dispatch_open", "2026-08-01T12:00:00+00:00"),
+                           ("dispatch_close", "2026-08-01T13:00:00+00:00")]:
+                fh.write(json.dumps({"ts": ts, "event": ev, "agent": "bmad-dev-story",
+                                     "epic": "E001", "story": "E001-S01-001"}) + "\n")
+            fh.write(json.dumps({"ts": "2026-08-01T20:00:00+00:00", "event": "dispatch_open",
+                                 "agent": "bmad-dev-story", "epic": "E001",
+                                 "story": "E001-S01-999"}) + "\n")
+        a, b = pm.dispatch_window(root, story="E001-S01-001")
+        self.assertEqual(a, pm._parse_iso("2026-08-01T10:00:00+00:00"))
+        self.assertEqual(b, pm._parse_iso("2026-08-01T13:00:00+00:00"),
+                         "last close, so fix iterations are included")
+
+    def test_dispatch_window_ignores_other_nodes(self):
+        root = os.path.join(self.d, "state")
+        os.makedirs(root, exist_ok=True)
+        with open(os.path.join(root, "events.jsonl"), "w", encoding="utf-8") as fh:
+            fh.write(json.dumps({"ts": "2026-08-01T10:00:00+00:00", "event": "dispatch_open",
+                                 "agent": "x", "story": "OTHER"}) + "\n")
+        self.assertEqual(pm.dispatch_window(root, story="MINE"), (None, None))
+
+    def test_cli_refuses_a_node_with_no_dispatch_bracket(self):
+        root = os.path.join(self.d, "state")
+        os.makedirs(root, exist_ok=True)
+        open(os.path.join(root, "events.jsonl"), "w").close()
+        p = self._write("t.jsonl", [self._rec("m", "2026-08-01T10:00:00.000Z")])
+        buf = io.StringIO()
+        with redirect_stderr(buf):
+            code, _ = self.run_main(["usage", p, "--claude-session", "S1",
+                                     "--story", "E001-S01-001", "--state-root", root])
+        self.assertEqual(code, 2)
+        self.assertIn("no dispatch bracket", buf.getvalue())
+
+    def test_cli_withholds_set_actual_flags_when_unscoped(self):
+        """The pasteable flags are what gets misused, so they are not offered unscoped."""
+        p = self._write("t.jsonl", [self._rec("m", "2026-08-01T10:00:00.000Z")])
+        code, out = self.run_main(["usage", p, "--claude-session", "S1"])
+        self.assertEqual(code, 0, out)
+        self.assertIn("UNSCOPED", out)
+        self.assertIn("withheld", out)
+        self.assertNotIn("--tokens-input", out)
+
+    def test_cli_emits_flags_once_scoped(self):
+        p = self._write("t.jsonl", [self._rec("m", "2026-08-01T12:00:00.000Z", out=42)])
+        code, out = self.run_main(["usage", p, "--claude-session", "S1",
+                                   "--since", "2026-08-01T11:00:00.000Z",
+                                   "--until", "2026-08-01T13:00:00.000Z"])
+        self.assertEqual(code, 0, out)
+        self.assertIn("--tokens-output 0.042", out)
+        self.assertNotIn("UNSCOPED", out)
+
+    def test_resolver_includes_the_subagents_directory(self):
+        """Subagent turns are not in the parent file — sidechain=0 was the symptom."""
+        root = os.path.join(self.d, "projects")
+        proj = os.path.join(root, "-some-project")
+        subs = os.path.join(proj, "SESS", "subagents")
+        os.makedirs(subs)
+        open(os.path.join(proj, "SESS.jsonl"), "w").close()
+        open(os.path.join(subs, "agent-aaa.jsonl"), "w").close()
+        open(os.path.join(subs, "agent-bbb.jsonl"), "w").close()
+        real = os.path.expanduser
+        try:
+            os.path.expanduser = lambda p: root if p == "~/.claude/projects" else real(p)
+            paths, sid = pm.resolve_session_transcript("SESS")
+        finally:
+            os.path.expanduser = real
+        self.assertEqual(sid, "SESS")
+        self.assertEqual(len(paths), 3, paths)
+        self.assertEqual(sum(1 for p in paths if "subagents" in p), 2)
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)

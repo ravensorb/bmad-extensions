@@ -308,9 +308,30 @@ case, after stripping. An **absent** field is not the same as `N/A` — absence 
 ### Do not read the usage fields by hand — run `usage`
 
 ```bash
-python3 {pm_status} usage [--model {model}]          # resolves THIS session's transcript
-python3 {pm_status} usage <file|dir>... [--model {model}]   # or name it explicitly
+# a story's own spend — the window comes from its dispatch bracket
+python3 {pm_status} usage --state-root {pm_state_root} --story {story_key} --model {model}
+
+# a sprint's, an epic's, or an explicit window
+python3 {pm_status} usage --state-root {pm_state_root} --epic {epic_key} --sprint {sprint_num} ...
+python3 {pm_status} usage --since ISO --until ISO ...
 ```
+
+**Identity is not scope, and both are required.** Verifying that a transcript is yours says
+nothing about which part of it belongs to the node being closed. A session transcript spans
+everything that session ever did — one observed file covered a whole epic lineage and its bare
+total was ~66× the sprint actually being closed. Recording that as a node's actual would poison
+calibration for the rest of the epic, and it would look plausible doing it.
+
+So the window comes from the node's own `dispatch_open`/`dispatch_close` pair (§6), first open
+to last close so a story's fix iterations are included. Unscoped, `usage` still prints the total
+— it is useful for a whole-session sanity check — but labels it and **withholds the `--tokens-*`
+flags**, since those are what gets pasted into `set-actual`. A node with no bracket in
+`events.jsonl` is refused outright: there is nothing to cut the session down to.
+
+Subagent turns are **not** in the parent transcript. They live in
+`<session-id>/subagents/agent-*.jsonl`, carry the same `sessionId`, and are resolved
+automatically — reading only the parent file reported `sidechain=0` on every run and omitted
+every dispatched agent's spend.
 
 It prints the four class totals and the exact `--tokens-*` flags to paste into `set-actual`.
 

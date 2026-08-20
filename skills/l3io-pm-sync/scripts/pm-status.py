@@ -2967,6 +2967,15 @@ def resolve_session_transcript(session_id: str = "") -> tuple:
         fp = os.path.join(root, d, f"{session_id}.jsonl")
         if os.path.exists(fp):
             hits.append(fp)
+        # Subagent turns are NOT in the parent file -- no record anywhere carries
+        # isSidechain in the main transcript. They live in a sibling directory named
+        # for the session, and they carry the SAME sessionId, so identity still
+        # verifies. Resolving only the .jsonl reported sidechain=0 and silently
+        # omitted every dispatched agent's spend.
+        sub = os.path.join(root, d, session_id, "subagents")
+        if os.path.isdir(sub):
+            hits.extend(os.path.join(sub, n) for n in sorted(os.listdir(sub))
+                        if n.endswith(".jsonl"))
     return hits, session_id
 
 
@@ -2990,7 +2999,7 @@ def transcript_sessions(path: str) -> set:
     return out
 
 
-def read_transcript_usage(paths) -> dict:
+def read_transcript_usage(paths, since=None, until=None) -> dict:
     """Sum a session transcript's real token usage, by class. THE executable form of
     "read the usage fields".
 
@@ -3030,7 +3039,7 @@ def read_transcript_usage(paths) -> dict:
             files.append(entry)
 
     totals = {c: 0 for c in TOKEN_CLASSES}
-    seen, records, sidechain = set(), 0, 0
+    seen, records, sidechain, outside, undated = set(), 0, 0, 0, 0
     for fp in files:
         try:
             fh = open(fp, "r", encoding="utf-8")
@@ -3063,6 +3072,20 @@ def read_transcript_usage(paths) -> dict:
                 if key in seen:
                     continue
                 seen.add(key)
+                # A session transcript spans everything that session ever did. One
+                # observed file covered a whole epic lineage: its bare total was 330.5M
+                # tokens, ~66x the sprint actually being closed, and recording that as a
+                # node's actual would have poisoned calibration for the rest of the epic.
+                # A window is how a node's own span is cut out of it.
+                if since is not None or until is not None:
+                    when = _parse_iso(rec.get("timestamp"))
+                    if when is None:
+                        undated += 1
+                        continue
+                    if (since is not None and when < since) or \
+                       (until is not None and when > until):
+                        outside += 1
+                        continue
                 if rec.get("isSidechain"):
                     sidechain += 1
                 totals["input"] += _num_or_none(usage.get("input_tokens")) or 0
@@ -3072,7 +3095,59 @@ def read_transcript_usage(paths) -> dict:
                 totals["cache_read"] += _num_or_none(usage.get("cache_read_input_tokens")) or 0
 
     return {"tokens": totals, "files": len(files), "records": records,
-            "unique_messages": len(seen), "sidechain_messages": sidechain}
+            "unique_messages": len(seen), "sidechain_messages": sidechain,
+            "outside_window": outside, "undated_skipped": undated,
+            "windowed": since is not None or until is not None}
+
+
+def dispatch_window(state_root: str, agent: str = "", epic: str = "",
+                    sprint: str = "", story: str = ""):
+    """(open_ts, close_ts) for a node's dispatch bracket. (None, None) if unbracketed.
+
+    This is what makes a node's actual measurable at all. A session transcript records
+    everything that session ever did -- one observed file spanned a whole epic lineage --
+    so "the transcript" is not the same question as "this story's spend". The
+    dispatch_open/dispatch_close pair already marks exactly that boundary for every spawn
+    (metrics-contract.md §6); this reads it back so the token count can be cut to it.
+
+    Matches on the keys given and ignores those left empty, so a sprint-level query does
+    not have to know its stories. Uses the FIRST open and the LAST close, because a story
+    is re-dispatched on every fix iteration and all of it is that story's spend.
+    """
+    path = events_path(state_root)
+    if not os.path.exists(path):
+        return None, None
+    want = {"agent": agent, "epic": epic, "sprint": sprint, "story": story}
+    want = {k: v for k, v in want.items() if v}
+    first_open = last_close = None
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            for line in f:
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    rec = json.loads(line)
+                except ValueError:
+                    continue
+                if not isinstance(rec, dict):
+                    continue
+                if rec.get("event") not in ("dispatch_open", "dispatch_close"):
+                    continue
+                if any(str(rec.get(k, "")) != v for k, v in want.items()):
+                    continue
+                when = _parse_iso(rec.get("ts"))
+                if when is None:
+                    continue
+                if rec["event"] == "dispatch_open":
+                    if first_open is None or when < first_open:
+                        first_open = when
+                else:
+                    if last_close is None or when > last_close:
+                        last_close = when
+    except OSError as e:
+        sys.stderr.write(f"pm-status.py: warning — could not read event log: {e}\n")
+    return first_open, last_close
 
 
 def cmd_usage(args) -> int:
@@ -3136,7 +3211,28 @@ def cmd_usage(args) -> int:
                              "  to override deliberately.\n")
             return 2
 
-    res = read_transcript_usage(paths)
+    since = _parse_iso(args.since) if args.since else None
+    until = _parse_iso(args.until) if args.until else None
+    scope_src = "explicit --since/--until" if (since or until) else ""
+    node_keys = {k: getattr(args, k, "") or "" for k in ("agent", "epic", "sprint", "story")}
+    if not (since or until) and any(node_keys.values()):
+        if not args.state_root:
+            _die_usage("--state-root is required to derive a window from a node's dispatch "
+                       "bracket (or pass --since/--until yourself)")
+        since, until = dispatch_window(args.state_root, **node_keys)
+        named = " ".join(f"{k}={v}" for k, v in node_keys.items() if v)
+        if since is None and until is None:
+            sys.stderr.write(
+                f"pm-status.py: no dispatch bracket found for {named} in events.jsonl —\n"
+                "  refusing to report an unscoped total for a node. A session transcript spans\n"
+                "  everything that session did; without the bracket there is nothing to cut it\n"
+                "  to. Bracket the spawn (metrics-contract.md §6) or pass --since/--until.\n")
+            return 2
+        scope_src = f"dispatch bracket for {named}"
+
+    res = read_transcript_usage(paths, since=since, until=until)
+    res["scope"] = scope_src
+    res["since"], res["until"] = since, until
     if not res["files"]:
         sys.stderr.write("pm-status.py: no .jsonl transcript found at the given path(s)\n")
         return 3
@@ -3157,6 +3253,9 @@ def cmd_usage(args) -> int:
 
     k = {c: t[c] / 1000.0 for c in TOKEN_CLASSES}
     sys.stdout.write(f"session {res['session']} ({res['source']})\n")
+    if res.get("scope"):
+        sys.stdout.write(f"scope   {res['scope']}\n")
+        sys.stdout.write(f"        {res['since']} .. {res['until']}\n")
     for fp in res["paths"]:
         sys.stdout.write(f"  {fp}\n")
     sys.stdout.write(
@@ -3168,6 +3267,16 @@ def cmd_usage(args) -> int:
     if res["sidechain_messages"] == 0 and res["files"] == 1:
         sys.stdout.write("  note: no subagent (sidechain) turns seen in this file — if this "
                          "run dispatched subagents, pass their transcripts too\n")
+    if res.get("windowed"):
+        sys.stdout.write(f"  excluded {res['outside_window']} message(s) outside the window"
+                         + (f", {res['undated_skipped']} undated\n" if res["undated_skipped"]
+                            else "\n"))
+    else:
+        sys.stdout.write(
+            "  ** UNSCOPED — this is the WHOLE SESSION, not one node. A session transcript\n"
+            "     spans every story it ever ran; one observed file totalled ~66x the sprint\n"
+            "     being closed. Do NOT pass this to set-actual. Scope it with --story/--sprint\n"
+            "     /--epic (+ --state-root) or --since/--until. **\n")
     for c in TOKEN_CLASSES:
         sys.stdout.write(f"  {c:<12} {t[c]:>12,}  ({k[c]:.1f}k)\n")
     sys.stdout.write(f"  {'TOTAL':<12} {total:>12,}  ({total / 1000.0:.1f}k)\n\n")
@@ -3177,6 +3286,10 @@ def cmd_usage(args) -> int:
                              f"USD at {args.model} rates\n\n")
         except KeyError as e:
             _die_usage(e.args[0])
+    if not res.get("windowed"):
+        sys.stdout.write("set-actual flags withheld: an unscoped session total is not a "
+                         "node's actual.\n")
+        return 0
     sys.stdout.write("set-actual flags:\n  " + " ".join(
         f"--tokens-{c.replace('_', '-')} {k[c]:.3f}" for c in TOKEN_CLASSES) + "\n")
     return 0
@@ -4044,6 +4157,13 @@ def build_parser() -> argparse.ArgumentParser:
     up.add_argument("--claude-session", dest="claude_session", default="",
                     help="the Claude session id the transcript must belong to (NOT the l3io "
                          "run --session-id); defaults to $" + CLAUDE_SESSION_ENV)
+    up.add_argument("--state-root", default="", help="state root, to read events.jsonl")
+    up.add_argument("--agent", default="", help="scope to this agent's dispatch bracket")
+    up.add_argument("--epic", default="", help="scope to this epic")
+    up.add_argument("--sprint", default="", help="scope to this sprint")
+    up.add_argument("--story", default="", help="scope to this story")
+    up.add_argument("--since", default="", help="ISO timestamp lower bound")
+    up.add_argument("--until", default="", help="ISO timestamp upper bound")
     up.add_argument("--allow-unidentified", action="store_true",
                     help="sum a file that cannot be confirmed as this session's transcript")
     up.add_argument("--model", default="", help="also price the total at this model's rates")
