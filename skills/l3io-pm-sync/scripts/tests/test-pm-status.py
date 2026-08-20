@@ -4798,5 +4798,123 @@ class TestTranscriptScoping(Base):
         self.assertEqual(len(paths), 3, paths)
         self.assertEqual(sum(1 for p in paths if "subagents" in p), 2)
 
+
+class TestFixIterationsTyping(Base):
+    """fix_iterations stored as text broke the scope-versus-fix split silently.
+
+    set-field takes --value as text and wrote it verbatim, so the field landed quoted.
+    The provenance test then depended on that text parsing as an int: '0' happened to
+    work, '0.0' raised ValueError and lost the whole sample, and any non-numeric text --
+    an unsubstituted placeholder, an empty string -- read as provenance=backout on a
+    story that needed no rework. That divides the scope ratio by a 1.25 fix factor it
+    never incurred, and leaves the `clean` cohort empty so `fix` can never activate.
+    """
+
+    def test_iter_count_accepts_every_shape_that_means_zero(self):
+        for v in (0, "0", 0.0, "0.0", "00", " 0 "):
+            self.assertEqual(pm._iter_count(v), 0, f"{v!r} means zero iterations")
+
+    def test_iter_count_rejects_what_is_not_a_count(self):
+        for v in ("{fix_iterations}", "", None, "none", -1, 1.5, True):
+            self.assertIsNone(pm._iter_count(v), f"{v!r} is not an iteration count")
+
+    def test_float_string_no_longer_loses_the_sample(self):
+        """'0.0' raised ValueError inside derive_story_sample and aborted it entirely."""
+        node = {"classification": "standard",
+                "estimate": {"fix_factor": 1.25, "scope_ratios": {"man_hours": 1.0},
+                             "man_hours": 8.75},
+                "actual": {"man_hours": 9.0},
+                "completion_evidence": {"fix_iterations": "0.0"}}
+        sample = pm.derive_story_sample(node)
+        self.assertEqual(sample["provenance"], "exact")
+        self.assertEqual(sample["fix_iterations"], 0)
+
+
+class TestSetFieldTyping(TestLayoutResolution):
+    def run_main(self, argv):
+        buf = io.StringIO()
+        try:
+            with redirect_stdout(buf):
+                code = pm.main(argv)
+        except SystemExit as e:
+            code = e.code if isinstance(e.code, int) else 1
+        return code, buf.getvalue()
+
+    def test_set_field_stores_fix_iterations_as_a_number(self):
+        code, out = self.run_main(["set-field", "--state-root", self.root,
+                                   "--story", "E001-S01-003",
+                                   "--field", "completion_evidence.fix_iterations",
+                                   "--value", "0"])
+        self.assertEqual(code, 0, out)
+        _, node = pm.load_node(pm.story_file(self.root, "E001-S01-003"))
+        v = node["completion_evidence"]["fix_iterations"]
+        self.assertIsInstance(v, int, f"stored as {type(v).__name__}: {v!r}")
+        self.assertEqual(v, 0)
+
+    def test_set_field_refuses_a_non_numeric_fix_iterations(self):
+        """An unsubstituted template placeholder is the realistic way this arrives."""
+        buf = io.StringIO()
+        with redirect_stderr(buf):
+            code, _ = self.run_main(["set-field", "--state-root", self.root,
+                                     "--story", "E001-S01-003",
+                                     "--field", "completion_evidence.fix_iterations",
+                                     "--value", "{fix_iterations}"])
+        self.assertEqual(code, 2)
+        self.assertIn("non-negative whole number", buf.getvalue())
+
+    def test_set_field_stores_tests_passing_as_a_bool(self):
+        self.run_main(["set-field", "--state-root", self.root, "--story", "E001-S01-003",
+                       "--field", "completion_evidence.tests_passing", "--value", "true"])
+        _, node = pm.load_node(pm.story_file(self.root, "E001-S01-003"))
+        self.assertIs(node["completion_evidence"]["tests_passing"], True)
+
+
+class TestCalibrationRedrive(TestLayoutResolution):
+    def _close_story(self, iters):
+        p = pm.story_file(self.root, "E001-S01-003")
+        y, node = pm.load_node(p)
+        node["classification"] = "standard"
+        node["estimate"] = {"fix_factor": 1.25, "scope_ratios": {"man_hours": 1.0},
+                            "man_hours": 8.75}
+        node["actual"] = {"man_hours": 9.0}
+        node["completion_evidence"] = {"fix_iterations": iters}
+        pm.save_node(y, node, p)
+
+    def test_redrive_repairs_a_sample_poisoned_by_the_string_bug(self):
+        # A node closed under the bug: text that does not parse, read as backout.
+        self._close_story("{fix_iterations}")
+        poisoned = pm.derive_story_sample(pm.load_node(pm.story_file(self.root, "E001-S01-003"))[1])
+        self.assertEqual(poisoned["provenance"], "backout", "premise: the bug's reading")
+
+        # The node is corrected (as a run would now write it), then redriven.
+        self._close_story(0)
+        rep = pm.redrive_story_samples(self.root)
+        self.assertEqual(rep["provenance"], {"exact": 1})
+        _, cal = pm.load_calibration(self.root)
+        self.assertEqual(cal["fix"]["standard"]["clean"]["samples"], 1,
+                         "the clean cohort fills, so fix can eventually activate")
+
+    def test_redrive_rebuilds_rather_than_appends(self):
+        self._close_story(0)
+        pm.redrive_story_samples(self.root)
+        rep = pm.redrive_story_samples(self.root)
+        self.assertEqual(rep["sampled"], 1)
+        _, cal = pm.load_calibration(self.root)
+        self.assertEqual(len(cal["scope"]["standard"]["man_hours"]["samples"]), 1,
+                         "a second redrive must replace, never double-count")
+
+    def test_redrive_leaves_untouched_components_alone(self):
+        self._close_story(0)
+        with pm.calibration_lock(self.root):
+            y, cal = pm.load_calibration(self.root)
+            cal["token_mix"] = {"samples": [{"input": 0.1, "output": 0.1,
+                                             "cache_write": 0.3, "cache_read": 0.5}]}
+            cal["closure"] = {"sprint": {"man_hours": {"samples": [1.1]}}}
+            pm.save_calibration(y, cal, self.root)
+        pm.redrive_story_samples(self.root)
+        _, cal = pm.load_calibration(self.root)
+        self.assertEqual(len(cal["token_mix"]["samples"]), 1)
+        self.assertEqual(cal["closure"]["sprint"]["man_hours"]["samples"], [1.1])
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

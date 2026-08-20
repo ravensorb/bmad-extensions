@@ -800,6 +800,14 @@ What a step file needs to know inline:
   on the same node records nothing and says so — a retry is safe, and never skews a ratio.
 - **Write `completion_evidence.fix_iterations` before `set-actual`**, or the scope-versus-fix
   split cannot see it and the fix factor stays frozen at the cold-start prior, silently.
+- **It must be a number, and `set-field` now enforces that.** Stored as text the field still
+  looked right on disk while reading as `provenance=backout` on a story that needed no rework —
+  dividing its scope ratio by a 1.25 fix factor it never incurred, and leaving the `clean`
+  cohort empty so `fix` could never activate. `set-field` coerces the value and rejects
+  anything that is not a non-negative whole number, an unsubstituted template placeholder
+  included. To repair samples already recorded that way, run `pm-status.py calibration
+  redrive --state-root S`: the nodes still hold every input, so `scope` and `fix` are derived
+  again rather than discarded.
 - **The file** is `{implementation_artifacts}/state/pm-calibration.yaml`, committed, shared
   across every epic and parallel subagent; every write takes flock.
 

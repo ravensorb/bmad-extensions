@@ -1034,6 +1034,41 @@ def _estimate_metric(est: dict, metric: str):
     return _num_or_none(v)
 
 
+# Node fields that are numeric or boolean regardless of how they arrive. `set-field`
+# takes --value as text, so without this a numeric field lands on disk as a quoted
+# string and every later reader has to guess. That is not hypothetical: writing
+# fix_iterations through set-field stored '0', and the calibration path then depended
+# on that string being int()-parseable. '0' happened to work; '0.0' raised ValueError
+# and lost the sample entirely, and an unsubstituted '{fix_iterations}' placeholder --
+# or any other non-numeric text -- silently became provenance=backout on a story that
+# needed no rework at all.
+NUMERIC_NODE_FIELDS = {
+    "completion_evidence.fix_iterations",
+    "completion_evidence.files_changed",
+}
+BOOL_NODE_FIELDS = {"completion_evidence.tests_passing"}
+
+
+def _iter_count(v):
+    """fix_iterations as a non-negative int, or None if it is not one.
+
+    Tolerant on the way in because historical nodes hold strings, and total: an
+    unparseable value returns None rather than raising. `int(v)` alone raised
+    ValueError on '0.0' -- inside `derive_story_sample` that aborted the whole
+    sample, so a story with zero rework contributed nothing instead of the exact
+    scope reading it should have.
+    """
+    if isinstance(v, bool) or v is None:
+        return None
+    try:
+        f = float(v)
+    except (TypeError, ValueError):
+        return None
+    if f != int(f) or f < 0:
+        return None
+    return int(f)
+
+
 def derive_story_sample(node):
     """Compute a story's scope samples and its fix cohort. None when not derivable.
 
@@ -1063,13 +1098,13 @@ def derive_story_sample(node):
     if not est or not act:
         return None
 
-    iters = ((node.get("completion_evidence") or {}).get("fix_iterations"))
+    iters = _iter_count((node.get("completion_evidence") or {}).get("fix_iterations"))
     has_factors = _is_number(est.get("fix_factor"))
     fix_factor = float(est["fix_factor"]) if has_factors else 1.0
 
     if not has_factors:
         provenance = "legacy"
-    elif _is_number(iters) and int(iters) == 0:
+    elif iters == 0:
         provenance = "exact"
     else:
         provenance = "backout"
@@ -1112,7 +1147,7 @@ def derive_story_sample(node):
     return {
         "classification": str(node.get("classification", "standard")),
         "provenance": provenance,
-        "fix_iterations": int(iters) if _is_number(iters) else None,
+        "fix_iterations": iters,
         "scope_ratios": ratios,
         "actual_man_hours": float(act["man_hours"]) if _is_number(act.get("man_hours")) else None,
     }
@@ -1591,7 +1626,90 @@ def record_orchestration_sample(state_root: str, level: str, epic_key: str,
     return note
 
 
+def redrive_story_samples(state_root: str) -> dict:
+    """Rebuild `scope` and `fix` from the nodes on disk. Returns a report.
+
+    Unlike the token-basis purge, this recovers rather than discards: a stored sample is
+    a bare ratio with nothing behind it, but the NODES still hold every input
+    `derive_story_sample` needs -- estimate, actual, and completion_evidence. So a batch
+    of samples derived under a bug can simply be derived again, correctly, instead of
+    being thrown away and waited for.
+
+    Which is what this is for. `set-field` stored `fix_iterations` as text, and the
+    provenance test depended on that text parsing as an int: a story that needed no rework
+    was read as `backout`, its scope ratio divided by the 1.25 fix factor it never
+    incurred, and the `clean` cohort never filled -- so the `fix` component could not
+    activate at all. Every story closed under that behaviour is wrong in the same
+    direction, and every one of them is repairable from disk.
+
+    Only `scope` and `fix` are rebuilt. `closure`, `orchestration` and `token_mix` derive
+    from different inputs and were never affected, so they are left exactly as they are.
+    """
+    from ruamel.yaml.comments import CommentedMap
+    report = {"stories": 0, "sampled": 0, "provenance": {}, "skipped": 0}
+    with calibration_lock(state_root):
+        y, cal = load_calibration(state_root)
+        backup = calibration_path(state_root) + ".pre-redrive"
+        if os.path.exists(calibration_path(state_root)) and not os.path.exists(backup):
+            import shutil
+            shutil.copy2(calibration_path(state_root), backup)
+            report["backup"] = os.path.basename(backup)
+
+        cal["scope"] = CommentedMap()
+        cal["fix"] = CommentedMap()
+
+        for status in STATUS_DIRS:
+            base = os.path.join(state_root, status)
+            if not os.path.isdir(base):
+                continue
+            for ed in sorted(os.listdir(base)):
+                if not ed.startswith("epic-"):
+                    continue
+                ekey = "E" + ed.split("-", 1)[1]
+                for sd in sorted(list_sprint_dirs(state_root, ekey) or []):
+                    skey = _sprint_key_from_dir(sd)
+                    for sf in sorted(list_story_files(state_root, ekey, skey) or []):
+                        report["stories"] += 1
+                        try:
+                            _, node = load_node(sf)
+                        except Exception:                     # noqa: BLE001
+                            report["skipped"] += 1
+                            continue
+                        sample = derive_story_sample(node)
+                        if sample is None:
+                            report["skipped"] += 1
+                            continue
+                        cls = sample["classification"]
+                        bucket = cal["scope"].setdefault(cls, CommentedMap())
+                        for metric, ratio in sample["scope_ratios"].items():
+                            entry = bucket.setdefault(metric, CommentedMap())
+                            entry.setdefault("samples", [])
+                            entry["samples"].append(round(ratio, 4))
+                        iters = sample["fix_iterations"]
+                        if iters is not None:
+                            _bump_cohort(cal["fix"].setdefault(cls, CommentedMap()),
+                                         "clean" if iters == 0 else "reworked",
+                                         sample["actual_man_hours"])
+                        report["sampled"] += 1
+                        pv = sample["provenance"]
+                        report["provenance"][pv] = report["provenance"].get(pv, 0) + 1
+        save_calibration(y, cal, state_root)
+    return report
+
+
 def cmd_calibration(args) -> int:
+    if getattr(args, "action", "show") == "redrive":
+        rep = redrive_story_samples(args.state_root)
+        if rep.get("backup"):
+            sys.stdout.write(f"backup {rep['backup']}\n")
+        prov = " ".join(f"{k}={v}" for k, v in sorted(rep["provenance"].items()))
+        sys.stdout.write(
+            f"OK calibration redrive — stories seen {rep['stories']}, "
+            f"samples rebuilt {rep['sampled']}, skipped {rep['skipped']}"
+            + (f" [{prov}]" if prov else "") + "\n")
+        sys.stdout.write("scope and fix rebuilt from the nodes; closure, orchestration and "
+                         "token_mix untouched.\n")
+        return 0
     if getattr(args, "action", "show") == "migrate-metrics":
         with calibration_lock(args.state_root):
             y, cal = load_calibration(args.state_root)
@@ -3518,7 +3636,26 @@ def cmd_set_field(args) -> int:
             from ruamel.yaml.comments import CommentedMap
             target[part] = CommentedMap()
         target = target[part]
-    target[field_parts[-1]] = args.value
+    value = args.value
+    if args.field in NUMERIC_NODE_FIELDS:
+        n = _iter_count(value) if args.field.endswith("fix_iterations") else None
+        if args.field.endswith("fix_iterations"):
+            if n is None:
+                _die_usage(
+                    f"--field {args.field} needs a non-negative whole number, got {value!r}. "
+                    "Stored as text this silently becomes provenance=backout on a story that "
+                    "needed no rework, and the clean fix cohort never fills. If the value came "
+                    "from a template placeholder, it was not substituted.")
+            value = n
+        elif _is_number(value):
+            value = _coerce(field_parts[-1], value)
+    elif args.field in BOOL_NODE_FIELDS:
+        low = str(value).strip().lower()
+        if low in ("true", "yes", "1"):
+            value = True
+        elif low in ("false", "no", "0"):
+            value = False
+    target[field_parts[-1]] = value
 
     save_node(y, node, path, getattr(args, "flock", False))
     sys.stdout.write(f"OK set-field {label} {args.field}={args.value!r}\n")
@@ -4173,7 +4310,7 @@ def build_parser() -> argparse.ArgumentParser:
     up.set_defaults(func=cmd_usage)
 
     cal = sub.add_parser("calibration", help="inspect the calibration file")
-    cal.add_argument("action", choices=["show", "migrate-metrics"])
+    cal.add_argument("action", choices=["show", "migrate-metrics", "redrive"])
     cal.add_argument("--state-root", required=True)
     cal.add_argument("--format", choices=["text", "json"], default="text")
     cal.set_defaults(func=cmd_calibration)
