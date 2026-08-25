@@ -64,11 +64,35 @@ python3 {pm_status} dispatch --state-root {pm_state_root} --event open \
   --session-id {session_id}
 ```
 
+**Give the dev agent a starting set — its own ACs bound the rest.** A reviewer can be handed a
+closed input set because the diff *is* its input. A dev agent has to explore, so the reviewer
+rule below does not transfer: "never the repository" would simply make it fail. What it must
+not do is open the spec tree to work out *what to build*. That is what the story's technical
+ACs are for — `steps/sprint/step-02-story-prep.md` §2 already required this story to carry its
+interface and data-model contracts, error and edge handling, observability, security,
+testability, and the existing-library answer. When those are present the dev reads the story,
+the files it changes, and their direct collaborators; it does not re-read the specs those ACs
+were distilled from. Every token read in early is re-read on every later turn
+(`steps/execute/step-05-epic-loop.md` §5), so a spec opened whole to recover one contract is
+spend the AC gate already paid to make unnecessary. If an AC turns out **not** to carry what
+the dev needs, that is a story-prep defect: name the missing dimension and the section that
+supplied it in the completion notes, rather than widening the read for the rest of the run.
+
+**Nothing enforces this at run time** — it is prose a subagent can ignore, and no CI check can
+see what a dispatched agent chose to read. It is measurable afterwards, which is the next best
+thing: `usage --agent bmad-dev-story --story {story_key}` scopes to this dispatch bracket, and
+the `cache_write` it reports is very nearly the volume the agent read in. An outlier there is
+this rule being broken, not a large story — per-file spend measured between 19k and 138k
+tokens across one sprint on stories of comparable size.
+
 Spawn `bmad-dev-story` subagent with:
 - Story file path: `{sprint_root}/stories/{story_key}.md`
 - Project context: the config resolved at activation (`references/config-resolution.md`) —
   pass the bound values, not a config file path
 - Sprint root: `{sprint_root}`
+- **Read scope**: this story, the files it changes, and their direct collaborators. The
+  technical ACs carry the contracts — do not open the spec tree to rediscover them. Widening
+  beyond this is a decision worth recording, not a default.
 - `{agent_contract}` (verbatim — see `steps/shared/step-00-digest.md`)
 
 ```bash
@@ -132,7 +156,9 @@ python3 {pm_status} dispatch --state-root {pm_state_root} --event open \
   --session-id {session_id}
 ```
 
-Spawn `bmad-dev-story` subagent again with the code review findings to fix.
+Spawn `bmad-dev-story` subagent again with the findings and the changed files — not a fresh
+read of the story tree. The same read scope as §2 applies, and a fix round starts from a
+narrower position than the original: the reviewer already named the files and the sections.
 
 ```bash
 python3 {pm_status} dispatch --state-root {pm_state_root} --event close \

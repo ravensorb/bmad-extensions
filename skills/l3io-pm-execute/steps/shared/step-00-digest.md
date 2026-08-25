@@ -48,8 +48,9 @@ dispatched — **arm a single wait for it and end your turn.** Do not loop, do n
 do not "just confirm it's still running". If you cannot arm a wait, end with `BLOCKED`
 naming what you were waiting for.
 
-**Every poll is a full turn, and a turn costs your whole history, not one line.** Cost tracks
-turns — not tokens-per-turn, not repo size. Evidence: `steps/execute/step-05-epic-loop.md` §5.
+**Every poll is a full turn, and a turn costs your whole history, not one line.** Cost is
+turns × what you carry through them. Read narrowly, end early. See
+`steps/execute/step-05-epic-loop.md` §5.
 
 **These rules reach a spawned subagent only if you put them there** — a `bmad-*` agent
 loads none of this file. Bind `{agent_contract}` to the lines below and include them

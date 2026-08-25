@@ -141,23 +141,39 @@ For each sprint in `{pending_sprints}` (always sequential — no parallel sprint
 
 ### Why a sprint is not one agent
 
-Spend inside a single agent grows with the square of its turn count, not linearly: every turn
-re-reads the whole accumulated prefix, and that prefix only grows. **Two 200-turn agents cost
-far less than one 400-turn agent doing the same work.** A sprint agent that ran story prep,
-then every story, then every fix round, then closure was the longest-lived session in the
-system and paid that curve at its steepest.
+**Cost is the area under the context curve.** Every turn re-reads what the session already
+holds, so a token entering at turn *t* is paid for again on each of the `T - t` turns after
+it. Spend is the product of two axes — how many turns a session takes, and how much it is
+carrying during them — never either alone:
 
-So a sprint is dispatched as **prep, then one agent per story, then closure** — each ending
-when its piece is done. Nothing is lost by splitting: every hand-off in this system is already
-a file on disk, so a fresh agent picks up exactly what the previous one left.
+```
+cost = sum over turns of (tokens in context at that turn)
+```
 
-This is deliberately the opposite of "fewer, larger agents to amortise the project read". That
-reasoning treats the cold read as the dominant cost; it is not. The read is paid once per
-agent, the prefix is paid once per *turn*, and it is the second that runs away.
+Reading early pulls the harder axis. At the `T`≈80 typical of a story agent, content loaded
+near the start is re-read on the order of forty times; priced as one `cache_write` plus those
+`cache_read`s it lands near **$25 per million tokens read in**. A 2,000-line spec pulled in
+whole is about $0.60 — and $2.40 if four agents each decide to pull it.
 
-**The corpus hypothesis was tested and failed.** Deleting 4,415 lines from the project moved
-the token composition not at all, and `cache_read` stayed 75–94% of every story. Repository
-size is not the driver. Turn count is: a 263-turn agent pays for its own history 263 times.
+**The turn axis is why a sprint splits.** Context grows as a session runs, so its area grows
+with the square of its length: one 400-turn agent pays roughly twice what two 200-turn agents
+pay for the same work, because splitting resets the growth. A sprint agent that ran story
+prep, then every story, then every fix round, then closure was the longest-lived session in
+the system and sat at the steepest part of that curve. So a sprint is dispatched as **prep,
+then one agent per story, then closure** — each ending when its piece is done. Nothing is lost
+by splitting: every hand-off here is already a file on disk.
+
+Splitting is not free — each new agent re-pays the cold read of the baseline it needs — so it
+wins exactly when the re-read saving beats the re-paid baseline. Keeping each agent's baseline
+small is what holds that trade favourable, which is the volume axis again.
+
+**What the corpus experiment did and did not show.** Deleting 4,415 lines from the project
+moved the token composition not at all, and `cache_read` stayed 75–94% of every story. That
+falsifies *repository size* as a driver — an agent never reads most of a repo. It says nothing
+about the tokens an agent does load, and this file previously drew the wider conclusion that
+volume is irrelevant. It is not: turn count alone does not even rank runs. One story measured
+249 turns at $26.66 against a sibling's 82 turns at $49.55 — the short session was carrying
+far more.
 
 **Polling is the worst form of this, and it is the one that actually happened.** One story
 measured 263 turns of which roughly 130 were one-line status polls, against ~62 turns of
