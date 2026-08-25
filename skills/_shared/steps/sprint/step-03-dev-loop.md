@@ -2,8 +2,8 @@
 
 Communicate all responses in `{communication_language}`.
 
-Execute each story in the sprint: develop, code review, iterate on fixes. Write actuals and
-completion evidence when done.
+Execute every story `{story_keys}` holds, in order: develop, code review, iterate on fixes.
+Write actuals and completion evidence when done.
 
 ## 1. Story scope and dependencies
 
@@ -199,7 +199,28 @@ after `{max_fix_iterations}` iterations:
 ```
 FAILED: story {story_key} — {N} critical/high findings unresolved after {max_fix_iterations} fix iterations.
 ```
-Mark story `status: review` (not done) and continue to next story. Log the issue.
+Mark story `status: review` (not done), append the unresolved findings to the issues file, and
+**end this agent** — you hold one story and there is no next one. The orchestrator dispatches
+the next story itself.
+
+```bash
+python3 {pm_status} set-status \
+  --state-root {pm_state_root} \
+  --story {story_key} \
+  --status review
+```
+
+Keep the story document in step with the state — the state YAML is what the machine reads and
+this file is what a reviewer opens, and they have not agreed until now:
+
+```bash
+python3 {pm_status} sync-story-doc --artifacts-root {implementation_artifacts} \
+  --story {story_key} --status review
+```
+
+This never fails: a missing or frontmatter-less document warns on stderr and returns 0, because
+the state transition it follows is already durable and must not be rolled back by a
+documentation write.
 
 **If MEDIUM findings:** fix in current iteration (one more dev pass), then mark done.
 
@@ -334,5 +355,5 @@ documentation write.
 ## 5. Output
 
 ```
-Sprint Step 03 complete — stories done: {N}/{total}, fix iterations: {total_fix}, issues deferred: {N}
+DONE — story {story_key} {final_status}, fix iterations: {fix_count}, issues deferred: {N}
 ```
