@@ -340,15 +340,43 @@ Close the bracket, then branch:
 
 ## 6. Post-sprint re-estimation
 
-After each sprint completes (DONE), trigger re-estimation of remaining unstarted sprints:
+**Do not update the calibration file here.** `set-actual` already derived and appended this
+sprint's scope, fix and closure samples inline, at the moment each actual was written
+(`references/metrics-contract.md` §8). An agent that "updates calibration" at this point
+either no-ops or double-writes; there is nothing left to do and the earlier version of this
+step said otherwise.
+
+What is left to do is spend the calibration that was just learned. Re-estimate every story
+that has not started, so the next sprint is priced with this sprint's evidence:
+
+Bind `{reestimate_story_keys}` = every story under `{epic_key}` whose `status` is `backlog`
+or `ready-for-dev`. Take it from:
 
 ```bash
-# Update {pm_calibration_file} with this sprint's scope/fix/closure samples
-# Then re-run step-estimate over remaining unstarted sprints
+python3 {pm_status} show --state-root {pm_state_root} --epic {epic_key}
 ```
 
-Load `{skill-root}/steps/shared/step-estimate.md` with `{scope}={epic_key}` (remaining sprints only).
-This updates estimate blocks on the epic's sprint/story node files via `pm-status.py set-estimate`.
+Stories at `in-progress`, `review` or `done` are **excluded**: re-pricing work already under
+way changes no decision and destroys the estimate the variance will be measured against.
+
+If `{reestimate_story_keys}` is empty, skip to §7 — there is nothing downstream to re-price.
+
+Otherwise load `{skill-root}/steps/shared/step-estimate.md` with `{scope}={epic_key}` and
+`{reestimate_story_keys}` bound. It re-runs `estimate-story` for exactly those keys —
+`estimate-story` overwrites unconditionally, which is what re-estimation requires — and then
+re-runs `estimate-rollup` for each affected sprint and for the epic, so the parents stay
+equal to the sum of their children by construction.
+
+**Report the movement, because it is the signal the calibration is working:**
+
+```
+Re-estimated {N} unstarted stories after sprint {sprint_num}.
+  epic estimate: {old} -> {new} ({pct}%)
+```
+
+A large move is not an error — it is the loop doing its job. A move of exactly zero across a
+sprint that ran over is the symptom worth reporting: it means no component reached its
+three-sample activation threshold, so the cold-start prior is still in use.
 
 ## 7. Epic completion check
 

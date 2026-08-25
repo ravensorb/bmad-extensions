@@ -18,7 +18,15 @@ is to choose scope and classification and call it.
 Based on `{scope}`:
 - `all` → all stories under every epic in `{pm_state_root}/planned/` and `{pm_state_root}/active/`
   that are not `status: done`
-- `E{nnn}` → all stories under that epic's sprint directories
+- `E{nnn}`: if `{reestimate_story_keys}` is bound, take **exactly** those keys and no
+  others — the caller has already decided what needs re-pricing. If it is not bound, take
+  every story under the epic whose `status` is `backlog` or `ready-for-dev`.
+
+  In neither case does this step select a story at `in-progress`, `review` or `done`.
+  Selecting `done` stories was the previous behaviour and it is wrong twice over: it
+  re-prices work whose actual is already recorded, and it overwrites the estimate that
+  actual is measured against, so the variance that trains the next calibration cycle is
+  destroyed by the act of measuring.
 - `E{nnn}-S{nn}` → all stories under that sprint's directory
 
 Story files are the `*.yaml` files in a sprint directory, excluding `sprint.yaml` (see
@@ -29,8 +37,14 @@ estimate block.
 
 ## 2. Estimate stories (bottom-up)
 
-For each unestimated story (or story needing re-estimation), the model supplies only the
-classification — `estimate-story` does the rest: looks up the base band
+For each story in the selected set — **whether or not it already carries an `estimate`
+block**. `estimate-story` overwrites unconditionally (`node["estimate"] = est`), which is
+exactly what re-estimation needs; there is no "needs re-estimation" flag to test and none is
+required. Note this is deliberately the opposite of `steps/sprint/step-02-story-prep.md` §3,
+which skips a story that is already estimated: prep is priming a story about to be built, and
+re-estimation is re-pricing one that has not started. Both are right for their caller.
+
+The model supplies only the classification — `estimate-story` does the rest: looks up the base band
 (`references/metrics-contract.md` §6 cites `BASE_BANDS` in `pm-status.py` as the single
 source), applies the calibrated per-metric scope ratio and the classification's fix factor
 (cold-start priors when either is not yet active), and writes the estimate block.
