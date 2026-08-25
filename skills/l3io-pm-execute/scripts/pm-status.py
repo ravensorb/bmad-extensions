@@ -2993,7 +2993,21 @@ def cmd_sync_story_doc(args) -> int:
     # by hand -- a body line of dashes is legal markdown and would corrupt it.
     from ruamel.yaml.comments import CommentedMap
     yaml = _yaml()
-    meta = yaml.load(head) or CommentedMap()
+    try:
+        meta = yaml.load(head)
+    except Exception:                                    # noqa: BLE001
+        # Deliberately broad. This runs after a set-status that already
+        # succeeded, and no parse failure is worth stranding a durable state
+        # transition over. The warning is the signal; the exit code is not.
+        sys.stderr.write(f"WARN {path} frontmatter does not parse as YAML — "
+                         f"state was written, document not updated\n")
+        return 0
+    if meta is None:
+        meta = CommentedMap()
+    if not hasattr(meta, "get"):
+        sys.stderr.write(f"WARN {path} frontmatter is not a mapping — "
+                         f"state was written, document not updated\n")
+        return 0
     if meta.get("status") == args.status:
         if not args.quiet:
             sys.stdout.write(f"OK {args.story} document already {args.status}\n")

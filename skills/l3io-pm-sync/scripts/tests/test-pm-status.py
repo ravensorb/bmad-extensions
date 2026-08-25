@@ -4982,12 +4982,20 @@ class TestSyncStoryDoc(Base):
         self.assertIn("status: done", self._read())
 
     def test_body_and_key_order_survive_the_rewrite(self):
+        # The body carries a genuine standalone fence line (a markdown thematic
+        # break) -- not a dash run mid-sentence, which the closing-fence search
+        # ("\n---") could never mistake for the real one anyway. This is the
+        # actual hazard the implementation must get right: it must stop at the
+        # FIRST "\n---" (the frontmatter's own close) and leave every later one
+        # in the body untouched.
         self._write("---\nkey: E001-S01-003\nstatus: backlog\ntitle: A thing\n---\n\n"
-                    "# Story\n\nBody with --- a dash line in it.\n")
+                    "# Story\n\nIntro paragraph.\n\n---\n\nAfter a thematic break.\n")
         self.run_main(["sync-story-doc", "--artifacts-root", self.dir,
                   "--story", "E001-S01-003", "--status", "review"])
         out = self._read()
-        self.assertIn("Body with --- a dash line in it.", out)
+        self.assertIn("Intro paragraph.", out)
+        self.assertIn("\n\n---\n\nAfter a thematic break.\n", out,
+                      "the body's own thematic-break fence must survive verbatim")
         self.assertLess(out.index("key:"), out.index("status:"))
         self.assertLess(out.index("status:"), out.index("title:"))
 
@@ -5006,6 +5014,38 @@ class TestSyncStoryDoc(Base):
             code, _ = self.run_main(["sync-story-doc", "--artifacts-root", self.dir,
                                 "--story", "E001-S01-003", "--status", "finished"])
         self.assertEqual(code, 2)
+
+    # Finding 1 (fix round 1): a set-status this command follows has already
+    # succeeded, so a frontmatter that fails to load as a mapping must never
+    # raise past this command -- warn on stderr and return 0. Three realistic
+    # shapes of "frontmatter a human could actually leave behind":
+
+    def test_frontmatter_that_parses_to_a_list_never_fails_the_caller(self):
+        self._write("---\n- a\n- b\n---\n\nBody.\n")
+        buf = io.StringIO()
+        with redirect_stderr(buf):
+            code, _ = self.run_main(["sync-story-doc", "--artifacts-root", self.dir,
+                                "--story", "E001-S01-003", "--status", "done"])
+        self.assertEqual(code, 0)
+        self.assertIn("not a mapping", buf.getvalue())
+
+    def test_frontmatter_that_parses_to_a_bare_scalar_never_fails_the_caller(self):
+        self._write("---\njust a string\n---\n\nBody.\n")
+        buf = io.StringIO()
+        with redirect_stderr(buf):
+            code, _ = self.run_main(["sync-story-doc", "--artifacts-root", self.dir,
+                                "--story", "E001-S01-003", "--status", "done"])
+        self.assertEqual(code, 0)
+        self.assertIn("not a mapping", buf.getvalue())
+
+    def test_frontmatter_with_invalid_yaml_never_fails_the_caller(self):
+        self._write("---\nkey: [unclosed\n---\n\nBody.\n")
+        buf = io.StringIO()
+        with redirect_stderr(buf):
+            code, _ = self.run_main(["sync-story-doc", "--artifacts-root", self.dir,
+                                "--story", "E001-S01-003", "--status", "done"])
+        self.assertEqual(code, 0)
+        self.assertIn("does not parse as YAML", buf.getvalue())
 
 
 if __name__ == "__main__":

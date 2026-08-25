@@ -147,7 +147,7 @@ python3 {pm_status} set-status \
 ```
 
 Keep the story document in step with the state — the state YAML is what the machine reads and
-this file is what a reviewer opens, and until 2.4.8 they never agreed:
+this file is what a reviewer opens, and they have not agreed until now:
 
 ```bash
 python3 {pm_status} sync-story-doc --artifacts-root {implementation_artifacts} \
