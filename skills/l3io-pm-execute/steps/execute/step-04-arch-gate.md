@@ -117,9 +117,28 @@ would have.
 
 **If BLOCKER or MAJOR findings exist:**
 
+Set `{blocking_finding_count}` = the number of consolidated blocking findings from §5
+(BLOCKER + MAJOR, after merge — one per ADR, not one per raw reviewer report).
+
+**Reserve every ADR number before you dispatch anything.** Reserve the whole batch in one call
+and hand each agent the number it must use:
+
+```bash
+python3 {pm_status} adr-reserve --state-root {pm_state_root} --epic {epic_key} \
+  --slug arch-gate --count {blocking_finding_count}
+```
+
+It prints one zero-padded number per line, in order. Pair them with the findings in that order
+— the Nth line is that finding's `{adr_number}` — and pass `{adr_number}` into each finding's
+subagent prompt. **Never let an agent choose its own number by listing the directory** — a
+listing shows who has finished, not who is in flight. Three parallel agents did exactly that:
+two chose 0013 and two chose 0014, and the surviving ADR-0014 was cited by four stories meaning
+two different documents.
+
 For each blocking finding, spawn an ADR resolution subagent:
 - Read the affected story files
-- Draft an ADR at `{implementation_artifacts}/epic-{epic_nnn}/arch/adr-{nnn}-{slug}.md`
+- Draft an ADR at `{implementation_artifacts}/epic-{epic_nnn}/arch/adr-{adr_number}-{slug}.md`
+  using the number you were given. Do not derive it, do not list the directory to check it.
 - Patch affected story files with technical ACs implied by the ADR decision
 - Return: `ADR written: {path}`
 

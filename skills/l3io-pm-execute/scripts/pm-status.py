@@ -82,6 +82,9 @@ Subcommands
                 (inspects pm-calibration.yaml; a missing file is a normal
                 cold-start state, not an error)
   self-install  --dest PATH  [--force]
+  adr-reserve   --state-root S  --epic ID  --slug SLUG  [--count N]
+                (reserves N sequential ADR numbers under a lock, before dispatch;
+                prints one zero-padded number per line; see adr_register_path)
 
 Exit codes: 0 = success/verified, 2 = usage error, 3 = node not found,
 4 = verification failure (missing/invalid field), 5 = epic locked. Errors go
@@ -660,6 +663,47 @@ _CAL_LOCK = {"depth": 0, "fh": None}
 
 
 @contextlib.contextmanager
+def _file_lock(lock_path: str, depth_state: dict):
+    """Exclusive flock over a read-modify-write cycle, reentrant per process.
+
+    Extracted from calibration_lock so the ADR register can hold a lock without a
+    second implementation. The reentrancy counter is the part that must not be
+    re-derived by hand: a nested acquire that re-opens the file drops the outer
+    hold on close, and the failure only appears under real parallelism.
+
+    `depth_state` is a dict private to one lock family (e.g. `_CAL_LOCK` or
+    `_ADR_LOCK`) with at least a `"depth"` key; each family gets its own dict so
+    a calibration hold and an ADR-register hold never share depth counting.
+    """
+    if depth_state["depth"] > 0:               # already held by this process
+        depth_state["depth"] += 1
+        try:
+            yield
+        finally:
+            depth_state["depth"] -= 1
+        return
+    try:
+        import fcntl
+    except ImportError:  # pragma: no cover - non-POSIX
+        sys.stderr.write(f"pm-status.py: fcntl unavailable — {lock_path} is not "
+                         f"lock-protected (non-POSIX)\n")
+        yield
+        return
+    os.makedirs(os.path.dirname(os.path.abspath(lock_path)) or ".", exist_ok=True)
+    fh = open(lock_path, "w")
+    fcntl.flock(fh, fcntl.LOCK_EX)
+    depth_state["depth"], depth_state["fh"] = 1, fh
+    try:
+        yield
+    finally:
+        depth_state["depth"], depth_state["fh"] = 0, None
+        try:
+            fcntl.flock(fh, fcntl.LOCK_UN)
+        finally:
+            fh.close()
+
+
+@contextlib.contextmanager
 def calibration_lock(state_root: str):
     """Hold an exclusive lock over a whole calibration read-modify-write cycle.
 
@@ -668,33 +712,22 @@ def calibration_lock(state_root: str):
     second save would drop the first's sample. Callers that mutate must wrap the
     load AND the save in this.
     """
-    if _CAL_LOCK["depth"] > 0:                 # already held by this process
-        _CAL_LOCK["depth"] += 1
-        try:
-            yield
-        finally:
-            _CAL_LOCK["depth"] -= 1
-        return
-    try:
-        import fcntl
-    except ImportError:  # pragma: no cover - non-POSIX
-        sys.stderr.write("pm-status.py: fcntl unavailable — calibration write is "
-                         "not lock-protected (non-POSIX)\n")
+    with _file_lock(calibration_path(state_root) + ".lock", _CAL_LOCK):
         yield
-        return
-    lock_path = calibration_path(state_root) + ".lock"
-    os.makedirs(os.path.dirname(os.path.abspath(lock_path)) or ".", exist_ok=True)
-    fh = open(lock_path, "w")
-    fcntl.flock(fh, fcntl.LOCK_EX)
-    _CAL_LOCK["depth"], _CAL_LOCK["fh"] = 1, fh
-    try:
+
+
+_ADR_LOCK = {"depth": 0, "fh": None}
+
+
+@contextlib.contextmanager
+def adr_register_lock(state_root: str):
+    """Hold an exclusive lock over a whole ADR-register read-modify-write cycle.
+
+    Same reasoning as calibration_lock: load -> mutate -> save is not atomic, and
+    this is exactly the register two parallel adr-reserve calls must not race on.
+    """
+    with _file_lock(adr_register_path(state_root) + ".lock", _ADR_LOCK):
         yield
-    finally:
-        _CAL_LOCK["depth"], _CAL_LOCK["fh"] = 0, None
-        try:
-            fcntl.flock(fh, fcntl.LOCK_UN)
-        finally:
-            fh.close()
 
 
 def save_calibration(y, cal, state_root: str) -> None:
@@ -1978,6 +2011,67 @@ def cmd_rates(args) -> int:
         cells = "  ".join(f"{c}=" + (f"{r[c]:.2f}" if _is_number(r.get(c)) else "n/a")
                           for c in TOKEN_CLASSES)
         sys.stdout.write(f"{m:<22} {cells}\n")
+    return 0
+
+
+def adr_register_path(state_root: str) -> str:
+    return os.path.join(state_root, "adr-register.yaml")
+
+
+def load_adr_register(state_root: str):
+    """Load the ADR register, or a fresh skeleton if absent, empty, or malformed.
+
+    Never raises: an absent file, an empty file, and a `next` that fails to
+    parse as an int are all legal states that resolve to "start at 1" — a
+    project with no adr-register.yaml yet must still work.
+    """
+    p = adr_register_path(state_root)
+    y, data = _load(p)
+    if data is None:
+        from ruamel.yaml.comments import CommentedMap
+        reg = CommentedMap()
+        reg["next"] = 1
+        reg["reserved"] = []
+        return y, reg
+    if data.get("reserved") is None:
+        data["reserved"] = []
+    return y, data
+
+
+def cmd_adr_reserve(args) -> int:
+    """Allocate ADR numbers before dispatch, under a lock.
+
+    A directory listing shows who has FINISHED writing. Only a register knows
+    who is in flight. Three parallel ADR agents read the same near-empty
+    directory and two of them chose 0013 while two chose 0014; the surviving
+    ADR-0014 was cited by four stories meaning two different documents, and
+    repairing that cost more than the gate it came from.
+    """
+    if args.count < 1:
+        sys.stderr.write("ERROR --count must be >= 1\n")
+        return 2
+    from ruamel.yaml.comments import CommentedMap
+    with adr_register_lock(args.state_root):
+        yaml, reg = load_adr_register(args.state_root)
+        try:
+            start = int(reg.get("next", 1))
+        except (TypeError, ValueError):
+            sys.stderr.write(f"pm-status.py: adr-register.yaml has a malformed "
+                             f"'next' ({reg.get('next')!r}); resetting to 1\n")
+            start = 1
+        if start < 1:
+            start = 1
+        numbers = list(range(start, start + args.count))
+        for n in numbers:
+            entry = CommentedMap()
+            entry["number"] = n
+            entry["slug"] = args.slug
+            entry["epic"] = args.epic
+            entry["reserved_at"] = _now_iso()
+            reg.setdefault("reserved", []).append(entry)
+        reg["next"] = start + args.count
+        _atomic_dump(yaml, reg, adr_register_path(args.state_root))
+    sys.stdout.write("\n".join(f"{n:04d}" for n in numbers) + "\n")
     return 0
 
 
@@ -4527,6 +4621,14 @@ def build_parser() -> argparse.ArgumentParser:
     rt.add_argument("--token-rates", dest="token_rates", default="",
                     help="JSON object of per-model rate overrides")
     rt.set_defaults(func=cmd_rates)
+
+    ar = sub.add_parser("adr-reserve",
+                        help="reserve N sequential ADR numbers under a lock, before dispatch")
+    ar.add_argument("--state-root", required=True)
+    ar.add_argument("--epic", required=True)
+    ar.add_argument("--slug", required=True)
+    ar.add_argument("--count", type=int, default=1)
+    ar.set_defaults(func=cmd_adr_reserve)
 
     p.add_argument("--version", action="version", version=f"pm-status.py {PM_STATUS_VERSION}")
     return p

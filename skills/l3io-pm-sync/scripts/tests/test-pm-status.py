@@ -5118,5 +5118,41 @@ class TestSyncStoryDoc(Base):
         self.assertIn("does not parse as YAML", buf.getvalue())
 
 
+class TestAdrRegister(TestLayoutResolution):
+    # TestLayoutResolution supplies the node tree but NOT run_main -- every class
+    # extending it defines its own (see TestSetFieldTyping above).
+    def run_main(self, argv):
+        buf = io.StringIO()
+        code = 0
+        try:
+            with redirect_stdout(buf):
+                code = pm.main(argv)
+        except SystemExit as e:
+            code = e.code if isinstance(e.code, int) else 1
+        return code, buf.getvalue()
+
+    def test_numbers_are_unique_across_repeated_reservations(self):
+        seen = []
+        for slug in ("a", "b", "c"):
+            code, out = self.run_main(["adr-reserve", "--state-root", self.root,
+                                  "--epic", "E001", "--slug", slug])
+            self.assertEqual(code, 0)
+            seen.extend(out.split())
+        self.assertEqual(len(set(seen)), 3, f"collision in {seen}")
+        self.assertEqual(seen, ["0001", "0002", "0003"])
+
+    def test_a_batch_reserves_a_contiguous_range(self):
+        _, out = self.run_main(["adr-reserve", "--state-root", self.root, "--epic", "E001",
+                           "--slug", "batch", "--count", "3"])
+        self.assertEqual(out.split(), ["0001", "0002", "0003"])
+
+    def test_in_flight_reservations_are_visible_before_any_file_exists(self):
+        """A directory listing shows who FINISHED. Only a register knows who is in flight."""
+        self.run_main(["adr-reserve", "--state-root", self.root, "--epic", "E001", "--slug", "x"])
+        _, cal = pm.load_adr_register(self.root)
+        self.assertEqual(cal["reserved"][0]["number"], 1)
+        self.assertEqual(cal["reserved"][0]["slug"], "x")
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)
