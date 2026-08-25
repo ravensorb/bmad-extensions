@@ -151,6 +151,10 @@ Spawn `bmad-code-review` subagent with:
   normally HIGH, since it is code that must be maintained and reviewed forever to reach
   parity a dependency already has. If the story's dimension-6 answer justified writing it,
   that is the answer — check the code matches the justification rather than re-litigating it.
+- **Write findings to `{sprint_root}/closure/review-{story_key}.md`** and return only a pointer.
+  Your final line is `DONE — findings: {path}, critical N, high N, medium N, low N`. Do not
+  put the findings themselves in your reply: they land in the orchestrator's context, which
+  outlives this story and re-reads everything in it on every later turn.
 - `{agent_contract}` (verbatim — see `steps/shared/step-00-digest.md`)
 
 ```bash
@@ -158,6 +162,10 @@ python3 {pm_status} dispatch --state-root {pm_state_root} --event close \
   --agent bmad-code-review --epic {epic_key} --sprint {sprint_num} --story {story_key} \
   --session-id {session_id}
 ```
+
+Read the counts from the reviewer's final line. Read the findings **file** only if the counts
+are non-zero, and only the severities you are about to act on — the fix agent gets the path and
+reads it itself.
 
 Code review returns findings by severity.
 
@@ -171,9 +179,11 @@ python3 {pm_status} dispatch --state-root {pm_state_root} --event open \
   --session-id {session_id}
 ```
 
-Spawn `bmad-dev-story` subagent again with the findings and the changed files — not a fresh
-read of the story tree. The same read scope as §2 applies, and a fix round starts from a
-narrower position than the original: the reviewer already named the files and the sections.
+Spawn `bmad-dev-story` subagent again with the findings **path**
+(`{sprint_root}/closure/review-{story_key}.md`), the severities to fix, and the changed files —
+not the findings text, and not a fresh read of the story tree. The same read scope as §2
+applies, and a fix round starts from a narrower position than the original: the reviewer
+already named the files and the sections.
 
 ```bash
 python3 {pm_status} dispatch --state-root {pm_state_root} --event close \
