@@ -129,8 +129,8 @@ clear-lock    --state-root S  --epic ID
 check-lock    --state-root S  --epic ID  --session-id SESS
 move-epic     --state-root S  --epic ID  --to {planned,active,archived}
 archive-epic  --state-root S  --epic ID  (alias for move-epic --to archived)
-append-issue  --file F  --key BL-E{nnn}-{nnn}  --epic {nnn}  [--sprint S]  --title T
-              --source S  --severity {Low,Medium,High,Critical}  [--description D]
+append-issue  --file F [--key K]  --epic {nnn}  [--sprint S]  --title T  --source S
+              --severity {Low,Medium,High,Critical}  [--description D] [--allow-duplicate]
 rates         [--model ID] [--token-rates JSON]   (read-only; the effective rate table)
 usage         [TRANSCRIPT...] [--claude-session ID] [--model ID]   (read-only. NO ARGUMENT =
               this session's transcript; verifies identity, exits 2 rather than guess. Prints

@@ -338,7 +338,7 @@ Epic directories are 3-digit zero-padded, sprints 2-digit. Zero-padding makes le
 
 One bare node per file — no `epics:` wrapper. The directory structure replaces the `sprints:` and `stories:` lists; children are discovered by listing the directory. Child files carry redundant `epic:`/`sprint:` back-references deliberately, so each file is self-describing and `verify --scope epic` can catch a file sitting in the wrong directory.
 
-Keys: epic `E{nnn}`, sprint `S{nn}`, story `E{nnn}-S{nn}-{nnn}`, backlog item `BL-E{nnn}-{nnn}` (`BL-E000-{nnn}` for repo-global). Node fields use `key:`, never `id:`.
+Keys: epic `E{nnn}`, sprint `S{nn}`, story `E{nnn}-S{nn}-{nnn}`, backlog item `BL-E{nnn}-{nnn}` (`BL-E000-{nnn}` for repo-global). Node fields use `key:`, never `id:`. A backlog item's trailing `{nnn}` is allocated by `append-issue` itself, under a lock, from the highest existing number for its epic — never chosen by the caller; `--key` is optional, and an explicit `--key` naming an item that already exists is refused (exit 2) rather than silently reassigned.
 
 ```yaml
 # state/active/epic-001/epic.yaml
@@ -415,7 +415,7 @@ epic:   backlog → in-progress → done
 
 ### Backlog
 
-`issues.yaml` is a flat, backlog-only list — resolved items are **removed**, not marked. There are no `resolved` or `resolution` fields.
+`issues.yaml` is a flat, backlog-only list — resolved items are **removed**, not marked. There are no `resolved` or `resolution` fields. It is a shared append target across every epic and every parallel subagent, so `append-issue` runs its whole load → allocate-key → dedupe-check → mutate → save cycle under one exclusive lock, and skips (exit 0, nothing written) a content duplicate — the same normalized title, epic, sprint, and source as an existing item — unless `--allow-duplicate` forces a second entry.
 
 ```yaml
 - key: BL-E001-004
@@ -444,7 +444,7 @@ epic:   backlog → in-progress → done
 | `dispatch` | `--state-root --event {open,close} --agent NAME` + optional `--epic`/`--sprint`/`--story`/`--session-id` — records a subagent dispatch open/close into `events.jsonl`; feeds `report`'s stalled-dispatch flags |
 | `set-lock`, `clear-lock`, `check-lock` | `--state-root --epic ID` (epics only) |
 | `move-epic`, `archive-epic` | `--state-root --epic ID [--to {planned,active,archived}]` |
-| `append-issue` | `--file` — the one path-addressed exception |
+| `append-issue` | `--file` — the one path-addressed exception. `--key` is optional (auto-allocated per-epic under a lock when omitted; an explicit existing `--key` exits 2). `--allow-duplicate` forces a second entry past the content-duplicate skip |
 | `list-issues` | `--state-root` + optional `--epic`/`--sprint`/`--severity`/`--format` |
 | `calibration show` | `--state-root [--format {text,json}]` |
 | `calibration redrive` | `--state-root` — rebuilds `scope` and `fix` from the story nodes on disk, replacing rather than appending. Use after a defect has skewed a batch of samples: a stored sample is a bare ratio, but the nodes still hold every input `derive_story_sample` needs, so the samples can simply be derived again instead of discarded and waited for. `closure`, `orchestration` and `token_mix` derive from other inputs and are left untouched; the previous file is kept as `pm-calibration.yaml.pre-redrive` |

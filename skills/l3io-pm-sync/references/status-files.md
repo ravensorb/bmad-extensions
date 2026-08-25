@@ -110,7 +110,13 @@ Two asymmetries follow, both correct:
 - Sprint key: `S{nn}` (2-digit zero-padded string, e.g. `"S01"`) → directory `sprint-{nn}`
 - Story key: `E{nnn}-S{nn}-{nnn}` (globally unique, e.g. `"E001-S02-003"`) → file
   `E{nnn}-S{nn}-{nnn}.yaml` inside that sprint's directory
-- Backlog item key: `BL-E{nnn}-{nnn}` (e.g. `"BL-E001-001"`; `BL-E000-{nnn}` for repo-global)
+- Backlog item key: `BL-E{nnn}-{nnn}` (e.g. `"BL-E001-001"`; `BL-E000-{nnn}` for repo-global).
+  The trailing `{nnn}` is **allocated by `append-issue` itself, under a lock — never chosen
+  by the caller.** No step file, reference, or digest binds this number anywhere else; a
+  caller that invented it was the exact defect this replaces (two agents inventing the same
+  next number simultaneously, the same collision class production ADR numbers hit before
+  `adr-reserve` existed). Pass `--key` only to name an existing item explicitly — an
+  explicit key that already exists is refused (exit 2), not silently reassigned.
 
 Node fields use `key:` (not `id:`) in every file.
 
@@ -304,11 +310,18 @@ subcommand that still takes `--file`:
 
 ```bash
 uv run {pm_status} append-issue --file {pm_issues_file} \
-  --key BL-E001-004 --epic 001 --title "..." --source "..." --severity Medium
+  --epic 001 --title "..." --source "..." --severity Medium
 ```
 
-`append-issue` always writes under an exclusive flock (it is the last remaining
-shared-append target — see "Concurrency" below); this is automatic, not a flag.
+`--key` is omitted here deliberately — it is optional, and when omitted `append-issue`
+allocates the next `BL-E001-{nnn}` itself (see §3). Pass `--key` only when you mean to name
+an existing item; an explicit key that already exists is refused (exit 2), not renumbered.
+
+`append-issue` always runs its whole load → allocate-key → dedupe-check → mutate → save
+cycle under one exclusive lock (it is the last remaining shared-append target — see
+"Concurrency" below); this is automatic, not a flag. A content duplicate — the same
+normalized title, epic, sprint, and source as an existing item — is skipped (exit 0,
+nothing written) unless `--allow-duplicate` is passed.
 
 Subcommand summary (see `pm-status.py --help` for full flags):
 
@@ -401,20 +414,22 @@ Per-epic directories mean epic-scoped writes (status, estimate, actual, lock, mo
 only that epic's own files — **no flock is needed for any of them.** Two developers working
 different stories, different sprints, or different epics never contend for the same file.
 
-`issues.yaml` is not the only shared-append target — `pm-calibration.yaml` is a second one.
-Every `set-actual` across every epic and every parallel subagent may append a calibration
-sample to it (`references/calibration-model.md`), so the **whole read-modify-write cycle** —
-load, append the sample, save — runs inside one exclusive flock (`calibration_lock`), not
-just the save. Locking only the save is not sufficient and was not safe: two concurrent
-samplers each loaded the same pre-append state and the second save silently dropped the
-first's sample, with both calls still exiting 0. There is no `--flock` flag to remember for
-it, the same way `append-issue`'s flock is automatic rather than opt-in. The lock is
-re-entrant within a process, so `save_calibration` nests inside it rather than deadlocking
-against its own flock. Contrast this with
+`pm-calibration.yaml` and `issues.yaml` are the two shared-append targets sharding does not
+shard, because both are inherently cross-epic aggregates. Every `set-actual` across every
+epic and every parallel subagent may append a calibration sample to the first
+(`references/calibration-model.md`); every `append-issue` call across every epic and every
+parallel subagent appends to the second, first allocating the item's key from it (§3). Both
+files therefore run their **whole read-modify-write cycle** — load,
+allocate/derive, mutate, save — inside one exclusive lock (`calibration_lock` /
+`issues_lock`), not just the save. Locking only the save is not sufficient and was not safe:
+two concurrent callers each loaded the same pre-write state and the second save silently
+dropped the first's item (for `issues.yaml`, both a lost finding and, before key allocation
+existed, two callers computing the same next number), with both calls still exiting 0.
+There is no `--flock` flag to remember for either — the lock is automatic, not opt-in. Both
+locks are re-entrant within a process, so a save that nests inside its own lock (as
+`save_calibration` does) does not deadlock against its own flock. Contrast this with
 per-epic node files (`epic.yaml`, `sprint.yaml`, story `.yaml`), which need no flock at all
-because sharding gives each epic its own directory — `pm-calibration.yaml` and `issues.yaml`
-are the two files sharding does not shard, because both are inherently cross-epic
-aggregates.
+because sharding gives each epic its own directory.
 
 ## 10. Read resolution at activation
 

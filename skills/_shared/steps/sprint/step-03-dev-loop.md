@@ -222,7 +222,6 @@ severities you were acting on) and `--title` from its one-line summary:
 ```bash
 python3 {pm_status} append-issue \
   --file {pm_issues_file} \
-  --key BL-{epic_key}-{nnn} \
   --epic {epic_nnn} \
   --sprint {sprint_num} \
   --title "{finding_text}" \
@@ -230,6 +229,10 @@ python3 {pm_status} append-issue \
   --severity {Critical|High|Medium} \
   --description "See {sprint_root}/closure/review-{story_key}.md"
 ```
+
+`--key` is omitted deliberately — `append-issue` allocates the next `BL-{epic_key}-{nnn}`
+itself, under a lock, from the highest existing number for this epic. Never construct the
+number here: two agents inventing one in parallel is exactly the collision this replaces.
 
 Keep the story document in step with the state — the state YAML is what the machine reads and
 this file is what a reviewer opens, and they have not agreed until now:
@@ -252,11 +255,11 @@ FAILED: story {story_key} — {N} critical/high findings unresolved after {max_f
 
 **If MEDIUM findings:** fix in current iteration (one more dev pass), then mark done.
 
-**If LOW findings:** defer to issues file (do not re-develop):
+**If LOW findings:** defer to issues file (do not re-develop). `--key` is omitted here too —
+see the note above:
 ```bash
 python3 {pm_status} append-issue \
   --file {pm_issues_file} \
-  --key BL-{epic_key}-{nnn} \
   --epic {epic_nnn} \
   --sprint {sprint_num} \
   --title "{finding_text}" \

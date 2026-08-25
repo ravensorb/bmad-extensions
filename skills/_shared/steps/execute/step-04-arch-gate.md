@@ -161,13 +161,15 @@ For each MINOR finding, append to issues file:
 ```bash
 python3 {pm_status} append-issue \
   --file {pm_issues_file} \
-  --key BL-{epic_key}-{nnn} \
   --epic {epic_nnn} \
   --sprint "" \
   --title "{finding_text}" \
   --source "arch-gate ({reviewer})" \
   --severity Low
 ```
+
+`--key` is omitted — `append-issue` allocates `BL-{epic_key}-{nnn}` itself under a lock,
+from the highest existing number for this epic; never construct the number here.
 Output: `Step 04 complete — findings: 0 blocking, {N} deferred to issues`
 
 **If no findings on non-trivial CODE scope:**

@@ -114,13 +114,15 @@ Collect all Low severity issues found across phases 2–6. For each:
 ```bash
 python3 {pm_status} append-issue \
   --file {pm_issues_file} \
-  --key BL-{epic_key}-{nnn} \
   --epic {epic_nnn} \
   --sprint {sprint_num} \
   --title "{issue_title}" \
   --source "{phase} ({finding_id})" \
   --severity Low
 ```
+
+`--key` is omitted — `append-issue` allocates `BL-{epic_key}-{nnn}` itself under a lock,
+from the highest existing number for this epic; never construct the number here.
 
 Write closure summary to `{sprint_root}/closure/closure-report.md`:
 - Stories done, estimates vs actuals
