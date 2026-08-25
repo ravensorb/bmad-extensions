@@ -5007,6 +5007,33 @@ class TestTestRunEvidence(TestLayoutResolution):
         ce = node.get("completion_evidence") or {}
         self.assertNotIn("tests_passing", ce)
 
+    def test_a_rerun_of_the_same_command_supersedes_its_earlier_failure(self):
+        """The normal fix-then-rerun cycle the step file asks for: pytest -> 1, fix,
+        pytest -> 0. The derived boolean reads the LAST run of each distinct command,
+        so this closes True -- and BOTH entries stay in test_runs, because the failed
+        run is the evidence that made the field falsifiable."""
+        for rc in ("1", "0"):
+            self.run_main(["add-test-run", "--state-root", self.root,
+                           "--story", "E001-S01-003",
+                           "--command", "pytest", "--exit-code", rc])
+        _, node = pm.load_node(pm.story_file(self.root, "E001-S01-003"))
+        ce = node["completion_evidence"]
+        self.assertIs(ce["tests_passing"], True)
+        self.assertEqual([(r["command"], r["exit_code"]) for r in ce["test_runs"]],
+                         [("pytest", 1), ("pytest", 0)])
+
+    def test_a_different_command_still_failing_derives_false(self):
+        """Last-run-wins is per command, not global: re-running one suite green never
+        speaks for a different suite whose latest run is red."""
+        for cmd, rc in (("pytest", "1"), ("pytest", "0"), ("npm test", "1")):
+            self.run_main(["add-test-run", "--state-root", self.root,
+                           "--story", "E001-S01-003",
+                           "--command", cmd, "--exit-code", rc])
+        _, node = pm.load_node(pm.story_file(self.root, "E001-S01-003"))
+        ce = node["completion_evidence"]
+        self.assertIs(ce["tests_passing"], False)
+        self.assertEqual(len(ce["test_runs"]), 3)
+
     def test_negative_exit_code_is_refused(self):
         buf = io.StringIO()
         with redirect_stderr(buf):

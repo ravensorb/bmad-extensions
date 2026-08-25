@@ -105,6 +105,15 @@ set-estimate  --state-root S  (--story KEY | --epic ID [--sprint ID])
               --cost* rejected, exit 2 — use estimate-story/estimate-rollup)
               [--confidence {low,medium,high}] [--flock]
 set-field     --state-root S  (--story KEY | --epic ID [--sprint ID])  --field NAME --value V
+              (refuses completion_evidence.tests_passing, exit 2 — use add-test-run)
+add-test-run  --state-root S  --story KEY  --command CMD  --exit-code N
+              (record every run, failures too; tests_passing derives from the LAST
+              run of each distinct command)
+sync-story-doc --artifacts-root A  --story KEY  --status S
+              (mirrors status into the story doc's frontmatter; a missing or
+              frontmatter-less doc warns and returns 0 — never roll state back)
+adr-reserve   --state-root S  --epic ID  --slug SLUG  [--count N]
+              (N sequential ADR numbers under a lock, before dispatch; one per line)
 estimate-story   --state-root S  --story KEY  --classification {simple,standard,complex}
                  [--model ID] [--token-rates JSON]
 estimate-rollup  --state-root S  --epic ID  [--sprint ID]  [--model ID] [--token-rates JSON]

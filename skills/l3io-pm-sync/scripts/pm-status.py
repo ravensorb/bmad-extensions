@@ -58,7 +58,9 @@ Subcommands
                 completion_evidence.tests_passing — use add-test-run instead)
   add-test-run  --state-root S  --story KEY  --command CMD  --exit-code N
                 (appends {command, exit_code} to completion_evidence.test_runs and
-                derives completion_evidence.tests_passing as all(exit_code == 0))
+                derives completion_evidence.tests_passing as all(exit_code == 0) over
+                the LAST run of each distinct command -- record failures too, a
+                re-run of the same command supersedes them for the boolean only)
   verify        --state-root S  --scope {story,sprint,epic}  (--story KEY | --epic ID [--sprint ID])
                 [--require-tokens] [--runtime {claude,other}]
                 (--scope epic checks structural/back-reference integrity across the
@@ -3915,6 +3917,17 @@ def cmd_add_test_run(args) -> int:
     anything passed: a story shipped `tests_passing: true` having broken a
     suite it never ran, and the break surfaced two stories later. A command
     and an exit code are falsifiable by anyone who re-runs them.
+
+    DERIVATION RULE: `tests_passing` is `all(exit_code == 0)` over the **last
+    run of each distinct command**, not over every run ever appended. Agents
+    are told to record every command they ran, failures included, so the normal
+    fix-then-rerun cycle -- `pytest` -> 1, fix, `pytest` -> 0 -- appends both.
+    Folding history into the boolean would leave that story permanently
+    `tests_passing: false` and punish exactly the behavior the record wants.
+    The full history stays in `test_runs`: that is the evidence, and dropping
+    the failed run to make the boolean come out right would destroy it. A
+    command whose last run is non-zero still derives False, however many green
+    runs preceded it.
     """
     if args.exit_code < 0:
         sys.stderr.write("ERROR --exit-code must be >= 0\n")
@@ -3932,7 +3945,21 @@ def cmd_add_test_run(args) -> int:
     entry["command"] = args.command
     entry["exit_code"] = int(args.exit_code)
     runs.append(entry)
-    ce["tests_passing"] = all(_exit_code_or_fail(r.get("exit_code")) == 0 for r in runs)
+    # Last run wins per distinct command (see the docstring's DERIVATION RULE).
+    # dict keeps insertion order and a re-run overwrites in place, so this is the
+    # latest verdict for each command, in the order the commands first appeared.
+    latest = {}
+    for r in runs:
+        if not isinstance(r, dict):
+            # A hand-edited list can hold a scalar; an unreadable entry must never
+            # derive a pass, and it has no command to key on -- give it its own slot.
+            latest[("__malformed__", id(r))] = r
+            continue
+        latest[r.get("command")] = r
+    ce["tests_passing"] = all(
+        _exit_code_or_fail(r.get("exit_code") if isinstance(r, dict) else None) == 0
+        for r in latest.values()
+    )
     save_node(y, node, path, use_flock=True)
     sys.stdout.write(f"OK {args.story} test run recorded "
                      f"({args.command} -> {args.exit_code}); "
