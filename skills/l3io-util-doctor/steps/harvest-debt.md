@@ -118,7 +118,31 @@ If no: print `Harvest cancelled — report only, no changes made.` and exit.
 
 Append one item per `new` marker to the top-level `backlog:` list of `{status_backlog}`, following
 the consolidated backlog schema (the PM skills' `references/status-files.md` is the schema source of
-truth). Prefer writing each item through `uv run {project-root}/_bmad/scripts/pm-status.py append-issue --file {pm_issues_file} ...` when that script is present — it appends under an exclusive flock, which is what makes `issues.yaml` safe as the one shared-append target. Generate keys by continuing the highest existing `BL-E000-{nnn}` suffix (check existing items with `epic: '000'`; also check for any legacy `DEBT-NN` or narrower-padded `BL-E00-NN` items to avoid gap collisions, parsing sequence numbers numerically):
+truth).
+
+**When `{project-root}/_bmad/scripts/pm-status.py` is present, use it — this is the only correct
+path when it is available.** Call `append-issue` **without `--key`**:
+
+```bash
+uv run {project-root}/_bmad/scripts/pm-status.py append-issue --file {pm_issues_file} \
+  --epic 000 --title "{what}" \
+  --source "code-marker ({file}:{line})" --severity {Low|Medium} \
+  --description "{what} (ceiling: {ceiling | none}; upgrade: {upgrade | NONE — no revisit trigger})."
+```
+
+The `BL-E000-{nnn}` number is **allocated by the command itself**, under an exclusive flock, from
+the highest existing suffix it finds — that lock is what makes `issues.yaml` safe as the one
+shared-append target across every epic and every parallel caller. Do not choose or pass a number:
+a hand-picked `{nnn}` is exactly the failure this command exists to close off, since two callers
+inventing a number from the same directory listing can both succeed and silently overwrite one
+another. Severity rule: a marker that names an `upgrade:` trigger is `Low`; a `no-trigger` marker
+is `Medium` (it has no built-in escape from rotting, so it earns a higher gate). Never invent a
+ceiling or upgrade the comment did not state — pass `none`/`NONE`.
+
+**Fallback — only when `pm-status.py` is absent.** Hand-write the item into `{status_backlog}`'s
+`backlog:` list, deriving the key by continuing the highest existing `BL-E000-{nnn}` suffix (check
+existing items with `epic: '000'`; also check for any legacy `DEBT-NN` or narrower-padded
+`BL-E00-NN` items to avoid gap collisions, parsing sequence numbers numerically):
 
 ```yaml
 - key: BL-E000-001                     # BL-E000-{nnn} — repo-global, not epic-scoped
@@ -131,9 +155,10 @@ truth). Prefer writing each item through `uv run {project-root}/_bmad/scripts/pm
   description: '{what} (ceiling: {ceiling | none}; upgrade: {upgrade | NONE — no revisit trigger}).'
 ```
 
-Severity rule: a marker that names an `upgrade:` trigger is `Low`; a `no-trigger` marker is `Medium`
-(it has no built-in escape from rotting, so it earns a higher gate). Never invent a ceiling or
-upgrade the comment did not state — record `none`/`NONE`.
+This manual derivation **cannot be made collision-safe** — there is no lock protecting a
+hand-edited YAML file — so it is for single-agent, non-parallel use only, when no other process
+could be appending to the same backlog at the same time. As soon as `pm-status.py` becomes
+available, use it instead.
 
 **Step H7 — Verify**
 

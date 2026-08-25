@@ -4089,6 +4089,23 @@ def cmd_append_issue(args) -> int:
             from ruamel.yaml.comments import CommentedSeq
             data["backlog"] = CommentedSeq()
         backlog = data["backlog"]
+        # Unlike a missing 'backlog' (recoverable -- default to an empty list
+        # and keep going), a present-but-wrong-shape 'backlog' is refused
+        # outright, mirroring cmd_adr_reserve's malformed-'reserved' guard: a
+        # backlog that cannot say what is already recorded cannot be trusted
+        # to receive a new item without silently hiding whatever was there.
+        # Checked inside the lock, before key allocation -- the allocation
+        # helpers tolerate the bad shape without crashing, but there is no
+        # point allocating a key for an append that cannot happen.
+        if not isinstance(backlog, list):
+            sys.stderr.write(
+                f"pm-status.py: append-issue: {args.file} has a malformed "
+                f"'backlog' field (expected a list, got "
+                f"{type(backlog).__name__}: {backlog!r}); refusing to append "
+                f"-- appending to a silently-replaced empty list would hide "
+                f"whatever was already recorded there. Fix or restore "
+                f"{args.file} by hand, then retry.\n")
+            return 2
 
         if args.key:
             existing = _find_issue_by_key(backlog, args.key)

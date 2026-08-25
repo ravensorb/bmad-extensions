@@ -20,8 +20,8 @@
     "steps/sprint/step-04-sprint-closure.md": "75445ef449d758bce08979ed8191fe08871a2e82e6c290c455d3a58250ced506",
     "steps/closure/sprint-closure.md": "0fd6e10003dea59b412600ebac4e29f7cc3458f966432cdf391d0ecf4b465529",
     "steps/closure/epic-closure.md": "e7466b3f72d4f9e6ff4edd4ee6bcbc740f69f6b5658ca8418d276706c0da45a9",
-    "scripts/pm-status.py": "24af768dd80a5a3bcfef1787021a6a137af89ffc3b41a247deda0bbc6ee2c8a1",
-    "scripts/tests/test-pm-status.py": "7c4802c8baeeef46cda7d94c0afd8729b6f00975eeff536f5943c4cb7226f17d",
+    "scripts/pm-status.py": "0cc1d0580b63577891605ef71bfb1e9a88cd2b5545184f87bae9790ccef07b65",
+    "scripts/tests/test-pm-status.py": "74d6e4c72efa8f4fe72e8eb5b409e608eb31b7c274c15753aa49f30c938fdc6b",
     "references/status-files.md": "5121897734a4f8b25c6a93f0832430c6324cfa0e99b622c86134364a6bf5344c",
     "references/metrics-contract.md": "35a6a0f2c3b4023430fc1ac2b911fcb625c499090ad9e5a46d52353d6fb20af5",
     "references/calibration-model.md": "63b15a5c4552d6be78d90ec886ff0a1d581af9440bcff3b87b12ef1e1d01af0f"

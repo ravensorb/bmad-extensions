@@ -159,10 +159,11 @@ normalization step will later do to it):
 Story nodes already carry `key:` in the legacy flat layout (format `E{nnn}-S{nn}-{nnn}`)
 and need no conversion here — only the `epic:`/`sprint:` back-references added in Stage B.
 
-For backlog items extracted by the status-normalization step below, format the new key's
-epic segment with the **same 3-digit width** as the epic's freshly-converted `key:` — e.g.
-epic `id: 3` → `key: 'E003'` → new issues get `BL-E003-{nnn}`, never `BL-E3-` or
-`BL-E03-`. (This is why key conversion runs first.) Pre-existing
+For backlog items extracted by the status-normalization step below, no key is built by
+hand — Stage C passes the epic's numeric id straight to `append-issue --epic`, which
+normalizes it to the same 3-digit width as the epic's freshly-converted `key:` (e.g. epic
+`id: 3` → `key: 'E003'` → issue key `BL-E003-{nnn}`, never `BL-E3-` or `BL-E03-`) and
+allocates `{nnn}` itself. Pre-existing
 backlog items already in the working issues list are **left exactly as found** — their
 keys are not reformatted (see Stage C; re-keying an item that may already be referenced
 elsewhere, e.g. by `l3io-pm-sync`, is out of scope and a needless risk for this
@@ -245,13 +246,13 @@ review | done), or to a legacy status this migration knows how to normalize (def
 superseded), then re-run migrate-state.
 ```
 
-For deferred stories extracted as backlog issues: assign sequential keys continuing after
-the **highest existing** `BL-E{epic}-{nnn}` key already present for that epic in the
-working issues list (or `-001` if none exist for that epic), `severity: Low`, `source:
-migrate-state (deferred)`. Parse the epic number and the sequence number of each existing
-key **numerically**, not lexicographically or by string width — pre-existing keys may use a
-narrower zero-padding than the sharded layout's 3-digit convention (e.g. `BL-E00-01` for
-epic 0), and a string comparison would misorder `BL-E003-2` before `BL-E003-10`.
+For deferred stories extracted as backlog issues: record `severity: Low`, `source:
+migrate-state (deferred)`, and the story's title for each — but **do not assign a key
+here**. The `BL-E{epic}-{nnn}` key is allocated later, in Stage C, by `append-issue` itself
+under a lock, from the highest existing suffix for that epic; computing it by hand at this
+step would be the same invented-number collision this migration's own writer was changed
+to close off. This step's job is only to identify *which* stories are being extracted and
+capture the fields `append-issue` needs, not to number them.
 
 **Bind `{extracted_story_keys}`** = the list of story keys extracted in this step (the
 `key:` of each story removed from its sprint's story list, one per line), for **whichever**
@@ -260,9 +261,11 @@ later — an extracted story's authored `.md` artifact is left in place (artifac
 even though its state node no longer exists, and that is an *expected* consequence of this
 step, not drift.
 
-Record every normalization applied (node, old status, new status, and — for extracted
-issues — the assigned key) for the final report. A legacy-per-epic source will usually
-record zero normalizations; that is the expected case, not a reason to skip the step.
+Record every normalization applied (node, old status, new status) for the final report; for
+each extracted issue, record the assigned `BL-` key only after Stage C's `append-issue` call
+returns it (parse it from the `OK append-issue {key} -> ...` line on stdout) — never before.
+A legacy-per-epic source will usually record zero normalizations; that is the expected case,
+not a reason to skip the step.
 
 ---
 
@@ -432,7 +435,7 @@ value:
 
 ```bash
 uv run {pm_status} append-issue --file {pm_issues_file} \
-  --key {new_key} --epic {epic_num_3digit} --sprint {sprint_num_2digit_or_empty} \
+  --epic {epic_num_3digit} --sprint {sprint_num_2digit_or_empty} \
   --title "{story_title}" --source "migrate-state (deferred)" --severity Low
 ```
 

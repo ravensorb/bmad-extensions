@@ -365,6 +365,38 @@ class TestAppendIssue(unittest.TestCase):
         y, data = pm._load(self.f)
         self.assertEqual(len(data["backlog"]), 2)
 
+    # --- D3: malformed 'backlog' field is refused, not silently repaired - #
+
+    def _assert_malformed_backlog_refused(self, backlog_yaml_line):
+        """Shared body for the {} and 'text' malformed-backlog cases: exit 2,
+        a clear stderr message, and the file byte-for-byte unmodified -- a
+        `backlog` that cannot say what is already recorded cannot be trusted
+        to receive a new item without hiding whatever was there, mirroring
+        cmd_adr_reserve's malformed-'reserved' guard."""
+        content = backlog_yaml_line
+        with open(self.f, "w", encoding="utf-8") as fh:
+            fh.write(content)
+        buf_err = io.StringIO()
+        try:
+            with redirect_stderr(buf_err):
+                code = pm.main(["append-issue", "--file", self.f,
+                                "--epic", "001", "--title", "Next finding",
+                                "--source", "qa", "--severity", "Low"])
+        except SystemExit as e:
+            code = e.code
+        self.assertEqual(code, 2)
+        err = buf_err.getvalue()
+        self.assertIn("backlog", err)
+        self.assertIn("malformed", err)
+        with open(self.f, "r", encoding="utf-8") as fh:
+            self.assertEqual(fh.read(), content, "file must be left unmodified on refusal")
+
+    def test_malformed_backlog_dict_is_refused_not_silently_repaired(self):
+        self._assert_malformed_backlog_refused("backlog: {}\n")
+
+    def test_malformed_backlog_string_is_refused_not_silently_repaired(self):
+        self._assert_malformed_backlog_refused("backlog: text\n")
+
 
 ISSUES_FIXTURE = """\
 backlog:
