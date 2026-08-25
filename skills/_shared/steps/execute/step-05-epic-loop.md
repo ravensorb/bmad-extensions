@@ -348,14 +348,14 @@ End with exactly one of:
 ```
 
 Close the bracket, then branch:
-- `DONE` → mark sprint done, continue to next sprint
+- `DONE` → mark sprint done, then run 5d
 - `BLOCKED` → log reason, halt epic loop, output: `BLOCKED: sprint {sprint_num} of {epic_key} — {reason}`
-- `FAILED` → log reason, continue to next sprint (sprint failure is non-fatal at epic level); track count
+- `FAILED` → log reason, run 5d, then continue to next sprint (sprint failure is non-fatal at epic level); track count
 
 ### 5d. Re-estimate the sprints that have not run yet
 
-**This runs once per sprint, inside the §5 loop — immediately after 5c reports `DONE`, and
-before you dispatch the next sprint's 5a.** `{sprint_num}` is the sprint that just closed.
+**This runs once per sprint, inside the §5 loop — immediately after 5c reports `DONE` or
+`FAILED`, and before you dispatch the next sprint's 5a.** `{sprint_num}` is the sprint that just closed.
 It is not a post-loop step: run it after the last sprint too (it will find nothing left to
 re-price and say so), but running it *only* then would price every remaining sprint from the
 same prior that just missed, which is the whole defect this step exists to close.
