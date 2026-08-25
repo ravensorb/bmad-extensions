@@ -172,12 +172,15 @@ Output: `Step 04 complete — findings: 0 blocking, {N} deferred to issues`
 
 **If no findings on non-trivial CODE scope:**
 
-Zero findings on CODE scope is unusual enough to record, and not a reason to stop. Write the
+Zero findings on CODE scope is unusual enough to record, and not a reason to stop. Bind
+`{file_count}` = the count of `{story_file_paths}` (§3) — a derived value, not a new input —
+so a later reader can tell a thin zero-findings review from a thorough one. Write the
 observation and continue:
 
 ```
 NOTE arch gate returned zero findings on CODE scope for {epic_key}.
-     Reviewer(s): {reviewers_run}.
+     Reviewer(s): {reviewers_run}. Scope: {file_count} story files (derived count of
+     {story_file_paths}).
      Unusual — if the next sprint surfaces design defects this gate should have caught,
      start here.
 ```

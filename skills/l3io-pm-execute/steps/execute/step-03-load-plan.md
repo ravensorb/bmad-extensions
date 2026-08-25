@@ -39,17 +39,27 @@ absence means a plan run did not complete:
     A plan run likely did not finish. The newest snapshot may be incomplete.
     Re-run /l3io-pm-plan to rebuild the pointer, or confirm to execute {newest_snapshot} as-is.
 ```
-Pause for user confirmation. On confirmation, bind `{current_plan_file}` = the newest snapshot,
-then skip the pointer-dependent opening of section 2 and resume at "Read the snapshot file" —
-sections 2b and 2c still run, and matter more than usual here. There is no pointer, so
-`readiness` is unknown: treat it as `amber`.
+This is a degraded path, not a clean one, and this step has no inbox to wait on — write what
+you found and stop:
+```
+BLOCKED: plan-output-meta.yaml absent, but snapshots exist ({listed_snapshots}). Decide: re-run
+/l3io-pm-plan to rebuild the pointer and readiness from current state (recommended), or, if
+{newest_snapshot} is verified complete, write plan-output-meta.yaml with
+current_plan: {newest_snapshot} (plus a readiness value) and re-run this step.
+```
 
 If `readiness: red` → warn:
 ```
 ⚠️  Plan readiness is RED. Proceeding may produce incomplete results.
    Run /l3io-pm-plan to resolve readiness gaps, or continue at your own risk.
 ```
-Pause for user confirmation before continuing.
+This is a degraded path, not a clean one, and this step has no inbox to wait on — write what
+you found and stop:
+```
+BLOCKED: plan readiness is RED for {current_plan_file}. Run /l3io-pm-plan to resolve the
+readiness gaps (recommended), or, having accepted the risk, re-run /l3io-pm-execute for this
+scope to proceed on the red plan.
+```
 
 If `readiness: amber` → warn and continue without pause.
 
