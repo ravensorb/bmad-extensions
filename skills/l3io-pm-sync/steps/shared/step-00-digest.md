@@ -159,6 +159,18 @@ capture what is exposed or pass `--tokens-na` and record `N/A` — **never a gue
 `completion_evidence.fix_iterations` **before** calling it, or the scope-versus-fix split
 cannot see it.
 
+### What a read costs
+
+A token you read is re-read on every turn you take afterwards. At the ~80 turns a story agent
+runs, content loaded near the start costs about **$25 per million tokens**, not the $0.50 the
+cache-read rate suggests. A 2,000-line file read to find one contract is real money, and four
+agents each reading it is four times that.
+
+So: read the files the task names. If you need something it did not name, name it to yourself
+first — "which file, and what am I looking for" — then read that file, not its directory. If
+what you need turns out not to be in what you were given, that is a defect in the hand-off
+worth reporting in your final line, not a reason to widen the read for the rest of the run.
+
 ### When you do need the deep contract
 
 | If you need to… | Read |

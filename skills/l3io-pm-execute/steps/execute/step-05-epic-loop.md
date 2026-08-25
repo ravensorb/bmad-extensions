@@ -183,6 +183,18 @@ That is why `{agent_contract}` carries a never-poll clause: a turn conveying one
 information costs exactly what a turn conveying a hundred does, because both re-read
 everything before them.
 
+### The orchestrator outlives every agent it dispatches
+
+Every rule above governs a dispatched agent. You are not one — you run for the whole epic, so
+your context is the longest-lived in the system and every token in it is re-read on every turn
+you take for the rest of the run. The rules bind you harder, not less.
+
+Concretely: read a subagent's **final line**, not its transcript. Do not re-read a story file
+after prep has run — prep wrote what the dev needed into the document, and the document is the
+hand-off. Do not accumulate findings in your own context; a phase that produces findings writes
+them to disk and hands you the path. If you need a number, `pm-status.py show` and `report`
+print it in a line, which is why they exist.
+
 `{skip_phases}` was bound by `step-01-classify-work.md` §4 from the phase matrix there. Pass it
 through unchanged to every dispatch — do not recompute it.
 

@@ -103,6 +103,23 @@ across their `actual` blocks (`references/metrics-contract.md` §6). The even sp
 approximation and is meant to be — the alternative is paying N project reads to measure a
 number that feeds calibration as a ratio, and prep cost does scale roughly with story count.
 
+**Write a `Files in scope` block into every story document.** The dev agent that builds this
+story receives it verbatim and starts there instead of discovering the shape of the work by
+reading around it — the measured spread was 19k to 138k tokens read per file changed, on
+stories of comparable size, and that spread is the largest uncontrolled cost in a run.
+
+```markdown
+## Files in scope
+
+- `src/foo/bar.py` — the module this story changes
+- `src/foo/baz.py` — its only caller; signature change lands here
+- `tests/foo/test_bar.py` — the suite that must stay green
+```
+
+Repo-relative paths, one line of why each. Best effort is the right standard: the list is a
+starting point, not a fence. If it turns out incomplete the dev widens and says so, and that
+report is what improves the next story's block.
+
 After enrichment, re-check every key in `{thin_story_keys}` against all six dimensions. For
 any still carrying an unfilled applicable dimension:
 ```
