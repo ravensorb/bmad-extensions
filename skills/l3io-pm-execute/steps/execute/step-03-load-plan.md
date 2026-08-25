@@ -2,8 +2,9 @@
 
 Communicate all responses in `{communication_language}`.
 
-Read the plan snapshot and validate it against current state. If no plan exists, offer to run
-`l3io-pm-plan` first.
+Read the plan snapshot and validate it against current state. If no plan exists, or the plan
+is not fit to execute, this step ends `BLOCKED` naming what would fix it — it has no inbox and
+never offers a choice it cannot then act on.
 
 ## 1. Read plan-output-meta.yaml
 
@@ -36,8 +37,8 @@ absence means a plan run did not complete:
 ```
 ⚠️  plan-output-meta.yaml is missing, but plan snapshots exist:
       {listed_snapshots}
-    A plan run likely did not finish. The newest snapshot may be incomplete.
-    Re-run /l3io-pm-plan to rebuild the pointer, or confirm to execute {newest_snapshot} as-is.
+    A plan run likely did not finish, so the newest snapshot may be incomplete.
+    Without the pointer there is nothing vouching for any of them, and this run stops here.
 ```
 This is a degraded path, not a clean one, and this step has no inbox to wait on — write what
 you found and stop:
@@ -50,16 +51,21 @@ current_plan: {newest_snapshot} (plus a readiness value) and re-run this step.
 
 If `readiness: red` → warn:
 ```
-⚠️  Plan readiness is RED. Proceeding may produce incomplete results.
-   Run /l3io-pm-plan to resolve readiness gaps, or continue at your own risk.
+⚠️  Plan readiness is RED for {current_plan_file}. Executing it would produce incomplete
+   results, so this run stops here.
 ```
 This is a degraded path, not a clean one, and this step has no inbox to wait on — write what
 you found and stop:
 ```
-BLOCKED: plan readiness is RED for {current_plan_file}. Run /l3io-pm-plan to resolve the
-readiness gaps (recommended), or, having accepted the risk, re-run /l3io-pm-execute for this
-scope to proceed on the red plan.
+BLOCKED: plan readiness is RED for {current_plan_file}. Two things unblock it: run
+/l3io-pm-plan to resolve the readiness gaps and rebuild the plan (recommended), or, having
+accepted the risk, edit readiness: in {planning_artifacts}/plan-output-meta.yaml to amber and
+re-run /l3io-pm-execute.
 ```
+**Do not tell the user to simply re-run `/l3io-pm-execute`.** A re-run reads the same
+`readiness: red` from the same pointer and blocks here identically; there is no override flag,
+and naming one that does not exist sends them round a loop. Only the two remedies above change
+what this step reads.
 
 If `readiness: amber` → warn and continue without pause.
 
