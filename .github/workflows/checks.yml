@@ -21,6 +21,8 @@ jobs:
       run: npm run check:docs
     - name: Verify pm-status.py's version tracks its content
       run: npm run check:version
+    - name: Verify per-skill payload manifests match the payload
+      run: npm run check:manifest
     - name: pm-status.py unit tests
       run: |
         python3 -m pip install --quiet 'ruamel.yaml>=0.18'
