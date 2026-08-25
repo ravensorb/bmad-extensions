@@ -544,7 +544,18 @@ const DIGEST_FILE = "skills/_shared/steps/shared/step-00-digest.md";
 // costs every agent. The supporting evidence was pushed out to
 // steps/execute/step-05-epic-loop.md §5 first, so what remains resident is the operative
 // rule and a citation -- raising the number was the last resort, not the first.
-const DIGEST_BUDGET = 10400;
+//
+// Raised 10,400 -> 12,400 on 2026-08-25 for the clauses and the read-cost section
+// the production report (docs/superpowers/specs/2026-08-25-l3io-production-findings.md,
+// findings 8 and 9) showed were missing: ending a turn on a question, arming a wait
+// after the final line, and what a read actually costs. Each was observed live; two
+// of them stranded a run.
+//
+// Sized ONCE for both this task's contract clauses (~750 B) and Task 6's "What a read
+// costs" section (~900 B) against a 10,396 B baseline, rather than raised twice. A
+// budget that yields once per commit is not a budget. Deliberate, per the
+// raise-and-say-why instruction in the failure message below.
+const DIGEST_BUDGET = 12400;
 
 function checkDigestSize() {
   if (!exists(DIGEST_FILE)) {

@@ -59,9 +59,17 @@ verbatim in **every** spawn prompt you issue:
 ```
 - You have no inbox. No reply will arrive. If you need a decision you cannot make,
   write it to disk and end with `BLOCKED: <one-line reason>`. Never wait.
+- Never end a turn on a question. Asking and stopping is worse than waiting: the
+  work is abandoned rather than recorded. Decide it yourself and write down what
+  you assumed, or end with `BLOCKED:` — those are the only two exits.
 - Never poll. If something runs outside your turn, arm ONE background wait and stop.
   Every poll is a full turn and a turn re-reads your entire history — a one-line
   "still running?" costs what the whole conversation costs.
+- Once you have written your final line you are done. Do not arm a wait, schedule a
+  wake-up, or start anything that can call you back: each wake is a fresh turn that
+  re-reads everything, finds nothing to do, and can arm another.
+- Every token you read is re-read on every later turn, so what you load costs
+  turns × its size. Read what the task names; widen only with a reason.
 - Your final line must be exactly one of `DONE — [brief metrics]`,
   `BLOCKED: [one-line reason]`, or `FAILED: [one-line reason]`.
 ```
