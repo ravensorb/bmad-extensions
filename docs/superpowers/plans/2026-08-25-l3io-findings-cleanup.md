@@ -670,13 +670,17 @@ Expected: FAIL — `activation digest is NNNNN B, over its 10400 B budget`. This
 In `scripts/check-docs.mjs`, above `const DIGEST_BUDGET`, add to the existing comment block and raise the value to the smallest multiple of 100 that fits:
 
 ```javascript
-// Raised 10,400 -> 11,200 on 2026-08-25 for three clauses the production report
-// (docs/superpowers/specs/2026-08-25-l3io-production-findings.md, findings 8 and 9)
-// showed the contract did not cover: ending a turn on a question, arming a wait
-// after the final line, and the cost of what an agent chooses to read. Each was
-// observed live; two of them stranded a run. Deliberate, per the raise-and-say-why
-// instruction in the failure message below.
-const DIGEST_BUDGET = 11200;
+// Raised 10,400 -> 12,400 on 2026-08-25 for the clauses and the read-cost section
+// the production report (docs/superpowers/specs/2026-08-25-l3io-production-findings.md,
+// findings 8 and 9) showed were missing: ending a turn on a question, arming a wait
+// after the final line, and what a read actually costs. Each was observed live; two
+// of them stranded a run.
+//
+// Sized ONCE for both this task's contract clauses (~750 B) and Task 6's "What a read
+// costs" section (~900 B) against a 10,396 B baseline, rather than raised twice. A
+// budget that yields once per commit is not a budget. Deliberate, per the
+// raise-and-say-why instruction in the failure message below.
+const DIGEST_BUDGET = 12400;
 ```
 
 - [ ] **Step 4: Verify the budget still bites**
@@ -702,7 +706,7 @@ git commit -s -m "fix(l3io-pm): close two contract gaps that stranded live runs
 The contract forbade waiting and polling. It did not forbid ending a turn on a
 question (observed: a story abandoned with 47 files half-written) or arming a
 wait after the final line (observed: five echo wakes before a manual kill). Adds
-both, plus a read-cost clause. Digest budget raised 10,400 -> 11,200 with the
+both, plus a read-cost clause. Digest budget raised 10,400 -> 12,400 with the
 reason recorded at the constant."
 ```
 
@@ -719,7 +723,7 @@ reason recorded at the constant."
 - Modify: `skills/_shared/steps/execute/step-05-epic-loop.md` — orchestrator discipline
 
 **Interfaces:**
-- Consumes: Task 5's raised digest budget (this section's bytes must fit inside 11,200 — check before committing).
+- Consumes: Task 5's raised digest budget (this section's bytes must fit inside **12,400** — check before committing).
 - Produces: `Files in scope` — a markdown block in each story document listing repo-relative paths, written at prep, read verbatim by the dev spawn.
 
 - [ ] **Step 1: Add the read-cost section to the digest**
@@ -793,7 +797,7 @@ print it in a line, which is why they exist.
 - [ ] **Step 5: Check the digest still fits**
 
 Run: `npm run sync:scripts && node scripts/check-docs.mjs --verbose 2>&1 | grep digest-size`
-Expected: a value at or under 11,200. If it is over, move the "What a read costs" prose into `skills/_shared/metrics-contract.md` and leave a two-line summary plus a routing-table entry in the digest — the routing table exists precisely so the digest can stay small.
+Expected: a value at or under 12,400. If it is over, move the "What a read costs" prose into `skills/_shared/metrics-contract.md` and leave a two-line summary plus a routing-table entry in the digest — the routing table exists precisely so the digest can stay small.
 
 - [ ] **Step 6: Gate and commit**
 
