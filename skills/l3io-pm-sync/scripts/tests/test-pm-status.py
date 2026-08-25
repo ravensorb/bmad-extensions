@@ -4944,6 +4944,37 @@ class TestTestRunEvidence(TestLayoutResolution):
         self.assertEqual(code, 2)
         self.assertIn("add-test-run", buf.getvalue())
 
+    def test_a_malformed_stored_exit_code_fails_rather_than_crashes(self):
+        """test_runs is hand-editable YAML; a non-numeric exit_code must derive False,
+        never raise and never derive True."""
+        path = pm.story_file(self.root, "E001-S01-003")
+        y, node = pm.load_node(path)
+        ce = node.setdefault("completion_evidence", {})
+        ce["test_runs"] = [{"command": "old flaky run", "exit_code": "flaky"}]
+        pm.save_node(y, node, path)
+
+        code, out = self.run_main(["add-test-run", "--state-root", self.root,
+                                   "--story", "E001-S01-003",
+                                   "--command", "npm test", "--exit-code", "0"])
+        self.assertEqual(code, 0, out)
+        _, node = pm.load_node(path)
+        self.assertIs(node["completion_evidence"]["tests_passing"], False)
+
+    def test_no_recorded_runs_leaves_tests_passing_absent(self):
+        """The exact regression all(()) == True would reintroduce: a story that never
+        called add-test-run must never read as tests_passing: true."""
+        _, node = pm.load_node(pm.story_file(self.root, "E001-S01-003"))
+        ce = node.get("completion_evidence") or {}
+        self.assertNotIn("tests_passing", ce)
+
+    def test_negative_exit_code_is_refused(self):
+        buf = io.StringIO()
+        with redirect_stderr(buf):
+            code, _ = self.run_main(["add-test-run", "--state-root", self.root,
+                                     "--story", "E001-S01-003",
+                                     "--command", "npm test", "--exit-code", "-1"])
+        self.assertEqual(code, 2)
+
 
 class TestCalibrationRedrive(TestLayoutResolution):
     def _close_story(self, iters):

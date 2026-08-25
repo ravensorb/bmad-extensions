@@ -229,8 +229,7 @@ python3 {pm_status} set-field \
 ```
 
 **Record what you ran, not what you concluded.** For every test command the story's scope
-required — the suites covering the files this story changed, not only the ones you chose to
-run — record the command and its real exit code:
+required, record the command and its real exit code:
 
 ```bash
 python3 {pm_status} add-test-run --state-root {pm_state_root} --story {story_key} \
@@ -238,10 +237,27 @@ python3 {pm_status} add-test-run --state-root {pm_state_root} --story {story_key
 ```
 
 `completion_evidence.tests_passing` is derived from these and is no longer writable directly;
-`set-field` refuses it. The required set comes from the story's scope: if the story changed a
-file, the suite covering that file is required whether or not you ran it. A story once shipped
-`tests_passing: true` having broken a suite it never ran, and the break was found two stories
-later by accident.
+`set-field` refuses it.
+
+**Determining the required set.** Work from the files this story changed, in this order:
+
+1. If the project maps areas to test commands — a per-package script, a suite whose path
+   mirrors the source tree, a command documented in `CLAUDE.md` or the README — run the
+   commands covering the changed files.
+2. If you cannot establish that mapping with confidence, **run the project's full test
+   command** and record it. Full-suite is the fallback, not the exception: guessing a
+   narrower set is the failure this step exists to prevent.
+3. Record every command you ran, including ones that failed. A failing run belongs in the
+   record — it is what makes the derived boolean mean anything.
+
+**A story that changed code and recorded no runs is not done.** If you cannot run any test
+command at all, record nothing and end with `BLOCKED:` naming why, rather than closing the
+story on an empty record.
+
+Nothing enforces this at run time — no gate can see which suites an agent judged required.
+What it leaves behind is checkable: a story with `completion_evidence.files_changed` above
+zero and no `test_runs` ran nothing, and `tests_passing` will be **absent** rather than
+`true`. That absence is the signal; treat it as a finding at closure, never as a pass.
 
 **`man_hours` is a re-assessment, not an observation.** Bind `{man_hours}` from your own
 judgment of what a developer, working without AI assistance, would have needed to implement

@@ -1103,6 +1103,20 @@ def _iter_count(v):
     return int(f)
 
 
+def _exit_code_or_fail(v) -> int:
+    """An exit code that will not parse is a failure, never a pass.
+
+    test_runs is hand-editable YAML, and `_iter_count` already exists here
+    because historical nodes hold strings. Same tolerance — but the fallback is
+    asymmetric on purpose: an unreadable exit code must never derive
+    `tests_passing: true`.
+    """
+    try:
+        return int(v)
+    except (TypeError, ValueError):
+        return 1
+
+
 def derive_story_sample(node):
     """Compute a story's scope samples and its fix cohort. None when not derivable.
 
@@ -3810,7 +3824,7 @@ def cmd_add_test_run(args) -> int:
     entry["command"] = args.command
     entry["exit_code"] = int(args.exit_code)
     runs.append(entry)
-    ce["tests_passing"] = all(int(r.get("exit_code", 1)) == 0 for r in runs)
+    ce["tests_passing"] = all(_exit_code_or_fail(r.get("exit_code")) == 0 for r in runs)
     save_node(y, node, path, use_flock=True)
     sys.stdout.write(f"OK {args.story} test run recorded "
                      f"({args.command} -> {args.exit_code}); "
