@@ -142,7 +142,14 @@ For each blocking finding, spawn an ADR resolution subagent:
 - Patch affected story files with technical ACs implied by the ADR decision
 - Return: `ADR written: {path}`
 
-After all ADRs are written, re-validate the same story files with all reviewers (one more pass).
+After all ADRs are written, re-validate **only what changed**: pass each reviewer the ADRs
+written, the specific story-file sections those ADRs patched, and the finding each was
+resolving. Ask one question — "does this resolve the finding?" — and nothing else.
+
+Re-running the whole gate to check a patch pays for the entire epic read a second time to
+answer a question about a handful of sections. If a reviewer says it cannot judge the patch
+without more context, name the additional section; do not widen it back to the epic.
+
 If blocking findings persist after one resolution pass:
 ```
 BLOCKED: arch gate — {N} blocking findings unresolved after ADR resolution.
@@ -165,12 +172,19 @@ Output: `Step 04 complete — findings: 0 blocking, {N} deferred to issues`
 
 **If no findings on non-trivial CODE scope:**
 
-Output:
+Zero findings on CODE scope is unusual enough to record, and not a reason to stop. Write the
+observation and continue:
+
 ```
-⚠️  Arch gate found zero findings on CODE scope. This is unusual.
-   Confirm before continuing: (y/n)
+NOTE arch gate returned zero findings on CODE scope for {epic_key}.
+     Reviewer(s): {reviewers_run}.
+     Unusual — if the next sprint surfaces design defects this gate should have caught,
+     start here.
 ```
-Wait for user confirmation.
+
+**Do not prompt.** This step runs under a contract that forbids waiting for an answer that
+cannot arrive, and it may run headless or from a dispatched agent. A prompt here hangs the run
+on the one path where nothing is wrong.
 
 ## 7. Output
 
