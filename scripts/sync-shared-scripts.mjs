@@ -21,6 +21,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { execFileSync } from "node:child_process";
+import { pathToFileURL } from "node:url";
 
 const repoRoot = process.cwd();
 const check = process.argv.includes("--check");
@@ -155,46 +156,66 @@ const syncGroups = [
   { files: pmRefFiles, dirs: newPmSyncDirs, skipMissing: true },
 ];
 
-let drift = 0;
-let written = 0;
+// Every repo-relative path this script writes, derived from syncGroups itself so
+// it cannot disagree with what the loop below actually does. scripts/write-payload-
+// manifest.mjs imports this: a second hand-kept list would drift from the first,
+// and this file's whole purpose is detecting drift.
+export const PAYLOAD_TARGETS = syncGroups.flatMap(({ files, dirs, skipMissing }) =>
+  files.flatMap(({ src, rel }) =>
+    !fs.existsSync(src) && skipMissing
+      ? []
+      : dirs.flatMap((skillDir) =>
+          skipMissing && !fs.existsSync(skillDir)
+            ? []
+            : [path.relative(repoRoot, path.join(skillDir, rel))],
+        ),
+  ),
+);
 
-for (const { files, dirs, skipMissing } of syncGroups) {
-  for (const { src, rel } of files) {
-    if (!fs.existsSync(src)) {
-      if (skipMissing) continue;  // step files not created yet — skip
-      throw new Error(`Missing canonical source: ${src}`);
-    }
-    const content = fs.readFileSync(src);
-    const mode = fs.statSync(src).mode;
-    for (const skillDir of dirs) {
-      if (skipMissing && !fs.existsSync(skillDir)) continue;  // skill not created yet
-      const dest = path.join(skillDir, rel);
-      const exists = fs.existsSync(dest);
-      const same = exists && fs.readFileSync(dest).equals(content);
-      if (check) {
-        if (!same) {
-          drift += 1;
-          console.error(`DRIFT: ${path.relative(repoRoot, dest)} does not match ${path.relative(repoRoot, src)}`);
-        }
-        continue;
+// Guard: importing this module (e.g. from write-payload-manifest.mjs) must not perform a
+// sync. The body below only runs when this file is executed directly as the entry point.
+if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
+  let drift = 0;
+  let written = 0;
+
+  for (const { files, dirs, skipMissing } of syncGroups) {
+    for (const { src, rel } of files) {
+      if (!fs.existsSync(src)) {
+        if (skipMissing) continue;  // step files not created yet — skip
+        throw new Error(`Missing canonical source: ${src}`);
       }
-      if (same) continue;
-      fs.mkdirSync(path.dirname(dest), { recursive: true });
-      fs.writeFileSync(dest, content);
-      fs.chmodSync(dest, mode);
-      execFileSync("git", ["add", dest], { cwd: repoRoot, stdio: "ignore" });
-      written += 1;
-      console.log(`Synced ${path.relative(repoRoot, dest)}`);
+      const content = fs.readFileSync(src);
+      const mode = fs.statSync(src).mode;
+      for (const skillDir of dirs) {
+        if (skipMissing && !fs.existsSync(skillDir)) continue;  // skill not created yet
+        const dest = path.join(skillDir, rel);
+        const exists = fs.existsSync(dest);
+        const same = exists && fs.readFileSync(dest).equals(content);
+        if (check) {
+          if (!same) {
+            drift += 1;
+            console.error(`DRIFT: ${path.relative(repoRoot, dest)} does not match ${path.relative(repoRoot, src)}`);
+          }
+          continue;
+        }
+        if (same) continue;
+        fs.mkdirSync(path.dirname(dest), { recursive: true });
+        fs.writeFileSync(dest, content);
+        fs.chmodSync(dest, mode);
+        execFileSync("git", ["add", dest], { cwd: repoRoot, stdio: "ignore" });
+        written += 1;
+        console.log(`Synced ${path.relative(repoRoot, dest)}`);
+      }
     }
   }
-}
 
-if (check) {
-  if (drift > 0) {
-    console.error(`\n${drift} shared-script copy/copies out of sync — run: npm run sync:scripts`);
-    process.exit(1);
+  if (check) {
+    if (drift > 0) {
+      console.error(`\n${drift} shared-script copy/copies out of sync — run: npm run sync:scripts`);
+      process.exit(1);
+    }
+    console.log("Shared-script payload copies are in sync with skills/_shared/.");
+  } else {
+    console.log(`Shared-script sync complete (${written} file(s) written).`);
   }
-  console.log("Shared-script payload copies are in sync with skills/_shared/.");
-} else {
-  console.log(`Shared-script sync complete (${written} file(s) written).`);
 }

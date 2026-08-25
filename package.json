@@ -4,12 +4,15 @@
   "description": "A set of BMad extensions tailored to LiquidLogicLabs AIDLC best practices.",
   "author": "Shawn Anderson <shawn@eye-catcher.com>",
   "private": true,
+  "files": [
+    "payload-manifest.json"
+  ],
   "scripts": {
     "sync:scripts": "node scripts/sync-shared-scripts.mjs",
     "check:scripts": "node scripts/sync-shared-scripts.mjs --check",
     "check:docs": "node scripts/check-docs.mjs",
     "check:version": "node scripts/check-pm-status-version.mjs",
-    "postbump": "node scripts/sync-bmad-versions.mjs && node scripts/sync-shared-scripts.mjs && git add -u",
+    "postbump": "node scripts/sync-bmad-versions.mjs && node scripts/sync-shared-scripts.mjs && node scripts/write-payload-manifest.mjs && git add -u",
     "release": "commit-and-tag-version",
     "release:patch": "commit-and-tag-version --release-as patch",
     "release:minor": "commit-and-tag-version --release-as minor",
