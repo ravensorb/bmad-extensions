@@ -350,11 +350,19 @@ What is left to do is spend the calibration that was just learned. Re-estimate e
 that has not started, so the next sprint is priced with this sprint's evidence:
 
 Bind `{reestimate_story_keys}` = every story under `{epic_key}` whose `status` is `backlog`
-or `ready-for-dev`. Take it from:
+or `ready-for-dev`.
+
+`show --epic` prints sprint rows only — it does not list stories. Per-story keys and statuses
+come from the `--sprint` form, so collect them sprint by sprint. For each sprint in
+`{pending_sprints}` whose number is greater than `{sprint_num}` — the sprints that have not
+run yet:
 
 ```bash
-python3 {pm_status} show --state-root {pm_state_root} --epic {epic_key}
+python3 {pm_status} show --state-root {pm_state_root} --epic {epic_key} --sprint {n}
 ```
+
+It prints one `{story_key} {status}` line per story in that sprint. Keep the keys whose status
+is `backlog` or `ready-for-dev`, and union them across the sprints you visited.
 
 Stories at `in-progress`, `review` or `done` are **excluded**: re-pricing work already under
 way changes no decision and destroys the estimate the variance will be measured against.
@@ -367,16 +375,28 @@ Otherwise load `{skill-root}/steps/shared/step-estimate.md` with `{scope}={epic_
 re-runs `estimate-rollup` for each affected sprint and for the epic, so the parents stay
 equal to the sum of their children by construction.
 
-**Report the movement, because it is the signal the calibration is working:**
+**Report whether the calibration actually changed anything, because a silent nothing is the
+signal worth catching:**
 
 ```
 Re-estimated {N} unstarted stories after sprint {sprint_num}.
-  epic estimate: {old} -> {new} ({pct}%)
+Calibration active: {active_components}
 ```
 
-A large move is not an error — it is the loop doing its job. A move of exactly zero across a
-sprint that ran over is the symptom worth reporting: it means no component reached its
-three-sample activation threshold, so the cold-start prior is still in use.
+Bind `{active_components}` from:
+
+```bash
+python3 {pm_status} calibration show --state-root {pm_state_root}
+```
+
+It prints a `COMPONENT / BUCKET / SAMPLES / RATIO` table; a component is active where RATIO is
+a number, and inactive rows read `(cold-start, needs 3)` instead. Name the active ones. If
+none are active, report `none — still on the cold-start prior`, and treat that as the finding
+it is: this sprint's closure produced no usable sample, so the next sprint is priced by the
+same prior that just missed.
+
+Do not report a before-and-after epic estimate. There is no scalar to report — an epic
+estimate is five metrics, each a range, and no subcommand prints one.
 
 ## 7. Epic completion check
 
