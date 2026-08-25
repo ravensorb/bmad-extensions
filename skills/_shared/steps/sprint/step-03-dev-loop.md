@@ -194,14 +194,9 @@ python3 {pm_status} dispatch --state-root {pm_state_root} --event close \
 Increment fix counter.
 
 **Fix loop cap:** `{max_fix_iterations}` iterations per story (bound at
-`step-01-classify-work.md` §5 — 3 for every work type). If findings persist
-after `{max_fix_iterations}` iterations:
-```
-FAILED: story {story_key} — {N} critical/high findings unresolved after {max_fix_iterations} fix iterations.
-```
-Mark story `status: review` (not done), append the unresolved findings to the issues file, and
-**end this agent** — you hold one story and there is no next one. The orchestrator dispatches
-the next story itself.
+`step-01-classify-work.md` §5 — 3 for every work type). If findings persist after
+`{max_fix_iterations}` iterations, mark story `status: review` (not done) and append the
+unresolved findings to the issues file:
 
 ```bash
 python3 {pm_status} set-status \
@@ -221,6 +216,13 @@ python3 {pm_status} sync-story-doc --artifacts-root {implementation_artifacts} \
 This never fails: a missing or frontmatter-less document warns on stderr and returns 0, because
 the state transition it follows is already durable and must not be rolled back by a
 documentation write.
+
+Then **end this agent with `FAILED`** — you hold one story and there is no next one. The
+orchestrator dispatches the next story itself:
+
+```
+FAILED: story {story_key} — {N} critical/high findings unresolved after {max_fix_iterations} fix iterations.
+```
 
 **If MEDIUM findings:** fix in current iteration (one more dev pass), then mark done.
 
