@@ -2,6 +2,26 @@
 
 All notable changes to this project will be documented in this file. See [commit-and-tag-version](https://github.com/absolute-version/commit-and-tag-version) for commit guidelines.
 
+## Unreleased
+
+### ⚠ Incompatible CLI change
+
+* **l3io-pm:** `pm-status.py set-field --field completion_evidence.tests_passing` now **exits 2**
+  where it previously exited 0 and wrote the value. The field is derived, not asserted: record
+  what you actually ran with `add-test-run --story KEY --command CMD --exit-code N`, and
+  `tests_passing` is computed as `all(exit_code == 0)` over the **last run of each distinct
+  command** in `completion_evidence.test_runs`. Every recorded run is kept, so a command that
+  failed and was re-run green closes `true` with both runs still visible in the record.
+
+  **Who this breaks:** any bespoke closeout script or hand-rolled automation that set
+  `tests_passing` directly. Replace that one call with one `add-test-run` per test command;
+  there is no flag to restore the old behavior, because a boolean an agent writes about its own
+  work is not falsifiable — a story once shipped `tests_passing: true` having broken a suite it
+  never ran, and the break surfaced two stories later.
+
+  Reading is unaffected: `tests_passing` still appears in the same place with the same meaning,
+  and a story that recorded no runs leaves it **absent** rather than `true`.
+
 ## [2.4.7](https://github.com/ravensorb/bmad-extensions/compare/2.4.6...2.4.7) (2026-08-20)
 
 
