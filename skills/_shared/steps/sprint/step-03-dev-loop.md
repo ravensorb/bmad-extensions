@@ -102,8 +102,9 @@ Spawn `bmad-dev-story` subagent with:
 - Project context: the config resolved at activation (`references/config-resolution.md`) —
   pass the bound values, not a config file path
 - Sprint root: `{sprint_root}`
-- **The story's `Files in scope` block, verbatim** — start here. If prep wrote none, say so in
-  your final line; that is a story-prep defect worth one line of report.
+- **The story's `Files in scope` block, verbatim** — under the story's `## Files in scope`
+  heading, written at prep. Start here. If prep wrote none, say so in your final line; that is
+  a story-prep defect worth one line of report.
 - **Read scope**: this story, the files it changes, and their direct collaborators. The
   technical ACs carry the contracts — do not open the spec tree to rediscover them. Widening
   beyond this is a decision worth recording, not a default.

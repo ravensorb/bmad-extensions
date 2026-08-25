@@ -150,10 +150,9 @@ carrying during them — never either alone:
 cost = sum over turns of (tokens in context at that turn)
 ```
 
-Reading early pulls the harder axis. At the `T`≈80 typical of a story agent, content loaded
-near the start is re-read on the order of forty times; priced as one `cache_write` plus those
-`cache_read`s it lands near **$25 per million tokens read in**. A 2,000-line spec pulled in
-whole is about $0.60 — and $2.40 if four agents each decide to pull it.
+Reading early pulls the harder axis. The per-million figure and a worked example live in the
+"What a read costs" section of `steps/shared/step-00-digest.md`, which you load on activation;
+they are not repeated here.
 
 **The turn axis is why a sprint splits.** Context grows as a session runs, so its area grows
 with the square of its length: one 400-turn agent pays roughly twice what two 200-turn agents
