@@ -2262,6 +2262,17 @@ class TestClosureSampling(TestLayoutResolution):
         # Three zeros plus one real sample is one sample, not four.
         self.assertIsNone(pm.active_closure_ratio(cal, "sprint", "man_hours"))
 
+    def test_malformed_samples_are_handled_the_same_way_by_count_and_average(self):
+        """bool subclasses int; a numeric string is a number everywhere else in
+        this file. Whatever the filter decides, len() and the average must agree."""
+        _, cal = pm.load_calibration(self.root)
+        cal.setdefault("closure", {})["sprint"] = {
+            "man_hours": {"samples": [True, "2.0", 3.0]},
+        }
+        got = pm.active_closure_ratio(cal, "sprint", "man_hours")
+        # True is not a number; "2.0" is. Two real samples -> below MIN_SAMPLES.
+        self.assertIsNone(got)
+
 
 class TestClosureComposedWithOrchestration(TestLayoutResolution):
     """C1: the closure and orchestration components COMPOSED, which no test did.

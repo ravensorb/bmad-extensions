@@ -941,7 +941,7 @@ def active_closure_ratio(cal, level: str, metric: str):
     sample is one sample, not four, and must stay inactive.
     """
     s = [v for v in _component_samples(cal, "closure", level, metric)
-         if isinstance(v, (int, float)) and abs(v) > 1e-9]
+         if _is_number(v) and abs(float(v)) > 1e-9]
     return weighted_ratio(s) if len(s) >= MIN_SAMPLES else None
 
 
