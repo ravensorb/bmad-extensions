@@ -71,8 +71,13 @@ Subcommands
   set-lock      --state-root S  --epic ID  --session-id SESS  [--ttl-minutes N]
   clear-lock    --state-root S  --epic ID
   check-lock    --state-root S  --epic ID  --session-id SESS
-  append-issue  --file F  --key BL-E{nnn}-{nnn}  --epic E  [--sprint S]  --title T
+  append-issue  --file F  [--key BL-E{nnn}-{nnn}]  --epic E  [--sprint S]  --title T
                 --source S  --severity {Low,Medium,High,Critical}  [--description D]
+                [--allow-duplicate]
+                (--key omitted allocates the next number for --epic under a lock --
+                the caller never invents {nnn}; an explicit --key that already exists
+                exits 2. A content duplicate -- same normalized title/epic/sprint/source
+                -- is skipped (exit 0, nothing written) unless --allow-duplicate)
   list-issues   --state-root S  [--epic E] [--sprint S]
                 [--severity {Low,Medium,High,Critical}] [--format {text,json}]
                 (filters combine with AND; a repeated --severity ORs the given severities;
@@ -729,6 +734,26 @@ def adr_register_lock(state_root: str):
     this is exactly the register two parallel adr-reserve calls must not race on.
     """
     with _file_lock(adr_register_path(state_root) + ".lock", _ADR_LOCK):
+        yield
+
+
+_ISSUES_LOCK = {"depth": 0, "fh": None}
+
+
+@contextlib.contextmanager
+def issues_lock(file_path: str):
+    """Hold an exclusive lock over a whole issues.yaml read-modify-write cycle.
+
+    Same reasoning as calibration_lock/adr_register_lock: load -> allocate a key
+    -> dedupe-check -> mutate -> save is not atomic, and `issues.yaml` is a shared
+    append target across every epic and every parallel subagent -- exactly what
+    ADR numbers needed a register for after two parallel agents both read the
+    same near-empty directory and chose the same number. Unlike calibration/ADR,
+    the lock file is keyed off the caller-supplied `--file` path rather than a
+    path derived from `--state-root`, because `append-issue` is the one
+    subcommand that still addresses its target by path (see status-files.md §7).
+    """
+    with _file_lock(file_path + ".lock", _ISSUES_LOCK):
         yield
 
 
@@ -3967,33 +3992,148 @@ def cmd_add_test_run(args) -> int:
     return 0
 
 
+_BL_KEY_RE = re.compile(r"^BL-E(\d+)-(\d+)$")
+
+
+def _norm_issue_title(title) -> str:
+    """Strip, collapse internal whitespace, and casefold -- for duplicate MATCHING
+    only. The stored title is never rewritten to this normalized form."""
+    return " ".join(str(title).split()).casefold()
+
+
+def _next_issue_number(backlog, epic_norm: str) -> str:
+    """Scan `backlog` for BL-E{epic}-{nnn} keys belonging to this epic (by
+    normalized epic number) and return the next zero-padded 3-digit number.
+
+    `issues.yaml` is hand-editable: an entry whose key does not match
+    `^BL-E(\\d+)-(\\d+)$` at all (malformed, or a non-dict list entry from a typo)
+    is skipped rather than raising -- it simply cannot participate in the max,
+    the same tolerance `_norm_num` already applies to a single value.
+    """
+    highest = 0
+    for item in backlog:
+        if not isinstance(item, dict):
+            continue
+        m = _BL_KEY_RE.match(str(item.get("key", "")))
+        if not m:
+            continue
+        if _norm_num(m.group(1), 3) != epic_norm:
+            continue
+        try:
+            n = int(m.group(2))
+        except ValueError:
+            continue
+        highest = max(highest, n)
+    return f"{highest + 1:03d}"
+
+
+def _find_issue_by_key(backlog, key: str):
+    for item in backlog:
+        if isinstance(item, dict) and str(item.get("key", "")) == key:
+            return item
+    return None
+
+
+def _find_issue_by_content(backlog, epic_norm: str, sprint_norm: str, source: str, norm_title: str):
+    """Match on all four of normalized title + epic + sprint + source, deliberately.
+    Over-matching (e.g. title alone) loses a real finding; under-matching leaves
+    noise. Losing data is the worse failure, so this only catches near-certain
+    repeats -- a re-run of the same story re-deferring the same finding."""
+    for item in backlog:
+        if not isinstance(item, dict):
+            continue
+        if _norm_num(item.get("epic", ""), 3) != epic_norm:
+            continue
+        if _norm_num(item.get("sprint", "") or "", 2) != sprint_norm:
+            continue
+        if str(item.get("source", "")) != source:
+            continue
+        if _norm_issue_title(item.get("title", "")) != norm_title:
+            continue
+        return item
+    return None
+
+
 def cmd_append_issue(args) -> int:
-    """Append a BL item to the backlog: list in state/issues.yaml (flock-protected)."""
-    y, data = _load(args.file)
-    if data is None:
-        from ruamel.yaml.comments import CommentedMap, CommentedSeq
-        data = CommentedMap()
-        data["backlog"] = CommentedSeq()
+    """Append a BL item to the backlog list in state/issues.yaml.
 
-    if data.get("backlog") is None:
-        from ruamel.yaml.comments import CommentedSeq
-        data["backlog"] = CommentedSeq()
+    The whole load -> allocate-key -> dedupe-check -> mutate -> save cycle runs
+    under one exclusive lock (`issues_lock`): `issues.yaml` is a shared append
+    target across every epic and every parallel subagent, and locking only the
+    write (as this used to) lets two concurrent callers read the same pre-write
+    backlog, allocate the same next number, and have the second save silently
+    drop the first's item -- the same collision class production ADR numbers
+    hit (three parallel agents, one directory listing, two agents each picking
+    0013 and 0014).
 
-    from ruamel.yaml.comments import CommentedMap
-    item = CommentedMap()
-    item["key"] = args.key
-    item["epic"] = args.epic
-    item["sprint"] = args.sprint if args.sprint else ""
-    item["title"] = args.title
-    item["source"] = args.source
-    item["severity"] = args.severity
-    item["status"] = "backlog"
-    if args.description:
-        item["description"] = args.description
+    `--key` is optional. Omitted, the next number for `--epic` is allocated
+    here (never by the caller -- nothing bound `{nnn}` anywhere, which is
+    exactly how two callers used to invent the same one). Given, and it
+    already names an existing item, that is refused (exit 2) rather than
+    silently renumbered: a caller naming a key means it. Either way, a content
+    duplicate (same normalized title + epic + sprint + source) is skipped --
+    the caller's desired end state, "this finding is recorded", already holds
+    -- unless `--allow-duplicate` forces a second entry.
+    """
+    epic_norm = _norm_num(args.epic, 3)
+    sprint_norm = _norm_num(args.sprint, 2) if args.sprint else ""
+    norm_title = _norm_issue_title(args.title)
 
-    data["backlog"].append(item)
-    _flock_write_or_plain(True, y, data, args.file)
-    sys.stdout.write(f"OK append-issue {args.key} -> {args.file}\n")
+    with issues_lock(args.file):
+        y, data = _load(args.file)
+        if data is None:
+            from ruamel.yaml.comments import CommentedMap, CommentedSeq
+            data = CommentedMap()
+            data["backlog"] = CommentedSeq()
+        if data.get("backlog") is None:
+            from ruamel.yaml.comments import CommentedSeq
+            data["backlog"] = CommentedSeq()
+        backlog = data["backlog"]
+
+        if args.key:
+            existing = _find_issue_by_key(backlog, args.key)
+            if existing is not None:
+                sys.stderr.write(
+                    f"pm-status.py: append-issue: --key {args.key!r} already exists "
+                    f"(title: {existing.get('title', '')!r}) -- refusing to silently "
+                    f"assign a different key; pick a key that is not already taken, "
+                    f"or omit --key to auto-allocate the next one for this epic\n")
+                return 2
+            key = args.key
+        else:
+            key = f"BL-E{epic_norm}-{_next_issue_number(backlog, epic_norm)}"
+
+        if not args.allow_duplicate:
+            dup = _find_issue_by_content(backlog, epic_norm, sprint_norm, args.source, norm_title)
+            if dup is not None:
+                sys.stdout.write(
+                    f"OK append-issue skipped -- matches existing {dup.get('key', '')} "
+                    f"(same title/epic/sprint/source); nothing written. Pass "
+                    f"--allow-duplicate to force a second entry.\n")
+                return 0
+
+        from ruamel.yaml.comments import CommentedMap
+        item = CommentedMap()
+        item["key"] = key
+        item["epic"] = args.epic
+        item["sprint"] = args.sprint if args.sprint else ""
+        item["title"] = args.title
+        item["source"] = args.source
+        item["severity"] = args.severity
+        item["status"] = "backlog"
+        if args.description:
+            item["description"] = args.description
+
+        backlog.append(item)
+        # The lock above already covers this whole read-modify-write cycle, so
+        # this is a plain atomic dump, not another `_flock_write_or_plain(True, ...)`
+        # -- `_file_lock` is reentrant (see its depth counter), so a second flock
+        # call here would not deadlock, but it would still open a second file
+        # descriptor on the SAME lock file for no reason: one logical operation,
+        # one lock acquisition.
+        _atomic_dump(y, data, args.file)
+
+    sys.stdout.write(f"OK append-issue {key} -> {args.file}\n")
     return 0
 
 
@@ -4579,13 +4719,19 @@ def build_parser() -> argparse.ArgumentParser:
 
     ai = sub.add_parser("append-issue", help="append a BL item to state/issues.yaml")
     ai.add_argument("--file", required=True)
-    ai.add_argument("--key", required=True, help="BL-E{nnn}-{nnn}")
+    ai.add_argument("--key", default="",
+                    help="BL-E{nnn}-{nnn}; omit to auto-allocate the next number for "
+                         "--epic under a lock. An explicit key that already exists "
+                         "exits 2 rather than being silently reassigned.")
     ai.add_argument("--epic", required=True, help="zero-padded epic number, e.g. '001'")
     ai.add_argument("--sprint", default="", help="zero-padded sprint number; empty for epic-level")
     ai.add_argument("--title", required=True)
     ai.add_argument("--source", required=True, help="review phase + finding ID")
     ai.add_argument("--severity", required=True, choices=["Low", "Medium", "High", "Critical"])
     ai.add_argument("--description", default="")
+    ai.add_argument("--allow-duplicate", dest="allow_duplicate", action="store_true",
+                    help="append even if an existing item matches this title+epic+"
+                         "sprint+source (default: skip and exit 0)")
     ai.set_defaults(func=cmd_append_issue)
 
     li = sub.add_parser("list-issues", help="list (with filters) the flat backlog in issues.yaml")

@@ -237,6 +237,134 @@ class TestAppendIssue(unittest.TestCase):
                                   "--source", "S", "--severity", "Trivial"])
         self.assertEqual(code, 2)
 
+    # --- D1: key is now optional and self-allocating --------------------- #
+
+    def test_key_is_optional(self):
+        """--key is no longer required — nothing in any step file ever bound {nnn},
+        so the caller must be able to omit it entirely."""
+        code, out = self.run_main(["append-issue", "--file", self.f,
+                                   "--epic", "001", "--title", "Rate limit",
+                                   "--source", "adversarial (ADV-L-01)", "--severity", "Low"])
+        self.assertEqual(code, 0, out)
+
+    def test_allocates_001_from_empty_backlog(self):
+        code, out = self.run_main(["append-issue", "--file", self.f,
+                                   "--epic", "001", "--title", "First finding",
+                                   "--source", "qa", "--severity", "Low"])
+        self.assertEqual(code, 0, out)
+        y, data = pm._load(self.f)
+        self.assertEqual(data["backlog"][0]["key"], "BL-E001-001")
+        self.assertIn("BL-E001-001", out)
+
+    def test_allocates_next_after_highest_existing(self):
+        with open(self.f, "w", encoding="utf-8") as fh:
+            fh.write("backlog:\n"
+                     "- key: BL-E001-007\n  epic: '001'\n  sprint: ''\n"
+                     "  title: Prior\n  source: qa\n  severity: Low\n  status: backlog\n")
+        code, out = self.run_main(["append-issue", "--file", self.f,
+                                   "--epic", "001", "--title", "Next finding",
+                                   "--source", "qa", "--severity", "Low"])
+        self.assertEqual(code, 0, out)
+        y, data = pm._load(self.f)
+        self.assertEqual(data["backlog"][-1]["key"], "BL-E001-008")
+
+    def test_allocation_is_per_epic(self):
+        self.run_main(["append-issue", "--file", self.f,
+                       "--epic", "001", "--title", "E1 finding A",
+                       "--source", "qa", "--severity", "Low"])
+        self.run_main(["append-issue", "--file", self.f,
+                       "--epic", "002", "--title", "E2 finding A",
+                       "--source", "qa", "--severity", "Low"])
+        code, out = self.run_main(["append-issue", "--file", self.f,
+                                   "--epic", "001", "--title", "E1 finding B",
+                                   "--source", "qa", "--severity", "Low"])
+        self.assertEqual(code, 0, out)
+        y, data = pm._load(self.f)
+        keys = [i["key"] for i in data["backlog"]]
+        self.assertEqual(keys, ["BL-E001-001", "BL-E002-001", "BL-E001-002"])
+
+    def test_allocation_ignores_malformed_existing_keys(self):
+        """issues.yaml is hand-editable — a garbage key must not crash allocation."""
+        with open(self.f, "w", encoding="utf-8") as fh:
+            fh.write("backlog:\n"
+                     "- key: BL-EXXX-yy\n  epic: '001'\n  sprint: ''\n"
+                     "  title: Garbage\n  source: qa\n  severity: Low\n  status: backlog\n"
+                     "- not-a-mapping-just-a-string\n"
+                     "- key: BL-E001-003\n  epic: '001'\n  sprint: ''\n"
+                     "  title: Valid\n  source: qa\n  severity: Low\n  status: backlog\n")
+        code, out = self.run_main(["append-issue", "--file", self.f,
+                                   "--epic", "001", "--title", "Next finding",
+                                   "--source", "qa", "--severity", "Low"])
+        self.assertEqual(code, 0, out)
+        y, data = pm._load(self.f)
+        self.assertEqual(data["backlog"][-1]["key"], "BL-E001-004")
+
+    # --- D2: explicit-key collision and content-duplicate detection ------ #
+
+    def test_explicit_duplicate_key_exits_2(self):
+        with open(self.f, "w", encoding="utf-8") as fh:
+            fh.write(ISSUES_SAMPLE)
+        code, out = self.run_main(["append-issue", "--file", self.f,
+                                   "--key", "BL-E001-001", "--epic", "001",
+                                   "--sprint", "01", "--title", "A different finding",
+                                   "--source", "qa", "--severity", "Low"])
+        self.assertEqual(code, 2)
+        y, data = pm._load(self.f)
+        self.assertEqual(len(data["backlog"]), 1, "the duplicate must not be appended")
+
+    def test_explicit_duplicate_key_message_on_stderr(self):
+        with open(self.f, "w", encoding="utf-8") as fh:
+            fh.write(ISSUES_SAMPLE)
+        buf_out, buf_err = io.StringIO(), io.StringIO()
+        try:
+            with redirect_stdout(buf_out), redirect_stderr(buf_err):
+                code = pm.main(["append-issue", "--file", self.f,
+                               "--key", "BL-E001-001", "--epic", "001",
+                               "--sprint", "01", "--title", "A different finding",
+                               "--source", "qa", "--severity", "Low"])
+        except SystemExit as e:
+            code = e.code
+        self.assertEqual(code, 2)
+        self.assertIn("Existing issue", buf_err.getvalue())
+        y, data = pm._load(self.f)
+        self.assertEqual(len(data["backlog"]), 1)
+
+    def test_content_duplicate_is_skipped_exits_0(self):
+        with open(self.f, "w", encoding="utf-8") as fh:
+            fh.write(ISSUES_SAMPLE)
+        code, out = self.run_main(["append-issue", "--file", self.f,
+                                   "--epic", "001", "--sprint", "01",
+                                   "--title", "  Existing   issue  ",
+                                   "--source", "adversarial (ADV-L-01)", "--severity", "Low"])
+        self.assertEqual(code, 0, out)
+        self.assertIn("BL-E001-001", out)
+        y, data = pm._load(self.f)
+        self.assertEqual(len(data["backlog"]), 1, "no second row should be written")
+
+    def test_content_duplicate_requires_all_four_fields(self):
+        """A different source is NOT a duplicate — under-matching would lose findings."""
+        with open(self.f, "w", encoding="utf-8") as fh:
+            fh.write(ISSUES_SAMPLE)
+        code, out = self.run_main(["append-issue", "--file", self.f,
+                                   "--epic", "001", "--sprint", "01",
+                                   "--title", "Existing issue",
+                                   "--source", "red-team (RT-L-02)", "--severity", "Low"])
+        self.assertEqual(code, 0, out)
+        y, data = pm._load(self.f)
+        self.assertEqual(len(data["backlog"]), 2, "different source is a distinct finding")
+
+    def test_allow_duplicate_forces_append(self):
+        with open(self.f, "w", encoding="utf-8") as fh:
+            fh.write(ISSUES_SAMPLE)
+        code, out = self.run_main(["append-issue", "--file", self.f,
+                                   "--epic", "001", "--sprint", "01",
+                                   "--title", "Existing issue",
+                                   "--source", "adversarial (ADV-L-01)", "--severity", "Low",
+                                   "--allow-duplicate"])
+        self.assertEqual(code, 0, out)
+        y, data = pm._load(self.f)
+        self.assertEqual(len(data["backlog"]), 2)
+
 
 ISSUES_FIXTURE = """\
 backlog:
@@ -3123,6 +3251,56 @@ class TestConcurrentAdrReservation(unittest.TestCase):
                          f"duplicate or skipped number across {self.N} concurrent "
                          f"reservations: got {sorted(numbers)}")
         self.assertEqual(len(numbers), self.N, "a process printed more/fewer than one line")
+
+
+class TestConcurrentAppendIssue(unittest.TestCase):
+    """append-issue's load->allocate->modify->save must run under ONE lock
+    (issues_lock), mirroring TestConcurrentAdrReservation above. Locking only the
+    write would let two parallel appends both read the same pre-write highest
+    number and allocate the same key to two different findings -- the same
+    collision class ADR numbers hit in production (0013 x2, 0014 x2).
+
+    Real subprocesses, not threads: `_file_lock`'s reentrancy counter (`_ISSUES_LOCK`)
+    is per-process state, so threads sharing one process would pass this test
+    vacuously even with the lock removed.
+    """
+
+    N = 8
+
+    def setUp(self):
+        self.d = tempfile.mkdtemp()
+        self.f = os.path.join(self.d, "issues.yaml")
+
+    def tearDown(self):
+        shutil.rmtree(self.d, ignore_errors=True)
+
+    def test_concurrent_appends_get_distinct_sequential_keys(self):
+        import subprocess
+        procs = [subprocess.Popen(
+            [sys.executable, SCRIPT, "append-issue", "--file", self.f,
+             "--epic", "001", "--title", f"concurrent finding {i}",
+             "--source", "qa", "--severity", "Low"],
+            stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+            for i in range(1, self.N + 1)]
+        # Collected from each process's OWN stdout, same reasoning as the ADR
+        # test: the file converging on N items only proves N writes happened,
+        # not that no two callers were ever handed the same key.
+        printed_keys = []
+        for p in procs:
+            out, err = p.communicate(timeout=120)
+            self.assertEqual(p.returncode, 0, err.decode())
+            printed_keys.extend(
+                tok for tok in out.decode().split() if tok.startswith("BL-E001-"))
+        expected = {f"BL-E001-{n:03d}" for n in range(1, self.N + 1)}
+        self.assertEqual(set(printed_keys), expected,
+                         f"duplicate or skipped key across {self.N} concurrent "
+                         f"appends: got {sorted(printed_keys)}")
+        self.assertEqual(len(printed_keys), self.N,
+                         "a process printed more/fewer than one allocated key")
+
+        y, data = pm._load(self.f)
+        self.assertEqual(len(data["backlog"]), self.N)
+        self.assertEqual({item["key"] for item in data["backlog"]}, expected)
 
 
 class TestConvergence(TestLayoutResolution):
