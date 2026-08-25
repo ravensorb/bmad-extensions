@@ -4899,11 +4899,50 @@ class TestSetFieldTyping(TestLayoutResolution):
         self.assertEqual(code, 2)
         self.assertIn("non-negative whole number", buf.getvalue())
 
-    def test_set_field_stores_tests_passing_as_a_bool(self):
-        self.run_main(["set-field", "--state-root", self.root, "--story", "E001-S01-003",
-                       "--field", "completion_evidence.tests_passing", "--value", "true"])
+    # test_set_field_stores_tests_passing_as_a_bool removed: Task 4 makes
+    # completion_evidence.tests_passing derived-only. See TestTestRunEvidence
+    # below for the replacement (set-field now refuses this field outright).
+
+
+class TestTestRunEvidence(TestLayoutResolution):
+    # TestLayoutResolution supplies the node tree but not run_main -- every class
+    # extending it defines its own (see TestSetFieldTyping above). Same three lines:
+    def run_main(self, argv):
+        buf = io.StringIO()
+        code = 0
+        try:
+            with redirect_stdout(buf):
+                code = pm.main(argv)
+        except SystemExit as e:
+            code = e.code if isinstance(e.code, int) else 1
+        return code, buf.getvalue()
+
+    def test_a_recorded_run_appends_and_derives_the_boolean(self):
+        self.run_main(["add-test-run", "--state-root", self.root, "--story", "E001-S01-003",
+                       "--command", "npm test", "--exit-code", "0"])
         _, node = pm.load_node(pm.story_file(self.root, "E001-S01-003"))
+        runs = node["completion_evidence"]["test_runs"]
+        self.assertEqual(runs[0]["command"], "npm test")
+        self.assertEqual(runs[0]["exit_code"], 0)
         self.assertIs(node["completion_evidence"]["tests_passing"], True)
+
+    def test_one_failing_run_makes_the_derived_boolean_false(self):
+        for cmd, rc in (("npm test", "0"), ("pytest", "1")):
+            self.run_main(["add-test-run", "--state-root", self.root, "--story", "E001-S01-003",
+                           "--command", cmd, "--exit-code", rc])
+        _, node = pm.load_node(pm.story_file(self.root, "E001-S01-003"))
+        self.assertIs(node["completion_evidence"]["tests_passing"], False)
+
+    def test_tests_passing_can_no_longer_be_asserted_by_hand(self):
+        """The whole point: the agent records what it ran, not what it concluded."""
+        buf = io.StringIO()
+        with redirect_stderr(buf):
+            code, _ = self.run_main(["set-field", "--state-root", self.root,
+                                     "--story", "E001-S01-003",
+                                     "--field", "completion_evidence.tests_passing",
+                                     "--value", "true"])
+        self.assertEqual(code, 2)
+        self.assertIn("add-test-run", buf.getvalue())
 
 
 class TestCalibrationRedrive(TestLayoutResolution):

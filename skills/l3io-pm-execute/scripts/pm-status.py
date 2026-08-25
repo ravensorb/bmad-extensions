@@ -54,6 +54,11 @@ Subcommands
                 declared but always rejected; use estimate-story/estimate-rollup instead)
                 [--confidence {low,medium,high}] [--flock]
   set-field     --state-root S  (--story KEY | --epic ID [--sprint ID])  --field NAME --value V
+                (refuses any field in DERIVED_NODE_FIELDS, e.g.
+                completion_evidence.tests_passing — use add-test-run instead)
+  add-test-run  --state-root S  --story KEY  --command CMD  --exit-code N
+                (appends {command, exit_code} to completion_evidence.test_runs and
+                derives completion_evidence.tests_passing as all(exit_code == 0))
   verify        --state-root S  --scope {story,sprint,epic}  (--story KEY | --epic ID [--sprint ID])
                 [--require-tokens] [--runtime {claude,other}]
                 (--scope epic checks structural/back-reference integrity across the
@@ -1063,6 +1068,19 @@ NUMERIC_NODE_FIELDS = {
     "completion_evidence.files_changed",
 }
 BOOL_NODE_FIELDS = {"completion_evidence.tests_passing"}
+
+# Fields set-field must refuse outright: each is derived from other recorded data
+# rather than asserted by an agent. completion_evidence.tests_passing used to be a
+# free-form boolean an agent wrote about its own work -- not falsifiable, and not
+# even checked against anything it ran. A story once shipped ten green gates and
+# tests_passing: true having broken a suite it never ran; the break surfaced two
+# stories later by accident. add-test-run records the command and exit code instead,
+# and derives the boolean from that recorded set.
+DERIVED_NODE_FIELDS = {
+    "completion_evidence.tests_passing":
+        "derived from completion_evidence.test_runs — record what you ran with "
+        "`add-test-run --command CMD --exit-code N` instead of asserting the result",
+}
 
 
 def _iter_count(v):
@@ -3728,6 +3746,10 @@ def cmd_set_field(args) -> int:
     --field: dot-path within the node, e.g. 'retrospective.summary', 'closed.date'
     --value: string value to set
     """
+    if args.field in DERIVED_NODE_FIELDS:
+        _die_usage(f"--field {args.field} is not directly writable: "
+                   f"{DERIVED_NODE_FIELDS[args.field]}")
+
     kind = _infer_kind(args)
     y, node, path, label = _load_checked(args.state_root, args, kind)
 
@@ -3761,6 +3783,38 @@ def cmd_set_field(args) -> int:
 
     save_node(y, node, path, getattr(args, "flock", False))
     sys.stdout.write(f"OK set-field {label} {args.field}={args.value!r}\n")
+    return 0
+
+
+def cmd_add_test_run(args) -> int:
+    """Append one executed test command and derive tests_passing from the set.
+
+    The boolean it replaces recorded that the agent was satisfied, not that
+    anything passed: a story shipped `tests_passing: true` having broken a
+    suite it never ran, and the break surfaced two stories later. A command
+    and an exit code are falsifiable by anyone who re-runs them.
+    """
+    if args.exit_code < 0:
+        sys.stderr.write("ERROR --exit-code must be >= 0\n")
+        return 2
+    path = story_file(args.state_root, args.story)
+    if path is None:
+        _die_notfound(f"story {args.story}")
+    y, node = load_node(path)
+    if node is None:
+        _die_notfound(f"story {args.story} — file {path} is empty")
+    from ruamel.yaml.comments import CommentedMap
+    ce = node.setdefault("completion_evidence", CommentedMap())
+    runs = ce.setdefault("test_runs", [])
+    entry = CommentedMap()
+    entry["command"] = args.command
+    entry["exit_code"] = int(args.exit_code)
+    runs.append(entry)
+    ce["tests_passing"] = all(int(r.get("exit_code", 1)) == 0 for r in runs)
+    save_node(y, node, path, use_flock=True)
+    sys.stdout.write(f"OK {args.story} test run recorded "
+                     f"({args.command} -> {args.exit_code}); "
+                     f"tests_passing={ce['tests_passing']}\n")
     return 0
 
 
@@ -4366,6 +4420,13 @@ def build_parser() -> argparse.ArgumentParser:
     sf.add_argument("--field", required=True, help="dot-path within the node, e.g. 'retrospective.summary'")
     sf.add_argument("--value", required=True, help="string value to set")
     sf.set_defaults(func=cmd_set_field)
+
+    a = sub.add_parser("add-test-run", help="record one executed test command and its exit code")
+    a.add_argument("--state-root", required=True, help="path to {implementation_artifacts}/state")
+    a.add_argument("--story", required=True)
+    a.add_argument("--command", required=True, help="the test command actually executed")
+    a.add_argument("--exit-code", dest="exit_code", type=int, required=True)
+    a.set_defaults(func=cmd_add_test_run)
 
     ai = sub.add_parser("append-issue", help="append a BL item to state/issues.yaml")
     ai.add_argument("--file", required=True)

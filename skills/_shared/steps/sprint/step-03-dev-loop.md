@@ -224,15 +224,24 @@ python3 {pm_status} set-field \
 python3 {pm_status} set-field \
   --state-root {pm_state_root} \
   --story {story_key} \
-  --field completion_evidence.tests_passing \
-  --value {tests_passing}
-
-python3 {pm_status} set-field \
-  --state-root {pm_state_root} \
-  --story {story_key} \
   --field completion_evidence.files_changed \
   --value {files_changed}
 ```
+
+**Record what you ran, not what you concluded.** For every test command the story's scope
+required — the suites covering the files this story changed, not only the ones you chose to
+run — record the command and its real exit code:
+
+```bash
+python3 {pm_status} add-test-run --state-root {pm_state_root} --story {story_key} \
+  --command "npm test" --exit-code 0
+```
+
+`completion_evidence.tests_passing` is derived from these and is no longer writable directly;
+`set-field` refuses it. The required set comes from the story's scope: if the story changed a
+file, the suite covering that file is required whether or not you ran it. A story once shipped
+`tests_passing: true` having broken a suite it never ran, and the break was found two stories
+later by accident.
 
 **`man_hours` is a re-assessment, not an observation.** Bind `{man_hours}` from your own
 judgment of what a developer, working without AI assistance, would have needed to implement

@@ -427,6 +427,8 @@ epic:   backlog → in-progress → done
 |---|---|
 | `set-status`, `set-actual`, `set-estimate`, `set-field`, `verify` | `--state-root` + (`--story KEY` \| `--epic ID [--sprint ID]`) |
 | `set-status`, `set-actual` extras | `--no-events` skips the `events.jsonl` append; `--session-id ID` stamps it |
+| `set-field` extras | Refuses any field in `DERIVED_NODE_FIELDS` outright (exit 2) — currently `completion_evidence.tests_passing`, derived from `test_runs` via `add-test-run` rather than asserted |
+| `add-test-run` | `--state-root --story KEY --command CMD --exit-code N` — appends `{command, exit_code}` to `completion_evidence.test_runs` and derives `completion_evidence.tests_passing` as `all(exit_code == 0)` over the recorded runs |
 | `sync-story-doc` | `--artifacts-root A --story KEY --status S [--quiet]` — writes `status:` into the story markdown's frontmatter (ruamel round-trip: key order and comments survive). Runs after a `set-status` that already succeeded, so it is deliberately incapable of failing its caller: a missing story file, missing frontmatter, or an unterminated frontmatter block each warn on stderr and return 0. Only an invalid `--status` or a malformed story key — both caller errors detectable before any state was touched — return 2 |
 | `estimate-story` | `--state-root --story KEY --classification {simple,standard,complex}` |
 | `estimate-rollup` | `--state-root --epic ID [--sprint ID]` — sums children, widens by the closure band |
