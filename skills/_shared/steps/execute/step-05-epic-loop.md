@@ -56,7 +56,7 @@ decide whether it may render.
 If `parallel_flag=true` AND `len(epics) > 1`:
   Dispatch up to `{max_parallel_subagents}` epics concurrently (default 4, set per skill in
   `customize.toml`). Sprints within an epic are always sequential.
-  Each epic runs §2–§7 below as an independent execution branch.
+  Each epic runs §2–§6 below as an independent execution branch.
 
 If `parallel_flag=false` OR single epic:
   Execute each epic sequentially.
@@ -137,7 +137,10 @@ Bind `{pending_sprints}` = ordered list of sprint `num` values (e.g. `["01", "02
 
 ## 5. Sprint dispatch loop — three agent kinds, one story at a time
 
-For each sprint in `{pending_sprints}` (always sequential — no parallel sprints within an epic).
+For each sprint in `{pending_sprints}` (always sequential — no parallel sprints within an
+epic), run **5a, then 5b, then 5c, then 5d** before moving to the next sprint. 5d is part of
+the per-sprint body, not a wrap-up: it spends the calibration 5c just produced on the sprints
+still ahead, which only works if it runs between them.
 
 ### Why a sprint is not one agent
 
@@ -349,7 +352,13 @@ Close the bracket, then branch:
 - `BLOCKED` → log reason, halt epic loop, output: `BLOCKED: sprint {sprint_num} of {epic_key} — {reason}`
 - `FAILED` → log reason, continue to next sprint (sprint failure is non-fatal at epic level); track count
 
-## 6. Post-sprint re-estimation
+### 5d. Re-estimate the sprints that have not run yet
+
+**This runs once per sprint, inside the §5 loop — immediately after 5c reports `DONE`, and
+before you dispatch the next sprint's 5a.** `{sprint_num}` is the sprint that just closed.
+It is not a post-loop step: run it after the last sprint too (it will find nothing left to
+re-price and say so), but running it *only* then would price every remaining sprint from the
+same prior that just missed, which is the whole defect this step exists to close.
 
 **Do not update the calibration file here.** `set-actual` already derived and appended this
 sprint's scope, fix and closure samples inline, at the moment each actual was written
@@ -378,7 +387,9 @@ is `backlog` or `ready-for-dev`, and union them across the sprints you visited.
 Stories at `in-progress`, `review` or `done` are **excluded**: re-pricing work already under
 way changes no decision and destroys the estimate the variance will be measured against.
 
-If `{reestimate_story_keys}` is empty, skip to §7 — there is nothing downstream to re-price.
+If `{reestimate_story_keys}` is empty, 5d is finished — there is nothing downstream to
+re-price. Continue the §5 loop with the next sprint (or fall through to §6 if this was the
+last one).
 
 Otherwise load `{skill-root}/steps/shared/step-estimate.md` with `{scope}={epic_key}` and
 `{reestimate_story_keys}` bound. It re-runs `estimate-story` for exactly those keys —
@@ -411,13 +422,13 @@ same prior that just missed.
 Do not report a before-and-after epic estimate. There is no scalar to report — an epic
 estimate is five metrics, each a range, and no subcommand prints one.
 
-## 7. Epic completion check
+## 6. Epic completion check
 
 After all sprints in `{pending_sprints}` are processed:
 - If any sprint is BLOCKED: output `BLOCKED: {epic_key} — sprint {sprint_num} blocked` and stop.
 - If all sprints are `status: done`: proceed to step-06 (epic closure).
 
-## 8. Output
+## 7. Output
 
 ```
 Step 05 complete — epic: {epic_key}, sprints completed: {N}/{total}, stories done: {N}
