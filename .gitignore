@@ -757,3 +757,6 @@ _bmad/
 .claude/skills/
 .claude/worktrees/
 .github/agents/
+
+# Subagent-driven-development scratch (ledger, briefs, review packages)
+.superpowers/
