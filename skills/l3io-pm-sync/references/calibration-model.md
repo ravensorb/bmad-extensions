@@ -224,6 +224,11 @@ nothing: `0.0` is not `None`, so after three such closes `active_closure_ratio` 
 — permanently, with nothing on disk saying why. The skip reason names the defect and points
 back at the capture rule.
 
+A stored sample of `0.0` is ignored on read — excluded from the weighted average and
+from the count toward the three-sample activation threshold. The write-side guard in
+`derive_closure_sample` refuses to create one; this is what protects a file that already
+contains one, which no migration can be relied on to reach.
+
 ### The orchestration sample — denominator completeness
 
 ```

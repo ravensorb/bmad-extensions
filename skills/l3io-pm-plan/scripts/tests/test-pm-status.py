@@ -2237,6 +2237,31 @@ class TestClosureSampling(TestLayoutResolution):
         self.assertTrue(os.path.exists(p + ".v1"))
         self.assertEqual(len(pm._component_samples(cal, "closure", "sprint", "man_hours")), 1)
 
+    def test_a_stored_zero_closure_sample_is_ignored_on_read(self):
+        """A file written before the write-side guard existed still holds zeros.
+
+        A migration only repairs files someone remembers to migrate. The read
+        side is what every estimate goes through, so it is where the rule has
+        to hold for a file that already exists.
+        """
+        _, cal = pm.load_calibration(self.root)
+        cal.setdefault("closure", {})["sprint"] = {
+            "tokens_k": {"samples": [3.7378, 0.0, 132.8062, 48.2812]},
+        }
+        # 0.0 must not be averaged in, and must not count toward MIN_SAMPLES.
+        got = pm.active_closure_ratio(cal, "sprint", "tokens_k")
+        self.assertIsNotNone(got)
+        self.assertAlmostEqual(
+            got, pm.weighted_ratio([3.7378, 132.8062, 48.2812]), places=6)
+
+    def test_zeros_do_not_count_toward_the_activation_threshold(self):
+        _, cal = pm.load_calibration(self.root)
+        cal.setdefault("closure", {})["sprint"] = {
+            "man_hours": {"samples": [0.0, 0.0, 0.0, 1.5]},
+        }
+        # Three zeros plus one real sample is one sample, not four.
+        self.assertIsNone(pm.active_closure_ratio(cal, "sprint", "man_hours"))
+
 
 class TestClosureComposedWithOrchestration(TestLayoutResolution):
     """C1: the closure and orchestration components COMPOSED, which no test did.

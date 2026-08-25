@@ -927,7 +927,21 @@ def active_scope_ratio(cal, classification: str, metric: str):
 
 
 def active_closure_ratio(cal, level: str, metric: str):
-    s = _component_samples(cal, "closure", level, metric)
+    """Learned closure overhead, with zero samples excluded.
+
+    A zero residual is a skip, not a sample of 0.0 -- `derive_closure_sample`
+    refuses to create one and says why at length. That guard is write-side
+    only, so it cannot help a file that already contains a zero: written by a
+    version predating the guard, or by any path not yet identified (the
+    2026-08-25 production report observed one whose origin no code path in
+    2.4.7 explains). Filtering here repairs every such file on the next read,
+    with no migration to run and no schema change.
+
+    Excluded from the average AND from the count: three zeros plus one real
+    sample is one sample, not four, and must stay inactive.
+    """
+    s = [v for v in _component_samples(cal, "closure", level, metric)
+         if isinstance(v, (int, float)) and abs(v) > 1e-9]
     return weighted_ratio(s) if len(s) >= MIN_SAMPLES else None
 
 
