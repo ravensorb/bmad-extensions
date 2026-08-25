@@ -355,7 +355,7 @@ or `ready-for-dev`.
 `show --epic` prints sprint rows only — it does not list stories. Per-story keys and statuses
 come from the `--sprint` form, so collect them sprint by sprint. For each sprint in
 `{pending_sprints}` whose number is greater than `{sprint_num}` — the sprints that have not
-run yet:
+run yet — bind `{n}` to that sprint's number and run:
 
 ```bash
 python3 {pm_status} show --state-root {pm_state_root} --epic {epic_key} --sprint {n}
@@ -374,6 +374,8 @@ Otherwise load `{skill-root}/steps/shared/step-estimate.md` with `{scope}={epic_
 `estimate-story` overwrites unconditionally, which is what re-estimation requires — and then
 re-runs `estimate-rollup` for each affected sprint and for the epic, so the parents stay
 equal to the sum of their children by construction.
+
+Bind `{N}` = the number of keys in `{reestimate_story_keys}`.
 
 **Report whether the calibration actually changed anything, because a silent nothing is the
 signal worth catching:**
