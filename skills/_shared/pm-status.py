@@ -2053,6 +2053,20 @@ def cmd_adr_reserve(args) -> int:
     from ruamel.yaml.comments import CommentedMap
     with adr_register_lock(args.state_root):
         yaml, reg = load_adr_register(args.state_root)
+        # Unlike a malformed `next` (recoverable -- reset to 1 and keep going),
+        # a malformed `reserved` is refused outright rather than repaired: this
+        # list is the record of who is in flight, which is the entire reason
+        # the register exists. Silently replacing it with [] would let a new
+        # reservation collide with an in-flight one it can no longer see.
+        reserved = reg.get("reserved")
+        if not isinstance(reserved, list):
+            sys.stderr.write(
+                f"pm-status.py: adr-register.yaml has a malformed 'reserved' field "
+                f"(expected a list, got {type(reserved).__name__}: {reserved!r}); "
+                f"refusing to reserve -- a register that cannot say who is already "
+                f"in flight cannot be trusted to hand out a new number. Fix or "
+                f"restore adr-register.yaml by hand, then retry.\n")
+            return 2
         try:
             start = int(reg.get("next", 1))
         except (TypeError, ValueError):

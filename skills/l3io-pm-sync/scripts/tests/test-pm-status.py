@@ -3085,6 +3085,46 @@ class TestConcurrentSampling(unittest.TestCase):
         self.assertEqual(int(cal["fix"]["complex"]["clean"]["samples"]), self.N)
 
 
+class TestConcurrentAdrReservation(unittest.TestCase):
+    """adr-reserve's load->modify->save must run under ONE lock (adr_register_lock),
+    mirroring TestConcurrentSampling above. Locking only the write would let two
+    parallel reservations both read the same pre-write `next` and print the same
+    number to two different agents -- the exact collision (0013 x2, 0014 x2) that
+    made ADR numbers need a register in the first place."""
+
+    N = 12
+
+    def setUp(self):
+        self.d = tempfile.mkdtemp()
+        self.root = os.path.join(self.d, "state")
+        os.makedirs(self.root)
+
+    def tearDown(self):
+        shutil.rmtree(self.d, ignore_errors=True)
+
+    def test_concurrent_reservations_hand_out_every_number_exactly_once(self):
+        import subprocess
+        procs = [subprocess.Popen(
+            [sys.executable, SCRIPT, "adr-reserve", "--state-root", self.root,
+             "--epic", "E001", "--slug", f"slug-{i}"],
+            stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+            for i in range(1, self.N + 1)]
+        # Collected from each process's OWN stdout -- not read back from the
+        # register file -- because the file converging on `next: N+1` only
+        # proves N writes happened; it does not prove no two callers were ever
+        # HANDED the same number, which is the actual defect being guarded.
+        numbers = []
+        for p in procs:
+            out, err = p.communicate(timeout=120)
+            self.assertEqual(p.returncode, 0, err.decode())
+            numbers.extend(out.decode().split())
+        expected = {f"{n:04d}" for n in range(1, self.N + 1)}
+        self.assertEqual(set(numbers), expected,
+                         f"duplicate or skipped number across {self.N} concurrent "
+                         f"reservations: got {sorted(numbers)}")
+        self.assertEqual(len(numbers), self.N, "a process printed more/fewer than one line")
+
+
 class TestConvergence(TestLayoutResolution):
     """Multi-generation convergence — the property every single-sample test
     misses. Each case drives the real loop (estimate -> actual -> re-estimate)
@@ -5152,6 +5192,22 @@ class TestAdrRegister(TestLayoutResolution):
         _, cal = pm.load_adr_register(self.root)
         self.assertEqual(cal["reserved"][0]["number"], 1)
         self.assertEqual(cal["reserved"][0]["slug"], "x")
+
+    def test_malformed_reserved_field_is_refused_not_silently_repaired(self):
+        """Unlike a malformed `next` (recoverable), a malformed `reserved` must
+        refuse loudly: silently replacing it with [] would hide who is already
+        in flight, which is the one thing this register exists to preserve."""
+        with open(pm.adr_register_path(self.root), "w") as f:
+            f.write("next: 1\nreserved: not-a-list\n")
+        buf = io.StringIO()
+        with redirect_stderr(buf):
+            code, out = self.run_main(["adr-reserve", "--state-root", self.root,
+                                       "--epic", "E001", "--slug", "x"])
+        self.assertEqual(code, 2)
+        self.assertEqual(out, "")
+        err = buf.getvalue()
+        self.assertIn("reserved", err)
+        self.assertIn("malformed", err)
 
 
 if __name__ == "__main__":
