@@ -7,7 +7,9 @@ write estimates, and mark stories ready-for-dev.
 
 ## 1. Gate eligibility
 
-Skip technical AC gate (proceed to §3) if `{work_type}` is `DOCS` or `CONFIG`.
+Skip the technical AC gate (proceed to §3) if `{work_type}` is `DOCS` or `CONFIG`.
+Only §2 is skipped — §3 onward run for every work type, and §3 in particular is what
+gives a `DOCS`/`CONFIG` story its `Files in scope` block.
 
 ## 2. Technical AC gate
 
@@ -76,22 +78,36 @@ identity on both, closing on every exit path. The bracket carries no `--story` b
 span covers several.
 
 ```
-Enrich each story listed below with technical ACs. Preserve all existing content in every
-file. For each story address ALL SIX dimensions, marking any that genuinely do not apply as
-"N/A — <one-line reason>" rather than omitting them:
-- Interface contracts
-- Error and edge case handling
-- Observability requirements
-- Security considerations
-- Testability approach
-- Existing-library check: name the library or platform capability that covers this work, or
-  state why none does and custom code is warranted. Do not propose hand-written code for a
-  problem a maintained library already solves.
+Two things for each story file listed below. Preserve all existing content in every file.
+
+1. Enrich it with technical ACs, addressing ALL SIX dimensions, marking any that genuinely
+   do not apply as "N/A — <one-line reason>" rather than omitting them:
+   - Interface contracts
+   - Error and edge case handling
+   - Observability requirements
+   - Security considerations
+   - Testability approach
+   - Existing-library check: name the library or platform capability that covers this work,
+     or state why none does and custom code is warranted. Do not propose hand-written code
+     for a problem a maintained library already solves.
+
+2. Write a `## Files in scope` section into the document — you are reading the project to
+   do (1), so you are the cheapest place in the whole run to answer this. Repo-relative
+   paths, one line of why each:
+
+   ## Files in scope
+
+   - `src/foo/bar.py` — the module this story changes
+   - `src/foo/baz.py` — its only caller; signature change lands here
+   - `tests/foo/test_bar.py` — the suite that must stay green
+
+   Best effort is the right standard: the list is a starting point, not a fence. If the
+   story already has such a section, correct it rather than adding a second one.
 
 Treat each story on its own terms — shared context is why these are batched, but a story
 that needs a different interface contract from its neighbour must get one.
 
-Story files (enrich every one):
+Story files (do both for every one):
 {one {sprint_root}/stories/{story_key}.md per line, for each key in {thin_story_keys}}
 Epic goal: {epic_goal}
 work_type: {work_type}
@@ -103,30 +119,61 @@ across their `actual` blocks (`references/metrics-contract.md` §6). The even sp
 approximation and is meant to be — the alternative is paying N project reads to measure a
 number that feeds calibration as a ratio, and prep cost does scale roughly with story count.
 
-**Write a `Files in scope` block into every story document.** The dev agent that builds this
-story receives it verbatim and starts there instead of discovering the shape of the work by
-reading around it — the measured spread was 19k to 138k tokens read per file changed, on
-stories of comparable size, and that spread is the largest uncontrolled cost in a run.
-
-```markdown
-## Files in scope
-
-- `src/foo/bar.py` — the module this story changes
-- `src/foo/baz.py` — its only caller; signature change lands here
-- `tests/foo/test_bar.py` — the suite that must stay green
-```
-
-Repo-relative paths, one line of why each. Best effort is the right standard: the list is a
-starting point, not a fence. If it turns out incomplete the dev widens and says so, and that
-report is what improves the next story's block.
-
 After enrichment, re-check every key in `{thin_story_keys}` against all six dimensions. For
 any still carrying an unfilled applicable dimension:
 ```
 BLOCKED: story {story_key} still missing technical ACs after elaboration. Investigate manually.
 ```
 
-## 3. Write story estimates
+## 3. Every story carries a `Files in scope` block
+
+**This runs on every path and for every work type** — for stories that were never thin, for
+stories §2 just enriched, and for `DOCS`/`CONFIG` sprints that skipped §2 altogether at §1.
+It is the only step that guarantees the block exists, and `steps/sprint/step-03-dev-loop.md`
+§2 hands it to the dev agent unconditionally and reports a story-prep defect when it is
+missing. Anything less than "every story" here produces that defect report on the common
+path, which is the steady state, not the exception.
+
+Why it is worth a pass of its own: the dev agent receives the block verbatim and starts
+there instead of discovering the shape of the work by reading around it. The measured spread
+was 19k to 138k tokens read per file changed, on stories of comparable size, and that spread
+is the largest uncontrolled cost in a run.
+
+For each story key in `{story_keys}`, read `{sprint_root}/stories/{story_key}.md` and check
+for a `## Files in scope` heading. Bind `{no_scope_keys}` = every key whose document has
+none.
+
+If `{no_scope_keys}` is empty, go to §4 — §2's enrichment already wrote them, or a previous
+run did.
+
+Otherwise **one spawn for the whole set, not one per story**, for the same reason §2 batches:
+the cost is dominated by reading the project, and that read is the same whether the agent
+then scopes one story or five. Split into batches of at most 8. Bracket the spawn with
+`dispatch --event open` / `--event close`, same
+`--agent bmad-create-story --epic {epic_key} --sprint {sprint_num} --session-id {session_id}`
+identity on both, closing on every exit path; no `--story`, the span covers several.
+
+Send the *same* instruction 2 and example block as §2's prompt above — verbatim, including
+the repo-relative-paths and best-effort wording — with these story files, plus
+`work_type: {work_type}` and `{agent_contract}`:
+
+```
+{one {sprint_root}/stories/{story_key}.md per line, for each key in {no_scope_keys}}
+```
+
+Do **not** send instruction 1: these stories either passed the AC gate or were never subject
+to it, and re-enriching them would rewrite ACs nobody asked to change.
+
+If a story's scope genuinely cannot be determined — a spike, or work whose files are chosen
+during implementation — the agent still writes the heading and says so in one line under it
+(`- To be determined during implementation: <why>`). An empty-but-present block is a
+deliberate answer the dev can read; an absent one is indistinguishable from prep having
+failed, which is exactly the ambiguity this section removes.
+
+Attribution: split the span's spend evenly across the `actual` blocks of the stories it
+scoped (`references/metrics-contract.md` §6), as for §2's span.
+
+## 4. Write story estimates
 
 For each story in `{story_keys}` that does not already have an `estimate` block:
 
@@ -152,7 +199,7 @@ python3 {pm_status} estimate-story \
 `{model}` and `{token_rates_json}` are bound at activation (`step-00-activate.md` §1). Pass
 `--model` always; add `--token-rates` only when `{token_rates_json}` is non-empty.
 
-## 4. Mark stories ready-for-dev
+## 5. Mark stories ready-for-dev
 
 For each story in `{story_keys}` with `status: backlog`:
 
@@ -175,7 +222,7 @@ This never fails: a missing or frontmatter-less document warns on stderr and ret
 the state transition it follows is already durable and must not be rolled back by a
 documentation write.
 
-## 5. Output
+## 6. Output
 
 ```
 Sprint Step 02 complete — stories prepared: {N}, estimates written: {N}, blocked: {N}

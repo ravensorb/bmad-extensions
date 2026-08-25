@@ -103,8 +103,12 @@ Spawn `bmad-dev-story` subagent with:
   pass the bound values, not a config file path
 - Sprint root: `{sprint_root}`
 - **The story's `Files in scope` block, verbatim** — under the story's `## Files in scope`
-  heading, written at prep. Start here. If prep wrote none, say so in your final line; that is
-  a story-prep defect worth one line of report.
+  heading, written at prep. Start here. Every story carries one on every work type:
+  `steps/sprint/step-02-story-prep.md` §3 is an unconditional pass that runs for `DOCS` and
+  `CONFIG` sprints too, which skip only the technical-AC gate. So if prep wrote none, say so
+  in your final line — that is a story-prep defect worth one line of report, on any work type.
+  A block whose single line says the files are to be determined during implementation is a
+  deliberate answer, not a missing block: take it at face value and scope the work yourself.
 - **Read scope**: this story, the files it changes, and their direct collaborators. The
   technical ACs carry the contracts — do not open the spec tree to rediscover them. Widening
   beyond this is a decision worth recording, not a default.
@@ -116,7 +120,9 @@ python3 {pm_status} dispatch --state-root {pm_state_root} --event close \
   --session-id {session_id}
 ```
 
-On completion, collect: files changed, tests passing (boolean), fix iterations attempted.
+On completion, collect: files changed, the test commands run with their exit codes, and
+fix iterations attempted. Not a `tests_passing` boolean — §4 records the commands and
+`pm-status.py` derives the boolean; `set-field` refuses that field with exit 2.
 
 ## 3. For each story: code review (CODE and MIXED only)
 
@@ -205,6 +211,26 @@ python3 {pm_status} set-status \
   --status review
 ```
 
+**Then record every unresolved finding — one `append-issue` per finding, before you exit.**
+This branch is the one that must not lose the record: it fires precisely when CRITICAL or HIGH
+findings survived the cap, and the story ends `FAILED` below with §4 never running, so no
+actual and no completion evidence is written either. The review file is a story-scoped
+artifact nobody re-reads at sprint closure; the issues file is what closure and the next
+sprint actually read. Take `--severity` from the finding itself (you have already read the
+severities you were acting on) and `--title` from its one-line summary:
+
+```bash
+python3 {pm_status} append-issue \
+  --file {pm_issues_file} \
+  --key BL-{epic_key}-{nnn} \
+  --epic {epic_nnn} \
+  --sprint {sprint_num} \
+  --title "{finding_text}" \
+  --source "code-review ({story_key}) — unresolved after {max_fix_iterations} fix iterations" \
+  --severity {Critical|High|Medium} \
+  --description "See {sprint_root}/closure/review-{story_key}.md"
+```
+
 Keep the story document in step with the state — the state YAML is what the machine reads and
 this file is what a reviewer opens, and they have not agreed until now:
 
@@ -274,6 +300,14 @@ python3 {pm_status} add-test-run --state-root {pm_state_root} --story {story_key
 
 `completion_evidence.tests_passing` is derived from these and is no longer writable directly;
 `set-field` refuses it.
+
+**How it is derived: `all(exit_code == 0)` over the LAST run of each distinct command.** A
+re-run of the same command supersedes its earlier result *for the boolean*, and never for the
+record — every run you appended stays in `test_runs`, which is the point of recording them.
+So the ordinary cycle works as you would expect: `pytest` → 1, fix the break, `pytest` → 0
+closes `tests_passing: true` with both runs still visible. A *different* command whose latest
+run is non-zero still derives `false`, however many other suites are green — re-running one
+suite never speaks for another.
 
 **Determining the required set.** Work from the files this story changed, in this order:
 
@@ -356,6 +390,12 @@ documentation write.
 
 ## 5. Output
 
+Emit exactly the line `steps/execute/step-05-epic-loop.md` §5b declares for this dispatch —
+the orchestrator branches on it, and a shape it does not recognise is a shape it cannot read:
+
 ```
-DONE — story {story_key} {final_status}, fix iterations: {fix_count}, issues deferred: {N}
+DONE — Story: {story_key}, fix iterations: {fix_count}, issues deferred: {N}
 ```
+
+There is no status token in this line. `DONE` is the only way to reach §5 at all: the fix-loop
+cap exits `FAILED` in §3 and an unmet dependency exits `BLOCKED` in §1, both before here.

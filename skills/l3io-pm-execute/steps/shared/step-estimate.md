@@ -40,7 +40,7 @@ estimate block.
 For each story in the selected set — **whether or not it already carries an `estimate`
 block**. `estimate-story` overwrites unconditionally (`node["estimate"] = est`), which is
 exactly what re-estimation needs; there is no "needs re-estimation" flag to test and none is
-required. Note this is deliberately the opposite of `steps/sprint/step-02-story-prep.md` §3,
+required. Note this is deliberately the opposite of `steps/sprint/step-02-story-prep.md` §4,
 which skips a story that is already estimated: prep is priming a story about to be built, and
 re-estimation is re-pricing one that has not started. Both are right for their caller.
 
