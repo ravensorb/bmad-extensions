@@ -151,7 +151,7 @@ module declares no required settings. Load `assets/module-setup.md` only when th
 explicitly passes `setup`, `configure`, or `install`.
 
 Then bind the state paths every mode below uses (identical to the PM skills' bindings —
-see `skills/_shared/status-files.md` §10, the canonical contract):
+see `references/status-files.md` §10, the canonical contract):
 
 - `{pm_state_root}` = `{implementation_artifacts}/state`
 - `{pm_issues_file}` = `{pm_state_root}/issues.yaml`

@@ -9,7 +9,7 @@ All [Safety Rules](`SKILL.md` § Safety Rules) apply: dry-run first, never overw
 destination, preserve node contents exactly.
 
 **The PM skills do not read or write these three files.** They read the sharded state tree
-at `{pm_state_root}` and hard-block on any legacy layout (`skills/_shared/status-files.md`
+at `{pm_state_root}` and hard-block on any legacy layout (`references/status-files.md`
 §10). The three-file split is an *intermediate* form on the way there: it is a convenient
 shape for `reconcile-status` to clean up a messy flat file before `migrate-state` consumes
 it, and `migrate-state` reads all three as one logical set. Nothing else consumes them.

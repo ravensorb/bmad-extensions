@@ -21,6 +21,8 @@
 //   6. status-values --status filters named in skill phrase tables are real state folders
 //   7. metric-list   metrics-contract.md documents exactly the metrics in METRIC_FIELDS
 //   8. digest-size   the activation digest stays inside its byte budget
+//   9. authoring-paths no runtime directive tells an agent to read skills/_shared/ (not
+//                    installed) instead of the installed references/assets/steps path
 //
 // Usage:
 //   node scripts/check-docs.mjs        # report and exit nonzero on any failure (CI)
@@ -579,6 +581,53 @@ function checkDigestSize() {
 }
 
 // ---------------------------------------------------------------------------
+// 9. No runtime directive points at an authoring path.
+//
+// skills/_shared/ is where shared files are authored; it does not exist in an
+// installed skill. A header note saying "source: skills/_shared/x.md" is fine and
+// is how provenance is recorded. A directive telling an agent to GO READ
+// skills/_shared/x.md sends it to a path that is not there. Ten of these shipped.
+//
+// The file set is derived by walking skills/ for *.md (reusing walkMarkdown, the same
+// walker checkSectionRefs uses) rather than by a hand-kept list, so a new skill or a new
+// doc file is covered automatically instead of silently sitting outside the check's view.
+//
+// "canonical" was dropped from the provenance keyword list: skills/l3io-util-doctor/SKILL.md
+// said "see `skills/_shared/status-files.md` §10, the canonical contract)" — a directive
+// (it tells the agent to go read the path) that calls the *target* canonical, not a note
+// naming skills/_shared/ as *this file's own source*. Every real provenance line in the repo
+// ("**Canonical source: `skills/_shared/x.md`.**", "(source: `skills/_shared/x.md`; ...)")
+// already contains the word "source" on its own, so dropping "canonical" loses no coverage.
+// ---------------------------------------------------------------------------
+function allSkillDocs() {
+  return walkMarkdown("skills");
+}
+
+function checkAuthoringPathDirectives() {
+  const offenders = [];
+  for (const file of allSkillDocs()) {
+    const text = read(file);
+    text.split("\n").forEach((line, i) => {
+      if (!/skills\/_shared\//.test(line)) return;
+      // Provenance notes name the source explicitly; directives do not.
+      if (/\b(source|authored|generated from|synced from)\b/i.test(line)) return;
+      offenders.push(`${file}:${i + 1}: ${line.trim()}`);
+    });
+  }
+  if (offenders.length) {
+    failures.push(
+      `runtime directives point at authoring paths (skills/_shared/ does not exist ` +
+        `in an installed skill):\n      ${offenders.join("\n      ")}\n` +
+        `      Use the installed path (references/…, assets/…, steps/…), or mark the ` +
+        `line as provenance by naming it as the source.`,
+    );
+  }
+  if (verbose) {
+    console.log(`  authoring-paths: ${offenders.length} offending directive(s)`);
+  }
+}
+
+// ---------------------------------------------------------------------------
 
 checkSkillNames();
 checkGatingTables();
@@ -588,6 +637,7 @@ checkConfigValues();
 checkStatusValues();
 checkMetricList();
 checkDigestSize();
+checkAuthoringPathDirectives();
 
 for (const note of notes) if (verbose) console.log(`  note: ${note}`);
 

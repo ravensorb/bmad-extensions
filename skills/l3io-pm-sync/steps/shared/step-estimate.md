@@ -30,7 +30,7 @@ Based on `{scope}`:
 - `E{nnn}-S{nn}` → all stories under that sprint's directory
 
 Story files are the `*.yaml` files in a sprint directory, excluding `sprint.yaml` (see
-`skills/_shared/status-files.md` §4).
+`references/status-files.md` §4).
 
 For each story, read its `classification` (simple/standard/complex) and any existing
 estimate block.
@@ -97,7 +97,7 @@ Same `--model`/`--token-rates` rule as §2: `--model` always, `--token-rates` on
 rolled-up token range under that model.
 
 No `--flock` needed: each epic's estimate write touches only that epic's own directory (see
-`skills/_shared/status-files.md` §9, Concurrency).
+`references/status-files.md` §9, Concurrency).
 
 ## 4. Output estimate summary
 

@@ -1,7 +1,7 @@
 ## Target Folder Structure
 
 There are two mirrored trees under `{implementation_artifacts}/` — `state/` (machine-written
-status/estimate/actual data, see `skills/_shared/status-files.md` for the full schema) and the
+status/estimate/actual data, see `references/status-files.md` for the full schema) and the
 top-level `epic-{nnn}/` directories (human/agent-authored artifacts, the ones this skill
 reorganizes). They share an identical path suffix — `epic-{nnn}/sprint-{nn}/...` — which is
 what lets Health Check 11 diff the two sides directly.

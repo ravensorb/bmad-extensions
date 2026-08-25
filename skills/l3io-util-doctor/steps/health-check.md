@@ -81,7 +81,7 @@ Scan the top level of `{implementation_artifacts}/` for directories matching `ep
 - None → ✓
 
 **Check 11 — State/artifact drift**
-`{pm_state_root}` = `{implementation_artifacts}/state` (see `skills/_shared/status-files.md`,
+`{pm_state_root}` = `{implementation_artifacts}/state` (see `references/status-files.md`,
 the canonical state-layout contract, for the full sharded schema this check reads). For each
 sprint directory under `{pm_state_root}/{planned,active,archived}/epic-{nnn}/sprint-{nn}/`,
 compare story state files against story artifacts by basename. Only `active/` and `archived/` are
