@@ -4,9 +4,6 @@
   "description": "A set of BMad extensions tailored to LiquidLogicLabs AIDLC best practices.",
   "author": "Shawn Anderson <shawn@eye-catcher.com>",
   "private": true,
-  "files": [
-    "payload-manifest.json"
-  ],
   "scripts": {
     "sync:scripts": "node scripts/sync-shared-scripts.mjs",
     "check:scripts": "node scripts/sync-shared-scripts.mjs --check",
