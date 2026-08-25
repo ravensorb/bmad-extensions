@@ -146,6 +146,18 @@ python3 {pm_status} set-status \
   --status ready-for-dev
 ```
 
+Keep the story document in step with the state — the state YAML is what the machine reads and
+this file is what a reviewer opens, and until 2.4.8 they never agreed:
+
+```bash
+python3 {pm_status} sync-story-doc --artifacts-root {implementation_artifacts} \
+  --story {story_key} --status ready-for-dev
+```
+
+This never fails: a missing or frontmatter-less document warns on stderr and returns 0, because
+the state transition it follows is already durable and must not be rolled back by a
+documentation write.
+
 ## 5. Output
 
 ```

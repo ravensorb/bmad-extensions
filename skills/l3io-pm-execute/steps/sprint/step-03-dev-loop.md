@@ -41,6 +41,18 @@ python3 {pm_status} set-status \
   --status in-progress
 ```
 
+Keep the story document in step with the state — the state YAML is what the machine reads and
+this file is what a reviewer opens, and until 2.4.8 they never agreed:
+
+```bash
+python3 {pm_status} sync-story-doc --artifacts-root {implementation_artifacts} \
+  --story {story_key} --status in-progress
+```
+
+This never fails: a missing or frontmatter-less document warns on stderr and returns 0, because
+the state transition it follows is already durable and must not be rolled back by a
+documentation write.
+
 **Dispatch tracking — always emit the matching close.** Every subagent spawn in this step
 brackets with `pm-status.py dispatch --event open` immediately before and `--event close`
 immediately after, using the same `--agent`/`--epic`/`--sprint`/`--story`/`--session-id`
@@ -268,6 +280,18 @@ python3 {pm_status} set-status \
   --story {story_key} \
   --status done
 ```
+
+Keep the story document in step with the state — the state YAML is what the machine reads and
+this file is what a reviewer opens, and until 2.4.8 they never agreed:
+
+```bash
+python3 {pm_status} sync-story-doc --artifacts-root {implementation_artifacts} \
+  --story {story_key} --status done
+```
+
+This never fails: a missing or frontmatter-less document warns on stderr and returns 0, because
+the state transition it follows is already durable and must not be rolled back by a
+documentation write.
 
 ## 5. Output
 

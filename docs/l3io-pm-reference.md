@@ -427,6 +427,7 @@ epic:   backlog → in-progress → done
 |---|---|
 | `set-status`, `set-actual`, `set-estimate`, `set-field`, `verify` | `--state-root` + (`--story KEY` \| `--epic ID [--sprint ID]`) |
 | `set-status`, `set-actual` extras | `--no-events` skips the `events.jsonl` append; `--session-id ID` stamps it |
+| `sync-story-doc` | `--artifacts-root A --story KEY --status S [--quiet]` — writes `status:` into the story markdown's frontmatter (ruamel round-trip: key order and comments survive). Runs after a `set-status` that already succeeded, so it is deliberately incapable of failing its caller: a missing story file, missing frontmatter, or an unterminated frontmatter block each warn on stderr and return 0. Only an invalid `--status` or a malformed story key — both caller errors detectable before any state was touched — return 2 |
 | `estimate-story` | `--state-root --story KEY --classification {simple,standard,complex}` |
 | `estimate-rollup` | `--state-root --epic ID [--sprint ID]` — sums children, widens by the closure band |
 | `show` | `--state-root --epic ID [--sprint ID]` — computed roll-up to stdout, never a committed file. Prints the children's actuals plus a `spend/` breakout by story / closure / orchestration |

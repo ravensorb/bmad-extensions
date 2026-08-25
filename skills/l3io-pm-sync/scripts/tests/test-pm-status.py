@@ -10,6 +10,7 @@ transition log, the progress report, and verify exit codes.
 import io
 import json
 import os
+import shutil
 import sys
 import tempfile
 import unittest
@@ -4951,6 +4952,61 @@ class TestCalibrationRedrive(TestLayoutResolution):
         _, cal = pm.load_calibration(self.root)
         self.assertEqual(len(cal["token_mix"]["samples"]), 1)
         self.assertEqual(cal["closure"]["sprint"]["man_hours"]["samples"], [1.1])
+
+
+class TestSyncStoryDoc(Base):
+    # Base (test-pm-status.py:30) supplies run_main; TestLayoutResolution does NOT,
+    # which is why every class extending it defines its own. This command needs no
+    # node tree, so Base is the right fixture.
+    def setUp(self):
+        super().setUp()
+        self.dir = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, self.dir, True)
+        self.doc = os.path.join(self.dir, "epic-001", "sprint-01", "stories",
+                                "E001-S01-003.md")
+        os.makedirs(os.path.dirname(self.doc), exist_ok=True)
+
+    def _write(self, text):
+        with io.open(self.doc, "w", encoding="utf-8") as fh:
+            fh.write(text)
+
+    def _read(self):
+        with io.open(self.doc, encoding="utf-8") as fh:
+            return fh.read()
+
+    def test_status_in_frontmatter_is_rewritten(self):
+        self._write("---\nkey: E001-S01-003\nstatus: backlog\n---\n\n# Story\n\nBody.\n")
+        code, _ = self.run_main(["sync-story-doc", "--artifacts-root", self.dir,
+                            "--story", "E001-S01-003", "--status", "done"])
+        self.assertEqual(code, 0)
+        self.assertIn("status: done", self._read())
+
+    def test_body_and_key_order_survive_the_rewrite(self):
+        self._write("---\nkey: E001-S01-003\nstatus: backlog\ntitle: A thing\n---\n\n"
+                    "# Story\n\nBody with --- a dash line in it.\n")
+        self.run_main(["sync-story-doc", "--artifacts-root", self.dir,
+                  "--story", "E001-S01-003", "--status", "review"])
+        out = self._read()
+        self.assertIn("Body with --- a dash line in it.", out)
+        self.assertLess(out.index("key:"), out.index("status:"))
+        self.assertLess(out.index("status:"), out.index("title:"))
+
+    def test_a_missing_story_file_warns_but_never_fails_the_caller(self):
+        buf = io.StringIO()
+        with redirect_stderr(buf):
+            code, _ = self.run_main(["sync-story-doc", "--artifacts-root", self.dir,
+                                "--story", "E001-S01-999", "--status", "done"])
+        self.assertEqual(code, 0)
+        self.assertIn("no story file", buf.getvalue())
+
+    def test_an_invalid_status_is_refused(self):
+        self._write("---\nstatus: backlog\n---\n\nBody.\n")
+        buf = io.StringIO()
+        with redirect_stderr(buf):
+            code, _ = self.run_main(["sync-story-doc", "--artifacts-root", self.dir,
+                                "--story", "E001-S01-003", "--status", "finished"])
+        self.assertEqual(code, 2)
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)

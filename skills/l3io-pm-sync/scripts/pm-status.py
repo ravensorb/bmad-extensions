@@ -86,8 +86,10 @@ from __future__ import annotations
 
 import argparse
 import contextlib
+import io
 import json
 import os
+import re
 import sys
 import hashlib
 import tempfile
@@ -2934,6 +2936,78 @@ def cmd_set_status(args) -> int:
     return 0
 
 
+def story_doc_path(artifacts_root: str, story_key: str) -> str:
+    """E{nnn}-S{nn}-{nnn} -> {artifacts}/epic-{nnn}/sprint-{nn}/stories/{key}.md
+
+    The artifact tree mirrors the state tree with an identical path suffix but is
+    NOT the state tree: artifacts are human-authored and never moved between
+    status directories. This is the only place that resolves a story key to a
+    document path, for the same reason story_file() is the only place that
+    resolves one to a state path.
+    """
+    m = re.match(r"^E(\d{3})-S(\d{2})-\d{3}$", story_key)
+    if not m:
+        raise ValueError(f"not a story key: {story_key!r}")
+    return os.path.join(artifacts_root, f"epic-{m.group(1)}",
+                        f"sprint-{m.group(2)}", "stories", f"{story_key}.md")
+
+
+def cmd_sync_story_doc(args) -> int:
+    """Write `status:` into the story markdown's frontmatter.
+
+    The state YAML is the machine's truth; this file is the human's. They have
+    never agreed -- a production audit found 73 of 73 stories divergent, every
+    one of them in the same direction, which is an unimplemented write rather
+    than drift.
+
+    This NEVER fails its caller. It runs after a set-status that has already
+    succeeded, and a documentation write must not be able to strand a state
+    transition that is already durable.
+    """
+    if args.status not in VALID_STORY_STATUS:
+        sys.stderr.write(f"ERROR unknown story status {args.status!r}; "
+                         f"expected one of {', '.join(sorted(VALID_STORY_STATUS))}\n")
+        return 2
+    try:
+        path = story_doc_path(args.artifacts_root, args.story)
+    except ValueError as exc:
+        sys.stderr.write(f"ERROR {exc}\n")
+        return 2
+    if not os.path.exists(path):
+        sys.stderr.write(f"WARN no story file at {path} — state was written, "
+                         f"document not updated\n")
+        return 0
+
+    with io.open(path, encoding="utf-8") as fh:
+        text = fh.read()
+    if not text.startswith("---\n"):
+        sys.stderr.write(f"WARN {path} has no YAML frontmatter — nothing to update\n")
+        return 0
+    end = text.find("\n---", 3)
+    if end == -1:
+        sys.stderr.write(f"WARN {path} has an unterminated frontmatter block\n")
+        return 0
+    head, body = text[4:end + 1], text[end + 4:]
+
+    # ruamel round-trip: preserves key order and comments. Never split on '---'
+    # by hand -- a body line of dashes is legal markdown and would corrupt it.
+    from ruamel.yaml.comments import CommentedMap
+    yaml = _yaml()
+    meta = yaml.load(head) or CommentedMap()
+    if meta.get("status") == args.status:
+        if not args.quiet:
+            sys.stdout.write(f"OK {args.story} document already {args.status}\n")
+        return 0
+    meta["status"] = args.status
+    buf = io.StringIO()
+    yaml.dump(meta, buf)
+    with io.open(path, "w", encoding="utf-8") as fh:
+        fh.write("---\n" + buf.getvalue() + "---" + body)
+    if not args.quiet:
+        sys.stdout.write(f"OK {args.story} document -> {args.status}\n")
+    return 0
+
+
 def cmd_set_actual(args) -> int:
     kind = args.node
     block = getattr(args, "block", "actual")
@@ -4129,6 +4203,15 @@ def build_parser() -> argparse.ArgumentParser:
     s.add_argument("--session-id", dest="session_id", default=None,
                    help="recorded in the event payload; null when omitted")
     s.set_defaults(func=cmd_set_status)
+
+    sd = sub.add_parser("sync-story-doc",
+                        help="write status into the story markdown's frontmatter")
+    sd.add_argument("--artifacts-root", required=True,
+                    help="implementation_artifacts root (NOT the state root)")
+    sd.add_argument("--story", required=True)
+    sd.add_argument("--status", required=True)
+    sd.add_argument("--quiet", action="store_true")
+    sd.set_defaults(func=cmd_sync_story_doc)
 
     a = sub.add_parser("set-actual", help="write a validated actual block")
     a.add_argument("--state-root", required=True, help="path to {implementation_artifacts}/state")
