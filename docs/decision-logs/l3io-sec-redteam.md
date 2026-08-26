@@ -5,6 +5,12 @@ classification: memory-agent
 last_touched: 2026-05-15
 ---
 
+> **Historical authoring record.** This log captures the decisions and rationale from the
+> sessions that built this skill. It is kept for provenance and **may not describe current
+> behaviour** — the live contracts are the repository's `CLAUDE.md` and this skill's
+> `references/`. Where a later note below is marked "Correction," it was added after the
+> fact next to the original entry; the original text is left as written.
+
 # Decision Log
 
 ## Session 2026-05-15 — Initial Build
@@ -22,6 +28,8 @@ last_touched: 2026-05-15
 **Configuration-style First Breath.** This is a focused domain tool, not a long-term creative companion. Five config questions cover: scope, tech stack, report audience, known findings, out-of-scope. Warm but quick.
 
 **Not customizable via TOML.** Sanctum (PERSONA/CREED/BOND/CAPABILITIES) is the primary customization surface. research_cache_ttl_days is loaded from `{project-root}/_bmad/config.yaml` (l3io-sec section), not from customize.toml, because it's a functional parameter for the project, not an agent behavior override.
+>
+> **Correction (current behaviour):** there is no `{project-root}/_bmad/config.yaml`. `research_cache_ttl_days` resolves from `modules.l3io-sec` via BMad core's `resolve_config.py`, which merges the four TOML layers (`_bmad/config.toml`, `config.user.toml`, `custom/config.toml`, `custom/config.user.toml`). See `CLAUDE.md` and this skill's `references/config-resolution.md`.
 
 **research-cache/ in sanctum.** Cache lives at `{project-root}/_bmad/memory/l3io-sec-redteam/research-cache/`. The init script creates this directory. INDEX.md has a Research Cache section the agent maintains as cache inventory.
 
