@@ -2,7 +2,8 @@
 
 All notable changes to this project will be documented in this file. See [commit-and-tag-version](https://github.com/absolute-version/commit-and-tag-version) for commit guidelines.
 
-## Unreleased
+## [2.4.8](https://github.com/ravensorb/bmad-extensions/compare/2.4.7...2.4.8) (2026-08-26)
+
 
 ### ⚠ Incompatible CLI change
 
@@ -21,6 +22,66 @@ All notable changes to this project will be documented in this file. See [commit
 
   Reading is unaffected: `tests_passing` still appears in the same place with the same meaning,
   and a story that recorded no runs leaves it **absent** rather than `true`.
+
+### Features
+
+* **infra:** gate the per-skill payload manifests ([c0df507](https://github.com/ravensorb/bmad-extensions/commit/c0df507e37b83995f6e1da00637f6523f975e556))
+* **infra:** ship a checksum manifest for payload copies ([e416011](https://github.com/ravensorb/bmad-extensions/commit/e416011cafa44360ce4394df8589dad4c5b7a086))
+* **l3io-pm:** carry read cost to the agents that pay it ([79a0bd1](https://github.com/ravensorb/bmad-extensions/commit/79a0bd1bd21734f1c6a11e8e4990b9535b5476ac))
+* **l3io-pm:** make tests_passing derived evidence, not an assertion ([ea8518b](https://github.com/ravensorb/bmad-extensions/commit/ea8518b7f6990123c3f24c55399b57560f5940f1))
+* **l3io-pm:** write status back to the story document ([110fbb2](https://github.com/ravensorb/bmad-extensions/commit/110fbb2e4d1db1333aee87a0bea4718b9b7a69da))
+
+
+### Fixes
+
+* **infra:** move payload manifest to per-skill, reachable locations ([057bf18](https://github.com/ravensorb/bmad-extensions/commit/057bf181ad8e6eccf1a6b4680144f617c951b18b))
+* **l3io-arch:** assign ADR numbers from a register before dispatch ([a271e75](https://github.com/ravensorb/bmad-extensions/commit/a271e75a283e1d6940640d22dfe5a2155bdfd585))
+* **l3io-arch:** never block the gate on a prompt; scope the re-validation ([a3bf6ae](https://github.com/ravensorb/bmad-extensions/commit/a3bf6aed97b09d7e8a12e3893286cbf3a7c0569c))
+* **l3io-pm:** bind {n} and {N} explicitly in step-05-epic-loop.md §6 ([4256059](https://github.com/ravensorb/bmad-extensions/commit/42560592b06c1d10d9959b3ff67c36781f77ce8b))
+* **l3io-pm:** bind post-sprint re-estimation into the sprint loop ([a55d97d](https://github.com/ravensorb/bmad-extensions/commit/a55d97d1f34e7bfde5064a2c09089448def78ab2))
+* **l3io-pm:** block on degraded plan state instead of pausing for input ([7896e0d](https://github.com/ravensorb/bmad-extensions/commit/7896e0df8dec9ba1a9bc1262d1e1a205d2e4707e))
+* **l3io-pm:** close remaining hand-rolled BL-key sites and a malformed-backlog crash ([1abc18b](https://github.com/ravensorb/bmad-extensions/commit/1abc18bc4b8727141fdc4ac3723d559ed1a3bf2f))
+* **l3io-pm:** close two contract gaps that stranded live runs ([5cb74cc](https://github.com/ravensorb/bmad-extensions/commit/5cb74ccefc6b261bc82e4bb48951ae3c9d5bae56))
+* **l3io-pm:** deduplicate read-cost figures and name the Files-in-scope source ([b68da3c](https://github.com/ravensorb/bmad-extensions/commit/b68da3c140b820fe238c33a59572d4f75b5a3875))
+* **l3io-pm:** derive tests_passing from the last run of each command ([46681c8](https://github.com/ravensorb/bmad-extensions/commit/46681c84c7bb0cce26b77dd2bf3bec8fa79418c4))
+* **l3io-pm:** drop vestigial multi-story language and wire the review transition ([8663b7b](https://github.com/ravensorb/bmad-extensions/commit/8663b7b2aae07dc58aef12da152130452b515f8a))
+* **l3io-pm:** give agents a procedure for required test coverage, and harden add-test-run ([c90e0d7](https://github.com/ravensorb/bmad-extensions/commit/c90e0d7bc0308ee63909276d0832d8423455c581))
+* **l3io-pm:** ignore zero closure samples on read, not only on write ([53e774e](https://github.com/ravensorb/bmad-extensions/commit/53e774e92038a4ada7108e77361144595cdc47a2))
+* **l3io-pm:** make append-issue duplicate-safe and self-allocating ([625a0c5](https://github.com/ravensorb/bmad-extensions/commit/625a0c57c0f12cc306178012c62bfc505a2d04c3))
+* **l3io-pm:** make post-sprint re-estimation do something ([7fe74fe](https://github.com/ravensorb/bmad-extensions/commit/7fe74fe740373921084d792a565631955989734c))
+* **l3io-pm:** move the fix-loop-cap FAILED literal after its state actions ([03f30f6](https://github.com/ravensorb/bmad-extensions/commit/03f30f6fa306fc1a3d9415cf4548ea8568982bcc))
+* **l3io-pm:** never let a malformed frontmatter crash sync-story-doc ([7c90ccf](https://github.com/ravensorb/bmad-extensions/commit/7c90ccfc74b2f2eb58393a7c5d45498757ce151e))
+* **l3io-pm:** produce Files in scope on every path, and repair the story contract ([b5fc216](https://github.com/ravensorb/bmad-extensions/commit/b5fc2161fb5ba92f7a0bf265526048ea7e477d0d))
+* **l3io-pm:** reuse _is_number in active_closure_ratio instead of a bare isinstance check ([bd142a8](https://github.com/ravensorb/bmad-extensions/commit/bd142a81a41293417fdbffad4b5b2e684655c3b0))
+* **l3io-pm:** source re-estimation keys and report from real CLI output ([af0c717](https://github.com/ravensorb/bmad-extensions/commit/af0c717141a714aaee4ccfa9ec2ecb1f5e92c2a4))
+* **l3io-pm:** state the C x T cost model and bound the dev agent's reads ([5a5419a](https://github.com/ravensorb/bmad-extensions/commit/5a5419a683d0b96678620d7f5cc30654787db5d2))
+* **l3io-pm:** state what actually unblocks a red plan ([3ca3dbc](https://github.com/ravensorb/bmad-extensions/commit/3ca3dbc71ba1f4991c2468c970de2be8aa016cfb))
+* **l3io-pm:** sync CLI reference derivation text and route 5c through 5d on FAILED ([23c6ca8](https://github.com/ravensorb/bmad-extensions/commit/23c6ca840b96724abd42088682650cd2666a3a5c))
+* **l3io-util:** point runtime directives at runtime paths ([1298542](https://github.com/ravensorb/bmad-extensions/commit/1298542eed61f7cefc5a81f5c5a7b6b67ef63b61))
+
+
+### Performance
+
+* **l3io-pm:** code review returns a pointer, not its findings ([7765f70](https://github.com/ravensorb/bmad-extensions/commit/7765f70dc7115d0d1683792115a2bb76041ff9de))
+
+
+### Documentation
+
+* **l3io-pm:** wire append-issue's auto-allocated key into steps and reference docs ([4e9bd1b](https://github.com/ravensorb/bmad-extensions/commit/4e9bd1bb87d170157277596e134dc1f3c1081aee))
+* record the new pm-status.py surface and one incompatible narrowing ([2aa1838](https://github.com/ravensorb/bmad-extensions/commit/2aa18387c7b7bb67514a38166fa3eb0f7a7c2b30))
+* record the production findings report and its cleanup plan ([c5b09fb](https://github.com/ravensorb/bmad-extensions/commit/c5b09fb3b80711d3b056d93f4fe7ed2885ebc672))
+* size the digest budget raise once for both tasks that need it ([8c6e10e](https://github.com/ravensorb/bmad-extensions/commit/8c6e10ee63818c9ef16425f6f27f4d51d2308589))
+
+
+### Maintenance
+
+* **infra:** ignore .superpowers/ subagent-driven-development scratch ([b3685ac](https://github.com/ravensorb/bmad-extensions/commit/b3685acd81f4357d3919ccdbc19f6e16648c1dbe))
+* **l3io-pm:** regenerate payload manifests for the append-issue changes ([22040c6](https://github.com/ravensorb/bmad-extensions/commit/22040c6f69abf57cf037d082f2b8dac6ce198f8a))
+
+
+### Testing
+
+* **l3io-arch:** prove adr-reserve's lock under real concurrency, refuse a corrupt reserved list ([c6fac32](https://github.com/ravensorb/bmad-extensions/commit/c6fac32a868d89258d50a858f54fedeb1a475ecd))
 
 ## [2.4.7](https://github.com/ravensorb/bmad-extensions/compare/2.4.6...2.4.7) (2026-08-20)
 

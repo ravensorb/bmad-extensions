@@ -1,5 +1,5 @@
 {
-  "version": "2.4.7",
+  "version": "2.4.8",
   "generated_from": "skills/_shared/",
   "files": {
     "scripts/write-module-config.py": "fdc0e81cda51221599907b9023a096b0570e096b7d921fb0c1db2050afa7a80f",
@@ -13,7 +13,7 @@
     "steps/sync/step-02-detect-platform.md": "50e1b487e3ede3db461ccc1b684838f2a31adbec36144ee86e684dd5dc3199fe",
     "steps/sync/step-03-operations.md": "32b628994c2ba12d255a1cfbf07a331ba5490d2a74aea904f460835be000c87c",
     "steps/sync/step-04-resolve.md": "5c93859664364c285225568a95eb1a53745f39f04414aea4ba1f440c5d48a6f9",
-    "scripts/pm-status.py": "0cc1d0580b63577891605ef71bfb1e9a88cd2b5545184f87bae9790ccef07b65",
+    "scripts/pm-status.py": "a79c3626b77b88256ce997488919d54010456ddf421f3048a5cda21cb211863a",
     "scripts/tests/test-pm-status.py": "74d6e4c72efa8f4fe72e8eb5b409e608eb31b7c274c15753aa49f30c938fdc6b",
     "references/status-files.md": "5121897734a4f8b25c6a93f0832430c6324cfa0e99b622c86134364a6bf5344c",
     "references/metrics-contract.md": "35a6a0f2c3b4023430fc1ac2b911fcb625c499090ad9e5a46d52353d6fb20af5",
