@@ -4,7 +4,10 @@
 # ///
 """Unit tests for init-sanctum.py."""
 
+import contextlib
 import importlib.util
+import io
+import json
 import sys
 import tempfile
 import unittest
@@ -105,32 +108,55 @@ class TestSanctumCreation(unittest.TestCase):
             (skill_path / "assets").mkdir(parents=True)
             (skill_path / "references").mkdir()
 
-            # Create a stub template
+            # Stub template carrying a placeholder, to verify substitution happens
             (skill_path / "assets" / "INDEX-template.md").write_text("# Index\n{user_name}\n")
 
-            # Minimal config
-            (project_root / "_bmad").mkdir(parents=True)
+            # A capability reference file, to verify copy_references runs for real
+            (skill_path / "references" / "scope-mapping.md").write_text(
+                "---\nname: scope-mapping\ncode: SM\ndescription: Maps attack surface\n---\n\n# Body\n"
+            )
 
-            # Patch TEMPLATE_FILES for this test
+            # Minimal project config supplying a substitution value
+            (project_root / "_bmad").mkdir(parents=True)
+            (project_root / "_bmad" / "config.yaml").write_text("user_name: Alice\n")
+
+            sanctum = project_root / "_bmad" / "memory" / m.SKILL_NAME
+            self.assertFalse(sanctum.exists(), "sanctum must not exist before main() runs")
+
+            # Patch TEMPLATE_FILES for this test (the fixture only stubs INDEX)
             original = m.TEMPLATE_FILES
             m.TEMPLATE_FILES = ["INDEX-template.md"]
+            saved_argv = sys.argv
+            sys.argv = ["init-sanctum.py", str(project_root), str(skill_path), "--json"]
+            stdout = io.StringIO()
             try:
-                sanctum = project_root / "_bmad" / "memory" / m.SKILL_NAME
-                m_main_args = [str(project_root), str(skill_path)]
-                sys.argv = ["init-sanctum.py"] + m_main_args
-                # Import argparse and parse
-                import argparse
-                parser = argparse.ArgumentParser()
-                parser.add_argument("project_root")
-                parser.add_argument("skill_path")
-                parser.add_argument("--json", action="store_true")
-                args = parser.parse_args(m_main_args)
-
-                # Verify the sanctum would be created at the right path
-                expected = project_root / "_bmad" / "memory" / m.SKILL_NAME
-                self.assertEqual(str(expected), str(project_root / "_bmad" / "memory" / m.SKILL_NAME))
+                with contextlib.redirect_stdout(stdout):
+                    m.main()
             finally:
                 m.TEMPLATE_FILES = original
+                sys.argv = saved_argv
+
+            # main() reports the run it actually performed
+            result = json.loads(stdout.getvalue())
+            self.assertEqual(result["status"], "created")
+            self.assertIn("INDEX.md", result["created"])
+            self.assertIn("references/scope-mapping.md", result["created"])
+
+            # The sanctum now exists on disk, with the subdirectories First Breath promises
+            self.assertTrue(sanctum.is_dir())
+            self.assertTrue((sanctum / "sessions").is_dir())
+            self.assertTrue((sanctum / "research-cache").is_dir())
+
+            # The template landed and its placeholder was substituted
+            index_content = (sanctum / "INDEX.md").read_text()
+            self.assertIn("Alice", index_content)
+            self.assertNotIn("{user_name}", index_content)
+
+            # The reference file was copied into the sanctum, unmodified
+            self.assertEqual(
+                (sanctum / "references" / "scope-mapping.md").read_text(),
+                (skill_path / "references" / "scope-mapping.md").read_text(),
+            )
 
 
 if __name__ == "__main__":
