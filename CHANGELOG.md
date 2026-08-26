@@ -2,6 +2,37 @@
 
 All notable changes to this project will be documented in this file. See [commit-and-tag-version](https://github.com/absolute-version/commit-and-tag-version) for commit guidelines.
 
+## [2.4.9](https://github.com/ravensorb/bmad-extensions/compare/2.4.8...2.4.9) (2026-08-26)
+
+
+### Fixes
+
+* **l3io-arch:** correct closure gate mode and severity vocabulary ([6717d4c](https://github.com/ravensorb/bmad-extensions/commit/6717d4c7bf07503acbdfa60b52c22abb1ae9fdb9))
+* **l3io-pm:** enforce mutual exclusion in the epic ownership lock ([6c35334](https://github.com/ravensorb/bmad-extensions/commit/6c353346e0ac2b0da6a20034939a0bc24b477cd4))
+* **l3io-sec:** correct sanctum path assertion in orphaned test ([e8c4c8a](https://github.com/ravensorb/bmad-extensions/commit/e8c4c8a44c477537aac2a36d460f422e4b82cc47))
+* **l3io-sec:** make sanctum creation test call the real entry point ([56f150d](https://github.com/ravensorb/bmad-extensions/commit/56f150d5d988b7fc7919611bab581f271b4dca49))
+* **l3io-util:** make util-doctor own pm-status.py self-install, detect staleness in pm-help ([0f8a165](https://github.com/ravensorb/bmad-extensions/commit/0f8a165b1efa1093499ce9e3be5bfb710d789282))
+* **l3io-util:** stop the legacy migration inventing tests_passing ([c7bc0a4](https://github.com/ravensorb/bmad-extensions/commit/c7bc0a4b210b97656777e4c04cc8db4f0161b3c0))
+
+
+### Documentation
+
+* correct seven verified defects in first-read docs ([747dba4](https://github.com/ravensorb/bmad-extensions/commit/747dba4feecfa3ba67c242be7a331a2c83cacbb2))
+* correct twelve verified defects across four reference docs ([aa099ed](https://github.com/ravensorb/bmad-extensions/commit/aa099ed00eb23e06aecbf7d088559c0ba5794ac4))
+* fix thirteen verified defects in CLAUDE.md and status-files.md ([ea872c3](https://github.com/ravensorb/bmad-extensions/commit/ea872c35f3b33882bc70145cb7a46b64d08c8d8d))
+* **l3io-pm:** document 6 missing pm-status.py subcommands, guard the gap ([52f80b4](https://github.com/ravensorb/bmad-extensions/commit/52f80b46df4910ab5948fc4e2f816bee9cd2e030))
+* **l3io-sec,l3io-util:** move stray decision logs out of shipped payload, correct stale claims ([e8bcec9](https://github.com/ravensorb/bmad-extensions/commit/e8bcec9e3411b2c241ef836e5af4851c334dafad))
+
+
+### Maintenance
+
+* **l3io-pm,l3io-sec,l3io-util,l3io-arch:** stop shipping test suites into skill payloads ([91ef0cf](https://github.com/ravensorb/bmad-extensions/commit/91ef0cf842e10897a70a8114d6df0e400caa2792))
+
+
+### CI/CD
+
+* **l3io-sec:** wire test-init-sanctum.py into checks workflow ([2f19a0c](https://github.com/ravensorb/bmad-extensions/commit/2f19a0c528d95db393e8eb0d352c46fab039170c))
+
 ## [2.4.8](https://github.com/ravensorb/bmad-extensions/compare/2.4.7...2.4.8) (2026-08-26)
 
 
