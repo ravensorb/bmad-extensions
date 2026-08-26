@@ -42,7 +42,8 @@ grep -qE "^[[:space:]]*-[[:space:]]*name:[[:space:]]*l3io-arch[[:space:]]*$" \
   {project-root}/_bmad/_config/manifest.yaml 2>/dev/null && echo "present" || echo "absent"
 ```
 
-If present: invoke l3io-arch-review Mode C (audit — review what was built vs what was planned).
+If present: invoke l3io-arch-review Mode B (architectural review — review what was built vs
+what was planned).
 **Scope it, do not hand it the repository.** A reviewer pointed at the project pays a full
 `cache_write` over the corpus before its first thought, then re-reads that prefix every turn.
 Pass:
@@ -52,8 +53,9 @@ Pass:
 - Named standard sections the ADRs invoke, by path and section number
 
 Findings:
-- CRITICAL/HIGH/MEDIUM: must be resolved before closure completes. Open fix loop (max `{max_fix_iterations}` iterations).
-- LOW: append to issues file via `pm-status.py append-issue`.
+- BLOCKER/MAJOR: must be resolved before closure completes (fix loop, max
+  `{max_fix_iterations}` iterations) or recorded as an accepted ADR that justifies leaving it.
+- MINOR: append to issues file via `pm-status.py append-issue` (as `--severity Low`).
 
 ## 3. Issue triage
 

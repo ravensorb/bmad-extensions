@@ -102,10 +102,11 @@ HIGH: fix. LOW/MEDIUM: defer.
 
 ## 6. Sprint architectural drift review (skip if in skip_phases)
 
-If `l3io-arch-review` is installed: invoke Mode C (audit) on this sprint's stories and
-**diff**, plus the ADRs and standard sections they bear on, by path — not the repository
-(see §2–3).
-CRITICAL/HIGH/MEDIUM: resolve before marking sprint done. LOW: defer to issues file.
+If `l3io-arch-review` is installed: invoke Mode B (architectural review) on this sprint's
+stories and **diff**, plus the ADRs and standard sections they bear on, by path — not the
+repository (see §2–3).
+BLOCKER/MAJOR: resolve before marking sprint done, or record an accepted ADR that justifies
+leaving it. MINOR: defer to issues file (as `--severity Low` — see §7).
 
 ## 7. Issue triage
 
