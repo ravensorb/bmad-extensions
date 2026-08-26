@@ -22,13 +22,18 @@ Your `_bmad/custom/config.toml` and `config.user.toml` overrides survive step 1 
 the installer never writes those layers.
 
 **Step 2 is required after every skill update, not optional and not one-time.** Step 1
-refreshes the skill payloads under `skills/`, but `pm-status.py` also runs as a single
-installed copy at `{project-root}/_bmad/scripts/pm-status.py` that step 1 does not touch.
-`/l3io-util-doctor` self-installs the current copy at activation, before it does anything
-else — so running it is what brings that installed script back in line with the skills you
-just refreshed. Skipping it leaves the installed script pinned to the old version: a
+refreshes the skill payloads under `skills/`, but your project's on-disk data is untouched by
+a skill refresh, and `/l3io-util-doctor` is the one command that inspects it and applies every
+migration you need, in dependency order, behind one confirmation. It also self-installs the
+current `pm-status.py` at activation, before it does anything else — but that part is not
+unique to it: `l3io-pm-execute`, `l3io-pm-plan`, and `l3io-pm-sync` each self-install the same
+current copy at their own activation too (content-guarded — it reinstalls only when the
+installed copy differs from the current skills), so a stale script would also self-heal on
+your next run of any of those. Migration is what a self-heal never does. Skipping
+`/l3io-util-doctor` after an update leaves any migration your project needs undone: a
 subcommand the new payloads assume (a newly optional flag, a newly added subcommand) then
-fails with a plain argparse error that gives no hint the real cause is a stale script.
+fails with a plain argparse error that gives no hint the real cause is a missed migration, or
+the run proceeds against a layout the current skills cannot correctly read.
 
 ## Why step 2 matters
 

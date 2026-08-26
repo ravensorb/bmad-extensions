@@ -156,27 +156,14 @@ sprint:
 /l3io-pm-execute E001-S01
 ```
 
-The skill loads config, resolves state from the sharded tree, and presents a scope
-confirmation:
+The skill loads config and resolves state from the sharded tree. The orchestrator begins
+immediately — there is no confirmation prompt. It dispatches story-prep, then one agent per
+story, then closure, and reports each phase boundary as it completes.
 
-```
-Sprint Orchestrator: E001 / S01 — 3 stories: E001-S01-001, E001-S01-002, E001-S01-003
-Per story:  Story Prep → Dev → Code Review → QA → Fix Loop
-Closure:    Retrospective → Clean Release → Adversarial → Red Team → UX → Arch Drift → Issue Triage
-...
-Pre-start estimate:
-  Stories:         3 (0 simple, 3 standard, 0 complex)
-  Est. story work: 0.6–1.0 h   (Σ stories, fix reserve included)
-  Est. closure:    0.4–0.8 h
-  ────────────────────────────────────────────────────────
-  Total estimate:  1.0–1.8 hours    Tokens: 270K–480K    Cost: ~$2.16–$3.84
-  Calibration:     none yet — formula baseline (components calibrate at ≥3 samples)
-  (Actuals reported at sprint close.)
+Per story: Dev → Code Review → Fix Loop (capped at `max_fix_iterations`, default 3). Story
+Prep and Closure each run once, for the whole sprint — never per story.
 
-Shall I begin?
-```
-
-Confirm to start (interactive mode requires explicit `yes` before any subagent runs). The orchestrator delegates each story phase to a fresh subagent and reports progress. At closure, findings are auto-classified — Critical/High/Medium and undocumented drift route to the closure fix loop (auto-fix, capped at `max_fix_iterations` — default 3); Low findings auto-defer to `state/issues.yaml` as `BL-` backlog items — never as new stories. The sprint signs off once all Critical/High/Medium issues are resolved. You are only prompted again if a fix loop (per-story or closure) hits its `max_fix_iterations` cap.
+At closure, findings are auto-classified — Critical/High/Medium and undocumented drift route to the closure fix loop (auto-fix, capped at `max_fix_iterations` — default 3); Low findings auto-defer to `state/issues.yaml` as `BL-` backlog items — never as new stories. The sprint signs off once all Critical/High/Medium issues are resolved. You are only prompted again if a fix loop (per-story or closure) hits its `max_fix_iterations` cap.
 
 At sign-off the orchestrator records **actuals** alongside the estimate for all five metrics — compute (wall-clock) hours, man-hours (a counterfactual re-assessment made at closure, not an observed figure), human-attention (hitl) hours, tokens, and token cost. Cost is never entered directly; it is derived from the captured tokens and the model's rate table. Under Claude, tokens are captured exactly from the session transcript, split by class, and cost is priced from them; under other runtimes (e.g. Copilot) tokens show as `N/A` rather than a guess. Estimates self-calibrate from this plan-vs-actual history — decomposed into story-scope, closure, fix, and orchestration components that each activate once they have enough samples — with no setup needed. See the [PM reference](l3io-pm-reference.md#metrics-contract-estimates--actuals) for the full metrics contract and calibration details.
 
@@ -188,21 +175,12 @@ Same skill, epic scope:
 /l3io-pm-execute E001
 ```
 
-Omit the argument entirely to run the whole plan in phase order. The skill resolves the
-target epic and presents a sprint grouping step:
+Omit the argument entirely to run the whole plan in phase order. Sprints must already exist in
+state (created by `/l3io-pm-plan` or manually) before an epic run — the orchestrator does not
+group stories into sprints or ask you to split them.
 
-```
-E001: My Feature
-Total stories:  8
-Already done:   0
-Remaining:      8 — E001-S01-001 … E001-S01-008
-
-Default: all remaining stories as one sprint.
-To split: provide story key groups
-  (e.g. Sprint 1: E001-S01-001, E001-S01-002 / Sprint 2: E001-S01-003, …)
-```
-
-Confirm the grouping or provide a custom split. From there the orchestrator dispatches *headless* subagent invocations of itself — **one to prep the sprint, one per story, and one to close the sprint** (no per-sprint scope-confirmation prompt) — then runs epic-level closure after all sprints complete.
+The orchestrator dispatches each pending sprint in order. For each sprint it dispatches
+*headless* subagent invocations of itself — **one to prep the sprint, one per story, and one to close the sprint** — with no grouping prompt and no per-sprint scope-confirmation prompt — then runs epic-level closure after all sprints complete.
 
 You will see more agents than you might expect, and that is the point: cost grows with the number of turns a single session accumulates, not with the number of sessions. Splitting a sprint across short-lived agents is cheaper than one long one, and costs nothing in continuity because every hand-off is a file on disk. Between sprints, the orchestrator continues immediately to the next sprint without prompting. Epic closure auto-triages findings the same way sprints do; only halts if its closure fix loop hits the `max_fix_iterations` cap.
 
@@ -233,7 +211,7 @@ Phase 1/2 (parallel)  █████░░░░░  1/2 epics done
 **Watch it live**, in a second terminal, while a run is in progress:
 
 ```bash
-python3 _bmad/scripts/pm-status.py report \
+uv run _bmad/scripts/pm-status.py report \
   --state-root {implementation_artifacts}/state \
   --plan {planning_artifacts}/plan-output-meta.yaml \
   --watch 15
@@ -311,7 +289,7 @@ To split a legacy single `sprint-status.yaml` into the active/backlog/archived t
 /l3io-util-doctor split-status
 ```
 
-The PM skills also auto-split a legacy single `sprint-status.yaml` on first run, so this explicit step is optional.
+If a PM skill detects a legacy `sprint-status.yaml`, it halts and tells you to run `/l3io-util-doctor migrate-state` — it never splits it automatically.
 
 To sweep the source tree for `bmad-defer:` deferred-shortcut markers and harvest them into the backlog (report-only until you confirm the merge):
 

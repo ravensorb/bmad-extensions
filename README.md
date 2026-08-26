@@ -161,10 +161,10 @@ skills/
                          metrics-contract.md, config-resolution.md, module-setup.md, steps/
   l3io-pm-plan/          SKILL.md, customize.toml, references/, assets/, scripts/, steps/, module.yaml
   l3io-pm-execute/       SKILL.md, customize.toml, references/, assets/, scripts/, steps/, module.yaml
-  l3io-pm-help/          SKILL.md, customize.toml, references/, assets/, module.yaml
+  l3io-pm-help/          SKILL.md, customize.toml, references/, assets/, scripts/, module.yaml
   l3io-pm-sync/          SKILL.md, customize.toml, references/, assets/, scripts/, steps/, module.yaml
   l3io-sec-redteam/      SKILL.md, customize.toml, references/, assets/, scripts/, module.yaml
-  l3io-util-doctor/      SKILL.md, customize.toml, references/, assets/, scripts/, module.yaml
+  l3io-util-doctor/      SKILL.md, customize.toml, references/, assets/, scripts/, steps/, module.yaml
   l3io-util-cleanup/     SKILL.md, customize.toml, module.yaml  (deprecated forwarder → l3io-util-doctor)
   l3io-arch-review/      SKILL.md, customize.toml, references/, assets/, scripts/, module.yaml
 .claude/commands/        symlinks → ../../skills/<skill>/SKILL.md
