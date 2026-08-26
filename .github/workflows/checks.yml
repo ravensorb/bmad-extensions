@@ -32,3 +32,5 @@ jobs:
       run: uv run skills/_shared/tests/test-write-module-config.py
     - name: drift-report.py unit tests
       run: uv run --with pyyaml skills/l3io-pm-sync/scripts/tests/test-drift-report.py
+    - name: init-sanctum.py unit tests
+      run: uv run skills/l3io-sec-redteam/scripts/tests/test-init-sanctum.py
