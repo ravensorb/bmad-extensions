@@ -128,7 +128,7 @@ class TestSanctumCreation(unittest.TestCase):
 
                 # Verify the sanctum would be created at the right path
                 expected = project_root / "_bmad" / "memory" / m.SKILL_NAME
-                self.assertEqual(str(expected), str(project_root / "_bmad" / "memory" / "bmad-l3io-sec-redteam"))
+                self.assertEqual(str(expected), str(project_root / "_bmad" / "memory" / m.SKILL_NAME))
             finally:
                 m.TEMPLATE_FILES = original
 
