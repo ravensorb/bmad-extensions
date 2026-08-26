@@ -425,6 +425,15 @@ def _parse_iso(ts):
         return None
 
 
+def _lock_age_minutes(claimed, now=None) -> float:
+    """Minutes elapsed since `claimed` (an aware datetime, e.g. from `_parse_iso`).
+
+    Shared by cmd_check_lock and cmd_set_lock so their TTL arithmetic cannot diverge
+    into two independently-wrong implementations.
+    """
+    return ((now or datetime.now(timezone.utc)) - claimed).total_seconds() / 60.0
+
+
 def build_events_index(state_root: str) -> dict:
     """key -> the most recent *status* event for that key.
 
@@ -754,6 +763,27 @@ def issues_lock(file_path: str):
     subcommand that still addresses its target by path (see status-files.md §7).
     """
     with _file_lock(file_path + ".lock", _ISSUES_LOCK):
+        yield
+
+
+_EPIC_NODE_LOCK = {"depth": 0, "fh": None}
+
+
+@contextlib.contextmanager
+def epic_node_lock(path: str):
+    """Hold an exclusive lock over one epic node file's set-lock claim cycle.
+
+    Same reasoning as calibration_lock/adr_register_lock/issues_lock: `set-lock`
+    reads the existing `_lock` block, decides whether to claim/refuse/take it over,
+    then writes -- load -> decide -> save is not atomic, so without one lock around
+    that whole cycle two sessions could both read "no live foreign lock" and both
+    write a claim, which is the exact mutual-exclusion bug this exists to close.
+    Keyed off the epic file path, like issues_lock keys off its caller-supplied
+    path, rather than a single state-root-derived path, because each epic file is
+    its own contention domain (unlike calibration/ADR, which are one shared file
+    per state root).
+    """
+    with _file_lock(path + ".lock", _EPIC_NODE_LOCK):
         yield
 
 
@@ -3747,24 +3777,72 @@ def cmd_self_install(args) -> int:
 
 
 def cmd_set_lock(args) -> int:
-    path = _epic_path_or_die(args)
-    y, data = load_node(path)
-    if data is None:
-        _die_notfound(f"epic {args.epic} file is empty")
+    """Claim the epic ownership lock. Exit 0 on success (claim / re-claim / takeover);
+    exit 5 (matching cmd_check_lock's "locked" code) when a foreign lock is live or
+    unreadable, in which case the file is left untouched.
+
+    The whole read-existing-lock -> decide -> write-claim cycle runs under
+    `epic_node_lock` -- see its docstring for why a bare read-then-write here would be
+    the same check-then-act race this function exists to close.
+    """
     from ruamel.yaml.comments import CommentedMap
-    lock = CommentedMap()
-    lock["session_id"] = args.session_id
-    lock["claimed_at"] = _now_iso()
-    lock["ttl_minutes"] = args.ttl_minutes
-    data["_lock"] = lock
-    # _lock must appear first — rebuild with _lock at top
-    ordered = CommentedMap()
-    ordered["_lock"] = lock
-    for k, v in data.items():
-        if k != "_lock":
-            ordered[k] = v
-    _atomic_dump(y, ordered, path)
-    sys.stdout.write(f"OK set-lock epic {args.epic} session={args.session_id} ttl={args.ttl_minutes}m\n")
+    path = _epic_path_or_die(args)
+    with epic_node_lock(path):
+        y, data = load_node(path)
+        if data is None:
+            _die_notfound(f"epic {args.epic} file is empty")
+
+        takeover_note = ""
+        existing = data.get("_lock")
+        if existing is not None:
+            if not isinstance(existing, dict):
+                sys.stdout.write(
+                    f"LOCKED epic {args.epic}: existing _lock is malformed (not a "
+                    f"mapping) — a lock that cannot be read is not a lock that may "
+                    f"be stolen; refusing to claim\n")
+                return 5
+            holder = str(existing.get("session_id", ""))
+            if holder != args.session_id:
+                if "claimed_at" not in existing:
+                    sys.stdout.write(
+                        f"LOCKED epic {args.epic}: existing _lock held by {holder!r} "
+                        f"has no claimed_at — refusing to claim\n")
+                    return 5
+                claimed = _parse_iso(existing.get("claimed_at"))
+                if claimed is None:
+                    sys.stdout.write(
+                        f"LOCKED epic {args.epic}: existing _lock held by {holder!r} "
+                        f"has an unparseable claimed_at "
+                        f"({existing.get('claimed_at')!r}) — refusing to claim\n")
+                    return 5
+                ttl = int(existing.get("ttl_minutes", 30))
+                age_minutes = _lock_age_minutes(claimed)
+                if age_minutes <= ttl:
+                    remaining = ttl - age_minutes
+                    sys.stdout.write(
+                        f"LOCKED epic {args.epic} held by {holder} "
+                        f"({remaining:.1f}m remaining of {ttl}m ttl)\n")
+                    return 5
+                takeover_note = (f" (took over stale lock from {holder}, "
+                                  f"age={age_minutes:.1f}m > ttl={ttl}m)")
+            # else: same session — re-claim below, refreshing claimed_at. A retry
+            # by the owner must not deadlock or refuse against its own lock.
+
+        lock = CommentedMap()
+        lock["session_id"] = args.session_id
+        lock["claimed_at"] = _now_iso()
+        lock["ttl_minutes"] = args.ttl_minutes
+        data["_lock"] = lock
+        # _lock must appear first — rebuild with _lock at top
+        ordered = CommentedMap()
+        ordered["_lock"] = lock
+        for k, v in data.items():
+            if k != "_lock":
+                ordered[k] = v
+        _atomic_dump(y, ordered, path)
+        sys.stdout.write(
+            f"OK set-lock epic {args.epic} session={args.session_id} "
+            f"ttl={args.ttl_minutes}m{takeover_note}\n")
     return 0
 
 
@@ -3787,8 +3865,12 @@ def cmd_clear_lock(args) -> int:
 
 
 def cmd_check_lock(args) -> int:
-    """Exit 0 if epic is free to claim; exit 5 if held by another session within TTL."""
-    from datetime import datetime, timezone, timedelta
+    """Exit 0 if epic is free to claim; exit 5 if held by another session within TTL.
+
+    Timestamp parsing and age arithmetic go through `_parse_iso`/`_lock_age_minutes`
+    -- the same helpers `cmd_set_lock` uses -- so the two TTL comparisons cannot drift
+    apart into two independently-wrong implementations.
+    """
     path = epic_file(args.state_root, args.epic)
     if path is None:
         sys.stdout.write("FREE\n")
@@ -3798,20 +3880,22 @@ def cmd_check_lock(args) -> int:
         sys.stdout.write("FREE\n")
         return 0
     lock = data["_lock"]
+    if not isinstance(lock, dict):
+        sys.stdout.write("FREE (unreadable lock — not a mapping — treating as stale)\n")
+        return 0
     holder = str(lock.get("session_id", ""))
     if holder == args.session_id:
         sys.stdout.write(f"FREE (own session)\n")
         return 0
     claimed_str = str(lock.get("claimed_at", ""))
     ttl = int(lock.get("ttl_minutes", 30))
-    try:
-        claimed = datetime.fromisoformat(claimed_str.replace("Z", "+00:00"))
-        age_minutes = (datetime.now(timezone.utc) - claimed).total_seconds() / 60
-        if age_minutes > ttl:
-            sys.stdout.write(f"FREE (stale lock from {holder}, age={age_minutes:.1f}m > ttl={ttl}m)\n")
-            return 0
-    except (ValueError, TypeError):
+    claimed = _parse_iso(claimed_str)
+    if claimed is None:
         sys.stdout.write(f"FREE (unreadable lock timestamp — treating as stale)\n")
+        return 0
+    age_minutes = _lock_age_minutes(claimed)
+    if age_minutes > ttl:
+        sys.stdout.write(f"FREE (stale lock from {holder}, age={age_minutes:.1f}m > ttl={ttl}m)\n")
         return 0
     sys.stdout.write(f"LOCKED by {holder} (claimed {claimed_str}, ttl={ttl}m)\n")
     return 5

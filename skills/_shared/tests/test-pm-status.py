@@ -183,6 +183,115 @@ class TestLockCommands(Base):
         self.assertIn("sess-abc", out)
 
 
+class TestSetLockMutualExclusion(Base):
+    """set-lock must itself enforce mutual exclusion -- it used to unconditionally
+    overwrite `_lock` with no read-compare-write, so two concurrent sessions claiming
+    the same epic would silently clobber each other and both proceed. Only check-lock
+    compared session_id/TTL, and nothing in the epic loop calls check-lock before
+    set-lock, so that comparison never ran. set-lock must now refuse a live foreign
+    lock (exit 5, matching check-lock's existing "locked" code), while still allowing
+    a no-op claim, an owner's re-claim, and a takeover of an expired lock."""
+
+    def setUp(self):
+        super().setUp()
+        self.state_root = os.path.join(self.d, "state")
+        epic_dir = os.path.join(self.state_root, "active", "epic-001")
+        os.makedirs(epic_dir)
+        self.epic_file = os.path.join(epic_dir, "epic.yaml")
+        with open(self.epic_file, "w", encoding="utf-8") as fh:
+            fh.write("key: 'E001'\ntitle: 'test'\nstatus: in-progress\n")
+
+    def _write_lock(self, session_id, claimed_at, ttl_minutes=30, extra=""):
+        with open(self.epic_file, "w", encoding="utf-8") as fh:
+            fh.write("_lock:\n"
+                      f"  session_id: '{session_id}'\n"
+                      f"  claimed_at: '{claimed_at}'\n"
+                      f"  ttl_minutes: {ttl_minutes}\n"
+                      f"{extra}"
+                      "title: 'test'\nstatus: in-progress\n")
+
+    def test_claims_when_no_existing_lock(self):
+        code, out = self.run_main(["set-lock", "--state-root", self.state_root,
+                                    "--epic", "E001", "--session-id", "sess-a",
+                                    "--ttl-minutes", "30"])
+        self.assertEqual(code, 0, out)
+        _, data = pm.load_node(self.epic_file)
+        self.assertEqual(data["_lock"]["session_id"], "sess-a")
+
+    def test_same_session_reclaims_without_refusing(self):
+        """A retry by the owner must not deadlock itself against its own lock."""
+        self.run_main(["set-lock", "--state-root", self.state_root, "--epic", "E001",
+                       "--session-id", "sess-a", "--ttl-minutes", "30"])
+        _, before = pm.load_node(self.epic_file)
+        first_claimed = before["_lock"]["claimed_at"]
+        code, out = self.run_main(["set-lock", "--state-root", self.state_root,
+                                    "--epic", "E001", "--session-id", "sess-a",
+                                    "--ttl-minutes", "30"])
+        self.assertEqual(code, 0, out)
+        _, after = pm.load_node(self.epic_file)
+        self.assertEqual(after["_lock"]["session_id"], "sess-a")
+        self.assertIsNotNone(after["_lock"]["claimed_at"])
+        # Same-second reclaim can legitimately produce an identical timestamp;
+        # the contract under test is "does not deadlock / does not refuse", not
+        # that the clock necessarily ticked between two in-process calls -- so
+        # this only pins that the field is still present and well-formed.
+        self.assertIsInstance(first_claimed, str)
+
+    def test_takes_over_a_stale_lock_from_another_session(self):
+        self._write_lock("sess-a", "2020-01-01T00:00:00Z", ttl_minutes=1)
+        code, out = self.run_main(["set-lock", "--state-root", self.state_root,
+                                    "--epic", "E001", "--session-id", "sess-b",
+                                    "--ttl-minutes", "30"])
+        self.assertEqual(code, 0, out)
+        self.assertIn("sess-a", out, "takeover must name the session it took the lock from")
+        _, data = pm.load_node(self.epic_file)
+        self.assertEqual(data["_lock"]["session_id"], "sess-b")
+
+    def test_refuses_a_live_foreign_lock(self):
+        self.run_main(["set-lock", "--state-root", self.state_root, "--epic", "E001",
+                       "--session-id", "sess-a", "--ttl-minutes", "30"])
+        code, out = self.run_main(["set-lock", "--state-root", self.state_root,
+                                    "--epic", "E001", "--session-id", "sess-b",
+                                    "--ttl-minutes", "30"])
+        self.assertEqual(code, 5, out)
+        self.assertIn("sess-a", out)
+        _, data = pm.load_node(self.epic_file)
+        self.assertEqual(data["_lock"]["session_id"], "sess-a",
+                          "a refused claim must not touch the persisted lock")
+
+    def test_refuses_malformed_lock_not_a_mapping(self):
+        with open(self.epic_file, "w", encoding="utf-8") as fh:
+            fh.write("_lock: 'just-a-string'\ntitle: 'test'\nstatus: in-progress\n")
+        code, out = self.run_main(["set-lock", "--state-root", self.state_root,
+                                    "--epic", "E001", "--session-id", "sess-b",
+                                    "--ttl-minutes", "30"])
+        self.assertEqual(code, 5, out)
+        _, data = pm.load_node(self.epic_file)
+        self.assertEqual(data["_lock"], "just-a-string",
+                          "a refused claim must not touch the persisted lock")
+
+    def test_refuses_malformed_lock_missing_claimed_at(self):
+        with open(self.epic_file, "w", encoding="utf-8") as fh:
+            fh.write("_lock:\n  session_id: 'sess-a'\n  ttl_minutes: 30\n"
+                     "title: 'test'\nstatus: in-progress\n")
+        code, out = self.run_main(["set-lock", "--state-root", self.state_root,
+                                    "--epic", "E001", "--session-id", "sess-b",
+                                    "--ttl-minutes", "30"])
+        self.assertEqual(code, 5, out)
+        _, data = pm.load_node(self.epic_file)
+        self.assertNotIn("claimed_at", data["_lock"])
+
+    def test_refuses_malformed_lock_unparseable_timestamp(self):
+        self._write_lock("sess-a", "not-a-timestamp", ttl_minutes=30)
+        code, out = self.run_main(["set-lock", "--state-root", self.state_root,
+                                    "--epic", "E001", "--session-id", "sess-b",
+                                    "--ttl-minutes", "30"])
+        self.assertEqual(code, 5, out)
+        _, data = pm.load_node(self.epic_file)
+        self.assertEqual(data["_lock"]["session_id"], "sess-a",
+                          "a refused claim must not touch the persisted lock")
+
+
 ISSUES_SAMPLE = """\
 backlog:
 - key: BL-E001-001
@@ -3333,6 +3442,64 @@ class TestConcurrentAppendIssue(unittest.TestCase):
         y, data = pm._load(self.f)
         self.assertEqual(len(data["backlog"]), self.N)
         self.assertEqual({item["key"] for item in data["backlog"]}, expected)
+
+
+class TestConcurrentSetLock(unittest.TestCase):
+    """set-lock's read-existing-lock -> compare -> write-claim cycle must run under ONE
+    lock (the fourth `_file_lock` family, keyed on the epic node path), mirroring
+    TestConcurrentAdrReservation/TestConcurrentAppendIssue above. Without it, N
+    sessions racing to claim one epic could all read "no live foreign lock" and all
+    write a claim -- the exact mutual-exclusion bug this test guards: two concurrent
+    sessions silently overwriting each other's ownership of the same epic.
+
+    Real subprocesses, not threads: `_file_lock`'s reentrancy counter is per-process
+    state, so threads sharing one process would pass this test vacuously even with the
+    lock removed -- this is the second time that vacuous-test shape has bitten this
+    file (see TestConcurrentAppendIssue), so it is called out again here rather than
+    assumed obvious.
+    """
+
+    N = 8
+
+    def setUp(self):
+        self.d = tempfile.mkdtemp()
+        self.root = os.path.join(self.d, "state")
+        epic_dir = os.path.join(self.root, "active", "epic-001")
+        os.makedirs(epic_dir)
+        with open(os.path.join(epic_dir, "epic.yaml"), "w", encoding="utf-8") as fh:
+            fh.write("key: 'E001'\ntitle: 'test'\nstatus: in-progress\n")
+
+    def tearDown(self):
+        shutil.rmtree(self.d, ignore_errors=True)
+
+    def test_exactly_one_session_claims_the_lock(self):
+        import subprocess
+        procs = [subprocess.Popen(
+            [sys.executable, SCRIPT, "set-lock", "--state-root", self.root,
+             "--epic", "E001", "--session-id", f"sess-{i}", "--ttl-minutes", "30"],
+            stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+            for i in range(self.N)]
+        codes = []
+        for p in procs:
+            out, err = p.communicate(timeout=120)
+            codes.append(p.returncode)
+            self.assertIn(p.returncode, (0, 5),
+                           f"unexpected exit code {p.returncode}: "
+                           f"stdout={out.decode()!r} stderr={err.decode()!r}")
+
+        winners = [i for i, c in enumerate(codes) if c == 0]
+        losers = [i for i, c in enumerate(codes) if c == 5]
+        self.assertEqual(len(winners), 1,
+                          f"expected exactly one winner among {self.N} racers, "
+                          f"got exit codes {codes}")
+        self.assertEqual(len(losers), self.N - 1,
+                          f"every non-winner must exit 5 (locked), got {codes}")
+
+        _, node = pm.load_node(pm.epic_file(self.root, "E001"))
+        winner_session = f"sess-{winners[0]}"
+        self.assertEqual(node["_lock"]["session_id"], winner_session,
+                          "the persisted _lock must name the process that actually won, "
+                          "not merely whichever wrote last")
 
 
 class TestConvergence(TestLayoutResolution):
