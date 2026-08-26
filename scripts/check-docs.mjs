@@ -23,6 +23,8 @@
 //   8. digest-size   the activation digest stays inside its byte budget
 //   9. authoring-paths no runtime directive tells an agent to read skills/_shared/ (not
 //                    installed) instead of the installed references/assets/steps path
+//  10. cli-docstring pm-status.py's own module docstring names every subcommand the
+//                    parser defines
 //
 // Usage:
 //   node scripts/check-docs.mjs        # report and exit nonzero on any failure (CI)
@@ -628,6 +630,47 @@ function checkAuthoringPathDirectives() {
 }
 
 // ---------------------------------------------------------------------------
+// 10. Every parser subcommand also appears in the script's own module docstring.
+//
+// Check 4 (cli-surface) compares docs/l3io-pm-reference.md against the parser; nothing
+// compared the script's OWN docstring against itself. Six subcommands (dispatch,
+// estimate-rollup, estimate-story, rates, sync-story-doc, usage) existed in the parser
+// but were never added there, so the signature reference a reader opens first was
+// missing a quarter of the CLI surface. Reuses cliSubcommands() — the parser stays the
+// only source of truth — rather than a hand-kept list, so a future subcommand is caught
+// automatically instead of silently sitting outside this check's view.
+// ---------------------------------------------------------------------------
+function pmStatusDocstring() {
+  const src = read(PM_STATUS);
+  const m = src.match(/"""([\s\S]*?)"""/);
+  return m ? m[1] : "";
+}
+
+function checkCliDocstring() {
+  const real = cliSubcommands();
+  const doc = pmStatusDocstring();
+  if (!doc) {
+    failures.push(`${PM_STATUS}: no module docstring found — has it moved or been removed?`);
+    return;
+  }
+  const missing = [...real].filter((name) => {
+    const escaped = name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    return !new RegExp(`(^|\\n)[ \\t]*${escaped}\\b`).test(doc);
+  });
+  if (missing.length) {
+    failures.push(
+      `${PM_STATUS}: module docstring's Subcommands list is missing ${missing.length} ` +
+        `subcommand(s) the parser defines: ${missing.sort().join(", ")}\n` +
+        `      Add a Subcommands entry for each, matching the existing terse style — ` +
+        `real flags, required vs optional, a parenthetical note for non-obvious behaviour.`,
+    );
+  }
+  if (verbose) {
+    console.log(`  cli-docstring:  ${real.size} subcommand(s) checked against the module docstring`);
+  }
+}
+
+// ---------------------------------------------------------------------------
 
 checkSkillNames();
 checkGatingTables();
@@ -638,6 +681,7 @@ checkStatusValues();
 checkMetricList();
 checkDigestSize();
 checkAuthoringPathDirectives();
+checkCliDocstring();
 
 for (const note of notes) if (verbose) console.log(`  note: ${note}`);
 

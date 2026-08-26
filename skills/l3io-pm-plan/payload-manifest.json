@@ -14,7 +14,7 @@
     "steps/plan/step-04-load-state.md": "9c621ea01d04b06a4b7ea2722f364b503d1403e7635d40aca0296cc2fb419a98",
     "steps/plan/step-05-dependency-graph.md": "431fefabcbd8295a756afd6523596dbfc6b579add43624a2409853b6fb585e26",
     "steps/plan/step-06-plan-output.md": "f28bc7f01f6a6d79dd165d9f056e535288eb473cf638090233c392a94fa595ff",
-    "scripts/pm-status.py": "126072c97afe0184f397c755bb665bb3571dafbf26b6d92322795d01ac8383f3",
+    "scripts/pm-status.py": "db9761a674b36d2bdafb1dabcff3ce0aee615a5d529273e765b160280076c0f0",
     "references/status-files.md": "6d1bbddbaf308c40c6e3fcaa261cd0803140a00d9afa60a857f4195eb27852d0",
     "references/metrics-contract.md": "35a6a0f2c3b4023430fc1ac2b911fcb625c499090ad9e5a46d52353d6fb20af5",
     "references/calibration-model.md": "63b15a5c4552d6be78d90ec886ff0a1d581af9440bcff3b87b12ef1e1d01af0f"

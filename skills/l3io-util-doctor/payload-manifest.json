@@ -5,6 +5,6 @@
     "scripts/write-module-config.py": "fdc0e81cda51221599907b9023a096b0570e096b7d921fb0c1db2050afa7a80f",
     "references/config-resolution.md": "4dd6dbd91e50522af5ea68c37b290a8c398ca90d21c20ce3345bacb178e8997f",
     "assets/module-setup.md": "6a183e230bb6e86ee8dcb4e9c4804dd9f99883de02e4fca4031f3500848a4048",
-    "scripts/pm-status.py": "126072c97afe0184f397c755bb665bb3571dafbf26b6d92322795d01ac8383f3"
+    "scripts/pm-status.py": "db9761a674b36d2bdafb1dabcff3ce0aee615a5d529273e765b160280076c0f0"
   }
 }

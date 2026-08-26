@@ -28,6 +28,12 @@ Subcommands
 -----------
   set-status    --state-root S  (--story KEY | --epic ID [--sprint ID])  --status S
                 [--title T] [--flock] [--no-events] [--session-id ID]
+  sync-story-doc --artifacts-root R  (NOT the state root)  --story KEY  --status S
+                [--quiet]
+                (writes status: into the story markdown's frontmatter; the state
+                YAML stays the source of truth. Never fails its caller -- a
+                missing file, missing/unterminated frontmatter, or a parse
+                error prints WARN to stderr and exits 0)
   set-actual    --state-root S   --node {story,sprint,epic}  (--story KEY | --epic ID [--sprint ID])
                 [--elapsed-hours H] [--man-hours H] [--hitl-hours H]
                 [--tokens-input K] [--tokens-output K] [--tokens-cache-write K] [--tokens-cache-read K]
@@ -61,6 +67,17 @@ Subcommands
                 derives completion_evidence.tests_passing as all(exit_code == 0) over
                 the LAST run of each distinct command -- record failures too, a
                 re-run of the same command supersedes them for the boolean only)
+  usage         [TRANSCRIPT ...]  [--claude-session ID] [--state-root S]
+                [--agent NAME] [--epic ID] [--sprint ID] [--story KEY]
+                [--since ISO] [--until ISO] [--allow-unidentified]
+                [--model M] [--token-rates JSON] [--format {text,json}]
+                (sums a session transcript's token usage by class, for feeding
+                set-actual; verifies the transcript's sessionId before summing
+                and refuses an unconfirmed file unless --allow-unidentified;
+                omit TRANSCRIPT to resolve this session's own transcript from
+                $CLAUDE_CODE_SESSION_ID or --claude-session; --state-root plus
+                node keys derive a --since/--until window from that node's
+                dispatch bracket instead of passing one explicitly)
   verify        --state-root S  --scope {story,sprint,epic}  (--story KEY | --epic ID [--sprint ID])
                 [--require-tokens] [--runtime {claude,other}]
                 (--scope epic checks structural/back-reference integrity across the
@@ -68,6 +85,11 @@ Subcommands
   show          --state-root S  --epic ID  [--sprint ID]
   report        --state-root S  [--plan P] [--format tree|json|md] [--out F]
                 [--all] [--watch SECS]
+  dispatch      --state-root S  --event {open,close}  --agent NAME
+                [--epic ID] [--sprint ID] [--story KEY] [--session-id ID]
+                (appends a dispatch_open/dispatch_close event to events.jsonl;
+                feeds report's stall detection and marks the child/orchestration
+                spend boundary -- records timestamps only, never a token count)
   set-lock      --state-root S  --epic ID  --session-id SESS  [--ttl-minutes N]
   clear-lock    --state-root S  --epic ID
   check-lock    --state-root S  --epic ID  --session-id SESS
@@ -88,6 +110,24 @@ Subcommands
   calibration   show  --state-root S  [--format {text,json}]
                 (inspects pm-calibration.yaml; a missing file is a normal
                 cold-start state, not an error)
+  estimate-story --state-root S  --story KEY  --classification C
+                [--confidence {low,medium,high}] [--model M] [--token-rates JSON]
+                (writes estimate = band_mid x scope_ratio x fix_factor, per
+                metric, using whichever calibrated scope ratio is active per
+                metric; cost is priced from the banded tokens_k total rather
+                than banded/calibrated on its own; --model falls back to
+                DEFAULT_ESTIMATE_MODEL)
+  estimate-rollup --state-root S  --epic ID  [--sprint ID]
+                [--model M] [--token-rates JSON]
+                (rolls a sprint's story estimates, or an epic's sprint
+                estimates, up to the parent as sum(children) + a calibrated
+                closure band + a calibrated orchestration band, always in
+                range form; omit --sprint for epic-level)
+  rates         [--model M] [--token-rates JSON]
+                (prints the effective per-class token rate table -- shipped
+                defaults merged with any --token-rates/modules.l3io-pm
+                override -- so what actually prices tokens is inspectable
+                without reading source or guessing; read-only)
   self-install  --dest PATH  [--force]
   adr-reserve   --state-root S  --epic ID  --slug SLUG  [--count N]
                 (reserves N sequential ADR numbers under a lock, before dispatch;
