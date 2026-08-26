@@ -49,12 +49,19 @@ Files in `skills/_shared/` are the canonical sources for content shared across P
 | Canonical source | Per-skill destination | Skills |
 |---|---|---|
 | `skills/_shared/pm-status.py` | `scripts/pm-status.py` | pm-execute, pm-plan, pm-sync |
-| `skills/_shared/tests/test-pm-status.py` | `scripts/tests/test-pm-status.py` | pm-execute, pm-plan, pm-sync |
 | `skills/_shared/status-files.md` | `references/status-files.md` | pm-execute, pm-plan, pm-sync |
 | `skills/_shared/steps/**` | `steps/**` | pm-execute, pm-plan, pm-sync |
 | `skills/_shared/config-resolution.md` | `references/config-resolution.md` | **all 8 skills** |
 | `skills/_shared/module-setup.md` | `assets/module-setup.md` | **all 8 skills** |
 | `skills/_shared/write-module-config.py` | `scripts/write-module-config.py` | **all 8 skills** |
+
+**Test suites are never shipped as payload.** `skills/_shared/tests/test-pm-status.py` and
+`skills/_shared/tests/test-write-module-config.py` stay in `skills/_shared/tests/` only — CI
+runs both straight from there (`.github/workflows/checks.yml`), no consumer skill invokes
+either, and `sync-shared-scripts.mjs` deliberately excludes them from every sync group. Ten
+copies (`test-pm-status.py` into pm-execute/pm-plan/pm-sync, `test-write-module-config.py`
+into all 8) shipped as dead payload — ~842 KB across the package — until removed; do not add
+either back to a manifest.
 
 **Never bundle a BMad core script.** `resolve_config.py`, `resolve_customization.py`, and
 `memlog.py` are installed by BMad core at `{project-root}/_bmad/scripts/` and must be invoked

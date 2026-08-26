@@ -6,8 +6,8 @@
 // GENERATED — never hand-edit them.
 //
 // Shared files:
-//   pm-status.py / test-pm-status.py → scripts/ in the PM execution skills (pm-execute,
-//   pm-plan, pm-sync), which also self-install it to {project-root}/_bmad/scripts/
+//   pm-status.py → scripts/ in the PM execution skills (pm-execute, pm-plan, pm-sync), which
+//   also self-install it to {project-root}/_bmad/scripts/
 //   pm-status.py (no tests) → scripts/ in any OTHER skill that invokes {pm_status} and
 //   must be able to self-install/heal it — currently l3io-util-doctor only
 //   status-files.md / metrics-contract.md → references/ in PM skills
@@ -17,6 +17,13 @@
 // Not shared, deliberately: resolve_config.py, resolve_customization.py and memlog.py are
 // installed by BMad core at {project-root}/_bmad/scripts/ and are never bundled by a skill.
 // Vendoring them shipped a stale duplicate of a core script that nothing invoked.
+//
+// Also not shared, deliberately: test-pm-status.py and test-write-module-config.py. A
+// consumer never runs a skill's shipped tests, CI runs both suites straight from
+// skills/_shared/tests/ (.github/workflows/checks.yml), and shipping them into every
+// consumer's install was ~842 KB of dead payload — the same category this package removed
+// when it stopped vendoring BMad core scripts. Do not add a test file back to any of the
+// manifests below; if a script gets a test, the test's only home is skills/_shared/tests/.
 //
 // Usage:
 //   node scripts/sync-shared-scripts.mjs           # write the per-skill payload copies
@@ -33,7 +40,6 @@ const sharedDir = path.join(repoRoot, "skills", "_shared");
 // source -> relative destination under each skill dir (pmScriptDirs) or all PM skill dirs (allPmDirs)
 const pmScriptFiles = [
   { src: path.join(sharedDir, "pm-status.py"), rel: path.join("scripts", "pm-status.py") },
-  { src: path.join(sharedDir, "tests", "test-pm-status.py"), rel: path.join("scripts", "tests", "test-pm-status.py") },
 ];
 
 // pm-status.py only (no test suite) for a skill that invokes {pm_status} and self-installs it
@@ -48,7 +54,6 @@ const pmStatusOnlyFiles = [
 // procedure that points at it, and the script that setup runs.
 const allSkillFiles = [
   { src: path.join(sharedDir, "write-module-config.py"), rel: path.join("scripts", "write-module-config.py") },
-  { src: path.join(sharedDir, "tests", "test-write-module-config.py"), rel: path.join("scripts", "tests", "test-write-module-config.py") },
   { src: path.join(sharedDir, "config-resolution.md"), rel: path.join("references", "config-resolution.md") },
   { src: path.join(sharedDir, "module-setup.md"), rel: path.join("assets", "module-setup.md") },
 ];
