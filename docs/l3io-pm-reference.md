@@ -173,7 +173,7 @@ steps/sprint/step-04-sprint-closure.md
 
 Runs once per epic, before any sprint. Skipped entirely for `DOCS`/`CONFIG` work types, and when `l3io-arch-review` is not installed — the gate never partially skips, since at least one reviewer must run.
 
-Detected reviewers run in parallel: `l3io-arch-review` Mode B (always), plus `bmad-agent-architect` and superpowers when present. Findings consolidate by rule — any BLOCKER stays a BLOCKER; a MAJOR blocks even from a single reviewer; MINOR defers to `issues.yaml`.
+The detected reviewers do not all run together: `l3io-arch-review` Mode B always runs first, alone. Only when it reports a BLOCKER or MAJOR do the other detected reviewers (`bmad-agent-architect`, superpowers) join, in parallel, to corroborate. Findings consolidate by rule — any BLOCKER stays a BLOCKER; a MAJOR blocks even from a single reviewer; MINOR defers to `issues.yaml`.
 
 Before any ADR subagent is dispatched, the whole batch of numbers is reserved in one call —
 `adr-reserve --state-root {pm_state_root} --epic {epic_key} --slug arch-gate --count
@@ -190,7 +190,9 @@ Zero findings on non-trivial CODE scope prompts for confirmation rather than pas
 
 For each phase in the plan, epics dispatch concurrently up to `max_parallel_subagents` when the phase is marked parallel and holds more than one epic; otherwise sequentially. After a phase, every prerequisite is verified `done` before the next begins.
 
-Per epic: `move-epic --to active` (a no-op if already active, so it is always safe on resume) → `set-lock` (skip the epic with `BLOCKED` if another live session holds it) → dispatch sprints → epic closure.
+Per epic: `move-epic --to active` (a no-op if already active, so it is always safe on resume) → `set-lock` → dispatch sprints → epic closure.
+
+`set-lock` enforces mutual exclusion, not a skip-with-`BLOCKED` shortcut: no existing `_lock` claims it (exit 0); an existing lock held by the same `session_id` re-claims and refreshes `claimed_at` (exit 0); a lock held by a different session whose TTL has expired is taken over (exit 0, announced with the prior holder and its age); a lock held by a different session still within its TTL is refused — exit 5, naming the holder and the remaining minutes — and the file is left untouched; and a malformed `_lock` (not a mapping, or missing/unparseable `claimed_at`) is refused outright rather than treated as absent, since a lock that cannot be read is not one that may be silently stolen. The epic loop treats exit 5 as `BLOCKED` for that epic and moves on.
 
 **Sprints within an epic are always sequential.** After each sprint completes, remaining unstarted sprints are re-estimated so calibration learned from the finished sprint feeds forward.
 
@@ -418,14 +420,15 @@ epic:   backlog → in-progress → done
 `issues.yaml` is a flat, backlog-only list — resolved items are **removed**, not marked. There are no `resolved` or `resolution` fields. It is a shared append target across every epic and every parallel subagent, so `append-issue` runs its whole load → allocate-key → dedupe-check → mutate → save cycle under one exclusive lock, and skips (exit 0, nothing written) a content duplicate — the same normalized title, epic, sprint, and source as an existing item — unless `--allow-duplicate` forces a second entry.
 
 ```yaml
-- key: BL-E001-004
-  epic: '001'
-  sprint: '02'                # '' for an epic-level deferral
-  title: 'Issue title'
-  source: 'code-review (E001-S02-003)'
-  severity: Low
-  status: backlog
-  description: 'One-sentence description.'
+backlog:
+  - key: BL-E001-004
+    epic: '001'
+    sprint: '02'                # '' for an epic-level deferral
+    title: 'Issue title'
+    source: 'code-review (E001-S02-003)'
+    severity: Low
+    status: backlog
+    description: 'One-sentence description.'
 ```
 
 ### `pm-status.py` subcommands
@@ -443,7 +446,8 @@ epic:   backlog → in-progress → done
 | `report` | `--state-root` + optional `--plan <plan-output-meta.yaml>` `--format {tree,json,md}` `--out FILE` `--status planned,active,archived` `--all` `--watch SECS` — walks every epic; addresses none individually. Read-only unless `--out` is given. `--status` narrows the **display** only (default `planned,active`); totals, phase denominators, and the spend breakout always cover every epic. Every format carries a **Spend** section attributing actual spend to story / closure / orchestration, plus a stalled-dispatch section (`--stall-minutes`, default 15) |
 | `dispatch` | `--state-root --event {open,close} --agent NAME` + optional `--epic`/`--sprint`/`--story`/`--session-id` — records a subagent dispatch open/close into `events.jsonl`; feeds `report`'s stalled-dispatch flags |
 | `set-lock`, `clear-lock`, `check-lock` | `--state-root --epic ID` (epics only) |
-| `move-epic`, `archive-epic` | `--state-root --epic ID [--to {planned,active,archived}]` |
+| `move-epic` | `--state-root --epic ID --to {planned,active,archived}` |
+| `archive-epic` | `--state-root --epic ID` — alias for `move-epic --to archived`; does not accept `--to` itself |
 | `append-issue` | `--file` — the one path-addressed exception. `--key` is optional (auto-allocated per-epic under a lock when omitted; an explicit existing `--key` exits 2). `--allow-duplicate` forces a second entry past the content-duplicate skip |
 | `list-issues` | `--state-root` + optional `--epic`/`--sprint`/`--severity`/`--format` |
 | `calibration show` | `--state-root [--format {text,json}]` |

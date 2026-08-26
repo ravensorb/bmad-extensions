@@ -23,6 +23,8 @@ Skill: `/l3io-util-doctor [command]`.
 
 Config is resolved via `{project-root}/_bmad/scripts/resolve_config.py` — `core.*` for shared settings, `modules.l3io-util.*` for this module, and `modules.l3io-pm.*` for the artifact paths it reorganizes. No section is required; every value has a default.
 
+**Self-installs `pm-status.py` at activation**, before dispatching to any mode (skipping only for `help`/`?`). This skill is the documented post-`quick-update` entry point, so it cannot assume some other skill has already refreshed the installed copy at `{project-root}/_bmad/scripts/pm-status.py` — several of its modes invoke it directly, and a stale copy fails those calls with an opaque argparse error rather than one that points at the real cause. The install compares bytes and reinstalls on any difference, refusing only to overwrite a strictly newer copy — the same content-guarded, non-downgrading self-install the PM skills use.
+
 Key settings (with defaults):
 
 - `output_folder` — default: `{project-root}/_bmad-output`
@@ -54,7 +56,7 @@ Key settings (with defaults):
 |---------|--------------|
 | `normalize` | Convenience — runs `reconcile-status` then `sort-status` in one confirmed pass. |
 | `reconcile-status` | Fixes placement/structure drift: misplaced epics, nested per-epic `backlog:` arrays (flatten to the top-level list), stale non-`backlog` items, empty epic shells. |
-| `sort-status` | Validates and applies sort order for epics, sprints, stories, and backlog items across all three files. Reorders only — never edits values. |
+| `sort-status` | Read-only. Validates zero-padded naming (`epic-{nnn}/`, `sprint-{nn}/`, `E{nnn}-S{nn}-{nnn}.yaml`) in the sharded state tree and reports misnamed entries. Performs no reordering and applies no fixes — ordering itself cannot drift under the sharded layout, since each node is its own file and zero-padded names already make directory-listing order the correct order. |
 | `layout-cleanup` | Reorganizes flat artifact files into the `epic-XX/sprint-YY` folder hierarchy, reconciles references, verifies state. |
 
 ### Source & external sync
@@ -69,8 +71,9 @@ Key settings (with defaults):
 | Command | What it does |
 |---------|--------------|
 | `setup` / `configure` / `install` | Registers the `l3io-util` module config for the project. |
-| `clean-legacy` | Removes `*.yaml.legacy` and `*.yaml.v1` migration/calibration backup files after confirmation. |
+| `clean-legacy` | Removes migration backup files and directories after confirmation: `*.yaml.legacy` files, `*.yaml.v1` calibration backups, `_bmad/pm-calibration.yaml.legacy`, the `_bmad/state.legacy/` directory, and the `_bmad/migration-backup/` directory. |
 | `rename-active` | Renames `sprint-status-active.yaml` → `sprint-status.yaml` (the health check runs this automatically when the old naming is found). |
+| `rename-epic-dirs` | Renames legacy two-digit `epic-{nn}/` artifact directories to the current three-digit `epic-{nnn}/` form. Rarely needed directly — the health check detects and runs this automatically when the old naming is found. |
 | `help` / `?` | Prints the command list and exits — no project scan. |
 
 ## Project Health Check
@@ -98,4 +101,4 @@ Each executed action runs its full mode (dry-run + verify still shown); per-mode
 {planning_artifacts}/epic-{EE}/[sprint-{SS}/]...
 ```
 
-`EE`/`SS` are zero-padded two-digit values. See [architecture](architecture.md) for the artifact conventions the PM orchestrators enforce and this module migrates toward.
+`EE` is a zero-padded three-digit epic value (`epic-{nnn}`); `SS` is a zero-padded two-digit sprint value (`sprint-{nn}`). See [architecture](architecture.md) for the artifact conventions the PM orchestrators enforce and this module migrates toward.

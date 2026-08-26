@@ -116,13 +116,14 @@ This hits the supported `src/<dir>/module.yaml` (one-level) discovery path and i
 
 ## Maintenance caveats
 
-- **Duplication / drift.** The installer-discovery copy `src/<module>/module.yaml` and the
-  per-skill copies `src/<module>/<skill>/module.yaml` are separate files and must be kept
-  in sync. They had drifted (all pinned at `module_version: 1.0.13` while `package.json`
-  climbed past `1.0.25`). `scripts/sync-bmad-versions.mjs` now stamps `module_version`
-  across **every** `src/**/module.yaml` on each release (`postbump`), so this specific
-  field no longer drifts — but the other fields (`description`, `module_greeting`,
-  `agents:`) are still hand-duplicated and must be edited in lockstep.
+- **Duplication / drift.** Under the historical `src/<module>/<skill>/` layout, the
+  installer-discovery copy and the per-skill copies were separate files that had to be kept
+  in sync, and they had drifted (all pinned at `module_version: 1.0.13` while `package.json`
+  climbed past `1.0.25`). There is no `src/` directory in this repo's current flat `skills/`
+  layout: `scripts/sync-bmad-versions.mjs` now stamps `module_version` across **every**
+  `skills/*/module.yaml` on each release (`postbump`), so this specific field no longer
+  drifts — but the other fields (`description`, `module_greeting`, `agents:`) are still
+  hand-authored per skill and must be edited in lockstep where a module's skills share them.
 - **`.github/agents/*.agent.md`** (e.g. `l3io-sec-agent-redteam.agent.md`) is the **GitHub
   Copilot** custom-agent stub (the parallel to the Claude Code slash-command surface). In
   this repo it is a **gitignored install-time artifact** (this repo dogfoods its own

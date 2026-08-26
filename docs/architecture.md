@@ -43,7 +43,7 @@ l3io-pm-execute  (normal mode — epic orchestrator)
                        |                   where the phase matrix runs both)
                        |-- spawns --> l3io-sec-redteam       (if installed)
                        |-- spawns --> bmad-ux-review         (if installed)
-                       \-- spawns --> l3io-arch-review Mode C (drift audit, if installed)
+                       \-- spawns --> l3io-arch-review Mode B (drift audit, if installed)
 
 l3io-pm-help            (read-only — recommends the next action)
 l3io-pm-sync            (bidirectional GitHub Issues sync)
@@ -176,9 +176,9 @@ Each blocking finding is resolved by writing an ADR under `epic-{nnn}/arch/` **a
 
 If the gate finds zero findings on non-trivial CODE scope it asks for confirmation rather than passing silently — a clean result there is unusual enough to be worth a second look.
 
-## Adaptive Parallelism
+## Bounded Parallelism
 
-Parallelism is used only where it is provably safe, and the safety comes from the state design: atomic per-node writes through `pm-status.py` plus per-epic directories mean concurrent branches never contend for a file.
+Parallelism is used only where it is provably safe, and the safety comes from the state design: atomic per-node writes through `pm-status.py` plus per-epic directories mean concurrent branches never contend for a file. Concurrency is bounded by a fixed default (`max_parallel_subagents`), not adaptively sized — `parallel_mode`, `parallel_ceiling`, and `safe_batch_size` describe an adaptive model that is specced (`docs/superpowers/specs/2026-08-17-adaptive-parallelism-design.md`) but not implemented.
 
 | Level | Concurrency |
 |---|---|
@@ -236,7 +236,7 @@ Severity routing is uniform across phases: **CRITICAL/HIGH** block closure and o
 
 ### Epic closure
 
-Retrospective across all sprint retros → architectural drift audit (`l3io-arch-review` Mode C, CODE/MIXED only) → issue triage, which re-reviews the epic's deferred Low items for promotion now that full epic context exists → closure report with the estimate-vs-actual table for all five metrics.
+Retrospective across all sprint retros → architectural drift audit (`l3io-arch-review` Mode B, CODE/MIXED only) → issue triage, which re-reviews the epic's deferred Low items for promotion now that full epic context exists → closure report with the estimate-vs-actual table for all five metrics.
 
 CRITICAL/HIGH/MEDIUM drift findings must be resolved before closure completes, under the same `{max_fix_iterations}` fix-loop cap (default 3).
 
@@ -288,7 +288,7 @@ Scalar values override; array values append. `resolve_customization.py` performs
 
 | Skill type | Root key |
 |---|---|
-| Workflow / utility (pm-execute, pm-plan, pm-help, pm-sync, util-cleanup, arch-review) | `[workflow]` |
+| Workflow / utility (pm-execute, pm-plan, pm-help, pm-sync, util-doctor, arch-review) | `[workflow]` |
 | Memory agent (l3io-sec-redteam) | `[agent]` |
 
 See [l3io-pm-reference.md](l3io-pm-reference.md#workflow-customization) for the shipped keys and their defaults.
