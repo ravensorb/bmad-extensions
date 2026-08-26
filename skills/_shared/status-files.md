@@ -48,7 +48,8 @@ co-located with the artifacts it describes. Nothing state-related lives under
 │   │   └── epic-002/…                       ← done; keeps its full tree
 │   ├── issues.yaml                          ← flat BL list
 │   ├── events.jsonl                         ← append-only transition log
-│   └── pm-calibration.yaml
+│   ├── pm-calibration.yaml
+│   └── adr-register.yaml                    ← ADR number allocator (`next`, `reserved`)
 │
 ├── epic-001/                                ← human/agent-authored artifacts
 │   ├── sprint-01/
@@ -266,7 +267,27 @@ _lock:
   ttl_minutes: 30
 ```
 
-Check before claiming:
+`set-lock` itself enforces mutual exclusion — it is not a bare write gated by a separate
+check. The whole read-existing-lock → decide → write-claim cycle runs under one exclusive
+lock (`epic_node_lock`) so two callers can never both read "free" and both write a claim:
+
+```bash
+uv run {pm_status} set-lock --state-root {pm_state_root} --epic E001 --session-id {session_id} --ttl-minutes 30
+```
+
+- **No existing `_lock`** — claim. Exit `0`.
+- **Existing `_lock`, same `session_id`** — re-claim/refresh (`claimed_at` reset to now).
+  Exit `0`. A retry by the owner must not deadlock or refuse against its own lock.
+- **Existing `_lock`, different `session_id`, TTL expired** (age past `claimed_at` exceeds
+  `ttl_minutes`) — takeover: claim, and the success message names the previous holder and
+  how stale the lock was. Exit `0`.
+- **Existing `_lock`, different `session_id`, TTL still live** — refuse. The file is left
+  untouched. Exit `5`, naming the holder and the minutes remaining.
+- **Existing `_lock` present but malformed** — not a mapping, missing `claimed_at`, or a
+  `claimed_at` that fails to parse — refuse rather than treat it as absent or stealable: a
+  lock that cannot be read is not a lock that may be taken over. Exit `5`.
+
+Check without claiming:
 
 ```bash
 uv run {pm_status} check-lock --state-root {pm_state_root} --epic E001 --session-id {session_id}
@@ -275,12 +296,18 @@ uv run {pm_status} check-lock --state-root {pm_state_root} --epic E001 --session
 - Exit `0` — free (no lock, held by this same session, or stale past its TTL).
 - Exit `5` — locked by another session within its TTL.
 
+`check-lock` is read-only — it answers "could I claim this" without writing anything, and
+takes no lock of its own around the read since nothing but a report depends on it. Only
+`set-lock` performs the claim and needs `epic_node_lock` to make check-then-act atomic.
+
 **Missing-epic asymmetry, deliberate and tested:** `check-lock` and `clear-lock` treat a
 nonexistent epic as absent and exit `0` (`check-lock` prints `FREE`; `clear-lock` is a
 no-op) — both are queries/cleanup, so "there's nothing to lock/unlock" is success, not an
 error. `set-lock` exits `3` (node not found) on a nonexistent epic, because it must have a
-file to write the lock into. Do not "fix" this into uniform behavior — it was deliberately
-introduced (and tested) as three different contracts for three different verbs.
+file to write the lock into — this is distinct from, and takes priority over, the exit `5`
+refusal above, which only applies once the epic file exists and its `_lock` can be
+evaluated. Do not "fix" this into uniform behavior — it was deliberately introduced (and
+tested) as three different contracts for three different verbs.
 
 ## 7. Addressing
 
@@ -337,7 +364,7 @@ Subcommand summary (see `pm-status.py --help` for full flags):
 | `archive-epic` | `--state-root --epic ID` — alias for `move-epic --to archived` |
 | `append-issue` | `--file` (the one exception; see above) |
 | `list-issues` | `--state-root` (reads `{state-root}/issues.yaml`) + optional `--epic`/`--sprint`/`--severity`/`--format` filters |
-| `calibration show` \| `migrate-metrics` | `--state-root [--format {text,json}]` — `show` is a read-only report of every component's sample count and active ratio (a missing file reports cold-start and exits `0`); `migrate-metrics` reshapes a pre-metrics-rework calibration file in place (gated on its own marker, idempotent) |
+| `calibration show` \| `migrate-metrics` \| `redrive` | `--state-root [--format {text,json}]` — `show` is a read-only report of every component's sample count and active ratio (a missing file reports cold-start and exits `0`); `migrate-metrics` reshapes a pre-metrics-rework calibration file in place (gated on its own marker, idempotent); `redrive` re-derives calibration samples from the story files already on disk (`redrive_story_samples`), for backfilling or repairing samples without re-running the work |
 | `report` | `--state-root` (+ optional `--plan` pointing at `plan-output-meta.yaml`, `--stall-minutes N`) — walks every epic in every status folder; addresses none individually. Read-only unless `--out` is given. `--status planned,active,archived` narrows the display (default `planned,active`); counting is unaffected. Flags any dispatch opened longer than `--stall-minutes` (default 15) and never closed. Every format carries a **Spend** section attributing actual spend to story / closure / orchestration (metrics-contract.md §6) |
 | `dispatch` | `--state-root --event {open,close} --agent NAME` + optional `--epic`/`--sprint`/`--story`/`--session-id` — records a subagent dispatch boundary into `events.jsonl`; the input to `report`'s stalled-dispatch flags |
 | `rates` | `[--model ID] [--token-rates JSON]` — prints the effective per-model token rate table (read-only); an unknown `--model` exits 2 |
@@ -414,22 +441,24 @@ Per-epic directories mean epic-scoped writes (status, estimate, actual, lock, mo
 only that epic's own files — **no flock is needed for any of them.** Two developers working
 different stories, different sprints, or different epics never contend for the same file.
 
-`pm-calibration.yaml` and `issues.yaml` are the two shared-append targets sharding does not
-shard, because both are inherently cross-epic aggregates. Every `set-actual` across every
-epic and every parallel subagent may append a calibration sample to the first
-(`references/calibration-model.md`); every `append-issue` call across every epic and every
-parallel subagent appends to the second, first allocating the item's key from it (§3). Both
-files therefore run their **whole read-modify-write cycle** — load,
-allocate/derive, mutate, save — inside one exclusive lock (`calibration_lock` /
-`issues_lock`), not just the save. Locking only the save is not sufficient and was not safe:
-two concurrent callers each loaded the same pre-write state and the second save silently
-dropped the first's item (for `issues.yaml`, both a lost finding and, before key allocation
-existed, two callers computing the same next number), with both calls still exiting 0.
-There is no `--flock` flag to remember for either — the lock is automatic, not opt-in. Both
-locks are re-entrant within a process, so a save that nests inside its own lock (as
-`save_calibration` does) does not deadlock against its own flock. Contrast this with
-per-epic node files (`epic.yaml`, `sprint.yaml`, story `.yaml`), which need no flock at all
-because sharding gives each epic its own directory.
+`pm-calibration.yaml`, `issues.yaml`, and `adr-register.yaml` are the three shared-append
+targets sharding does not shard, because all three are inherently cross-epic aggregates.
+Every `set-actual` across every epic and every parallel subagent may append a calibration
+sample to the first (`references/calibration-model.md`); every `append-issue` call across
+every epic and every parallel subagent appends to the second, first allocating the item's key
+from it (§3); every `adr-reserve` call across every parallel arch-gate agent allocates a block
+of ADR numbers from the third (§1, §6). All three therefore run their **whole
+read-modify-write cycle** — load, allocate/derive, mutate, save — inside one exclusive lock
+each (`calibration_lock` / `issues_lock` / `adr_register_lock`), not just the save. Locking
+only the save is not sufficient and was not safe: two concurrent callers each loaded the same
+pre-write state and the second save silently dropped the first's item (for `issues.yaml`,
+both a lost finding and, before key allocation existed, two callers computing the same next
+number; for `adr-register.yaml`, two parallel agents both claiming the same ADR number), with
+both calls still exiting 0. There is no `--flock` flag to remember for any of the three — the
+lock is automatic, not opt-in. All three locks are re-entrant within a process, so a save
+that nests inside its own lock (as `save_calibration` does) does not deadlock against its own
+flock. Contrast this with per-epic node files (`epic.yaml`, `sprint.yaml`, story `.yaml`),
+which need no flock at all because sharding gives each epic its own directory.
 
 ## 10. Read resolution at activation
 

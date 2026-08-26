@@ -49,8 +49,8 @@ Modes (pass as argument to skip directly to that mode):
 
 **Load exactly one mode file.** Every mode below lives in its own file under `steps/`, and
 only the one the argument selects is ever loaded. That is the point of the layout: this skill
-carries fourteen procedures and a run needs one, so inlining them all charged every
-invocation for thirteen it would not execute. Read this file, match the keyword, load that
+carries fifteen procedures and a run needs one, so inlining them all charged every
+invocation for fourteen it would not execute. Read this file, match the keyword, load that
 one file, and follow it.
 
 **Recognized keywords** — if the user's argument exactly matches any of these, load that
