@@ -157,6 +157,29 @@ see `references/status-files.md` §10, the canonical contract):
 - `{pm_issues_file}` = `{pm_state_root}/issues.yaml`
 - `{pm_calibration_file}` = `{pm_state_root}/pm-calibration.yaml`
 
+**Install `pm-status.py` before dispatching to a mode** (skip this for `help`/`?` — that
+keyword exits above without a project scan or any config resolve). This skill is the
+documented post-upgrade entry point (`docs/upgrading.md`): a `quick-update` refreshes skill
+payloads, and this skill is the very next step — so it cannot assume some other skill has
+already refreshed the installed `pm-status.py`. Eight of the mode files below invoke
+`{pm_status}`; a stale installed copy fails those calls with an opaque argparse error (a
+missing `--key`, or `invalid choice` for a subcommand a newer payload added) rather than any
+message that points at the real cause. Self-install compares the installed copy's **bytes**
+against this skill's own copy and reinstalls on any difference; it refuses only to overwrite
+a copy that is strictly *newer* than this skill's own, so running it here alongside the three
+PM skills' self-installs is safe — whichever copy is newest wins, never a downgrade.
+
+```bash
+uv run {skill-root}/scripts/pm-status.py self-install \
+  --dest {project-root}/_bmad/scripts/pm-status.py
+```
+
+If `uv` is unavailable, use `python3` instead. A "skipped — already up to date" message is
+normal — that is the common case, not a problem. Failure here is BLOCKED.
+
+Bind `{pm_status}` = `{project-root}/_bmad/scripts/pm-status.py` for use in all mode files
+below.
+
 **Current vs. legacy-only modes.** The sharded state tree under `{pm_state_root}` is the
 layout the PM skills read and write today; they hard-block on anything else. Three modes
 here — `migrate-schema`, `split-status`, `reconcile-status` — operate on the **legacy flat**

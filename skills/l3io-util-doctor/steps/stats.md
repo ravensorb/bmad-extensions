@@ -42,11 +42,14 @@ From the JSON take `totals` (epics/sprints/stories by status), `phases` (`phase`
 `epic_total`), and `flags` — `placement` entries are the placement anomalies this mode already
 reported, while `stuck` and `stale-lock` are new and worth surfacing here too.
 
-If `{project-root}/_bmad/scripts/pm-status.py` does not exist, print this and use Step ST2b:
+This skill self-installs `{pm_status}` at activation, before any mode file is loaded, so it
+should already be present here. If `{project-root}/_bmad/scripts/pm-status.py` still does not
+exist, self-install itself failed — print this and use Step ST2b:
 
 ```
-pm-status.py is not installed yet — showing counts only, without the plan-aware hierarchy.
-It self-installs the first time you run /l3io-pm-plan or /l3io-pm-execute.
+pm-status.py is not installed — showing counts only, without the plan-aware hierarchy.
+Self-install at activation should have installed it; re-run /l3io-util-doctor stats, and if
+this persists, check that {project-root}/_bmad/scripts/ is writable.
 ```
 
 `report` does not cover the backlog, the calibration file, or the last-closed markers. Read

@@ -35,16 +35,19 @@ Then bind:
 - `{pm_issues_file}` = `{pm_state_root}/issues.yaml`
 - `{pm_calibration_file}` = `{pm_state_root}/pm-calibration.yaml`
 
-If `{pm_status}` does not exist on disk, BLOCK:
+This skill self-installs `{pm_status}` at activation (`SKILL.md` `## On Activation`), before
+any mode file — including this one — is loaded, so it should already be present and current
+by the time this stage runs. If it is still missing on disk, self-install itself failed —
+BLOCK:
 ```
-BLOCKED: {pm_status} not found. Run any l3io-pm skill once first (it self-installs
-pm-status.py at {project-root}/_bmad/scripts/pm-status.py), then re-run migrate-state.
+BLOCKED: {pm_status} not found. Self-install at activation did not complete — check that
+{project-root}/_bmad/scripts/ exists and is writable, then re-run /l3io-util-doctor migrate-state.
 ```
 
-If it does exist, it can still be a stale copy from before an upgrade (e.g. this command
-invoked directly, without first running a PM skill that would have self-installed the
-current version). Check its version marker before proceeding — Stage E below calls
-`verify --state-root`, a flag older copies of `pm-status.py` do not accept, so catch this
+If it does exist, it can in principle still be a stale copy — self-install above should
+already rule this out, but check its version marker before proceeding as a defensive
+measure rather than trusting that guarantee blindly. Stage E below calls `verify
+--state-root`, a flag older copies of `pm-status.py` do not accept, so catch a stale copy
 now with an actionable message rather than letting Stage E fail on an opaque argparse error:
 
 ```bash
@@ -57,7 +60,8 @@ If `$FOUND` is empty (marker absent or file unreadable) or lower than `$REQUIRED
 — BLOCK (never treat a missing or malformed marker as "new enough"):
 ```
 BLOCKED: {pm_status} is version {found}, but this migration requires {required} or newer.
-Run any l3io-pm skill once to self-install the current copy, then re-run migrate-state.
+Self-install at activation should have refreshed it — re-run /l3io-util-doctor migrate-state;
+if this persists, check that {project-root}/_bmad/scripts/ is writable.
 ```
 
 ## Pre-flight

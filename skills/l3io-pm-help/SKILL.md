@@ -52,17 +52,45 @@ Then check whether `{pm_status}` is actually on disk and bind `{pm_status_presen
 [ -f {project-root}/_bmad/scripts/pm-status.py ] && echo present || echo absent
 ```
 
+**Staleness check** — when present, compare its version against this skill's own
+`module_version` (`{skill-root}/module.yaml`, which moves with every release). Deriving the
+comparison target from `module.yaml` means there is no hardcoded minimum version to drift out
+of date as this skill is released forward:
+
+```bash
+INSTALLED=$(python3 {project-root}/_bmad/scripts/pm-status.py --version 2>/dev/null | awk '{print $2}')
+EXPECTED=$(grep -m1 '^module_version:' {skill-root}/module.yaml | awk '{print $2}')
+echo "installed=${INSTALLED:-none} expected=$EXPECTED"
+```
+
+Bind `{pm_status_stale}` = `yes` when `$INSTALLED` is empty (older copies predate
+`--version`, or the read failed — never treat an unreadable version as current) or sorts
+older than `$EXPECTED`:
+`[ -z "$INSTALLED" ] || [ "$(printf '%s\n%s\n' "$EXPECTED" "$INSTALLED" | sort -V | head -1)" != "$EXPECTED" ]`.
+Otherwise `no`.
+
 **Never invoke `{pm_status}` when it is absent.** On a fresh install nothing has
 self-installed it yet, so every `{pm_status}` call below is conditional: when
-`{pm_status_present}` is `absent`, read each `epic.yaml` directly instead (it is plain YAML)
-and note in the report:
+`{pm_status_present}` is `absent`, read each `epic.yaml` directly instead (it is plain YAML).
+**A stale copy is different — usable but suspect:** `{pm_status}` calls below stay
+conditional on presence only, not staleness, so keep using it as normal; the difference is
+that section 5's recommendation calls this out prominently, because a subcommand the
+installed copy lacks fails as an opaque argparse error rather than a clear one.
+
+Note in the report, whichever applies:
 
 ```
-pm-status.py not installed yet — reading epic.yaml files directly. It self-installs the
-first time you run /l3io-pm-plan or /l3io-pm-execute.
+pm-status.py not installed yet — reading epic.yaml files directly. Run /l3io-util-doctor to
+install it (l3io-pm-help only reads; it does not self-install).
 ```
 
-This is a note, not a blocker: everything l3io-pm-help needs can be read without it.
+```
+⚠️  pm-status.py at {project-root}/_bmad/scripts/pm-status.py is stale (installed
+{installed}, this skill ships {expected}). Run /l3io-util-doctor to refresh it — some
+subcommands newer skills rely on may be missing until then.
+```
+
+Neither is a hard blocker: everything l3io-pm-help needs can still be read.
 
 ### 2. Detect state layout — before reading anything, and before any recommendation
 
@@ -207,6 +235,14 @@ present, or on a verified genuine first run. Apply the first matching rule:
 | No active epics, plan exists, planned epics available | `Run /l3io-pm-execute to start execution (plan is green).` |
 | All epics done (active + planned = 0) | `All work complete. Run /l3io-pm-sync to push closure to GitHub/ADO.` |
 
+**One more follow-up, checked after the table above:** if `{pm_status_present}` is `absent`
+or `{pm_status_stale}` is `yes`, prepend it to the recommendation — this takes priority
+because it explains a failure the user would otherwise hit with no clue why:
+`pm-status.py is {missing | stale (installed {installed}, expected {expected})} at
+{project-root}/_bmad/scripts/pm-status.py. Run /l3io-util-doctor first to install or refresh
+it — {this report read epic.yaml directly instead | the command above may need a subcommand
+the installed copy lacks}.`
+
 Output the recommendation as a clear, one-paragraph response with the exact command to run.
 
 ### Progress Mode
@@ -219,8 +255,16 @@ in this skill that genuinely needs the helper — it computes dwell times and ph
 that cannot be read off `epic.yaml`:
 
 ```
-pm-status.py is not installed yet, so the progress report cannot be computed. It
-self-installs the first time you run /l3io-pm-plan or /l3io-pm-execute.
+pm-status.py is not installed. Run /l3io-util-doctor to install it, then re-run
+/l3io-pm-help progress.
+```
+
+**When `{pm_status_stale}` is `yes`:** do not stop — `report`'s output shape has been stable
+across the versions this matters for — but print this first, then continue:
+
+```
+⚠️  pm-status.py at {project-root}/_bmad/scripts/pm-status.py is stale (installed
+{installed}, this skill ships {expected}). Run /l3io-util-doctor to refresh it.
 ```
 
 **Otherwise** run:

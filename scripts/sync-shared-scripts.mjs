@@ -6,7 +6,10 @@
 // GENERATED — never hand-edit them.
 //
 // Shared files:
-//   pm-status.py / test-pm-status.py → scripts/ in PM execution skills
+//   pm-status.py / test-pm-status.py → scripts/ in the PM execution skills (pm-execute,
+//   pm-plan, pm-sync), which also self-install it to {project-root}/_bmad/scripts/
+//   pm-status.py (no tests) → scripts/ in any OTHER skill that invokes {pm_status} and
+//   must be able to self-install/heal it — currently l3io-util-doctor only
 //   status-files.md / metrics-contract.md → references/ in PM skills
 //   write-module-config.py → scripts/, config-resolution.md → references/,
 //   module-setup.md → assets/ in EVERY l3io skill
@@ -33,6 +36,14 @@ const pmScriptFiles = [
   { src: path.join(sharedDir, "tests", "test-pm-status.py"), rel: path.join("scripts", "tests", "test-pm-status.py") },
 ];
 
+// pm-status.py only (no test suite) for a skill that invokes {pm_status} and self-installs it
+// but is not one of the PM execution skills above. A test suite in a consumer skill's payload
+// is dead weight — the same kind this package removed when it stopped vendoring BMad core
+// scripts — so this group deliberately carries only the runtime script.
+const pmStatusOnlyFiles = [
+  { src: path.join(sharedDir, "pm-status.py"), rel: path.join("scripts", "pm-status.py") },
+];
+
 // Files every l3io skill ships, regardless of module: the config contract, the setup
 // procedure that points at it, and the script that setup runs.
 const allSkillFiles = [
@@ -50,7 +61,11 @@ const pmRefFiles = [
   { src: path.join(sharedDir, "calibration-model.md"), rel: path.join("references", "calibration-model.md") },
 ];
 
-// PM skills that ship pm-status.py as an install payload (execution skills only)
+// The real rule for who ships pm-status.py: any skill that invokes {pm_status} needs a copy
+// to self-install/heal it from — not "execution skills only". l3io-util-doctor invokes
+// {pm_status} in eight files and is the documented post-upgrade entry point, but shipped no
+// copy and had no self-install; that gap let its installed script go stale silently. See
+// newUtilDoctorDirs below.
 // Legacy slots kept for backward compat shape; new skills use newPmPlanDirs / newPmExecuteDirs groups below.
 const pmScriptDirs = [];
 
@@ -67,6 +82,13 @@ const newPmExecuteDirs = [
 ];
 const newPmSyncDirs = [
   path.join(repoRoot, "skills", "l3io-pm-sync"),
+];
+
+// Skills that invoke {pm_status} but are not PM execution skills: they need pm-status.py to
+// self-install/heal from, but not its test suite. Currently: l3io-util-doctor, the documented
+// post-upgrade entry point (see docs/upgrading.md).
+const newUtilDoctorDirs = [
+  path.join(repoRoot, "skills", "l3io-util-doctor"),
 ];
 
 // Every skill in the package — the four l3io modules' skills all resolve config and all
@@ -154,6 +176,9 @@ const syncGroups = [
   // status-files.md into new PM skills (plan + execute)
   { files: pmRefFiles, dirs: [...newPmPlanDirs, ...newPmExecuteDirs], skipMissing: true },
   { files: pmRefFiles, dirs: newPmSyncDirs, skipMissing: true },
+  // pm-status.py (no tests) into l3io-util-doctor — it invokes {pm_status} and self-installs
+  // it at activation but is not a PM execution skill; see pmStatusOnlyFiles above.
+  { files: pmStatusOnlyFiles, dirs: newUtilDoctorDirs },
 ];
 
 // Every repo-relative path this script writes, derived from syncGroups itself so
