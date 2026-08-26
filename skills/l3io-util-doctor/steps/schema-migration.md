@@ -11,7 +11,8 @@ Invoked with `migrate-schema` argument. Upgrades an existing `sprint-status.yaml
 
 | Field type | Default |
 |---|---|
-| Numeric (`elapsed_hours_low/high`, `hitl_hours_low/high`, `man_hours_low/high`, `tokens_k_min/max`, `elapsed_hours`, `man_hours`, `hitl_hours`, `fix_iterations`, `tests_passing`, `files_changed`) | `0` |
+| Numeric (`elapsed_hours_low/high`, `hitl_hours_low/high`, `man_hours_low/high`, `tokens_k_min/max`, `elapsed_hours`, `man_hours`, `hitl_hours`, `fix_iterations`, `files_changed`) | `0` |
+| `completion_evidence.tests_passing` | **Never added.** Derived (`DERIVED_NODE_FIELDS` in `pm-status.py`) from `completion_evidence.test_runs` — a legacy node with no recorded test runs correctly has no `tests_passing` key. If the legacy node already has a `tests_passing` value, preserve it as-is (`BOOL_NODE_FIELDS` still reads it) — never touch or retype it. |
 | `tokens_k` / `cost` on an **actual** block | `'N/A'` — the sentinel, never `0` |
 | `cost`, `cost_low`, `cost_high` on an **estimate** block | **never added** |
 | `classification` enum | `'unknown'` |
@@ -53,7 +54,7 @@ Schema fields to verify (add if absent):
 *Story node:*
 - `title` (derive from story `.md` file's first heading if the file exists; otherwise `''`)
 - `classification`
-- `completion_evidence` block (only when `status: done`): `fix_iterations`, `tests_passing`, `files_changed`
+- `completion_evidence` block (only when `status: done`): `fix_iterations`, `files_changed`. `tests_passing` is derived, not added — see the Default Values table above; if the legacy node already carries a `tests_passing` value, leave it exactly as-is, do not add one if it is absent.
 
 *Backlog item node:*
 - `source` (verify/add if absent)
