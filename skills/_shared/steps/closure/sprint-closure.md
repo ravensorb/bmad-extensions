@@ -85,8 +85,34 @@ If `l3io-sec-redteam` is installed:
 grep -qE "^[[:space:]]*-[[:space:]]*name:[[:space:]]*l3io-sec[[:space:]]*$" \
   {project-root}/_bmad/_config/manifest.yaml 2>/dev/null && echo "present" || echo "absent"
 ```
-If present: spawn l3io-sec-redteam with the sprint's **diff** and the threat-relevant
-spec sections by path — not the repository (see the scoping rule in §2–3).
+**Redteam is not scoped like the reviewers above — give it a starting set, not a fence.**
+The diff-scoping rule in §2–3 exists because a diff *is* a reviewer's whole input; redteam's
+own method (`references/scope-mapping.md`, this skill) is different by design: it builds a
+surface map — entry points, trust boundaries, data flows, auth checkpoints, persistent
+state — "from what's actually implemented, not from documentation assumptions," and states
+that "a scope with no entry points or no trust boundaries is incomplete — expand until the
+picture is coherent." A diff cannot show an undocumented endpoint, an implicit trust
+relationship, or where a changed function sits relative to an auth checkpoint. Fencing it to
+the diff, the way a code reviewer is fenced, would forbid the one thing its method requires.
+
+Spawn `l3io-sec-redteam` per its documented orchestrator-invocation contract (`SKILL.md`
+"On Activation" step 1, orchestrator invocation — explicit scope, artifact paths, and output
+path). Pass:
+
+- **Scope statement**: sprint-level security analysis, epic `{epic_key}` sprint
+  `{sprint_num}`.
+- **Seed artifacts** (a starting set, not a fence): the sprint's diff, plus each in-scope
+  story's `Files in scope` / File List — `scope-mapping.md` names story File Lists as what it
+  traces from when scope is vague.
+- **Explicit permission to widen**: it may read beyond the seeds to trace entry points, trust
+  boundaries, data flows, and auth checkpoints the diff touches or sits near — that is its
+  method, not a workaround, and is not subject to the "never the repository" rule above.
+- **Output path**: `{sprint_root}/closure/redteam-report.md`.
+
+Cost discipline still applies, in the form that fits an agent that must explore: start from
+the seed artifacts, widen only with a reason, and **report what it widened to and why** in
+the findings report. Accountability, not prohibition.
+
 CRITICAL/HIGH findings: block until resolved. LOW: defer to issues file.
 
 ## 5. UX review (skip if in skip_phases)
