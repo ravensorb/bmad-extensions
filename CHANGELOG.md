@@ -2,6 +2,23 @@
 
 All notable changes to this project will be documented in this file. See [commit-and-tag-version](https://github.com/absolute-version/commit-and-tag-version) for commit guidelines.
 
+## [2.4.10](https://github.com/ravensorb/bmad-extensions/compare/2.4.9...2.4.10) (2026-08-27)
+
+
+### Features
+
+* **l3io-pm:** add epic-level security review to epic closure ([996f2e0](https://github.com/ravensorb/bmad-extensions/commit/996f2e08de8f099505e59e9fdd430785674b9489))
+
+
+### Fixes
+
+* **l3io-pm:** scope redteam to a seed set, not a diff fence, at sprint closure ([8b09534](https://github.com/ravensorb/bmad-extensions/commit/8b095342ba3ac26a6dcdcca02409e26212e19868))
+
+
+### Documentation
+
+* correct arch-drift severity vocabulary in two docs ([ab61006](https://github.com/ravensorb/bmad-extensions/commit/ab610068136e28ec3aea58089aa166a271ca440d))
+
 ## [2.4.9](https://github.com/ravensorb/bmad-extensions/compare/2.4.8...2.4.9) (2026-08-26)
 
 

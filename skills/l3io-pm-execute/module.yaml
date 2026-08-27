@@ -1,7 +1,7 @@
 code: l3io-pm
 name: "LiquidLogicLabs PM"
 description: "Executes the l3io-pm plan — runs epics in phase order, dispatches sprint subagents with full context injection, and closes epics with actuals and calibration."
-module_version: 2.4.9
+module_version: 2.4.10
 default_selected: false
 module_greeting: >
   LiquidLogicLabs PM module is configured!

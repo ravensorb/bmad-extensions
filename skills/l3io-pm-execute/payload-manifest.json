@@ -1,5 +1,5 @@
 {
-  "version": "2.4.9",
+  "version": "2.4.10",
   "generated_from": "skills/_shared/",
   "files": {
     "scripts/write-module-config.py": "fdc0e81cda51221599907b9023a096b0570e096b7d921fb0c1db2050afa7a80f",
@@ -19,7 +19,7 @@
     "steps/sprint/step-04-sprint-closure.md": "75445ef449d758bce08979ed8191fe08871a2e82e6c290c455d3a58250ced506",
     "steps/closure/sprint-closure.md": "7282febc388655ace13b3d91c9f8cede169e6578f70fcf5ee76f209b3f26bbd4",
     "steps/closure/epic-closure.md": "4dfcb835878ad81b01e5a70b5454e22bf1346f2e82dc06d0f048461876b9ef4d",
-    "scripts/pm-status.py": "dd7e560a0b06bca442b1aa1d5f434f8d80229570ded8d97adbb0b16f10c3396f",
+    "scripts/pm-status.py": "dba663676d6d25e8813c4581b559941d0d2e37c7734de5f505983f7f65dedec7",
     "references/status-files.md": "6d1bbddbaf308c40c6e3fcaa261cd0803140a00d9afa60a857f4195eb27852d0",
     "references/metrics-contract.md": "35a6a0f2c3b4023430fc1ac2b911fcb625c499090ad9e5a46d52353d6fb20af5",
     "references/calibration-model.md": "63b15a5c4552d6be78d90ec886ff0a1d581af9440bcff3b87b12ef1e1d01af0f"
