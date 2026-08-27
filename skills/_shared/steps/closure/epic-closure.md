@@ -57,7 +57,48 @@ Findings:
   `{max_fix_iterations}` iterations) or recorded as an accepted ADR that justifies leaving it.
 - MINOR: append to issues file via `pm-status.py append-issue` (as `--severity Low`).
 
-## 3. Issue triage
+## 3. Epic security review
+
+Run only if `{work_type}` is CODE or MIXED AND `l3io-sec-redteam` is installed.
+
+```bash
+grep -qE "^[[:space:]]*-[[:space:]]*name:[[:space:]]*l3io-sec[[:space:]]*$" \
+  {project-root}/_bmad/_config/manifest.yaml 2>/dev/null && echo "present" || echo "absent"
+```
+
+If present: spawn `l3io-sec-redteam` per its documented orchestrator-invocation contract
+(`SKILL.md` "On Activation" step 1 — explicit scope, artifact paths, and output path).
+Sprint closure already runs redteam per sprint (`sprint-closure.md` §4), but a sprint's
+surface map is the narrowest one it ever builds; an epic-wide analysis is where entry
+points, trust boundaries, and auth checkpoints spanning multiple sprints' changes actually
+come into view. Give it a starting set, not a fence — the same distinction sprint closure
+draws, for the same reason (redteam's own method, `references/scope-mapping.md`, builds its
+surface map from what's actually implemented, and "a scope with no entry points or no trust
+boundaries is incomplete — expand until the picture is coherent"). Pass:
+
+- **Scope statement**: epic-level security analysis, epic `{epic_key}` — identify this
+  explicitly as epic-level, not sprint-level, so the agent maps the wider surface rather than
+  replaying its sprint-scoped passes.
+- **Seed artifacts** (a starting set, not a fence): the epic's cumulative **diff**, the story
+  file paths (`{implementation_artifacts}/epic-{epic_nnn}/*/stories/*.md`), and the ADR paths
+  (`{implementation_artifacts}/epic-{epic_nnn}/arch/*.md`).
+- **Explicit permission to widen**: it may read beyond the seeds to trace entry points, trust
+  boundaries, data flows, and auth checkpoints spanning the epic's sprints — that is its
+  method, not a workaround.
+- **Output path**: `{implementation_artifacts}/epic-{epic_nnn}/epic-closure/redteam-report.md`.
+
+Cost discipline takes the form of accountability, not a fence: start from the seed artifacts,
+widen only with a reason, and report what it widened to and why.
+
+**Findings use redteam's own severity vocabulary** (`references/findings-report.md`), not the
+arch reviewer's BLOCKER/MAJOR/MINOR:
+- CRITICAL/HIGH: must be resolved before closure completes (fix loop, max
+  `{max_fix_iterations}` iterations) or recorded as an accepted ADR that justifies leaving it.
+- MEDIUM: fix in place, or record an accepted ADR that justifies leaving it.
+- LOW: append to issues file via `pm-status.py append-issue` (`--severity Low`).
+- OBSERVATION: note in the closure report; no action required.
+
+## 4. Issue triage
 
 Collect all Low severity issues identified during the epic's sprint closures (already in issues file).
 Review for any that should be promoted to Medium/High given the full epic context.
@@ -67,7 +108,7 @@ after removing the old entry manually, or note for the implementer to do so in-p
 
 Output triage summary: count of issues by severity, count promoted.
 
-## 4. Closure report
+## 5. Closure report
 
 Write `{implementation_artifacts}/epic-{epic_nnn}/epic-closure/closure-report.md` containing:
 - Epic goal and final status
@@ -77,7 +118,7 @@ Write `{implementation_artifacts}/epic-{epic_nnn}/epic-closure/closure-report.md
 - Outstanding issues count (by severity)
 - ADRs produced (if any)
 
-## 5. Progress render and report regeneration
+## 6. Progress render and report regeneration
 
 Epic closure runs once per epic, after all of its sprints have finished, so it is not competing
 with sibling sprints for stdout — render unconditionally:

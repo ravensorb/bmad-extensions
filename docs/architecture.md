@@ -236,9 +236,11 @@ Severity routing is uniform across phases: **CRITICAL/HIGH** block closure and o
 
 ### Epic closure
 
-Retrospective across all sprint retros → architectural drift audit (`l3io-arch-review` Mode B, CODE/MIXED only) → issue triage, which re-reviews the epic's deferred Low items for promotion now that full epic context exists → closure report with the estimate-vs-actual table for all five metrics.
+Retrospective across all sprint retros → architectural drift audit (`l3io-arch-review` Mode B, CODE/MIXED only) → epic-wide security review (`l3io-sec-redteam`, CODE/MIXED only) → issue triage, which re-reviews the epic's deferred Low items for promotion now that full epic context exists → closure report with the estimate-vs-actual table for all five metrics.
 
-CRITICAL/HIGH/MEDIUM drift findings must be resolved before closure completes, under the same `{max_fix_iterations}` fix-loop cap (default 3).
+CRITICAL/HIGH/MEDIUM drift findings must be resolved before closure completes, under the same `{max_fix_iterations}` fix-loop cap (default 3). The security review runs at CRITICAL/HIGH/MEDIUM/LOW/OBSERVATION — its own vocabulary (`references/findings-report.md`), not the drift audit's BLOCKER/MAJOR/MINOR — with CRITICAL/HIGH/MEDIUM gating closure the same way.
+
+Redteam is seeded with the epic's cumulative diff, story file paths, and ADR paths, and explicitly permitted to widen beyond them to trace entry points, trust boundaries, and auth checkpoints — its own method (`scope-mapping.md`) requires this, unlike the diff-only scoping used for code and adversarial reviewers.
 
 ## Metrics Contract
 

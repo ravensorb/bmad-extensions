@@ -273,8 +273,9 @@ Closure also regenerates `{implementation_artifacts}/progress-report.md`, and re
 
 1. **Retrospective** — reviews every sprint retro for the epic; summarizes velocity, recurring pain points, and up to five learnings
 2. **Architectural drift** — `l3io-arch-review` Mode B over the epic's ADRs and story files. CODE/MIXED only, and only when installed. CRITICAL/HIGH/MEDIUM must resolve before closure, under the `{max_fix_iterations}` cap — 3
-3. **Issue triage** — re-reviews the epic's deferred Low items for promotion now that full epic context exists
-4. **Closure report** — epic goal and final status, estimate-vs-actual for all five metrics, sprint velocity, learnings, outstanding issues, ADRs produced
+3. **Epic security review** — `l3io-sec-redteam` over the epic's cumulative diff, story files, and ADRs, with explicit permission to widen for surface mapping. CODE/MIXED only, and only when installed. Uses redteam's own vocabulary (CRITICAL/HIGH/MEDIUM/LOW/OBSERVATION); CRITICAL/HIGH/MEDIUM must resolve before closure, under the `{max_fix_iterations}` cap — 3
+4. **Issue triage** — re-reviews the epic's deferred Low items for promotion now that full epic context exists
+5. **Closure report** — epic goal and final status, estimate-vs-actual for all five metrics, sprint velocity, learnings, outstanding issues, ADRs produced
 
 Outputs go to `{implementation_artifacts}/epic-{nnn}/epic-closure/`. Epic closure also renders a progress tree unconditionally — it runs once per epic after its sprints finish, so it never competes with sibling sprints for stdout — and regenerates `{implementation_artifacts}/progress-report.md`.
 
@@ -646,7 +647,7 @@ Calibration:  none yet — formula baseline (components calibrate at ≥3 sample
 | Clean release + adversarial (sprint) | `bmad-review-adversarial-general` — **one call carrying both scopes** where the phase matrix runs both (CODE/MIXED). CONFIG runs `clean-release` alone, since the matrix skips adversarial there; DOCS runs neither |
 | Architecture gate (epic) | `l3io-arch-review` Mode B **alone**; `bmad-agent-architect` and superpowers escalate in parallel only on a BLOCKER or MAJOR |
 | Architectural drift (sprint + epic) | `l3io-arch-review` Mode B (optional) |
-| Red-team review (sprint) | `l3io-sec-redteam` (optional) |
+| Red-team review (sprint + epic) | `l3io-sec-redteam` (optional) |
 | UX review (sprint) | `bmad-ux-review` (optional) |
 | Issue triage | Inline — no skill invoked |
 
