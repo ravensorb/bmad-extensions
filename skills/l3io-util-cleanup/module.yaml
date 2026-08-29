@@ -1,7 +1,7 @@
 code: l3io-util
 name: "LiquidLogicLabs Utilities"
 description: "Deprecated alias — forwards to l3io-util-doctor. Kept so the old /l3io-util-cleanup command keeps working."
-module_version: 2.4.10
+module_version: 2.4.11
 default_selected: false
 module_greeting: >
   /l3io-util-cleanup is deprecated — it now forwards to /l3io-util-doctor.
