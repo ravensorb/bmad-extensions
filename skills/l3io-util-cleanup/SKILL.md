@@ -8,7 +8,7 @@ description: Deprecated — renamed to l3io-util-doctor. Forwards every argument
 Communicate all responses in `{communication_language}`.
 
 This skill was renamed to **`l3io-util-doctor`**. "Cleanup" described about three of its
-fifteen modes; the default behavior is a diagnose-report-repair health check, and `stats` is
+sixteen modes; the default behavior is a diagnose-report-repair health check, and `stats` is
 now the plan-aware progress dashboard.
 
 ## Execution

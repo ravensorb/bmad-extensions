@@ -46,7 +46,7 @@ The full ordered sequence:
 ```
 rename-active → rename-epic-dirs → migrate-schema → split-status → migrate-state
   → reconcile-status → layout-cleanup → sort-status → harvest-debt
-  → update-ai-rules → clean-legacy
+  → update-ai-rules → redrive → clean-legacy
 ```
 
 `migrate-state` is the pivot. It is what produces the sharded `state/` tree that 2.0.1+ skills
@@ -95,7 +95,7 @@ cuts token use substantially with no change to which phases run.
 ### → 2.1.0
 
 **`l3io-util-cleanup` was renamed to `l3io-util-doctor`.** "Cleanup" described about three of
-its fifteen modes, while the default behavior is a diagnose-report-repair health check.
+its sixteen modes, while the default behavior is a diagnose-report-repair health check.
 
 Backward compatible — no action required. `/l3io-util-cleanup` still works: it prints a rename
 notice and forwards. Update any scripts, aliases, or team docs that invoke the old name; it is

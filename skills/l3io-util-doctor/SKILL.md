@@ -28,6 +28,7 @@ Modes (pass as argument to skip directly to that mode):
 - **`reconcile-status`:** *(legacy-only)* Audits the three split status files for placement and structure issues: epics in the wrong file for their `status`, nested per-epic `backlog:` arrays that should be flattened into the consolidated top-level list, stale backlog items whose status is no longer `backlog`, and empty epic shells in the backlog file. Dry-run first; confirms before writing. Safe to run at any time.
 - **`sort-status`:** Validates state file and directory naming against the zero-padded convention (`epic-{nnn}/`, `sprint-{nn}/`, `E{nnn}-S{nn}-{nnn}.yaml`). Ordering itself can no longer drift under the sharded layout — directory listing order is correct order — so this mode no longer reorders anything. It reports misnamed entries, which would sort incorrectly and break key resolution.
 - **`layout-cleanup`:** Runs only the artifact layout reorganization (the original default behavior) — reorganizes flat artifact outputs into the structured epic/sprint folder hierarchy, reconciles references, verifies state consistency.
+- **`redrive`:** Rebuilds the `scope` and `fix` calibration components from the story nodes on disk — repairs samples poisoned by a fixed defect where `fix_iterations` was once stored as a string and misclassified as `backout` instead of `exact`. Backs up the calibration file first (only if no backup already exists); `closure`, `orchestration`, and `token_mix` are untouched. Safe to run repeatedly — it derives fresh from the same nodes each time.
 
 **Source & external sync**
 - **`harvest-debt`:** Greps the whole source tree for `bmad-defer:` deferred-shortcut markers (the comment crumbs developers and dev subagents leave when they take an intentional simplification) and harvests them into the consolidated `backlog:` list so deferrals do not rot into "later means never." Language-generic — recognizes the comment syntax of every common language. Re-runnable: dedupes against already-harvested markers. Report-only by default; backlog merge is confirmed. Respects `harvest_exclude_dirs` in the `l3io-util` config section for additional exclusions beyond the built-in list.
@@ -49,8 +50,8 @@ Modes (pass as argument to skip directly to that mode):
 
 **Load exactly one mode file.** Every mode below lives in its own file under `steps/`, and
 only the one the argument selects is ever loaded. That is the point of the layout: this skill
-carries fifteen procedures and a run needs one, so inlining them all charged every
-invocation for fourteen it would not execute. Read this file, match the keyword, load that
+carries sixteen procedures and a run needs one, so inlining them all charged every
+invocation for fifteen it would not execute. Read this file, match the keyword, load that
 one file, and follow it.
 
 **Recognized keywords** — if the user's argument exactly matches any of these, load that
@@ -69,6 +70,7 @@ file and follow it:
 | `harvest-debt` | `steps/harvest-debt.md` |  |
 | `reconcile-status` | `steps/reconcile-status.md` |  |
 | `sort-status` | `steps/sort-status.md` |  |
+| `redrive` | `steps/redrive.md` | rebuild calibration `scope`/`fix` from story nodes |
 | `rename-active` | `steps/rename-active.md` |  |
 | `rename-epic-dirs` | `steps/rename-epic-dirs.md` |  |
 | `update-ai-rules` | `steps/update-ai-rules.md` |  |
@@ -107,6 +109,7 @@ Ongoing maintenance (safe to repeat)
   reconcile-status   (legacy-only) Fix misplaced epics, nested backlogs, stale items
   sort-status        Validate zero-padded naming (epic-{nnn}/, sprint-{nn}/, story keys)
   layout-cleanup     Reorganize flat artifact files into epic/sprint folder structure
+  redrive            Rebuild calibration scope/fix samples from the story nodes on disk
 
 Source & external sync
   harvest-debt       Sweep source for bmad-defer: markers and harvest into backlog
@@ -161,7 +164,7 @@ see `references/status-files.md` §10, the canonical contract):
 keyword exits above without a project scan or any config resolve). This skill is the
 documented post-upgrade entry point (`docs/upgrading.md`): a `quick-update` refreshes skill
 payloads, and this skill is the very next step — so it cannot assume some other skill has
-already refreshed the installed `pm-status.py`. Eight of the mode files below invoke
+already refreshed the installed `pm-status.py`. Seven of the mode files below invoke
 `{pm_status}`; a stale installed copy fails those calls with an opaque argparse error (a
 missing `--key`, or `invalid choice` for a subcommand a newer payload added) rather than any
 message that points at the real cause. Self-install compares the installed copy's **bytes**

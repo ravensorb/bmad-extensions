@@ -6,7 +6,7 @@ The default mode — runs when no recognized keyword is passed, or when `check`/
 
 Load config same as described above under On Activation.
 
-### Step HC2 — Scan (11 checks, read-only)
+### Step HC2 — Scan (12 checks, read-only)
 
 Run all checks. No files are changed at this step.
 
@@ -104,6 +104,50 @@ back-reference disagrees with the directory it was found in.
   the diff alone).
 - None → ✓
 
+**Check 12 — Poisoned calibration provenance**
+A fixed defect: an older `set-field` stored `completion_evidence.fix_iterations` as a
+**string**, and `derive_story_sample` (the function behind `set-actual`'s live sampling and
+Redrive Mode's rebuild) reads that field to decide a sample's provenance. A story that needed
+no rework compared its string `'0'` against the int `0` and derived as `backout` instead of
+`exact`, silently corrupting its `scope` ratio. `pm-calibration.yaml` cannot be read to detect
+this — it stores bare rounded ratios with no provenance recorded — so this check reads the
+nodes themselves, which still hold the original field. `NUMERIC_NODE_FIELDS` now coerces this
+field on every write, so a string can only have been written by a version that predates that
+fix; its presence means this project generated samples under the defect.
+
+If `{pm_state_root}` exists, scan every story node file under
+`{pm_state_root}/{active,planned,archived}/epic-*/sprint-*/E*.yaml` and check whether
+`completion_evidence.fix_iterations` is a string (as opposed to absent, or an integer):
+
+```bash
+uv run --with ruamel.yaml python3 - "{pm_state_root}" <<'PY'
+import sys
+from pathlib import Path
+from ruamel.yaml import YAML
+
+yaml = YAML(typ="safe")
+state_root = Path(sys.argv[1])
+hits = []
+for status in ("active", "planned", "archived"):
+    base = state_root / status
+    if not base.is_dir():
+        continue
+    for story_file in sorted(base.glob("epic-*/sprint-*/E*.yaml")):
+        node = yaml.load(story_file.read_text()) or {}
+        val = (node.get("completion_evidence") or {}).get("fix_iterations")
+        if isinstance(val, str):
+            hits.append(str(story_file))
+for h in hits:
+    print(h)
+print(f"TOTAL {len(hits)}")
+PY
+```
+- Any story with a string `fix_iterations` found → flag `redrive` · Priority: **Medium** ·
+  note count — same class as Check 11 (State/artifact drift): silent corruption of trusted
+  state that never blocks execution, but poisons downstream `estimate-story`/`estimate-rollup`
+  output for as long as it goes unrepaired.
+- No `{pm_state_root}` yet, or none found → ✓
+
 ### Step HC3 — Report findings
 
 Print the health check table. Use ✓ for passing checks, ⚠ for flagged items:
@@ -124,6 +168,7 @@ AI instruction references       ✓ Current                      —
 Migration backup files          ⚠ 1 .legacy file found         clean-legacy
 Epic directory padding          ⚠ 1 legacy epic-{nn}/ dir       rename-epic-dirs
 State/artifact drift            ⚠ 2 orphaned key(s)             — (report only)
+Calibration provenance           ⚠ 4 poisoned sample(s)         redrive
 ================================================================
 ```
 
@@ -174,7 +219,15 @@ Run each approved action in this fixed priority sequence (skip any that were not
 8. `sort-status`
 9. `harvest-debt`
 10. `update-ai-rules`
-11. `clean-legacy`
+11. `redrive`
+12. `clean-legacy`
+
+`redrive` must run after `migrate-state` — it walks the sharded state tree, which does not
+exist before that step — and after every other action that can add, move, or rewrite node
+files (`reconcile-status`, `layout-cleanup`, `sort-status`), so it rebuilds calibration
+samples from the most fully-corrected tree available. It runs before `clean-legacy` only
+because that step is the fixed final tidy-up; nothing about `redrive` depends on backup files
+still being present.
 
 Before each action, print a separator header:
 ```

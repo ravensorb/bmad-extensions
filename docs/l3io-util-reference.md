@@ -14,7 +14,7 @@ to a mode.
 Skill: `/l3io-util-doctor [command]`.
 
 > **Renamed in 2.1.0.** This skill was `l3io-util-cleanup` through 2.0.x. "Cleanup"
-> described about three of its fifteen modes, while the default behavior is a
+> described about three of its sixteen modes, while the default behavior is a
 > diagnose-report-repair health check. `/l3io-util-cleanup` still works — it forwards to
 > `/l3io-util-doctor` and prints a notice — but it is deprecated and will be removed in a
 > future release. Update any scripts or docs that invoke the old name.
@@ -58,6 +58,7 @@ Key settings (with defaults):
 | `reconcile-status` | Fixes placement/structure drift: misplaced epics, nested per-epic `backlog:` arrays (flatten to the top-level list), stale non-`backlog` items, empty epic shells. |
 | `sort-status` | Read-only. Validates zero-padded naming (`epic-{nnn}/`, `sprint-{nn}/`, `E{nnn}-S{nn}-{nnn}.yaml`) in the sharded state tree and reports misnamed entries. Performs no reordering and applies no fixes — ordering itself cannot drift under the sharded layout, since each node is its own file and zero-padded names already make directory-listing order the correct order. |
 | `layout-cleanup` | Reorganizes flat artifact files into the `epic-XX/sprint-YY` folder hierarchy, reconciles references, verifies state. |
+| `redrive` | Rebuilds the `scope` and `fix` calibration components from the story nodes on disk — repairs samples poisoned by a fixed defect that once stored `fix_iterations` as a string and misclassified them as `backout` instead of `exact`. Backs up the calibration file first (only if no backup already exists); `closure`, `orchestration`, and `token_mix` are untouched. Safe to run repeatedly. |
 
 ### Source & external sync
 
@@ -78,9 +79,9 @@ Key settings (with defaults):
 
 ## Project Health Check
 
-The default mode runs nine read-only checks, prints a findings table (✓ pass / ⚠ flagged), and — unless invoked as `check`/`status` — proposes the flagged actions in a fixed priority sequence behind a single confirmation:
+The default mode runs twelve read-only checks, prints a findings table (✓ pass / ⚠ flagged), and — unless invoked as `check`/`status` — proposes the flagged actions in a fixed priority sequence behind a single confirmation:
 
-`rename-active → migrate-schema → split-status → reconcile-status → layout-cleanup → sort-status → harvest-debt → update-ai-rules → clean-legacy`
+`rename-active → rename-epic-dirs → migrate-schema → split-status → migrate-state → reconcile-status → layout-cleanup → sort-status → harvest-debt → update-ai-rules → redrive → clean-legacy`
 
 Each executed action runs its full mode (dry-run + verify still shown); per-mode confirmations are suppressed since the user already confirmed. If any action fails, the sequence stops and reports.
 
