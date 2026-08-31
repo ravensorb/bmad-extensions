@@ -38,6 +38,20 @@ Extract and bind from the resolved JSON:
   leaving it unbound prices every estimate at `claude-opus-5` regardless of what the project
   actually runs on, and the same token volume prices ~2× apart between a $3/M and a $10/M
   input tier. An unknown id is a hard error, exit 2, never a silent fallback.
+- `{model_story_simple}` — `modules.l3io-pm.model_story_simple` (default `{model}`). Model
+  used when dispatching a story dev agent for a `classification: simple` story. Used as the
+  `model:` binding in the dispatch context block and as `--model` on that story's `set-actual`.
+- `{model_story_standard}` — `modules.l3io-pm.model_story_standard` (default `{model}`). Same
+  for `classification: standard` stories.
+- `{model_story_complex}` — `modules.l3io-pm.model_story_complex` (default `{model}`). Same
+  for `classification: complex` stories.
+- `{model_review}` — `modules.l3io-pm.model_review` (default `{model}`). Model used when
+  dispatching `bmad-code-review` from the dev loop. Passed through dispatch context so the dev
+  loop agent can use it when spawning the reviewer.
+- `{model_prep}` — `modules.l3io-pm.model_prep` (default `{model}`). Model for sprint prep
+  agents.
+- `{model_closure}` — `modules.l3io-pm.model_closure` (default `{model}`). Model for sprint
+  and epic closure agents.
 - `{token_rates_json}` — `modules.l3io-pm.token_rates`, serialized to compact JSON; empty
   when the key is absent, which is the normal case (the shipped rate table applies). When it
   is **non-empty**, add `--token-rates '{token_rates_json}'` to `estimate-story`,
