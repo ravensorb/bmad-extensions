@@ -418,6 +418,42 @@ function checkConfigValues() {
       }
     }
   }
+  // max_turns_per_story — only in pm-execute, pm-plan, pm-sync (pm-help omitted by design)
+  {
+    const seen = new Map();
+    for (const skill of ["l3io-pm-execute", "l3io-pm-plan", "l3io-pm-sync"]) {
+      const p = `skills/${skill}/customize.toml`;
+      if (!exists(p)) continue;
+      const v = tomlInt(read(p), "max_turns_per_story");
+      if (v !== null) seen.set(skill, v);
+    }
+    const values = new Set(seen.values());
+    if (values.size > 1) {
+      failures.push(
+        `customize.toml: 'max_turns_per_story' disagrees across PM skills — ` +
+          [...seen].map(([s, v]) => `${s}=${v}`).join(", "),
+      );
+    }
+    if (values.size === 1) {
+      const cap = [...values][0];
+      for (const doc of LIVE_DOCS) {
+        const text = read(doc)
+          .split("\n")
+          .filter((l) => l.includes("max_turns_per_story"))
+          .join("\n");
+        if (!text) continue;
+        for (const m of text.matchAll(/`(\d+)`/g)) {
+          checked += 1;
+          if (Number(m[1]) === cap) continue;
+          failures.push(
+            `${doc}: states max_turns_per_story default is ${m[1]}, ` +
+              `but customize.toml ships ${cap}\n      context: ${m[0]}`,
+          );
+        }
+      }
+    }
+  }
+
   if (verbose) console.log(`  config-values:  ${checked} restated value(s) checked against customize.toml`);
 }
 
