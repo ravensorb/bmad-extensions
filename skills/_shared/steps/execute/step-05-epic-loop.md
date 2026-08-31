@@ -247,7 +247,14 @@ pm_status: {pm_status}
 pm_state_root: {pm_state_root}
 pm_issues_file: {pm_issues_file}
 pm_calibration_file: {pm_calibration_file}
-model: {model}
+model: {model_prep}
+model_story_simple: {model_story_simple}
+model_story_standard: {model_story_standard}
+model_story_complex: {model_story_complex}
+model_review: {model_review}
+model_prep: {model_prep}
+model_closure: {model_closure}
+max_turns_per_story: {max_turns_per_story}
 token_rates_json: {token_rates_json}
 runtime: {runtime}
 session_id: {session_id}
@@ -272,6 +279,19 @@ a dependency it cannot satisfy as `BLOCKED` rather than re-queueing: with one st
 there is no queue left to reorder.
 
 For each `{story_key}` in that order:
+
+Before dispatching, read the story's `classification` field to select the correct model:
+
+```bash
+story_yaml=$(find {pm_state_root} -name "{story_key}.yaml" 2>/dev/null | head -1)
+story_classification=$(grep -m1 "^classification:" "$story_yaml" 2>/dev/null | awk '{print $2}' || echo "standard")
+```
+
+Resolve `{story_model}` from `{story_classification}`:
+- `simple`  → `{model_story_simple}`
+- `standard` → `{model_story_standard}`
+- `complex`  → `{model_story_complex}`
+- anything else (absent, unknown) → `{model}` (safe fallback — never blocks dispatch)
 
 ```bash
 python3 {pm_status} dispatch --state-root {pm_state_root} --event open \
@@ -301,7 +321,14 @@ pm_status: {pm_status}
 pm_state_root: {pm_state_root}
 pm_issues_file: {pm_issues_file}
 pm_calibration_file: {pm_calibration_file}
-model: {model}
+model: {story_model}
+model_story_simple: {model_story_simple}
+model_story_standard: {model_story_standard}
+model_story_complex: {model_story_complex}
+model_review: {model_review}
+model_prep: {model_prep}
+model_closure: {model_closure}
+max_turns_per_story: {max_turns_per_story}
 token_rates_json: {token_rates_json}
 runtime: {runtime}
 session_id: {session_id}
@@ -319,6 +346,10 @@ End with exactly one of:
   FAILED: [one-line reason]
 ```
 
+**Use `{story_model}` as the model parameter** when calling the Agent tool to spawn this story
+subagent. The context block's `model: {story_model}` binding is for pricing via `set-actual
+--model`; the Agent tool parameter is what determines which model actually runs.
+
 Close the bracket, then branch:
 - `DONE` → continue to the next story
 - `BLOCKED` → log it, stop dispatching stories in this sprint, and skip to 5c only if at
@@ -334,7 +365,8 @@ python3 {pm_status} dispatch --state-root {pm_state_root} --event open \
 ```
 
 Dispatch with the same context block as 5a, but `story_keys: [{story_keys}]` (the full sprint)
-and:
+and use `model: {model_closure}` (not `{model_prep}`) in the context block for closure. All other
+model_* bindings and `max_turns_per_story` are the same as §5a.
 
 ```
 Load and execute in order:

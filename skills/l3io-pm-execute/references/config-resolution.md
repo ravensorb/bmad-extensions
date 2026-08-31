@@ -65,6 +65,12 @@ Bind these at activation, applying the default when the key is absent:
 | `{implementation_artifacts}` | `modules.l3io-pm.implementation_artifacts` | `{output_folder}/implementation-artifacts` |
 | `{planning_artifacts}` | `modules.l3io-pm.planning_artifacts` | `{output_folder}/planning-artifacts` |
 | `{model}` | `modules.l3io-pm.default_model` | `claude-opus-5` (`DEFAULT_ESTIMATE_MODEL` in `pm-status.py`) |
+| `{model_story_simple}` | `modules.l3io-pm.model_story_simple` | `{model}` |
+| `{model_story_standard}` | `modules.l3io-pm.model_story_standard` | `{model}` |
+| `{model_story_complex}` | `modules.l3io-pm.model_story_complex` | `{model}` |
+| `{model_review}` | `modules.l3io-pm.model_review` | `{model}` |
+| `{model_prep}` | `modules.l3io-pm.model_prep` | `{model}` |
+| `{model_closure}` | `modules.l3io-pm.model_closure` | `{model}` |
 | `{token_rates_json}` | `modules.l3io-pm.token_rates`, **JSON-encoded** | empty — the shipped rate table applies unchanged |
 
 **`{model}` and `{token_rates_json}` are what make cost a real number rather than a
@@ -86,6 +92,10 @@ the specific mistake to avoid: `verify` recomputes `cost` from the node's own `t
 fails every node the override priced. Overrides merge per model rather than replacing the
 table, so a card for one model leaves the rest intact. `pm-status.py rates
 [--token-rates JSON]` prints the effective table if you need to confirm what is in force.
+
+`{max_turns_per_story}` is resolved from `customize.toml` `[workflow]` (not from BMad config) by
+the BMad harness at skill load time. It is carried in `{agent_contract}` as a soft turn cap for
+story dev agents. Default: `120`.
 
 `implementation_artifacts` and `planning_artifacts` deliberately resolve from the
 **`l3io-pm`** section for every module, not from each module's own section. All four

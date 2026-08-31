@@ -70,6 +70,8 @@ verbatim in **every** spawn prompt you issue:
   re-reads everything, finds nothing to do, and can arm another.
 - Every token you read is re-read on every later turn, so what you load costs
   turns × its size. Read what the task names; widen only with a reason.
+- Stay under {max_turns_per_story} turns for this story. As you approach the cap, skip
+  optional verification passes, write what you have completed, and end.
 - Your final line must be exactly one of `DONE — [brief metrics]`,
   `BLOCKED: [one-line reason]`, or `FAILED: [one-line reason]`.
 ```
