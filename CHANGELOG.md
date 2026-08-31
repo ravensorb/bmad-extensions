@@ -2,6 +2,34 @@
 
 All notable changes to this project will be documented in this file. See [commit-and-tag-version](https://github.com/absolute-version/commit-and-tag-version) for commit guidelines.
 
+## [2.4.12](https://github.com/ravensorb/bmad-extensions/compare/2.4.11...2.4.12) (2026-08-31)
+
+
+### Features
+
+* **l3io-pm:** add max_turns_per_story soft cap to customize.toml ([e7f5780](https://github.com/ravensorb/bmad-extensions/commit/e7f578027414ccebe028ad8155a6371aeb101adb))
+* **l3io-pm:** add per-story turn cap to agent_contract ([c71b393](https://github.com/ravensorb/bmad-extensions/commit/c71b393695fd1cb60d947e75e68776807682d83b))
+* **l3io-pm:** bind six per-role model keys at activation ([9543eb8](https://github.com/ravensorb/bmad-extensions/commit/9543eb8ae87e22d67fbf4d30208dc1fef97e3456))
+* **l3io-pm:** model_review routing and two-tier test strategy in dev loop ([32f3518](https://github.com/ravensorb/bmad-extensions/commit/32f3518b99b1219f279241d0ede42f03c481696d))
+* **l3io-pm:** per-role model routing in epic loop dispatch (prep/story/closure) ([fdf0993](https://github.com/ravensorb/bmad-extensions/commit/fdf099371f0fa37c3b1f385278549858b6cd1378))
+
+
+### Fixes
+
+* **ci:** guard max_turns_per_story doc quote in check:docs config-values check ([257bd5c](https://github.com/ravensorb/bmad-extensions/commit/257bd5cd82e4fe7c545a79167c69727326880726))
+
+
+### Documentation
+
+* add cost-optimization model routing and turn-reduction design spec ([ff9be88](https://github.com/ravensorb/bmad-extensions/commit/ff9be8809adc1d9396e130f4bc320d12ac709424))
+* add implementation plan for cost optimization model routing ([60d1793](https://github.com/ravensorb/bmad-extensions/commit/60d179325b993404f9a82b21f5dab31ff8ad1bb4))
+* **l3io-pm:** document per-role model routing config keys and turn cap binding ([b57d49d](https://github.com/ravensorb/bmad-extensions/commit/b57d49d8469ed037668a4bf669a87dabe5fdd4e3))
+
+
+### Maintenance
+
+* **l3io-pm:** sync shared steps and regenerate manifests after model routing changes ([4d0884e](https://github.com/ravensorb/bmad-extensions/commit/4d0884eb11c817355ee19c772ad23736be75727c))
+
 ## [2.4.11](https://github.com/ravensorb/bmad-extensions/compare/2.4.10...2.4.11) (2026-08-29)
 
 
