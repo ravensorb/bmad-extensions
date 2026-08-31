@@ -53,7 +53,7 @@ For a single IDE, use just that code, e.g. `--tools claude-code` or `--tools git
 Interactive path: `npx bmad-method install` -> Community modules -> `bmad-l3io-extensions`
 (the installer prompts for which IDEs to target).
 
-After install, each module auto-configures on first use — no explicit setup step required.
+After install, run `/l3io-util-doctor` once to initialize the runtime and verify your project state. See [Getting started](docs/getting-started.md) for the full guide.
 
 ### Upgrading
 
@@ -71,8 +71,6 @@ applies every migration you need, in order, behind one confirmation.
 
 See **[Upgrading](docs/upgrading.md)** for version-by-version notes, the full migration
 sequence, backups and rollback, and current deprecations.
-
-See [docs/getting-started.md](docs/getting-started.md) for a full installation and first-run walkthrough.
 
 ## Why This Extension Exists
 
