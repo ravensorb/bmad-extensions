@@ -559,7 +559,7 @@ const DIGEST_FILE = "skills/_shared/steps/shared/step-00-digest.md";
 // costs" section (~900 B) against a 10,396 B baseline, rather than raised twice. A
 // budget that yields once per commit is not a budget. Deliberate, per the
 // raise-and-say-why instruction in the failure message below.
-const DIGEST_BUDGET = 12400;
+const DIGEST_BUDGET = 12600; // raised 200 B: agent_contract gains one turn-cap rule (159 B), load-bearing for subagents that cannot separately load references
 
 function checkDigestSize() {
   if (!exists(DIGEST_FILE)) {

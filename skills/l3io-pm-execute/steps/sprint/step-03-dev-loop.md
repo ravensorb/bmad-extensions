@@ -162,6 +162,9 @@ Spawn `bmad-code-review` subagent with:
   put the findings themselves in your reply: they land in the orchestrator's context, which
   outlives this story and re-reads everything in it on every later turn.
 - `{agent_contract}` (verbatim — see `steps/shared/step-00-digest.md`)
+- **Use `{model_review}` as the model parameter** when calling the Agent tool. The context
+  block already received `model_review: {model_review}` from the epic loop dispatch; use it
+  here. If the context block does not carry `model_review`, fall back to `{model}`.
 
 ```bash
 python3 {pm_status} dispatch --state-root {pm_state_root} --event close \
@@ -312,14 +315,30 @@ closes `tests_passing: true` with both runs still visible. A *different* command
 run is non-zero still derives `false`, however many other suites are green — re-running one
 suite never speaks for another.
 
+**Two-tier test strategy — fix iterations vs. final verification.**
+
+**During fix iterations** (each bmad-dev-story re-dispatch in §3): run only the tests covering
+the files you changed. Use the project's per-module test command, a pattern-matched test file
+path, or the narrowest scope you can establish with confidence. Do not run the full test suite
+during a fix pass — each full-suite run executes at the deepest, most expensive point in the
+session and is re-read on every subsequent turn.
+
+**After the final iteration — or if no fix was needed:** run the full test suite once before
+writing completion evidence. This is the single mandatory full-suite run per story agent session.
+
+**Cap:** the full test suite runs at most once per story agent session, regardless of how many
+fix iterations occurred. If you ran the full suite at the end of a fix iteration and no
+further iteration was needed, that run is the final verification — do not re-run it.
+
 **Determining the required set.** Work from the files this story changed, in this order:
 
 1. If the project maps areas to test commands — a per-package script, a suite whose path
    mirrors the source tree, a command documented in `CLAUDE.md` or the README — run the
-   commands covering the changed files.
-2. If you cannot establish that mapping with confidence, **run the project's full test
-   command** and record it. Full-suite is the fallback, not the exception: guessing a
-   narrower set is the failure this step exists to prevent.
+   commands covering the changed files during fix iterations, or all commands for final
+   verification.
+2. If you cannot establish a scoped mapping for the fix-iteration run with confidence, **skip
+   the scoped run during that iteration** — do not substitute the full suite. Run the full
+   suite only once at final verification.
 3. Record every command you ran, including ones that failed. A failing run belongs in the
    record — it is what makes the derived boolean mean anything.
 
