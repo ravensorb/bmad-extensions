@@ -3287,9 +3287,10 @@ def cmd_set_actual(args) -> int:
     if args.tokens_na and given:
         _die_usage("--tokens-na cannot be combined with explicit token counts")
     if args.tokens_na:
-        if args.runtime == "claude":
-            _die_usage("runtime=claude forbids tokens=N/A — capture the exact per-class "
-                       "counts from the session transcript (see metrics-contract.md §3)")
+        if args.runtime in ("claude", "codex"):
+            _die_usage(f"runtime={args.runtime} forbids tokens=N/A — capture the exact "
+                       f"per-class counts from the session transcript "
+                       f"(see metrics-contract.md §3)")
         provided["tokens_k"] = "N/A"
         provided["cost"] = "N/A"
     elif given:
@@ -3313,6 +3314,19 @@ def cmd_set_actual(args) -> int:
                 "cache_read_input_tokens from the session transcript's usage fields "
                 "(metrics-contract.md §3); pass an explicit 0 for a class that really "
                 "is zero.")
+        if args.runtime == "codex":
+            required_cx = ("input", "output", "cache_read")
+            missing_cx = [c for c in required_cx if c not in given]
+            if missing_cx:
+                _die_usage(
+                    "runtime=codex requires --tokens-input, --tokens-output, and "
+                    "--tokens-cache-read (read from rollout-*.jsonl token_count events — "
+                    "see metrics-contract.md §3). Missing: "
+                    + ", ".join("--tokens-" + m.replace("_", "-") for m in missing_cx)
+                    + ". Note: --tokens-cache-write defaults to 0 (Codex CLI drops "
+                    "cache_write_tokens; see github.com/openai/codex/issues/32479).")
+            if "cache_write" not in given:
+                given["cache_write"] = "0"
         if not args.model:
             _die_usage("--model is required whenever token counts are given — the same "
                        "token count prices 2x apart between a $5/M and a $10/M tier")
@@ -4579,8 +4593,13 @@ def cmd_verify(args) -> int:
                 problems.append(f"actual.{m}={val!r} (must be numeric)")
         else:  # tokens_k, cost
             if _is_na(val):
-                if args.require_tokens or args.runtime == "claude":
-                    problems.append(f"actual.{m}=N/A (forbidden under runtime=claude / --require-tokens)")
+                copilot_cost_na = (args.runtime == "copilot" and m == "cost")
+                if not copilot_cost_na and (
+                    args.require_tokens or args.runtime in ("claude", "codex", "copilot")
+                ):
+                    problems.append(
+                        f"actual.{m}=N/A (forbidden under runtime={args.runtime} "
+                        f"/ --require-tokens)")
 
     # tokens_k, once structured, is self-verifying: its total must equal the sum
     # of its four classes, and its cost must equal what those tokens price out to
@@ -4632,10 +4651,10 @@ def cmd_verify(args) -> int:
         # scalar form stays legitimate under runtime=other (set-estimate writes
         # it, and a runtime with no per-class visibility has nothing better), so
         # this fires only where exact per-class capture is required.
-        if args.require_tokens or args.runtime == "claude":
+        if args.require_tokens or args.runtime in ("claude", "codex"):
             problems.append(
                 f"actual.tokens_k={tk!r} is not the per-class mapping — cost cannot be "
-                f"verified against it. Re-capture the four classes with set-actual "
+                f"verified against it. Re-capture with set-actual "
                 f"--tokens-input/--tokens-output/--tokens-cache-write/--tokens-cache-read "
                 f"and --model (metrics-contract.md §3)")
 

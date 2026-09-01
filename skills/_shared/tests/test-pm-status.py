@@ -5680,5 +5680,97 @@ class TestRuntimeChoices(TestLayoutResolution):
             )
 
 
+class TestCodexRuntime(TestLayoutResolution):
+    """T-CX: --runtime codex enforcement in set-actual and verify."""
+
+    def run_main(self, argv):
+        out_buf = io.StringIO()
+        err_buf = io.StringIO()
+        try:
+            with redirect_stdout(out_buf), redirect_stderr(err_buf):
+                code = pm.main(argv)
+        except SystemExit as e:
+            code = e.code
+        return code, out_buf.getvalue() + err_buf.getvalue()
+
+    def _set(self, *extra):
+        return self.run_main([
+            "set-actual", "--state-root", self.root, "--node", "story",
+            "--story", "E001-S01-003", "--runtime", "codex", "--no-calibrate",
+            "--elapsed-hours", "2.0", "--man-hours", "8.0", "--hitl-hours", "0.5",
+        ] + list(extra))
+
+    def _verify(self, *extra):
+        return self.run_main([
+            "verify", "--state-root", self.root, "--scope", "story",
+            "--story", "E001-S01-003", "--runtime", "codex",
+        ] + list(extra))
+
+    def test_tokens_na_forbidden_under_codex(self):
+        code, out = self._set("--tokens-na")
+        self.assertEqual(code, 2)
+        self.assertIn("codex", out)
+
+    def test_codex_requires_input_output_cache_read(self):
+        # missing --tokens-cache-read
+        code, out = self._set(
+            "--tokens-input", "100", "--tokens-output", "20", "--model", "codex-1",
+        )
+        self.assertEqual(code, 2)
+        self.assertIn("cache-read", out)
+
+    def test_codex_cache_write_defaults_to_zero(self):
+        # omitting --tokens-cache-write should succeed; cache_write stored as 0
+        code, out = self._set(
+            "--tokens-input", "100", "--tokens-output", "20",
+            "--tokens-cache-read", "300", "--model", "codex-1",
+        )
+        self.assertEqual(code, 0, out)
+        _, node = pm.load_node(pm.story_file(self.root, "E001-S01-003"))
+        tk = node["actual"]["tokens_k"]
+        self.assertEqual(int(tk["cache_write"]), 0)
+        self.assertEqual(int(tk["total"]), 420)  # 100+20+0+300
+
+    def test_codex_derives_cost_from_three_classes(self):
+        code, out = self._set(
+            "--tokens-input", "100", "--tokens-output", "20",
+            "--tokens-cache-read", "300", "--model", "codex-1",
+        )
+        self.assertEqual(code, 0, out)
+        _, node = pm.load_node(pm.story_file(self.root, "E001-S01-003"))
+        # cost = (100*5 + 20*30 + 0*6.25 + 300*2.5) / 1000 = (500+600+0+750)/1000 = 1.85
+        self.assertAlmostEqual(float(node["actual"]["cost"]), 1.85, places=2)
+
+    def test_verify_fails_on_scalar_tokens_under_codex(self):
+        # Write a node with scalar tokens_k (like TestVerifyRejectsScalarTokens does),
+        # then verify under codex — scalar form must fail for codex just as for claude.
+        f = pm.story_file(self.root, "E001-S01-003")
+        y, node = pm.load_node(f)
+        node["status"] = "done"
+        node["completion_evidence"] = {"fix_iterations": 0}
+        node["actual"] = {
+            "elapsed_hours": 2.0, "man_hours": 8.0, "hitl_hours": 0.5,
+            "tokens_k": 420, "cost": "N/A", "model": "codex-1",
+        }
+        pm.save_node(y, node, f)
+        code, out = self._verify()
+        self.assertEqual(code, 4)
+        self.assertIn("not the per-class mapping", out)
+
+    def test_verify_na_tokens_fails_under_codex(self):
+        # Write tokens_k=N/A to a done node, then verify — N/A is forbidden under codex.
+        f = pm.story_file(self.root, "E001-S01-003")
+        y, node = pm.load_node(f)
+        node["status"] = "done"
+        node["completion_evidence"] = {"fix_iterations": 0}
+        node["actual"] = {
+            "elapsed_hours": 2.0, "man_hours": 8.0, "hitl_hours": 0.5,
+            "tokens_k": "N/A", "cost": "N/A", "model": "codex-1",
+        }
+        pm.save_node(y, node, f)
+        code, _ = self._verify()
+        self.assertEqual(code, 4)
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)
