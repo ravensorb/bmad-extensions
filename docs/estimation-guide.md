@@ -230,6 +230,36 @@ If your project negotiates different rates, set `modules.l3io-pm.token_rates` in
 
 ---
 
+## Cross-runtime planning
+
+A project planned on one runtime and executed on another works correctly at the data level — each node stores its own `estimate.model` and `actual.model` independently, and `verify` always prices against the actual's model. However, estimate costs and actual costs are denominated in different rate tables and are not directly comparable.
+
+**What you will see when models differ:**
+
+`set-actual` appends a note to its OK line:
+```
+OK set-actual E001-S01-003 [...] [model mismatch: estimated at 'claude-opus-5', executed at 'gpt-5.6-terra' — costs not comparable]
+```
+
+`verify` emits a WARN line before PASS/FAIL (exit code unchanged):
+```
+WARN E001-S01-003: estimate.model='claude-opus-5' ≠ actual.model='gpt-5.6-terra' — estimate cost denominated in claude-opus-5 rates
+```
+
+Neither blocks the write or changes the outcome — both are informational.
+
+**Calibration impact.** Token and cost calibration samples are skipped when values are `N/A` (Copilot, `--runtime other`). When two runtimes both produce real token counts (e.g. Claude and Codex), scope-metric buckets collect samples from both; `calibration show` warns when this mixing is detected:
+
+```
+WARN: scope calibration contains mixed-model samples — ratios may be unreliable.
+Consider `calibration redrive` after settling on one model:
+  standard/elapsed_hours (claude-opus-5, gpt-5.6-terra)
+```
+
+If a project switches runtimes mid-stream, run `calibration redrive` once the new runtime is established to rebuild scope and fix ratios from story nodes — closure and token_mix are unaffected by redrive.
+
+**`man_hours` and `hitl_hours` calibrate normally on every runtime** and are not affected by model mismatch.
+
 ## Calibration overview
 
 Every successful `set-actual` call derives a plan-vs-actual sample and appends it to `{implementation_artifacts}/state/pm-calibration.yaml`. After three samples in a component and classification, the system activates that component's learned ratio and applies it to future estimates automatically.

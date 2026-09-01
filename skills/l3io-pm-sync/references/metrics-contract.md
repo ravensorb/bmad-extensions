@@ -113,7 +113,7 @@ or cache-hit-rate mix shift visible. `TOKEN_CLASSES` is `("input", "output", "ca
 more than $0.005 (§5) — a hand-edited `cost` cannot survive `verify`.
 
 **Rate table.** `TOKEN_RATES` in `pm-status.py` is a per-model, per-class USD-per-million-token
-table (Anthropic first-party rates). It is overridable via `modules.l3io-pm.token_rates`
+table (Anthropic and OpenAI first-party API rates). It is overridable via `modules.l3io-pm.token_rates`
 (merged in, not replaced — an override for one model does not blank the rest) and reaches the
 CLI as `--token-rates '<json>'` on `set-actual`, `set-estimate`* , `estimate-story`,
 `estimate-rollup`, `verify`, and `rates`. An unknown model is a hard error (`KeyError`, exit
@@ -563,6 +563,15 @@ Exit codes (identical across all subcommands):
 | `3` | Node not found |
 | `4` | Verification failure (missing/invalid field, cost/token mismatch, or structural mismatch) |
 | `5` | Epic locked by another session |
+
+**Planning-vs-execution model mismatch.** When `estimate.model` and `actual.model` both exist
+but differ (e.g. the node was estimated with `claude-opus-5` and executed with `gpt-5.6-terra`),
+`set-actual` appends a bracketed note to its OK line and `verify` emits a `WARN` line before
+PASS/FAIL. Neither blocks the write nor changes the exit code — the annotation is informational.
+The estimate cost is denominated in the planning model's rates; the actual cost is denominated in
+the execution model's rates; they are not directly comparable. Calibration records which models
+contributed to each scope-metric bucket (`models_seen`) and `calibration show` warns when a
+bucket contains mixed-model samples. See `docs/estimation-guide.md §Cross-runtime planning`.
 
 ### What is *not* enforced
 
