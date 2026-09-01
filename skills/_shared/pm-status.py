@@ -3295,8 +3295,27 @@ def cmd_set_actual(args) -> int:
                        "output_tokens+reasoning_output_tokens, and cached_input_tokens "
                        "from rollout-*.jsonl token_count events "
                        "(see metrics-contract.md §3)")
+        elif args.runtime == "copilot":
+            _die_usage("runtime=copilot forbids tokens=N/A — pass --tokens-input "
+                       "(prompt_tokens) and --tokens-output (completion_tokens) summed "
+                       "across the node's dispatch window (see metrics-contract.md §3)")
         provided["tokens_k"] = "N/A"
         provided["cost"] = "N/A"
+    elif args.runtime == "copilot":
+        # Copilot exposes prompt_tokens (input) and completion_tokens (output) only.
+        # No cache class split is accessible to the agent, so cost cannot be accurately
+        # priced — store the total as a scalar and cost as N/A.
+        inp = _num_or_none(args.tokens_input)
+        out_t = _num_or_none(args.tokens_output)
+        if inp is None or out_t is None:
+            _die_usage(
+                "runtime=copilot requires --tokens-input (prompt_tokens) and "
+                "--tokens-output (completion_tokens) — read these from each API "
+                "response's usage object and sum across the node's dispatch window "
+                "(see metrics-contract.md §3). --tokens-na is forbidden.")
+        total = inp + out_t
+        provided["tokens_k"] = int(total) if float(total).is_integer() else round(total, 2)
+        provided["cost"] = "N/A"  # no class split → cannot price accurately
     elif given:
         # Under runtime=claude an incomplete class set is a usage error, not a
         # zero-fill. `tokens_block` defaults an omitted class to 0, `total` sums
