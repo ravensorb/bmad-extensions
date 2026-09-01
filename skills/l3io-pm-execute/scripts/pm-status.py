@@ -42,7 +42,7 @@ Subcommands
                 overrides its rate card;
                 cost is DERIVED from tokens x rates — --cost is declared but always rejected)
                 [--tokens-na]   (in place of --tokens-*; runtime=other only, forbidden under runtime=claude)
-                [--runtime {claude,other}] [--flock] [--no-events] [--session-id ID]
+                [--runtime {claude,codex,copilot,other}] [--flock] [--no-events] [--session-id ID]
                 [--no-calibrate]
                 (derives the node's calibration sample inline — write
                 completion_evidence.fix_iterations BEFORE this call, or the scope/fix
@@ -1971,6 +1971,11 @@ TOKEN_RATES = {
     "claude-sonnet-5":    {"input": 3.00,  "output": 15.00, "cache_write": 3.75,  "cache_read": 0.30},
     "claude-sonnet-4-6":  {"input": 3.00,  "output": 15.00, "cache_write": 3.75,  "cache_read": 0.30},
     "claude-haiku-4-5":   {"input": 1.00,  "output": 5.00,  "cache_write": 1.25,  "cache_read": 0.10},
+    # OpenAI / Codex — verify at https://openai.com/api/pricing before use
+    "codex-1":            {"input": 5.00,  "output": 30.00, "cache_write": 6.25,  "cache_read": 2.50},
+    "gpt-5":              {"input": 5.00,  "output": 30.00, "cache_write": 6.25,  "cache_read": 2.50},
+    "gpt-5.4":            {"input": 2.50,  "output": 10.00, "cache_write": 3.13,  "cache_read": 1.25},
+    "gpt-5.6":            {"input": 5.00,  "output": 30.00, "cache_write": 6.25,  "cache_read": 2.50},
 }
 
 
@@ -3285,8 +3290,32 @@ def cmd_set_actual(args) -> int:
         if args.runtime == "claude":
             _die_usage("runtime=claude forbids tokens=N/A — capture the exact per-class "
                        "counts from the session transcript (see metrics-contract.md §3)")
+        elif args.runtime == "codex":
+            _die_usage("runtime=codex forbids tokens=N/A — capture input_tokens, "
+                       "output_tokens+reasoning_output_tokens, and cached_input_tokens "
+                       "from rollout-*.jsonl token_count events "
+                       "(see metrics-contract.md §3)")
+        elif args.runtime == "copilot":
+            _die_usage("runtime=copilot forbids tokens=N/A — pass --tokens-input "
+                       "(prompt_tokens) and --tokens-output (completion_tokens) summed "
+                       "across the node's dispatch window (see metrics-contract.md §3)")
         provided["tokens_k"] = "N/A"
         provided["cost"] = "N/A"
+    elif args.runtime == "copilot":
+        # Copilot exposes prompt_tokens (input) and completion_tokens (output) only.
+        # No cache class split is accessible to the agent, so cost cannot be accurately
+        # priced — store the total as a scalar and cost as N/A.
+        inp = _num_or_none(args.tokens_input)
+        out_t = _num_or_none(args.tokens_output)
+        if inp is None or out_t is None:
+            _die_usage(
+                "runtime=copilot requires --tokens-input (prompt_tokens) and "
+                "--tokens-output (completion_tokens) — read these from each API "
+                "response's usage object and sum across the node's dispatch window "
+                "(see metrics-contract.md §3). --tokens-na is forbidden.")
+        total = inp + out_t
+        provided["tokens_k"] = int(total) if float(total).is_integer() else round(total, 2)
+        provided["cost"] = "N/A"  # no class split → cannot price accurately
     elif given:
         # Under runtime=claude an incomplete class set is a usage error, not a
         # zero-fill. `tokens_block` defaults an omitted class to 0, `total` sums
@@ -3308,6 +3337,19 @@ def cmd_set_actual(args) -> int:
                 "cache_read_input_tokens from the session transcript's usage fields "
                 "(metrics-contract.md §3); pass an explicit 0 for a class that really "
                 "is zero.")
+        if args.runtime == "codex":
+            required_cx = ("input", "output", "cache_read")
+            missing_cx = [c for c in required_cx if c not in given]
+            if missing_cx:
+                _die_usage(
+                    "runtime=codex requires --tokens-input, --tokens-output, and "
+                    "--tokens-cache-read (read from rollout-*.jsonl token_count events — "
+                    "see metrics-contract.md §3). Missing: "
+                    + ", ".join("--tokens-" + m.replace("_", "-") for m in missing_cx)
+                    + ". Note: --tokens-cache-write defaults to 0 (Codex CLI drops "
+                    "cache_write_tokens; see github.com/openai/codex/issues/32479).")
+            if "cache_write" not in given:
+                given["cache_write"] = "0"
         if not args.model:
             _die_usage("--model is required whenever token counts are given — the same "
                        "token count prices 2x apart between a $5/M and a $10/M tier")
@@ -4574,8 +4616,13 @@ def cmd_verify(args) -> int:
                 problems.append(f"actual.{m}={val!r} (must be numeric)")
         else:  # tokens_k, cost
             if _is_na(val):
-                if args.require_tokens or args.runtime == "claude":
-                    problems.append(f"actual.{m}=N/A (forbidden under runtime=claude / --require-tokens)")
+                copilot_cost_na = (args.runtime == "copilot" and m == "cost")
+                if not copilot_cost_na and (
+                    args.require_tokens or args.runtime in ("claude", "codex", "copilot")
+                ):
+                    problems.append(
+                        f"actual.{m}=N/A (forbidden under runtime={args.runtime} "
+                        f"/ --require-tokens)")
 
     # tokens_k, once structured, is self-verifying: its total must equal the sum
     # of its four classes, and its cost must equal what those tokens price out to
@@ -4627,10 +4674,10 @@ def cmd_verify(args) -> int:
         # scalar form stays legitimate under runtime=other (set-estimate writes
         # it, and a runtime with no per-class visibility has nothing better), so
         # this fires only where exact per-class capture is required.
-        if args.require_tokens or args.runtime == "claude":
+        if args.require_tokens or args.runtime in ("claude", "codex"):
             problems.append(
                 f"actual.tokens_k={tk!r} is not the per-class mapping — cost cannot be "
-                f"verified against it. Re-capture the four classes with set-actual "
+                f"verified against it. Re-capture with set-actual "
                 f"--tokens-input/--tokens-output/--tokens-cache-write/--tokens-cache-read "
                 f"and --model (metrics-contract.md §3)")
 
@@ -4731,7 +4778,7 @@ def build_parser() -> argparse.ArgumentParser:
     a.add_argument("--token-rates", dest="token_rates", default="",
                    help="JSON object of per-model rate overrides")
     a.add_argument("--cost", default=None, help=argparse.SUPPRESS)
-    a.add_argument("--runtime", choices=["claude", "other"], default="other")
+    a.add_argument("--runtime", choices=["claude", "codex", "copilot", "other"], default="other")
     a.add_argument("--flock", action="store_true", help="acquire exclusive flock before write")
     a.add_argument("--no-calibrate", dest="no_calibrate", action="store_true",
                    help="skip calibration sampling (backfills, replays)")
@@ -4746,7 +4793,7 @@ def build_parser() -> argparse.ArgumentParser:
     v.add_argument("--scope", required=True, choices=["story", "sprint", "epic"])
     node_args(v)
     v.add_argument("--require-tokens", action="store_true")
-    v.add_argument("--runtime", choices=["claude", "other"], default="other")
+    v.add_argument("--runtime", choices=["claude", "codex", "copilot", "other"], default="other")
     v.add_argument("--token-rates", dest="token_rates", default="",
                    help="JSON object of per-model rate overrides")
     v.set_defaults(func=cmd_verify)

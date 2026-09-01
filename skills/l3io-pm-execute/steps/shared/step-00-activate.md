@@ -90,18 +90,38 @@ Bind `{pm_status}` = `{project-root}/_bmad/scripts/pm-status.py` for use in all
 subsequent steps.
 
 Bind `{runtime}` — passed as `--runtime` to every `set-actual` and `verify` call
-(`references/metrics-contract.md` §3). The value must be **exactly** `claude` or
-`other` — `pm-status.py` declares `--runtime` with `choices=["claude", "other"]` and
-rejects anything else with exit 2, so never widen this to a runtime name or version
-string. The criterion is a capability, not a brand check: bind `claude` only when this
-execution can read its own session transcript's `usage` fields to capture exact
-`tokens_k`/`cost` for the session (Claude Code, or any Claude-based agent with that
-transcript access); bind `other` otherwise. **Default to `other` when uncertain** — it
-is the permissive value, allowing `N/A` for `tokens_k`/`cost`, while `claude` forbids
-`N/A` there; guessing `claude` without the ability to produce exact figures would either
-block every write or invite a fabricated number, and both are worse than an honest
-`N/A`. Do not treat this default as a bug to "fix" later — it is the deliberate
-fail-safe direction.
+(`references/metrics-contract.md` §3). The value must be **exactly** one of `claude`,
+`codex`, `copilot`, or `other` — `pm-status.py` rejects anything else with exit 2.
+The criterion is a **capability**, not a brand check: choose the value whose token capture
+procedure you can actually execute.
+
+**Detection procedure:**
+
+1. **`claude`** — bind when `$CLAUDE_CODE_SESSION_ID` is set in the environment. This is the
+   Claude Code session identifier; its presence means the `pm-status.py usage` subcommand can
+   read the session transcript to extract exact per-class token counts.
+
+2. **`codex`** — bind when running inside Codex CLI and session JSONL files are available at
+   `~/.codex/sessions/`. Confirmation: `ls ~/.codex/sessions/ 2>/dev/null | head -1` returns a
+   session directory. Token capture reads `token_count` events from `rollout-*.jsonl`; sum
+   `input_tokens`, `output_tokens` + `reasoning_output_tokens` (folded into output),
+   and `cached_input_tokens` (→ `cache_read`); `cache_write` is `0` (Codex CLI drops this
+   field — see metrics-contract.md §3).
+
+3. **`copilot`** — bind when running inside a GitHub Copilot agent session (VS Code Copilot
+   extension or Copilot Cloud Agent) where `$CLAUDE_CODE_SESSION_ID` is absent and Codex CLI
+   session files are not present. Token capture sums `usage.prompt_tokens` (→ input) and
+   `usage.completion_tokens` (→ output) across every API response in the node's dispatch
+   window. No cache split is accessible; cost is recorded as N/A.
+
+4. **`other`** — bind in all other cases, including when token data is genuinely not observable.
+   Tokens and cost are recorded as N/A; `man_hours`, `hitl_hours`, and `elapsed_hours` are
+   still required as real numbers.
+
+**Default to `other` when uncertain** — it is the permissive value, allowing N/A for
+tokens/cost. Guessing `claude` without transcript access, or `codex` without readable session
+files, would either block every write (exit 2 on `--tokens-na`) or invite a fabricated number,
+and both are worse than an honest N/A.
 
 ## 3. Detect state layout
 
