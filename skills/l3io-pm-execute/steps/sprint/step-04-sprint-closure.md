@@ -195,7 +195,29 @@ That file is a generated view and says so in its own header. Never hand-edit it;
 Both commands are read-only with respect to state — a failure in either is a reporting problem,
 so note it in one line and continue to the exit status line rather than failing the sprint.
 
-## 9. Required exit status line
+## 9. Commit checkpoint
+
+Commit state and artifact changes before moving to the next sprint. Sprint closure writes
+calibration samples to `state/pm-calibration.yaml` and actuals to the sprint YAML — these
+records would be lost if the working tree were reset or a session died before the next commit.
+
+```bash
+git add {implementation_artifacts}/state/ \
+        {implementation_artifacts}/epic-{epic_num}/ \
+        {planning_artifacts}/
+git status --short
+```
+
+Review the staged files, then commit:
+
+```bash
+git commit -s -m "chore({epic_key}): close sprint {sprint_key} — {story_count} stories"
+```
+
+If any unrelated files appear in `git status`, stage only the state and artifact paths explicitly.
+If nothing is staged (all files already committed), skip the commit.
+
+## 10. Required exit status line
 
 ```
 DONE — Stories: {N}, Issues resolved: {N_resolved}, Issues deferred: {N_deferred}
