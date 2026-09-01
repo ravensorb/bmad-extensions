@@ -7,6 +7,51 @@ Bind `{readiness}` to the gate result before loading the next step.
 
 ---
 
+## 0. Pre-scan: artifact-only story detection
+
+Before reading state, check whether the artifact tree holds story `.md` files that have
+no corresponding state YAML. Runs for every `{work_type}`.
+
+```bash
+find {implementation_artifacts}/epic-*/sprint-*/stories -name 'E*.md' 2>/dev/null | sort
+```
+
+For each `.md` file found at path
+`{implementation_artifacts}/epic-{nnn}/sprint-{nn}/stories/{story_key}.md`:
+
+Check whether a state YAML exists for that key anywhere in the state tree:
+
+```bash
+find {pm_state_root}/active {pm_state_root}/planned {pm_state_root}/archived \
+  -name "{story_key}.yaml" 2>/dev/null | head -1
+```
+
+If the `find` prints nothing, the story has an artifact but no state node — collect it as
+an **artifact-only** story.
+
+If **any artifact-only stories are found**, halt immediately with `{readiness}` = `red`:
+
+```
+🔴 Readiness check FAILED — {count} story artifact(s) have no state node.
+
+These stories exist as .md files in the artifact tree but have no corresponding
+state YAML under {pm_state_root}/. l3io-pm-plan reads state only, so these stories
+are invisible to planning, estimation, and execution.
+
+Artifact-only stories:
+{list each: {implementation_artifacts}/epic-{nnn}/sprint-{nn}/stories/{story_key}.md}
+
+Fix: run /l3io-util-doctor bootstrap-state to create state nodes from your artifact
+files. This is a one-time step for projects whose stories were created outside l3io-pm
+(e.g. via bmad-create-story without going through l3io-pm-plan).
+```
+
+BLOCKED: artifact-only stories detected — run `/l3io-util-doctor bootstrap-state` first.
+
+If no artifact-only stories are found (or no `.md` files exist at all), continue to §1.
+
+---
+
 ## 1. Collect stories in scope
 
 Read all stories from:
