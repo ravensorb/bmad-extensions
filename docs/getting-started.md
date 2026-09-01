@@ -176,8 +176,10 @@ Same skill, epic scope:
 ```
 
 Omit the argument entirely to run the whole plan in phase order. Sprints must already exist in
-state (created by `/l3io-pm-plan` or manually) before an epic run — the orchestrator does not
-group stories into sprints or ask you to split them.
+state before an epic run — the orchestrator does not group stories into sprints or ask you
+to split them. State is created by `/l3io-pm-plan` (recommended) or by
+`/l3io-util-doctor bootstrap-state` for projects whose stories were created via
+`bmad-create-story` without going through l3io-pm-plan.
 
 The orchestrator dispatches each pending sprint in order. For each sprint it dispatches
 *headless* subagent invocations of itself — **one to prep the sprint, one per story, and one to close the sprint** — with no grouping prompt and no per-sprint scope-confirmation prompt — then runs epic-level closure after all sprints complete.

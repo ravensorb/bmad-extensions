@@ -1,6 +1,6 @@
 ---
 name: l3io-util-doctor
-description: Migration and housekeeping utilities for BMad artifacts and l3io-pm state. Use when the user needs to migrate a legacy state layout (flat sprint-status.yaml, or legacy per-epic _bmad/state/) to the current sharded state tree, reorganize legacy flat artifact outputs into the structured epic/sprint folder layout, harvest deferred-shortcut code markers into the issues backlog, validate zero-padded naming in the state tree, review the issues backlog or a plan-aware progress dashboard, or update AI system instruction files to describe the current state layout. Also carries older legacy-only bridging modes (migrate-schema, split-status, reconcile-status) for repos that have not yet migrated. Run without arguments for an auto-diagnostic that scans project state and proposes the right actions.
+description: Migration and housekeeping utilities for BMad artifacts and l3io-pm state. Use when the user needs to migrate a legacy state layout (flat sprint-status.yaml, or legacy per-epic _bmad/state/) to the current sharded state tree, bootstrap sharded state nodes from existing story .md artifact files (for projects whose stories were created via bmad-create-story without going through l3io-pm-plan), reorganize legacy flat artifact outputs into the structured epic/sprint folder layout, harvest deferred-shortcut code markers into the issues backlog, validate zero-padded naming in the state tree, review the issues backlog or a plan-aware progress dashboard, or update AI system instruction files to describe the current state layout. Also carries older legacy-only bridging modes (migrate-schema, split-status, reconcile-status) for repos that have not yet migrated. Run without arguments for an auto-diagnostic that scans project state and proposes the right actions.
 ---
 
 # l3io-util-doctor — Project State Diagnostics & Utilities
@@ -22,6 +22,7 @@ Modes (pass as argument to skip directly to that mode):
 - **`migrate-schema`:** *(legacy-only)* Upgrades an existing legacy flat `sprint-status.yaml` to the current field schema — adds missing fields with zero/empty defaults, never overwrites existing values.
 - **`split-status`:** *(legacy-only)* Splits a legacy flat `sprint-status.yaml` into the three-file `sprint-status{,-backlog,-archived}.yaml` form, partitioning every epic/sprint by status. The PM skills do **not** read these files — this is an intermediate shape that lets `reconcile-status` clean up a messy flat file before `migrate-state` consumes it. One-time; the original is preserved as `sprint-status.yaml.legacy`.
 - **`migrate-state`:** Migrates from either legacy layout (flat `sprint-status*.yaml`, or legacy per-epic `_bmad/state/`) to the sharded state tree under `{implementation_artifacts}/state/`. Preserves originals as `.legacy` files.
+- **`bootstrap-state`:** Creates sharded state YAML nodes from existing story `.md` artifact files — for projects whose stories were created via `bmad-create-story` (or another workflow) outside of `l3io-pm-plan`. Never overwrites existing state nodes (additive and safe to repeat). After bootstrap, run `/l3io-pm-plan` or `/l3io-pm-execute` normally.
 
 **Ongoing maintenance (safe to repeat)**
 - **`normalize`:** Convenience shortcut — runs `reconcile-status` then `sort-status` in one confirmed pass. Use for routine maintenance instead of running two commands separately.
@@ -76,6 +77,7 @@ file and follow it:
 | `update-ai-rules` | `steps/update-ai-rules.md` |  |
 | `clean-legacy` | `steps/clean-legacy.md` | remove migration backup files |
 | `migrate-state` | `steps/migrate-state.md` | makes a legacy project usable by the PM skills again |
+| `bootstrap-state` | `steps/bootstrap-state.md` | create state nodes from story .md artifacts (bmad-create-story workflow) |
 | `setup`, `configure`, `install` | `assets/module-setup.md` | then continue to `steps/health-check.md` |
 
 **Everything else** (no argument, unrecognized text, or a natural-language description) →
@@ -103,6 +105,8 @@ One-time migrations (run in this order)
   split-status       (legacy-only) Split flat sprint-status.yaml into the 3-file form
   migrate-state      Migrate either legacy layout to the sharded state tree  <- the one
                      that makes a legacy project usable by the PM skills again
+  bootstrap-state    Create sharded state nodes from existing story .md artifact files
+                     (for projects using bmad-create-story without l3io-pm-plan)
 
 Ongoing maintenance (safe to repeat)
   normalize          Reconcile then sort all status files in one pass

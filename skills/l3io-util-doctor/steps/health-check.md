@@ -31,6 +31,27 @@ exists), legacy flat (`sprint-status*.yaml` exists in `{implementation_artifacts
 - More than one layout present → flag `migrate-state` · Priority: Critical — an interrupted
   migration left state in two places; do not run any other action until this is resolved
 
+**Check 2c — Artifact-only stories (no state YAML)**
+If `{pm_state_root}` exists (sharded layout is present) or the artifact tree has story `.md`
+files, scan for artifact-only stories — story `.md` files in
+`{implementation_artifacts}/epic-*/sprint-*/stories/E*.md` that have no corresponding
+`{story_key}.yaml` anywhere under `{pm_state_root}/{active,planned,archived}/`.
+
+```bash
+find {implementation_artifacts}/epic-*/sprint-*/stories -name 'E*.md' 2>/dev/null | sort
+```
+
+For each `.md` found, check:
+```bash
+find {pm_state_root}/active {pm_state_root}/planned {pm_state_root}/archived \
+  -name "{story_key}.yaml" 2>/dev/null | head -1
+```
+
+- Artifact-only stories found → flag `bootstrap-state` · Priority: **High** · list the
+  artifact-only story keys — these stories are invisible to `l3io-pm-plan` and
+  `l3io-pm-execute` since those skills read state YAML, not artifact `.md` files.
+- None found, or no artifact tree at all → ✓
+
 **Check 3 — Status file schema**
 For each present status file, spot-check the first epic node and first sprint node for missing required fields (the full field list is in Schema Migration Mode Step M2). If any required field is absent, the full `migrate-schema` analysis is needed.
 - Gaps detected → flag `migrate-schema` · Priority: Medium (run before `split-status` if both are needed)
@@ -159,6 +180,7 @@ Check                           Status                         Action
 ----------------------------------------------------------------
 Status file naming              ⚠ sprint-status-active.yaml    rename-active
 Status file layout              ✓ Split layout in use          —
+Artifact-only stories           ⚠ 2 story artifact(s), no state bootstrap-state
 Status file schema              ✓ All fields current           —
 Status placement & backlog      ⚠ 1 misplaced epic, 3 nested  reconcile-status
 Artifact layout                 ⚠ 3 flat file(s) detected     layout-cleanup
@@ -214,15 +236,18 @@ Run each approved action in this fixed priority sequence (skip any that were not
 3. `migrate-schema`
 4. `split-status`
 5. `migrate-state`
-6. `reconcile-status`
-7. `layout-cleanup`
-8. `sort-status`
-9. `harvest-debt`
-10. `update-ai-rules`
-11. `redrive`
-12. `clean-legacy`
+6. `bootstrap-state`
+7. `reconcile-status`
+8. `layout-cleanup`
+9. `sort-status`
+10. `harvest-debt`
+11. `update-ai-rules`
+12. `redrive`
+13. `clean-legacy`
 
-`redrive` must run after `migrate-state` — it walks the sharded state tree, which does not
+`bootstrap-state` runs after `migrate-state` because migrate-state may have created the sharded
+tree that bootstrap-state then augments with story nodes from the artifact tree. `redrive` must
+run after `migrate-state` — it walks the sharded state tree, which does not
 exist before that step — and after every other action that can add, move, or rewrite node
 files (`reconcile-status`, `layout-cleanup`, `sort-status`), so it rebuilds calibration
 samples from the most fully-corrected tree available. It runs before `clean-legacy` only

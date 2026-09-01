@@ -66,14 +66,16 @@ if this persists, check that {project-root}/_bmad/scripts/ is writable.
 
 ## Pre-flight
 
-Detect which layout(s) are present, using the identical three-way count
-`step-00-activate.md` uses (do not stop at the first match — count all three):
+Detect which layout(s) are present. Count all four — do not stop at the first match:
 
 ```bash
 SHARDED=$([ -d "{implementation_artifacts}/state" ] && echo 1 || echo 0)
 LEGACY_EPIC=$([ -d "{project-root}/_bmad/state" ] && echo 1 || echo 0)
-LEGACY_FLAT=$([ -f "{implementation_artifacts}/sprint-status.yaml" ] && echo 1 || echo 0)
-echo "sharded=$SHARDED legacy-per-epic=$LEGACY_EPIC legacy-flat=$LEGACY_FLAT"
+LEGACY_FLAT=$([ -f "{implementation_artifacts}/sprint-status.yaml" ] || \
+              [ -f "{implementation_artifacts}/sprint-status-backlog.yaml" ] && echo 1 || echo 0)
+ARTIFACT_STORIES=$(find {implementation_artifacts}/epic-*/sprint-*/stories -name 'E*.md' 2>/dev/null | head -1)
+
+echo "sharded=$SHARDED legacy-per-epic=$LEGACY_EPIC legacy-flat=$LEGACY_FLAT artifact-stories=$([ -n "$ARTIFACT_STORIES" ] && echo present || echo absent)"
 ```
 
 **If `SHARDED=1`** → a sharded tree already exists at `{pm_state_root}`. BLOCK
@@ -116,11 +118,40 @@ cross-reference normalization, Stage B onward — runs for **both** source layou
 **Else if `LEGACY_FLAT=1`** → legacy flat source. Bind `{source_layout}` = `legacy-flat`.
 Continue to Stage A.
 
-**Else (`LEGACY_FLAT=0`, `LEGACY_EPIC=0`, `SHARDED=0`)** → nothing to migrate:
+**Else if `ARTIFACT_STORIES` is non-empty** (`LEGACY_FLAT=0`, `LEGACY_EPIC=0`, `SHARDED=0`,
+but story `.md` artifacts exist) → this project's stories were created via `bmad-create-story`
+or another workflow that does not produce l3io-pm state YAML. `migrate-state` only migrates
+*state* from legacy layouts; it cannot bootstrap state from story artifacts. Exit with a
+diagnostic:
+```
+Nothing to migrate — no legacy flat (sprint-status*.yaml), legacy per-epic (_bmad/state/),
+or sharded state ({pm_state_root}) found.
+
+However, story artifact files do exist under {implementation_artifacts}/epic-*/sprint-*/stories/:
+  {list the first few .md paths found, e.g. up to 5 with "... and N more" if there are more}
+
+These story .md files have no l3io-pm state YAML. migrate-state cannot create state from
+artifacts — that is a different operation.
+
+Fix: run /l3io-util-doctor bootstrap-state to create state nodes from your artifact files.
+This is a one-time step for projects whose stories were created outside l3io-pm.
+```
+Exit. This is not an error with this command; the right command is bootstrap-state.
+
+**Else (`LEGACY_FLAT=0`, `LEGACY_EPIC=0`, `SHARDED=0`, no artifact stories)** → nothing to
+migrate:
 ```
 Nothing to migrate — no legacy flat, legacy per-epic, or sharded state found under
-{implementation_artifacts} or {project-root}/_bmad/state/. If this is a new project,
-state will be created lazily on first use of any l3io-pm skill.
+{implementation_artifacts} or {project-root}/_bmad/state/, and no story artifact files found
+under {implementation_artifacts}/epic-*/sprint-*/stories/.
+
+Checked:
+  Legacy flat:       {implementation_artifacts}/sprint-status.yaml — absent
+  Legacy per-epic:   {project-root}/_bmad/state/ — absent
+  Sharded state:     {pm_state_root} — absent
+  Story artifacts:   {implementation_artifacts}/epic-*/sprint-*/stories/E*.md — none found
+
+If this is a new project, state will be created lazily on first use of any l3io-pm skill.
 ```
 Exit. This is not an error.
 
