@@ -72,8 +72,19 @@ For each file in the findings list, read the full content. For each flagged refe
 
 Read 3 lines of surrounding context before choosing the replacement strategy. Write the updated content to disk.
 
-**Step AR5 — Create new file for current runtime**
+**Step AR5 — Create AGENTS.md**
 
-For each file in `{to_create}`, create the file (and any parent directories, e.g. `.github/`) and write a minimal AI instruction section covering the PM state file layout:
+If `{to_create}` is non-empty (no instruction file of any kind exists in the project), create `{project-root}/AGENTS.md` and write a minimal section covering the PM state file layout. Always target `AGENTS.md` regardless of which AI system is running — it is the universal canonical instruction file; harness-specific files (CLAUDE.md, .github/copilot-instructions.md, etc.) can point at it.
 
 ````markdown
+## l3io-pm State Layout
+
+This project uses l3io-pm for sprint and epic management. State lives under `{pm_state_root}` as a sharded YAML tree — one file per node, never a flat list:
+
+- `{pm_state_root}active/epic-{nnn}/epic.yaml`
+- `{pm_state_root}active/epic-{nnn}/sprint-{nn}/sprint.yaml`
+- `{pm_state_root}active/epic-{nnn}/sprint-{nn}/{story-key}.yaml`
+- `{pm_state_root}planned/` and `{pm_state_root}archived/` — same shape
+
+Never edit state files directly. Use `/l3io-util-doctor` for diagnostics and housekeeping.
+````
