@@ -5657,6 +5657,28 @@ class TestRuntimeChoices(TestLayoutResolution):
         self.assertEqual(code, 2)
         self.assertIn("invalid choice", out)
 
+    def test_codex_is_valid_runtime_choice_for_verify(self):
+        code, out = self.run_main([
+            "verify", "--state-root", self.root, "--scope", "story",
+            "--story", "E001-S01-003", "--runtime", "codex",
+        ])
+        self.assertNotIn("invalid choice", out)
+
+    def test_copilot_is_valid_runtime_choice_for_verify(self):
+        code, out = self.run_main([
+            "verify", "--state-root", self.root, "--scope", "story",
+            "--story", "E001-S01-003", "--runtime", "copilot",
+        ])
+        self.assertNotIn("invalid choice", out)
+
+    def test_openai_models_in_token_rates(self):
+        for model in ("codex-1", "gpt-5", "gpt-5.4", "gpt-5.6"):
+            self.assertIn(model, pm.TOKEN_RATES, f"{model} missing from TOKEN_RATES")
+            self.assertEqual(
+                set(pm.TOKEN_RATES[model].keys()), set(pm.TOKEN_CLASSES),
+                f"{model} missing a TOKEN_CLASSES key"
+            )
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)
