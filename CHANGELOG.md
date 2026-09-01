@@ -2,6 +2,45 @@
 
 All notable changes to this project will be documented in this file. See [commit-and-tag-version](https://github.com/absolute-version/commit-and-tag-version) for commit guidelines.
 
+## [2.4.13](https://github.com/ravensorb/bmad-extensions/compare/2.4.12...2.4.13) (2026-09-01)
+
+
+### Features
+
+* **l3io-pm:** add --runtime codex enforcement with 3-class token capture ([b8de482](https://github.com/ravensorb/bmad-extensions/commit/b8de48233a876585920d2045ab7d4f3efe8a24dc))
+* **l3io-pm:** add --runtime copilot enforcement with scalar token capture ([688188a](https://github.com/ravensorb/bmad-extensions/commit/688188abda5292c51495d5cab67816d382ac730e))
+* **l3io-pm:** add list-plan mode to l3io-pm-help ([8568af6](https://github.com/ravensorb/bmad-extensions/commit/8568af65fcd5fbb0e0772661b519bf2bcfff6beb))
+* **l3io-pm:** extend runtime choices to codex and copilot, add OpenAI token rates ([6b30d50](https://github.com/ravensorb/bmad-extensions/commit/6b30d50faffb4f916b1347c4f61c39102ce6a806))
+* **l3io-pm:** extend runtime detection to codex and copilot in step-00-activate ([e5d0f5f](https://github.com/ravensorb/bmad-extensions/commit/e5d0f5f7700d17cb1f896e48513d3819db4af598))
+* **l3io-pm:** multi-runtime estimation support (codex, copilot) ([4efcf4e](https://github.com/ravensorb/bmad-extensions/commit/4efcf4e1ade44a36ed9d8f71b1102680a225a992))
+* **l3io-util:** add bootstrap-state mode for bmad-create-story projects ([ecfc73d](https://github.com/ravensorb/bmad-extensions/commit/ecfc73d735ec959c79138653a984f8ffbb0c815e))
+* **l3io-util:** align multi-runtime support with BMad AGENTS.md convention ([42631e0](https://github.com/ravensorb/bmad-extensions/commit/42631e03494e08d51cd6620e445dfb777a765bf2))
+* **l3io-util:** detect and surface planning-vs-execution model mismatch ([d835554](https://github.com/ravensorb/bmad-extensions/commit/d835554da42f79287ffd6de6c45f1d44971b91ac))
+* **l3io-util:** update OpenAI token rate table for GPT-5.6 family ([e11256d](https://github.com/ravensorb/bmad-extensions/commit/e11256d3ebe335d433b08085484e922069276fdc))
+
+
+### Fixes
+
+* **l3io-pm:** add verify runtime choice tests and TOKEN_RATES assertions ([d5f1bf6](https://github.com/ravensorb/bmad-extensions/commit/d5f1bf6bd89761bcad937d960b49b484867f6d29))
+* **l3io-pm:** create story artifact file if absent before elaboration ([9ff7d0b](https://github.com/ravensorb/bmad-extensions/commit/9ff7d0bce8cbb37c2db53e50bb1943a6bb5503ae))
+* **l3io-pm:** detect artifact-only stories before readiness check ([e2223e6](https://github.com/ravensorb/bmad-extensions/commit/e2223e6a5d672b99667dbd1367472aa393daf998))
+* **l3io-pm:** fix codex tokens-na error message, update CLI docstring ([c1daa77](https://github.com/ravensorb/bmad-extensions/commit/c1daa772a6af34796b1ea7da01e6f1af540dffcd))
+
+
+### Documentation
+
+* add estimation-guide for multi-runtime token capture ([ebad2fa](https://github.com/ravensorb/bmad-extensions/commit/ebad2faa5219d1e2000ecb2883179f45153a6dfb))
+* **l3io-pm:** add implementation plan for bootstrap and story-creation fixes ([46a4031](https://github.com/ravensorb/bmad-extensions/commit/46a40316ecd4a88b192ba40f053ae8581be366d7))
+* **l3io-pm:** update metrics-contract §3 with four-runtime capture procedures ([6114efb](https://github.com/ravensorb/bmad-extensions/commit/6114efb93a845b4cd17b46e0d6b6361222a12f20))
+* **l3io-util:** document cross-runtime planning and model mismatch behavior ([6d96c09](https://github.com/ravensorb/bmad-extensions/commit/6d96c091af914d0c139fb355ea4967a96909deae))
+* **readme:** clarify post-install step and tighten upgrading section ([ab342c9](https://github.com/ravensorb/bmad-extensions/commit/ab342c94cc13c6a8c1f2df851253b9762221d541))
+
+
+### Maintenance
+
+* regenerate payload manifests after metrics-contract docs update ([afd725b](https://github.com/ravensorb/bmad-extensions/commit/afd725bc2783d828bd80b3e216fb48e1d102b49c))
+* **release:** sync manifests and payload copies after multi-runtime estimation ([65bd905](https://github.com/ravensorb/bmad-extensions/commit/65bd90595eca27197f3d050a0d4ff6b513b97545))
+
 ## [2.4.12](https://github.com/ravensorb/bmad-extensions/compare/2.4.11...2.4.12) (2026-08-31)
 
 
