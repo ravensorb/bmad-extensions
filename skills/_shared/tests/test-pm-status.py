@@ -5614,5 +5614,49 @@ class TestAdrRegister(TestLayoutResolution):
         self.assertIn("malformed", err)
 
 
+class TestRuntimeChoices(TestLayoutResolution):
+    """T-RC: runtime argparse choices include codex and copilot."""
+
+    def run_main(self, argv):
+        out_buf = io.StringIO()
+        err_buf = io.StringIO()
+        try:
+            with redirect_stdout(out_buf), redirect_stderr(err_buf):
+                code = pm.main(argv)
+        except SystemExit as e:
+            code = e.code
+        return code, out_buf.getvalue() + err_buf.getvalue()
+
+    def test_codex_is_a_valid_runtime_choice(self):
+        # set-actual with --runtime codex but no tokens — should fail for a
+        # different reason than "invalid choice", proving codex is accepted
+        code, out = self.run_main([
+            "set-actual", "--state-root", self.root, "--node", "story",
+            "--story", "E001-S01-003", "--runtime", "codex",
+            "--elapsed-hours", "1.0", "--man-hours", "4.0", "--hitl-hours", "0.2",
+            "--no-calibrate",
+        ])
+        # exit 0 or 2 (usage error about tokens), never 2 with "invalid choice"
+        self.assertNotIn("invalid choice", out)
+
+    def test_copilot_is_a_valid_runtime_choice(self):
+        code, out = self.run_main([
+            "set-actual", "--state-root", self.root, "--node", "story",
+            "--story", "E001-S01-003", "--runtime", "copilot",
+            "--elapsed-hours", "1.0", "--man-hours", "4.0", "--hitl-hours", "0.2",
+            "--no-calibrate",
+        ])
+        self.assertNotIn("invalid choice", out)
+
+    def test_invalid_runtime_rejected(self):
+        code, out = self.run_main([
+            "set-actual", "--state-root", self.root, "--node", "story",
+            "--story", "E001-S01-003", "--runtime", "github-copilot",
+            "--elapsed-hours", "1.0",
+        ])
+        self.assertEqual(code, 2)
+        self.assertIn("invalid choice", out)
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

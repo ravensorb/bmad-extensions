@@ -1971,6 +1971,11 @@ TOKEN_RATES = {
     "claude-sonnet-5":    {"input": 3.00,  "output": 15.00, "cache_write": 3.75,  "cache_read": 0.30},
     "claude-sonnet-4-6":  {"input": 3.00,  "output": 15.00, "cache_write": 3.75,  "cache_read": 0.30},
     "claude-haiku-4-5":   {"input": 1.00,  "output": 5.00,  "cache_write": 1.25,  "cache_read": 0.10},
+    # OpenAI / Codex — verify at https://openai.com/api/pricing before use
+    "codex-1":            {"input": 5.00,  "output": 30.00, "cache_write": 6.25,  "cache_read": 2.50},
+    "gpt-5":              {"input": 5.00,  "output": 30.00, "cache_write": 6.25,  "cache_read": 2.50},
+    "gpt-5.4":            {"input": 2.50,  "output": 10.00, "cache_write": 3.13,  "cache_read": 1.25},
+    "gpt-5.6":            {"input": 5.00,  "output": 30.00, "cache_write": 6.25,  "cache_read": 2.50},
 }
 
 
@@ -4731,7 +4736,7 @@ def build_parser() -> argparse.ArgumentParser:
     a.add_argument("--token-rates", dest="token_rates", default="",
                    help="JSON object of per-model rate overrides")
     a.add_argument("--cost", default=None, help=argparse.SUPPRESS)
-    a.add_argument("--runtime", choices=["claude", "other"], default="other")
+    a.add_argument("--runtime", choices=["claude", "codex", "copilot", "other"], default="other")
     a.add_argument("--flock", action="store_true", help="acquire exclusive flock before write")
     a.add_argument("--no-calibrate", dest="no_calibrate", action="store_true",
                    help="skip calibration sampling (backfills, replays)")
@@ -4746,7 +4751,7 @@ def build_parser() -> argparse.ArgumentParser:
     v.add_argument("--scope", required=True, choices=["story", "sprint", "epic"])
     node_args(v)
     v.add_argument("--require-tokens", action="store_true")
-    v.add_argument("--runtime", choices=["claude", "other"], default="other")
+    v.add_argument("--runtime", choices=["claude", "codex", "copilot", "other"], default="other")
     v.add_argument("--token-rates", dest="token_rates", default="",
                    help="JSON object of per-model rate overrides")
     v.set_defaults(func=cmd_verify)
