@@ -61,7 +61,23 @@ than at invoice time. Planning spend sits outside the execution roll-up, so the 
 is for stall detection only — there is no bucket to attribute it to.
 
 Spawn `bmad-create-story` with:
-- Every thin story file path in the batch, as input artifacts to enrich in place
+- Every thin story file path in the batch. **For each path: if the file does not yet exist
+  at the given path, create it first** with this minimal skeleton (substituting the story's
+  `key` and `title` from its state YAML node), then enrich with technical ACs:
+  ```markdown
+  ---
+  key: '{story_key}'
+  title: '{story_title}'
+  status: backlog
+  classification: standard
+  ---
+
+  # {story_title}
+
+  ## Acceptance Criteria
+
+  <!-- Technical ACs to be added below -->
+  ```
 - Instruction to add technical ACs to **each** story, covering: interface contracts, data
   model changes, error handling and edge cases, observability requirements, security
   considerations, testability (unit + integration test anchors) — treating each story on its

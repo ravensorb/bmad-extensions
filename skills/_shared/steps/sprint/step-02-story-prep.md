@@ -78,7 +78,25 @@ identity on both, closing on every exit path. The bracket carries no `--story` b
 span covers several.
 
 ```
-Two things for each story file listed below. Preserve all existing content in every file.
+Two things for each story file listed below.
+**If a story file does not exist at its given path, create it first** with this minimal
+skeleton (substituting `key` and `title` from the story's state node at
+`{pm_state_root}/.../sprint-{nn}/{story_key}.yaml`), then perform both actions below:
+```markdown
+---
+key: '{story_key}'
+title: '{story_title}'
+status: {story_status}
+classification: standard
+---
+
+# {story_title}
+
+## Acceptance Criteria
+
+<!-- Technical ACs to be added below -->
+```
+For existing files, preserve all existing content.
 
 1. Enrich it with technical ACs, addressing ALL SIX dimensions, marking any that genuinely
    do not apply as "N/A — <one-line reason>" rather than omitting them:
