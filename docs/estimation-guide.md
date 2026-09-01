@@ -134,7 +134,7 @@ python3 {pm_status} set-actual \
   --runtime codex \
   --elapsed-hours 2.5 --man-hours 10 --hitl-hours 0.6 \
   --tokens-input 100 --tokens-output 20 --tokens-cache-read 300 \
-  --model codex-1
+  --model gpt-5.6-terra
 
 # verify
 python3 {pm_status} verify \

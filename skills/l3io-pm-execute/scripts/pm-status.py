@@ -1971,11 +1971,17 @@ TOKEN_RATES = {
     "claude-sonnet-5":    {"input": 3.00,  "output": 15.00, "cache_write": 3.75,  "cache_read": 0.30},
     "claude-sonnet-4-6":  {"input": 3.00,  "output": 15.00, "cache_write": 3.75,  "cache_read": 0.30},
     "claude-haiku-4-5":   {"input": 1.00,  "output": 5.00,  "cache_write": 1.25,  "cache_read": 0.10},
-    # OpenAI / Codex — verify at https://openai.com/api/pricing before use
-    "codex-1":            {"input": 5.00,  "output": 30.00, "cache_write": 6.25,  "cache_read": 2.50},
-    "gpt-5":              {"input": 5.00,  "output": 30.00, "cache_write": 6.25,  "cache_read": 2.50},
-    "gpt-5.4":            {"input": 2.50,  "output": 10.00, "cache_write": 3.13,  "cache_read": 1.25},
-    "gpt-5.6":            {"input": 5.00,  "output": 30.00, "cache_write": 6.25,  "cache_read": 2.50},
+    # OpenAI — verify at https://openai.com/api/pricing before use.
+    # Retired models retained for historical actuals verification:
+    "codex-1":            {"input": 5.00,  "output": 30.00, "cache_write": 6.25,  "cache_read": 2.50},  # retired; original o3-based Codex Cloud
+    "gpt-5":              {"input": 5.00,  "output": 30.00, "cache_write": 6.25,  "cache_read": 2.50},  # ambiguous; verify before use
+    "gpt-5.4":            {"input": 2.50,  "output": 10.00, "cache_write": 3.13,  "cache_read": 1.25},  # retired 2026-08-31; succeeded by gpt-5.6-terra/luna in Codex
+    # GPT-5.6 family (GA 2026-07-09): Sol/Terra/Luna.
+    # Sol input/output/cache_read are promotional through 2026-11-21; cache_write is 1.25×
+    # the original $5.00 standard input rate and did not move with the promotion.
+    "gpt-5.6-sol":        {"input": 4.00,  "output": 20.00, "cache_write": 6.25,  "cache_read": 0.40},
+    "gpt-5.6-terra":      {"input": 2.00,  "output": 12.00, "cache_write": 2.50,  "cache_read": 0.20},
+    "gpt-5.6-luna":       {"input": 0.20,  "output":  1.20, "cache_write": 0.25,  "cache_read": 0.02},
 }
 
 

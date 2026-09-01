@@ -5672,7 +5672,8 @@ class TestRuntimeChoices(TestLayoutResolution):
         self.assertNotIn("invalid choice", out)
 
     def test_openai_models_in_token_rates(self):
-        for model in ("codex-1", "gpt-5", "gpt-5.4", "gpt-5.6"):
+        for model in ("codex-1", "gpt-5", "gpt-5.4",
+                      "gpt-5.6-sol", "gpt-5.6-terra", "gpt-5.6-luna"):
             self.assertIn(model, pm.TOKEN_RATES, f"{model} missing from TOKEN_RATES")
             self.assertEqual(
                 set(pm.TOKEN_RATES[model].keys()), set(pm.TOKEN_CLASSES),
