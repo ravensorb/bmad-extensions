@@ -5614,5 +5614,251 @@ class TestAdrRegister(TestLayoutResolution):
         self.assertIn("malformed", err)
 
 
+class TestRuntimeChoices(TestLayoutResolution):
+    """T-RC: runtime argparse choices include codex and copilot."""
+
+    def run_main(self, argv):
+        out_buf = io.StringIO()
+        err_buf = io.StringIO()
+        try:
+            with redirect_stdout(out_buf), redirect_stderr(err_buf):
+                code = pm.main(argv)
+        except SystemExit as e:
+            code = e.code
+        return code, out_buf.getvalue() + err_buf.getvalue()
+
+    def test_codex_is_a_valid_runtime_choice(self):
+        # set-actual with --runtime codex but no tokens — should fail for a
+        # different reason than "invalid choice", proving codex is accepted
+        code, out = self.run_main([
+            "set-actual", "--state-root", self.root, "--node", "story",
+            "--story", "E001-S01-003", "--runtime", "codex",
+            "--elapsed-hours", "1.0", "--man-hours", "4.0", "--hitl-hours", "0.2",
+            "--no-calibrate",
+        ])
+        # exit 0 or 2 (usage error about tokens), never 2 with "invalid choice"
+        self.assertNotIn("invalid choice", out)
+
+    def test_copilot_is_a_valid_runtime_choice(self):
+        code, out = self.run_main([
+            "set-actual", "--state-root", self.root, "--node", "story",
+            "--story", "E001-S01-003", "--runtime", "copilot",
+            "--elapsed-hours", "1.0", "--man-hours", "4.0", "--hitl-hours", "0.2",
+            "--no-calibrate",
+        ])
+        self.assertNotIn("invalid choice", out)
+
+    def test_invalid_runtime_rejected(self):
+        code, out = self.run_main([
+            "set-actual", "--state-root", self.root, "--node", "story",
+            "--story", "E001-S01-003", "--runtime", "github-copilot",
+            "--elapsed-hours", "1.0",
+        ])
+        self.assertEqual(code, 2)
+        self.assertIn("invalid choice", out)
+
+    def test_codex_is_valid_runtime_choice_for_verify(self):
+        code, out = self.run_main([
+            "verify", "--state-root", self.root, "--scope", "story",
+            "--story", "E001-S01-003", "--runtime", "codex",
+        ])
+        self.assertNotIn("invalid choice", out)
+
+    def test_copilot_is_valid_runtime_choice_for_verify(self):
+        code, out = self.run_main([
+            "verify", "--state-root", self.root, "--scope", "story",
+            "--story", "E001-S01-003", "--runtime", "copilot",
+        ])
+        self.assertNotIn("invalid choice", out)
+
+    def test_openai_models_in_token_rates(self):
+        for model in ("codex-1", "gpt-5", "gpt-5.4", "gpt-5.6"):
+            self.assertIn(model, pm.TOKEN_RATES, f"{model} missing from TOKEN_RATES")
+            self.assertEqual(
+                set(pm.TOKEN_RATES[model].keys()), set(pm.TOKEN_CLASSES),
+                f"{model} missing a TOKEN_CLASSES key"
+            )
+
+
+class TestCodexRuntime(TestLayoutResolution):
+    """T-CX: --runtime codex enforcement in set-actual and verify."""
+
+    def run_main(self, argv):
+        out_buf = io.StringIO()
+        err_buf = io.StringIO()
+        try:
+            with redirect_stdout(out_buf), redirect_stderr(err_buf):
+                code = pm.main(argv)
+        except SystemExit as e:
+            code = e.code
+        return code, out_buf.getvalue() + err_buf.getvalue()
+
+    def _set(self, *extra):
+        return self.run_main([
+            "set-actual", "--state-root", self.root, "--node", "story",
+            "--story", "E001-S01-003", "--runtime", "codex", "--no-calibrate",
+            "--elapsed-hours", "2.0", "--man-hours", "8.0", "--hitl-hours", "0.5",
+        ] + list(extra))
+
+    def _verify(self, *extra):
+        return self.run_main([
+            "verify", "--state-root", self.root, "--scope", "story",
+            "--story", "E001-S01-003", "--runtime", "codex",
+        ] + list(extra))
+
+    def test_tokens_na_forbidden_under_codex(self):
+        code, out = self._set("--tokens-na")
+        self.assertEqual(code, 2)
+        self.assertIn("codex", out)
+
+    def test_codex_requires_input_output_cache_read(self):
+        # missing --tokens-cache-read
+        code, out = self._set(
+            "--tokens-input", "100", "--tokens-output", "20", "--model", "codex-1",
+        )
+        self.assertEqual(code, 2)
+        self.assertIn("cache-read", out)
+
+    def test_codex_cache_write_defaults_to_zero(self):
+        # omitting --tokens-cache-write should succeed; cache_write stored as 0
+        code, out = self._set(
+            "--tokens-input", "100", "--tokens-output", "20",
+            "--tokens-cache-read", "300", "--model", "codex-1",
+        )
+        self.assertEqual(code, 0, out)
+        _, node = pm.load_node(pm.story_file(self.root, "E001-S01-003"))
+        tk = node["actual"]["tokens_k"]
+        self.assertEqual(int(tk["cache_write"]), 0)
+        self.assertEqual(int(tk["total"]), 420)  # 100+20+0+300
+
+    def test_codex_derives_cost_from_three_classes(self):
+        code, out = self._set(
+            "--tokens-input", "100", "--tokens-output", "20",
+            "--tokens-cache-read", "300", "--model", "codex-1",
+        )
+        self.assertEqual(code, 0, out)
+        _, node = pm.load_node(pm.story_file(self.root, "E001-S01-003"))
+        # cost = (100*5 + 20*30 + 0*6.25 + 300*2.5) / 1000 = (500+600+0+750)/1000 = 1.85
+        self.assertAlmostEqual(float(node["actual"]["cost"]), 1.85, places=2)
+
+    def test_verify_fails_on_scalar_tokens_under_codex(self):
+        # Write a node with scalar tokens_k (like TestVerifyRejectsScalarTokens does),
+        # then verify under codex — scalar form must fail for codex just as for claude.
+        f = pm.story_file(self.root, "E001-S01-003")
+        y, node = pm.load_node(f)
+        node["status"] = "done"
+        node["completion_evidence"] = {"fix_iterations": 0}
+        node["actual"] = {
+            "elapsed_hours": 2.0, "man_hours": 8.0, "hitl_hours": 0.5,
+            "tokens_k": 420, "cost": "N/A", "model": "codex-1",
+        }
+        pm.save_node(y, node, f)
+        code, out = self._verify()
+        self.assertEqual(code, 4)
+        self.assertIn("not the per-class mapping", out)
+
+    def test_verify_na_tokens_fails_under_codex(self):
+        # Write tokens_k=N/A to a done node, then verify — N/A is forbidden under codex.
+        f = pm.story_file(self.root, "E001-S01-003")
+        y, node = pm.load_node(f)
+        node["status"] = "done"
+        node["completion_evidence"] = {"fix_iterations": 0}
+        node["actual"] = {
+            "elapsed_hours": 2.0, "man_hours": 8.0, "hitl_hours": 0.5,
+            "tokens_k": "N/A", "cost": "N/A", "model": "codex-1",
+        }
+        pm.save_node(y, node, f)
+        code, out = self._verify()
+        self.assertEqual(code, 4)
+        self.assertIn("N/A", out)
+
+
+class TestCopilotRuntime(TestLayoutResolution):
+    """T-CP: --runtime copilot enforcement in set-actual and verify."""
+
+    def run_main(self, argv):
+        out_buf = io.StringIO()
+        err_buf = io.StringIO()
+        try:
+            with redirect_stdout(out_buf), redirect_stderr(err_buf):
+                code = pm.main(argv)
+        except SystemExit as e:
+            code = e.code
+        return code, out_buf.getvalue() + err_buf.getvalue()
+
+    def _set(self, *extra):
+        return self.run_main([
+            "set-actual", "--state-root", self.root, "--node", "story",
+            "--story", "E001-S01-003", "--runtime", "copilot", "--no-calibrate",
+            "--elapsed-hours", "2.0", "--man-hours", "8.0", "--hitl-hours", "0.5",
+        ] + list(extra))
+
+    def _verify(self):
+        return self.run_main([
+            "verify", "--state-root", self.root, "--scope", "story",
+            "--story", "E001-S01-003", "--runtime", "copilot",
+        ])
+
+    def test_tokens_na_forbidden_under_copilot(self):
+        code, out = self._set("--tokens-na")
+        self.assertEqual(code, 2)
+        self.assertIn("copilot", out)
+
+    def test_copilot_requires_input_and_output(self):
+        # only input, no output
+        code, out = self._set("--tokens-input", "150")
+        self.assertEqual(code, 2)
+        self.assertIn("--tokens-output", out)
+
+    def test_copilot_stores_scalar_total(self):
+        code, out = self._set("--tokens-input", "150", "--tokens-output", "50")
+        self.assertEqual(code, 0, out)
+        _, node = pm.load_node(pm.story_file(self.root, "E001-S01-003"))
+        tk = node["actual"]["tokens_k"]
+        # scalar, not a mapping
+        self.assertFalse(hasattr(tk, "get"), f"expected scalar, got mapping: {tk}")
+        self.assertEqual(int(tk), 200)  # 150 + 50
+
+    def test_copilot_stores_cost_na(self):
+        code, out = self._set("--tokens-input", "150", "--tokens-output", "50")
+        self.assertEqual(code, 0, out)
+        _, node = pm.load_node(pm.story_file(self.root, "E001-S01-003"))
+        self.assertTrue(pm._is_na(node["actual"]["cost"]))
+
+    def test_copilot_model_not_required(self):
+        # no --model; should succeed (cost=N/A means no pricing needed)
+        code, out = self._set("--tokens-input", "150", "--tokens-output", "50")
+        self.assertEqual(code, 0, out)
+
+    def test_verify_passes_with_scalar_tokens_and_na_cost_under_copilot(self):
+        # Write a complete done node with scalar tokens_k and cost=N/A, then verify
+        f = pm.story_file(self.root, "E001-S01-003")
+        y, n = pm.load_node(f)
+        n.setdefault("actual", {})
+        n["actual"].update({
+            "elapsed_hours": 2.0, "man_hours": 8.0, "hitl_hours": 0.5,
+            "tokens_k": 200, "cost": "N/A",
+        })
+        n["status"] = "done"
+        n.setdefault("completion_evidence", {})
+        pm.save_node(y, n, f)
+        code, out = self._verify()
+        self.assertEqual(code, 0, out)
+
+    def test_verify_rejects_na_tokens_k_under_copilot(self):
+        f = pm.story_file(self.root, "E001-S01-003")
+        y, n = pm.load_node(f)
+        n.setdefault("actual", {})
+        n["actual"].update({
+            "elapsed_hours": 2.0, "man_hours": 8.0, "hitl_hours": 0.5,
+            "tokens_k": "N/A", "cost": "N/A",
+        })
+        n["status"] = "done"
+        n.setdefault("completion_evidence", {})
+        pm.save_node(y, n, f)
+        code, _ = self._verify()
+        self.assertEqual(code, 4)
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

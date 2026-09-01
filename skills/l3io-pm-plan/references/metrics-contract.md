@@ -261,51 +261,90 @@ float. `elapsed_hours`, `man_hours`, and `hitl_hours` are floats.
 
 ## 3. Runtime detection and capture
 
-Two runtimes are recognized: `claude` and `other`. Every metric-writing call takes
-`--runtime {claude,other}`, and it **defaults to `other`** — the permissive value. Bind
-`{runtime}` at activation and pass it explicitly on every `set-actual` and `verify` call;
-relying on the default silently disables the strict path.
+Four runtimes are recognized: `claude`, `codex`, `copilot`, and `other`. Every metric-writing
+call takes `--runtime {claude,codex,copilot,other}`, and it **defaults to `other`** — the
+permissive value. Bind `{runtime}` at activation and pass it explicitly on every `set-actual`
+and `verify` call; relying on the default silently disables the strict path.
+
+Across all runtimes, `elapsed_hours`, `man_hours`, and `hitl_hours` are always real numbers
+— no runtime has an `N/A` path for these three. `man_hours` is the counterfactual re-assessment
+(§2), always observable/assessable on every runtime; there is no `N/A` for it, ever.
 
 ### Under `--runtime claude`
 
-`elapsed_hours`, `man_hours`, and `hitl_hours` are always real numbers — no runtime has an
-`N/A` path for these three. Tokens are captured **exactly**: sum `input_tokens`,
-`output_tokens`, `cache_creation_input_tokens`, and `cache_read_input_tokens` from the session
-transcript's `usage` fields, convert to thousands, and pass them as
-`--tokens-input`/`--tokens-output`/`--tokens-cache-write`/`--tokens-cache-read` along with
-`--model`. All four are required together (§5); pass an explicit `0` for a class that really
-is zero. `set-actual` derives `tokens_k` (the mapping) and `cost` from them — never pass
+Tokens are captured **exactly**: read `input_tokens`, `output_tokens`,
+`cache_creation_input_tokens` (or the nested `cache_creation.input_tokens`), and
+`cache_read_input_tokens` from the session transcript's `usage` fields, convert to thousands,
+and pass them as `--tokens-input`/`--tokens-output`/`--tokens-cache-write`/`--tokens-cache-read`
+along with `--model`. All four are required together (§5); pass an explicit `0` for a class that
+really is zero. `set-actual` derives `tokens_k` (the mapping) and `cost` from them — never pass
 `--cost`; it is rejected.
-
-**Which messages count toward which node is §6's Attribution rule, not a per-metric
-judgement.** The rule "scope it to the messages belonging to the node being closed" used to
-live here; it is the defect the orchestration term exists to remove, because orchestrator
-messages belong to no node under it and their spend therefore entered no sample at all. Read
-§6 for the three buckets and the `dispatch_open`/`dispatch_close` boundary that separates
-them.
 
 `N/A` (via `--tokens-na`) is **forbidden** for tokens here — `set-actual` exits `2` if
 `--tokens-na` is combined with `--runtime claude`. This is the mechanical enforcement point of
 the HARD RULE (§5).
 
+### Under `--runtime codex`
+
+Tokens are captured from Codex session events. Read `token_count` events from
+`~/.codex/sessions/**/rollout-*.jsonl`. Extract the fields `input_tokens`, `output_tokens`
+(fold any `reasoning_output_tokens` into this class), and `cached_input_tokens` (map to
+`tokens_cache_read`). The field `cache_write_tokens` is not exposed by Codex; default it to
+`0`. Convert the three available counts to thousands and pass them as
+`--tokens-input`/`--tokens-output`/`--tokens-cache-read` (only three flags, not four) along
+with `--model`. `set-actual` derives `tokens_k` (the mapping with `cache_write: 0`) and `cost`
+from them — never pass `--cost`; it is rejected.
+
+`N/A` (via `--tokens-na`) is **forbidden** for tokens here. This is the mechanical enforcement
+point of the HARD RULE (§5).
+
+### Under `--runtime copilot`
+
+Tokens are observable per request but no per-class split is available. Sum all
+`usage.prompt_tokens` and `usage.completion_tokens` across every request in the node's dispatch
+window (see Attribution, below). Pass the aggregated prompt count as `--tokens-input` and the
+aggregated completion count as `--tokens-output` (only two flags; `cache_write` and `cache_read`
+are not exposed). No per-class cost split can be derived, so `cost` is stored as the literal
+string `N/A` (never estimated or guessed). `tokens_k.input` and `tokens_k.output` are real; the
+cache classes are `0`; `tokens_k.total = input + output`; and `cost = "N/A"`.
+
 ### Under `--runtime other`
 
-Capture whatever the runtime exposes. If tokens are genuinely not observable (e.g. Copilot),
-pass `--tokens-na`, which records both `tokens_k` and `cost` as the literal string `N/A`.
-`--tokens-na` cannot be combined with any explicit `--tokens-*` count — pick one or the other.
+Capture whatever the runtime exposes. For runtimes that expose no token information or for whom
+the information is not applicable, pass `--tokens-na`, which records both `tokens_k` and `cost`
+as the literal string `N/A`. `--tokens-na` cannot be combined with any explicit `--tokens-*`
+count — pick one or the other.
 
-**Never estimate, extrapolate, or back-calculate a token or cost actual.** A guessed actual
-is worse than a missing one: `N/A` is skipped by calibration, whereas a guess is
-indistinguishable from a measurement and permanently corrupts the learned ratio. `man_hours`
-and `hitl_hours` are always observable/assessable and must always be real numbers, on every
-runtime — there is no `N/A` for either, ever.
+**Never estimate, extrapolate, or back-calculate a token or cost actual.** A guessed actual is
+worse than a missing one: `N/A` is skipped by calibration, whereas a guess is indistinguishable
+from a measurement and permanently corrupts the learned ratio. `man_hours` and `hitl_hours` are
+always observable/assessable and must always be real numbers, on every runtime — there is no
+`N/A` for either, ever.
 
-Values treated as `N/A` by `_is_na`: `N/A`, `NA`, `NONE`, and the empty string, in any
-case, after stripping. An **absent** field is not the same as `N/A` — absence fails
-`verify`, an explicit `N/A` passes it under `--runtime other`.
+Values treated as `N/A` by `_is_na`: `N/A`, `NA`, `NONE`, and the empty string, in any case,
+after stripping. An **absent** field is not the same as `N/A` — absence fails `verify`, an
+explicit `N/A` passes it under `--runtime codex|copilot|other` and **fails** under
+`--runtime claude`.
 
+### Which messages and requests count toward which node
 
-### Do not read the usage fields by hand — run `usage`
+**Which spend belongs to which node is §6's Attribution rule, not a per-metric judgement.**
+The rule "scope it to the messages/requests belonging to the node being closed" is the defect
+the orchestration term exists to remove, because orchestrator messages belong to no node under
+it and their spend therefore entered no sample at all. Read §6 for the three buckets and the
+`dispatch_open`/`dispatch_close` boundary that separates them.
+
+For Claude, the window is the node's own `dispatch_open`/`dispatch_close` pair from
+`events.jsonl` — first open to last close, so a story's fix iterations are included. For
+Codex, it is the same: Codex session events carry timestamps, which are cut the same way. For
+Copilot, per-request logs or events must be scoped by timestamp to the same window. Use the
+`pm-status.py usage` helper (below) to cut the window correctly.
+
+### Do not extract and sum by hand — use `pm-status.py usage` (Claude) or the runtime-specific helper
+
+For **Claude**, the `pm-status.py usage` helper extracts token counts from your session
+transcript, handles the windowing and deduplication traps, and prints the exact flags to paste
+into `set-actual`:
 
 ```bash
 # a story's own spend — the window comes from its dispatch bracket
@@ -316,14 +355,14 @@ python3 {pm_status} usage --state-root {pm_state_root} --epic {epic_key} --sprin
 python3 {pm_status} usage --since ISO --until ISO ...
 ```
 
-**Identity is not scope, and both are required.** Verifying that a transcript is yours says
+**Identity is not scope, and both are required.** Verifying that a file is your transcript says
 nothing about which part of it belongs to the node being closed. A session transcript spans
 everything that session ever did — one observed file covered a whole epic lineage and its bare
 total was ~66× the sprint actually being closed. Recording that as a node's actual would poison
 calibration for the rest of the epic, and it would look plausible doing it.
 
-So the window comes from the node's own `dispatch_open`/`dispatch_close` pair (§6), first open
-to last close so a story's fix iterations are included. Unscoped, `usage` still prints the total
+The window comes from the node's own `dispatch_open`/`dispatch_close` pair (§6), first open to
+last close so a story's fix iterations are included. Unscoped, `usage` still prints the total
 — it is useful for a whole-session sanity check — but labels it and **withholds the `--tokens-*`
 flags**, since those are what gets pasted into `set-actual`. A node with no bracket in
 `events.jsonl` is refused outright: there is nothing to cut the session down to.
@@ -333,10 +372,11 @@ Subagent turns are **not** in the parent transcript. They live in
 automatically — reading only the parent file reported `sidechain=0` on every run and omitted
 every dispatched agent's spend.
 
-It prints the four class totals and the exact `--tokens-*` flags to paste into `set-actual`.
+For Claude, `usage` prints the four class totals and the exact `--tokens-*` flags to paste into
+`set-actual`.
 
-"Read the usage fields and sum them" is not an executable instruction, and an agent asked to
-follow it by hand hit all three traps in the file format at once. Two inflate and one
+**Claude: "Read the usage fields and sum them" is not an executable instruction.** An agent
+asked to follow it by hand hit all three traps in the file format at once. Two inflate and one
 deflates, so the errors partly cancel and the result looks plausible rather than broken.
 
 | Trap | Direction | What actually happens |
@@ -363,6 +403,12 @@ earlier. Refusing is the fix.
 and accepts directories so a run split across files is summed whole. Pass every transcript the run
 touched — it reports `files`, `records`, `unique` and `sidechain` counts so the read is
 checkable, and warns when a single file contains no sidechain turns at all.
+
+**For Codex and Copilot**, similar helpers or documented extraction procedures will be
+integrated as those runtimes scale into regular use. For now, the same windowing rules apply:
+cut by `dispatch_open`/`dispatch_close` (Codex events carry timestamps; Copilot logs must be
+timestamped similarly) and pass the extracted counts to `set-actual` via the appropriate
+`--tokens-*` flags for that runtime.
 
 ## 4. Writing estimates and actuals
 

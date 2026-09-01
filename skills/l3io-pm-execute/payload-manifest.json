@@ -5,7 +5,7 @@
     "scripts/write-module-config.py": "fdc0e81cda51221599907b9023a096b0570e096b7d921fb0c1db2050afa7a80f",
     "references/config-resolution.md": "db1ac9c41bb785c786663c1207f03b19451b399bb9577ef761216b5392182fd7",
     "assets/module-setup.md": "6a183e230bb6e86ee8dcb4e9c4804dd9f99883de02e4fca4031f3500848a4048",
-    "steps/shared/step-00-activate.md": "7b57897fce178ad01473d87eff5ce90f24330e9987ee283c6f7d977604f8f437",
+    "steps/shared/step-00-activate.md": "d4d11f71f61ff8b455ed7bccbc85af51c6af6e74d90caf2485542c95e4a96330",
     "steps/shared/step-00-digest.md": "d7b7b5d5ac62d577200f892ad4e8b0f52619494e134486bf1c4024efca838c97",
     "steps/shared/step-01-classify-work.md": "dcd71a5e3780e24550d8c3ff98051b63f0c0a3fc75203cb1fec29f3ab9bd865f",
     "steps/shared/step-estimate.md": "9990a89e9da513e74bff46664ece409e27f84d2e1d13486ee5f7b7771d7d5a5c",
@@ -19,9 +19,9 @@
     "steps/sprint/step-04-sprint-closure.md": "75445ef449d758bce08979ed8191fe08871a2e82e6c290c455d3a58250ced506",
     "steps/closure/sprint-closure.md": "7282febc388655ace13b3d91c9f8cede169e6578f70fcf5ee76f209b3f26bbd4",
     "steps/closure/epic-closure.md": "4dfcb835878ad81b01e5a70b5454e22bf1346f2e82dc06d0f048461876b9ef4d",
-    "scripts/pm-status.py": "a11fb30fc8d9eabd42c412bbfc98c65090ef43dc4b201b8373798b3682039712",
+    "scripts/pm-status.py": "21e7ce7d77c45ed7ec9572f6e168c6ef5b9bc268ab9b9cd75415f246cc028d61",
     "references/status-files.md": "6d1bbddbaf308c40c6e3fcaa261cd0803140a00d9afa60a857f4195eb27852d0",
-    "references/metrics-contract.md": "35a6a0f2c3b4023430fc1ac2b911fcb625c499090ad9e5a46d52353d6fb20af5",
+    "references/metrics-contract.md": "fe06c34e8d9be947e666a727324a481b3c05e5e00fb226abb004e8fa6b0ba126",
     "references/calibration-model.md": "63b15a5c4552d6be78d90ec886ff0a1d581af9440bcff3b87b12ef1e1d01af0f"
   }
 }
