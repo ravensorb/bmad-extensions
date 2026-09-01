@@ -1402,12 +1402,17 @@ def record_story_sample(state_root: str, node, node_path: str = None, y=None) ->
         for line in migrate_calibration_token_basis(y_cal, cal, state_root):
             sys.stderr.write(f"pm-status.py: calibration migration: {line}\n")
         cls = sample["classification"]
+        act_model = (node.get("actual") or {}).get("model")
 
         bucket = cal["scope"].setdefault(cls, CommentedMap())
         for metric, ratio in sample["scope_ratios"].items():
             entry = bucket.setdefault(metric, CommentedMap())
             entry.setdefault("samples", [])
             entry["samples"].append(round(ratio, 4))
+            if act_model:
+                seen = entry.setdefault("models_seen", [])
+                if act_model not in seen:
+                    seen.append(act_model)
 
         # The observed per-class split, as a fraction of the actual's total —
         # feeds observed_mix() once 3 samples accrue, superseding
@@ -1420,8 +1425,11 @@ def record_story_sample(state_root: str, node, node_path: str = None, y=None) ->
             if total and total > 0:
                 mix_bucket = cal.setdefault("token_mix", CommentedMap())
                 mix_bucket.setdefault("samples", [])
-                mix_bucket["samples"].append(
-                    {c: round((_num_or_none(tk.get(c)) or 0.0) / total, 4) for c in TOKEN_CLASSES})
+                mix_entry = {c: round((_num_or_none(tk.get(c)) or 0.0) / total, 4)
+                             for c in TOKEN_CLASSES}
+                if act_model:
+                    mix_entry["model"] = act_model
+                mix_bucket["samples"].append(mix_entry)
 
         fix_entry = cal["fix"].setdefault(cls, CommentedMap())
         iters = sample["fix_iterations"]
@@ -1907,6 +1915,22 @@ def cmd_calibration(args) -> int:
 
     _, cal = load_calibration(args.state_root)
     exists = os.path.exists(calibration_path(args.state_root))
+
+    mixed_buckets = []
+    for c in CLASSIFICATIONS:
+        for m in CALIBRATED_METRIC_FIELDS:
+            entry = ((cal.get("scope") or {}).get(c) or {}).get(m) or {}
+            seen = entry.get("models_seen") or []
+            if len(seen) > 1:
+                mixed_buckets.append(f"{c}/{m} ({', '.join(seen)})")
+    if mixed_buckets:
+        sys.stdout.write(
+            "WARN: scope calibration contains mixed-model samples — ratios may be unreliable.\n"
+            "Consider `calibration redrive` after settling on one model:\n"
+        )
+        for b in mixed_buckets:
+            sys.stdout.write(f"  {b}\n")
+
     rows = []
     for c in CLASSIFICATIONS:
         for m in CALIBRATED_METRIC_FIELDS:  # cost never scope-calibrates (derived, see above)
@@ -3416,6 +3440,11 @@ def cmd_set_actual(args) -> int:
         append_event(args.state_root, payload)
 
     suffix = f" [{calib_note}]" if calib_note else ""
+    est_model = (node.get("estimate") or {}).get("model")
+    act_model = provided.get("model")
+    if est_model and act_model and est_model != act_model:
+        suffix += (f" [model mismatch: estimated at {est_model!r},"
+                   f" executed at {act_model!r} — costs not comparable]")
     sys.stdout.write(f"OK set-actual {label} {sorted(provided)}{suffix}\n")
     return 0
 
@@ -4690,6 +4719,13 @@ def cmd_verify(args) -> int:
     if kind == "story" and "completion_evidence" not in node:
         problems.append("completion_evidence absent")
 
+    est_model = (node.get("estimate") or {}).get("model")
+    act_model = actual.get("model")
+    if est_model and act_model and est_model != act_model:
+        sys.stdout.write(
+            f"WARN {label}: estimate.model={est_model!r} ≠ actual.model={act_model!r}"
+            f" — estimate cost denominated in {est_model} rates\n"
+        )
     if problems:
         sys.stdout.write(f"FAIL {label}: " + "; ".join(problems) + "\n")
         return 4

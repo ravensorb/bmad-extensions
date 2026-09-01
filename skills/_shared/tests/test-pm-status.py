@@ -5681,6 +5681,100 @@ class TestRuntimeChoices(TestLayoutResolution):
             )
 
 
+class TestModelMismatch(TestLayoutResolution):
+    """T-MM: model mismatch annotation in set-actual, verify, and calibration show."""
+
+    def run_main(self, argv):
+        import io
+        from contextlib import redirect_stdout, redirect_stderr
+        out_buf = io.StringIO()
+        err_buf = io.StringIO()
+        try:
+            with redirect_stdout(out_buf), redirect_stderr(err_buf):
+                code = pm.main(argv)
+        except SystemExit as e:
+            code = e.code
+        return code, out_buf.getvalue() + err_buf.getvalue()
+
+    def _write_story_with_estimate_model(self, model: str):
+        p = pm.story_file(self.root, "E001-S01-003")
+        with open(p, "w") as f:
+            f.write(
+                f"key: 'E001-S01-003'\nepic: 'E001'\nsprint: 'S01'\nstatus: review\n"
+                f"estimate:\n  model: {model}\n"
+            )
+
+    def test_set_actual_notes_model_mismatch(self):
+        self._write_story_with_estimate_model("claude-opus-5")
+        code, out = self.run_main([
+            "set-actual", "--state-root", self.root, "--node", "story",
+            "--story", "E001-S01-003", "--runtime", "codex", "--no-calibrate",
+            "--elapsed-hours", "2.0", "--man-hours", "8.0", "--hitl-hours", "0.5",
+            "--tokens-input", "100", "--tokens-output", "20", "--tokens-cache-read", "300",
+            "--model", "gpt-5.6-terra",
+        ])
+        self.assertEqual(code, 0)
+        self.assertIn("model mismatch", out)
+        self.assertIn("claude-opus-5", out)
+        self.assertIn("gpt-5.6-terra", out)
+
+    def test_set_actual_no_mismatch_note_when_models_match(self):
+        self._write_story_with_estimate_model("gpt-5.6-terra")
+        code, out = self.run_main([
+            "set-actual", "--state-root", self.root, "--node", "story",
+            "--story", "E001-S01-003", "--runtime", "codex", "--no-calibrate",
+            "--elapsed-hours", "2.0", "--man-hours", "8.0", "--hitl-hours", "0.5",
+            "--tokens-input", "100", "--tokens-output", "20", "--tokens-cache-read", "300",
+            "--model", "gpt-5.6-terra",
+        ])
+        self.assertEqual(code, 0)
+        self.assertNotIn("model mismatch", out)
+
+    def test_verify_warns_on_model_mismatch(self):
+        p = pm.story_file(self.root, "E001-S01-003")
+        with open(p, "w") as f:
+            f.write(
+                "key: 'E001-S01-003'\nepic: 'E001'\nsprint: 'S01'\nstatus: done\n"
+                "estimate:\n  model: claude-opus-5\n"
+                "actual:\n"
+                "  elapsed_hours: 2.0\n  man_hours: 8.0\n  hitl_hours: 0.5\n"
+                "  tokens_k:\n    input: 100\n    output: 20\n"
+                "    cache_write: 0\n    cache_read: 300\n    total: 420\n"
+                "  cost: 0.16\n  model: gpt-5.6-terra\n"
+                "completion_evidence:\n  tests_passing: true\n"
+            )
+        code, out = self.run_main([
+            "verify", "--state-root", self.root, "--scope", "story",
+            "--story", "E001-S01-003", "--runtime", "codex",
+        ])
+        self.assertIn("WARN", out)
+        self.assertIn("claude-opus-5", out)
+        self.assertIn("gpt-5.6-terra", out)
+
+    def test_calibration_show_warns_on_mixed_models(self):
+        import yaml as _yaml_mod
+        cal_path = os.path.join(self.root, "pm-calibration.yaml")
+        cal = {
+            "version": 2,
+            "granularity": "story",
+            "scope": {
+                "standard": {
+                    "elapsed_hours": {
+                        "samples": [0.9, 1.1],
+                        "models_seen": ["claude-opus-5", "gpt-5.6-terra"],
+                    }
+                }
+            },
+            "closure": {}, "orchestration": {}, "fix": {},
+        }
+        with open(cal_path, "w") as f:
+            _yaml_mod.dump(cal, f)
+        code, out = self.run_main(["calibration", "--state-root", self.root, "show"])
+        self.assertEqual(code, 0)
+        self.assertIn("WARN", out)
+        self.assertIn("mixed-model", out)
+
+
 class TestCodexRuntime(TestLayoutResolution):
     """T-CX: --runtime codex enforcement in set-actual and verify."""
 
