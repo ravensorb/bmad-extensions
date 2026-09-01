@@ -42,7 +42,7 @@ Subcommands
                 overrides its rate card;
                 cost is DERIVED from tokens x rates — --cost is declared but always rejected)
                 [--tokens-na]   (in place of --tokens-*; runtime=other only, forbidden under runtime=claude)
-                [--runtime {claude,other}] [--flock] [--no-events] [--session-id ID]
+                [--runtime {claude,codex,copilot,other}] [--flock] [--no-events] [--session-id ID]
                 [--no-calibrate]
                 (derives the node's calibration sample inline — write
                 completion_evidence.fix_iterations BEFORE this call, or the scope/fix
@@ -3287,10 +3287,14 @@ def cmd_set_actual(args) -> int:
     if args.tokens_na and given:
         _die_usage("--tokens-na cannot be combined with explicit token counts")
     if args.tokens_na:
-        if args.runtime in ("claude", "codex"):
-            _die_usage(f"runtime={args.runtime} forbids tokens=N/A — capture the exact "
-                       f"per-class counts from the session transcript "
-                       f"(see metrics-contract.md §3)")
+        if args.runtime == "claude":
+            _die_usage("runtime=claude forbids tokens=N/A — capture the exact per-class "
+                       "counts from the session transcript (see metrics-contract.md §3)")
+        elif args.runtime == "codex":
+            _die_usage("runtime=codex forbids tokens=N/A — capture input_tokens, "
+                       "output_tokens+reasoning_output_tokens, and cached_input_tokens "
+                       "from rollout-*.jsonl token_count events "
+                       "(see metrics-contract.md §3)")
         provided["tokens_k"] = "N/A"
         provided["cost"] = "N/A"
     elif given:

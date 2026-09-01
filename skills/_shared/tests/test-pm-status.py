@@ -5768,8 +5768,9 @@ class TestCodexRuntime(TestLayoutResolution):
             "tokens_k": "N/A", "cost": "N/A", "model": "codex-1",
         }
         pm.save_node(y, node, f)
-        code, _ = self._verify()
+        code, out = self._verify()
         self.assertEqual(code, 4)
+        self.assertIn("N/A", out)
 
 
 if __name__ == "__main__":
