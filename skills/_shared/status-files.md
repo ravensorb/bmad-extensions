@@ -509,7 +509,9 @@ sharding gives each epic its own directory, and nothing below the epic level nee
   so it cannot self-deadlock against it).
 
 **None of these is ever committed.** `pm-status.py` keeps `*.lock` in `{state_root}/.gitignore`.
-Every lock acquisition checks that file, at most once per process per state root. If the file
+Every lock acquisition inside a state root checks that file, at most once per process per state
+root. A bare `append-issue --file` outside one (no status folders, no `--state-root`) is
+skipped, so it never writes a `.gitignore` into a repo root. If the file
 is absent it is created with the line; if it lacks the line, the line is appended, and the lines
 already there are never rewritten or reordered. The check is best-effort: a failure warns on
 stderr and never fails the verb. `*.lock` matches files only, so the activation gate's
