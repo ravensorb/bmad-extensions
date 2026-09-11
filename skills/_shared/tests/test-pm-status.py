@@ -723,6 +723,162 @@ class TestIssueAllocator(IssueBase):
         self.assertIn("ts", ev[0])
 
 
+def _dump_failing_on(n):
+    """Patch pm._atomic_dump so its n-th call raises OSError('injected') -- a crash
+    between two writes. Use: `with _dump_failing_on(2): ...`. Shared by every
+    crash-injection test so the injection logic exists once."""
+    real, calls = pm._atomic_dump, {"n": 0}
+
+    def flaky(y, data, path):
+        calls["n"] += 1
+        if calls["n"] == n:
+            raise OSError("injected")
+        return real(y, data, path)
+
+    return mock.patch.object(pm, "_atomic_dump", flaky)
+
+
+class TestResolveIssue(IssueBase):
+    def resolve(self, key, resolution, *extra):
+        return self.run_all(["resolve-issue", "--state-root", self.root, "--key", key,
+                             "--resolution", resolution, *extra])
+
+    def test_resolve_moves_the_item_whole(self):
+        self.append("A", "001", "01", "Medium")
+        code, out, err = self.resolve("BL-E001-001", "wontfix", "--note", "accepted risk")
+        self.assertEqual(code, 0, err)
+        self.assertEqual(self.open_keys(), [])
+        self.assertEqual(self.resolved_keys(), ["BL-E001-001"])
+        entry = self.load_resolved()["resolved"][0]
+        self.assertEqual(entry["status"], "resolved")
+        self.assertEqual(entry["resolution"], "wontfix")
+        self.assertEqual(entry["note"], "accepted risk")
+        self.assertEqual(entry["severity"], "Medium")
+        self.assertTrue(entry["resolved_at"])
+
+    def test_resolving_the_highest_then_appending_never_reuses(self):
+        for t in ("A", "B", "C"):
+            self.append(t)
+        self.assertEqual(self.resolve("BL-E001-003", "obsolete", "--note", "gone")[0], 0)
+        self.assertIn("BL-E001-004", self.append("D")[1])
+
+    def test_required_flags_refuse_and_write_nothing(self):
+        self.append("A")
+        before = open(self.issues, encoding="utf-8").read()
+        for argv in (("fixed",), ("wontfix",), ("obsolete",), ("duplicate",),
+                     ("fixed", "--ref", "later")):
+            code, _, _ = self.resolve("BL-E001-001", *argv)
+            self.assertEqual(code, 2, argv)
+        self.assertEqual(open(self.issues, encoding="utf-8").read(), before)
+        self.assertFalse(os.path.exists(self.resolved))
+
+    def test_fixed_ref_accepts_story_key_or_sha(self):
+        self.append("A")
+        self.append("B", "001", "02")
+        self.assertEqual(self.resolve("BL-E001-001", "fixed", "--ref", "E001-S01-001")[0], 0)
+        self.assertEqual(self.resolve("BL-E001-002", "fixed", "--ref", "abc1234")[0], 0)
+
+    def test_duplicate_ref_rules_forbid_chains(self):
+        self.append("A")
+        self.append("B", "001", "02")
+        self.append("C", "001", "03")
+        self.assertEqual(self.resolve("BL-E001-002", "duplicate", "--ref", "BL-E001-002")[0], 2)
+        self.assertEqual(self.resolve("BL-E001-002", "duplicate", "--ref", "BL-E001-099")[0], 2)
+        self.assertEqual(self.resolve("BL-E001-002", "duplicate", "--ref", "BL-E001-001")[0], 0)
+        # B is now a resolved duplicate: C may not point at it
+        self.assertEqual(self.resolve("BL-E001-003", "duplicate", "--ref", "BL-E001-002")[0], 2)
+
+    def test_rerun_is_idempotent(self):
+        self.append("A")
+        self.resolve("BL-E001-001", "obsolete", "--note", "gone")
+        code, out, _ = self.resolve("BL-E001-001", "obsolete", "--note", "gone")
+        self.assertEqual(code, 0)
+        self.assertIn("already resolved", out)
+        self.assertEqual(self.resolved_keys(), ["BL-E001-001"])
+
+    def test_unknown_key_exits_3(self):
+        self.assertEqual(self.resolve("BL-E001-042", "obsolete", "--note", "x")[0], 3)
+
+    def test_crash_between_writes_is_cleared_by_rerun(self):
+        self.append("A")
+        with _dump_failing_on(2):
+            with self.assertRaises(OSError):
+                pm.main(["resolve-issue", "--state-root", self.root, "--key", "BL-E001-001",
+                         "--resolution", "obsolete", "--note", "gone"])
+        self.assertEqual(self.open_keys(), ["BL-E001-001"])      # premise: both files
+        self.assertEqual(self.resolved_keys(), ["BL-E001-001"])
+        code, out, _ = self.resolve("BL-E001-001", "obsolete", "--note", "gone")
+        self.assertEqual(code, 0)
+        self.assertIn("removed the stale open copy", out)
+        self.assertEqual(self.open_keys(), [])
+        self.assertEqual(self.resolved_keys(), ["BL-E001-001"])
+
+    def test_key_duplicated_in_open_file_is_refused(self):
+        self.append("A")
+        y, data = pm._load(self.issues)
+        from ruamel.yaml.comments import CommentedMap
+        data["backlog"].append(CommentedMap(data["backlog"][0]))
+        pm._atomic_dump(y, data, self.issues)
+        code, _, err = self.resolve("BL-E001-001", "obsolete", "--note", "x")
+        self.assertEqual(code, 2)
+        self.assertIn("1i", err)
+
+    def test_malformed_resolved_list_is_refused(self):
+        self.append("A")
+        with open(self.resolved, "w", encoding="utf-8") as fh:
+            fh.write("resolved: oops\n")
+        self.assertEqual(self.resolve("BL-E001-001", "obsolete", "--note", "x")[0], 2)
+        self.assertEqual(self.open_keys(), ["BL-E001-001"])
+
+    def test_event_carries_resolution_and_cause(self):
+        self.append("A")
+        self.resolve("BL-E001-001", "fixed", "--ref", "abc1234", "--session-id", "S-9",
+                     "--cause", "triage")
+        ev = self.events("issue_resolved")[-1]
+        self.assertEqual((ev["resolution"], ev["ref"], ev["session"], ev["cause"]),
+                         ("fixed", "abc1234", "S-9", "triage"))
+
+
+class TestConcurrentResolveAppend(unittest.TestCase):
+    """Real subprocesses: _file_lock's re-entrancy counter is per process, so
+    threads would pass vacuously with the lock removed."""
+    N = 6
+
+    def setUp(self):
+        self.d = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, self.d, True)
+        self.root = os.path.join(self.d, "state")
+        _build_issue_tree(self.root)
+        for i in range(1, self.N + 1):
+            self.assertEqual(pm.main(["append-issue", "--state-root", self.root, "--epic", "001",
+                                      "--title", f"seed {i}", "--source", "qa",
+                                      "--severity", "Low"]), 0)
+
+    def test_parallel_resolves_and_appends_lose_nothing(self):
+        import subprocess
+        procs = [subprocess.Popen([sys.executable, SCRIPT, "resolve-issue", "--state-root",
+                                   self.root, "--key", f"BL-E001-{i:03d}", "--resolution",
+                                   "obsolete", "--note", "x"],
+                                  stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+                 for i in range(1, self.N + 1)]
+        procs += [subprocess.Popen([sys.executable, SCRIPT, "append-issue", "--state-root",
+                                    self.root, "--epic", "001", "--title", f"new {i}",
+                                    "--source", "qa", "--severity", "Low"],
+                                   stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+                  for i in range(1, self.N + 1)]
+        for p in procs:
+            _, err = p.communicate(timeout=120)
+            self.assertEqual(p.returncode, 0, err.decode())
+        _, o = pm._load(os.path.join(self.root, "issues.yaml"))
+        _, r = pm._load(os.path.join(self.root, "issues-resolved.yaml"))
+        open_keys = [str(i["key"]) for i in o["backlog"]]
+        res_keys = [str(i["key"]) for i in r["resolved"]]
+        self.assertEqual(sorted(res_keys), [f"BL-E001-{i:03d}" for i in range(1, self.N + 1)])
+        self.assertEqual(len(open_keys), self.N)
+        self.assertEqual(len(set(open_keys)), self.N, "a key was allocated twice")
+        self.assertFalse(set(open_keys) & set(res_keys), "a key is in both files")
+
+
 class TestListIssues(unittest.TestCase):
     """list-issues reads state-root/issues.yaml; a missing file or a filter set
     matching nothing is success (exit 0), never an error."""

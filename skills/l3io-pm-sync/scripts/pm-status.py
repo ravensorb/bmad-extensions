@@ -107,6 +107,12 @@ Subcommands
                 (filters combine with AND; a repeated --severity ORs the given severities;
                 a missing issues.yaml, or a filter matching nothing, is success — exit 0
                 with an empty result, not an error)
+  resolve-issue --state-root S  --key K  --resolution {fixed,wontfix,duplicate,obsolete}
+                [--ref R] [--note N] [--session-id ID] [--cause {cli,triage,plan-intake}]
+                (moves an open item to issues-resolved.yaml -- resolved file first, open
+                file second; fixed needs --ref story key or SHA, duplicate needs --ref an
+                open or non-duplicate BL key, wontfix/obsolete need --note; an already
+                resolved key exits 0 after clearing any stale open copy)
   move-epic     --state-root S  --epic ID  --to {planned,active,archived}
   archive-epic  --state-root S  --epic ID   (alias for move-epic --to archived)
   calibration   show  --state-root S  [--format {text,json}]
@@ -4495,6 +4501,98 @@ def _append_issue(args) -> int:
     return 0
 
 
+_STORY_KEY_RE = re.compile(r"^E\d{3}-S\d{2}-\d{3}$")
+_SHA_RE = re.compile(r"^[0-9a-f]{7,40}$")
+
+
+def _validate_resolution_flags(resolution, ref, note) -> None:
+    if resolution not in RESOLUTIONS:
+        raise PMError(2, f"--resolution must be one of {', '.join(RESOLUTIONS)}")
+    if resolution == "fixed":
+        if not ref:
+            raise PMError(2, "--resolution fixed needs --ref (a story key or a commit SHA)")
+        if not (_STORY_KEY_RE.match(ref) or _SHA_RE.match(ref)):
+            raise PMError(2, f"--ref {ref!r} is neither a story key (E{{nnn}}-S{{nn}}-{{nnn}}) "
+                             f"nor a commit SHA")
+    elif resolution == "duplicate":
+        if not ref:
+            raise PMError(2, "--resolution duplicate needs --ref naming the surviving BL key")
+    elif not (note or "").strip():
+        raise PMError(2, f"--resolution {resolution} needs --note saying why")
+
+
+def resolve_issue_core(store, key, resolution, ref=None, note=None,
+                       session=None, cause="cli") -> str:
+    """Resolve one open item. The caller holds issues_lock(store.open_path).
+
+    Order is the contract (spec §2.2): a key already in the resolved file has any
+    stale open copy removed BEFORE the idempotent return, so a crash between the
+    two writes below is always cleared by a rerun; otherwise the item is appended
+    to the resolved file first and removed from the open file second, so a crash
+    can duplicate it but never lose it."""
+    from ruamel.yaml.comments import CommentedMap
+    _validate_resolution_flags(resolution, ref, note)
+    k = canonical_bl_key(key)
+    if k is None:
+        raise PMError(2, f"{key!r} is not a backlog key")
+    opens, done = store.open_items(k), store.resolved_items(k)
+    if len(opens) > 1:
+        raise PMError(2, f"{k} appears {len(opens)} times in {store.open_path} -- resolve it "
+                         f"by hand (audit-issues finding 1i)")
+    if done:
+        prior = done[-1].get("resolution")
+        if opens:
+            _remove_identity(store.backlog, opens[0])
+            store.save_open()
+            return f"{k} already resolved ({prior}); removed the stale open copy"
+        return f"{k} already resolved ({prior})"
+    if not opens:
+        raise PMError(3, f"{k} is in neither {store.open_path} nor {store.resolved_path}")
+    if resolution == "duplicate":
+        r = canonical_bl_key(ref)
+        if r is None or r == k:
+            raise PMError(2, f"--ref {ref!r} must name a different BL key")
+        t_open, t_res = store.open_items(r), store.resolved_items(r)
+        if not t_open and not t_res:
+            raise PMError(2, f"--ref {r} does not exist")
+        if not t_open and all(str(t.get("resolution")) == "duplicate" for t in t_res):
+            raise PMError(2, f"--ref {r} is itself resolved as a duplicate -- point at the "
+                             f"item it duplicates")
+        ref = r
+    item = opens[0]
+    entry = CommentedMap()
+    for kk, vv in item.items():
+        entry[kk] = vv
+    entry["status"] = "resolved"
+    entry["resolution"] = resolution
+    entry["resolved_at"] = _now_iso()
+    if ref:
+        entry["ref"] = ref
+    if note:
+        entry["note"] = note
+    store.resolved.append(entry)
+    store.save_resolved()
+    _remove_identity(store.backlog, item)
+    store.save_open()
+    _issue_event(store.state_root, "issue_resolved", entry, session, cause,
+                 resolution=resolution, ref=ref)
+    tail = ""
+    if str(item.get("status")) == "scheduled" and cause != "set-status":
+        tail = f"; story {item.get('story')} still lists it in resolves"
+    return f"{k} ({resolution}{', ref ' + ref if ref else ''}){tail}"
+
+
+def cmd_resolve_issue(args) -> int:
+    def run():
+        open_path = issues_paths(args.state_root)[0]
+        with issues_lock(open_path):
+            msg = resolve_issue_core(IssueStore(open_path), args.key, args.resolution,
+                                     args.ref, args.note, args.session_id, args.cause)
+        sys.stdout.write(f"OK resolve-issue {msg}\n")
+        return 0
+    return _run_core(run)
+
+
 def _norm_num(v, width: int) -> str:
     """Normalize a possibly key-prefixed or unpadded numeric id to a zero-padded digit
     string: 'E1'/'001' -> '001' (width=3); 'S1'/'01' -> '01' (width=2). Falls back to the
@@ -5107,6 +5205,17 @@ def build_parser() -> argparse.ArgumentParser:
                     help="append even if an existing item matches this title+epic+"
                          "sprint+source (default: skip and exit 0)")
     ai.set_defaults(func=cmd_append_issue)
+
+    ri = sub.add_parser("resolve-issue",
+                        help="resolve an open BL item into issues-resolved.yaml")
+    ri.add_argument("--state-root", required=True)
+    ri.add_argument("--key", required=True)
+    ri.add_argument("--resolution", required=True, choices=list(RESOLUTIONS))
+    ri.add_argument("--ref", default=None)
+    ri.add_argument("--note", default=None)
+    ri.add_argument("--session-id", dest="session_id", default=None)
+    ri.add_argument("--cause", default="cli", choices=["cli", "triage", "plan-intake"])
+    ri.set_defaults(func=cmd_resolve_issue)
 
     li = sub.add_parser("list-issues", help="list (with filters) the flat backlog in issues.yaml")
     li.add_argument("--state-root", required=True, help="path to {implementation_artifacts}/state")
