@@ -6769,6 +6769,22 @@ class TestPromoteIssue(IssueBase):
         self.assertIsNone(pm.story_file(self.root, "E001-S02-002"), "no second story")
         self.assertEqual(self.load_open()["backlog"][0]["story"], "E001-S02-001")
 
+    def test_promote_never_writes_an_estimate_less_node(self):
+        """Spec §6.1/§7: the node and its estimate land in ONE save. If the estimate fails
+        after validation, no story node may be left on disk (it would have no estimate)."""
+        self.append("A")
+        with mock.patch.object(pm, "compute_story_estimate",
+                               side_effect=pm.PMError(2, "injected")):
+            code, _, err = self.promote("BL-E001-001")
+        self.assertNotEqual(code, 0)
+        self.assertIn("injected", err)
+        self.assertIsNone(pm.story_file(self.root, "E001-S02-001"),
+                          "a story node was written before its estimate")
+        item = self.load_open()["backlog"][0]
+        self.assertEqual(item["status"], "backlog")
+        self.assertNotIn("story", item)
+        self.assertFalse(os.path.exists(pm.story_doc_path(self.arts, "E001-S02-001")))
+
     def test_set_field_refuses_resolves(self):
         self.append("A")
         self.promote("BL-E001-001")
