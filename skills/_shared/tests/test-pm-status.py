@@ -6549,6 +6549,18 @@ class TestEstimateCores(TestLayoutResolution):
         self.assertEqual(code, 2)
         self.assertEqual(open(path, encoding="utf-8").read(), before)
 
+    def test_compute_story_estimate_leaves_node_untouched_when_it_raises(self):
+        path = pm.story_file(self.root, "E001-S01-003")
+        _, node = pm.load_node(path)
+        pm.compute_story_estimate(self.root, node, "simple", pm.DEFAULT_ESTIMATE_MODEL, None)
+        before_est = json.dumps(node["estimate"], sort_keys=True, default=str)
+        before_cls = node["classification"]
+        with self.assertRaises(pm.PMError):
+            pm.compute_story_estimate(self.root, node, "complex", "no-such-model", None)
+        self.assertEqual(json.dumps(node["estimate"], sort_keys=True, default=str), before_est,
+                         "a failed estimate must not half-overwrite the previous one")
+        self.assertEqual(node["classification"], before_cls)
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)

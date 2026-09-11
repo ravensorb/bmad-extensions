@@ -2361,12 +2361,14 @@ def compute_story_estimate(state_root, node, cls, model, overrides, confidence=N
     fix = COLD_START_FIX_FACTOR if fix is None else fix
 
     from ruamel.yaml.comments import CommentedMap
-    est = node.get("estimate")
-    if est is None:
-        est = CommentedMap()
-        node["estimate"] = est
 
+    # Every value below is computed into locals first, including the token
+    # split and the priced cost -- node/est is not touched until all of that
+    # (in particular cost_from_tokens, the one call that can raise) has
+    # succeeded. An in-process caller must be able to catch PMError and keep
+    # going without finding a half-written estimate block behind it.
     applied = CommentedMap()
+    raw = {}
     for metric, (lo, hi) in BASE_BANDS[cls].items():
         mid = (lo + hi) / 2.0
         ratio = active_scope_ratio(cal, cls, metric)
@@ -2374,24 +2376,39 @@ def compute_story_estimate(state_root, node, cls, model, overrides, confidence=N
             ratio = COLD_START_SCOPE_RATIO
         applied[metric] = round(ratio, 4)
         value = mid * ratio * fix
-        est[metric] = int(round(value)) if metric == "tokens_k" else round(value, 2)
+        raw[metric] = int(round(value)) if metric == "tokens_k" else round(value, 2)
 
     # The band produces FRESH tokens, matching what the scope ratio now measures.
     # cache_read is then projected from the observed mix rather than banded: it
     # tracks corpus x agent count, so a story-size band cannot predict it, but the
     # ratio it bears to fresh tokens is exactly what token_mix samples record.
-    fresh_total = est.pop("tokens_k")
+    fresh_total = raw["tokens_k"]
     mix = observed_mix(cal)
     fshare = fresh_share(mix)
     counts = split_tokens(fresh_total, {c: mix.get(c, 0.0) / fshare for c in FRESH_TOKEN_CLASSES})
     counts["cache_read"] = int(round(fresh_total * (mix.get("cache_read", 0.0) / fshare)))
-    est["tokens_k"] = tokens_block(counts)
+    tokens_est = tokens_block(counts)
     try:
-        est["cost"] = cost_from_tokens(counts, model, overrides)
+        cost = cost_from_tokens(counts, model, overrides)
     except KeyError as e:
         # e.args[0], not str(e) — KeyError.__str__ repr-quotes its argument,
         # which would double-wrap a message that already reads as prose.
         raise PMError(2, e.args[0])
+
+    # Everything above is a local computation; only now, with cost already
+    # priced successfully, do we touch node. Get the existing estimate block
+    # or create one -- in place, so any other keys and ruamel comments on an
+    # existing block survive -- then write the computed values into it in the
+    # same key order cmd_estimate_story has always produced.
+    est = node.get("estimate")
+    if est is None:
+        est = CommentedMap()
+        node["estimate"] = est
+    for metric, value in raw.items():
+        est[metric] = value
+    est.pop("tokens_k")
+    est["tokens_k"] = tokens_est
+    est["cost"] = cost
     est["model"] = model
 
     est["fix_factor"] = round(fix, 4)
