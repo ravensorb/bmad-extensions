@@ -124,3 +124,34 @@ test("check 12: pm-status.py over the 8,000-line limit is caught", (t) => {
   assert.equal(r.status, 1);
   assert.match(r.stderr, /pm-status\.py: \d+ lines, over the 8000-line limit/);
 });
+
+// Pads the fixture's REAL pm-status.py to exactly `total` lines. Lines are counted the way
+// check 12 counts them (newlines, as `wc -l` does), so the boundary tested is the checker's.
+function padPmStatusTo(root, total) {
+  const rel = "skills/_shared/pm-status.py";
+  const have = (fs.readFileSync(path.join(root, rel), "utf8").match(/\n/g) || []).length;
+  assert.ok(have < total, `pm-status.py already has ${have} lines; cannot pad to ${total}`);
+  write(root, rel, "# pad\n".repeat(total - have), true);
+  assert.equal((fs.readFileSync(path.join(root, rel), "utf8").match(/\n/g) || []).length, total);
+}
+
+test("check 12 boundary: exactly 8,000 lines passes", (t) => {
+  const root = fixture(t);
+  padPmStatusTo(root, 8000);
+  const r = run(root);
+  assert.equal(r.status, 0, r.stderr + r.stdout);
+});
+
+test("check 12 boundary: 8,001 lines fails on check 12 alone", (t) => {
+  const root = fixture(t);
+  padPmStatusTo(root, 8001);
+  const r = run(root);
+  assert.equal(r.status, 1);
+  // check-docs.mjs prints "\n<N> documentation problem(s):\n" and then one "  ✗ <failure>"
+  // entry per failure. One problem, and that one check 12's, means every other check that
+  // reads this file (cli-surface, cli-docstring, metric-list, append-issue-pointer) passed.
+  assert.match(r.stderr, /^1 documentation problem\(s\):$/m, r.stderr);
+  const entries = r.stderr.split("\n").filter((l) => l.startsWith("  ✗ "));
+  assert.equal(entries.length, 1, r.stderr);
+  assert.match(entries[0], /pm-status\.py: 8001 lines, over the 8000-line limit .* by 1$/);
+});

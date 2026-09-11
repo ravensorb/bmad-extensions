@@ -3522,6 +3522,42 @@ class TestEstimateRollup(TestLayoutResolution):
         _, node = pm.load_node(pm.epic_file(self.root, "E001"))
         self.assertIn("man_hours_low", node["estimate"])
 
+    def test_epic_missed_by_the_pre_check_exits_3_and_writes_nothing(self):
+        # Final review M1. find_epic_dir scans active -> planned -> archived, so a move-epic
+        # the other way can land mid-scan: the pre-check reads None while the epic exists.
+        # That fell through to the body WITHOUT the epic lock; the body re-resolved the moved
+        # epic, reached save_node, and the write guard raised a RuntimeError traceback. The
+        # pre-check's answer must be final: exit 3, no traceback, nothing written.
+        self._story_estimates([4, 6])
+        code, out = self.run_main(["estimate-rollup", "--state-root", self.root,
+                                   "--epic", "E001", "--sprint", "S01"])
+        self.assertEqual(code, 0, out)
+        real_epic_file, calls = pm.epic_file, []
+        self.assertIsNotNone(real_epic_file(self.root, "E001"))       # the epic does exist
+        lock = pm.epic_lock_path(self.root, "E001")
+        lock_before = os.path.exists(lock)
+        before = _tree_snapshot(self.root)
+
+        def pre_check_misses(state_root, epic):
+            calls.append(epic)
+            return None if len(calls) == 1 else real_epic_file(state_root, epic)
+
+        err = io.StringIO()
+        with mock.patch.object(pm, "epic_file", pre_check_misses):
+            try:
+                with redirect_stdout(io.StringIO()), redirect_stderr(err):
+                    code = pm.main(["estimate-rollup", "--state-root", self.root,
+                                    "--epic", "E001"])
+            except SystemExit as e:
+                code = e.code
+            except Exception as e:                      # what the CLI shows as a traceback
+                self.fail(f"estimate-rollup raised {type(e).__name__}: {e}")
+        self.assertEqual(code, 3, err.getvalue())
+        self.assertNotIn("Traceback", err.getvalue())
+        self.assertEqual(calls, ["E001"], "only the pre-check may resolve the epic")
+        self.assertEqual(_tree_snapshot(self.root), before)
+        self.assertEqual(os.path.exists(lock), lock_before, "no lock file for a missed epic")
+
 
 class TestRollupOrchestrationBand(TestLayoutResolution):
     def run_main(self, argv):
@@ -6471,20 +6507,31 @@ class TestUpdateIssue(IssueBase):
         ev = self.events("issue_updated")[-1]
         self.assertEqual((ev["from"], ev["to"], ev["note"]), ("Low", "High", "wider blast radius"))
 
-    def test_same_severity_is_a_noop(self):
-        """It used to save the file, log an issue_updated event with from == to, and print
-        `severity Low -> Low`: a change record for a change that did not happen."""
+    def _same_severity_noop(self, *extra):
+        """Update BL-E001-001 to the severity it already has; assert no write and no event."""
         self.append("A", "001", "01", "Low")
 
         def read(p):
             with open(p, "rb") as fh:
                 return fh.read()
         issues, events = read(self.issues), read(pm.events_path(self.root))
-        code, out, err = self.update("BL-E001-001", "Low", "--note", "no change")
+        code, out, err = self.update("BL-E001-001", "Low", *extra)
         self.assertEqual(code, 0, err)
-        self.assertEqual(out, "OK update-issue BL-E001-001 severity Low unchanged\n")
         self.assertEqual(read(self.issues), issues)
         self.assertEqual(read(pm.events_path(self.root)), events)
+        return out
+
+    def test_same_severity_is_a_noop(self):
+        """It used to save the file, log an issue_updated event with from == to, and print
+        `severity Low -> Low`: a change record for a change that did not happen."""
+        self.assertEqual(self._same_severity_noop(),
+                         "OK update-issue BL-E001-001 severity Low unchanged\n")
+
+    def test_same_severity_with_a_note_says_the_note_was_not_recorded(self):
+        # Final review M5: the note lives only in the issue_updated event, which a no-op does
+        # not write, so the caller's "why" was dropped with no hint that it had been.
+        self.assertEqual(self._same_severity_noop("--note", "no change"),
+                         "OK update-issue BL-E001-001 severity Low unchanged (note not recorded)\n")
 
     def test_resolved_key_exits_2_naming_resolution(self):
         self.append("A")
@@ -7158,11 +7205,19 @@ class TestPromoteIssue(IssueBase):
         self.append("A")
         real_rollup = pm.rollup_parent_estimate
         lock = pm.epic_lock_path(self.root, "E001")
-        procs, failures, after = [], [], []
+        procs, failures, after, holds = [], [], [], []
 
         def watched_rollup(state_root, epic, sprint, *a, **kw):
             level = f"sprint {sprint}" if sprint else "epic"
             try:
+                # The hold promote took must be the one still held at each roll-up. A release
+                # and retake between them opens a NEW lock file object, so `is` catches it
+                # deterministically, whether or not the waiting set-field won the gap. Keeping
+                # the reference in `holds` stops the old object from being freed and reused.
+                holds.append((pm._EPIC_NODE_LOCK["fh"], pm._EPIC_NODE_LOCK["depth"]))
+                self.assertGreaterEqual(holds[-1][1], 1, f"no epic lock held at the {level} roll-up")
+                self.assertIs(holds[-1][0], holds[0][0],
+                              f"the epic lock was released and retaken before the {level} roll-up")
                 if not procs:
                     p = subprocess.Popen([sys.executable, SCRIPT, "set-field", "--state-root",
                                           self.root, "--epic", "001", "--field", "notes.b9",
@@ -7189,6 +7244,10 @@ class TestPromoteIssue(IssueBase):
         self.assertEqual(code, 0, err)
         self.assertEqual(procs[0].returncode, 0, serr.decode())
         self.assertEqual([lvl for lvl, _, _ in after], ["sprint S02", "epic"])
+        self.assertEqual(len(holds), 2)
+        self.assertIsNotNone(holds[0][0])
+        self.assertIs(holds[1][0], holds[0][0], "one epic lock hold spans both roll-ups")
+        self.assertTrue(all(depth >= 1 for _, depth in holds), holds)
         for lvl, rc, node in after:
             self.assertIsNone(rc, f"set-field finished during the {lvl} roll-up")
             self.assertNotIn("notes", node, f"set-field's write landed during the {lvl} roll-up")
@@ -8056,6 +8115,31 @@ class TestRepairIssue(TestAuditIssues):
         e1 = self.e1()
         self.assertEqual([(f["key"], f["epic"]) for f in e1], [("BL-E001", "001")])
         self.assertIn("next['001'] = 1001 exceeds the BL key space", e1[0]["detail"])
+
+    def test_an_alias_beyond_the_key_space_gets_the_hand_fix_repair(self):
+        # Final review M7. reseed refuses any alias above 1000 (exit 2), so an alias finding
+        # that still said "run repair-issue --action reseed" routed triage to a repair that
+        # cannot run. Above 1000 it carries the key-space finding's hand-fix text; at 1000
+        # reseed folds the alias in by max, so reseed stays its repair.
+        self.append("A")
+        self._set_next(("001", 2), (1, 1000))
+        e1 = self.e1()
+        self.assertEqual(len(e1), 1, e1)
+        self.assertIn("non-canonical key 1 ", e1[0]["detail"])
+        self.assertIn("run repair-issue --action reseed", e1[0]["detail"])
+        self.assertEqual(e1[0]["repair"], "repair-issue --action reseed")
+
+        self._set_next(("001", 2), (1, 1001))
+        e1 = self.e1()
+        alias = [f for f in e1 if "non-canonical key 1 " in f["detail"]]
+        space = [f for f in e1 if "exceeds the BL key space" in f["detail"]]
+        self.assertEqual((len(e1), len(alias), len(space)), (2, 1, 1), e1)
+        self.assertNotIn("run repair-issue --action reseed", alias[0]["detail"])
+        self.assertIn("fix it by hand", alias[0]["detail"])
+        self.assertEqual(alias[0]["repair"], space[0]["repair"])
+        self.assertTrue(alias[0]["repair"].startswith("report only -- fix it by hand"),
+                        alias[0]["repair"])
+        self.assertEqual(self.repair("BL-E001-001", "reseed")[0], 2)   # why: reseed refuses
 
     def test_reseed_refuses_a_value_beyond_the_key_space_and_writes_nothing(self):
         self.append("A")

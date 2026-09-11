@@ -2685,11 +2685,16 @@ def rollup_parent_estimate(state_root, epic, sprint, model, overrides):
 
     The epic-level roll-up rewrites epic.yaml, so it runs under that epic's
     epic_node_lock -- re-entrantly when promote-issue, which already holds it,
-    is the caller. An absent epic is left to the body's PMError(3), with no
-    lock file created for it.
+    is the caller. An epic the pre-check cannot find raises PMError(3) right
+    there, with no lock file created for it. It is never handed to the body
+    unlocked: find_epic_dir scans active -> planned -> archived, so a move-epic
+    the other way can land mid-scan and hide an epic that exists, and the body's
+    own re-resolve would then find it and reach save_node without the lock.
     """
-    if sprint or epic_file(state_root, epic) is None:
+    if sprint:
         return _rollup_parent_estimate(state_root, epic, sprint, model, overrides)
+    if epic_file(state_root, epic) is None:
+        raise PMError(3, f"epic {epic}")
     with epic_node_lock(state_root, epic):
         return _rollup_parent_estimate(state_root, epic, sprint, model, overrides)
 
@@ -5026,7 +5031,9 @@ def update_issue_core(store, key, severity, note=None, session=None, cause="cli"
     before = str(item.get("severity", ""))
     if before == severity:
         # No change is not an update: no save, and no issue_updated event with from == to.
-        return f"{k} severity {severity} unchanged"
+        # A --note lives only in that event, so say it was dropped rather than drop it silently.
+        return (f"{k} severity {severity} unchanged"
+                f"{' (note not recorded)' if note is not None else ''}")
     item["severity"] = severity
     store.save_open()
     _issue_event(store.state_root, "issue_updated", item, session, cause,
@@ -5455,6 +5462,8 @@ def _audit_findings(state_root, store) -> list:
                 add("1d", k, f"story {sk} lists {k}, which is still backlog",
                     f"repair-issue --action link --story {sk}", story=sk)
     nxt = store.open.get("next")
+    by_hand = f"fix it by hand; reseed refuses a value above {_BL_NEXT_MAX}"
+    hand_fix = f"report only -- {by_hand}"
     if nxt is not None and not isinstance(nxt, dict):
         add("1e", "next", f"next is malformed ({nxt!r})", "repair-issue --action reseed")
     elif nxt:
@@ -5463,21 +5472,24 @@ def _audit_findings(state_root, store) -> list:
         for e in sorted(nxt, key=lambda e: (_norm_num(str(e), 3), str(e))):
             en = _norm_num(str(e), 3)
             stored, highest = _int_or_none(nxt.get(e)), store.highest_suffix(en)
+            beyond = stored is not None and stored > _BL_NEXT_MAX
             if e != en:
                 # User decision: allocate reads only the canonical key, so an alias (`1` or
-                # '1' for '001') is 1e whatever its value; reseed folds it in by max.
+                # '1' for '001') is 1e whatever its value; reseed folds it in by max -- except
+                # past the key space, which reseed refuses (exit 2), so that alias gets the
+                # same hand-fix repair as its key-space finding below, not a reseed it can't run.
+                advice = by_hand if beyond else "run repair-issue --action reseed"
                 add("1e", f"BL-E{en}", f"next has a non-canonical key {e!r} for epic {en} "
-                                      f"(= {nxt.get(e)!r}); allocate reads only {en!r} -- run "
-                                      f"repair-issue --action reseed",
-                    "repair-issue --action reseed", epic=en)
+                                      f"(= {nxt.get(e)!r}); allocate reads only {en!r} -- "
+                                      f"{advice}",
+                    hand_fix if beyond else "repair-issue --action reseed", epic=en)
             elif stored is None or stored <= highest:
                 add("1e", f"BL-E{en}", f"next[{e}] = {nxt.get(e)!r} but the highest key is "
                                       f"{highest:03d}", "repair-issue --action reseed", epic=en)
-            if stored is not None and stored > _BL_NEXT_MAX:
+            if beyond:
                 add("1e", f"BL-E{en}", f"next[{e!r}] = {stored} exceeds the BL key space (keys "
                                       f"stop at 999, so next is at most {_BL_NEXT_MAX})",
-                    f"report only -- fix it by hand; reseed refuses a value above "
-                    f"{_BL_NEXT_MAX}", epic=en)
+                    hand_fix, epic=en)
     for k, its in res_by.items():
         it = its[-1]
         ref = str(it.get("ref", "") or "")
