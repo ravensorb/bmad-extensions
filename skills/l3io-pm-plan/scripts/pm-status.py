@@ -140,11 +140,17 @@ Subcommands
                 (read-only integrity checks 1a-1j over both issue files and the story
                 nodes' resolves:, read under issues_lock when either issue file exists;
                 otherwise the story walk still runs, unlocked, over an empty store;
-                exit 4 when anything is found)
+                a key with a resolved entry is checked only for 1a (resolved first) and
+                a key duplicated in one file only for 1i; 1d/1h ignore a dead claim --
+                a story under archived/ that is not done; 1j fires only when the ref
+                story's resolves: lists the key; exit 4 when anything is found)
   repair-issue  --state-root S  --key K  --action {unschedule,link,reseed,reopen}
                 [--story KEY] [--session-id ID] [--cause C]
                 (each action refuses unless its audit finding holds: unschedule 1b/1g,
-                link 1d (--story must be the story that lists K), reseed 1e, reopen 1j)
+                link 1d (--story must be the story that lists K), reseed 1e, reopen 1j;
+                unschedule and link also refuse a key with a resolved entry -- rerun
+                resolve-issue to clear the stale open copy (1a); reseed drops
+                non-canonical aliases of the epic's next key and never lowers it)
   move-epic     --state-root S  --epic ID  --to {planned,active,archived}
   archive-epic  --state-root S  --epic ID   (alias for move-epic --to archived)
   calibration   show  --state-root S  [--format {text,json}]
@@ -5132,8 +5138,13 @@ def _audit_findings(state_root, store) -> list:
         if k in res_by:
             add("1a", k, "present in both issue files",
                 "resolve-issue rerun -- it clears the open copy")
-    for k, its in open_by.items():
-        it = its[0]
+    for k in open_by:
+        if k in res_by:
+            continue            # Ruling 8, resolved first: the stale open copy is 1a only
+        try:
+            it = store.single_open(k)
+        except PMError:
+            continue            # 1i (reported above): an ambiguous key is never evaluated
         st = str(it.get("status", ""))
         if st not in OPEN_ISSUE_STATUSES:
             add("1f", k, f"open item has status {st!r}", "report only")
@@ -5154,9 +5165,12 @@ def _audit_findings(state_root, store) -> list:
             add("1b", k, f"named in resolves of {', '.join(sks)} but in neither issue file",
                 "report only -- remove it from resolves by hand", story=sks[0])
             continue
-        if k not in open_by:
+        if k not in open_by or k in res_by:     # Ruling 8: resolved first
             continue
-        it = open_by[k][0]
+        try:
+            it = store.single_open(k)
+        except PMError:
+            continue                            # 1i: an ambiguous key is never evaluated
         for sk in lsks:
             if sk not in stories:
                 continue
@@ -5170,8 +5184,10 @@ def _audit_findings(state_root, store) -> list:
     if nxt is not None and not isinstance(nxt, dict):
         add("1e", "next", f"next is malformed ({nxt!r})", "repair-issue --action reseed")
     elif nxt:
-        for e in sorted(nxt):
-            en = _norm_num(e, 3)
+        # Sort on the normalised epic: a hand-edited unquoted key (`1: 5`) is an int, and
+        # sorting it against the string keys raised TypeError.
+        for e in sorted(nxt, key=lambda e: _norm_num(str(e), 3)):
+            en = _norm_num(str(e), 3)
             stored, highest = _int_or_none(nxt.get(e)), store.highest_suffix(en)
             if stored is None or stored <= highest:
                 add("1e", f"BL-E{en}", f"next[{e}] = {nxt.get(e)!r} but the highest key is "
@@ -5179,7 +5195,10 @@ def _audit_findings(state_root, store) -> list:
     for k, its in res_by.items():
         it = its[-1]
         ref = str(it.get("ref", "") or "")
-        if str(it.get("resolution")) == "fixed" and ref in stories and stories[ref][1] != "done":
+        # Only a ref story whose resolves: lists the key: a legitimate `--ref <story in
+        # progress>` never claimed it, and reopening it would manufacture a 1b.
+        if (str(it.get("resolution")) == "fixed" and ref in stories
+                and stories[ref][1] != "done" and ref in claims.get(k, [])):
             add("1j", k, f"resolved fixed by {ref}, which is now {stories[ref][1]!r}",
                 "repair-issue --action reopen", story=ref)
     return findings
@@ -5218,7 +5237,9 @@ def cmd_audit_issues(args) -> int:
 def cmd_repair_issue(args) -> int:
     """Narrow structural repairs (spec §3.4). Each action refuses (exit 2) unless its
     audit finding holds for --key, so it can only move the backlog toward a state
-    audit-issues accepts -- never invent one it would flag."""
+    audit-issues accepts -- never invent one it would flag. `unschedule` and `link` act on
+    an open item, so they also refuse a key with a resolved entry (Ruling 8, resolved
+    first): a stale open copy is finding 1a, cleared by a resolve-issue rerun."""
     return _run_core(lambda: _repair_issue(args))
 
 
@@ -5238,6 +5259,15 @@ def _repair_issue(args) -> int:
             return any(f["id"] in ids and f["key"] == k and (story is None or f["story"] == story)
                        for f in findings)
 
+        if act == "link" and not args.story:
+            raise PMError(2, "--action link needs --story")
+        if act in ("unschedule", "link"):
+            done = store.resolved_items(k)      # Ruling 8: resolved first
+            if done:
+                raise PMError(2, f"{act}: {k} is already resolved "
+                                 f"({done[-1].get('resolution')}) -- audit finding 1a: rerun "
+                                 f"resolve-issue --key {k} (any valid --resolution; the "
+                                 f"recorded one is kept) to clear a stale open copy")
         if act == "unschedule":
             opens = store.open_items(k)
             if not (holds({"1b", "1g"}) and len(opens) == 1
@@ -5250,11 +5280,9 @@ def _repair_issue(args) -> int:
             store.save_open()
             msg = f"{k} unscheduled -> backlog"
         elif act == "link":
-            if not args.story:
-                raise PMError(2, "--action link needs --story")
             if not holds({"1d"}, story=args.story):
                 raise PMError(2, f"link: audit finding 1d does not hold for {k} and {args.story}")
-            it = store.open_items(k)[0]
+            it = store.single_open(k)           # 1i refusal, never an arbitrary copy
             it["status"] = "scheduled"
             it["story"] = args.story
             it["scheduled_at"] = _now_iso()
@@ -5276,7 +5304,15 @@ def _repair_issue(args) -> int:
                 for e in epics:
                     nxt[e] = store.highest_suffix(e) + 1
             else:
-                nxt[epic] = store.highest_suffix(epic) + 1
+                # Drop non-canonical aliases of the epic (a hand-edited `1:`), which audit
+                # would otherwise keep reporting as 1e -- folding their values into the max,
+                # so `next` never decreases.
+                aliases = [a for a in nxt if _norm_num(str(a), 3) == epic]
+                known = [v for v in (_int_or_none(nxt.get(a)) for a in aliases) if v is not None]
+                for a in aliases:
+                    if a != epic:
+                        del nxt[a]
+                nxt[epic] = max([store.highest_suffix(epic) + 1] + known)
             store.save_open()
             msg = f"next reseeded ({', '.join(f'{e}={v}' for e, v in nxt.items())})"
         else:  # reopen

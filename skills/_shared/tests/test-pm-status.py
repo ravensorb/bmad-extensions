@@ -7142,6 +7142,35 @@ class TestAuditIssues(IssueBase):
         self.assertIn("1f", out)
         self.assertIn("repair:", out)
 
+    def _crash_resolve_before_open_save(self, key="BL-E001-001"):
+        """resolve-issue with its second write failing: the key is left in BOTH files (1a)."""
+        with _dump_failing_on(2):
+            with redirect_stdout(io.StringIO()), redirect_stderr(io.StringIO()):
+                with self.assertRaises(OSError):
+                    pm.main(["resolve-issue", "--state-root", self.root, "--key", key,
+                             "--resolution", "obsolete", "--note", "x"])
+
+    def test_a_key_in_both_files_is_audited_only_for_1a(self):
+        """Ruling 8, resolved first: the stale open copy is not evaluated (here it looks 1d)."""
+        self.append("A")
+        self._crash_promote_before_scheduling(cls="simple")     # story lists it, item backlog
+        self._crash_resolve_before_open_save()
+        _, findings = self.audit()
+        self.assertEqual([(f["id"], f["key"]) for f in findings], [("1a", "BL-E001-001")])
+
+    def test_a_duplicated_key_is_reported_only_as_1i(self):
+        """An ambiguous key is never evaluated through an arbitrary copy (single_open)."""
+        from ruamel.yaml.comments import CommentedMap
+        self.append("A")
+
+        def dup_weird_first(d):
+            c = CommentedMap(d["backlog"][0])
+            c["status"] = "weird"
+            d["backlog"].insert(0, c)
+        self.edit_open(dup_weird_first)
+        _, findings = self.audit()
+        self.assertEqual([(f["id"], f["key"]) for f in findings], [("1i", "BL-E001-001")])
+
 
 class TestRepairIssue(TestAuditIssues):
     """Inherits TestAuditIssues' helpers, so each corrupt state is built the same way
@@ -7192,20 +7221,106 @@ class TestRepairIssue(TestAuditIssues):
         self.assertEqual((item["status"], item["story"]), ("scheduled", "E001-S02-001"))
         self.assertEqual(self.audit(), (0, []))      # the dead archived claim is not 1h
 
+    def test_1j_ignores_a_ref_story_that_never_listed_the_key(self):
+        """resolve --ref <a story still in progress> is legitimate. That story never listed
+        the key, so 1j must not fire -- and reopen must not manufacture a 1b from it."""
+        self.append("A")
+        self.promote()                                          # E001-S02-001 lists 001 only
+        self.run_all(["set-status", "--state-root", self.root, "--story", "E001-S02-001",
+                      "--status", "in-progress"])
+        self.append("B", "001", "02")
+        code, _, err = self.run_all(["resolve-issue", "--state-root", self.root, "--key",
+                                     "BL-E001-002", "--resolution", "fixed", "--ref",
+                                     "E001-S02-001"])
+        self.assertEqual(code, 0, err)
+        self.assertEqual(self.audit(), (0, []))
+        code, _, err = self.repair("BL-E001-002", "reopen")
+        self.assertEqual(code, 2)
+        self.assertIn("reopen: audit finding 1j does not hold for BL-E001-002", err)
+        self.assertEqual(self.resolved_keys(), ["BL-E001-002"])
+
+    def test_link_refuses_a_key_with_a_resolved_entry(self):
+        self.append("A")
+        self._crash_promote_before_scheduling(cls="simple")
+        self._crash_resolve_before_open_save()                  # 1a; the stale copy looks 1d
+        before = _tree_snapshot(self.d)
+        code, _, err = self.repair("BL-E001-001", "link", "--story", "E001-S02-001")
+        self.assertEqual(code, 2)
+        self.assertIn("link: BL-E001-001 is already resolved (obsolete)", err)
+        self.assertIn("rerun resolve-issue", err)
+        self.assertEqual(_tree_snapshot(self.d), before)
+
+    def test_unschedule_refuses_a_key_with_a_resolved_entry(self):
+        self.append("A")
+        self.promote()
+        self._crash_resolve_before_open_save()                  # 1a; the stale copy is scheduled
+        os.remove(pm.story_file(self.root, "E001-S02-001"))     # ...and now looks 1b
+        self.assertEqual([(f["id"], f["key"]) for f in self.audit()[1]],
+                         [("1a", "BL-E001-001")])               # the stale copy is not 1b
+        before = _tree_snapshot(self.d)
+        code, _, err = self.repair("BL-E001-001", "unschedule")
+        self.assertEqual(code, 2)
+        self.assertIn("unschedule: BL-E001-001 is already resolved (obsolete)", err)
+        self.assertIn("rerun resolve-issue", err)
+        self.assertEqual(_tree_snapshot(self.d), before)
+        code, _, err = self.run_all(["resolve-issue", "--state-root", self.root, "--key",
+                                     "BL-E001-001", "--resolution", "obsolete", "--note", "x"])
+        self.assertEqual(code, 0, err)                          # the advised repair works
+        self.assertEqual(self.audit(), (0, []))
+
+    def _set_next(self, *pairs):
+        from ruamel.yaml.comments import CommentedMap
+        self.edit_open(lambda d: d.__setitem__("next", CommentedMap(pairs)))
+
+    def test_audit_survives_an_unquoted_numeric_next_key(self):
+        """next: {1: 5} -- a hand edit with an int key -- must not crash the audit's sort."""
+        self.append("A")
+        self.append("C", "005", "01", "Low", "qa (Q-1)")
+        self._set_next((1, 5), ("005", 2))
+        self.assertEqual(self.audit(), (0, []))
+
+    def test_reseed_drops_a_numeric_alias_so_1e_clears(self):
+        self.append("A")
+        self.append("B", "001", "02")
+        self.append("C", "005", "01", "Low", "qa (Q-1)")
+        self._set_next((1, 1), ("005", 2))
+        self.found("1e", "BL-E001")
+        code, _, err = self.repair("BL-E001-001", "reseed")
+        self.assertEqual(code, 0, err)
+        nxt = self.load_open()["next"]
+        self.assertNotIn(1, nxt)
+        self.assertEqual(int(nxt["001"]), 3)
+        self.assertEqual(self.audit(), (0, []))
+
+    def test_reseed_never_lowers_next_when_dropping_an_alias(self):
+        self.append("A")
+        self.append("B", "001", "02")
+        self._set_next(("001", 50), (1, 1))
+        self.found("1e", "BL-E001")
+        self.assertEqual(self.repair("BL-E001-001", "reseed")[0], 0)
+        self.assertEqual(dict(self.load_open()["next"]), {"001": 50})
+        self.assertEqual(self.audit(), (0, []))
+
     def test_unschedule_refused_on_a_healthy_item(self):
         self.append("A")
         self.promote()
         with open(self.issues, encoding="utf-8") as fh:
             before = fh.read()
-        self.assertEqual(self.repair("BL-E001-001", "unschedule")[0], 2)
+        code, _, err = self.repair("BL-E001-001", "unschedule")
+        self.assertEqual(code, 2)
+        self.assertIn("unschedule: audit finding 1b/1g does not hold for BL-E001-001", err)
         with open(self.issues, encoding="utf-8") as fh:
             self.assertEqual(fh.read(), before)
 
     def test_link_clears_1d_and_is_refused_for_the_wrong_story(self):
         self.append("A")
         self._crash_promote_before_scheduling(cls="simple")
-        self.assertEqual(self.repair("BL-E001-001", "link")[0], 2)                       # no --story
-        self.assertEqual(self.repair("BL-E001-001", "link", "--story", "E001-S02-009")[0], 2)
+        code, _, err = self.repair("BL-E001-001", "link")                              # no --story
+        self.assertEqual(code, 2)
+        self.assertIn("--action link needs --story", err)
+        code, _, err = self.repair("BL-E001-001", "link", "--story", "E001-S02-009")
+        self.assertEqual(code, 2)
+        self.assertIn("link: audit finding 1d does not hold for BL-E001-001 and E001-S02-009", err)
         code, _, err = self.repair("BL-E001-001", "link", "--story", "E001-S02-001")
         self.assertEqual(code, 0, err)
         self.assertEqual(self.audit(), (0, []))
@@ -7226,7 +7341,9 @@ class TestRepairIssue(TestAuditIssues):
 
     def test_reseed_refused_when_next_is_fine(self):
         self.append("A")
-        self.assertEqual(self.repair("BL-E001-001", "reseed")[0], 2)
+        code, _, err = self.repair("BL-E001-001", "reseed")
+        self.assertEqual(code, 2)
+        self.assertIn("reseed: audit finding 1e does not hold for epic 001", err)
 
     def test_reopen_clears_1j(self):
         self.append("A")
@@ -7247,7 +7364,9 @@ class TestRepairIssue(TestAuditIssues):
         self.append("A")
         self.run_all(["resolve-issue", "--state-root", self.root, "--key", "BL-E001-001",
                       "--resolution", "obsolete", "--note", "x"])
-        self.assertEqual(self.repair("BL-E001-001", "reopen")[0], 2)
+        code, _, err = self.repair("BL-E001-001", "reopen")
+        self.assertEqual(code, 2)
+        self.assertIn("reopen: audit finding 1j does not hold for BL-E001-001", err)
 
     def test_reopen_interrupted_after_the_open_write_completes_on_rerun(self):
         self.append("A")
