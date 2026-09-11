@@ -8969,7 +8969,7 @@ class TestIssueKinds(IssueBase):
 
     def test_audit_1k_spec_item_without_ref(self):
         self.spec_item()
-        self._edit_open(f"ref: {self.SHA}\n", "")
+        self._edit_open(f"  ref: {self.SHA}\n", "")
         code, rep = self.audit()
         self.assertEqual(code, 4)
         hits = [f for f in rep["findings"] if f["id"] == "1k"]

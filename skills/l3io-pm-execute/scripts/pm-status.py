@@ -154,7 +154,7 @@ Subcommands
                 is not a mapping, or a claimant whose key: is malformed, exits 2 naming
                 the file, before any write)
   audit-issues  --state-root S  [--format {text,json}]
-                (read-only integrity checks 1a-1j over both issue files and the story
+                (read-only integrity checks 1a-1k over both issue files and the story
                 nodes' resolves:, read under issues_lock when either issue file exists;
                 otherwise the story walk still runs, unlocked, over an empty store;
                 a key with a resolved entry is not evaluated for 1b, 1c, 1d, 1f
@@ -5047,10 +5047,10 @@ def _append_issue(args) -> int:
         item["status"] = "backlog"
         if kind != "defect":
             item["kind"] = kind
-        if args.description:
-            item["description"] = args.description
         if ref:
             item["ref"] = ref
+        if args.description:
+            item["description"] = args.description
         store.backlog.append(item)
         store.save_open()
     _issue_event(store.state_root, "issue_opened", item,
