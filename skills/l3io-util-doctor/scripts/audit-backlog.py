@@ -35,7 +35,7 @@ import re
 import subprocess
 import sys
 
-CODE_MARKER_RE = re.compile(r"code-marker \(?([^\s():]+):(\d+)\)?")
+CODE_MARKER_RE = re.compile(r"code-marker \(?([^():]+):(\d+)\)?")
 REVIEW_RE = re.compile(r"code-review \((E(\d{3})-S(\d{2})-\d{3})\)")
 PHASE_RE = re.compile(r"^([A-Za-z][\w-]*) \(([^()]+)\)$")
 SEE_RE = re.compile(r"^See (\S+)")

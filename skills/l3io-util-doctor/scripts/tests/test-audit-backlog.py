@@ -105,6 +105,16 @@ class TestMarkers(Base):
         self.assertNotIn("obsolete-candidate", {v["verdict"] for v in result["verdicts"]})
         self.assertTrue(any("project-root suspect" in w for w in result["warnings"]))
 
+    def test_marker_path_with_a_space_is_recognized(self):
+        self.write("src/my file.py", "x = 1\n")
+        self.append("linear scan over the cache.", "code-marker (src/my file.py:3)")
+        self.assertEqual(self.verdicts()["BL-E001-001"]["verdict"], "fixed-candidate")
+
+    def test_embedded_marker_path_with_a_space_is_recognized(self):
+        self.write("src/my file.py", "x = 1\n")
+        self.append("debug print", "clean-release (code-marker src/my file.py:9)")
+        self.assertEqual(self.verdicts()["BL-E001-001"]["verdict"], "fixed-candidate")
+
 
 class TestDuplicates(Base):
     def test_same_epic_lower_severity_is_proposed(self):
