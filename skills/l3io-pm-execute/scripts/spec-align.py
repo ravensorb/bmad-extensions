@@ -703,6 +703,107 @@ def cmd_check_dispositions(ctx, a):
     return 0
 
 
+# -- ADRs (one home: docs/adr/, ADR-0005) ------------------------------------------------------- #
+
+DOC_ADR_RE = re.compile(r"^(\d{4})-.+\.md$")
+LEGACY_ADR_RE = re.compile(r"^adr-(\d{4})-(.+)\.md$")
+ADR_META_RE = re.compile(r"^-\s+\*\*(Status|Epic|Departs from spec):\*\*\s*(.*?)\s*$")
+
+
+def epic_key(value):
+    """'E003', 'e3', '003', '3' -> 'E003'; anything else (n/a, empty) -> None."""
+    m = re.fullmatch(r"\s*E?(\d{1,3})\s*", str(value or ""), re.I)
+    return f"E{int(m.group(1)):03d}" if m else None
+
+
+def adr_meta(path):
+    """The metadata bullets before the first `##` heading (assets/adr-template.md shape)."""
+    meta = {}
+    for line in read_text(path).splitlines():
+        if line.startswith("## "):
+            break
+        m = ADR_META_RE.match(line)
+        if m:
+            meta[m.group(1)] = m.group(2).strip().strip("`")
+    return meta
+
+
+def all_adrs(ctx):
+    out = []
+    docs = os.path.join(ctx.project, "docs", "adr")
+    if os.path.isdir(docs):
+        for name in sorted(os.listdir(docs)):
+            m = DOC_ADR_RE.match(name)
+            if m:
+                p = os.path.join(docs, name)
+                meta = adr_meta(p)
+                out.append({"path": ctx.rel(p), "number": int(m.group(1)), "home": "docs",
+                            "epic": epic_key(meta.get("Epic")), "status": meta.get("Status", ""),
+                            "departs": meta.get("Departs from spec", "")})
+    if ctx.impl:
+        for p in sorted(glob.glob(os.path.join(ctx.impl, "epic-*", "arch", "adr-*.md"))):
+            m = LEGACY_ADR_RE.match(os.path.basename(p))
+            em = re.search(r"epic-(\d{3})", os.path.basename(os.path.dirname(os.path.dirname(p))))
+            if m and em:
+                meta = adr_meta(p)
+                out.append({"path": ctx.rel(p), "number": int(m.group(1)), "home": "legacy",
+                            "epic": f"E{em.group(1)}", "status": meta.get("Status", ""),
+                            "departs": meta.get("Departs from spec", "")})
+    return out
+
+
+def link_gaps(ctx, cat, adrs):
+    """Accepted ADRs whose `Departs from spec:` section does not link back to them."""
+    gaps = []
+    for x in adrs:
+        dep = (x["departs"] or "").strip()
+        if not x["status"].lower().startswith("accepted") or not dep or dep.lower() == "n/a":
+            continue
+        if not PTR_RE.match(dep):
+            gaps.append((x, dep, "not a pointer"))
+            continue
+        hit, _ = resolve_pointer(cat, dep)
+        if hit is None:
+            gaps.append((x, dep, "pointer does not resolve"))
+            continue
+        sec = hit[2]
+        body = read_text(ctx.abs(hit[0])).splitlines()[sec.start - 1:sec.end]
+        if not any(os.path.basename(x["path"]) in line for line in body):
+            gaps.append((x, dep, "section does not link the ADR"))
+    return gaps
+
+
+def cmd_adrs(ctx, a):
+    ek = epic_key(a.epic)
+    if ek is None:
+        raise SAError(2, f"--epic {a.epic!r} is not an epic key")
+    rows = [x for x in all_adrs(ctx) if x["epic"] == ek]
+    for x in rows:
+        if x["home"] == "legacy":
+            sys.stderr.write(f"WARN {x['path']} is in the old ADR home -- run "
+                             f"/l3io-util-doctor migrate-adrs\n")
+    if a.format == "json":
+        print(json.dumps(rows, indent=2))
+    else:
+        for x in rows:
+            print(x["path"])
+    return 0
+
+
+def cmd_check_links(ctx, a):
+    adrs = all_adrs(ctx)
+    if a.epic:
+        ek = epic_key(a.epic)
+        adrs = [x for x in adrs if x["epic"] == ek]
+    gaps = link_gaps(ctx, load_catalog(ctx), adrs)
+    for x, dep, why in gaps:
+        print(f"{x['path']}: departs from {dep} -- {why}")
+    if gaps:
+        return 1
+    print(f"OK check-links: {len(adrs)} ADR(s)")
+    return 0
+
+
 # -- CLI -------------------------------------------------------------------------------------- #
 
 def build_parser():
@@ -748,6 +849,15 @@ def build_parser():
     cd.add_argument("--expect", required=True,
                     help="the reviewer's final 'Blocker: N, Major: N, Minor: N'")
     cd.set_defaults(func=cmd_check_dispositions)
+
+    ad = sub.add_parser("adrs", help="an epic's ADRs, from docs/adr and the old home")
+    ad.add_argument("--epic", required=True)
+    ad.add_argument("--format", choices=["text", "json"], default="text")
+    ad.set_defaults(func=cmd_adrs)
+
+    cl = sub.add_parser("check-links", help="report ADRs their spec section does not link")
+    cl.add_argument("--epic", default="")
+    cl.set_defaults(func=cmd_check_links)
 
     # Later tasks register their subcommands above this line.
     return p

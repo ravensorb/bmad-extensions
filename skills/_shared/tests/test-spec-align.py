@@ -514,5 +514,61 @@ class TestDispositions(Project):
         self.assertEqual(r.returncode, 0, r.stderr)
 
 
+def adr(num, slug, epic="E003", status="Accepted", departs="n/a"):
+    return (f"# ADR-{num:04d}: {slug}\n\n- **Status:** {status}\n- **Date:** 2026-09-11\n"
+            f"- **Epic:** {epic}\n- **Departs from spec:** {departs}\n\n## Context\n\nx\n")
+
+
+class TestAdrs(Project):
+    def setUp(self):
+        super().setUp()
+        self.write(ARCH_REL, ARCH)
+        self.write("docs/adr/0001-order-api.md",
+                   adr(1, "order-api", departs=f"{ARCH_REL}#order-api"))
+        self.write("docs/adr/0002-global.md", adr(2, "global", epic="n/a"))
+        self.write("docs/adr/0003-draft.md",
+                   adr(3, "draft", status="Proposed", departs=f"{ARCH_REL}#data-model"))
+        self.write(f"{IMPL}/epic-003/arch/adr-0005-legacy.md", adr(5, "legacy"))
+        self.write(f"{IMPL}/epic-003/arch/arch-gate-review.md", "# Gate\n")
+
+    def test_lists_an_epics_adrs_from_both_homes(self):
+        r = self.sa("adrs", "--epic", "E003")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertEqual(r.stdout.splitlines(), ["docs/adr/0001-order-api.md",
+                                                 "docs/adr/0003-draft.md",
+                                                 f"{IMPL}/epic-003/arch/adr-0005-legacy.md"])
+        self.assertIn("old ADR home", r.stderr)
+        self.assertIn("migrate-adrs", r.stderr)
+
+    def test_accepts_the_bare_epic_number(self):
+        r = self.sa("adrs", "--epic", "3", "--format", "json")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        rows = json.loads(r.stdout)
+        self.assertEqual([x["number"] for x in rows], [1, 3, 5])
+        self.assertEqual(rows[0]["departs"], f"{ARCH_REL}#order-api")
+        self.assertEqual(rows[2]["home"], "legacy")
+
+    def test_check_links_reports_an_unlinked_departure(self):
+        r = self.sa("check-links")
+        self.assertEqual(r.returncode, 1)
+        self.assertIn("0001-order-api.md", r.stdout)
+        self.assertIn("section does not link the ADR", r.stdout)
+        self.assertNotIn("0003-draft", r.stdout)            # Proposed: not a departure yet
+
+    def test_check_links_passes_once_the_section_links_it(self):
+        self.write(ARCH_REL, ARCH.replace(
+            "POST /orders accepts a body.",
+            "POST /orders accepts a body. See [ADR-0001](../../docs/adr/0001-order-api.md)."))
+        r = self.sa("check-links", "--epic", "E003")
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+
+    def test_check_links_reports_a_dangling_pointer(self):
+        self.write("docs/adr/0004-gone.md", adr(4, "gone", departs=f"{ARCH_REL}#removed"))
+        r = self.sa("check-links")
+        self.assertEqual(r.returncode, 1)
+        self.assertIn("0004-gone.md", r.stdout)
+        self.assertIn("pointer does not resolve", r.stdout)
+
+
 if __name__ == "__main__":
     unittest.main()
