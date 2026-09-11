@@ -133,7 +133,8 @@ Subcommands
   update-issue  --state-root S  --key K  --severity {Low,Medium,High,Critical}
                 [--note N] [--session-id ID] [--cause {cli,triage,plan-intake}]
                 (re-severities an OPEN item; a resolved key exits 2, one in neither
-                issue file 3)
+                issue file 3; the severity it already has exits 0 as "unchanged",
+                writing no file and no event)
   promote-issue --state-root S  --artifacts-root R  --key K [--key K2 ...]  --epic E
                 --sprint S  --classification {simple,standard,complex}  [--title T]
                 [--model M] [--token-rates JSON] [--session-id ID] [--cause C]
@@ -4886,6 +4887,9 @@ def update_issue_core(store, key, severity, note=None, session=None, cause="cli"
     if item is None:
         raise PMError(3, f"{k} is in neither {store.open_path} nor {store.resolved_path}")
     before = str(item.get("severity", ""))
+    if before == severity:
+        # No change is not an update: no save, and no issue_updated event with from == to.
+        return f"{k} severity {severity} unchanged"
     item["severity"] = severity
     store.save_open()
     _issue_event(store.state_root, "issue_updated", item, session, cause,
@@ -5399,8 +5403,9 @@ def _repair_issue(args) -> int:
             it["story"] = args.story
             it["scheduled_at"] = _now_iso()
             store.save_open()
+            # via: tells a repaired scheduling apart from promote's, which has no via field
             _issue_event(store.state_root, "issue_scheduled", it, args.session_id, args.cause,
-                         story=args.story)
+                         story=args.story, via="repair-link")
             msg = f"{k} scheduled to {args.story}"
         elif act == "reseed":
             if not any(f["id"] == "1e" and (f["epic"] == epic or f["key"] == "next")

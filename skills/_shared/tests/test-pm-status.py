@@ -6385,6 +6385,21 @@ class TestUpdateIssue(IssueBase):
         ev = self.events("issue_updated")[-1]
         self.assertEqual((ev["from"], ev["to"], ev["note"]), ("Low", "High", "wider blast radius"))
 
+    def test_same_severity_is_a_noop(self):
+        """It used to save the file, log an issue_updated event with from == to, and print
+        `severity Low -> Low`: a change record for a change that did not happen."""
+        self.append("A", "001", "01", "Low")
+
+        def read(p):
+            with open(p, "rb") as fh:
+                return fh.read()
+        issues, events = read(self.issues), read(pm.events_path(self.root))
+        code, out, err = self.update("BL-E001-001", "Low", "--note", "no change")
+        self.assertEqual(code, 0, err)
+        self.assertEqual(out, "OK update-issue BL-E001-001 severity Low unchanged\n")
+        self.assertEqual(read(self.issues), issues)
+        self.assertEqual(read(pm.events_path(self.root)), events)
+
     def test_resolved_key_exits_2_naming_resolution(self):
         self.append("A")
         self.run_all(["resolve-issue", "--state-root", self.root, "--key", "BL-E001-001",
@@ -6710,6 +6725,7 @@ class TestPromoteIssue(IssueBase):
         self.assertIn("- The deferred finding BL-E001-001 is resolved: Replace linear scan", doc)
         ev = self.events("issue_scheduled")
         self.assertEqual((ev[-1]["key"], ev[-1]["story"]), ("BL-E001-001", "E001-S02-001"))
+        self.assertNotIn("via", ev[-1])     # repair's link carries via; promote's shape is unchanged
 
     def test_refusals_write_nothing(self):
         self.append("A")
@@ -7484,6 +7500,17 @@ class TestRepairIssue(TestAuditIssues):
         code, _, err = self.repair("BL-E001-001", "link", "--story", "E001-S02-001")
         self.assertEqual(code, 0, err)
         self.assertEqual(self.audit(), (0, []))
+
+    def test_link_event_says_it_came_from_repair(self):
+        """link's issue_scheduled event must be distinguishable from promote's."""
+        self.append("A")
+        self._crash_promote_before_scheduling(cls="simple")     # no event: it stopped first
+        code, _, err = self.repair("BL-E001-001", "link", "--story", "E001-S02-001")
+        self.assertEqual(code, 0, err)
+        ev = self.events("issue_scheduled")
+        self.assertEqual(len(ev), 1)
+        self.assertEqual((ev[0]["key"], ev[0]["story"], ev[0]["via"]),
+                         ("BL-E001-001", "E001-S02-001", "repair-link"))
 
     def test_reseed_clears_1e(self):
         self.append("A")
