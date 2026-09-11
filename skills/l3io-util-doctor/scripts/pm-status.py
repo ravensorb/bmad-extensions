@@ -150,8 +150,9 @@ Subcommands
                 claimed_at, a non-integer ttl_minutes); the holder must equal
                 --session-id exactly to count as this session's own, as in set-lock and
                 check-lock, and a whitespace-only one is no session_id -- clear-lock removes an
-                abandoned one; a story node that does not parse, or a claimant whose
-                key: is malformed, exits 2 naming the file, before any write)
+                abandoned one; a story node that does not parse, is not valid UTF-8 or
+                is not a mapping, or a claimant whose key: is malformed, exits 2 naming
+                the file, before any write)
   audit-issues  --state-root S  [--format {text,json}]
                 (read-only integrity checks 1a-1j over both issue files and the story
                 nodes' resolves:, read under issues_lock when either issue file exists;
@@ -165,7 +166,8 @@ Subcommands
                 non-canonical alias key in next (1 or '1' for '001') whatever its
                 value, and any next above 1000; exit 4 when anything is
                 found, and on a malformed issue file or a story node that does
-                not parse, where --format json prints {"findings": [], "error": MSG})
+                not parse, is not valid UTF-8 or is not a mapping, where
+                --format json prints {"findings": [], "error": MSG})
   repair-issue  --state-root S  --key K  --action {unschedule,link,reseed,reopen}
                 [--story KEY] [--session-id ID] [--cause C]
                 (each action refuses unless its audit finding holds: unschedule 1b/1g,
@@ -176,7 +178,8 @@ Subcommands
                 never lowers it, but refuses (nothing written) any of those values
                 above 1000;
                 unschedule writes an issue_unscheduled event; a story node that does
-                not parse exits 2 naming the file, before any write)
+                not parse, is not valid UTF-8 or is not a mapping exits 2 naming the
+                file, before any write)
   move-epic     --state-root S  --epic ID  --to {planned,active,archived}
   archive-epic  --state-root S  --epic ID   (alias for move-epic --to archived)
   calibration   show  --state-root S  [--format {text,json}]
@@ -5011,7 +5014,8 @@ def _yaml_error_reason(e) -> str:
 def _walk_story_nodes(state_root):
     """Yield (story_key, status_dir, node, path) for every story node in every status folder.
 
-    A node that does not parse is PMError(2) naming the file (Ruling F1): every caller is a
+    A node that does not parse, is not valid UTF-8, or is not a mapping (Ruling F4) is
+    PMError(2) naming the file (Ruling F1): every caller is a
     verb that must refuse before its first write rather than exit 1 with a traceback.
     audit-issues maps it onto its existing error channel (exit 4), not a new finding id."""
     from ruamel.yaml.error import YAMLError
@@ -5036,8 +5040,16 @@ def _walk_story_nodes(state_root):
                     except YAMLError as e:
                         raise PMError(2, f"{path} does not parse: {_yaml_error_reason(e)} -- "
                                          f"fix the file by hand")
-                    if node is not None:
-                        yield str(node.get("key") or fname[:-5]), sdir, node, path
+                    except UnicodeDecodeError as e:
+                        raise PMError(2, f"{path} is not valid UTF-8 ({e.reason} at byte "
+                                         f"{e.start}) -- fix the file by hand")
+                    if node is None:
+                        continue
+                    if not isinstance(node, dict):
+                        held = "a list" if isinstance(node, list) else "a scalar"
+                        raise PMError(2, f"{path} is not a mapping (it holds {held}) -- fix "
+                                         f"the file by hand")
+                    yield str(node.get("key") or fname[:-5]), sdir, node, path
 
 
 def _dead_claim(status_dir, node) -> bool:
@@ -5353,7 +5365,8 @@ def cmd_audit_issues(args) -> int:
     not create issues.yaml.lock -- and the story walk still runs, unlocked, over an
     empty store, so finding 1b can still report a resolves: key that names neither
     file. Exit 4 when anything is found. A malformed issue file, or a story node that
-    does not parse (Ruling F1: the existing channel, not a new finding id), also exits 4; under
+    does not parse, is not valid UTF-8 or is not a mapping (Rulings F1/F4: the existing
+    channel, not a new finding id), also exits 4; under
     --format json it still prints a parseable document, {"findings": [], "error": MSG},
     because triage and the health check parse it. Heuristic checks live in
     l3io-util-doctor/scripts/audit-backlog.py."""

@@ -7755,6 +7755,44 @@ class TestUnreadableStoryNode(IssueBase):
         self.assertEqual((code, out), (4, ""))
         self.assertIn(f"{self.bad} does not parse:", err)
 
+    # Ruling F4: a node that loads but is not a mapping, or is not valid UTF-8, is refused
+    # exactly as a parse error is. name: (file bytes, the reason the refusal must give)
+    UNREADABLE = {
+        "list":        (b"- key: 'E001-S01-001'\n- resolves: [BL-E001-001]\n", "is not a mapping"),
+        "scalar":      (b"just some text\n", "is not a mapping"),
+        "invalid-utf8": (b"key: 'E001-S01-001'\ntitle: '\xff\xfe'\n", "is not valid UTF-8"),
+    }
+
+    def test_every_unreadable_shape_is_refused_by_every_walking_verb(self):
+        for name, (raw, reason) in self.UNREADABLE.items():
+            with self.subTest(name):
+                self._refused_by_every_walking_verb(name, raw, reason)
+
+    def _refused_by_every_walking_verb(self, name, raw, reason):
+        with open(self.bad, "wb") as fh:
+            fh.write(raw)
+        want = f"{self.bad} {reason}"
+        before = _tree_snapshot(self.d)
+        code, out, err = self.promote()
+        self.assertEqual(code, 2, (name, out, err))
+        self.assertIn(want, err, name)
+        self.assertIn("-- fix the file by hand", err, name)
+        self.assertNotIn("Traceback", err, name)
+        self.assertEqual(_tree_snapshot(self.d), before, name)
+        self.edit_next_stale()                      # a real 1e: the refusal is the walk's
+        before = _tree_snapshot(self.d)
+        code, out, err = self.run_all(["repair-issue", "--state-root", self.root, "--key",
+                                       "BL-E001-001", "--action", "reseed"])
+        self.assertEqual(code, 2, (name, out, err))
+        self.assertIn(want, err, name)
+        self.assertEqual(_tree_snapshot(self.d), before, name)
+        code, out, err = self.run_all(["audit-issues", "--state-root", self.root,
+                                       "--format", "json"])
+        self.assertEqual(code, 4, (name, err))
+        doc = json.loads(out)
+        self.assertEqual(doc["findings"], [], name)
+        self.assertIn(want, doc["error"], name)
+
     def test_promote_refuses_a_claimant_with_a_malformed_key(self):
         """The resume path parses the claimant's key: a malformed one raised ValueError."""
         claimant = os.path.join(self.root, "active", "epic-001", "sprint-02", "E001-S02-001.yaml")
