@@ -28,6 +28,31 @@ pm = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(pm)
 
 
+# -- temp-dir leak guard ---------------------------------------------------------------- #
+# Every tempfile.mkdtemp()/mkstemp()/NamedTemporaryFile() made while this suite runs lands in
+# one private run directory (tempfile.tempdir), and tearDownModule fails the run if anything
+# is left in it. Fixtures without cleanup once left 60,936 directories in /tmp and exhausted
+# its inodes. Set in setUpModule, not at import, so a child process that re-imports this
+# module never creates a run directory it would not remove.
+_RUN_TMP = None
+
+
+def setUpModule():
+    global _RUN_TMP
+    _RUN_TMP = tempfile.mkdtemp(prefix="test-pm-status-")
+    tempfile.tempdir = _RUN_TMP
+
+
+def tearDownModule():
+    tempfile.tempdir = None
+    leaked = sorted(os.listdir(_RUN_TMP))
+    shutil.rmtree(_RUN_TMP, ignore_errors=True)
+    if leaked:
+        raise AssertionError(f"temp-dir leak: {len(leaked)} entr"
+                             f"{'y' if len(leaked) == 1 else 'ies'} left by tests without "
+                             f"cleanup: {', '.join(leaked[:5])}")
+
+
 class Base(unittest.TestCase):
     """Minimal fixture: a scratch dir + in-process CLI runner. No status-file
     content is assumed here — commands that need a node tree use
@@ -35,6 +60,7 @@ class Base(unittest.TestCase):
 
     def setUp(self):
         self.d = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, self.d, True)
 
     def run_main(self, argv):
         """Call main() in-process; return (exit_code, stdout)."""
@@ -319,6 +345,7 @@ backlog:
 class TestAppendIssue(unittest.TestCase):
     def setUp(self):
         self.d = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, self.d, True)
         self.f = os.path.join(self.d, "sprint-status-issues.yaml")
 
     def run_main(self, argv):
@@ -583,7 +610,6 @@ class IssueBase(Base):
 
     def setUp(self):
         super().setUp()
-        self.addCleanup(shutil.rmtree, self.d, True)
         self.arts = os.path.join(self.d, "impl")
         self.root = os.path.join(self.arts, "state")
         _build_issue_tree(self.root)
@@ -1013,6 +1039,7 @@ class TestListIssues(unittest.TestCase):
 
     def setUp(self):
         self.d = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, self.d, True)
         self.state_root = os.path.join(self.d, "state")
         os.makedirs(self.state_root, exist_ok=True)
         self.issues_file = os.path.join(self.state_root, "issues.yaml")
@@ -1114,6 +1141,7 @@ class TestListIssues(unittest.TestCase):
 class TestLayoutResolution(unittest.TestCase):
     def setUp(self):
         self.d = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, self.d, True)
         self.root = os.path.join(self.d, "state")
         # active/epic-001/sprint-01/{sprint.yaml,E001-S01-003.yaml} + epic.yaml
         sd = os.path.join(self.root, "active", "epic-001", "sprint-01")
@@ -1128,10 +1156,6 @@ class TestLayoutResolution(unittest.TestCase):
         os.makedirs(os.path.join(self.root, "planned", "epic-005"))
         with open(os.path.join(self.root, "planned", "epic-005", "epic.yaml"), "w") as f:
             f.write("key: 'E005'\nstatus: backlog\n")
-
-    def tearDown(self):
-        import shutil
-        shutil.rmtree(self.d, ignore_errors=True)
 
     def test_dirname_conversions(self):
         self.assertEqual(pm.epic_dirname("E001"), "epic-001")
@@ -2060,6 +2084,7 @@ class TestEpicMovesGitBacked(unittest.TestCase):
 
     def setUp(self):
         self.d = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, self.d, True)
         self.root = os.path.join(self.d, "state")
         sd = os.path.join(self.root, "active", "epic-001", "sprint-01")
         os.makedirs(sd)
@@ -2075,10 +2100,6 @@ class TestEpicMovesGitBacked(unittest.TestCase):
         self._run_git(["config", "user.name", "pm-status-tests"])
         self._run_git(["add", "-A"])
         self._run_git(["commit", "-q", "-m", "seed"])
-
-    def tearDown(self):
-        import shutil
-        shutil.rmtree(self.d, ignore_errors=True)
 
     def _run_git(self, args):
         import subprocess
@@ -2178,12 +2199,9 @@ class TestEpicMovesGitBacked(unittest.TestCase):
 class TestCalibrationIO(unittest.TestCase):
     def setUp(self):
         self.d = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, self.d, True)
         self.root = os.path.join(self.d, "state")
         os.makedirs(self.root)
-
-    def tearDown(self):
-        import shutil
-        shutil.rmtree(self.d, ignore_errors=True)
 
     def test_missing_file_yields_skeleton_not_error(self):
         _, cal = pm.load_calibration(self.root)
@@ -2308,6 +2326,7 @@ class TestCalibrationMetricsMigration(unittest.TestCase):
 
     def setUp(self):
         self.d = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, self.d, True)
         self.root = os.path.join(self.d, "state")
         os.makedirs(self.root)
         with open(pm.calibration_path(self.root), "w") as f:
@@ -2324,10 +2343,6 @@ class TestCalibrationMetricsMigration(unittest.TestCase):
                 "  sprint:\n"
                 "    cost: {samples: [1.5]}\n"
             )
-
-    def tearDown(self):
-        import shutil
-        shutil.rmtree(self.d, ignore_errors=True)
 
     def _migrate(self):
         y, cal = pm.load_calibration(self.root)
@@ -2635,12 +2650,9 @@ class TestEstimateFactors(TestLayoutResolution):
 class TestStorySampling(unittest.TestCase):
     def setUp(self):
         self.d = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, self.d, True)
         self.root = os.path.join(self.d, "state")
         os.makedirs(self.root)
-
-    def tearDown(self):
-        import shutil
-        shutil.rmtree(self.d, ignore_errors=True)
 
     def _story(self, iterations, est=None, act=None):
         est = est or {"man_hours": 6, "elapsed_hours": 1.5, "tokens_k": 320,
@@ -3852,6 +3864,7 @@ class TestConcurrentSampling(unittest.TestCase):
 
     def setUp(self):
         self.d = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, self.d, True)
         self.root = os.path.join(self.d, "state")
         self.sd = os.path.join(self.root, "active", "epic-001", "sprint-01")
         os.makedirs(self.sd)
@@ -3866,10 +3879,6 @@ class TestConcurrentSampling(unittest.TestCase):
                         f"completion_evidence:\n  fix_iterations: 0\n"
                         f"estimate:\n  man_hours: 6\n  fix_factor: 1.25\n"
                         f"  scope_ratios:\n    man_hours: 1.0\n")
-
-    def tearDown(self):
-        import shutil
-        shutil.rmtree(self.d, ignore_errors=True)
 
     def test_concurrent_appends_lose_no_samples(self):
         import subprocess
@@ -3898,11 +3907,9 @@ class TestConcurrentAdrReservation(unittest.TestCase):
 
     def setUp(self):
         self.d = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, self.d, True)
         self.root = os.path.join(self.d, "state")
         os.makedirs(self.root)
-
-    def tearDown(self):
-        shutil.rmtree(self.d, ignore_errors=True)
 
     def test_concurrent_reservations_hand_out_every_number_exactly_once(self):
         import subprocess
@@ -3943,10 +3950,8 @@ class TestConcurrentAppendIssue(unittest.TestCase):
 
     def setUp(self):
         self.d = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, self.d, True)
         self.f = os.path.join(self.d, "issues.yaml")
-
-    def tearDown(self):
-        shutil.rmtree(self.d, ignore_errors=True)
 
     def test_concurrent_appends_get_distinct_sequential_keys(self):
         import subprocess
@@ -3996,14 +4001,12 @@ class TestConcurrentSetLock(unittest.TestCase):
 
     def setUp(self):
         self.d = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, self.d, True)
         self.root = os.path.join(self.d, "state")
         epic_dir = os.path.join(self.root, "active", "epic-001")
         os.makedirs(epic_dir)
         with open(os.path.join(epic_dir, "epic.yaml"), "w", encoding="utf-8") as fh:
             fh.write("key: 'E001'\ntitle: 'test'\nstatus: in-progress\n")
-
-    def tearDown(self):
-        shutil.rmtree(self.d, ignore_errors=True)
 
     def test_exactly_one_session_claims_the_lock(self):
         import subprocess

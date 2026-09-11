@@ -15,6 +15,31 @@ import tempfile
 import unittest
 from contextlib import redirect_stderr, redirect_stdout
 
+
+# -- temp-dir leak guard ---------------------------------------------------------------- #
+# Every tempfile.mkdtemp()/mkstemp()/NamedTemporaryFile() made while this suite runs lands in
+# one private run directory (tempfile.tempdir), and tearDownModule fails the run if anything
+# is left in it. Fixtures without cleanup once left 60,936 directories in /tmp and exhausted
+# its inodes. Set in setUpModule, not at import, so a child process that re-imports this
+# module never creates a run directory it would not remove.
+_RUN_TMP = None
+
+
+def setUpModule():
+    global _RUN_TMP
+    _RUN_TMP = tempfile.mkdtemp(prefix="test-audit-backlog-")
+    tempfile.tempdir = _RUN_TMP
+
+
+def tearDownModule():
+    tempfile.tempdir = None
+    leaked = sorted(os.listdir(_RUN_TMP))
+    shutil.rmtree(_RUN_TMP, ignore_errors=True)
+    if leaked:
+        raise AssertionError(f"temp-dir leak: {len(leaked)} entr"
+                             f"{'y' if len(leaked) == 1 else 'ies'} left by tests without "
+                             f"cleanup: {', '.join(leaked[:5])}")
+
 HERE = os.path.dirname(os.path.abspath(__file__))
 SCRIPT = os.path.join(os.path.dirname(HERE), "audit-backlog.py")
 REPO = os.path.abspath(os.path.join(HERE, "..", "..", "..", ".."))

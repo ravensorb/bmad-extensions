@@ -11,6 +11,7 @@ _bmad/sync-state.yaml. Also covers the missing-state-root clean-exit path.
 import io
 import json
 import os
+import shutil
 import sys
 import tempfile
 import unittest
@@ -32,6 +33,31 @@ def _write(path: str, content: str) -> None:
     os.makedirs(os.path.dirname(path), exist_ok=True)
     with open(path, "w", encoding="utf-8") as f:
         f.write(content)
+
+
+# -- temp-dir leak guard ---------------------------------------------------------------- #
+# Every tempfile.mkdtemp()/mkstemp()/NamedTemporaryFile() made while this suite runs lands in
+# one private run directory (tempfile.tempdir), and tearDownModule fails the run if anything
+# is left in it. Fixtures without cleanup once left 60,936 directories in /tmp and exhausted
+# its inodes. Set in setUpModule, not at import, so a child process that re-imports this
+# module never creates a run directory it would not remove.
+_RUN_TMP = None
+
+
+def setUpModule():
+    global _RUN_TMP
+    _RUN_TMP = tempfile.mkdtemp(prefix="test-drift-report-")
+    tempfile.tempdir = _RUN_TMP
+
+
+def tearDownModule():
+    tempfile.tempdir = None
+    leaked = sorted(os.listdir(_RUN_TMP))
+    shutil.rmtree(_RUN_TMP, ignore_errors=True)
+    if leaked:
+        raise AssertionError(f"temp-dir leak: {len(leaked)} entr"
+                             f"{'y' if len(leaked) == 1 else 'ies'} left by tests without "
+                             f"cleanup: {', '.join(leaked[:5])}")
 
 
 class Base(unittest.TestCase):
@@ -71,6 +97,7 @@ json.dump(merged, sys.stdout)
 
     def setUp(self):
         self.project_root = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, self.project_root, True)
         self.impl_artifacts = os.path.join(self.project_root, "artifacts")
         self.state_root = os.path.join(self.impl_artifacts, "state")
         _write(
@@ -330,6 +357,7 @@ class TestConfigResolution(Base):
 
     def test_falls_back_to_default_when_bmad_is_not_installed(self):
         bare = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, bare, True)
         cfg = dr.resolve_config(Path(bare))
         self.assertEqual(
             cfg["implementation_artifacts"],

@@ -14,6 +14,8 @@ write there would be silently lost; `_bmad/config.yaml` does not exist at all.
 Run with: uv run test-write-module-config.py
 """
 import json
+import os
+import shutil
 import subprocess
 import tempfile
 import tomllib
@@ -37,9 +39,35 @@ def write(path: Path, content: str) -> None:
     path.write_text(content, encoding="utf-8")
 
 
+# -- temp-dir leak guard ---------------------------------------------------------------- #
+# Every tempfile.mkdtemp()/mkstemp()/NamedTemporaryFile() made while this suite runs lands in
+# one private run directory (tempfile.tempdir), and tearDownModule fails the run if anything
+# is left in it. Fixtures without cleanup once left 60,936 directories in /tmp and exhausted
+# its inodes. Set in setUpModule, not at import, so a child process that re-imports this
+# module never creates a run directory it would not remove.
+_RUN_TMP = None
+
+
+def setUpModule():
+    global _RUN_TMP
+    _RUN_TMP = tempfile.mkdtemp(prefix="test-write-module-config-")
+    tempfile.tempdir = _RUN_TMP
+
+
+def tearDownModule():
+    tempfile.tempdir = None
+    leaked = sorted(os.listdir(_RUN_TMP))
+    shutil.rmtree(_RUN_TMP, ignore_errors=True)
+    if leaked:
+        raise AssertionError(f"temp-dir leak: {len(leaked)} entr"
+                             f"{'y' if len(leaked) == 1 else 'ies'} left by tests without "
+                             f"cleanup: {', '.join(leaked[:5])}")
+
+
 class Base(unittest.TestCase):
     def setUp(self):
         self.root = Path(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, self.root, True)
         self.bmad = self.root / "_bmad"
         self.custom = self.bmad / "custom"
         write(self.custom / "config.toml", TEAM_SEED)
@@ -149,6 +177,7 @@ class TestValidation(Base):
 
     def test_missing_bmad_directory_is_a_hard_error(self):
         bare = Path(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, bare, True)
         proc = subprocess.run(
             ["uv", "run", str(SCRIPT), "--project-root", str(bare),
              "--module-yaml", str(self.module_yaml)],

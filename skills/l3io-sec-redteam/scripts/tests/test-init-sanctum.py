@@ -8,6 +8,8 @@ import contextlib
 import importlib.util
 import io
 import json
+import os
+import shutil
 import sys
 import tempfile
 import unittest
@@ -19,15 +21,40 @@ m = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(m)
 
 
+# -- temp-dir leak guard ---------------------------------------------------------------- #
+# Every tempfile.mkdtemp()/mkstemp()/NamedTemporaryFile() made while this suite runs lands in
+# one private run directory (tempfile.tempdir), and tearDownModule fails the run if anything
+# is left in it. Fixtures without cleanup once left 60,936 directories in /tmp and exhausted
+# its inodes. Set in setUpModule, not at import, so a child process that re-imports this
+# module never creates a run directory it would not remove.
+_RUN_TMP = None
+
+
+def setUpModule():
+    global _RUN_TMP
+    _RUN_TMP = tempfile.mkdtemp(prefix="test-init-sanctum-")
+    tempfile.tempdir = _RUN_TMP
+
+
+def tearDownModule():
+    tempfile.tempdir = None
+    leaked = sorted(os.listdir(_RUN_TMP))
+    shutil.rmtree(_RUN_TMP, ignore_errors=True)
+    if leaked:
+        raise AssertionError(f"temp-dir leak: {len(leaked)} entr"
+                             f"{'y' if len(leaked) == 1 else 'ies'} left by tests without "
+                             f"cleanup: {', '.join(leaked[:5])}")
+
+
 class TestParseYamlConfig(unittest.TestCase):
     def test_parses_key_value_pairs(self):
         with tempfile.NamedTemporaryFile(mode="w", suffix=".yaml", delete=False) as f:
             f.write("user_name: Alice\ncommunication_language: English\n")
             path = Path(f.name)
+            self.addCleanup(path.unlink, missing_ok=True)
         result = m.parse_yaml_config(path)
         self.assertEqual(result["user_name"], "Alice")
         self.assertEqual(result["communication_language"], "English")
-        path.unlink()
 
     def test_missing_file_returns_empty(self):
         result = m.parse_yaml_config(Path("/nonexistent/config.yaml"))
@@ -37,10 +64,10 @@ class TestParseYamlConfig(unittest.TestCase):
         with tempfile.NamedTemporaryFile(mode="w", suffix=".yaml", delete=False) as f:
             f.write("# comment\nkey: value\n")
             path = Path(f.name)
+            self.addCleanup(path.unlink, missing_ok=True)
         result = m.parse_yaml_config(path)
         self.assertNotIn("# comment", result)
         self.assertEqual(result["key"], "value")
-        path.unlink()
 
 
 class TestParseFrontmatter(unittest.TestCase):
@@ -48,18 +75,18 @@ class TestParseFrontmatter(unittest.TestCase):
         with tempfile.NamedTemporaryFile(mode="w", suffix=".md", delete=False) as f:
             f.write("---\nname: test-cap\ncode: TC\ndescription: A test capability\n---\n\n# Body\n")
             path = Path(f.name)
+            self.addCleanup(path.unlink, missing_ok=True)
         result = m.parse_frontmatter(path)
         self.assertEqual(result["name"], "test-cap")
         self.assertEqual(result["code"], "TC")
-        path.unlink()
 
     def test_no_frontmatter_returns_empty(self):
         with tempfile.NamedTemporaryFile(mode="w", suffix=".md", delete=False) as f:
             f.write("# No frontmatter here\n")
             path = Path(f.name)
+            self.addCleanup(path.unlink, missing_ok=True)
         result = m.parse_frontmatter(path)
         self.assertEqual(result, {})
-        path.unlink()
 
 
 class TestSubstituteVars(unittest.TestCase):
