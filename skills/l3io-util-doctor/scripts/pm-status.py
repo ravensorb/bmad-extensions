@@ -237,6 +237,32 @@ def _atomic_dump(y: YAML, data, path: str) -> None:
         raise
 
 
+def _atomic_create(path: str, text: str) -> bool:
+    """Create `path` with `text` only if it does not already exist -- atomically and without
+    ever clobbering: write a temp file in the same directory, fsync it, then os.link it into
+    place (link fails with FileExistsError when the path exists, where os.replace would
+    overwrite). Returns False when the path already existed. The temp file is removed on
+    every path, success or failure."""
+    d = os.path.dirname(os.path.abspath(path)) or "."
+    os.makedirs(d, exist_ok=True)
+    fd, tmp = tempfile.mkstemp(prefix=".pm-status.", suffix=".tmp", dir=d)
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as f:
+            f.write(text)
+            f.flush()
+            os.fsync(f.fileno())
+        try:
+            os.link(tmp, path)
+        except FileExistsError:
+            return False
+        return True
+    finally:
+        try:
+            os.unlink(tmp)
+        except OSError:
+            pass
+
+
 def _flock_write_or_plain(use_flock: bool, y: YAML, data, path: str) -> None:
     """Acquire an exclusive flock on `path` (or a sidecar .lock file) then atomic-dump."""
     if not use_flock:
@@ -3398,10 +3424,6 @@ def init_story_doc(state_root, artifacts_root, story_key, context_md="", ac_line
     _, node = load_node(path)
     if node is None:
         raise PMError(3, f"story {story_key} — file is empty")
-    if os.path.exists(doc):
-        if must_not_exist:
-            raise PMError(2, f"story document {doc} already exists -- refusing to adopt it")
-        return "exists"
     title = str(node.get("title") or story_key)
     meta = CommentedMap()
     meta["key"] = SQ(story_key)
@@ -3418,11 +3440,10 @@ def init_story_doc(state_root, artifacts_root, story_key, context_md="", ac_line
         parts.extend(f"- {line}\n" for line in ac_lines)
     else:
         parts.append("<!-- Technical ACs to be added below -->\n")
-    os.makedirs(os.path.dirname(doc), exist_ok=True)
-    fd, tmp = tempfile.mkstemp(prefix=".pm-status.", suffix=".tmp", dir=os.path.dirname(doc))
-    with os.fdopen(fd, "w", encoding="utf-8") as fh:
-        fh.write("".join(parts))
-    os.replace(tmp, doc)
+    if not _atomic_create(doc, "".join(parts)):
+        if must_not_exist:
+            raise PMError(2, f"story document {doc} already exists -- refusing to adopt it")
+        return "exists"
     return "created"
 
 

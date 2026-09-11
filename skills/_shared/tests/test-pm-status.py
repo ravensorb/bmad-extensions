@@ -6622,6 +6622,16 @@ class TestStoryDocInit(TestLayoutResolution):
         self.assertIn("- The deferred finding BL-E001-002 is resolved: X", text)
         self.assertLess(text.index("## Context"), text.index("## Acceptance Criteria"))
 
+    def test_failed_write_leaves_no_temp_file_and_no_document(self):
+        with mock.patch.object(pm.os, "replace", side_effect=OSError("injected")), \
+             mock.patch.object(pm.os, "link", side_effect=OSError("injected")):
+            with self.assertRaises(OSError):
+                pm.init_story_doc(self.root, self.arts, "E001-S01-003")
+        stories = os.path.dirname(self.doc)
+        self.assertFalse(os.path.exists(self.doc))
+        self.assertEqual([n for n in os.listdir(stories) if n.endswith(".tmp")], [],
+                         "a failed write left a temp file behind")
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)
