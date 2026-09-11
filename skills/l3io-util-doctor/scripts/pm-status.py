@@ -2331,7 +2331,7 @@ BASE_BANDS = {
 }
 
 
-def cmd_estimate_story(args) -> int:
+def compute_story_estimate(state_root, node, cls, model, overrides, confidence=None):
     """Compute and write a story's estimate block: band midpoint x scope ratio x fix
     factor, per metric. Classification is the model's judgment; everything after it
     is arithmetic, done here so it's error-checked and reproducible.
@@ -2352,16 +2352,11 @@ def cmd_estimate_story(args) -> int:
     This keeps cost arithmetically bound to the token estimate it prices —
     the two can no longer drift apart the way a separately-banded,
     separately-calibrated cost could.
-    """
-    path = story_file(args.state_root, args.story)
-    if path is None:
-        _die_notfound(f"story {args.story}")
-    y, node = load_node(path)
-    if node is None:
-        _die_notfound(f"story {args.story} — file is empty")
 
-    cls = args.classification
-    _, cal = load_calibration(args.state_root)
+    Never saves and never exits: cmd_estimate_story saves after it; promote-issue
+    writes the new node and its estimate in one save.
+    """
+    _, cal = load_calibration(state_root)
     fix = active_fix_factor(cal, cls)
     fix = COLD_START_FIX_FACTOR if fix is None else fix
 
@@ -2391,26 +2386,42 @@ def cmd_estimate_story(args) -> int:
     counts = split_tokens(fresh_total, {c: mix.get(c, 0.0) / fshare for c in FRESH_TOKEN_CLASSES})
     counts["cache_read"] = int(round(fresh_total * (mix.get("cache_read", 0.0) / fshare)))
     est["tokens_k"] = tokens_block(counts)
-    model = args.model or DEFAULT_ESTIMATE_MODEL
     try:
-        est["cost"] = cost_from_tokens(counts, model, rate_overrides(args))
+        est["cost"] = cost_from_tokens(counts, model, overrides)
     except KeyError as e:
         # e.args[0], not str(e) — KeyError.__str__ repr-quotes its argument,
         # which would double-wrap a message that already reads as prose.
-        _die_usage(e.args[0])
+        raise PMError(2, e.args[0])
     est["model"] = model
 
     est["fix_factor"] = round(fix, 4)
     est["scope_ratios"] = applied
     est.pop("scope_ratio", None)   # the superseded single-value form
-    if args.confidence:
-        est["confidence"] = args.confidence
+    if confidence:
+        est["confidence"] = confidence
     node["classification"] = cls
     node["updated_at"] = _now_iso()
+    return applied
+
+
+def cmd_estimate_story(args) -> int:
+    """CLI wrapper over compute_story_estimate: resolve, compute, save, report."""
+    path = story_file(args.state_root, args.story)
+    if path is None:
+        _die_notfound(f"story {args.story}")
+    y, node = load_node(path)
+    if node is None:
+        _die_notfound(f"story {args.story} — file is empty")
+    try:
+        applied = compute_story_estimate(args.state_root, node, args.classification,
+                                         args.model or DEFAULT_ESTIMATE_MODEL,
+                                         rate_overrides(args), args.confidence)
+    except PMError as e:
+        _die_usage(e.msg)
     save_node(y, node, path)
     shown = " ".join(f"{m}={v}" for m, v in applied.items())
-    sys.stdout.write(f"OK estimate-story {args.story} class={cls} "
-                     f"scope_ratios[{shown}] fix_factor={est['fix_factor']}\n")
+    sys.stdout.write(f"OK estimate-story {args.story} class={args.classification} "
+                     f"scope_ratios[{shown}] fix_factor={node['estimate']['fix_factor']}\n")
     return 0
 
 
@@ -2457,7 +2468,7 @@ def _child_estimate_value(node, metric):
     return _mid(est, lo, hi)
 
 
-def cmd_estimate_rollup(args) -> int:
+def rollup_parent_estimate(state_root, epic, sprint, model, overrides):
     """Roll a sprint's story estimates, or an epic's sprint estimates, up to
     the parent as a range: sum(children) + a closure band + an orchestration
     band. Output is always range form, even when every child estimate is
@@ -2484,22 +2495,25 @@ def cmd_estimate_rollup(args) -> int:
     `cmd_estimate_story` already does for a story. This keeps the rolled-up
     cost arithmetically bound to the rolled-up token estimate it prices,
     instead of banding and calibrating a second, independently-drifting cost.
+
+    Never exits: raises PMError(3) for a missing parent, PMError(2) for
+    nothing to roll up or an unpriceable model.
     """
-    level = "sprint" if args.sprint else "epic"
+    level = "sprint" if sprint else "epic"
     if level == "sprint":
-        ppath = sprint_file(args.state_root, args.epic, args.sprint)
-        child_paths = list_story_files(args.state_root, args.epic, args.sprint)
+        ppath = sprint_file(state_root, epic, sprint)
+        child_paths = list_story_files(state_root, epic, sprint)
     else:
-        ppath = epic_file(args.state_root, args.epic)
-        child_paths = [sprint_file(args.state_root, args.epic, _sprint_key_from_dir(d))
-                       for d in list_sprint_dirs(args.state_root, args.epic)]
+        ppath = epic_file(state_root, epic)
+        child_paths = [sprint_file(state_root, epic, _sprint_key_from_dir(d))
+                       for d in list_sprint_dirs(state_root, epic)]
     if ppath is None:
-        _die_notfound(f"{level} {args.sprint or args.epic}")
+        raise PMError(3, f"{level} {sprint or epic}")
     y, pnode = load_node(ppath)
     if pnode is None:
-        _die_notfound(f"{level} file is empty")
+        raise PMError(3, f"{level} file is empty")
 
-    _, cal = load_calibration(args.state_root)
+    _, cal = load_calibration(state_root)
     from ruamel.yaml.comments import CommentedMap
     est = CommentedMap()
     applied = CommentedMap()
@@ -2535,7 +2549,7 @@ def cmd_estimate_rollup(args) -> int:
             est[lo_key], est[hi_key] = round(lo, 2), round(hi, 2)
 
     if counted == 0:
-        _die_usage(f"{level} {args.sprint or args.epic} has no child estimates to roll up")
+        raise PMError(2, f"{level} {sprint or epic} has no child estimates to roll up")
 
     est["closure_ratios"] = applied
     est["orchestration_ratios"] = orch_applied
@@ -2554,23 +2568,35 @@ def cmd_estimate_rollup(args) -> int:
             f"{', '.join(inactive)} (component has <{MIN_SAMPLES} samples at "
             f"{level} level); this estimate is known-low on those metrics.\n")
 
-    model = args.model or DEFAULT_ESTIMATE_MODEL
     mix = observed_mix(cal)
     try:
         for bound, key in (("tokens_k_min", "cost_low"), ("tokens_k_max", "cost_high")):
             tv = _num_or_none(est.get(bound))
             if tv is not None:
-                est[key] = cost_from_tokens(split_tokens(tv, mix), model, rate_overrides(args))
+                est[key] = cost_from_tokens(split_tokens(tv, mix), model, overrides)
     except KeyError as e:
         # e.args[0], not str(e) — KeyError.__str__ repr-quotes its argument,
         # which would double-wrap a message that already reads as prose.
-        _die_usage(e.args[0])
+        raise PMError(2, e.args[0])
     est["model"] = model
 
     est["confidence"] = "medium"
     pnode["estimate"] = est
     pnode["updated_at"] = _now_iso()
     save_node(y, pnode, ppath)
+    return level, counted
+
+
+def cmd_estimate_rollup(args) -> int:
+    """CLI wrapper over rollup_parent_estimate."""
+    try:
+        level, counted = rollup_parent_estimate(args.state_root, args.epic, args.sprint,
+                                                args.model or DEFAULT_ESTIMATE_MODEL,
+                                                rate_overrides(args))
+    except PMError as e:
+        if e.code == 3:
+            _die_notfound(e.msg)
+        _die_usage(e.msg)
     sys.stdout.write(f"OK estimate-rollup {level} {args.sprint or args.epic} "
                      f"from {counted} children\n")
     return 0

@@ -6504,5 +6504,51 @@ class TestListAllConsistency(unittest.TestCase):
             self.assertEqual(len(o | r), self.N, "a key vanished")
 
 
+class TestEstimateCores(TestLayoutResolution):
+    def run_main(self, argv):
+        buf = io.StringIO()
+        try:
+            with redirect_stdout(buf), redirect_stderr(io.StringIO()):
+                code = pm.main(argv)
+        except SystemExit as e:
+            code = e.code
+        return code, buf.getvalue()
+
+    def test_compute_story_estimate_raises_instead_of_exiting(self):
+        path = pm.story_file(self.root, "E001-S01-003")
+        before = open(path, encoding="utf-8").read()
+        _, node = pm.load_node(path)
+        with self.assertRaises(pm.PMError) as cm:
+            pm.compute_story_estimate(self.root, node, "standard", "no-such-model", None)
+        self.assertEqual(cm.exception.code, 2)
+        self.assertEqual(open(path, encoding="utf-8").read(), before, "core must never save")
+
+    def test_compute_story_estimate_fills_node_in_memory(self):
+        _, node = pm.load_node(pm.story_file(self.root, "E001-S01-003"))
+        applied = pm.compute_story_estimate(self.root, node, "simple", pm.DEFAULT_ESTIMATE_MODEL, None)
+        self.assertIn("man_hours", applied)
+        self.assertIn("cost", node["estimate"])
+        self.assertEqual(node["classification"], "simple")
+
+    def test_rollup_parent_estimate_raises_for_missing_sprint(self):
+        with self.assertRaises(pm.PMError) as cm:
+            pm.rollup_parent_estimate(self.root, "E001", "S09", pm.DEFAULT_ESTIMATE_MODEL, None)
+        self.assertEqual(cm.exception.code, 3)
+
+    def test_rollup_parent_estimate_raises_when_nothing_to_roll_up(self):
+        with self.assertRaises(pm.PMError) as cm:
+            pm.rollup_parent_estimate(self.root, "E001", "S01", pm.DEFAULT_ESTIMATE_MODEL, None)
+        self.assertEqual(cm.exception.code, 2)
+
+    def test_cli_unknown_model_still_exits_2_and_writes_nothing(self):
+        path = pm.story_file(self.root, "E001-S01-003")
+        before = open(path, encoding="utf-8").read()
+        code, _ = self.run_main(["estimate-story", "--state-root", self.root, "--story",
+                                 "E001-S01-003", "--classification", "simple",
+                                 "--model", "no-such-model"])
+        self.assertEqual(code, 2)
+        self.assertEqual(open(path, encoding="utf-8").read(), before)
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)
