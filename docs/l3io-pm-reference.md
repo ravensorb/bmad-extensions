@@ -418,7 +418,24 @@ epic:   backlog → in-progress → done
 
 ### Backlog
 
-`issues.yaml` is a flat, backlog-only list — resolved items are **removed**, not marked. There are no `resolved` or `resolution` fields. It is a shared append target across every epic and every parallel subagent, so `append-issue` runs its whole load → allocate-key → dedupe-check → mutate → save cycle under one exclusive lock, and skips (exit 0, nothing written) a content duplicate — the same normalized title, epic, sprint, and source as an existing item — unless `--allow-duplicate` forces a second entry.
+Open items live in `issues.yaml`; resolved items move, whole, to `issues-resolved.yaml`
+with their `resolution`, `resolved_at`, `ref`, and `note`. Keys come from a per-epic `next:`
+high-water mark — `max(next[epic], highest suffix in either file + 1)` — so a resolved or
+deleted key is never handed out again. Every change goes through a `pm-status.py` verb under
+`issues_lock`; `append-issue` skips a content duplicate of an open item (or of a `wontfix`,
+`duplicate`, or `obsolete` item at the same or higher severity), and re-appends a finding
+that matches a `fixed` item as a recurrence.
+
+```mermaid
+stateDiagram-v2
+    [*] --> backlog: append-issue
+    backlog --> scheduled: promote-issue
+    backlog --> resolved: resolve-issue
+    scheduled --> resolved: story done (fixed)
+    scheduled --> resolved: resolve-issue
+    scheduled --> backlog: repair-issue unschedule
+    resolved --> scheduled: repair-issue reopen
+```
 
 ```yaml
 backlog:
@@ -428,9 +445,13 @@ backlog:
     title: 'Issue title'
     source: 'code-review (E001-S02-003)'
     severity: Low
-    status: backlog
-    description: 'One-sentence description.'
+    status: backlog             # backlog | scheduled (then also story:, scheduled_at:)
+    description: 'See {sprint_root}/closure/review-E001-S02-003.md'
 ```
+
+`/l3io-pm-plan` offers open items for promotion before readiness; `/l3io-util-doctor triage`
+audits the backlog (`audit-issues`, then `scripts/audit-backlog.py`) and resolves what is
+already fixed, on confirmation. Full design: `docs/superpowers/specs/2026-09-10-issue-lifecycle-design.md`.
 
 ### `pm-status.py` subcommands
 

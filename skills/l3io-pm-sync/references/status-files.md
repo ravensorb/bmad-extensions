@@ -46,7 +46,8 @@ co-located with the artifacts it describes. Nothing state-related lives under
 │   │   └── epic-004/…
 │   ├── archived/
 │   │   └── epic-002/…                       ← done; keeps its full tree
-│   ├── issues.yaml                          ← flat BL list
+│   ├── issues.yaml                          ← open BL items + `next:` key allocator
+│   ├── issues-resolved.yaml                 ← resolved BL items, with resolution
 │   ├── events.jsonl                         ← append-only transition log
 │   ├── pm-calibration.yaml
 │   └── adr-register.yaml                    ← ADR number allocator (`next`, `reserved`)
@@ -239,6 +240,40 @@ actual:
   model: claude-opus-5
 ```
 
+```yaml
+# state/issues.yaml — open items only
+next: {'001': 5}                          # per-epic high-water; pm-status.py only; never decreases
+backlog:
+- key: BL-E001-004
+  epic: '001'
+  sprint: '02'                            # '' for an epic-level item
+  title: 'Issue title'
+  source: 'code-review (E001-S02-003)'
+  severity: Low
+  status: backlog                         # backlog (untriaged) | scheduled
+  description: 'See …/closure/review-E001-S02-003.md'
+- key: BL-E001-002
+  …
+  status: scheduled
+  story: E003-S02-004                     # the story whose `done` resolves it
+  scheduled_at: '2026-09-10T14:02:11Z'
+```
+
+```yaml
+# state/issues-resolved.yaml — resolved items, moved whole
+resolved:
+- key: BL-E001-003
+  …                                       # every original field
+  status: resolved
+  resolution: fixed                       # fixed | wontfix | duplicate | obsolete
+  resolved_at: '2026-09-10T15:40:00Z'
+  ref: E003-S02-004                       # story key, commit SHA, or the surviving BL key
+  note: '…'                               # required for wontfix and obsolete
+```
+
+A story node created by `promote-issue` carries `resolves: [BL-E001-002]`. `set-field`
+refuses to write `resolves` and `status`.
+
 `_lock` (epic files only) is machine metadata and is always the first key when present —
 see "Ownership lock" below.
 
@@ -334,9 +369,9 @@ uv run {pm_status} set-status --state-root {pm_state_root} --story E001-S01-003 
 the three status folders (`active` first, as the hottest path). The same resolution applies
 to `--epic`/`--sprint` pairs. No caller ever supplies a raw path for a node.
 
-**One exception: `append-issue`.** `issues.yaml` is a flat file, not a resolvable node — it
-has no epic/sprint/story key of its own to resolve from — so `append-issue` is the one
-subcommand that still takes `--file`:
+**Issue verbs address the issue files through `--state-root`**, like every node verb; the
+two files have no node key of their own. `append-issue` still accepts `--file` for
+compatibility (it must equal `<state-root>/issues.yaml`):
 
 ```bash
 uv run {pm_status} append-issue --file {pm_issues_file} \
@@ -469,6 +504,12 @@ lock is automatic, not opt-in. All three locks are re-entrant within a process, 
 that nests inside its own lock (as `save_calibration` does) does not deadlock against its own
 flock. Contrast this with per-epic node files (`epic.yaml`, `sprint.yaml`, story `.yaml`),
 which need no flock at all because sharding gives each epic its own directory.
+
+`issues-resolved.yaml` shares `issues_lock` with `issues.yaml` — every issue verb loads and
+saves both under one hold. One verb holds two locks: `promote-issue` writes the story node and
+the sprint and epic roll-ups under `epic_node_lock` and, nested inside it, schedules the items
+under `issues_lock`. Always that order; no verb takes them in reverse, and none holds two
+`epic_node_lock`s at once — the re-entrancy counter is per lock family, not per path.
 
 ## 10. Read resolution at activation
 

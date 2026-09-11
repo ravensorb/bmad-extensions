@@ -4,6 +4,8 @@
 
 `bmad-l3io-extensions` is a BMad community module package with four modules: `l3io-pm` (sprint/epic orchestration), `l3io-sec` (red team security agent), `l3io-util` (artifact utilities), and `l3io-arch` (engineering-standards architecture guardrails & review). It ships as installable Claude Code slash commands.
 
+Architecture decisions are recorded in `docs/adr/` — ADR-0001: `pm-status.py` stays one self-installed file; single-consumer code lives in its skill's own `scripts/`.
+
 ## Module Layout
 
 `l3io-util-doctor` routes: `SKILL.md` carries the overview, the keyword table, safety rules
@@ -94,7 +96,7 @@ npm run check:manifest  # verify per-skill payload-manifest.json matches the pay
 node scripts/write-payload-manifest.mjs   # regenerate the manifests after editing a payload file
 ```
 
-`check:docs` runs nine checks (numbered in the script's own header) asserting facts that have
+`check:docs` runs eleven checks (numbered in the script's own header) asserting facts that have
 each drifted in this repo's history: (1) **skill-names** — every `l3io-*` skill named in a live
 doc resolves to a real `skills/` directory; (2) **gating-tables** — every mirrored phase table
 matches the authoritative matrix in `steps/shared/step-01-classify-work.md` §4 cell for cell;
@@ -107,7 +109,12 @@ reference; (5) **config-values** — values quoted inline in prose (the fix-loop
 **metric-list** — `metrics-contract.md` documents exactly the metrics in `METRIC_FIELDS`; (8)
 **digest-size** — the activation digest stays inside its byte budget; (9) **authoring-paths** —
 no runtime directive tells an agent to read `skills/_shared/` (not installed) instead of the
-installed `references/`/`assets/`/`steps/` path. Check (1) deliberately allows a doc to name a
+installed `references/`/`assets/`/`steps/` path. (10) **cli-docstring** — `pm-status.py`'s
+own module docstring names every subcommand the parser defines; (11)
+**append-issue-pointer** — every `append-issue` invocation under `skills/` (any line, fenced
+or not, where the verb is followed by a flag) passes `--source` and `--description`, found by
+walking `skills/` rather than from a list (tested by `npm run test:scripts`, which plants
+violations in a new directory and after a stray fence). Check (1) deliberately allows a doc to name a
 removed skill when mapping it to its replacement or explaining the change — `docs/upgrading.md`
 must be able to say `/l3io-pm-epic-execute` → `/l3io-pm-execute`. Docs are allowed to quote
 values inline; they are not allowed to quote them wrongly.
@@ -161,7 +168,8 @@ can be installed and unconfigured. Full contract: `skills/_shared/config-resolut
 - `state/{planned,active,archived}/epic-{nnn}/epic.yaml` — one bare node per epic file, no `sprints:` list wrapper; children are discovered by listing the directory.
 - `state/{planned,active,archived}/epic-{nnn}/sprint-{nn}/sprint.yaml` — one bare node per sprint file, no `stories:` list wrapper.
 - `state/{planned,active,archived}/epic-{nnn}/sprint-{nn}/{story-key}.yaml` — one bare node per story file (`E{nnn}-S{nn}-{nnn}.yaml`).
-- `state/issues.yaml` — deferred issues flat list (`BL-E{nnn}-{nnn}`); items removed when resolved.
+- `state/issues.yaml` — OPEN deferred issues (`BL-E{nnn}-{nnn}`, `status` `backlog` or `scheduled`) plus a per-epic `next:` key allocator that never decreases, so a key is never reused. Changed only through `pm-status.py` verbs (`append-issue`, `update-issue`, `promote-issue`, `resolve-issue`, `repair-issue`), all under `issues_lock`.
+- `state/issues-resolved.yaml` — resolved items, moved whole with `resolution` (`fixed` | `wontfix` | `duplicate` | `obsolete`), `resolved_at`, `ref`, `note`. A story's `resolves:` list is resolved as `fixed` automatically when `set-status` marks the story `done`. `audit-issues` checks integrity; `/l3io-util-doctor triage` audits and closes what is already fixed. Design: `docs/superpowers/specs/2026-09-10-issue-lifecycle-design.md`, ADR-0002.
 - `state/events.jsonl` — append-only transition log, `flock`-guarded, one JSON object per status/actuals write plus a `dispatch_open`/`dispatch_close` pair per subagent dispatch (`pm-status.py dispatch`, unconditional — no `--no-events` opt-out). The only source for per-status dwell time (`updated_at` is overwritten by any field write) and the input to `pm-status.py report`, including its `--stall-minutes` flag and `usage --agent` scoping, both of which read the dispatch records exclusively. Absent on pre-existing projects, which fall back to `updated_at` with dwell marked approximate.
 - `state/pm-calibration.yaml` — learned estimation-calibration ratios (see Estimation calibration below).
 - `state/adr-register.yaml` — the ADR number allocator (`next:` plus a `reserved:` list). `pm-status.py adr-reserve --epic E --slug S [--count N]` hands out sequential numbers under a flock **before** dispatch, so parallel arch-gate agents cannot both claim ADR-0007. Absent, empty, or an unparseable `next` all resolve to "start at 1" — a project that has never recorded an ADR still works. A malformed `reserved` (not a list) is the one exception: that field is the record of who is in flight, so `adr-reserve` refuses outright (exit 2) rather than discarding it, since silently resetting it to `[]` could let a new reservation collide with one already in flight.

@@ -79,7 +79,8 @@ State is **sharded**: one bare YAML node per file, with the directory structure 
 ├── planned/   epic-005/epic.yaml, sprint-01/sprint.yaml, sprint-01/E005-S01-001.yaml
 ├── active/    epic-001/…
 ├── archived/  epic-002/…
-├── issues.yaml            ← flat BL-E{nnn}-{nnn} deferred-issue list
+├── issues.yaml            ← open BL-E{nnn}-{nnn} items + `next:` key allocator
+├── issues-resolved.yaml   ← resolved BL items, with resolution
 ├── events.jsonl           ← append-only transition log (committed — source of dwell time)
 └── pm-calibration.yaml    ← learned estimation ratios (committed — team knowledge)
 ```
@@ -108,13 +109,57 @@ An epic's directory lives in the folder named for its status. Every transition i
 uv run {pm_status} set-status --state-root {pm_state_root} --story E001-S01-003 --status done
 ```
 
-`append-issue` is the one exception: `issues.yaml` is a flat file with no resolvable node key, so it takes `--file`.
+Issue verbs address both issue files through `--state-root`; `append-issue` still accepts `--file` for compatibility.
 
 **Who writes it:** `pm-status.py` exclusively. Every status transition, `actual` block, estimate, event-log append, and read-back `verify` is one atomic, `ruamel`-round-trip-safe operation preserving comments and key order. This replaced free-form YAML edits that were dropped or malformed under load and parallelism.
 
-**Concurrency:** per-epic directories mean epic-scoped writes touch only that epic's files — **no flock needed**. The three files sharding cannot shard are inherently cross-epic aggregates and all take an automatic exclusive flock: `issues.yaml` (on append), `events.jsonl` (on append), and `pm-calibration.yaml` (whole read-modify-write cycle, since two concurrent samplers would otherwise silently drop one another's samples).
+**Concurrency:** per-epic directories mean epic-scoped writes touch only that epic's files — **no flock needed**. The three files sharding cannot shard are inherently cross-epic aggregates and all take an automatic exclusive flock: `issues.yaml` and `issues-resolved.yaml` (every issue verb's whole read-modify-write, under one `issues_lock`), `events.jsonl` (on append), and `pm-calibration.yaml` (whole read-modify-write cycle, since two concurrent samplers would otherwise silently drop one another's samples).
 
-**Reads are lock-free.** Every write goes through an atomic temp-file-plus-rename, so a reader — notably `pm-status.py report --watch` polling during a parallel phase — can never observe a torn node file and needs no lock of its own.
+**Reads are lock-free.** Every write goes through an atomic temp-file-plus-rename, so a reader — notably `pm-status.py report --watch` polling during a parallel phase — can never observe a torn node file and needs no lock of its own. The exceptions are `list-issues --all` and `audit-issues`, which read both issue files under `issues_lock` so a concurrent resolve cannot tear the pair.
+
+### Backlog lifecycle
+
+Deferred findings are a lifecycle, not an append-only list. Open items live in
+`issues.yaml`, resolved ones in `issues-resolved.yaml`
+([ADR-0002](adr/0002-issue-storage-open-resolved-high-water.md)). A promoted item becomes a
+story whose `resolves:` list is closed as `fixed` when `set-status` marks the story `done`
+— on every path that does, and without ever failing that call
+([ADR-0003](adr/0003-done-hook-warns-not-fails.md)).
+
+```mermaid
+stateDiagram-v2
+    [*] --> backlog: append-issue
+    backlog --> scheduled: promote-issue
+    backlog --> resolved: resolve-issue
+    scheduled --> resolved: story done (hook, fixed)
+    scheduled --> resolved: resolve-issue
+    scheduled --> backlog: repair-issue unschedule
+    resolved --> scheduled: repair-issue reopen
+```
+
+```mermaid
+sequenceDiagram
+    participant P as promote-issue
+    participant E as epic_node_lock
+    participant I as issues_lock
+    P->>P: validate every refusal (no writes)
+    P->>E: acquire
+    P->>P: story node + estimate (one save), story document
+    P->>P: roll up sprint, then epic
+    P->>I: acquire (nested)
+    P->>P: mark items scheduled
+    P->>I: release
+    P->>E: release
+    Note over P: later: set-status --status done
+    P->>I: acquire
+    P->>P: resolve each resolves: key (fixed, ref story)
+    P->>I: release
+```
+
+`pm-status.py` stays one self-installed file
+([ADR-0001](adr/0001-pm-status-single-self-installed-file.md)): structural checks
+(`audit-issues`) live in it, while the heuristic audit ships in doctor's own
+`scripts/audit-backlog.py`.
 
 ### Lifecycles
 
