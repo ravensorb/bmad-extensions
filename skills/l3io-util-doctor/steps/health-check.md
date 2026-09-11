@@ -180,8 +180,9 @@ uv run {skill-root}/scripts/audit-backlog.py --pm-status {pm_status} \
 ```
 - `audit-issues` exit 4 with a non-empty `findings` list → flag `triage` · Priority: **High** ·
   note the finding ids
-- `audit-issues` exit 4 with `findings: []` and an `error` → the issue file is malformed; report
-  the error and stop — an empty `findings` list on exit 4 is not "clean"
+- `audit-issues` exit 4 with `findings: []` and an `error` → the issue file is malformed;
+  report the error as Check 13's result and never mark Check 13 ✓ — an empty `findings` list
+  on exit 4 is not "clean" — then continue with the remaining checks
 - any `fixed-candidate`, `obsolete-candidate`, or `duplicate-candidate` → flag `triage` ·
   Priority: **Medium** · note the count
 - no issues file, or neither → ✓

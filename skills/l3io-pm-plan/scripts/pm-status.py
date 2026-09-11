@@ -151,12 +151,14 @@ Subcommands
                 (read-only integrity checks 1a-1j over both issue files and the story
                 nodes' resolves:, read under issues_lock when either issue file exists;
                 otherwise the story walk still runs, unlocked, over an empty store;
-                a key with a resolved entry is checked only for 1a (resolved first) and
-                a key duplicated in one file only for 1i; 1d/1h ignore a dead claim --
-                a story under archived/ that is not done; 1j fires only when the ref
-                story's resolves: lists the key; exit 4 when anything is found, and on
-                a malformed issue file, where --format json prints
-                {"findings": [], "error": MSG})
+                a key with a resolved entry is not evaluated for 1b, 1c, 1d, 1f
+                or 1g -- its stale open copy shows as 1a, and 1h and 1j still
+                apply; a key duplicated within one file (1i) is not evaluated
+                for 1b, 1c, 1d, 1f or 1g either; 1d/1h ignore a dead claim -- a
+                story under archived/ that is not done; 1j fires only when the
+                ref story's resolves: lists the key; exit 4 when anything is
+                found, and on a malformed issue file, where --format json
+                prints {"findings": [], "error": MSG})
   repair-issue  --state-root S  --key K  --action {unschedule,link,reseed,reopen}
                 [--story KEY] [--session-id ID] [--cause C]
                 (each action refuses unless its audit finding holds: unschedule 1b/1g,
@@ -4995,9 +4997,11 @@ def _walk_story_nodes(state_root):
 
 
 def _dead_claim(status_dir, node) -> bool:
-    """A story under archived/ that never reached `done`. Its epic is closed, so its
-    `resolves:` can never fire: the claim is dead. Promote's resume and audit 1d/1h ignore
-    it; audit 1g still reports an item SCHEDULED to it (1g is keyed on the item's `story:`)."""
+    """A story under archived/ that is not `done` is ignored as a claimant, because its
+    epic is closed: promote's resume and audit 1d/1h skip it. If that story is later marked
+    `done` (cmd_set_status has no archived guard, and pm-sync pull runs `set-status done`),
+    the claim revives, and audit 1h reports the double listing; audit 1g still reports an
+    item SCHEDULED to it (1g is keyed on the item's `story:`)."""
     return status_dir == "archived" and str(node.get("status", "")) != "done"
 
 

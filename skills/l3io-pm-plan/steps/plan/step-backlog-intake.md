@@ -64,9 +64,12 @@ Every refusal writes nothing, so it is always safe to ask again:
 
 - **exit 2 or 3** — show the message verbatim (for example
   `sprint E001-S02 is 'in-progress', not backlog`) and ask for another target
-- **exit 2, partly promoted into another epic** (for example `BL-E005-001 were partly
-  promoted into E005-S01-001 -- retry with --epic 005 --sprint 01`) — rerun with the named
-  `--epic`/`--sprint`; don't count the item as promoted until that retry succeeds
+- **exit 2, partly promoted into a different epic or sprint** (for example `BL-E005-001 were
+  partly promoted into E005-S01-001 -- retry with --epic 005 --sprint 01`) — rerun with the
+  named `--epic`/`--sprint`; don't count the item as promoted until that retry succeeds. If
+  that retry is itself refused because the named sprint is no longer `backlog`, recover with
+  `/l3io-util-doctor triage` — audit finding 1d offers `repair-issue --action link` to attach
+  the items to the story they were partly promoted into
 - **exit 5** — another session is executing that epic; choose another epic, or wait. If the
   message says the epic's lock cannot be evaluated (it is not a mapping, has no `session_id`,
   has a `claimed_at` that is missing, unparseable, or has no timezone, or has a non-integer

@@ -112,7 +112,8 @@ runtime directive tells an agent to read `skills/_shared/` (not installed) inste
 installed `references/`/`assets/`/`steps/` path. (10) **cli-docstring** — `pm-status.py`'s own
 module docstring names every subcommand the parser defines; (11) **append-issue-pointer** — every
 `append-issue` invocation under `skills/` (any logical line — physical lines joined on a trailing
-`\` — fenced or not, where a `pm-status` token is followed by `append-issue` and a flag) passes
+`\` — fenced or not, where a `{pm_status}` or `pm-status.py` token is followed by `append-issue`
+and a flag) passes
 `--source` and `--description`, found by walking `skills/` rather than from a list (tested by `npm
 run test:scripts`, which plants violations in a new directory, after a stray fence, and split
 across continued lines). Check (1) deliberately allows a doc to name a removed skill when mapping
