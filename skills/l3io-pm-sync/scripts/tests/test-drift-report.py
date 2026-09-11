@@ -38,19 +38,21 @@ def _write(path: str, content: str) -> None:
 # -- temp-dir leak guard ---------------------------------------------------------------- #
 # setUpModule points tempfile.tempdir (this test process) AND the TMPDIR environment variable
 # (inherited by every subprocess it spawns) at one private run directory; tearDownModule fails
-# the run if anything is left in it, then removes it and restores both. Covered: every
-# tempfile.mkdtemp()/mkstemp()/NamedTemporaryFile() made by this process or by a child that
-# honours TMPDIR. Not covered: a child that writes to a hard-coded directory. The one name it
-# ignores is `uv-*.lock`, which `uv run` leaves in TMPDIR by design (test-write-module-config
-# spawns `uv run`). Fixtures without cleanup once left 60,936 directories in /tmp and exhausted
-# its inodes. Set in setUpModule, not at import, so a child process that re-imports this
-# module never creates a run directory it would not remove.
+# the run if anything is left in it, then removes it and restores both to their prior values.
+# Covered: every tempfile.mkdtemp()/mkstemp()/NamedTemporaryFile() made by this process or by
+# a child that honours TMPDIR. Not covered: a child that writes to a hard-coded directory. The
+# one name it ignores is `uv-*.lock`, which `uv run` leaves in TMPDIR by design
+# (test-write-module-config spawns `uv run`). Fixtures without cleanup once left 60,936
+# directories in /tmp and exhausted its inodes. Set in setUpModule, not at import, so a child
+# process that re-imports this module never creates a run directory it would not remove.
 _RUN_TMP = None
-_PREV_TMPDIR = None
+_PREV_TMPDIR = None             # the TMPDIR environment variable, or None
+_PREV_TEMPFILE_TEMPDIR = None   # tempfile.tempdir as it was before setUpModule
 
 
 def setUpModule():
-    global _RUN_TMP, _PREV_TMPDIR
+    global _RUN_TMP, _PREV_TMPDIR, _PREV_TEMPFILE_TEMPDIR
+    _PREV_TEMPFILE_TEMPDIR = tempfile.tempdir
     _RUN_TMP = tempfile.mkdtemp(prefix="test-drift-report-")
     tempfile.tempdir = _RUN_TMP
     _PREV_TMPDIR = os.environ.get("TMPDIR")
@@ -58,7 +60,7 @@ def setUpModule():
 
 
 def tearDownModule():
-    tempfile.tempdir = None
+    tempfile.tempdir = _PREV_TEMPFILE_TEMPDIR
     if _PREV_TMPDIR is None:
         os.environ.pop("TMPDIR", None)
     else:

@@ -31,19 +31,21 @@ spec.loader.exec_module(pm)
 # -- temp-dir leak guard ---------------------------------------------------------------- #
 # setUpModule points tempfile.tempdir (this test process) AND the TMPDIR environment variable
 # (inherited by every subprocess it spawns) at one private run directory; tearDownModule fails
-# the run if anything is left in it, then removes it and restores both. Covered: every
-# tempfile.mkdtemp()/mkstemp()/NamedTemporaryFile() made by this process or by a child that
-# honours TMPDIR. Not covered: a child that writes to a hard-coded directory. The one name it
-# ignores is `uv-*.lock`, which `uv run` leaves in TMPDIR by design (test-write-module-config
-# spawns `uv run`). Fixtures without cleanup once left 60,936 directories in /tmp and exhausted
-# its inodes. Set in setUpModule, not at import, so a child process that re-imports this
-# module never creates a run directory it would not remove.
+# the run if anything is left in it, then removes it and restores both to their prior values.
+# Covered: every tempfile.mkdtemp()/mkstemp()/NamedTemporaryFile() made by this process or by
+# a child that honours TMPDIR. Not covered: a child that writes to a hard-coded directory. The
+# one name it ignores is `uv-*.lock`, which `uv run` leaves in TMPDIR by design
+# (test-write-module-config spawns `uv run`). Fixtures without cleanup once left 60,936
+# directories in /tmp and exhausted its inodes. Set in setUpModule, not at import, so a child
+# process that re-imports this module never creates a run directory it would not remove.
 _RUN_TMP = None
-_PREV_TMPDIR = None
+_PREV_TMPDIR = None             # the TMPDIR environment variable, or None
+_PREV_TEMPFILE_TEMPDIR = None   # tempfile.tempdir as it was before setUpModule
 
 
 def setUpModule():
-    global _RUN_TMP, _PREV_TMPDIR
+    global _RUN_TMP, _PREV_TMPDIR, _PREV_TEMPFILE_TEMPDIR
+    _PREV_TEMPFILE_TEMPDIR = tempfile.tempdir
     _RUN_TMP = tempfile.mkdtemp(prefix="test-pm-status-")
     tempfile.tempdir = _RUN_TMP
     _PREV_TMPDIR = os.environ.get("TMPDIR")
@@ -51,7 +53,7 @@ def setUpModule():
 
 
 def tearDownModule():
-    tempfile.tempdir = None
+    tempfile.tempdir = _PREV_TEMPFILE_TEMPDIR
     if _PREV_TMPDIR is None:
         os.environ.pop("TMPDIR", None)
     else:
@@ -8582,10 +8584,11 @@ class TestEventWriteFailure(IssueBase):
 
 
 class TestLockFilesIgnored(IssueBase):
-    """Lock files must never be committed. Every lock acquisition ensures
-    {state_root}/.gitignore carries `*.lock` -- on every acquisition, not only when a lock
-    file is first created, so a project whose lock files already exist is covered on its
-    next lock. Best-effort: a failure warns on stderr and never fails the verb."""
+    """Lock files must never be committed. Every lock acquisition inside a state root ensures
+    {state_root}/.gitignore carries `*.lock` (a bare `append-issue --file` outside one is
+    skipped) -- on every acquisition, not only when a lock file is first created, so a
+    project whose lock files already exist is covered on its next lock. Best-effort: a
+    failure warns on stderr and never fails the verb."""
 
     STORY = "E001-S01-001"
 
@@ -8735,6 +8738,8 @@ class TestLockFilesIgnored(IssueBase):
         with open(self.gi, "wb") as fh:
             fh.write(b"*.lock\n")
         os.chmod(self.gi, 0o444)
+        if os.access(self.gi, os.W_OK):
+            self.skipTest("chmod does not bind (running as root)")
         code, _, err = self.append("A")
         self.assertEqual(code, 0, err)
         self.assertNotIn("could not add", err)
