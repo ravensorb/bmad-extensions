@@ -6341,5 +6341,46 @@ class TestCopilotRuntime(TestLayoutResolution):
         self.assertEqual(code, 4)
 
 
+class TestUpdateIssue(IssueBase):
+    def update(self, key, sev, *extra):
+        return self.run_all(["update-issue", "--state-root", self.root, "--key", key,
+                             "--severity", sev, *extra])
+
+    def test_severity_actually_changes(self):
+        """The assertion epic-closure §4's old 'promote via append-issue' never had:
+        that path printed OK and changed nothing."""
+        self.append("A", "001", "01", "Low")
+        code, out, err = self.update("BL-E001-001", "High", "--note", "wider blast radius")
+        self.assertEqual(code, 0, err)
+        self.assertEqual(self.load_open()["backlog"][0]["severity"], "High")
+        ev = self.events("issue_updated")[-1]
+        self.assertEqual((ev["from"], ev["to"], ev["note"]), ("Low", "High", "wider blast radius"))
+
+    def test_resolved_key_exits_2_naming_resolution(self):
+        self.append("A")
+        self.run_all(["resolve-issue", "--state-root", self.root, "--key", "BL-E001-001",
+                      "--resolution", "obsolete", "--note", "gone"])
+        code, _, err = self.update("BL-E001-001", "High")
+        self.assertEqual(code, 2)
+        self.assertIn("obsolete", err)
+
+    def test_unknown_key_exits_3(self):
+        self.assertEqual(self.update("BL-E001-077", "High")[0], 3)
+
+    def test_invalid_severity_is_a_usage_error(self):
+        self.append("A")
+        self.assertEqual(self.update("BL-E001-001", "Severe")[0], 2)
+
+    def test_key_duplicated_in_open_file_is_refused(self):
+        self.append("A")
+        y, data = pm._load(self.issues)
+        from ruamel.yaml.comments import CommentedMap
+        data["backlog"].append(CommentedMap(data["backlog"][0]))
+        pm._atomic_dump(y, data, self.issues)
+        code, _, err = self.update("BL-E001-001", "High")
+        self.assertEqual(code, 2)
+        self.assertIn("1i", err)
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

@@ -117,6 +117,9 @@ Subcommands
                 file second; fixed needs --ref story key or SHA, duplicate needs --ref an
                 open or non-duplicate BL key, wontfix/obsolete need --note; an already
                 resolved key exits 0 after clearing any stale open copy)
+  update-issue  --state-root S  --key K  --severity {Low,Medium,High,Critical}
+                [--note N] [--session-id ID] [--cause {cli,triage,plan-intake}]
+                (re-severities an OPEN item; a resolved key exits 2, an unknown one 3)
   move-epic     --state-root S  --epic ID  --to {planned,active,archived}
   archive-epic  --state-root S  --epic ID   (alias for move-epic --to archived)
   calibration   show  --state-root S  [--format {text,json}]
@@ -4320,6 +4323,15 @@ class IssueStore:
     def resolved_items(self, key):
         return self._matching(self.resolved, key)
 
+    def single_open(self, key):
+        """The one open item with this key, or None. PMError(2) when the key appears
+        more than once -- no verb may act on an ambiguous key (audit-issues 1i)."""
+        opens = self.open_items(key)
+        if len(opens) > 1:
+            raise PMError(2, f"{key} appears {len(opens)} times in {self.open_path} -- "
+                             f"resolve it by hand (audit-issues finding 1i)")
+        return opens[0] if opens else None
+
     def highest_suffix(self, epic_norm: str) -> int:
         highest = 0
         for item in list(self.backlog) + list(self.resolved):
@@ -4560,18 +4572,15 @@ def resolve_issue_core(store, key, resolution, ref=None, note=None,
     k = canonical_bl_key(key)
     if k is None:
         raise PMError(2, f"{key!r} is not a backlog key")
-    opens, done = store.open_items(k), store.resolved_items(k)
-    if len(opens) > 1:
-        raise PMError(2, f"{k} appears {len(opens)} times in {store.open_path} -- resolve it "
-                         f"by hand (audit-issues finding 1i)")
+    item, done = store.single_open(k), store.resolved_items(k)
     if done:
         prior = done[-1].get("resolution")
-        if opens:
-            _remove_identity(store.backlog, opens[0])
+        if item is not None:
+            _remove_identity(store.backlog, item)
             store.save_open()
             return f"{k} already resolved ({prior}); removed the stale open copy"
         return f"{k} already resolved ({prior})"
-    if not opens:
+    if item is None:
         raise PMError(3, f"{k} is in neither {store.open_path} nor {store.resolved_path}")
     if resolution == "duplicate":
         r = canonical_bl_key(ref)
@@ -4584,7 +4593,6 @@ def resolve_issue_core(store, key, resolution, ref=None, note=None,
             raise PMError(2, f"--ref {r} is itself resolved as a duplicate -- point at the "
                              f"item it duplicates")
         ref = r
-    item = opens[0]
     entry = CommentedMap()
     for kk, vv in item.items():
         entry[kk] = vv
@@ -4614,6 +4622,37 @@ def cmd_resolve_issue(args) -> int:
             msg = resolve_issue_core(IssueStore(open_path), args.key, args.resolution,
                                      args.ref, args.note, args.session_id, args.cause)
         sys.stdout.write(f"OK resolve-issue {msg}\n")
+        return 0
+    return _run_core(run)
+
+
+def update_issue_core(store, key, severity, note=None, session=None, cause="cli") -> str:
+    """Change an open item's severity. The caller holds issues_lock(store.open_path)."""
+    k = canonical_bl_key(key)
+    if k is None:
+        raise PMError(2, f"{key!r} is not a backlog key")
+    item = store.single_open(k)
+    if item is None:
+        done = store.resolved_items(k)
+        if done:
+            raise PMError(2, f"{k} is resolved ({done[-1].get('resolution')}) -- only open "
+                             f"items can be re-severitied")
+        raise PMError(3, f"{k} is not in {store.open_path}")
+    before = str(item.get("severity", ""))
+    item["severity"] = severity
+    store.save_open()
+    _issue_event(store.state_root, "issue_updated", item, session, cause,
+                 **{"from": before, "to": severity, "note": note})
+    return f"{k} severity {before} -> {severity}"
+
+
+def cmd_update_issue(args) -> int:
+    def run():
+        open_path = issues_paths(args.state_root)[0]
+        with issues_lock(open_path):
+            msg = update_issue_core(IssueStore(open_path), args.key, args.severity,
+                                    args.note, args.session_id, args.cause)
+        sys.stdout.write(f"OK update-issue {msg}\n")
         return 0
     return _run_core(run)
 
@@ -5241,6 +5280,15 @@ def build_parser() -> argparse.ArgumentParser:
     ri.add_argument("--session-id", dest="session_id", default=None)
     ri.add_argument("--cause", default="cli", choices=["cli", "triage", "plan-intake"])
     ri.set_defaults(func=cmd_resolve_issue)
+
+    ui = sub.add_parser("update-issue", help="change an open BL item's severity")
+    ui.add_argument("--state-root", required=True)
+    ui.add_argument("--key", required=True)
+    ui.add_argument("--severity", required=True, choices=["Low", "Medium", "High", "Critical"])
+    ui.add_argument("--note", default=None)
+    ui.add_argument("--session-id", dest="session_id", default=None)
+    ui.add_argument("--cause", default="cli", choices=["cli", "triage", "plan-intake"])
+    ui.set_defaults(func=cmd_update_issue)
 
     li = sub.add_parser("list-issues", help="list (with filters) the flat backlog in issues.yaml")
     li.add_argument("--state-root", required=True, help="path to {implementation_artifacts}/state")
