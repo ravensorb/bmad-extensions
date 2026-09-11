@@ -11,7 +11,7 @@ jobs:
     - uses: actions/checkout@v4
     - uses: actions/setup-node@v4
       with:
-        node-version: '20'
+        node-version: '24'
     - uses: actions/setup-python@v5
       with:
         python-version: '3.11'
@@ -19,6 +19,8 @@ jobs:
       run: npm run check:scripts
     - name: Verify documentation matches the code it describes
       run: npm run check:docs
+    - name: check-docs self-tests
+      run: npm run test:scripts
     - name: Verify pm-status.py's version tracks its content
       run: npm run check:version
     - name: Verify per-skill payload manifests match the payload
