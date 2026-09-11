@@ -93,9 +93,11 @@ Subcommands
   set-lock      --state-root S  --epic ID  --session-id SESS  [--ttl-minutes N]
   clear-lock    --state-root S  --epic ID
   check-lock    --state-root S  --epic ID  --session-id SESS
-  append-issue  --file F  [--key BL-E{nnn}-{nnn}]  --epic E  [--sprint S]  --title T
+  append-issue  (--state-root S | --file F)  [--key BL-E{nnn}-{nnn}]  --epic E  [--sprint S]  --title T
                 --source S  --severity {Low,Medium,High,Critical}  [--description D]
                 [--allow-duplicate]
+                [--session-id ID]   (keys: max(next[epic], highest suffix in either
+                issue file + 1); an explicit --key is canonicalized and must match --epic)
                 (--key omitted allocates the next number for --epic under a lock --
                 the caller never invents {nnn}; an explicit --key that already exists
                 exits 2. A content duplicate -- same normalized title/epic/sprint/source
@@ -400,6 +402,28 @@ def _die_usage(msg: str):
 def _die_notfound(what: str):
     sys.stderr.write(f"pm-status.py: node not found — {what}\n")
     sys.exit(3)
+
+
+class PMError(Exception):
+    """A refusal or failure raised by a non-exiting core function.
+
+    Core functions never call sys.exit: in-process callers -- the set-status done
+    hook, promote-issue's estimate -- must be able to catch a failure. Only a cmd_
+    wrapper turns one into an exit code, through _run_core."""
+
+    def __init__(self, code: int, msg: str):
+        super().__init__(msg)
+        self.code = code
+        self.msg = msg
+
+
+def _run_core(fn) -> int:
+    """Run a cmd_ body, mapping PMError onto the exit-code contract."""
+    try:
+        return fn()
+    except PMError as e:
+        sys.stderr.write(f"pm-status.py: {e.msg}\n")
+        return e.code
 
 
 EVENTS_FILENAME = "events.jsonl"
@@ -4196,6 +4220,155 @@ def cmd_add_test_run(args) -> int:
 _BL_KEY_RE = re.compile(r"^BL-E(\d+)-(\d+)$")
 
 
+# --------------------------------------------------------------------------- #
+# Issue store -- issues.yaml (open items) + issues-resolved.yaml (resolved).
+# Spec: docs/superpowers/specs/2026-09-10-issue-lifecycle-design.md; ADR-0002.
+# --------------------------------------------------------------------------- #
+ISSUES_FILENAME = "issues.yaml"
+RESOLVED_FILENAME = "issues-resolved.yaml"
+OPEN_ISSUE_STATUSES = ("backlog", "scheduled")
+RESOLUTIONS = ("fixed", "wontfix", "duplicate", "obsolete")
+SEVERITY_RANK = {"Low": 0, "Medium": 1, "High": 2, "Critical": 3}
+
+
+def _int_or_none(v):
+    if isinstance(v, bool):
+        return None
+    try:
+        return int(str(v).strip())
+    except (TypeError, ValueError):
+        return None
+
+
+def canonical_bl_key(key):
+    """'BL-E1-2' -> 'BL-E001-002'. None when the key cannot be written canonically."""
+    m = _BL_KEY_RE.match(str(key).strip())
+    if not m:
+        return None
+    epic, n = int(m.group(1)), int(m.group(2))
+    if epic > 999 or n > 999 or n < 1:
+        return None
+    return f"BL-E{epic:03d}-{n:03d}"
+
+
+def issues_paths(state_root: str) -> tuple:
+    return (os.path.join(state_root, ISSUES_FILENAME),
+            os.path.join(state_root, RESOLVED_FILENAME))
+
+
+def _remove_identity(lst, obj) -> None:
+    """Remove `obj` itself -- not an equal mapping -- from a list."""
+    for i, x in enumerate(lst):
+        if x is obj:
+            del lst[i]
+            return
+
+
+class IssueStore:
+    """Both issue files, loaded together. The caller holds issues_lock(open_path)
+    across the whole load -> mutate -> save cycle; the resolved file lives beside
+    the open one, so one lock covers both."""
+
+    def __init__(self, open_path: str):
+        from ruamel.yaml.comments import CommentedMap, CommentedSeq
+        self.open_path = open_path
+        self.state_root = os.path.dirname(os.path.abspath(open_path))
+        self.resolved_path = os.path.join(self.state_root, RESOLVED_FILENAME)
+        self.y, self.open = _load(open_path)
+        self.yr, self.res = _load(self.resolved_path)
+        if self.open is None:
+            self.open = CommentedMap()
+        if self.open.get("backlog") is None:
+            self.open["backlog"] = CommentedSeq()
+        if self.res is None:
+            self.res = CommentedMap()
+        if self.res.get("resolved") is None:
+            self.res["resolved"] = CommentedSeq()
+        for name, lst, path in (("backlog", self.open["backlog"], open_path),
+                                ("resolved", self.res["resolved"], self.resolved_path)):
+            if not isinstance(lst, list):
+                raise PMError(2, f"{path} has a malformed '{name}' field (expected a list, "
+                                 f"got {type(lst).__name__}: {lst!r}); refusing to write -- "
+                                 f"a list that cannot say what is recorded cannot be trusted "
+                                 f"to receive more. Fix or restore it by hand, then retry.")
+
+    @property
+    def backlog(self):
+        return self.open["backlog"]
+
+    @property
+    def resolved(self):
+        return self.res["resolved"]
+
+    @staticmethod
+    def _matching(lst, key):
+        return [i for i in lst if isinstance(i, dict) and str(i.get("key", "")) == key]
+
+    def open_items(self, key):
+        return self._matching(self.backlog, key)
+
+    def resolved_items(self, key):
+        return self._matching(self.resolved, key)
+
+    def highest_suffix(self, epic_norm: str) -> int:
+        highest = 0
+        for item in list(self.backlog) + list(self.resolved):
+            if not isinstance(item, dict):
+                continue
+            m = _BL_KEY_RE.match(str(item.get("key", "")))
+            if m and _norm_num(m.group(1), 3) == epic_norm:
+                highest = max(highest, int(m.group(2)))
+        return highest
+
+    def stored_next(self, epic_norm: str):
+        nxt = self.open.get("next")
+        if not isinstance(nxt, dict) or epic_norm not in nxt:
+            return None
+        n = _int_or_none(nxt.get(epic_norm))
+        if n is None:
+            sys.stderr.write(f"pm-status.py: warning -- next[{epic_norm!r}] = "
+                             f"{nxt.get(epic_norm)!r} is not an integer; ignoring it\n")
+        return n
+
+    def _next_map(self):
+        from ruamel.yaml.comments import CommentedMap
+        nxt = self.open.get("next")
+        if nxt is not None and not isinstance(nxt, dict):
+            sys.stderr.write(f"pm-status.py: warning -- {self.open_path} has a malformed "
+                             f"'next' ({nxt!r}); rebuilding it from the highest keys\n")
+            nxt = None
+        if nxt is None:
+            nxt = CommentedMap()
+            if "next" in self.open:
+                self.open["next"] = nxt
+            else:
+                self.open.insert(0, "next", nxt)
+        return nxt
+
+    def raise_next(self, epic_norm: str, at_least: int) -> None:
+        """`next` never decreases: store max(what is stored, at_least)."""
+        stored = self.stored_next(epic_norm)
+        self._next_map()[epic_norm] = max(stored or 0, at_least)
+
+    def allocate(self, epic_norm: str) -> str:
+        n = max(self.stored_next(epic_norm) or 1, self.highest_suffix(epic_norm) + 1)
+        self.raise_next(epic_norm, n + 1)
+        return f"BL-E{epic_norm}-{n:03d}"
+
+    def save_open(self) -> None:
+        _atomic_dump(self.y, self.open, self.open_path)
+
+    def save_resolved(self) -> None:
+        _atomic_dump(self.yr, self.res, self.resolved_path)
+
+
+def _issue_event(state_root, event, item, session=None, cause="cli", **fields) -> None:
+    payload = {"ts": _now_iso(), "event": event, "key": str(item.get("key", "")),
+               "epic": str(item.get("epic", "")), "session": session, "cause": cause}
+    payload.update(fields)
+    append_event(state_root, payload)
+
+
 def _norm_issue_title(title) -> str:
     """Strip, collapse internal whitespace, and casefold -- for duplicate MATCHING
     only. The stored title is never rewritten to this normalized form."""
@@ -4275,62 +4448,68 @@ def cmd_append_issue(args) -> int:
     duplicate (same normalized title + epic + sprint + source) is skipped --
     the caller's desired end state, "this finding is recorded", already holds
     -- unless `--allow-duplicate` forces a second entry.
+
+    Keys come from `IssueStore.allocate`: `max(next[epic], highest suffix in
+    either issue file + 1)`, so a deleted or resolved item's key is never
+    handed out again.
     """
+    return _run_core(lambda: _append_issue(args))
+
+
+def _issues_open_path(args) -> str:
+    """The open issues file from --state-root, or from --file (compatibility)."""
+    sr = getattr(args, "state_root", "") or ""
+    f = getattr(args, "file", "") or ""
+    if sr:
+        p = issues_paths(sr)[0]
+        if f and os.path.abspath(f) != os.path.abspath(p):
+            raise PMError(2, f"append-issue: --file {f} is not {p} -- pass --state-root "
+                             f"alone (--file is kept only for compatibility)")
+        return p
+    if f:
+        return f
+    raise PMError(2, "append-issue: pass --state-root (or, for compatibility, --file)")
+
+
+def _append_issue(args) -> int:
+    from ruamel.yaml.comments import CommentedMap
+    open_path = _issues_open_path(args)
     epic_norm = _norm_num(args.epic, 3)
     sprint_norm = _norm_num(args.sprint, 2) if args.sprint else ""
     norm_title = _norm_issue_title(args.title)
-
-    with issues_lock(args.file):
-        y, data = _load(args.file)
-        if data is None:
-            from ruamel.yaml.comments import CommentedMap, CommentedSeq
-            data = CommentedMap()
-            data["backlog"] = CommentedSeq()
-        if data.get("backlog") is None:
-            from ruamel.yaml.comments import CommentedSeq
-            data["backlog"] = CommentedSeq()
-        backlog = data["backlog"]
-        # Unlike a missing 'backlog' (recoverable -- default to an empty list
-        # and keep going), a present-but-wrong-shape 'backlog' is refused
-        # outright, mirroring cmd_adr_reserve's malformed-'reserved' guard: a
-        # backlog that cannot say what is already recorded cannot be trusted
-        # to receive a new item without silently hiding whatever was there.
-        # Checked inside the lock, before key allocation -- the allocation
-        # helpers tolerate the bad shape without crashing, but there is no
-        # point allocating a key for an append that cannot happen.
-        if not isinstance(backlog, list):
-            sys.stderr.write(
-                f"pm-status.py: append-issue: {args.file} has a malformed "
-                f"'backlog' field (expected a list, got "
-                f"{type(backlog).__name__}: {backlog!r}); refusing to append "
-                f"-- appending to a silently-replaced empty list would hide "
-                f"whatever was already recorded there. Fix or restore "
-                f"{args.file} by hand, then retry.\n")
-            return 2
-
-        if args.key:
-            existing = _find_issue_by_key(backlog, args.key)
-            if existing is not None:
-                sys.stderr.write(
-                    f"pm-status.py: append-issue: --key {args.key!r} already exists "
-                    f"(title: {existing.get('title', '')!r}) -- refusing to silently "
-                    f"assign a different key; pick a key that is not already taken, "
-                    f"or omit --key to auto-allocate the next one for this epic\n")
-                return 2
-            key = args.key
-        else:
-            key = f"BL-E{epic_norm}-{_next_issue_number(backlog, epic_norm)}"
-
+    explicit = None
+    if args.key:
+        explicit = canonical_bl_key(args.key)
+        if explicit is None:
+            raise PMError(2, f"append-issue: --key {args.key!r} is not a backlog key "
+                             f"(expected BL-E{{nnn}}-{{nnn}})")
+        if explicit[4:7] != epic_norm:
+            raise PMError(2, f"append-issue: --key {explicit} belongs to epic "
+                             f"{explicit[4:7]}, not --epic {epic_norm}")
+    with issues_lock(open_path):
+        store = IssueStore(open_path)
+        if explicit is not None:
+            clash = store.open_items(explicit) + store.resolved_items(explicit)
+            if clash:
+                raise PMError(2, f"append-issue: --key {explicit!r} already exists "
+                                 f"(title: {clash[0].get('title', '')!r}) -- refusing to "
+                                 f"silently assign a different key; pick a key that is not "
+                                 f"already taken, or omit --key to auto-allocate the next "
+                                 f"one for this epic")
         if not args.allow_duplicate:
-            dup = _find_issue_by_content(backlog, epic_norm, sprint_norm, args.source, norm_title)
+            dup = _find_issue_by_content(store.backlog, epic_norm, sprint_norm,
+                                         args.source, norm_title)
             if dup is not None:
                 sys.stdout.write(
                     f"OK append-issue skipped -- matches existing {dup.get('key', '')} "
                     f"(same title/epic/sprint/source); nothing written. Pass "
                     f"--allow-duplicate to force a second entry.\n")
                 return 0
-
-        from ruamel.yaml.comments import CommentedMap
+        if explicit is not None:
+            key = explicit
+            store.raise_next(epic_norm, int(explicit[-3:]) + 1)
+        else:
+            key = store.allocate(epic_norm)
         item = CommentedMap()
         item["key"] = key
         item["epic"] = args.epic
@@ -4341,17 +4520,11 @@ def cmd_append_issue(args) -> int:
         item["status"] = "backlog"
         if args.description:
             item["description"] = args.description
-
-        backlog.append(item)
-        # The lock above already covers this whole read-modify-write cycle, so
-        # this is a plain atomic dump, not another `_flock_write_or_plain(True, ...)`
-        # -- `_file_lock` is reentrant (see its depth counter), so a second flock
-        # call here would not deadlock, but it would still open a second file
-        # descriptor on the SAME lock file for no reason: one logical operation,
-        # one lock acquisition.
-        _atomic_dump(y, data, args.file)
-
-    sys.stdout.write(f"OK append-issue {key} -> {args.file}\n")
+        store.backlog.append(item)
+        store.save_open()
+    _issue_event(store.state_root, "issue_opened", item,
+                 getattr(args, "session_id", None), "cli", severity=args.severity)
+    sys.stdout.write(f"OK append-issue {key} -> {open_path}\n")
     return 0
 
 
@@ -4948,7 +5121,11 @@ def build_parser() -> argparse.ArgumentParser:
     a.set_defaults(func=cmd_add_test_run)
 
     ai = sub.add_parser("append-issue", help="append a BL item to state/issues.yaml")
-    ai.add_argument("--file", required=True)
+    ai.add_argument("--state-root", dest="state_root", default="",
+                    help="path to {implementation_artifacts}/state (preferred)")
+    ai.add_argument("--file", default="",
+                    help="compatibility alias for <state-root>/issues.yaml")
+    ai.add_argument("--session-id", dest="session_id", default=None)
     ai.add_argument("--key", default="",
                     help="BL-E{nnn}-{nnn}; omit to auto-allocate the next number for "
                          "--epic under a lock. An explicit key that already exists "

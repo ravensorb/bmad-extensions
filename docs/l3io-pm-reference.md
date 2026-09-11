@@ -449,7 +449,7 @@ backlog:
 | `set-lock`, `clear-lock`, `check-lock` | `--state-root --epic ID` (epics only) |
 | `move-epic` | `--state-root --epic ID --to {planned,active,archived}` |
 | `archive-epic` | `--state-root --epic ID` — alias for `move-epic --to archived`; does not accept `--to` itself |
-| `append-issue` | `--file` — the one path-addressed exception. `--key` is optional (auto-allocated per-epic under a lock when omitted; an explicit existing `--key` exits 2). `--allow-duplicate` forces a second entry past the content-duplicate skip |
+| `append-issue` | `--state-root` (preferred) or `--file` (compatibility; must equal `<state-root>/issues.yaml`). `--key` is optional: omitted, the key is allocated as max(`next[epic]`, highest suffix in either issue file + 1); given, it is canonicalized, must match `--epic`, and exits 2 if it exists in either file. `--allow-duplicate` forces a content duplicate. |
 | `list-issues` | `--state-root` + optional `--epic`/`--sprint`/`--severity`/`--format` |
 | `calibration show` | `--state-root [--format {text,json}]` |
 | `calibration redrive` | `--state-root` — rebuilds `scope` and `fix` from the story nodes on disk, replacing rather than appending. Use after a defect has skewed a batch of samples: a stored sample is a bare ratio, but the nodes still hold every input `derive_story_sample` needs, so the samples can simply be derived again instead of discarded and waited for. `closure`, `orchestration` and `token_mix` derive from other inputs and are left untouched; the previous file is kept as `pm-calibration.yaml.pre-redrive` |

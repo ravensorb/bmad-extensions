@@ -118,6 +118,9 @@ Two asymmetries follow, both correct:
   next number simultaneously, the same collision class production ADR numbers hit before
   `adr-reserve` existed). Pass `--key` only to name an existing item explicitly — an
   explicit key that already exists is refused (exit 2), not silently reassigned.
+  Allocation is `max(next[epic], highest suffix in either issues.yaml or
+  issues-resolved.yaml + 1)` — the per-epic `next:` map in `issues.yaml` is a
+  high-water mark that never decreases, so a deleted or resolved key is never reused.
 
 Node fields use `key:` (not `id:`) in every file.
 
@@ -362,7 +365,7 @@ Subcommand summary (see `pm-status.py --help` for full flags):
 | `set-lock`, `clear-lock`, `check-lock` | `--state-root --epic ID` (epic only — locks apply to epics) |
 | `move-epic` | `--state-root --epic ID --to {planned,active,archived}` |
 | `archive-epic` | `--state-root --epic ID` — alias for `move-epic --to archived` |
-| `append-issue` | `--file` (the one exception; see above) |
+| `append-issue` | `--state-root` (preferred) or `--file` (compatibility) |
 | `list-issues` | `--state-root` (reads `{state-root}/issues.yaml`) + optional `--epic`/`--sprint`/`--severity`/`--format` filters |
 | `calibration show` \| `migrate-metrics` \| `redrive` | `--state-root [--format {text,json}]` — `show` is a read-only report of every component's sample count and active ratio (a missing file reports cold-start and exits `0`); `migrate-metrics` reshapes a pre-metrics-rework calibration file in place (gated on its own marker, idempotent); `redrive` re-derives calibration samples from the story files already on disk (`redrive_story_samples`), for backfilling or repairing samples without re-running the work |
 | `report` | `--state-root` (+ optional `--plan` pointing at `plan-output-meta.yaml`, `--stall-minutes N`) — walks every epic in every status folder; addresses none individually. Read-only unless `--out` is given. `--status planned,active,archived` narrows the display (default `planned,active`); counting is unaffected. Flags any dispatch opened longer than `--stall-minutes` (default 15) and never closed. Every format carries a **Spend** section attributing actual spend to story / closure / orchestration (metrics-contract.md §6) |

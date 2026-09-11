@@ -539,6 +539,189 @@ backlog:
   status: backlog
 """
 
+from unittest import mock
+
+
+def _build_issue_tree(root):
+    """State tree for issue-lifecycle tests. Epic/sprint nodes are hand-written
+    because no verb creates them; every ISSUE is created through the real CLI.
+      active/epic-001: S01 in-progress, S02 backlog
+      planned/epic-005: S01 backlog
+    """
+    nodes = {
+        "active/epic-001/epic.yaml": "key: 'E001'\ntitle: 'Foundation'\nstatus: in-progress\n",
+        "active/epic-001/sprint-01/sprint.yaml":
+            "key: 'S01'\nepic: 'E001'\ntitle: 'One'\nstatus: in-progress\n",
+        "active/epic-001/sprint-02/sprint.yaml":
+            "key: 'S02'\nepic: 'E001'\ntitle: 'Two'\nstatus: backlog\n",
+        "planned/epic-005/epic.yaml": "key: 'E005'\ntitle: 'Later'\nstatus: backlog\n",
+        "planned/epic-005/sprint-01/sprint.yaml":
+            "key: 'S01'\nepic: 'E005'\ntitle: 'Later one'\nstatus: backlog\n",
+    }
+    for rel, text in nodes.items():
+        p = os.path.join(root, rel)
+        os.makedirs(os.path.dirname(p), exist_ok=True)
+        with open(p, "w", encoding="utf-8") as fh:
+            fh.write(text)
+
+
+class IssueBase(Base):
+    """impl/ is the artifacts root; impl/state the state root."""
+
+    def setUp(self):
+        super().setUp()
+        self.addCleanup(shutil.rmtree, self.d, True)
+        self.arts = os.path.join(self.d, "impl")
+        self.root = os.path.join(self.arts, "state")
+        _build_issue_tree(self.root)
+        self.issues = os.path.join(self.root, "issues.yaml")
+        self.resolved = os.path.join(self.root, "issues-resolved.yaml")
+
+    def run_all(self, argv):
+        out, err = io.StringIO(), io.StringIO()
+        code = 0
+        try:
+            with redirect_stdout(out), redirect_stderr(err):
+                code = pm.main(argv)
+        except SystemExit as e:
+            code = e.code if isinstance(e.code, int) else 1
+        return code, out.getvalue(), err.getvalue()
+
+    def append(self, title, epic="001", sprint="01", severity="Low",
+               source="code-review (E001-S01-001)", *extra):
+        return self.run_all(["append-issue", "--state-root", self.root, "--epic", epic,
+                             "--sprint", sprint, "--title", title, "--source", source,
+                             "--severity", severity, *extra])
+
+    def load_open(self):
+        return pm._load(self.issues)[1] or {}
+
+    def load_resolved(self):
+        return pm._load(self.resolved)[1] or {}
+
+    def open_keys(self):
+        return [str(i["key"]) for i in (self.load_open().get("backlog") or [])]
+
+    def resolved_keys(self):
+        return [str(i["key"]) for i in (self.load_resolved().get("resolved") or [])]
+
+    def events(self, name=None):
+        p = pm.events_path(self.root)
+        if not os.path.exists(p):
+            return []
+        with open(p, encoding="utf-8") as fh:
+            evs = [json.loads(l) for l in fh if l.strip()]
+        return [e for e in evs if name is None or e.get("event") == name]
+
+
+class TestIssueAllocator(IssueBase):
+    def test_hand_deleted_highest_key_is_never_reused(self):
+        """The reproduced defect: after the newest item is deleted by hand, the old
+        allocator ('highest surviving + 1') gave its key to an unrelated finding."""
+        for t in ("A first", "B second", "C third"):
+            self.assertEqual(self.append(t)[0], 0)
+        y, data = pm._load(self.issues)
+        data["backlog"] = [i for i in data["backlog"] if i["key"] != "BL-E001-003"]
+        pm._atomic_dump(y, data, self.issues)
+        code, out, err = self.append("D unrelated")
+        self.assertEqual(code, 0, err)
+        self.assertIn("BL-E001-004", out)
+        self.assertNotIn("BL-E001-003", self.open_keys())
+
+    def test_next_is_written_per_epic(self):
+        self.append("A")
+        self.append("B")
+        self.append("C", epic="005", sprint="01", source="qa (Q-1)")
+        nxt = self.load_open()["next"]
+        self.assertEqual(int(nxt["001"]), 3)
+        self.assertEqual(int(nxt["005"]), 2)
+
+    def test_seeds_from_highest_suffix_in_both_files(self):
+        for t in ("A", "B", "C", "D", "E"):
+            self.append(t)
+        y, data = pm._load(self.issues)
+        del data["next"]
+        pm._atomic_dump(y, data, self.issues)
+        # a pre-existing resolved record that predates `next` (deliberately hand-built)
+        with open(self.resolved, "w", encoding="utf-8") as fh:
+            fh.write("resolved:\n- key: BL-E001-007\n  epic: '001'\n  title: old\n"
+                     "  resolution: fixed\n")
+        code, out, err = self.append("F")
+        self.assertEqual(code, 0, err)
+        self.assertIn("BL-E001-008", out)
+
+    def test_hand_written_item_beyond_stale_next(self):
+        self.append("A")
+        y, data = pm._load(self.issues)
+        from ruamel.yaml.comments import CommentedMap
+        data["backlog"].append(CommentedMap([("key", "BL-E001-009"), ("epic", "001"),
+                                             ("title", "hand"), ("status", "backlog")]))
+        pm._atomic_dump(y, data, self.issues)
+        self.assertIn("BL-E001-010", self.append("B")[1])
+
+    def test_malformed_next_warns_and_never_goes_backwards(self):
+        self.append("A")
+        self.append("B")
+        y, data = pm._load(self.issues)
+        data["next"] = "garbage"
+        pm._atomic_dump(y, data, self.issues)
+        code, out, err = self.append("C")
+        self.assertEqual(code, 0, err)
+        self.assertIn("warning", err)
+        self.assertIn("BL-E001-003", out)
+
+    def test_explicit_key_is_canonicalized_and_raises_next(self):
+        code, out, err = self.append("A", "001", "01", "Low", "qa", "--key", "BL-E1-5")
+        self.assertEqual(code, 0, err)
+        self.assertEqual(self.open_keys(), ["BL-E001-005"])
+        self.assertIn("BL-E001-006", self.append("B")[1])
+
+    def test_explicit_key_epic_must_match(self):
+        code, _, err = self.append("A", "001", "01", "Low", "qa", "--key", "BL-E002-001")
+        self.assertEqual(code, 2)
+        self.assertIn("epic", err)
+        self.assertFalse(os.path.exists(self.issues))
+
+    def test_explicit_key_that_cannot_be_canonical_is_refused(self):
+        for bad in ("not-a-key", "BL-E1000-1", "BL-E001-000"):
+            self.assertEqual(self.append("A", "001", "01", "Low", "qa", "--key", bad)[0], 2, bad)
+
+    def test_explicit_key_present_in_resolved_file_is_refused(self):
+        with open(self.resolved, "w", encoding="utf-8") as fh:
+            fh.write("resolved:\n- key: BL-E001-004\n  epic: '001'\n  title: old\n"
+                     "  resolution: fixed\n")
+        code, _, err = self.append("A", "001", "01", "Low", "qa", "--key", "BL-E001-004")
+        self.assertEqual(code, 2)
+        self.assertIn("already exists", err)
+
+    def test_state_root_with_mismatched_file_is_refused(self):
+        code, _, err = self.run_all(["append-issue", "--state-root", self.root,
+                                     "--file", os.path.join(self.d, "other.yaml"),
+                                     "--epic", "001", "--title", "A", "--source", "qa",
+                                     "--severity", "Low"])
+        self.assertEqual(code, 2, err)
+
+    def test_file_only_is_still_accepted(self):
+        code, out, err = self.run_all(["append-issue", "--file", self.issues, "--epic", "001",
+                                       "--title", "A", "--source", "qa", "--severity", "Low"])
+        self.assertEqual(code, 0, err)
+        self.assertEqual(self.open_keys(), ["BL-E001-001"])
+
+    def test_neither_file_nor_state_root_is_refused(self):
+        code, _, _ = self.run_all(["append-issue", "--epic", "001", "--title", "A",
+                                   "--source", "qa", "--severity", "Low"])
+        self.assertEqual(code, 2)
+
+    def test_append_writes_issue_opened_event(self):
+        self.append("A", "001", "01", "Medium", "qa", "--session-id", "S-1")
+        ev = self.events("issue_opened")
+        self.assertEqual(len(ev), 1)
+        self.assertEqual(ev[0]["key"], "BL-E001-001")
+        self.assertEqual(ev[0]["session"], "S-1")
+        self.assertEqual(ev[0]["cause"], "cli")
+        self.assertEqual(ev[0]["severity"], "Medium")
+        self.assertIn("ts", ev[0])
+
 
 class TestListIssues(unittest.TestCase):
     """list-issues reads state-root/issues.yaml; a missing file or a filter set
