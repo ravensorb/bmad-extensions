@@ -3317,11 +3317,22 @@ def _resolve_story_items(state_root, node, story_key, session) -> None:
     ADR-0003: this never fails set-status. The status save already happened and is
     durable; reporting it as failed would invite a retry or a rollback of finished
     work. Every exception except KeyboardInterrupt -- SystemExit included -- becomes
-    a warning, and audit-issues finding 1c catches what was missed."""
-    keys = [str(k) for k in (node.get("resolves") or [])]
-    if not keys:
+    a warning, and audit-issues finding 1c catches what was missed. `resolves:` itself
+    is hand-editable YAML, so normalising it (a bare scalar counts as one key; anything
+    else is a malformed-field warning) happens INSIDE the catch-all too -- a bad shape
+    there must warn, never raise out of set-status."""
+    raw = node.get("resolves")
+    if not raw:
         return
     try:
+        if isinstance(raw, str):
+            keys = [raw]
+        elif isinstance(raw, (list, tuple)):
+            keys = [str(k) for k in raw]
+        else:
+            sys.stderr.write(f"pm-status.py: warning -- {story_key} has a malformed resolves: "
+                             f"({raw!r}); nothing resolved. Run /l3io-util-doctor triage.\n")
+            return
         open_path = issues_paths(state_root)[0]
         with issues_lock(open_path):
             store = IssueStore(open_path)

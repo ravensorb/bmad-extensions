@@ -6950,6 +6950,27 @@ class TestDoneHook(IssueBase):
         self.assertEqual(self.story_status(), "backlog")
         self.assertEqual(self.open_keys(), ["BL-E001-001"])
 
+    def _set_resolves(self, value):
+        p = pm.story_file(self.root, "E001-S02-001")
+        y, n = pm.load_node(p)
+        n["resolves"] = value
+        pm.save_node(y, n, p)
+
+    def test_non_list_resolves_warns_and_set_status_still_exits_0(self):
+        self._set_resolves(5)
+        code, _, err = self.set_status("done")
+        self.assertEqual(code, 0, err)
+        self.assertIn("malformed resolves", err)
+        self.assertEqual(self.story_status(), "done")
+        self.assertEqual(self.open_keys(), ["BL-E001-001"])
+
+    def test_string_resolves_is_treated_as_one_key(self):
+        self._set_resolves("BL-E001-001")
+        code, out, err = self.set_status("done")
+        self.assertEqual(code, 0, err)
+        self.assertIn("resolved BL-E001-001 (fixed, ref E001-S02-001)", out)
+        self.assertEqual(self.resolved_keys(), ["BL-E001-001"])
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)
