@@ -100,8 +100,12 @@ Subcommands
                 issue file + 1); an explicit --key is canonicalized and must match --epic)
                 (--key omitted allocates the next number for --epic under a lock --
                 the caller never invents {nnn}; an explicit --key that already exists
-                exits 2. A content duplicate -- same normalized title/epic/sprint/source
-                -- is skipped (exit 0, nothing written) unless --allow-duplicate)
+                exits 2. A content duplicate (same normalized title/epic/sprint/source)
+                of an open item, or of a resolved wontfix/duplicate/obsolete item at
+                the same or lower severity, is skipped (exit 0, nothing written); a
+                match against a resolved fixed item is appended as a recurrence, and
+                one above a wontfix/duplicate/obsolete severity as re-raised. The
+                newest resolved match decides. --allow-duplicate bypasses all of it)
   list-issues   --state-root S  [--epic E] [--sprint S]
                 [--severity {Low,Medium,High,Critical}] [--format {text,json}]
                 (filters combine with AND; a repeated --severity ORs the given severities;
@@ -4381,24 +4385,30 @@ def _norm_issue_title(title) -> str:
     return " ".join(str(title).split()).casefold()
 
 
+def _content_matches(item, epic_norm: str, sprint_norm: str, source: str, norm_title: str) -> bool:
+    return (isinstance(item, dict)
+            and _norm_num(item.get("epic", ""), 3) == epic_norm
+            and _norm_num(item.get("sprint", "") or "", 2) == sprint_norm
+            and str(item.get("source", "")) == source
+            and _norm_issue_title(item.get("title", "")) == norm_title)
+
+
 def _find_issue_by_content(backlog, epic_norm: str, sprint_norm: str, source: str, norm_title: str):
     """Match on all four of normalized title + epic + sprint + source, deliberately.
     Over-matching (e.g. title alone) loses a real finding; under-matching leaves
     noise. Losing data is the worse failure, so this only catches near-certain
     repeats -- a re-run of the same story re-deferring the same finding."""
     for item in backlog:
-        if not isinstance(item, dict):
-            continue
-        if _norm_num(item.get("epic", ""), 3) != epic_norm:
-            continue
-        if _norm_num(item.get("sprint", "") or "", 2) != sprint_norm:
-            continue
-        if str(item.get("source", "")) != source:
-            continue
-        if _norm_issue_title(item.get("title", "")) != norm_title:
-            continue
-        return item
+        if _content_matches(item, epic_norm, sprint_norm, source, norm_title):
+            return item
     return None
+
+
+def _last_resolved_match(resolved, epic_norm, sprint_norm, source, norm_title):
+    """The NEWEST resolved item with the same content. issues-resolved.yaml is appended
+    in resolution order, so the last match is the newest."""
+    hits = [r for r in resolved if _content_matches(r, epic_norm, sprint_norm, source, norm_title)]
+    return hits[-1] if hits else None
 
 
 def cmd_append_issue(args) -> int:
@@ -4469,6 +4479,7 @@ def _append_issue(args) -> int:
                                  f"silently assign a different key; pick a key that is not "
                                  f"already taken, or omit --key to auto-allocate the next "
                                  f"one for this epic")
+        note = ""
         if not args.allow_duplicate:
             dup = _find_issue_by_content(store.backlog, epic_norm, sprint_norm,
                                          args.source, norm_title)
@@ -4478,6 +4489,20 @@ def _append_issue(args) -> int:
                     f"(same title/epic/sprint/source); nothing written. Pass "
                     f"--allow-duplicate to force a second entry.\n")
                 return 0
+            prior = _last_resolved_match(store.resolved, epic_norm, sprint_norm,
+                                         args.source, norm_title)
+            if prior is not None:
+                res, psev = str(prior.get("resolution", "")), str(prior.get("severity", ""))
+                if res == "fixed":
+                    note = f" (recurrence of {prior.get('key')})"
+                elif SEVERITY_RANK.get(args.severity, 0) > SEVERITY_RANK.get(psev, 0):
+                    note = f" (re-raised above {prior.get('key')} {res} at {psev})"
+                else:
+                    sys.stdout.write(
+                        f"OK append-issue skipped -- matches {prior.get('key')} resolved as "
+                        f"{res} (severity {psev}); nothing written. Pass --allow-duplicate "
+                        f"to force a second entry.\n")
+                    return 0
         if explicit is not None:
             key = explicit
             store.raise_next(epic_norm, int(explicit[-3:]) + 1)
@@ -4497,7 +4522,7 @@ def _append_issue(args) -> int:
         store.save_open()
     _issue_event(store.state_root, "issue_opened", item,
                  getattr(args, "session_id", None), "cli", severity=args.severity)
-    sys.stdout.write(f"OK append-issue {key} -> {open_path}\n")
+    sys.stdout.write(f"OK append-issue {key} -> {open_path}{note}\n")
     return 0
 
 

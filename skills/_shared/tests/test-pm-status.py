@@ -879,6 +879,53 @@ class TestConcurrentResolveAppend(unittest.TestCase):
         self.assertFalse(set(open_keys) & set(res_keys), "a key is in both files")
 
 
+class TestAppendDedupeResolved(IssueBase):
+    def resolve(self, key, *argv):
+        code, _, err = self.run_all(["resolve-issue", "--state-root", self.root,
+                                     "--key", key, *argv])
+        self.assertEqual(code, 0, err)
+
+    def test_wontfix_same_or_lower_severity_is_skipped(self):
+        self.append("A", "001", "01", "Medium")
+        self.resolve("BL-E001-001", "--resolution", "wontfix", "--note", "risk accepted")
+        for sev in ("Medium", "Low"):
+            code, out, _ = self.append("A", "001", "01", sev)
+            self.assertEqual(code, 0)
+            self.assertIn("skipped", out)
+            self.assertIn("resolved as wontfix", out)
+        self.assertEqual(self.open_keys(), [])
+
+    def test_higher_severity_than_wontfix_is_appended_as_reraised(self):
+        self.append("A", "001", "01", "Low")
+        self.resolve("BL-E001-001", "--resolution", "wontfix", "--note", "minor")
+        code, out, _ = self.append("A", "001", "01", "High")
+        self.assertEqual(code, 0)
+        self.assertIn("re-raised above BL-E001-001 wontfix at Low", out)
+        self.assertEqual(self.open_keys(), ["BL-E001-002"])
+
+    def test_fixed_match_is_a_recurrence(self):
+        self.append("A")
+        self.resolve("BL-E001-001", "--resolution", "fixed", "--ref", "E001-S01-001")
+        code, out, _ = self.append("A")
+        self.assertIn("recurrence of BL-E001-001", out)
+        self.assertEqual(self.open_keys(), ["BL-E001-002"])
+
+    def test_newest_resolved_match_decides(self):
+        self.append("A")
+        self.resolve("BL-E001-001", "--resolution", "fixed", "--ref", "E001-S01-001")
+        self.append("A")                                     # recurrence -> 002
+        self.resolve("BL-E001-002", "--resolution", "wontfix", "--note", "stop")
+        code, out, _ = self.append("A")
+        self.assertIn("skipped", out)
+        self.assertIn("BL-E001-002", out)
+
+    def test_allow_duplicate_bypasses_resolved_match(self):
+        self.append("A")
+        self.resolve("BL-E001-001", "--resolution", "obsolete", "--note", "gone")
+        self.append("A", "001", "01", "Low", "code-review (E001-S01-001)", "--allow-duplicate")
+        self.assertEqual(self.open_keys(), ["BL-E001-002"])
+
+
 class TestListIssues(unittest.TestCase):
     """list-issues reads state-root/issues.yaml; a missing file or a filter set
     matching nothing is success (exit 0), never an error."""
