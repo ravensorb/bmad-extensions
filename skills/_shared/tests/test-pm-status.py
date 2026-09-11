@@ -613,6 +613,16 @@ class IssueBase(Base):
             evs = [json.loads(l) for l in fh if l.strip()]
         return [e for e in evs if name is None or e.get("event") == name]
 
+    def _crash_promote_before_scheduling(self, key="BL-E001-001", epic="001", sprint="02",
+                                         cls="standard"):
+        """Run promote-issue with the scheduling save failing: the story node and document are
+        written, the item is not yet scheduled -- the state audit-issues finding 1d describes."""
+        with mock.patch.object(pm.IssueStore, "save_open", side_effect=OSError("injected")):
+            with self.assertRaises(OSError):
+                pm.main(["promote-issue", "--state-root", self.root, "--artifacts-root",
+                         self.arts, "--key", key, "--epic", epic, "--sprint", sprint,
+                         "--classification", cls])
+
 
 class TestIssueAllocator(IssueBase):
     def test_hand_deleted_highest_key_is_never_reused(self):
@@ -6631,6 +6641,187 @@ class TestStoryDocInit(TestLayoutResolution):
         self.assertFalse(os.path.exists(self.doc))
         self.assertEqual([n for n in os.listdir(stories) if n.endswith(".tmp")], [],
                          "a failed write left a temp file behind")
+
+
+def _tree_snapshot(top):
+    snap = {}
+    for dp, _, files in os.walk(top):
+        for f in files:
+            if f.endswith(".lock"):
+                continue
+            p = os.path.join(dp, f)
+            with open(p, "rb") as fh:
+                snap[os.path.relpath(p, top)] = fh.read()
+    return snap
+
+
+class TestPromoteIssue(IssueBase):
+    def promote(self, *keys, epic="001", sprint="02", cls="standard", extra=()):
+        argv = ["promote-issue", "--state-root", self.root, "--artifacts-root", self.arts]
+        for k in keys:
+            argv += ["--key", k]
+        argv += ["--epic", epic, "--sprint", sprint, "--classification", cls, *extra]
+        return self.run_all(argv)
+
+    def story(self, key="E001-S02-001"):
+        return pm.load_node(pm.story_file(self.root, key))[1]
+
+    def test_promote_creates_estimated_story_and_schedules_item(self):
+        self.append("Replace linear scan", "001", "01", "Medium")
+        code, out, err = self.promote("BL-E001-001")
+        self.assertEqual(code, 0, err)
+        self.assertIn("E001-S02-001", out)
+        node = self.story()
+        self.assertEqual(node["status"], "backlog")
+        self.assertEqual(list(node["resolves"]), ["BL-E001-001"])
+        self.assertIn("cost", node["estimate"])
+        self.assertIn("estimate", pm.load_node(pm.sprint_file(self.root, "E001", "S02"))[1])
+        self.assertIn("estimate", pm.load_node(pm.epic_file(self.root, "E001"))[1])
+        item = self.load_open()["backlog"][0]
+        self.assertEqual((item["status"], item["story"]), ("scheduled", "E001-S02-001"))
+        doc = open(pm.story_doc_path(self.arts, "E001-S02-001"), encoding="utf-8").read()
+        self.assertIn("## Context", doc)
+        self.assertIn("- The deferred finding BL-E001-001 is resolved: Replace linear scan", doc)
+        ev = self.events("issue_scheduled")
+        self.assertEqual((ev[-1]["key"], ev[-1]["story"]), ("BL-E001-001", "E001-S02-001"))
+
+    def test_refusals_write_nothing(self):
+        self.append("A")
+        cases = [
+            (dict(sprint="01"), 2),                               # sprint in-progress
+            (dict(extra=("--model", "no-such-model")), 2),
+            (dict(extra=("--token-rates", "{")), 2),
+            (dict(sprint="09"), 3),                               # sprint missing
+            (dict(epic="042", sprint="01"), 3),                   # epic missing
+        ]
+        for kwargs, want in cases:
+            before = _tree_snapshot(self.d)
+            code, _, err = self.promote("BL-E001-001", **kwargs)
+            self.assertEqual(code, want, (kwargs, err))
+            self.assertEqual(_tree_snapshot(self.d), before, kwargs)
+        before = _tree_snapshot(self.d)
+        self.assertEqual(self.promote("BL-E001-999")[0], 2)                   # not open
+        self.assertEqual(self.promote("BL-E001-001", "BL-E001-001x")[0], 2)   # bad key
+        self.assertEqual(_tree_snapshot(self.d), before)
+
+    def test_two_keys_need_a_title(self):
+        self.append("A")
+        self.append("B", "001", "02")
+        self.assertEqual(self.promote("BL-E001-001", "BL-E001-002")[0], 2)
+        code, _, err = self.promote("BL-E001-001", "BL-E001-002", extra=("--title", "Batch"))
+        self.assertEqual(code, 0, err)
+        self.assertEqual(list(self.story()["resolves"]), ["BL-E001-001", "BL-E001-002"])
+        self.assertEqual({i["status"] for i in self.load_open()["backlog"]}, {"scheduled"})
+
+    def test_archived_epic_is_refused(self):
+        self.append("Later", "005", "01", "Low", "qa (Q-1)")
+        self.run_all(["archive-epic", "--state-root", self.root, "--epic", "E005"])
+        before = _tree_snapshot(self.d)
+        code, _, err = self.promote("BL-E005-001", epic="005", sprint="01")
+        self.assertEqual(code, 2)
+        self.assertIn("archived", err)
+        self.assertEqual(_tree_snapshot(self.d), before)
+
+    def test_already_scheduled_is_refused_naming_the_story(self):
+        self.append("A")
+        self.promote("BL-E001-001")
+        code, _, err = self.promote("BL-E001-001")
+        self.assertEqual(code, 2)
+        self.assertIn("E001-S02-001", err)
+
+    def test_live_foreign_lock_refuses_own_lock_allows(self):
+        self.append("A")
+        self.run_all(["set-lock", "--state-root", self.root, "--epic", "E001",
+                      "--session-id", "other"])
+        self.assertEqual(self.promote("BL-E001-001")[0], 5)
+        code, _, err = self.promote("BL-E001-001", extra=("--session-id", "other"))
+        self.assertEqual(code, 0, err)
+
+    def test_allocation_skips_an_artifact_only_document(self):
+        self.append("A")
+        stories = os.path.join(self.arts, "epic-001", "sprint-02", "stories")
+        os.makedirs(stories)
+        with open(os.path.join(stories, "E001-S02-001.md"), "w", encoding="utf-8") as fh:
+            fh.write("an unrelated story nobody bootstrapped\n")
+        code, out, err = self.promote("BL-E001-001")
+        self.assertEqual(code, 0, err)
+        self.assertIn("E001-S02-002", out)
+        self.assertEqual(open(os.path.join(stories, "E001-S02-001.md"), encoding="utf-8").read(),
+                         "an unrelated story nobody bootstrapped\n")
+
+    def test_retry_resumes_a_promote_that_stopped_before_scheduling(self):
+        self.append("A")
+        self._crash_promote_before_scheduling()
+        self.assertEqual(list(self.story()["resolves"]), ["BL-E001-001"])    # premise
+        self.assertEqual(self.load_open()["backlog"][0]["status"], "backlog")
+        code, out, err = self.promote("BL-E001-001")
+        self.assertEqual(code, 0, err)
+        self.assertIn("resumed", out)
+        self.assertIsNone(pm.story_file(self.root, "E001-S02-002"), "no second story")
+        self.assertEqual(self.load_open()["backlog"][0]["story"], "E001-S02-001")
+
+    def test_set_field_refuses_resolves(self):
+        self.append("A")
+        self.promote("BL-E001-001")
+        code, _, err = self.run_all(["set-field", "--state-root", self.root, "--story",
+                                     "E001-S02-001", "--field", "resolves", "--value", "x"])
+        self.assertEqual(code, 2)
+        self.assertIn("promote-issue", err)
+
+    def test_key_in_both_files_is_refused_as_resolved(self):
+        self.append("A")
+        with _dump_failing_on(2):
+            with self.assertRaises(OSError):
+                pm.main(["resolve-issue", "--state-root", self.root, "--key", "BL-E001-001",
+                         "--resolution", "obsolete", "--note", "x"])
+        before = _tree_snapshot(self.d)
+        code, _, err = self.promote("BL-E001-001")
+        self.assertEqual(code, 2)
+        self.assertIn("already resolved", err)
+        self.assertEqual(_tree_snapshot(self.d), before)
+
+    def test_list_issues_status_scheduled_sees_a_real_promotion(self):
+        self.append("A")
+        self.append("B", "001", "02")
+        self.promote("BL-E001-001")
+        code, out, err = self.run_all(["list-issues", "--state-root", self.root,
+                                       "--status", "scheduled", "--format", "json"])
+        self.assertEqual(code, 0, err)
+        self.assertEqual([i["key"] for i in json.loads(out)], ["BL-E001-001"])
+
+
+class TestConcurrentPromote(unittest.TestCase):
+    N = 4
+
+    def setUp(self):
+        self.d = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, self.d, True)
+        self.arts = os.path.join(self.d, "impl")
+        self.root = os.path.join(self.arts, "state")
+        _build_issue_tree(self.root)
+        for i in range(1, self.N + 1):
+            with redirect_stdout(io.StringIO()):
+                pm.main(["append-issue", "--state-root", self.root, "--epic", "001", "--sprint",
+                         "01", "--title", f"t{i}", "--source", "qa", "--severity", "Low"])
+
+    def test_parallel_promotes_get_distinct_stories_and_a_complete_rollup(self):
+        import subprocess
+        procs = [subprocess.Popen([sys.executable, SCRIPT, "promote-issue", "--state-root",
+                                   self.root, "--artifacts-root", self.arts, "--key",
+                                   f"BL-E001-{i:03d}", "--epic", "001", "--sprint", "02",
+                                   "--classification", "simple"],
+                                  stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+                 for i in range(1, self.N + 1)]
+        for p in procs:
+            _, err = p.communicate(timeout=180)
+            self.assertEqual(p.returncode, 0, err.decode())
+        stories = pm.list_story_files(self.root, "E001", "S02")
+        self.assertEqual(len(stories), self.N)
+        after_race = dict(pm.load_node(pm.sprint_file(self.root, "E001", "S02"))[1]["estimate"])
+        pm.rollup_parent_estimate(self.root, "E001", "S02", pm.DEFAULT_ESTIMATE_MODEL, None)
+        fresh = dict(pm.load_node(pm.sprint_file(self.root, "E001", "S02"))[1]["estimate"])
+        self.assertEqual(after_race["man_hours_low"], fresh["man_hours_low"],
+                         "the last roll-up saved during the race missed a story")
 
 
 if __name__ == "__main__":

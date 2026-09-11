@@ -126,6 +126,13 @@ Subcommands
   update-issue  --state-root S  --key K  --severity {Low,Medium,High,Critical}
                 [--note N] [--session-id ID] [--cause {cli,triage,plan-intake}]
                 (re-severities an OPEN item; a resolved key exits 2, an unknown one 3)
+  promote-issue --state-root S  --artifacts-root R  --key K [--key K2 ...]  --epic E
+                --sprint S  --classification {simple,standard,complex}  [--title T]
+                [--model M] [--token-rates JSON] [--session-id ID] [--cause C]
+                (creates an estimated story whose `resolves:` lists the items, writes its
+                document, rolls up sprint and epic, then marks the items scheduled; every
+                refusal is checked before the first write; a retry after an interrupted
+                run resumes the existing story)
   move-epic     --state-root S  --epic ID  --to {planned,active,archived}
   archive-epic  --state-root S  --epic ID   (alias for move-epic --to archived)
   calibration   show  --state-root S  [--format {text,json}]
@@ -1279,6 +1286,9 @@ DERIVED_NODE_FIELDS = {
     "completion_evidence.tests_passing":
         "derived from completion_evidence.test_runs — record what you ran with "
         "`add-test-run --command CMD --exit-code N` instead of asserting the result",
+    "resolves":
+        "written by `promote-issue`, which also schedules the items it names -- a hand "
+        "write would link a story the backlog does not know about",
 }
 
 
@@ -4782,6 +4792,188 @@ def cmd_update_issue(args) -> int:
     return _run_core(run)
 
 
+_STORY_FILE_RE = re.compile(r"^E\d{3}-S\d{2}-(\d{3})\.(yaml|md)$")
+
+
+def _foreign_lock_error(epath: str, session_id):
+    """PMError(5) when the epic holds a live lock another session owns, else None.
+    Mirrors cmd_set_lock: a stale lock (age > ttl) does not block; an unreadable one does."""
+    _, data = load_node(epath)
+    lock = (data or {}).get("_lock")
+    if lock is None:
+        return None
+    if not isinstance(lock, dict):
+        return PMError(5, f"epic lock in {epath} is malformed -- refusing")
+    holder = str(lock.get("session_id", ""))
+    if session_id and holder == session_id:
+        return None
+    claimed = _parse_iso(lock.get("claimed_at"))
+    if claimed is None:
+        return PMError(5, f"epic lock held by {holder!r} has no readable claimed_at -- refusing")
+    ttl = _int_or_none(lock.get("ttl_minutes")) or 30
+    if _lock_age_minutes(claimed) <= ttl:
+        return PMError(5, f"epic is locked by session {holder!r} -- pass that --session-id, "
+                          f"or wait for the lock to expire")
+    return None
+
+
+def _next_story_key(state_root, artifacts_root, epic_key, sprint_key) -> str:
+    """Highest story number in the sprint across the state directory AND the artifact
+    stories/ directory, plus one: a document without a state node still owns its key."""
+    prefix = f"{epic_key}-{sprint_key}-"
+    dirs = [os.path.join(find_epic_dir(state_root, epic_key), sprint_dirname(sprint_key)),
+            os.path.join(artifacts_root, epic_dirname(epic_key), sprint_dirname(sprint_key),
+                         "stories")]
+    highest = 0
+    for d in dirs:
+        if not os.path.isdir(d):
+            continue
+        for name in os.listdir(d):
+            m = _STORY_FILE_RE.match(name)
+            if m and name.startswith(prefix):
+                highest = max(highest, int(m.group(1)))
+    return f"{prefix}{highest + 1:03d}"
+
+
+def _partial_promotion(state_root, epic_key, keys):
+    """The story in this epic whose resolves lists every key -- a promote that stopped
+    before scheduling. PMError(2) when more than one claims them (audit 1h)."""
+    found = []
+    for sd in list_sprint_dirs(state_root, epic_key):
+        for p in list_story_files(state_root, epic_key, _sprint_key_from_dir(sd)):
+            n = load_node(p)[1] or {}
+            if set(keys) <= {str(k) for k in (n.get("resolves") or [])}:
+                found.append(str(n.get("key")))
+    if len(found) > 1:
+        raise PMError(2, f"{', '.join(keys)} listed by stories {found} -- run "
+                         f"/l3io-util-doctor triage (audit-issues 1h)")
+    return found[0] if found else None
+
+
+def _promotable_items(store, keys):
+    """Resolved is checked FIRST, then the single-open guard (Ruling 8 + Ruling 5): a
+    key present in issues-resolved.yaml is resolved even if a stale open copy remains
+    (resolve's crash window), and IssueStore.single_open raises PMError(2) itself for
+    an ambiguous key (audit-issues finding 1i)."""
+    items = []
+    for k in keys:
+        done = store.resolved_items(k)
+        if done:
+            raise PMError(2, f"{k} is already resolved ({done[-1].get('resolution')})")
+        item = store.single_open(k)
+        if item is None:
+            raise PMError(2, f"{k} is not an open backlog item")
+        if str(item.get("status", "backlog")) == "scheduled":
+            raise PMError(2, f"{k} is already scheduled to story {item.get('story')}")
+        items.append(item)
+    return items
+
+
+def _promotion_context(items) -> str:
+    lines = ["## Context", "", "Promoted from deferred finding(s):"]
+    for it in items:
+        desc = str(it.get("description", "") or "").strip()
+        lines.append(f"- {it.get('key')} ({it.get('severity')}, {it.get('source')})"
+                     + (f" — {desc}" if desc else ""))
+    return "\n".join(lines)
+
+
+def cmd_promote_issue(args) -> int:
+    """Turn open BL items into a new story (spec §2.4). Every refusal is checked before
+    the first write. Writes, in order: story node WITH its estimate (one save) and its
+    document; sprint then epic roll-ups -- all under epic_node_lock; then the items are
+    scheduled under issues_lock, nested inside. Story first, so a failure after it leaves
+    a story whose `done` still resolves the items, and a retry resumes it."""
+    return _run_core(lambda: _promote_issue(args))
+
+
+def _promote_issue(args) -> int:
+    from ruamel.yaml.comments import CommentedMap, CommentedSeq
+    from ruamel.yaml.scalarstring import SingleQuotedScalarString as SQ
+    sr, ar = args.state_root, args.artifacts_root
+    keys = []
+    for raw in args.key:
+        k = canonical_bl_key(raw)
+        if k is None:
+            raise PMError(2, f"--key {raw!r} is not a backlog key")
+        if k not in keys:
+            keys.append(k)
+    if len(keys) > 1 and not args.title:
+        raise PMError(2, "promoting several items into one story needs --title")
+    model = args.model or DEFAULT_ESTIMATE_MODEL
+    overrides = rate_overrides(args)                      # bad JSON exits 2 here, pre-write
+    try:
+        rates = resolve_rates(model, overrides)
+    except KeyError as e:
+        raise PMError(2, e.args[0])
+    missing = [c for c in TOKEN_CLASSES if c not in rates]
+    if missing:
+        raise PMError(2, f"model {model!r} has no rate for {missing}")
+    epic_key = "E" + _norm_num(args.epic, 3)
+    sprint_key = "S" + _norm_num(args.sprint, 2)
+    epath = epic_file(sr, epic_key)
+    if epath is None:
+        raise PMError(3, f"epic {epic_key} not found under {sr}")
+    if os.path.basename(os.path.dirname(os.path.dirname(epath))) == "archived":
+        raise PMError(2, f"epic {epic_key} is archived -- promote into a planned or active epic")
+    spath = sprint_file(sr, epic_key, sprint_key)
+    if spath is None:
+        raise PMError(3, f"sprint {epic_key}-{sprint_key} not found")
+    sstatus = str((load_node(spath)[1] or {}).get("status", ""))
+    if sstatus != "backlog":
+        raise PMError(2, f"sprint {epic_key}-{sprint_key} is {sstatus!r}, not backlog -- "
+                         f"promote into a sprint that has not started")
+    open_path = issues_paths(sr)[0]
+    with issues_lock(open_path):
+        items = _promotable_items(IssueStore(open_path), keys)
+    err = _foreign_lock_error(epath, args.session_id)          # advisory
+    if err:
+        raise err
+    with epic_node_lock(epath):
+        err = _foreign_lock_error(epath, args.session_id)      # decisive
+        if err:
+            raise err
+        story_key = _partial_promotion(sr, epic_key, keys)
+        resumed = story_key is not None
+        if not resumed:
+            story_key = _next_story_key(sr, ar, epic_key, sprint_key)
+            if os.path.exists(story_doc_path(ar, story_key)):
+                raise PMError(2, f"story document for {story_key} already exists -- "
+                                 f"refusing to adopt it")
+            node = CommentedMap()
+            node["key"] = SQ(story_key)
+            node["epic"] = SQ(epic_key)
+            node["sprint"] = SQ(sprint_key)
+            node["title"] = args.title or str(items[0].get("title", ""))
+            node["status"] = "backlog"
+            node["classification"] = args.classification
+            seq = CommentedSeq(keys)
+            seq.fa.set_flow_style()
+            node["resolves"] = seq
+            compute_story_estimate(sr, node, args.classification, model, overrides)
+            _atomic_dump(_yaml(), node, os.path.join(os.path.dirname(spath), f"{story_key}.yaml"))
+        init_story_doc(sr, ar, story_key, context_md=_promotion_context(items),
+                       ac_lines=[f"The deferred finding {i.get('key')} is resolved: "
+                                 f"{i.get('title')}" for i in items],
+                       must_not_exist=not resumed)
+        _, story_sprint, _ = parse_story_key(story_key)
+        rollup_parent_estimate(sr, epic_key, story_sprint, model, overrides)
+        rollup_parent_estimate(sr, epic_key, None, model, overrides)
+        with issues_lock(open_path):
+            store = IssueStore(open_path)
+            items = _promotable_items(store, keys)
+            for it in items:
+                it["status"] = "scheduled"
+                it["story"] = story_key
+                it["scheduled_at"] = _now_iso()
+            store.save_open()
+    for it in items:
+        _issue_event(sr, "issue_scheduled", it, args.session_id, args.cause, story=story_key)
+    sys.stdout.write(f"OK promote-issue {', '.join(keys)} -> {story_key}"
+                     f"{' (resumed)' if resumed else ''}\n")
+    return 0
+
+
 def _norm_num(v, width: int) -> str:
     """Normalize a possibly key-prefixed or unpadded numeric id to a zero-padded digit
     string: 'E1'/'001' -> '001' (width=3); 'S1'/'01' -> '01' (width=2). Falls back to the
@@ -5466,6 +5658,21 @@ def build_parser() -> argparse.ArgumentParser:
     ui.add_argument("--session-id", dest="session_id", default=None)
     ui.add_argument("--cause", default="cli", choices=["cli", "triage", "plan-intake"])
     ui.set_defaults(func=cmd_update_issue)
+
+    pi = sub.add_parser("promote-issue", help="turn open BL items into a new estimated story")
+    pi.add_argument("--state-root", required=True)
+    pi.add_argument("--artifacts-root", required=True,
+                    help="implementation_artifacts root (NOT the state root)")
+    pi.add_argument("--key", required=True, action="append", help="repeatable")
+    pi.add_argument("--epic", required=True)
+    pi.add_argument("--sprint", required=True)
+    pi.add_argument("--classification", required=True, choices=list(CLASSIFICATIONS))
+    pi.add_argument("--title", default="")
+    pi.add_argument("--model", default="")
+    pi.add_argument("--token-rates", dest="token_rates", default="")
+    pi.add_argument("--session-id", dest="session_id", default=None)
+    pi.add_argument("--cause", default="cli", choices=["cli", "triage", "plan-intake"])
+    pi.set_defaults(func=cmd_promote_issue)
 
     li = sub.add_parser("list-issues", help="list (with filters) the flat backlog in issues.yaml")
     li.add_argument("--state-root", required=True, help="path to {implementation_artifacts}/state")
