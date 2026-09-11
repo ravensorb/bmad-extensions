@@ -330,12 +330,14 @@ def _lock_rule_present(text: str) -> bool:
     """True when git reads `text` (a .gitignore) as ignoring every `*.lock`: some line is
     exactly `*.lock` and no LATER line is exactly `!*.lock`. Parsed as git parses it: split
     on "\\n" only -- never str.splitlines(), which also breaks on U+0085 and other characters
-    git keeps inside a line -- and strip only a trailing "\\r" and trailing spaces, since
-    leading spaces are part of the pattern. A narrower negation such as `!keep.lock` is a
-    deliberate user choice and is left as written."""
+    git keeps inside a line -- and strip exactly one trailing "\\r", then trailing spaces,
+    since leading spaces are part of the pattern. The caller decodes with utf-8-sig, so a
+    leading UTF-8 BOM is skipped, as git skips it. A narrower negation such as `!keep.lock`
+    is a deliberate user choice and is left as written."""
     present = False
     for raw in text.split("\n"):
-        line = raw.rstrip("\r").rstrip(" ")
+        line = raw[:-1] if raw.endswith("\r") else raw
+        line = line.rstrip(" ")
         if line == _LOCK_IGNORE_LINE:
             present = True
         elif line == "!" + _LOCK_IGNORE_LINE:
@@ -374,7 +376,7 @@ def _ensure_lock_ignore(state_root: str) -> None:
                 path, f"# pm-status.py lock files -- never commit\n{_LOCK_IGNORE_LINE}\n"):
             return
         with open(path, "rb") as fh:                # read first: needs no write access
-            if _lock_rule_present(fh.read().decode("utf-8")):
+            if _lock_rule_present(fh.read().decode("utf-8-sig")):
                 return
         try:
             import fcntl
@@ -385,7 +387,7 @@ def _ensure_lock_ignore(state_root: str) -> None:
                 fcntl.flock(fh, fcntl.LOCK_EX)
             try:
                 fh.seek(0)
-                text = fh.read().decode("utf-8")   # re-check under the flock
+                text = fh.read().decode("utf-8-sig")   # re-check under the flock; BOM skipped
                 if _lock_rule_present(text):
                     return
                 sep = "" if not text or text.endswith("\n") else "\n"

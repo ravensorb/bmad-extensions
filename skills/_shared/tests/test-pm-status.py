@@ -8710,6 +8710,18 @@ class TestLockFilesIgnored(IssueBase):
         crlf = b"# rules\r\n*.lock\r\nnotes/\r\n"
         self.assert_after_lock(crlf, crlf)
 
+    def test_only_one_trailing_cr_is_stripped(self):
+        """git strips exactly one "\\r"; `*.lock\\r` (after that strip) is not the rule."""
+        self.assert_after_lock(b"*.lock\r\r\n", b"*.lock\r\r\n*.lock\n")
+
+    def test_a_leading_utf8_bom_is_skipped(self):
+        """git skips a leading UTF-8 BOM, so the rule on the first line is present."""
+        bom = b"\xef\xbb\xbf*.lock\n"
+        self.assert_after_lock(bom, bom)
+
+    def test_appending_after_a_bom_keeps_one_bom(self):
+        self.assert_after_lock(b"\xef\xbb\xbfnotes/\n", b"\xef\xbb\xbfnotes/\n*.lock\n")
+
     def test_trailing_spaces_are_accepted_as_the_rule(self):
         self.assert_after_lock(b"*.lock  \n", b"*.lock  \n")
 
