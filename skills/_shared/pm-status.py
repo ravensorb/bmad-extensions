@@ -4835,19 +4835,51 @@ def _next_story_key(state_root, artifacts_root, epic_key, sprint_key) -> str:
     return f"{prefix}{highest + 1:03d}"
 
 
-def _partial_promotion(state_root, epic_key, keys):
-    """The story in this epic whose resolves lists every key -- a promote that stopped
-    before scheduling. PMError(2) when more than one claims them (audit 1h)."""
-    found = []
-    for sd in list_sprint_dirs(state_root, epic_key):
-        for p in list_story_files(state_root, epic_key, _sprint_key_from_dir(sd)):
-            n = load_node(p)[1] or {}
-            if set(keys) <= {str(k) for k in (n.get("resolves") or [])}:
-                found.append(str(n.get("key")))
-    if len(found) > 1:
-        raise PMError(2, f"{', '.join(keys)} listed by stories {found} -- run "
-                         f"/l3io-util-doctor triage (audit-issues 1h)")
-    return found[0] if found else None
+def _walk_story_nodes(state_root):
+    """Yield (story_key, status_dir, node) for every story node in every status folder."""
+    for sdir in STATUS_DIRS:
+        base = os.path.join(state_root, sdir)
+        if not os.path.isdir(base):
+            continue
+        for ename in sorted(os.listdir(base)):
+            edir = os.path.join(base, ename)
+            if not (ename.startswith("epic-") and os.path.isdir(edir)):
+                continue
+            for sname in sorted(os.listdir(edir)):
+                spd = os.path.join(edir, sname)
+                if not (sname.startswith("sprint-") and os.path.isdir(spd)):
+                    continue
+                for fname in sorted(os.listdir(spd)):
+                    if not fname.endswith(".yaml") or fname == "sprint.yaml":
+                        continue
+                    node = load_node(os.path.join(spd, fname))[1]
+                    if node is not None:
+                        yield str(node.get("key") or fname[:-5]), sdir, node
+
+
+def _partial_promotion(state_root, keys):
+    """The story (if any) that already claims these `keys` via its `resolves`, across EVERY
+    epic -- keys spread across stories, or a story listing a superset/subset of what was
+    asked for, are both claims that must refuse rather than silently mint a second story
+    (audit-issues 1d/1h). Resumes only the exact match: exactly one claimant, whose
+    `resolves` set equals `keys` exactly, and whose status is not `done`. Anything else --
+    no exact claimant, more than one claimant, or a lone claimant whose resolves is a
+    superset/subset or who is already done -- refuses (PMError 2) rather than guess."""
+    keyset = set(keys)
+    claimants = {}
+    for story_key, _sdir, node in _walk_story_nodes(state_root):
+        resolves = {str(k) for k in (node.get("resolves") or [])}
+        if resolves & keyset:
+            claimants[story_key] = node
+    if not claimants:
+        return None
+    if len(claimants) == 1:
+        (story_key, node), = claimants.items()
+        resolves = {str(k) for k in (node.get("resolves") or [])}
+        if resolves == keyset and str(node.get("status", "")) != "done":
+            return story_key
+    raise PMError(2, f"{', '.join(keys)} already claimed by {sorted(claimants)} -- run "
+                     f"/l3io-util-doctor triage (audit-issues 1d/1h)")
 
 
 def _promotable_items(store, keys):
@@ -4880,10 +4912,16 @@ def _promotion_context(items) -> str:
 
 def cmd_promote_issue(args) -> int:
     """Turn open BL items into a new story (spec §2.4). Every refusal is checked before
-    the first write. Writes, in order: story node WITH its estimate (one save) and its
-    document; sprint then epic roll-ups -- all under epic_node_lock; then the items are
-    scheduled under issues_lock, nested inside. Story first, so a failure after it leaves
-    a story whose `done` still resolves the items, and a retry resumes it."""
+    the first write. An early advisory `issues_lock` check refuses fast, before the epic
+    lock is even taken. Then, under `epic_node_lock`, a decisive foreign-lock re-check is
+    followed by ONE `issues_lock` hold spanning the decisive item check through the
+    schedule save: the item check, partial-promotion detection, the story-document
+    pre-check, the story node + estimate save, the story document, both roll-ups, and
+    finally marking the items scheduled and saving -- all under that single nested
+    `issues_lock`, so a concurrent `resolve-issue` on the same key can never land between
+    the check and the write (Ruling 12a). Story first among the writes, so a failure after
+    it (e.g. the scheduling save itself failing) leaves a story whose `resolves` still
+    names the items, and a retry resumes it via `_partial_promotion`."""
     return _run_core(lambda: _promote_issue(args))
 
 
@@ -4925,7 +4963,7 @@ def _promote_issue(args) -> int:
                          f"promote into a sprint that has not started")
     open_path = issues_paths(sr)[0]
     with issues_lock(open_path):
-        items = _promotable_items(IssueStore(open_path), keys)
+        _promotable_items(IssueStore(open_path), keys)     # advisory: refuse fast, no epic lock yet
     err = _foreign_lock_error(epath, args.session_id)          # advisory
     if err:
         raise err
@@ -4933,35 +4971,41 @@ def _promote_issue(args) -> int:
         err = _foreign_lock_error(epath, args.session_id)      # decisive
         if err:
             raise err
-        story_key = _partial_promotion(sr, epic_key, keys)
-        resumed = story_key is not None
-        if not resumed:
-            story_key = _next_story_key(sr, ar, epic_key, sprint_key)
-            if os.path.exists(story_doc_path(ar, story_key)):
-                raise PMError(2, f"story document for {story_key} already exists -- "
-                                 f"refusing to adopt it")
-            node = CommentedMap()
-            node["key"] = SQ(story_key)
-            node["epic"] = SQ(epic_key)
-            node["sprint"] = SQ(sprint_key)
-            node["title"] = args.title or str(items[0].get("title", ""))
-            node["status"] = "backlog"
-            node["classification"] = args.classification
-            seq = CommentedSeq(keys)
-            seq.fa.set_flow_style()
-            node["resolves"] = seq
-            compute_story_estimate(sr, node, args.classification, model, overrides)
-            _atomic_dump(_yaml(), node, os.path.join(os.path.dirname(spath), f"{story_key}.yaml"))
-        init_story_doc(sr, ar, story_key, context_md=_promotion_context(items),
-                       ac_lines=[f"The deferred finding {i.get('key')} is resolved: "
-                                 f"{i.get('title')}" for i in items],
-                       must_not_exist=not resumed)
-        _, story_sprint, _ = parse_story_key(story_key)
-        rollup_parent_estimate(sr, epic_key, story_sprint, model, overrides)
-        rollup_parent_estimate(sr, epic_key, None, model, overrides)
+        # One issues_lock hold spans the decisive item check through the schedule save
+        # (Ruling 12a): nothing in between (compute_story_estimate, init_story_doc,
+        # rollup_parent_estimate/save_node) takes issues_lock itself, so a concurrent
+        # resolve-issue on the same key blocks here rather than landing between this
+        # check and the write that would otherwise orphan an estimated story.
         with issues_lock(open_path):
             store = IssueStore(open_path)
-            items = _promotable_items(store, keys)
+            items = _promotable_items(store, keys)             # decisive
+            story_key = _partial_promotion(sr, keys)
+            resumed = story_key is not None
+            if not resumed:
+                story_key = _next_story_key(sr, ar, epic_key, sprint_key)
+                if os.path.exists(story_doc_path(ar, story_key)):
+                    raise PMError(2, f"story document for {story_key} already exists -- "
+                                     f"refusing to adopt it")
+                node = CommentedMap()
+                node["key"] = SQ(story_key)
+                node["epic"] = SQ(epic_key)
+                node["sprint"] = SQ(sprint_key)
+                node["title"] = args.title or str(items[0].get("title", ""))
+                node["status"] = "backlog"
+                node["classification"] = args.classification
+                seq = CommentedSeq(keys)
+                seq.fa.set_flow_style()
+                node["resolves"] = seq
+                compute_story_estimate(sr, node, args.classification, model, overrides)
+                _atomic_dump(_yaml(), node,
+                            os.path.join(os.path.dirname(spath), f"{story_key}.yaml"))
+            init_story_doc(sr, ar, story_key, context_md=_promotion_context(items),
+                           ac_lines=[f"The deferred finding {i.get('key')} is resolved: "
+                                     f"{i.get('title')}" for i in items],
+                           must_not_exist=not resumed)
+            _, story_sprint, _ = parse_story_key(story_key)
+            rollup_parent_estimate(sr, epic_key, story_sprint, model, overrides)
+            rollup_parent_estimate(sr, epic_key, None, model, overrides)
             for it in items:
                 it["status"] = "scheduled"
                 it["story"] = story_key

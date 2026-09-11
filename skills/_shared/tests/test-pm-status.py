@@ -614,14 +614,15 @@ class IssueBase(Base):
         return [e for e in evs if name is None or e.get("event") == name]
 
     def _crash_promote_before_scheduling(self, key="BL-E001-001", epic="001", sprint="02",
-                                         cls="standard"):
+                                         cls="standard", extra=()):
         """Run promote-issue with the scheduling save failing: the story node and document are
         written, the item is not yet scheduled -- the state audit-issues finding 1d describes."""
         with mock.patch.object(pm.IssueStore, "save_open", side_effect=OSError("injected")):
             with self.assertRaises(OSError):
-                pm.main(["promote-issue", "--state-root", self.root, "--artifacts-root",
-                         self.arts, "--key", key, "--epic", epic, "--sprint", sprint,
-                         "--classification", cls])
+                with redirect_stdout(io.StringIO()), redirect_stderr(io.StringIO()):
+                    pm.main(["promote-issue", "--state-root", self.root, "--artifacts-root",
+                             self.arts, "--key", key, "--epic", epic, "--sprint", sprint,
+                             "--classification", cls, *extra])
 
 
 class TestIssueAllocator(IssueBase):
@@ -6679,7 +6680,8 @@ class TestPromoteIssue(IssueBase):
         self.assertIn("estimate", pm.load_node(pm.epic_file(self.root, "E001"))[1])
         item = self.load_open()["backlog"][0]
         self.assertEqual((item["status"], item["story"]), ("scheduled", "E001-S02-001"))
-        doc = open(pm.story_doc_path(self.arts, "E001-S02-001"), encoding="utf-8").read()
+        with open(pm.story_doc_path(self.arts, "E001-S02-001"), encoding="utf-8") as fh:
+            doc = fh.read()
         self.assertIn("## Context", doc)
         self.assertIn("- The deferred finding BL-E001-001 is resolved: Replace linear scan", doc)
         ev = self.events("issue_scheduled")
@@ -6746,8 +6748,8 @@ class TestPromoteIssue(IssueBase):
         code, out, err = self.promote("BL-E001-001")
         self.assertEqual(code, 0, err)
         self.assertIn("E001-S02-002", out)
-        self.assertEqual(open(os.path.join(stories, "E001-S02-001.md"), encoding="utf-8").read(),
-                         "an unrelated story nobody bootstrapped\n")
+        with open(os.path.join(stories, "E001-S02-001.md"), encoding="utf-8") as fh:
+            self.assertEqual(fh.read(), "an unrelated story nobody bootstrapped\n")
 
     def test_retry_resumes_a_promote_that_stopped_before_scheduling(self):
         self.append("A")
@@ -6789,6 +6791,55 @@ class TestPromoteIssue(IssueBase):
         self.assertEqual(code, 0, err)
         self.assertEqual([i["key"] for i in json.loads(out)], ["BL-E001-001"])
 
+    def test_concurrent_resolve_cannot_orphan_a_promoted_story(self):
+        """A resolve racing a promote must never leave an estimated story listing a resolved
+        item: promote holds issues_lock from its item check through scheduling."""
+        import subprocess
+        self.append("A")
+        real_rollup = pm.rollup_parent_estimate
+        procs = []
+
+        def racing_rollup(*a, **kw):
+            if not procs:
+                p = subprocess.Popen([sys.executable, SCRIPT, "resolve-issue", "--state-root",
+                                      self.root, "--key", "BL-E001-001", "--resolution",
+                                      "obsolete", "--note", "raced"],
+                                     stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+                procs.append(p)
+                try:
+                    p.wait(timeout=3)   # unfixed: completes; fixed: blocks on issues_lock
+                except subprocess.TimeoutExpired:
+                    pass
+            return real_rollup(*a, **kw)
+
+        with mock.patch.object(pm, "rollup_parent_estimate", racing_rollup):
+            code, out, err = self.promote("BL-E001-001")
+        procs[0].communicate(timeout=30)
+        self.assertEqual(code, 0, err)
+        self.assertEqual(list(self.story()["resolves"]), ["BL-E001-001"])
+        self.assertEqual(self.resolved_keys(), ["BL-E001-001"])      # the resolve ran after
+        self.assertEqual(self.load_resolved()["resolved"][0].get("story"), "E001-S02-001")
+
+    def test_keys_split_across_stories_refuse_to_triage(self):
+        self.append("A")
+        self._crash_promote_before_scheduling()
+        self.append("B", "001", "02")
+        before = _tree_snapshot(self.d)
+        code, _, err = self.promote("BL-E001-001", "BL-E001-002", extra=("--title", "Batch"))
+        self.assertEqual(code, 2)
+        self.assertIn("triage", err)
+        self.assertEqual(_tree_snapshot(self.d), before)
+
+    def test_resume_refuses_when_the_claimant_lists_other_keys(self):
+        self.append("A")
+        self.append("B", "001", "02")
+        self._crash_promote_before_scheduling(extra=("--key", "BL-E001-002", "--title", "Batch"))
+        before = _tree_snapshot(self.d)
+        code, _, err = self.promote("BL-E001-001")
+        self.assertEqual(code, 2)
+        self.assertIn("triage", err)
+        self.assertEqual(_tree_snapshot(self.d), before)
+
 
 class TestConcurrentPromote(unittest.TestCase):
     N = 4
@@ -6818,7 +6869,8 @@ class TestConcurrentPromote(unittest.TestCase):
         stories = pm.list_story_files(self.root, "E001", "S02")
         self.assertEqual(len(stories), self.N)
         after_race = dict(pm.load_node(pm.sprint_file(self.root, "E001", "S02"))[1]["estimate"])
-        pm.rollup_parent_estimate(self.root, "E001", "S02", pm.DEFAULT_ESTIMATE_MODEL, None)
+        with redirect_stderr(io.StringIO()):
+            pm.rollup_parent_estimate(self.root, "E001", "S02", pm.DEFAULT_ESTIMATE_MODEL, None)
         fresh = dict(pm.load_node(pm.sprint_file(self.root, "E001", "S02"))[1]["estimate"])
         self.assertEqual(after_race["man_hours_low"], fresh["man_hours_low"],
                          "the last roll-up saved during the race missed a story")
