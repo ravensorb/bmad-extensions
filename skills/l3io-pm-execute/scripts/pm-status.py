@@ -142,8 +142,11 @@ Subcommands
                 refusal is checked before the first write; a retry after an interrupted
                 run resumes the existing story -- only with the same --epic/--sprint (a
                 claimant elsewhere exits 2 naming them), and a dead claim (a story under
-                archived/ that is not done) is ignored; a foreign epic lock exits 5 exactly
-                when check-lock would report it LOCKED)
+                archived/ that is not done) is ignored; a foreign epic lock exits 5 when
+                check-lock would report it LOCKED, and whenever promote cannot evaluate
+                it (not a mapping, no session_id, a missing, unparseable or timezone-less
+                claimed_at, a non-integer ttl_minutes) -- clear-lock removes an
+                abandoned one)
   audit-issues  --state-root S  [--format {text,json}]
                 (read-only integrity checks 1a-1j over both issue files and the story
                 nodes' resolves:, read under issues_lock when either issue file exists;
@@ -4242,12 +4245,13 @@ def _check_lock_verdict(lock, session_id) -> tuple:
     is free to claim, 5 when another session holds it within its TTL.
 
     Extracted verbatim from cmd_check_lock -- same lines, same order of evaluation, and
-    the same ValueError on a non-integer ttl_minutes -- and shared with promote-issue's
-    foreign-lock check (`_foreign_lock_error`), so the two cannot disagree: e.g.
-    `ttl_minutes: 0` is always stale to both, where promote used to read it as 30.
-    cmd_set_lock is deliberately NOT routed through here: a claim REFUSES a lock this
-    verdict calls unreadable (not a mapping, no or bad claimed_at), and it parses the
-    TTL only after the timestamp, so sharing would change one of the two verbs."""
+    the same ValueError on a non-integer ttl_minutes. promote-issue (`_foreign_lock_error`)
+    takes this verdict only for a lock it can evaluate (`_unevaluable_lock_reason`), so the
+    two agree on every well-formed lock: e.g. `ttl_minutes: 0` is always stale to both,
+    where promote used to read it as 30. A lock this verdict calls unreadable is FREE to
+    check-lock, a read, but refused by both write verbs, set-lock and promote (Ruling 24).
+    cmd_set_lock is deliberately NOT routed through here: it parses the TTL only after the
+    timestamp, so sharing would change one of the two verbs."""
     if not isinstance(lock, dict):
         return 0, "FREE (unreadable lock — not a mapping — treating as stale)"
     holder = str(lock.get("session_id", ""))
@@ -4899,24 +4903,55 @@ def cmd_update_issue(args) -> int:
 _STORY_FILE_RE = re.compile(r"^E\d{3}-S\d{2}-(\d{3})\.(yaml|md)$")
 
 
-def _foreign_lock_error(epath: str, session_id):
-    """PMError(5) when check-lock would report this epic LOCKED for `session_id`, else None.
-    The verdict is check-lock's own (`_check_lock_verdict`, carryover 16): a stale lock --
-    including `ttl_minutes: 0` -- does not block, and neither does a lock check-lock calls
-    unreadable. check-lock has no verdict for a non-integer ttl_minutes (it raises), so
-    promote refuses rather than guess."""
-    _, data = load_node(epath)
-    if data is None or "_lock" not in data:
+def _unevaluable_lock_reason(lock, session_id):
+    """Why promote cannot evaluate a present `_lock`, or None when it can (Ruling 24).
+
+    promote is a write verb, like set-lock, so it fails safe: a foreign lock whose shape it
+    cannot read refuses, even where check-lock (a read) reports such a lock FREE. A lock
+    naming this session is this session's own and is not refused -- set-lock re-claims its
+    own lock the same way, whatever else the block holds. Everything this returns None for
+    is exactly what `_check_lock_verdict` can judge without raising."""
+    if not isinstance(lock, dict):
+        return "not a mapping"
+    holder = str(lock.get("session_id", "") or "").strip()
+    if not holder:
+        return "no session_id"
+    if session_id and holder == session_id:
         return None
+    claimed = _parse_iso(str(lock.get("claimed_at", "")))
+    if claimed is None:
+        return "claimed_at is missing or unparseable"
+    if claimed.tzinfo is None:
+        return "claimed_at has no timezone"
     try:
-        code, line = _check_lock_verdict(data["_lock"], session_id)
+        int(lock.get("ttl_minutes", 30))
     except (TypeError, ValueError):
-        return PMError(5, f"epic lock in {epath} has an unreadable ttl_minutes "
-                          f"({data['_lock'].get('ttl_minutes')!r}) -- refusing")
+        return f"ttl_minutes {lock.get('ttl_minutes')!r} is not a whole number"
+    return None
+
+
+def _foreign_lock_error(epath: str, session_id, epic_key: str):
+    """PMError(5) when the epic's `_lock` blocks this session, else None.
+
+    A lock promote cannot evaluate (`_unevaluable_lock_reason`) refuses, naming the epic
+    and clear-lock for an abandoned one (Ruling 24). A well-formed lock gets check-lock's
+    own verdict (`_check_lock_verdict`, carryover 16), so promote shares its TTL semantics:
+    a stale lock -- including any `ttl_minutes: 0` -- does not block. An absent or null
+    `_lock` is no lock, as set-lock reads it."""
+    _, data = load_node(epath)
+    lock = (data or {}).get("_lock")
+    if lock is None:
+        return None
+    why = _unevaluable_lock_reason(lock, session_id)
+    if why:
+        return PMError(5, f"epic {epic_key} holds a _lock that cannot be evaluated ({why}) "
+                          f"-- refusing to write; if the lock is abandoned, remove it with "
+                          f"clear-lock --epic {epic_key}")
+    code, line = _check_lock_verdict(lock, session_id)
     if code == 0:
         return None
-    return PMError(5, f"epic is {line} -- pass that --session-id, or wait for the lock to "
-                      f"expire")
+    return PMError(5, f"epic {epic_key} is {line} -- pass that --session-id, or wait for the "
+                      f"lock to expire")
 
 
 def _next_story_key(state_root, artifacts_root, epic_key, sprint_key) -> str:
@@ -5078,11 +5113,11 @@ def _promote_issue(args) -> int:
     open_path = issues_paths(sr)[0]
     with issues_lock(open_path):
         _promotable_items(IssueStore(open_path), keys)     # advisory: refuse fast, no epic lock yet
-    err = _foreign_lock_error(epath, args.session_id)          # advisory
+    err = _foreign_lock_error(epath, args.session_id, epic_key)          # advisory
     if err:
         raise err
     with epic_node_lock(epath):
-        err = _foreign_lock_error(epath, args.session_id)      # decisive
+        err = _foreign_lock_error(epath, args.session_id, epic_key)      # decisive
         if err:
             raise err
         # One issues_lock hold spans the decisive item check through the schedule save

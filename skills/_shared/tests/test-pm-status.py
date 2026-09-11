@@ -6758,7 +6758,11 @@ class TestPromoteIssue(IssueBase):
         self.append("A")
         self.run_all(["set-lock", "--state-root", self.root, "--epic", "E001",
                       "--session-id", "other"])
-        self.assertEqual(self.promote("BL-E001-001")[0], 5)
+        before = _tree_snapshot(self.d)
+        code, _, err = self.promote("BL-E001-001")
+        self.assertEqual(code, 5, err)
+        self.assertIn("epic E001 is LOCKED by other", err)
+        self.assertEqual(_tree_snapshot(self.d), before)          # M14(c): exit 5 writes nothing
         code, _, err = self.promote("BL-E001-001", extra=("--session-id", "other"))
         self.assertEqual(code, 0, err)
 
@@ -6772,17 +6776,14 @@ class TestPromoteIssue(IssueBase):
         pm.save_node(y, n, p)
 
     def test_foreign_lock_verdict_matches_check_lock(self):
-        """promote-issue and check-lock share ONE verdict (carryover 16): ttl_minutes 0 is
-        always stale, and a lock check-lock calls unreadable does not block either."""
+        """For a WELL-FORMED lock, promote takes check-lock's verdict (carryover 16) -- its
+        TTL semantics, including ttl_minutes 0 as always stale."""
         now = pm._now_iso()
         cases = {  # name: (lock, check-lock's verdict -- pinned, so check-lock cannot drift)
-            "live":          (f"session_id: other\nclaimed_at: '{now}'\nttl_minutes: 30\n", 5),
-            "stale":         ("session_id: other\nclaimed_at: '2020-01-01T00:00:00Z'\n"
-                              "ttl_minutes: 1\n", 0),
-            "ttl-zero":      (f"session_id: other\nclaimed_at: '{now}'\nttl_minutes: 0\n", 0),
-            "not-a-mapping": ("'just-a-string'\n", 0),
-            "bad-timestamp": ("session_id: other\nclaimed_at: 'not-a-time'\nttl_minutes: 30\n", 0),
-            "no-timestamp":  ("session_id: other\nttl_minutes: 30\n", 0),
+            "live":     (f"session_id: other\nclaimed_at: '{now}'\nttl_minutes: 30\n", 5),
+            "stale":    ("session_id: other\nclaimed_at: '2020-01-01T00:00:00Z'\n"
+                         "ttl_minutes: 1\n", 0),
+            "ttl-zero": (f"session_id: other\nclaimed_at: '{now}'\nttl_minutes: 0\n", 0),
         }
         for i, (name, (lock, verdict)) in enumerate(cases.items(), start=1):
             self.append(f"L{i}")
@@ -6796,17 +6797,37 @@ class TestPromoteIssue(IssueBase):
             if code == 5:
                 self.assertEqual(_tree_snapshot(self.d), before, name)
 
-    def test_unreadable_lock_ttl_refuses_before_any_write(self):
-        """check-lock has no verdict for a non-integer ttl_minutes (it raises); promote
-        refuses rather than guess, and writes nothing."""
+    def test_unevaluable_foreign_lock_refuses_and_writes_nothing(self):
+        """Ruling 24: promote is a write verb, so a foreign lock it cannot evaluate refuses
+        (exit 5) -- even where check-lock, a read, reports it free -- and writes nothing."""
+        now = pm._now_iso()
+        cases = {  # name: (lock, check-lock's verdict, pinned; None where check-lock raises)
+            "not-a-mapping":   ("'just-a-string'\n", 0),
+            "no-timestamp":    ("session_id: other\nttl_minutes: 30\n", 0),
+            "bad-timestamp":   ("session_id: other\nclaimed_at: 'not-a-time'\nttl_minutes: 30\n", 0),
+            "naive-timestamp": ("session_id: other\nclaimed_at: '2026-01-01T00:00:00'\n"
+                                "ttl_minutes: 30\n", None),
+            "no-session":      (f"claimed_at: '{now}'\nttl_minutes: 30\n", 5),
+            "non-integer-ttl": (f"session_id: other\nclaimed_at: '{now}'\nttl_minutes: abc\n", None),
+        }
         self.append("A")
-        self._set_epic_lock(f"session_id: other\nclaimed_at: '{pm._now_iso()}'\n"
-                            f"ttl_minutes: abc\n")
-        before = _tree_snapshot(self.d)
-        code, _, err = self.promote("BL-E001-001")
-        self.assertEqual(code, 5)
-        self.assertIn("ttl_minutes", err)
-        self.assertEqual(_tree_snapshot(self.d), before)
+        for name, (lock, verdict) in cases.items():
+            self._set_epic_lock(lock)
+            if verdict is not None:
+                check, _, _ = self.run_all(["check-lock", "--state-root", self.root, "--epic",
+                                            "E001", "--session-id", "me"])
+                self.assertEqual(check, verdict, name)             # check-lock is unchanged
+            before = _tree_snapshot(self.d)
+            code, _, err = self.promote("BL-E001-001")
+            self.assertEqual(code, 5, (name, err))
+            self.assertIn("epic E001", err, name)
+            self.assertIn("cannot be evaluated", err, name)
+            self.assertIn("clear-lock", err, name)
+            self.assertEqual(_tree_snapshot(self.d), before, name)
+        # the refusal does not reach a lock that names THIS session: set-lock re-claims it too
+        self._set_epic_lock("session_id: me\nttl_minutes: 30\n")
+        code, _, err = self.promote("BL-E001-001", extra=("--session-id", "me"))
+        self.assertEqual(code, 0, err)
 
     def test_allocation_skips_an_artifact_only_document(self):
         self.append("A")
