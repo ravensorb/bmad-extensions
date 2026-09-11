@@ -138,7 +138,9 @@ Subcommands
                 run resumes the existing story)
   audit-issues  --state-root S  [--format {text,json}]
                 (read-only integrity checks 1a-1j over both issue files and the story
-                nodes' resolves:, read under issues_lock; exit 4 when anything is found)
+                nodes' resolves:, read under issues_lock when either issue file exists;
+                otherwise the story walk still runs, unlocked, over an empty store;
+                exit 4 when anything is found)
   move-epic     --state-root S  --epic ID  --to {planned,active,archived}
   archive-epic  --state-root S  --epic ID   (alias for move-epic --to archived)
   calibration   show  --state-root S  [--format {text,json}]
@@ -5154,9 +5156,13 @@ def _audit_findings(state_root, store) -> list:
 
 
 def cmd_audit_issues(args) -> int:
-    """Structural integrity of the backlog (spec §3.1). Read-only; both issue files are
-    read under issues_lock so a concurrent resolve cannot fake a finding. Exit 4 when
-    anything is found. Heuristic checks live in l3io-util-doctor/scripts/audit-backlog.py."""
+    """Structural integrity of the backlog (spec §3.1). Read-only. Both issue files are
+    read under issues_lock whenever either one exists, so a concurrent resolve cannot
+    fake a finding. When neither exists, no lock is taken -- a read-only command must
+    not create issues.yaml.lock -- and the story walk still runs, unlocked, over an
+    empty store, so finding 1b can still report a resolves: key that names neither
+    file. Exit 4 when anything is found. Heuristic checks live in
+    l3io-util-doctor/scripts/audit-backlog.py."""
     findings = []
     open_path, res_path = issues_paths(args.state_root)
     try:
