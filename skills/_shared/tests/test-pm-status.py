@@ -8880,5 +8880,107 @@ class TestLockFilesIgnored(IssueBase):
                 self.git("commit", "-q", "-m", "checkpoint")   # as step-04 commits the removal
 
 
+class TestIssueKinds(IssueBase):
+    """append-issue --kind/--ref, list-issues --kind, promote refusal, audit 1k."""
+
+    SHA = "3f9c2a1"
+
+    def spec_item(self, kind="spec-change", ref=None, title="Spec change: order API"):
+        ref = self.SHA if ref is None else ref
+        return self.append(title, "001", "", "Medium", "spec-sync (AD-1)",
+                           "--kind", kind, "--ref", ref, "--description", "Confirm or reject")
+
+    def item(self, key="BL-E001-001"):
+        return next(i for i in self.load_open()["backlog"] if str(i["key"]) == key)
+
+    def test_kind_and_ref_round_trip(self):
+        code, out, err = self.spec_item()
+        self.assertEqual(code, 0, err)
+        it = self.item()
+        self.assertEqual(it["kind"], "spec-change")
+        self.assertEqual(it["ref"], self.SHA)
+        self.assert_invariants()
+
+    def test_defect_writes_no_kind(self):
+        code, _, err = self.append("Plain finding")
+        self.assertEqual(code, 0, err)
+        self.assertNotIn("kind", self.item())
+        self.assertNotIn("ref", self.item())
+
+    def test_spec_kind_requires_ref(self):
+        code, _, err = self.append("Spec proposal: x", "001", "", "Low", "spec-sync (AD-2)",
+                                   "--kind", "spec-proposal")
+        self.assertEqual(code, 2)
+        self.assertIn("needs --ref", err)
+        self.assertEqual(self.open_keys(), [])
+
+    def test_spec_change_ref_must_be_a_sha(self):
+        code, _, err = self.spec_item(ref="not-a-sha")
+        self.assertEqual(code, 2)
+        self.assertIn("commit SHA", err)
+
+    def test_spec_proposal_ref_may_be_a_path(self):
+        code, _, err = self.spec_item(kind="spec-proposal",
+                                      ref="impl/epic-001/epic-closure/spec-proposals/AD-2.md")
+        self.assertEqual(code, 0, err)
+        self.assertEqual(self.item()["kind"], "spec-proposal")
+
+    def test_list_issues_kind_filter(self):
+        self.append("Plain finding")
+        self.spec_item()
+        code, out, err = self.run_all(["list-issues", "--state-root", self.root,
+                                       "--kind", "spec-change", "--format", "json"])
+        self.assertEqual(code, 0, err)
+        self.assertEqual([i["key"] for i in json.loads(out)], ["BL-E001-002"])
+        code, out, _ = self.run_all(["list-issues", "--state-root", self.root,
+                                     "--kind", "defect", "--format", "json"])
+        self.assertEqual([i["key"] for i in json.loads(out)], ["BL-E001-001"])
+
+    def test_promote_refuses_spec_items(self):
+        self.spec_item()
+        code, _, err = self.run_all(["promote-issue", "--state-root", self.root,
+                                     "--artifacts-root", self.arts, "--key", "BL-E001-001",
+                                     "--epic", "001", "--sprint", "02",
+                                     "--classification", "standard"])
+        self.assertEqual(code, 2)
+        self.assertIn("spec-change", err)
+        self.assertIn("triage", err)
+        self.assertEqual(self.item().get("status"), "backlog")
+
+    def _edit_open(self, old, new):
+        with open(self.issues, encoding="utf-8") as fh:
+            text = fh.read()
+        self.assertIn(old, text)
+        with open(self.issues, "w", encoding="utf-8") as fh:
+            fh.write(text.replace(old, new, 1))
+
+    def audit(self):
+        code, out, err = self.run_all(["audit-issues", "--state-root", self.root,
+                                       "--format", "json"])
+        return code, json.loads(out)
+
+    def test_audit_1k_unknown_kind(self):
+        self.append("Plain finding")
+        # A hand edit plants what the CLI refuses to write.
+        self._edit_open("status: backlog", "status: backlog\n  kind: bogus")
+        code, rep = self.audit()
+        self.assertEqual(code, 4)
+        self.assertIn(("1k", "BL-E001-001"), {(f["id"], f["key"]) for f in rep["findings"]})
+
+    def test_audit_1k_spec_item_without_ref(self):
+        self.spec_item()
+        self._edit_open(f"ref: {self.SHA}\n", "")
+        code, rep = self.audit()
+        self.assertEqual(code, 4)
+        hits = [f for f in rep["findings"] if f["id"] == "1k"]
+        self.assertEqual(len(hits), 1)
+        self.assertIn("no ref", hits[0]["detail"])
+
+    def test_audit_clean_with_valid_spec_items(self):
+        self.spec_item()
+        code, rep = self.audit()
+        self.assertEqual([f for f in rep["findings"] if f["id"] == "1k"], [])
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

@@ -255,6 +255,10 @@ backlog:
   severity: Low
   status: backlog                         # backlog (untriaged) | scheduled
   description: 'See …/closure/review-E001-S02-003.md'
+- key: BL-E003-007
+  …
+  kind: spec-change                       # absent = defect | spec-change | spec-proposal
+  ref: 3f9c2a1                            # spec kinds only: the docs(spec) commit, or the proposal path
 - key: BL-E001-002
   …
   status: scheduled
@@ -408,7 +412,7 @@ Subcommand summary (see `pm-status.py --help` for full flags):
 | `move-epic` | `--state-root --epic ID --to {planned,active,archived}` |
 | `archive-epic` | `--state-root --epic ID` — alias for `move-epic --to archived` |
 | `append-issue` | `--state-root` (preferred) or `--file` (compatibility) |
-| `list-issues` | `--state-root` + optional `--epic`/`--sprint`/`--severity`/`--format`, `--status {backlog,scheduled}`, `--resolved [--resolution R]`, `--all` (JSON `{open, resolved}` read under one lock). Every item reports `origin_archived`. |
+| `list-issues` | `--state-root` + optional `--epic`/`--sprint`/`--severity`/`--format`, `--status {backlog,scheduled}`, `--resolved [--resolution R]`, `--all` (JSON `{open, resolved}` read under one lock). Every item reports `origin_archived`. `--kind {defect,spec-change,spec-proposal}` filters by kind (no `kind` = defect). |
 | `resolve-issue` | `--state-root --key K --resolution {fixed,wontfix,duplicate,obsolete}` + `--ref`/`--note` as the resolution requires, optional `--session-id`/`--cause`. Moves the item to `issues-resolved.yaml`; idempotent. |
 | `update-issue` | `--state-root --key K --severity S` + optional `--note`/`--session-id`/`--cause` — re-severities an open item (the promotion path epic closure uses). A key in neither issue file exits 3 naming both (`{key} is in neither {open_path} nor {resolved_path}`); a resolved key exits 2. Setting it to the severity it already has is a no-op: prints `OK update-issue {key} severity {S} unchanged` — plus ` (note not recorded)` when `--note` was given, since the note lives only in the event a no-op does not write — writes nothing, appends no event. |
 | `promote-issue` | `--state-root --artifacts-root A --key K [--key K2…] --epic E --sprint S --classification C` + optional `--title` (required with several keys), `--model`, `--token-rates`, `--session-id`, `--cause`. Refuses archived epics, sprints not in `backlog`, a retry that would resume an interrupted promotion into a different epic/sprint than the one it partly completed (exit 2, naming the epic/sprint to retry with), and a foreign epic lock — live (exit 5) or one it cannot evaluate (not a mapping, no `session_id` — a whitespace-only id also reads as absent, so it is never mistaken for a padded match of the caller's own — a `claimed_at` that is missing, unparseable, or has no timezone, or a non-integer `ttl_minutes`; exit 5, naming `clear-lock` for an abandoned lock). Also refuses (exit 2), before any write: a resumable claimant's story node with a malformed `key:`, or any story node it walks that fails to parse, is not a mapping, or is not valid UTF-8. A claim by a story under `archived/` that is not `done` is ignored — a dead claim is never resumed, so a re-promotion mints a new story. |

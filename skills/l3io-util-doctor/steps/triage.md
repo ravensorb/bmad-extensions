@@ -38,7 +38,7 @@ empty `findings` list on exit 4 is not "clean":
 | `1e`, an alias key (value at most 1000) or a stale canonical `next` | `uv run {pm_status} repair-issue --state-root {pm_state_root} --key BL-E{epic}-001 --action reseed` |
 | `1e` whose `repair` starts `report only` — a `next` value, alias or canonical, above the BL key space (1000) | report only — print the finding's `repair` text as the manual fix, naming the key and the value; `reseed` refuses this case (exit 2). An alias above 1000 reports two such findings (the alias, and the value), both with this hand-fix `repair` |
 | `1j` | `uv run {pm_status} repair-issue --state-root {pm_state_root} --key {key} --action reopen` |
-| `1b` naming an unknown key, `1f`, `1h`, `1i` | report only — print the finding's `repair` text as the manual fix |
+| `1b` naming an unknown key, `1f`, `1h`, `1i`, `1k` | report only — print the finding's `repair` text as the manual fix |
 
 Add `--session-id {triage_session} --cause triage` to every command. When one key carries both
 `1a` and `1j`, run only `reopen`: it completes an interrupted reopen, whereas the `1a` repair

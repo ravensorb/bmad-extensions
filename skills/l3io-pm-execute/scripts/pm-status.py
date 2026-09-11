@@ -4740,6 +4740,12 @@ ISSUES_FILENAME = "issues.yaml"
 RESOLVED_FILENAME = "issues-resolved.yaml"
 OPEN_ISSUE_STATUSES = ("backlog", "scheduled")
 RESOLUTIONS = ("fixed", "wontfix", "duplicate", "obsolete")
+# A backlog item's kind. `defect` is the default and is never written, so every file written
+# before kinds existed still reads as all defects. The spec kinds come from spec-align.py's
+# spec sync (docs/adr/0004-agents-edit-architecture-specs.md): they are confirmed or
+# rejected in doctor triage, never promoted to a story.
+ISSUE_KINDS = ("defect", "spec-change", "spec-proposal")
+SPEC_ISSUE_KINDS = ISSUE_KINDS[1:]
 SEVERITY_RANK = {"Low": 0, "Medium": 1, "High": 2, "Critical": 3}
 
 
@@ -4975,6 +4981,14 @@ def _append_issue(args) -> int:
     epic_norm = _norm_num(args.epic, 3)
     sprint_norm = _norm_num(args.sprint, 2) if args.sprint else ""
     norm_title = _norm_issue_title(args.title)
+    kind = getattr(args, "kind", None) or "defect"
+    ref = (getattr(args, "ref", None) or "").strip()
+    if kind in SPEC_ISSUE_KINDS and not ref:
+        raise PMError(2, f"append-issue: --kind {kind} needs --ref (the docs(spec) commit SHA, "
+                         f"or the proposal file's path)")
+    if kind == "spec-change" and not _SHA_RE.match(ref):
+        raise PMError(2, f"append-issue: --kind spec-change needs --ref to be a commit SHA, "
+                         f"not {ref!r}")
     explicit = None
     if args.key:
         explicit = canonical_bl_key(args.key)
@@ -5031,8 +5045,12 @@ def _append_issue(args) -> int:
         item["source"] = args.source
         item["severity"] = args.severity
         item["status"] = "backlog"
+        if kind != "defect":
+            item["kind"] = kind
         if args.description:
             item["description"] = args.description
+        if ref:
+            item["ref"] = ref
         store.backlog.append(item)
         store.save_open()
     _issue_event(store.state_root, "issue_opened", item,
@@ -5352,6 +5370,10 @@ def _promotable_items(store, keys):
             raise PMError(2, f"{k} is not an open backlog item")
         if str(item.get("status", "backlog")) == "scheduled":
             raise PMError(2, f"{k} is already scheduled to story {item.get('story')}")
+        kind = str(item.get("kind") or "defect")
+        if kind != "defect":
+            raise PMError(2, f"{k} is a {kind} item -- spec items are confirmed or rejected in "
+                             f"/l3io-util-doctor triage, never promoted to a story")
         items.append(item)
     return items
 
@@ -5498,7 +5520,7 @@ _BL_NEXT_MAX = 1000
 
 
 def _audit_findings(state_root, store) -> list:
-    """Structural integrity findings 1a-1j (spec §3.1). The caller holds issues_lock."""
+    """Structural integrity findings 1a-1k (spec §3.1). The caller holds issues_lock."""
     findings = []
 
     def add(fid, key, detail, repair, story=None, epic=None):
@@ -5542,6 +5564,12 @@ def _audit_findings(state_root, store) -> list:
         st = str(it.get("status", ""))
         if st not in OPEN_ISSUE_STATUSES:
             add("1f", k, f"open item has status {st!r}", "report only")
+        kind = it.get("kind")
+        if kind is not None and str(kind) not in ISSUE_KINDS:
+            add("1k", k, f"unknown kind {kind!r}", "report only -- fix the kind by hand")
+        elif str(kind) in SPEC_ISSUE_KINDS and not str(it.get("ref") or "").strip():
+            add("1k", k, f"{kind} item has no ref",
+                "report only -- add the commit SHA or the proposal path by hand")
         if st == "scheduled":
             sk = str(it.get("story", "") or "")
             if sk not in stories or sk not in claims.get(k, []):
@@ -5845,6 +5873,8 @@ def _list_issues(args) -> int:
         if args.status and str(item.get("status", "")) != args.status:
             return False
         if args.resolution and str(item.get("resolution", "")) != args.resolution:
+            return False
+        if getattr(args, "kind", None) and str(item.get("kind") or "defect") != args.kind:
             return False
         return True
 
@@ -6447,6 +6477,10 @@ def build_parser() -> argparse.ArgumentParser:
     ai.add_argument("--source", required=True, help="review phase + finding ID")
     ai.add_argument("--severity", required=True, choices=["Low", "Medium", "High", "Critical"])
     ai.add_argument("--description", default="")
+    ai.add_argument("--kind", default="defect", choices=list(ISSUE_KINDS),
+                    help="defect (default, not written) | spec-change | spec-proposal")
+    ai.add_argument("--ref", default="",
+                    help="spec kinds only: the docs(spec) commit SHA, or the proposal path")
     ai.add_argument("--allow-duplicate", dest="allow_duplicate", action="store_true",
                     help="append even if an existing item matches this title+epic+"
                          "sprint+source (default: skip and exit 0)")
@@ -6513,6 +6547,8 @@ def build_parser() -> argparse.ArgumentParser:
                     help="open items with this status")
     li.add_argument("--resolved", action="store_true", help="list issues-resolved.yaml instead")
     li.add_argument("--resolution", choices=list(RESOLUTIONS), help="with --resolved only")
+    li.add_argument("--kind", choices=list(ISSUE_KINDS),
+                    help="items of this kind; an item without `kind` is a defect")
     li.add_argument("--all", action="store_true",
                     help='JSON {"open": [...], "resolved": [...]} read under one lock')
     li.set_defaults(func=cmd_list_issues)
