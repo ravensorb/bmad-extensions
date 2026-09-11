@@ -201,7 +201,11 @@ Commit state and artifact changes before moving to the next sprint. Sprint closu
 calibration samples to `state/pm-calibration.yaml` and actuals to the sprint YAML — these
 records would be lost if the working tree were reset or a session died before the next commit.
 
+The first command untracks any `*.lock` an earlier run committed (the files stay on disk) —
+lock files are never committed; `pm-status.py` keeps `*.lock` in `state/.gitignore`.
+
 ```bash
+git -C {project-root} rm -r --cached --quiet --ignore-unmatch -- '{implementation_artifacts}/state/*.lock'
 git add {implementation_artifacts}/state/ \
         {implementation_artifacts}/epic-{epic_num}/ \
         {planning_artifacts}/

@@ -82,9 +82,11 @@ Key settings (with defaults):
 
 ## Project Health Check
 
-The default mode runs thirteen numbered read-only checks (Checks 1–13, plus 2b and 2c), prints a findings table (✓ pass / ⚠ flagged), and — unless invoked as `check`/`status` — proposes the flagged actions in a fixed priority sequence behind a single confirmation:
+The default mode runs fourteen numbered read-only checks (Checks 1–14, plus 2b and 2c), prints a findings table (✓ pass / ⚠ flagged), and — unless invoked as `check`/`status` — proposes the flagged actions in a fixed priority sequence behind a single confirmation:
 
-`rename-active → rename-epic-dirs → migrate-schema → split-status → migrate-state → bootstrap-state → reconcile-status → layout-cleanup → sort-status → harvest-debt → triage → update-ai-rules → redrive → clean-legacy`
+`rename-active → rename-epic-dirs → migrate-schema → split-status → migrate-state → bootstrap-state → reconcile-status → layout-cleanup → sort-status → harvest-debt → triage → update-ai-rules → redrive → untrack-locks → clean-legacy`
+
+`untrack-locks` (Check 14, lock files tracked in git) is the one action that is not a mode: the health check makes sure `state/.gitignore` has a `*.lock` line, then runs `git rm --cached` over the tracked `*.lock` files under the state root. The files stay on disk, and the removal is staged for your next commit.
 
 Each executed action runs its full mode (dry-run + verify still shown); per-mode confirmations are suppressed since the user already confirmed — except `triage`, which keeps its own confirmations, because every triage action resolves or rewrites backlog items the single confirmation did not show item by item. If any action fails, the sequence stops and reports.
 

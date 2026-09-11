@@ -8709,6 +8709,51 @@ class TestLockFilesIgnored(IssueBase):
         gate = self.git("check-ignore", "-q", self.root, check=False)
         self.assertEqual(gate.returncode, 1, "the state root must stay NOT ignored")
 
+    STEP04 = os.path.join(os.path.dirname(HERE), "steps", "sprint", "step-04-sprint-closure.md")
+    UNTRACK = ("git -C {project-root} rm -r --cached --quiet --ignore-unmatch -- "
+               "'{implementation_artifacts}/state/*.lock'")
+
+    def test_checkpoint_untrack_command_untracks_committed_lock_files(self):
+        """The sprint-closure checkpoint's untrack command, read FROM the step file and run
+        against a repo where an older run committed lock files. Reading it from the step file
+        is the point: an edit to the step that breaks the command fails here."""
+        import shlex
+        import subprocess
+        with open(self.STEP04, encoding="utf-8") as fh:
+            lines = fh.read().splitlines()
+        found = [ln for ln in lines if ln.startswith("git -C {project-root} rm ")]
+        self.assertEqual(found, [self.UNTRACK], "step-04 must carry the untrack command verbatim")
+        add = next(i for i, ln in enumerate(lines)
+                   if ln.startswith("git add {implementation_artifacts}/state/"))
+        self.assertLess(lines.index(self.UNTRACK), add, "untrack must run before the git add")
+
+        self.init_repo()
+        story = self.write_story()
+        self.assertEqual(self.append("A")[0], 0)
+        self.assertEqual(self.add_test_run()[0], 0)
+        locks = [self.issues + ".lock", story + ".lock"]
+        decoys = [os.path.join(self.arts, "state.lock"),            # outside the state root
+                  os.path.join(self.arts, "other", "keep.lock")]
+        os.makedirs(os.path.dirname(decoys[1]))
+        for p in decoys:
+            open(p, "w").close()
+        rel = [os.path.relpath(p, self.d) for p in locks + decoys]
+
+        # A trailing slash on the placeholder value must work too (git collapses the `//`).
+        for arts in (self.arts, self.arts + "/"):
+            with self.subTest(implementation_artifacts=arts):
+                self.git("add", "-f", "--", *rel)
+                self.git("commit", "-q", "-m", "an older run committed its lock files")
+                cmd = (found[0].replace("{project-root}", self.d)
+                       .replace("{implementation_artifacts}", arts))
+                subprocess.run(shlex.split(cmd), check=True, capture_output=True)
+                tracked = self.git("ls-files", "--", "*.lock").stdout.split()
+                self.assertEqual(sorted(tracked), sorted(rel[2:]),
+                                 "state-root lock files untracked; look-alikes left alone")
+                for p in locks:
+                    self.assertTrue(os.path.exists(p), f"{p} must stay on disk")
+                self.git("commit", "-q", "-m", "checkpoint")   # as step-04 commits the removal
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)

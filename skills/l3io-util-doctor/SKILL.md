@@ -87,7 +87,8 @@ load `steps/health-check.md`.
 
 A mode file may direct you to another mode's file — `normalize` runs reconcile-status then
 sort-status, and the health check proposes fixes by naming the modes that apply. Load each as
-you reach it; do not pre-load the set.
+you reach it; do not pre-load the set. One proposed action, `untrack-locks`, is not a mode and
+has no file: `steps/health-check.md` runs it inline.
 
 **Help output** — when `help` or `?` is passed, print exactly this and exit:
 

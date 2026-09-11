@@ -269,6 +269,8 @@ Outputs go to `{sprint_root}/closure/` — `retrospective.md` and `closure-repor
 
 Closure also regenerates `{implementation_artifacts}/progress-report.md`, and renders a progress tree when the phase holds a single epic.
 
+Closure ends with a commit checkpoint that stages `state/` and the sprint's artifacts. It first untracks any `*.lock` file an earlier run committed under `state/`, leaving the files on disk. `pm-status.py`'s lock files are never committed: it keeps `*.lock` in `state/.gitignore`.
+
 ### Epic closure (step-06)
 
 1. **Retrospective** — reviews every sprint retro for the epic; summarizes velocity, recurring pain points, and up to five learnings

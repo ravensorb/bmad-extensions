@@ -508,10 +508,15 @@ sharding gives each epic its own directory, and nothing below the epic level nee
   empty. For an epic node this sidecar is redundant with `epic_node_lock` (a different file,
   so it cannot self-deadlock against it).
 
-All of these are committed by the sprint-closure checkpoint's `git add
-{implementation_artifacts}/state/` (`steps/sprint/step-04-sprint-closure.md` §9); until then
-they are untracked. Committing them, or gitignoring them with a `state/**/*.lock` rule, are
-both harmless — they carry no content, only a filesystem lock. Old `epic.yaml.lock` files
+**None of these is ever committed.** `pm-status.py` keeps `*.lock` in `{state_root}/.gitignore`.
+Every lock acquisition checks that file, at most once per process per state root. If the file
+is absent it is created with the line; if it lacks the line, the line is appended, and the lines
+already there are never rewritten or reordered. The check is best-effort: a failure warns on
+stderr and never fails the verb. `*.lock` matches files only, so the activation gate's
+`git check-ignore` on the state-root directory (`steps/shared/step-00-activate.md`) still
+passes. Lock files a project committed before this rule existed are untracked, and left on
+disk, by the sprint-closure checkpoint (`steps/sprint/step-04-sprint-closure.md` §9) and by
+`/l3io-util-doctor`'s health check (Check 14). Old `epic.yaml.lock` files
 left inside an epic directory by a pre-relocation `pm-status.py` are no longer the epic lock;
 the same filename is reused only as the redundant `--flock` sidecar (above), so removing one
 is harmless.

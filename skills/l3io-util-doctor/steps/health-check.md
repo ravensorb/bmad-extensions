@@ -6,7 +6,7 @@ The default mode — runs when no recognized keyword is passed, or when `check`/
 
 Load config same as described above under On Activation.
 
-### Step HC2 — Scan (13 checks, read-only)
+### Step HC2 — Scan (14 checks, read-only)
 
 Run all checks. No files are changed at this step.
 
@@ -190,6 +190,23 @@ uv run {skill-root}/scripts/audit-backlog.py --pm-status {pm_status} \
 - no `{pm_state_root}` yet → ✓
 - no findings and no candidates → ✓
 
+**Check 14 — Lock files tracked in git**
+`pm-status.py`'s lock files — `epic-NNN.lock`, `issues.yaml.lock`, `pm-calibration.yaml.lock`
+and `adr-register.yaml.lock` in `{pm_state_root}`, and a `.yaml.lock` sidecar beside some node
+files below it — are empty flock targets and must never be committed. `pm-status.py` keeps
+`*.lock` in `{pm_state_root}/.gitignore`, but a project that committed them before that rule
+existed still tracks them. If `{pm_state_root}` exists and `{project-root}` is a git repository:
+
+```bash
+git -C {project-root} ls-files -- '{pm_state_root}/*.lock'
+```
+
+The explicit `/` keeps the pattern inside the state root: `{pm_state_root}` is bound without a
+trailing slash, and `state*.lock` would also match a sibling such as `state.lock`. A git
+pathspec `*` also matches `/`, so the pattern reaches sidecars at any depth.
+- Any path listed → flag `untrack-locks` · Priority: **Low** · note the count
+- None listed, no `{pm_state_root}` yet, or not a git repository → ✓
+
 ### Step HC3 — Report findings
 
 Print the health check table. Use ✓ for passing checks, ⚠ for flagged items:
@@ -213,6 +230,7 @@ Epic directory padding          ⚠ 1 legacy epic-{nn}/ dir       rename-epic-di
 State/artifact drift            ⚠ 2 orphaned key(s)             — (report only)
 Calibration provenance           ⚠ 4 poisoned sample(s)         redrive
 Backlog integrity & audit       ⚠ 1 integrity, 4 candidate(s)  triage
+Tracked lock files              ⚠ 3 *.lock tracked in git      untrack-locks
 ================================================================
 ```
 
@@ -266,7 +284,8 @@ Run each approved action in this fixed priority sequence (skip any that were not
 11. `triage`
 12. `update-ai-rules`
 13. `redrive`
-14. `clean-legacy`
+14. `untrack-locks`
+15. `clean-legacy`
 
 `bootstrap-state` runs after `migrate-state` because migrate-state may have created the sharded
 tree that bootstrap-state then augments with story nodes from the artifact tree. `redrive` must
@@ -285,6 +304,19 @@ Before each action, print a separator header:
 Each action runs its full mode implementation from its own section. **Suppress the per-mode confirmation prompts** — the user already confirmed in HC5; proceed as if they answered yes at each mode's own confirm step. The per-mode dry-run output and verify steps still run and are shown.
 
 **`triage` keeps its own confirmations here.** The rule above does not apply to it: every triage action resolves or rewrites backlog items, which the HC5 yes did not see item by item. It runs right after `harvest-debt`, so markers harvested in the same run are audited too.
+
+**`untrack-locks` (Check 14) has no mode file — run it here, inline.** First make sure
+`{pm_state_root}/.gitignore` contains a `*.lock` line: create the file with that line if it is
+absent, or append the line if it is missing, never rewriting or reordering the lines already
+there. Then untrack the lock files, leaving them on disk:
+
+```bash
+git -C {project-root} rm -r --cached --quiet --ignore-unmatch -- '{pm_state_root}/*.lock'
+```
+
+This stages the removal for the user's next commit; it does not commit. It runs after every
+action that invokes `pm-status.py` (and so may create lock files), and before `clean-legacy`,
+the fixed final tidy-up.
 
 If any action fails (exits with FAILED), stop and report — do not run remaining actions.
 

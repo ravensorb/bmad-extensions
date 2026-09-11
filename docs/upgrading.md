@@ -45,8 +45,8 @@ The full ordered sequence:
 
 ```
 rename-active → rename-epic-dirs → migrate-schema → split-status → migrate-state
-  → reconcile-status → layout-cleanup → sort-status → harvest-debt
-  → update-ai-rules → redrive → clean-legacy
+  → bootstrap-state → reconcile-status → layout-cleanup → sort-status → harvest-debt
+  → triage → update-ai-rules → redrive → untrack-locks → clean-legacy
 ```
 
 `migrate-state` is the pivot. It is what produces the sharded `state/` tree that 2.0.1+ skills
@@ -82,6 +82,24 @@ vice versa. This is a narrow, self-resolving window: once every process still ru
 exited, every subsequent invocation loads the same, current copy and locks the same file. It
 is not a reason to avoid running `/l3io-util-doctor` between runs — it is a reason not to run
 it, or any manual `pm-status.py` write, against an epic another session is actively executing.
+
+## Lock files leave git
+
+`pm-status.py`'s lock files are empty flock targets: `epic-NNN.lock`, `issues.yaml.lock`,
+`pm-calibration.yaml.lock` and `adr-register.yaml.lock` in `{implementation_artifacts}/state/`,
+plus a `.yaml.lock` sidecar beside some node files. The sprint-closure checkpoint used to commit
+them. `pm-status.py` now keeps `*.lock` in `state/.gitignore`, so an existing project sees two
+things after upgrading. Both are expected:
+
+- **A new `state/.gitignore`.** The first `pm-status.py` command that takes a lock writes it,
+  and the checkpoint commits it with the rest of `state/`. If a `.gitignore` is already there,
+  it keeps its lines and gains one `*.lock` line.
+- **A commit that deletes the tracked `*.lock` files from git.** The next sprint-closure
+  checkpoint untracks them. `/l3io-util-doctor`'s health check does the same (Check 14) and
+  stages the removal for you to commit. The files stay on disk; only the index entries go.
+
+The activation gate that refuses a gitignored `state/` is unaffected, because `*.lock` matches
+files, never the directory.
 
 ## Version notes
 
