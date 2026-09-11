@@ -6972,5 +6972,133 @@ class TestDoneHook(IssueBase):
         self.assertEqual(self.resolved_keys(), ["BL-E001-001"])
 
 
+class TestAuditIssues(IssueBase):
+    def audit(self):
+        code, out, err = self.run_all(["audit-issues", "--state-root", self.root,
+                                       "--format", "json"])
+        self.assertIn(code, (0, 4), err)
+        return code, json.loads(out)["findings"]
+
+    def found(self, fid, key):
+        code, findings = self.audit()
+        self.assertEqual(code, 4)
+        self.assertIn((fid, key), {(f["id"], f["key"]) for f in findings}, findings)
+
+    def promote(self, key="BL-E001-001", epic="001", sprint="02"):
+        code, _, err = self.run_all(["promote-issue", "--state-root", self.root,
+                                     "--artifacts-root", self.arts, "--key", key, "--epic", epic,
+                                     "--sprint", sprint, "--classification", "simple"])
+        self.assertEqual(code, 0, err)
+
+    def edit_story(self, key, fn):
+        p = pm.story_file(self.root, key)
+        y, n = pm.load_node(p)
+        fn(n)
+        pm.save_node(y, n, p)
+
+    def edit_open(self, fn):
+        y, data = pm._load(self.issues)
+        fn(data)
+        pm._atomic_dump(y, data, self.issues)
+
+    def test_clean_lifecycle_exits_0(self):
+        self.append("A")
+        self.promote()
+        self.run_all(["set-status", "--state-root", self.root, "--story", "E001-S02-001",
+                      "--status", "done"])
+        self.assertEqual(self.audit(), (0, []))
+
+    def test_missing_state_root_is_clean(self):
+        code, out, _ = self.run_all(["audit-issues", "--state-root",
+                                     os.path.join(self.d, "nope")])
+        self.assertEqual(code, 0)
+
+    def test_audit_without_issue_files_leaves_no_lock_file(self):
+        code, _ = self.audit()
+        self.assertEqual(code, 0)
+        self.assertFalse(os.path.exists(self.issues + ".lock"),
+                         "a read-only command left a lock file behind")
+
+    def test_1a_key_in_both_files(self):
+        self.append("A")
+        with _dump_failing_on(2):
+            with redirect_stdout(io.StringIO()), redirect_stderr(io.StringIO()):
+                with self.assertRaises(OSError):
+                    pm.main(["resolve-issue", "--state-root", self.root, "--key",
+                             "BL-E001-001", "--resolution", "obsolete", "--note", "x"])
+        self.found("1a", "BL-E001-001")
+
+    def test_1b_scheduled_to_a_missing_story(self):
+        self.append("A")
+        self.promote()
+        os.remove(pm.story_file(self.root, "E001-S02-001"))
+        self.found("1b", "BL-E001-001")
+
+    def test_1b_resolves_names_an_unknown_key(self):
+        self.append("A")
+        self.promote()
+        self.edit_story("E001-S02-001", lambda n: n["resolves"].append("BL-E001-050"))
+        self.found("1b", "BL-E001-050")
+
+    def test_1c_done_story_with_item_still_open(self):
+        self.append("A")
+        self.promote()
+        self.edit_story("E001-S02-001", lambda n: n.__setitem__("status", "done"))  # hook bypassed
+        self.found("1c", "BL-E001-001")
+
+    def test_1d_promote_stopped_before_scheduling(self):
+        self.append("A")
+        self._crash_promote_before_scheduling(cls="simple")
+        self.found("1d", "BL-E001-001")
+
+    def test_1e_stale_next(self):
+        self.append("A")
+        self.append("B", "001", "02")
+        self.edit_open(lambda d: d["next"].__setitem__("001", 1))
+        self.found("1e", "BL-E001")
+
+    def test_1f_bad_open_status(self):
+        self.append("A")
+        self.edit_open(lambda d: d["backlog"][0].__setitem__("status", "weird"))
+        self.found("1f", "BL-E001-001")
+
+    def test_1g_scheduled_to_an_archived_story_that_never_finished(self):
+        self.append("Later", "005", "01", "Low", "qa (Q-1)")
+        self.promote("BL-E005-001", "005", "01")
+        self.run_all(["archive-epic", "--state-root", self.root, "--epic", "E005"])
+        self.found("1g", "BL-E005-001")
+
+    def test_1h_two_stories_claim_one_item(self):
+        self.append("A")
+        self.promote()
+        p = os.path.join(self.root, "active", "epic-001", "sprint-02", "E001-S02-002.yaml")
+        with open(p, "w", encoding="utf-8") as fh:
+            fh.write("key: 'E001-S02-002'\nepic: 'E001'\nsprint: 'S02'\nstatus: backlog\n"
+                     "resolves: [BL-E001-001]\n")
+        self.found("1h", "BL-E001-001")
+
+    def test_1i_duplicate_key_in_a_file(self):
+        self.append("A")
+        from ruamel.yaml.comments import CommentedMap
+        self.edit_open(lambda d: d["backlog"].append(CommentedMap(d["backlog"][0])))
+        self.found("1i", "BL-E001-001")
+
+    def test_1j_story_reverted_after_done(self):
+        self.append("A")
+        self.promote()
+        for st in ("done", "in-progress"):
+            self.run_all(["set-status", "--state-root", self.root, "--story", "E001-S02-001",
+                          "--status", st])
+        self.found("1j", "BL-E001-001")
+
+    def test_text_format_names_the_repair(self):
+        self.append("A")
+        self.edit_open(lambda d: d["backlog"][0].__setitem__("status", "weird"))
+        code, out, _ = self.run_all(["audit-issues", "--state-root", self.root])
+        self.assertEqual(code, 4)
+        self.assertIn("1f", out)
+        self.assertIn("repair:", out)
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

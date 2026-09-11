@@ -136,6 +136,9 @@ Subcommands
                 document, rolls up sprint and epic, then marks the items scheduled; every
                 refusal is checked before the first write; a retry after an interrupted
                 run resumes the existing story)
+  audit-issues  --state-root S  [--format {text,json}]
+                (read-only integrity checks 1a-1j over both issue files and the story
+                nodes' resolves:, read under issues_lock; exit 4 when anything is found)
   move-epic     --state-root S  --epic ID  --to {planned,active,archived}
   archive-epic  --state-root S  --epic ID   (alias for move-epic --to archived)
   calibration   show  --state-root S  [--format {text,json}]
@@ -5068,6 +5071,114 @@ def _promote_issue(args) -> int:
     return 0
 
 
+def _audit_findings(state_root, store) -> list:
+    """Structural integrity findings 1a-1j (spec §3.1). The caller holds issues_lock."""
+    findings = []
+
+    def add(fid, key, detail, repair, story=None, epic=None):
+        findings.append({"id": fid, "key": key, "story": story, "epic": epic,
+                         "detail": detail, "repair": repair})
+
+    stories, claims = {}, {}
+    for skey, sdir, node in _walk_story_nodes(state_root):
+        stories[skey] = (sdir, str(node.get("status", "")))
+        for k in node.get("resolves") or []:
+            claims.setdefault(str(k), []).append(skey)
+    open_by, res_by = {}, {}
+    for lst, by in ((store.backlog, open_by), (store.resolved, res_by)):
+        for it in lst:
+            if isinstance(it, dict):
+                by.setdefault(str(it.get("key", "")), []).append(it)
+
+    for by, fname in ((open_by, ISSUES_FILENAME), (res_by, RESOLVED_FILENAME)):
+        for k, its in by.items():
+            if len(its) > 1:
+                add("1i", k, f"appears {len(its)} times in {fname}",
+                    "report only -- rekey or merge by hand")
+            elif canonical_bl_key(k) != k:
+                add("1i", k, f"non-canonical key in {fname}", "report only -- rekey by hand")
+    for k in open_by:
+        if k in res_by:
+            add("1a", k, "present in both issue files",
+                "resolve-issue rerun -- it clears the open copy")
+    for k, its in open_by.items():
+        it = its[0]
+        st = str(it.get("status", ""))
+        if st not in OPEN_ISSUE_STATUSES:
+            add("1f", k, f"open item has status {st!r}", "report only")
+        if st == "scheduled":
+            sk = str(it.get("story", "") or "")
+            if sk not in stories or sk not in claims.get(k, []):
+                add("1b", k, f"scheduled to {sk or '(none)'}, which is missing or does not "
+                             f"list it", "repair-issue --action unschedule", story=sk or None)
+            elif stories[sk][0] == "archived" and stories[sk][1] != "done":
+                add("1g", k, f"scheduled to {sk}, which is archived and not done",
+                    "repair-issue --action unschedule", story=sk)
+    for k, sks in claims.items():
+        if len(sks) > 1:
+            add("1h", k, f"listed in resolves of {', '.join(sks)}",
+                "report only -- decide which story owns it")
+        if k not in open_by and k not in res_by:
+            add("1b", k, f"named in resolves of {', '.join(sks)} but in neither issue file",
+                "report only -- remove it from resolves by hand", story=sks[0])
+            continue
+        if k not in open_by:
+            continue
+        it = open_by[k][0]
+        for sk in sks:
+            if sk not in stories:
+                continue
+            if stories[sk][1] == "done":
+                add("1c", k, f"story {sk} is done but {k} is still open",
+                    f"resolve-issue --key {k} --resolution fixed --ref {sk}", story=sk)
+            elif str(it.get("status", "")) == "backlog":
+                add("1d", k, f"story {sk} lists {k}, which is still backlog",
+                    f"repair-issue --action link --story {sk}", story=sk)
+    nxt = store.open.get("next")
+    if nxt is not None and not isinstance(nxt, dict):
+        add("1e", "next", f"next is malformed ({nxt!r})", "repair-issue --action reseed")
+    elif nxt:
+        for e in sorted(nxt):
+            en = _norm_num(e, 3)
+            stored, highest = _int_or_none(nxt.get(e)), store.highest_suffix(en)
+            if stored is None or stored <= highest:
+                add("1e", f"BL-E{en}", f"next[{e}] = {nxt.get(e)!r} but the highest key is "
+                                      f"{highest:03d}", "repair-issue --action reseed", epic=en)
+    for k, its in res_by.items():
+        it = its[-1]
+        ref = str(it.get("ref", "") or "")
+        if str(it.get("resolution")) == "fixed" and ref in stories and stories[ref][1] != "done":
+            add("1j", k, f"resolved fixed by {ref}, which is now {stories[ref][1]!r}",
+                "repair-issue --action reopen", story=ref)
+    return findings
+
+
+def cmd_audit_issues(args) -> int:
+    """Structural integrity of the backlog (spec §3.1). Read-only; both issue files are
+    read under issues_lock so a concurrent resolve cannot fake a finding. Exit 4 when
+    anything is found. Heuristic checks live in l3io-util-doctor/scripts/audit-backlog.py."""
+    findings = []
+    open_path, res_path = issues_paths(args.state_root)
+    try:
+        if os.path.exists(open_path) or os.path.exists(res_path):
+            with issues_lock(open_path):
+                findings = _audit_findings(args.state_root, IssueStore(open_path))
+        elif os.path.isdir(args.state_root):
+            findings = _audit_findings(args.state_root, IssueStore(open_path))
+    except PMError as e:
+        sys.stderr.write(f"pm-status.py: {e.msg}\n")
+        return 4
+    if args.format == "json":
+        sys.stdout.write(json.dumps({"findings": findings}, indent=2) + "\n")
+    elif not findings:
+        sys.stdout.write("audit-issues: no integrity findings\n")
+    else:
+        for f in findings:
+            sys.stdout.write(f"{f['id']}  {f['key']}  {f['detail']}\n"
+                             f"      repair: {f['repair']}\n")
+    return 4 if findings else 0
+
+
 def _norm_num(v, width: int) -> str:
     """Normalize a possibly key-prefixed or unpadded numeric id to a zero-padded digit
     string: 'E1'/'001' -> '001' (width=3); 'S1'/'01' -> '01' (width=2). Falls back to the
@@ -5767,6 +5878,11 @@ def build_parser() -> argparse.ArgumentParser:
     pi.add_argument("--session-id", dest="session_id", default=None)
     pi.add_argument("--cause", default="cli", choices=["cli", "triage", "plan-intake"])
     pi.set_defaults(func=cmd_promote_issue)
+
+    au = sub.add_parser("audit-issues", help="structural integrity checks over the backlog")
+    au.add_argument("--state-root", required=True)
+    au.add_argument("--format", choices=["text", "json"], default="text")
+    au.set_defaults(func=cmd_audit_issues)
 
     li = sub.add_parser("list-issues", help="list (with filters) the flat backlog in issues.yaml")
     li.add_argument("--state-root", required=True, help="path to {implementation_artifacts}/state")
