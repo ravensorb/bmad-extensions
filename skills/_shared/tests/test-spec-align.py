@@ -391,5 +391,128 @@ class TestPointers(Project):
                                                  f"{ARCH_REL}#order-api L9–16"])
 
 
+REVIEW = """# Arch drift review
+
+2 sentences of summary.
+
+## Findings table
+
+| # | Severity | Principle | Location | Finding | Remediation |
+|---|----------|-----------|----------|---------|-------------|
+| AD-1 | MAJOR | Core §1 | `src/a.py:1` | Orders bypass the repository | route via repo |
+| AD-2 | MINOR | Core §7 | `src/b.py:2` | Naming | rename |
+| AD-3 | BLOCKER | Core §2 | `src/c.py:3` | PRD says soft delete | use soft delete |
+"""
+EPIC_REVIEW_REL = f"{IMPL}/epic-003/epic-closure/arch-drift-review.md"
+PRD_REL = f"{PLAN}/prd.md"
+PRD = "# PRD\n\n## Deletion\n\nOrders are soft-deleted.\n"
+
+
+class TestDispositions(Project):
+    def setUp(self):
+        super().setUp()
+        self.write(ARCH_REL, ARCH)
+        self.write(PRD_REL, PRD)
+        self.review = self.write(EPIC_REVIEW_REL, REVIEW)
+
+    def disp(self, fid, disposition, *extra):
+        return self.sa("disposition", "--review", self.review, "--finding", fid,
+                       "--disposition", disposition, *extra)
+
+    def load(self):
+        from ruamel.yaml import YAML
+        with open(self.path(f"{IMPL}/epic-003/epic-closure/drift-dispositions.yaml"),
+                  encoding="utf-8") as fh:
+            return YAML(typ="safe").load(fh)
+
+    def test_resolved_in_code_is_recorded(self):
+        r = self.disp("AD-1", "resolved-in-code")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        d = self.load()
+        self.assertEqual(d["review"], EPIC_REVIEW_REL)
+        self.assertEqual(d["findings"]["AD-1"]["severity"], "MAJOR")
+        self.assertEqual(d["findings"]["AD-1"]["title"], "Orders bypass the repository")
+        self.assertEqual(d["findings"]["AD-1"]["disposition"], "resolved-in-code")
+        self.assertIsNone(d["findings"]["AD-1"]["commit"])
+
+    def test_unknown_finding_is_refused(self):
+        r = self.disp("AD-9", "resolved-in-code")
+        self.assertEqual(r.returncode, 2)
+        self.assertIn("AD-9 is not in the findings table", r.stderr)
+
+    def test_spec_updated_on_architecture(self):
+        r = self.disp("AD-1", "spec-updated", "--spec", f"{ARCH_REL}#order-api")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertEqual(self.load()["findings"]["AD-1"]["spec"], f"{ARCH_REL}#order-api")
+
+    def test_spec_updated_on_a_prd_is_refused(self):
+        r = self.disp("AD-3", "spec-updated", "--spec", f"{PRD_REL}#deletion")
+        self.assertEqual(r.returncode, 2)
+        self.assertIn("record spec-proposal instead", r.stderr)
+
+    def test_spec_proposal_on_a_prd(self):
+        r = self.disp("AD-3", "spec-proposal", "--spec", f"{PRD_REL}#deletion")
+        self.assertEqual(r.returncode, 0, r.stderr)
+
+    def test_spec_dispositions_need_a_resolving_pointer(self):
+        r = self.disp("AD-1", "spec-updated")
+        self.assertEqual(r.returncode, 2)
+        r = self.disp("AD-1", "spec-updated", "--spec", f"{ARCH_REL}#nope")
+        self.assertEqual(r.returncode, 2)
+        self.assertIn("has no anchor #nope", r.stderr)
+
+    def test_adr_justified_needs_an_existing_adr(self):
+        r = self.disp("AD-1", "adr-justified", "--adr", "docs/adr/0009-x.md")
+        self.assertEqual(r.returncode, 2)
+        self.write("docs/adr/0009-x.md", "# ADR-0009: x\n")
+        r = self.disp("AD-1", "adr-justified", "--adr", "docs/adr/0009-x.md")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertEqual(self.load()["findings"]["AD-1"]["adr"], "docs/adr/0009-x.md")
+
+    def test_switch_off_refuses_spec_dispositions(self):
+        r = self.disp("AD-1", "spec-updated", "--spec", f"{ARCH_REL}#order-api",
+                      "--spec-alignment", "false")
+        self.assertEqual(r.returncode, 2)
+        self.assertIn("spec_alignment is off", r.stderr)
+        r = self.disp("AD-1", "resolved-in-code", "--spec-alignment", "false")
+        self.assertEqual(r.returncode, 0, r.stderr)
+
+    def check(self, expect):
+        return self.sa("check-dispositions", "--review", self.review, "--expect", expect)
+
+    def test_check_passes_when_every_blocking_finding_has_one(self):
+        self.disp("AD-1", "resolved-in-code")
+        self.disp("AD-3", "spec-proposal", "--spec", f"{PRD_REL}#deletion")
+        r = self.check("DONE — Blocker: 1, Major: 1, Minor: 1")
+        self.assertEqual(r.returncode, 0, r.stderr)
+
+    def test_check_blocks_a_blocking_finding_without_one(self):
+        self.disp("AD-1", "resolved-in-code")
+        r = self.check("Blocker: 1, Major: 1, Minor: 1")
+        self.assertEqual(r.returncode, 2)
+        self.assertIn("AD-3 (BLOCKER) has no disposition", r.stderr)
+
+    def test_check_blocks_a_count_mismatch(self):
+        self.disp("AD-1", "resolved-in-code")
+        self.disp("AD-3", "resolved-in-code")
+        r = self.check("Blocker: 0, Major: 1, Minor: 1")
+        self.assertEqual(r.returncode, 2)
+        self.assertIn("Blocker: 1, Major: 1, Minor: 1", r.stderr)
+
+    def test_a_review_in_the_wrong_shape_cannot_pass_silently(self):
+        self.write(EPIC_REVIEW_REL, "# Review\n\n- AD-1 MAJOR: something\n")
+        r = self.check("Blocker: 0, Major: 1, Minor: 0")
+        self.assertEqual(r.returncode, 2)
+        self.assertIn("parsed Blocker: 0, Major: 0, Minor: 0", r.stderr)
+
+    def test_sprint_ids_are_sprint_qualified(self):
+        rel = f"{IMPL}/epic-003/sprint-02/closure/arch-drift-review.md"
+        review = self.write(rel, REVIEW.replace("AD-1", "SD-02-1").replace("AD-2", "SD-02-2")
+                            .replace("AD-3", "SD-02-3"))
+        r = self.sa("disposition", "--review", review, "--finding", "SD-02-1",
+                    "--disposition", "resolved-in-code")
+        self.assertEqual(r.returncode, 0, r.stderr)
+
+
 if __name__ == "__main__":
     unittest.main()

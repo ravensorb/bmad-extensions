@@ -538,6 +538,171 @@ def cmd_sections(ctx, a):
     return 0
 
 
+# -- drift dispositions ----------------------------------------------------------------------- #
+
+DISPOSITIONS = ("resolved-in-code", "adr-justified", "spec-updated", "spec-proposal")
+SPEC_DISPOSITIONS = ("spec-updated", "spec-proposal")
+# R1: epic findings AD-{n}; sprint findings SD-{sprint nn}-{n}, unique across an epic.
+FINDING_ID_RE = re.compile(r"^(AD-\d+|SD-\d{2}-\d+)$")
+SEVERITIES = ("BLOCKER", "MAJOR", "MINOR")
+EXPECT_RE = re.compile(r"Blocker:\s*(\d+),\s*Major:\s*(\d+),\s*Minor:\s*(\d+)", re.I)
+DISP_FILE = "drift-dispositions.yaml"
+
+
+def _yaml():
+    from ruamel.yaml import YAML
+    y = YAML()
+    y.width = 4096
+    y.preserve_quotes = True
+    return y
+
+
+def load_yaml(path):
+    if not os.path.isfile(path):
+        return None
+    with open(path, encoding="utf-8") as fh:
+        return _yaml().load(fh)
+
+
+def dump_yaml(path, data):
+    import io
+    buf = io.StringIO()
+    _yaml().dump(data, buf)
+    atomic_write(path, buf.getvalue())
+
+
+def md_tables(text):
+    """Every markdown table as a list of rows (header row first), cells as plain text."""
+    tables, rows, row = [], None, None
+    for t in md().parse(text):
+        if t.type == "table_open":
+            rows = []
+        elif t.type == "tr_open" and rows is not None:
+            row = []
+        elif t.type in ("th_open", "td_open") and row is not None:
+            row.append("")
+        elif t.type == "inline" and row is not None and rows is not None:
+            row[-1] = t.content.strip()
+        elif t.type == "tr_close" and rows is not None:
+            rows.append(row)
+            row = None
+        elif t.type == "table_close":
+            tables.append(rows)
+            rows = None
+    return tables
+
+
+def review_findings(path):
+    """{id: {"severity", "title"}} from a review's findings table -- the shape
+    l3io-arch-review's references/review-report.md prescribes, IDs in the `#` column."""
+    try:
+        text = read_text(path)
+    except OSError as e:
+        raise SAError(2, f"cannot read review {path}: {e.strerror or e}")
+    out = {}
+    for rows in md_tables(text):
+        if not rows:
+            continue
+        head = [c.strip().casefold() for c in rows[0]]
+        if "#" not in head or "severity" not in head:
+            continue
+        ci, si = head.index("#"), head.index("severity")
+        ti = head.index("finding") if "finding" in head else None
+        for r in rows[1:]:
+            fid = r[ci].strip().strip("`") if ci < len(r) else ""
+            if not FINDING_ID_RE.match(fid):
+                continue
+            if fid in out:
+                raise SAError(2, f"{path}: finding {fid} appears twice")
+            title = r[ti] if ti is not None and ti < len(r) and r[ti] else fid
+            out[fid] = {"severity": r[si].strip().strip("*").upper(), "title": title}
+    return out
+
+
+def load_dispositions(dpath, review_rel=None):
+    from ruamel.yaml.comments import CommentedMap
+    data = load_yaml(dpath)
+    if data is None:
+        data = CommentedMap()
+        data["review"] = review_rel
+        data["findings"] = CommentedMap()
+    if not isinstance(data.get("findings"), dict):
+        raise SAError(2, f"{dpath}: 'findings' is not a mapping")
+    return data
+
+
+def cmd_disposition(ctx, a):
+    from ruamel.yaml.comments import CommentedMap
+    review = ctx.abs(a.review)
+    f = review_findings(review).get(a.finding)
+    if f is None:
+        raise SAError(2, f"{a.finding} is not in the findings table of {ctx.rel(review)}")
+    if a.spec_alignment.lower() != "true" and a.disposition in SPEC_DISPOSITIONS:
+        raise SAError(2, f"spec_alignment is off: {a.finding} can only be resolved-in-code "
+                         f"or adr-justified")
+    spec = adr = None
+    if a.adr:
+        if not os.path.isfile(ctx.abs(a.adr)):
+            raise SAError(2, f"--adr {a.adr} does not exist")
+        adr = ctx.rel(ctx.abs(a.adr))
+    elif a.disposition == "adr-justified":
+        raise SAError(2, "adr-justified needs --adr naming the accepted ADR")
+    if a.disposition in SPEC_DISPOSITIONS:
+        if not a.spec:
+            raise SAError(2, f"{a.disposition} needs --spec <path>#<anchor>")
+        hit, why = resolve_pointer(load_catalog(ctx), a.spec)
+        if hit is None:
+            raise SAError(2, f"--spec {a.spec}: {why}")
+        if a.disposition == "spec-updated" and hit[3] != "architecture":
+            raise SAError(2, f"spec-updated edits architecture sections only; {hit[0]} is a "
+                             f"{hit[3]} spec -- record spec-proposal instead (ADR-0004)")
+        spec = f"{hit[0]}#{hit[1]}"
+    dpath = os.path.join(os.path.dirname(review), DISP_FILE)
+    data = load_dispositions(dpath, ctx.rel(review))
+    prior = data["findings"].get(a.finding)
+    if prior is not None and (prior.get("commit") or prior.get("issue")):
+        raise SAError(2, f"{a.finding} was already applied "
+                         f"({prior.get('commit') or prior.get('issue')}); its disposition "
+                         f"cannot change")
+    e = CommentedMap()
+    e["severity"], e["title"], e["disposition"] = f["severity"], f["title"], a.disposition
+    e["spec"], e["adr"], e["commit"], e["issue"] = spec, adr, None, None
+    data["findings"][a.finding] = e
+    dump_yaml(dpath, data)
+    print(f"OK disposition {a.finding} ({f['severity']}) -> {a.disposition}")
+    return 0
+
+
+def cmd_check_dispositions(ctx, a):
+    m = EXPECT_RE.search(a.expect)
+    if not m:
+        raise SAError(2, f"--expect {a.expect!r} has no 'Blocker: N, Major: N, Minor: N'")
+    review = ctx.abs(a.review)
+    findings = review_findings(review)
+    expected = dict(zip(SEVERITIES, map(int, m.groups())))
+    got = {s: sum(1 for f in findings.values() if f["severity"] == s) for s in SEVERITIES}
+    problems = []
+    odd = sorted({f["severity"] for f in findings.values()} - set(SEVERITIES))
+    if odd:
+        problems.append(f"unknown severities in the findings table: {', '.join(odd)}")
+    if got != expected:
+        problems.append(f"parsed Blocker: {got['BLOCKER']}, Major: {got['MAJOR']}, Minor: "
+                        f"{got['MINOR']} from {ctx.rel(review)} but the reviewer reported "
+                        f"Blocker: {expected['BLOCKER']}, Major: {expected['MAJOR']}, Minor: "
+                        f"{expected['MINOR']} -- is the findings table in the "
+                        f"references/review-report.md shape, IDs in the # column?")
+    data = load_dispositions(os.path.join(os.path.dirname(review), DISP_FILE))
+    for fid, f in sorted(findings.items()):
+        if f["severity"] in ("BLOCKER", "MAJOR") and fid not in data["findings"]:
+            problems.append(f"{fid} ({f['severity']}) has no disposition")
+    for p in problems:
+        sys.stderr.write(f"check-dispositions: {p}\n")
+    if problems:
+        return 2
+    print(f"OK check-dispositions: {len(findings)} finding(s), every BLOCKER/MAJOR disposed")
+    return 0
+
+
 # -- CLI -------------------------------------------------------------------------------------- #
 
 def build_parser():
@@ -568,6 +733,21 @@ def build_parser():
     se = sub.add_parser("sections", help="the stories' pointers as de-duplicated line ranges")
     se.add_argument("--stories", nargs="+", required=True)
     se.set_defaults(func=cmd_sections)
+
+    dp = sub.add_parser("disposition", help="record one drift finding's disposition")
+    dp.add_argument("--review", required=True)
+    dp.add_argument("--finding", required=True, help="AD-{n} or SD-{nn}-{n}")
+    dp.add_argument("--disposition", required=True, choices=list(DISPOSITIONS))
+    dp.add_argument("--spec", default="", help="<path>#<anchor> (spec dispositions)")
+    dp.add_argument("--adr", default="", help="the ADR (adr-justified; optional otherwise)")
+    dp.add_argument("--spec-alignment", default="true", help="pm-execute's spec_alignment")
+    dp.set_defaults(func=cmd_disposition)
+
+    cd = sub.add_parser("check-dispositions", help="gate: every BLOCKER/MAJOR disposed")
+    cd.add_argument("--review", required=True)
+    cd.add_argument("--expect", required=True,
+                    help="the reviewer's final 'Blocker: N, Major: N, Minor: N'")
+    cd.set_defaults(func=cmd_check_dispositions)
 
     # Later tasks register their subcommands above this line.
     return p
