@@ -769,5 +769,153 @@ class TestSyncPlan(SyncBase):
         self.assertIn("not-an-epic", r.stderr)
 
 
+class TestCommit(SyncBase):
+    def setUp(self):
+        super().setUp()
+        r = self.sa("lease", "acquire", "--owner", "E003", "--wait-minutes", "0")
+        self.assertEqual(r.returncode, 0, r.stderr)
+
+    def edit(self, old, new, rel=ARCH_REL):
+        text = self.read(rel)
+        self.assertIn(old, text)
+        self.write(rel, text.replace(old, new, 1))
+
+    def commit(self, *extra, finding="AD-1"):
+        args = ["commit", "--epic", "E003"]
+        args += ["--finding", finding] if finding else []
+        return self.sa(*args, "--paths", ARCH_REL, *extra)
+
+    def head(self):
+        return self.git("rev-parse", "HEAD").strip()
+
+    def test_an_in_scope_edit_is_committed_recorded_and_tracked(self):
+        self.edit("POST /orders accepts a body.", "POST /orders accepts a body; returns 201.")
+        r = self.commit()
+        self.assertEqual(r.returncode, 0, r.stderr)
+        msg = self.git("log", "-1", "--format=%B")
+        self.assertTrue(msg.startswith("docs(spec): E003 AD-1 — Orders bypass the repository"),
+                        msg)
+        self.assertIn("Signed-off-by: t <t@example.com>", msg)
+        self.assertEqual(self.git("show", "--name-only", "--format=", "HEAD").split(),
+                         [ARCH_REL])
+        d = self.disp()["findings"]["AD-1"]
+        self.assertEqual(d["commit"], self.head())
+        [it] = self.issues("spec-change")
+        self.assertEqual((it["key"], it["ref"]), (d["issue"], self.head()))
+        self.assertEqual(it["severity"], "Medium")
+        self.assertNotIn("AD-1", {i["id"] for i in self.plan()["items"]})
+
+    def test_scope_guard_refuses_an_edit_outside_the_section(self):
+        before = self.head()
+        self.edit("POST /orders accepts a body.", "POST /orders returns 201.")
+        self.edit("one row per order.", "one row per order line.")
+        r = self.commit()
+        self.assertEqual(r.returncode, 2)
+        self.assertIn("outside", r.stderr)
+        self.assertIn("order-api", r.stderr)
+        self.assertEqual(self.head(), before)
+
+    def test_anchor_guard_refuses_a_pointed_rename_unless_told(self):
+        self.edit("## Order API", "## Orders API")
+        r = self.commit()
+        self.assertEqual(r.returncode, 2)
+        self.assertIn("E003-S01-001.md", r.stderr)
+        self.assertIn("--rename-anchor", r.stderr)
+        r = self.commit("--rename-anchor", "order-api=orders-api")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        story_rel = f"{IMPL}/epic-003/sprint-01/stories/E003-S01-001.md"
+        self.assertIn(f"Spec: {ARCH_REL}#orders-api", self.read(story_rel))
+        self.assertEqual(sorted(self.git("show", "--name-only", "--format=", "HEAD").split()),
+                         sorted([ARCH_REL, story_rel]))
+        self.assertEqual(self.disp()["findings"]["AD-1"]["spec"], f"{ARCH_REL}#orders-api")
+
+    def test_rename_anchor_target_must_exist(self):
+        self.edit("## Order API", "## Orders API")
+        r = self.commit("--rename-anchor", "order-api=no-such")
+        self.assertEqual(r.returncode, 2)
+        self.assertIn("no-such", r.stderr)
+
+    def test_only_the_named_paths_are_committed(self):
+        self.write("README.md", "changed, not committed\n")
+        self.write("other.txt", "staged by someone else\n")
+        self.git("add", "other.txt")
+        self.edit("POST /orders accepts a body.", "POST /orders returns 201.")
+        self.assertEqual(self.commit().returncode, 0)
+        self.assertIn("README.md", self.git("diff", "--name-only").split())
+        self.assertIn("other.txt", self.git("diff", "--cached", "--name-only").split())
+
+    def test_the_lease_is_required(self):
+        self.sa("lease", "release", "--owner", "E003")
+        self.edit("POST /orders accepts a body.", "POST /orders returns 201.")
+        r = self.commit()
+        self.assertEqual(r.returncode, 2)
+        self.assertIn("lease", r.stderr)
+
+    def test_paths_must_be_the_pointed_file(self):
+        self.edit("POST /orders accepts a body.", "POST /orders returns 201.")
+        r = self.sa("commit", "--epic", "E003", "--finding", "AD-1", "--paths", "README.md")
+        self.assertEqual(r.returncode, 2)
+
+    def test_a_proposal_item_is_never_committed(self):
+        r = self.sa("commit", "--epic", "E003", "--finding", "AD-3", "--paths", PRD_REL)
+        self.assertEqual(r.returncode, 2)
+        self.assertIn("propose", r.stderr)
+
+    def test_a_committed_findings_disposition_cannot_change(self):
+        self.edit("POST /orders accepts a body.", "POST /orders returns 201.")
+        self.assertEqual(self.commit().returncode, 0)
+        r = self.sa("disposition", "--review", self.review, "--finding", "AD-1",
+                    "--disposition", "resolved-in-code")
+        self.assertEqual(r.returncode, 2)
+        self.assertIn("already applied", r.stderr)
+
+    def test_a_briefly_locked_index_is_retried(self):
+        self.edit("POST /orders accepts a body.", "POST /orders returns 201.")
+        lock = self.path(".git/index.lock")
+        with open(lock, "w"):
+            pass
+        # 1.2 s outlasts interpreter start-up + the diff, so the first attempts really do
+        # hit the lock (backoff 0.2, 0.4, 0.8 s) and a later one succeeds.
+        threading.Timer(1.2, os.remove, [lock]).start()
+        r = self.commit()
+        self.assertEqual(r.returncode, 0, r.stderr)
+
+    def test_a_stuck_index_lock_gives_up(self):
+        self.edit("POST /orders accepts a body.", "POST /orders returns 201.")
+        lock = self.path(".git/index.lock")
+        with open(lock, "w"):
+            pass
+        self.addCleanup(lambda: os.path.exists(lock) and os.remove(lock))
+        r = self.commit()
+        self.assertEqual(r.returncode, 2)
+        self.assertIn("stayed locked", r.stderr)
+
+    def _adr(self):
+        self.write("docs/adr/0001-order-api.md",
+                   adr(1, "order-api", departs=f"{ARCH_REL}#order-api"))
+        self.git("add", "docs/adr/0001-order-api.md")
+        self.git("commit", "-q", "-m", "adr")
+
+    def test_an_adr_link_commit(self):
+        self._adr()
+        self.edit("POST /orders accepts a body.",
+                  "POST /orders accepts a body. See [ADR-0001](../../docs/adr/0001-order-api.md).")
+        r = self.sa("commit", "--epic", "E003", "--adr", "docs/adr/0001-order-api.md",
+                    "--paths", ARCH_REL)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertTrue(self.git("log", "-1", "--format=%s").startswith(
+            "docs(spec): E003 link ADR-0001 from "))
+        self.assertEqual(self.disp()["adr_links"]["ADR-0001"]["commit"], self.head())
+        self.assertNotIn("ADR-0001", {i["id"] for i in self.plan()["items"]})
+
+    def test_an_adr_link_commit_without_the_link_is_refused(self):
+        self._adr()
+        self.edit("POST /orders accepts a body.", "POST /orders returns 201.")
+        r = self.sa("commit", "--epic", "E003", "--adr", "docs/adr/0001-order-api.md",
+                    "--paths", ARCH_REL)
+        self.assertEqual(r.returncode, 2)
+        self.assertIn("does not link", r.stderr)
+
+
 if __name__ == "__main__":
     unittest.main()

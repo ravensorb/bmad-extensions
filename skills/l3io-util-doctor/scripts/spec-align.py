@@ -1112,6 +1112,174 @@ def cmd_propose(ctx, a):
     return 0
 
 
+# -- git and the guarded docs(spec) commit ----------------------------------------------------- #
+
+class IndexLocked(Exception):
+    pass
+
+
+def _git(ctx, *args, check=True):
+    try:
+        r = subprocess.run(["git", "-C", ctx.project, *args], capture_output=True, text=True)
+    except OSError as e:
+        raise SAError(2, f"git is not available: {e}")
+    if check and r.returncode != 0:
+        raise SAError(2, f"git {' '.join(args)} failed: {(r.stderr or r.stdout).strip()}")
+    return r
+
+
+def git_commit(ctx, message, paths):
+    """`git commit -s --only -- paths`: exactly those paths, even in a checkout other agents
+    share. A held index.lock is retried with backoff (tenacity), then refused."""
+    from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential
+
+    @retry(retry=retry_if_exception_type(IndexLocked), reraise=True,
+           stop=stop_after_attempt(5), wait=wait_exponential(multiplier=0.2, max=2))
+    def attempt():
+        r = _git(ctx, "commit", "-s", "--only", "-m", message, "--", *paths, check=False)
+        if r.returncode != 0:
+            err = (r.stderr or r.stdout).strip()
+            if "index.lock" in err:
+                raise IndexLocked(err)
+            raise SAError(2, f"git commit failed: {err}")
+
+    try:
+        attempt()
+    except IndexLocked as e:
+        raise SAError(2, f"the git index stayed locked after 5 attempts: {e}")
+    return _git(ctx, "rev-parse", "HEAD").stdout.strip()
+
+
+def changed_hunks(ctx, rel):
+    from unidiff import PatchSet
+    diff = _git(ctx, "diff", "-U0", "HEAD", "--", rel).stdout
+    if not diff.strip():
+        return []
+    return [(h.source_start, h.source_length) for pf in PatchSet(diff) for h in pf]
+
+
+def hunks_outside(hunks, sec):
+    """Hunks (in HEAD line numbers) not contained in the section. A pure insertion
+    (length 0) lands after line `start`, which must itself be inside the section."""
+    bad = []
+    for start, length in hunks:
+        inside = (sec.start <= start <= sec.end) if length == 0 else (
+            sec.start <= start and start + length - 1 <= sec.end)
+        if not inside:
+            bad.append((start, length))
+    return bad
+
+
+def _pointer_re(rel, anchor):
+    return re.compile(rf"^(\s*(?:[-*]\s+)?Spec:\s*){re.escape(rel)}#{re.escape(anchor)}(\s*)$",
+                      re.M)
+
+
+def pointing_stories(ctx, rel, anchor):
+    pat = _pointer_re(rel, anchor)
+    return [s for s in all_story_files(ctx) if pat.search(read_text(s))]
+
+
+def rewrite_pointer(path, rel, old, new):
+    pat = _pointer_re(rel, old)
+    atomic_write(path, pat.sub(lambda m: f"{m.group(1)}{rel}#{new}{m.group(2)}",
+                               read_text(path)))
+
+
+def adr_link_item(ctx, nnn, path):
+    """The adr-link item for an ADR, built from its own metadata -- not from sync-plan, whose
+    gap disappears the moment the agent has written the link this commit is for."""
+    ident = adr_ident(ctx, path)
+    rows = [x for x in all_adrs(ctx) if x["path"] == ctx.rel(ctx.abs(path))]
+    if not rows or rows[0]["epic"] != f"E{nnn}":
+        raise SAError(2, f"{path} is not an ADR of E{nnn} (its Epic: line)")
+    dep = (rows[0]["departs"] or "").strip()
+    if not PTR_RE.match(dep):
+        raise SAError(2, f"{path} has no `Departs from spec:` pointer to link from")
+    if ident in ((load_yaml(epic_disp_path(ctx, nnn)) or {}).get("adr_links") or {}):
+        raise SAError(2, f"{ident} is already linked or proposed for E{nnn}")
+    return {"type": "adr-link", "id": ident, "severity": "MINOR",
+            "title": f"Link {ident} from {dep}", "spec": dep, "adr": rows[0]["path"],
+            "review": None, "dispositions": ctx.rel(epic_disp_path(ctx, nnn))}
+
+
+def cmd_commit(ctx, a):
+    ctx.need("impl", "state", "pm")
+    nnn = epic_nnn(a.epic)
+    holder = lease_holder(ctx)
+    if not holder or holder.get("owner") != f"E{nnn}":
+        raise SAError(2, f"the spec-sync lease is not held by E{nnn} -- run "
+                         f"`lease acquire --owner E{nnn}` first")
+    if a.finding:
+        item = find_item(ctx, nnn, a.finding, load_catalog(ctx))
+        if item["type"] != "spec-updated":
+            raise SAError(2, f"{a.finding} is a {item['type']} item: proposals are never "
+                             f"edited -- write the proposal and run `propose`")
+    else:
+        item = adr_link_item(ctx, nnn, a.adr)
+    ident = item["id"]
+    rel, anchor = PTR_RE.match(item["spec"]).groups()
+    if [ctx.rel(ctx.abs(p)) for p in a.paths] != [rel]:
+        raise SAError(2, f"--paths must be exactly {rel}, the file {ident} points at")
+    head = _git(ctx, "show", f"HEAD:{rel}", check=False)
+    if head.returncode != 0:
+        raise SAError(2, f"{rel} is not committed at HEAD; spec sync edits committed specs only")
+    head_secs = {s.anchor: s for s in parse_sections(head.stdout)}
+    sec = head_secs.get(anchor)
+    if sec is None:
+        raise SAError(2, f"{rel} has no #{anchor} at HEAD")
+    hunks = changed_hunks(ctx, rel)
+    if not hunks:
+        raise SAError(2, f"{rel} has no change to commit")
+    bad = hunks_outside(hunks, sec)
+    if bad:
+        spots = ", ".join(f"L{s}" + (f"–{s + n - 1}" if n > 1 else "") for s, n in bad)
+        raise SAError(2, f"the edit to {rel} changes line(s) outside #{anchor} "
+                         f"(L{sec.start}–{sec.end} at HEAD): {spots} -- edit only that section")
+    work = parse_sections(read_text(ctx.abs(rel)))
+    after = {s.anchor for s in work}
+    renames = {}
+    for pair in a.rename_anchor:
+        old, _, new = pair.partition("=")
+        if not old or not new or new not in after:
+            raise SAError(2, f"--rename-anchor {pair}: {new or '(empty)'} is not an anchor in "
+                             f"the edited {rel}")
+        renames[old] = new
+    unhandled = {}
+    for gone in sorted(set(head_secs) - after):
+        stories = pointing_stories(ctx, rel, gone)
+        if stories and gone not in renames:
+            unhandled[gone] = [ctx.rel(s) for s in stories]
+    if unhandled:
+        detail = "; ".join(f"#{k} <- {', '.join(v)}" for k, v in unhandled.items())
+        raise SAError(2, f"the edit removes anchor(s) stories point to: {detail} -- keep the "
+                         f"heading, or pass --rename-anchor OLD=NEW to rewrite those pointers")
+    target = renames.get(anchor, anchor)
+    if item["type"] == "adr-link":
+        wsec = next((s for s in work if s.anchor == target), None)
+        body = read_text(ctx.abs(rel)).splitlines()[wsec.start - 1:wsec.end] if wsec else []
+        if not any(os.path.basename(item["adr"]) in line for line in body):
+            raise SAError(2, f"the edit does not link {item['adr']} from #{target}")
+    paths = [rel]
+    for old, new in renames.items():
+        for s in pointing_stories(ctx, rel, old):
+            rewrite_pointer(s, rel, old, new)
+            paths.append(ctx.rel(s))
+    message = (f"docs(spec): E{nnn} {ident} — {item['title']}" if item["type"] == "spec-updated"
+               else f"docs(spec): E{nnn} link {ident} from {item['spec']}")
+    sha = git_commit(ctx, message, paths)
+    fields = {"commit": sha}
+    if target != anchor and item["type"] == "spec-updated":
+        fields["spec"] = f"{rel}#{target}"
+        item["spec"] = fields["spec"]
+    record_item(ctx, item, **fields)
+    key = append_spec_issue(ctx, nnn, "spec-change", sha, ident, item["title"],
+                            item["severity"], item["spec"], item["review"] or item["adr"])
+    record_item(ctx, item, issue=key)
+    print(f"OK commit {sha[:12]} {ident} -> {key}")
+    return 0
+
+
 # -- CLI -------------------------------------------------------------------------------------- #
 
 def build_parser():
@@ -1190,6 +1358,15 @@ def build_parser():
     g.add_argument("--finding", default="")
     g.add_argument("--adr", default="")
     pr.set_defaults(func=cmd_propose)
+
+    co = sub.add_parser("commit", help="guarded docs(spec) commit for one finding or ADR link")
+    co.add_argument("--epic", required=True)
+    g = co.add_mutually_exclusive_group(required=True)
+    g.add_argument("--finding", default="")
+    g.add_argument("--adr", default="")
+    co.add_argument("--paths", nargs="+", required=True, help="exactly the pointed-to spec file")
+    co.add_argument("--rename-anchor", action="append", default=[], metavar="OLD=NEW")
+    co.set_defaults(func=cmd_commit)
 
     # Later tasks register their subcommands above this line.
     return p
