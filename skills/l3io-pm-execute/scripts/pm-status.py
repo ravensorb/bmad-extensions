@@ -29,7 +29,9 @@ Subcommands
   set-status    --state-root S  (--story KEY | --epic ID [--sprint ID])  --status S
                 [--title T] [--flock] [--no-events] [--session-id ID]
                 (a story set to done resolves every key in its resolves: as fixed, ref
-                the story; a failure there warns and still exits 0 -- ADR-0003)
+                the story, printing `resolved BL-...` per NEW resolution and
+                `ok BL-... already resolved (...)` per key resolved before; a failure
+                there warns, naming /l3io-util-doctor triage, and still exits 0 -- ADR-0003)
   sync-story-doc --artifacts-root R  (NOT the state root)  --story KEY  --status S
                 [--quiet]
                 (writes status: into the story markdown's frontmatter; the state
@@ -106,7 +108,8 @@ Subcommands
                 issue file + 1); an explicit --key is canonicalized and must match --epic)
                 (--key omitted allocates the next number for --epic under a lock --
                 the caller never invents {nnn}; an explicit --key that already exists
-                exits 2. A content duplicate (same normalized title/epic/sprint/source)
+                exits 2, as does allocating past {nnn} = 999. A content duplicate (same
+                normalized title/epic/sprint/source)
                 of an open item, or of a resolved wontfix/duplicate/obsolete item whose
                 severity is at least the new finding's, is skipped (exit 0, nothing written); a
                 match against a resolved fixed item is appended as a recurrence, and
@@ -115,7 +118,8 @@ Subcommands
   list-issues   --state-root S  [--epic E] [--sprint S]
                 [--severity {Low,Medium,High,Critical}] [--format {text,json}]
                 [--status {backlog,scheduled}] [--resolved [--resolution R]] [--all]
-                (--all: JSON {open, resolved} under one lock; every JSON item carries
+                (open items by default; --resolved lists issues-resolved.yaml;
+                --all: JSON {open, resolved} under one lock; every JSON item carries
                 origin_archived)
                 (filters combine with AND; a repeated --severity ORs the given severities;
                 a missing issues.yaml, or a filter matching nothing, is success — exit 0
@@ -128,14 +132,18 @@ Subcommands
                 resolved key exits 0 after clearing any stale open copy)
   update-issue  --state-root S  --key K  --severity {Low,Medium,High,Critical}
                 [--note N] [--session-id ID] [--cause {cli,triage,plan-intake}]
-                (re-severities an OPEN item; a resolved key exits 2, an unknown one 3)
+                (re-severities an OPEN item; a resolved key exits 2, one in neither
+                issue file 3)
   promote-issue --state-root S  --artifacts-root R  --key K [--key K2 ...]  --epic E
                 --sprint S  --classification {simple,standard,complex}  [--title T]
                 [--model M] [--token-rates JSON] [--session-id ID] [--cause C]
                 (creates an estimated story whose `resolves:` lists the items, writes its
                 document, rolls up sprint and epic, then marks the items scheduled; every
                 refusal is checked before the first write; a retry after an interrupted
-                run resumes the existing story)
+                run resumes the existing story -- only with the same --epic/--sprint (a
+                claimant elsewhere exits 2 naming them), and a dead claim (a story under
+                archived/ that is not done) is ignored; a foreign epic lock exits 5 exactly
+                when check-lock would report it LOCKED)
   audit-issues  --state-root S  [--format {text,json}]
                 (read-only integrity checks 1a-1j over both issue files and the story
                 nodes' resolves:, read under issues_lock when either issue file exists;
@@ -143,14 +151,17 @@ Subcommands
                 a key with a resolved entry is checked only for 1a (resolved first) and
                 a key duplicated in one file only for 1i; 1d/1h ignore a dead claim --
                 a story under archived/ that is not done; 1j fires only when the ref
-                story's resolves: lists the key; exit 4 when anything is found)
+                story's resolves: lists the key; exit 4 when anything is found, and on
+                a malformed issue file, where --format json prints
+                {"findings": [], "error": MSG})
   repair-issue  --state-root S  --key K  --action {unschedule,link,reseed,reopen}
                 [--story KEY] [--session-id ID] [--cause C]
                 (each action refuses unless its audit finding holds: unschedule 1b/1g,
                 link 1d (--story must be the story that lists K), reseed 1e, reopen 1j;
                 unschedule and link also refuse a key with a resolved entry -- rerun
                 resolve-issue to clear the stale open copy (1a); reseed drops
-                non-canonical aliases of the epic's next key and never lowers it)
+                non-canonical aliases of the epic's next key and never lowers it;
+                unschedule writes an issue_unscheduled event)
   move-epic     --state-root S  --epic ID  --to {planned,active,archived}
   archive-epic  --state-root S  --epic ID   (alias for move-epic --to archived)
   calibration   show  --state-root S  [--format {text,json}]
@@ -891,10 +902,13 @@ def issues_lock(file_path: str):
     -> dedupe-check -> mutate -> save is not atomic, and `issues.yaml` is a shared
     append target across every epic and every parallel subagent -- exactly what
     ADR numbers needed a register for after two parallel agents both read the
-    same near-empty directory and chose the same number. Unlike calibration/ADR,
-    the lock file is keyed off the caller-supplied `--file` path rather than a
-    path derived from `--state-root`, because `append-issue` is the one
-    subcommand that still addresses its target by path (see status-files.md §7).
+    same near-empty directory and chose the same number. The lock file is keyed off
+    the OPEN issues file's path: `issues_paths(state_root)[0]` for every issue verb,
+    which all address the files through `--state-root` (status-files.md §7), or
+    `append-issue`'s compatibility `--file`, which must equal that path when
+    `--state-root` is also given -- so both addressing forms contend on one lock. The
+    resolved file lives beside it and is covered by the same hold (IssueStore loads
+    both issue files under it).
     """
     with _file_lock(file_path + ".lock", _ISSUES_LOCK):
         yield
@@ -3353,12 +3367,17 @@ def _resolve_story_items(state_root, node, story_key, session) -> None:
             store = IssueStore(open_path)
             for k in keys:
                 try:
+                    kc = canonical_bl_key(k)
+                    was_resolved = bool(kc and store.resolved_items(kc))
                     msg = resolve_issue_core(store, k, "fixed", story_key, None,
                                              session, "set-status")
-                    sys.stdout.write(f"resolved {msg}\n")
+                    # `resolved BL-...` is the spec §2.6 output contract for a NEW
+                    # resolution only; a key resolved before (a repeat done) gets `ok`.
+                    sys.stdout.write(f"{'ok' if was_resolved else 'resolved'} {msg}\n")
                 except PMError as e:
                     sys.stderr.write(f"pm-status.py: warning -- could not resolve {k} "
-                                     f"for {story_key}: {e.msg}\n")
+                                     f"for {story_key}: {e.msg} -- run /l3io-util-doctor "
+                                     f"triage\n")
     except KeyboardInterrupt:
         raise
     except BaseException as e:  # noqa: BLE001 -- deliberate, ADR-0003
@@ -4218,12 +4237,40 @@ def cmd_clear_lock(args) -> int:
     return 0
 
 
+def _check_lock_verdict(lock, session_id) -> tuple:
+    """check-lock's verdict on a PRESENT `_lock` value, as (exit, line): 0 when the epic
+    is free to claim, 5 when another session holds it within its TTL.
+
+    Extracted verbatim from cmd_check_lock -- same lines, same order of evaluation, and
+    the same ValueError on a non-integer ttl_minutes -- and shared with promote-issue's
+    foreign-lock check (`_foreign_lock_error`), so the two cannot disagree: e.g.
+    `ttl_minutes: 0` is always stale to both, where promote used to read it as 30.
+    cmd_set_lock is deliberately NOT routed through here: a claim REFUSES a lock this
+    verdict calls unreadable (not a mapping, no or bad claimed_at), and it parses the
+    TTL only after the timestamp, so sharing would change one of the two verbs."""
+    if not isinstance(lock, dict):
+        return 0, "FREE (unreadable lock — not a mapping — treating as stale)"
+    holder = str(lock.get("session_id", ""))
+    if holder == session_id:
+        return 0, "FREE (own session)"
+    claimed_str = str(lock.get("claimed_at", ""))
+    ttl = int(lock.get("ttl_minutes", 30))
+    claimed = _parse_iso(claimed_str)
+    if claimed is None:
+        return 0, "FREE (unreadable lock timestamp — treating as stale)"
+    age_minutes = _lock_age_minutes(claimed)
+    if age_minutes > ttl:
+        return 0, f"FREE (stale lock from {holder}, age={age_minutes:.1f}m > ttl={ttl}m)"
+    return 5, f"LOCKED by {holder} (claimed {claimed_str}, ttl={ttl}m)"
+
+
 def cmd_check_lock(args) -> int:
     """Exit 0 if epic is free to claim; exit 5 if held by another session within TTL.
 
     Timestamp parsing and age arithmetic go through `_parse_iso`/`_lock_age_minutes`
     -- the same helpers `cmd_set_lock` uses -- so the two TTL comparisons cannot drift
-    apart into two independently-wrong implementations.
+    apart into two independently-wrong implementations. The verdict itself lives in
+    `_check_lock_verdict`, which promote-issue shares.
     """
     path = epic_file(args.state_root, args.epic)
     if path is None:
@@ -4233,26 +4280,9 @@ def cmd_check_lock(args) -> int:
     if data is None or "_lock" not in data:
         sys.stdout.write("FREE\n")
         return 0
-    lock = data["_lock"]
-    if not isinstance(lock, dict):
-        sys.stdout.write("FREE (unreadable lock — not a mapping — treating as stale)\n")
-        return 0
-    holder = str(lock.get("session_id", ""))
-    if holder == args.session_id:
-        sys.stdout.write(f"FREE (own session)\n")
-        return 0
-    claimed_str = str(lock.get("claimed_at", ""))
-    ttl = int(lock.get("ttl_minutes", 30))
-    claimed = _parse_iso(claimed_str)
-    if claimed is None:
-        sys.stdout.write(f"FREE (unreadable lock timestamp — treating as stale)\n")
-        return 0
-    age_minutes = _lock_age_minutes(claimed)
-    if age_minutes > ttl:
-        sys.stdout.write(f"FREE (stale lock from {holder}, age={age_minutes:.1f}m > ttl={ttl}m)\n")
-        return 0
-    sys.stdout.write(f"LOCKED by {holder} (claimed {claimed_str}, ttl={ttl}m)\n")
-    return 5
+    code, line = _check_lock_verdict(data["_lock"], args.session_id)
+    sys.stdout.write(line + "\n")
+    return code
 
 
 def _maybe_set(d, key: str, val, coerce):
@@ -4579,6 +4609,10 @@ class IssueStore:
 
     def allocate(self, epic_norm: str) -> str:
         n = max(self.stored_next(epic_norm) or 1, self.highest_suffix(epic_norm) + 1)
+        if n > 999:
+            raise PMError(2, f"epic {epic_norm} has used every backlog key: BL-E{epic_norm}-999 "
+                             f"is the last a three-digit suffix can name, and keys are never "
+                             f"reused -- nothing written")
         self.raise_next(epic_norm, n + 1)
         return f"BL-E{epic_norm}-{n:03d}"
 
@@ -4842,7 +4876,7 @@ def update_issue_core(store, key, severity, note=None, session=None, cause="cli"
                          f"items can be re-severitied")
     item = store.single_open(k)
     if item is None:
-        raise PMError(3, f"{k} is not in {store.open_path}")
+        raise PMError(3, f"{k} is in neither {store.open_path} nor {store.resolved_path}")
     before = str(item.get("severity", ""))
     item["severity"] = severity
     store.save_open()
@@ -4866,25 +4900,23 @@ _STORY_FILE_RE = re.compile(r"^E\d{3}-S\d{2}-(\d{3})\.(yaml|md)$")
 
 
 def _foreign_lock_error(epath: str, session_id):
-    """PMError(5) when the epic holds a live lock another session owns, else None.
-    Mirrors cmd_set_lock: a stale lock (age > ttl) does not block; an unreadable one does."""
+    """PMError(5) when check-lock would report this epic LOCKED for `session_id`, else None.
+    The verdict is check-lock's own (`_check_lock_verdict`, carryover 16): a stale lock --
+    including `ttl_minutes: 0` -- does not block, and neither does a lock check-lock calls
+    unreadable. check-lock has no verdict for a non-integer ttl_minutes (it raises), so
+    promote refuses rather than guess."""
     _, data = load_node(epath)
-    lock = (data or {}).get("_lock")
-    if lock is None:
+    if data is None or "_lock" not in data:
         return None
-    if not isinstance(lock, dict):
-        return PMError(5, f"epic lock in {epath} is malformed -- refusing")
-    holder = str(lock.get("session_id", ""))
-    if session_id and holder == session_id:
+    try:
+        code, line = _check_lock_verdict(data["_lock"], session_id)
+    except (TypeError, ValueError):
+        return PMError(5, f"epic lock in {epath} has an unreadable ttl_minutes "
+                          f"({data['_lock'].get('ttl_minutes')!r}) -- refusing")
+    if code == 0:
         return None
-    claimed = _parse_iso(lock.get("claimed_at"))
-    if claimed is None:
-        return PMError(5, f"epic lock held by {holder!r} has no readable claimed_at -- refusing")
-    ttl = _int_or_none(lock.get("ttl_minutes")) or 30
-    if _lock_age_minutes(claimed) <= ttl:
-        return PMError(5, f"epic is locked by session {holder!r} -- pass that --session-id, "
-                          f"or wait for the lock to expire")
-    return None
+    return PMError(5, f"epic is {line} -- pass that --session-id, or wait for the lock to "
+                      f"expire")
 
 
 def _next_story_key(state_root, artifacts_root, epic_key, sprint_key) -> str:
@@ -5215,7 +5247,9 @@ def cmd_audit_issues(args) -> int:
     fake a finding. When neither exists, no lock is taken -- a read-only command must
     not create issues.yaml.lock -- and the story walk still runs, unlocked, over an
     empty store, so finding 1b can still report a resolves: key that names neither
-    file. Exit 4 when anything is found. Heuristic checks live in
+    file. Exit 4 when anything is found. A malformed issue file also exits 4; under
+    --format json it still prints a parseable document, {"findings": [], "error": MSG},
+    because triage and the health check parse it. Heuristic checks live in
     l3io-util-doctor/scripts/audit-backlog.py."""
     findings = []
     open_path, res_path = issues_paths(args.state_root)
@@ -5227,6 +5261,8 @@ def cmd_audit_issues(args) -> int:
             findings = _audit_findings(args.state_root, IssueStore(open_path))
     except PMError as e:
         sys.stderr.write(f"pm-status.py: {e.msg}\n")
+        if args.format == "json":   # triage T2 and health-check Check 13 parse this document
+            sys.stdout.write(json.dumps({"findings": [], "error": e.msg}, indent=2) + "\n")
         return 4
     if args.format == "json":
         sys.stdout.write(json.dumps({"findings": findings}, indent=2) + "\n")
@@ -5279,10 +5315,14 @@ def _repair_issue(args) -> int:
                     and str(opens[0].get("status")) == "scheduled"):
                 raise PMError(2, f"unschedule: audit finding 1b/1g does not hold for {k}")
             it = opens[0]
+            story = it.get("story")
             it["status"] = "backlog"
             it.pop("story", None)
             it.pop("scheduled_at", None)
             store.save_open()
+            # scheduled -> backlog is a status transition; the events are its history
+            _issue_event(store.state_root, "issue_unscheduled", it, args.session_id,
+                         args.cause, story=str(story) if story is not None else None)
             msg = f"{k} unscheduled -> backlog"
         elif act == "link":
             if not holds({"1d"}, story=args.story):
@@ -5365,7 +5405,8 @@ def _origin_archived(state_root, epic) -> bool:
 
 
 def cmd_list_issues(args) -> int:
-    """List (with optional filters) the flat backlog in issues.yaml.
+    """List (with optional filters) the open items in issues.yaml; with --resolved, the
+    resolved items in issues-resolved.yaml; with --all (JSON only), both.
 
     A missing issues.yaml and a filter set that matches nothing are both success
     (exit 0) — an empty backlog is a normal project state, not a failure. Filters
@@ -6062,7 +6103,8 @@ def build_parser() -> argparse.ArgumentParser:
     rp.add_argument("--cause", default="cli", choices=["cli", "triage", "plan-intake"])
     rp.set_defaults(func=cmd_repair_issue)
 
-    li = sub.add_parser("list-issues", help="list (with filters) the flat backlog in issues.yaml")
+    li = sub.add_parser("list-issues", help="list (with filters) open BL items, resolved ones "
+                                            "(--resolved), or both (--all, JSON)")
     li.add_argument("--state-root", required=True, help="path to {implementation_artifacts}/state")
     li.add_argument("--epic", help="epic id — accepts 'E001' or '001'")
     li.add_argument("--sprint", help="sprint id — accepts 'S01' or '01'; never matches an epic-level (empty-sprint) item")

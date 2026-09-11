@@ -733,6 +733,15 @@ class TestIssueAllocator(IssueBase):
         self.assertEqual(ev[0]["severity"], "Medium")
         self.assertIn("ts", ev[0])
 
+    def test_allocation_refuses_past_999(self):
+        """A key has three digits: allocating BL-E001-1000 would mint a non-canonical key."""
+        self.assertEqual(self.append("A", "001", "01", "Low", "qa", "--key", "BL-E001-999")[0], 0)
+        before = _tree_snapshot(self.root)
+        code, out, err = self.append("B")
+        self.assertEqual(code, 2, out)
+        self.assertIn("BL-E001-999", err)
+        self.assertEqual(_tree_snapshot(self.root), before)
+
 
 def _dump_failing_on(n):
     """Patch pm._atomic_dump so its n-th call raises OSError('injected') -- a crash
@@ -6354,6 +6363,13 @@ class TestCopilotRuntime(TestLayoutResolution):
 
 
 class TestUpdateIssue(IssueBase):
+    def test_unknown_key_names_both_files(self):
+        """Match resolve-issue: an unknown key is in neither file, and both are named."""
+        code, _, err = self.update("BL-E001-042", "High")
+        self.assertEqual(code, 3)
+        self.assertIn("issues.yaml", err)
+        self.assertIn("issues-resolved.yaml", err)
+
     def update(self, key, sev, *extra):
         return self.run_all(["update-issue", "--state-root", self.root, "--key", key,
                              "--severity", sev, *extra])
@@ -6746,6 +6762,52 @@ class TestPromoteIssue(IssueBase):
         code, _, err = self.promote("BL-E001-001", extra=("--session-id", "other"))
         self.assertEqual(code, 0, err)
 
+    def _set_epic_lock(self, lock_yaml):
+        """Give epic E001 a hand-written `_lock` -- a deliberately built state (no verb writes
+        a malformed or back-dated lock), keeping the rest of the node as the verbs left it."""
+        from ruamel.yaml import YAML
+        p = pm.epic_file(self.root, "E001")
+        y, n = pm.load_node(p)
+        n["_lock"] = YAML().load(lock_yaml)
+        pm.save_node(y, n, p)
+
+    def test_foreign_lock_verdict_matches_check_lock(self):
+        """promote-issue and check-lock share ONE verdict (carryover 16): ttl_minutes 0 is
+        always stale, and a lock check-lock calls unreadable does not block either."""
+        now = pm._now_iso()
+        cases = {  # name: (lock, check-lock's verdict -- pinned, so check-lock cannot drift)
+            "live":          (f"session_id: other\nclaimed_at: '{now}'\nttl_minutes: 30\n", 5),
+            "stale":         ("session_id: other\nclaimed_at: '2020-01-01T00:00:00Z'\n"
+                              "ttl_minutes: 1\n", 0),
+            "ttl-zero":      (f"session_id: other\nclaimed_at: '{now}'\nttl_minutes: 0\n", 0),
+            "not-a-mapping": ("'just-a-string'\n", 0),
+            "bad-timestamp": ("session_id: other\nclaimed_at: 'not-a-time'\nttl_minutes: 30\n", 0),
+            "no-timestamp":  ("session_id: other\nttl_minutes: 30\n", 0),
+        }
+        for i, (name, (lock, verdict)) in enumerate(cases.items(), start=1):
+            self.append(f"L{i}")
+            self._set_epic_lock(lock)
+            check, _, _ = self.run_all(["check-lock", "--state-root", self.root, "--epic",
+                                        "E001", "--session-id", "me"])
+            self.assertEqual(check, verdict, name)
+            before = _tree_snapshot(self.d)
+            code, _, err = self.promote(f"BL-E001-{i:03d}")
+            self.assertEqual(code, check, (name, err))
+            if code == 5:
+                self.assertEqual(_tree_snapshot(self.d), before, name)
+
+    def test_unreadable_lock_ttl_refuses_before_any_write(self):
+        """check-lock has no verdict for a non-integer ttl_minutes (it raises); promote
+        refuses rather than guess, and writes nothing."""
+        self.append("A")
+        self._set_epic_lock(f"session_id: other\nclaimed_at: '{pm._now_iso()}'\n"
+                            f"ttl_minutes: abc\n")
+        before = _tree_snapshot(self.d)
+        code, _, err = self.promote("BL-E001-001")
+        self.assertEqual(code, 5)
+        self.assertIn("ttl_minutes", err)
+        self.assertEqual(_tree_snapshot(self.d), before)
+
     def test_allocation_skips_an_artifact_only_document(self):
         self.append("A")
         stories = os.path.join(self.arts, "epic-001", "sprint-02", "stories")
@@ -6954,7 +7016,9 @@ class TestDoneHook(IssueBase):
         self.set_status("done")
         code, out, _ = self.set_status("done")
         self.assertEqual(code, 0)
-        self.assertIn("already resolved", out)
+        self.assertIn("ok BL-E001-001 already resolved (fixed)", out)
+        self.assertEqual([l for l in out.splitlines() if l.startswith("resolved BL-")], [],
+                         "a `resolved BL-` line must mean a NEW resolution only")
         self.assertEqual(self.resolved_keys(), ["BL-E001-001"])
 
     def test_hook_failure_warns_and_set_status_still_exits_0(self):
@@ -7052,6 +7116,14 @@ class TestDoneHook(IssueBase):
         self.assertIn("resolved BL-E001-001 (fixed, ref E001-S02-001)", out)
         self.assertEqual(self.resolved_keys(), ["BL-E001-001"])
 
+    def test_unresolvable_key_warning_names_triage(self):
+        self._set_resolves(["BL-E001-001", "BL-E001-050"])
+        code, _, err = self.set_status("done")
+        self.assertEqual(code, 0, err)
+        self.assertIn("could not resolve BL-E001-050 for E001-S02-001", err)
+        self.assertIn("-- run /l3io-util-doctor triage", err)
+        self.assertEqual(self.resolved_keys(), ["BL-E001-001"])
+
 
 class TestAuditIssues(IssueBase):
     def audit(self):
@@ -7093,6 +7165,21 @@ class TestAuditIssues(IssueBase):
         code, out, _ = self.run_all(["audit-issues", "--state-root",
                                      os.path.join(self.d, "nope")])
         self.assertEqual(code, 0)
+
+    def test_json_format_reports_a_malformed_issue_file(self):
+        """Triage T2 and health-check Check 13 parse this JSON: a malformed file must still
+        yield a parseable document carrying the error, with exit 4."""
+        with open(self.issues, "w", encoding="utf-8") as fh:
+            fh.write("backlog: oops\n")
+        code, out, err = self.run_all(["audit-issues", "--state-root", self.root,
+                                       "--format", "json"])
+        self.assertEqual(code, 4, err)
+        doc = json.loads(out)
+        self.assertEqual(doc["findings"], [])
+        self.assertIn("malformed 'backlog'", doc["error"])
+        code, out, err = self.run_all(["audit-issues", "--state-root", self.root])
+        self.assertEqual((code, out), (4, ""))                  # text mode is unchanged
+        self.assertIn("malformed 'backlog'", err)
 
     def test_audit_without_issue_files_leaves_no_lock_file(self):
         code, _ = self.audit()
@@ -7232,6 +7319,19 @@ class TestRepairIssue(TestAuditIssues):
         self.assertEqual(item["status"], "backlog")
         self.assertNotIn("story", item)
         self.assertNotIn(("1b", "BL-E001-001"), self.ids())
+
+    def test_unschedule_writes_an_issue_unscheduled_event(self):
+        """scheduled -> backlog is a status transition, and the events are its history."""
+        self.append("A")
+        self.promote()
+        os.remove(pm.story_file(self.root, "E001-S02-001"))
+        code, _, err = self.repair("BL-E001-001", "unschedule", "--session-id", "S-5")
+        self.assertEqual(code, 0, err)
+        ev = self.events("issue_unscheduled")
+        self.assertEqual(len(ev), 1)
+        self.assertEqual((ev[0]["key"], ev[0]["epic"], ev[0]["story"], ev[0]["session"],
+                          ev[0]["cause"]), ("BL-E001-001", "001", "E001-S02-001", "S-5", "cli"))
+        self.assertIn("ts", ev[0])
 
     def test_unschedule_clears_1g(self):
         self.append("Later", "005", "01", "Low", "qa (Q-1)")
