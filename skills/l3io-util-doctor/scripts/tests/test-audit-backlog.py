@@ -13,7 +13,7 @@ import subprocess
 import sys
 import tempfile
 import unittest
-from contextlib import redirect_stdout
+from contextlib import redirect_stderr, redirect_stdout
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 SCRIPT = os.path.join(os.path.dirname(HERE), "audit-backlog.py")
@@ -193,6 +193,18 @@ class TestCli(Base):
             fh.write("backlog: oops\n")
         self.assertEqual(ab.main(["--pm-status", PM, "--state-root", self.state,
                                   "--artifacts-root", self.arts, "--project-root", self.proj]), 2)
+
+    def test_unlistable_resolved_list_exits_2(self):
+        # the same refusal for the resolved file: list-issues --all reads both lists
+        self.append("A finding", "qa (Q-1)")
+        with open(os.path.join(self.state, "issues-resolved.yaml"), "w", encoding="utf-8") as fh:
+            fh.write("resolved: oops\n")
+        err = io.StringIO()
+        with redirect_stderr(err):
+            code = ab.main(["--pm-status", PM, "--state-root", self.state,
+                            "--artifacts-root", self.arts, "--project-root", self.proj])
+        self.assertEqual(code, 2)
+        self.assertIn("issues-resolved.yaml has a malformed 'resolved' field", err.getvalue())
 
 
 if __name__ == "__main__":

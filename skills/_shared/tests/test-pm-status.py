@@ -10,6 +10,7 @@ transition log, the progress report, and verify exit codes.
 import io
 import json
 import os
+import re
 import shutil
 import sys
 import tempfile
@@ -613,6 +614,25 @@ class IssueBase(Base):
             evs = [json.loads(l) for l in fh if l.strip()]
         return [e for e in evs if name is None or e.get("event") == name]
 
+    def assert_invariants(self):
+        """Spec §1.4 invariants 1, 5 and 6, read from the issue files as written. Call it after
+        an operation that should leave a valid state -- never in a test that builds an invalid
+        one on purpose. Invariant 1's key set is both files plus every key an `issue_opened`
+        event recorded, so a key that vanished from both files fails as well as one in both.
+        Invariant 6 uses the spec's own form, not pm-status's canonical_bl_key."""
+        files = {"issues.yaml": self.open_keys(), "issues-resolved.yaml": self.resolved_keys()}
+        for name, keys in files.items():
+            twice = sorted({k for k in keys if keys.count(k) > 1})
+            self.assertEqual(twice, [], f"invariant 5: a key appears twice in {name}")
+            bad = [k for k in keys if not re.fullmatch(r"BL-E[0-9]{3}-[0-9]{3}", k)]
+            self.assertEqual(bad, [], f"invariant 6: a non-canonical key in {name}")
+        opened = set()
+        if os.path.isfile(pm.events_path(self.root)):
+            opened = {str(e["key"]) for e in self.events("issue_opened")}
+        o, r = set(files["issues.yaml"]), set(files["issues-resolved.yaml"])
+        wrong = sorted(k for k in o | r | opened if (k in o) == (k in r))
+        self.assertEqual(wrong, [], "invariant 1: a key is in both issue files, or in neither")
+
     def _crash_promote_before_scheduling(self, key="BL-E001-001", epic="001", sprint="02",
                                          cls="standard", extra=()):
         """Run promote-issue with the scheduling save failing: the story node and document are
@@ -775,12 +795,14 @@ class TestResolveIssue(IssueBase):
         self.assertEqual(entry["note"], "accepted risk")
         self.assertEqual(entry["severity"], "Medium")
         self.assertTrue(entry["resolved_at"])
+        self.assert_invariants()
 
     def test_resolving_the_highest_then_appending_never_reuses(self):
         for t in ("A", "B", "C"):
             self.append(t)
         self.assertEqual(self.resolve("BL-E001-003", "obsolete", "--note", "gone")[0], 0)
         self.assertIn("BL-E001-004", self.append("D")[1])
+        self.assert_invariants()
 
     def test_required_flags_refuse_and_write_nothing(self):
         self.append("A")
@@ -797,6 +819,7 @@ class TestResolveIssue(IssueBase):
         self.append("B", "001", "02")
         self.assertEqual(self.resolve("BL-E001-001", "fixed", "--ref", "E001-S01-001")[0], 0)
         self.assertEqual(self.resolve("BL-E001-002", "fixed", "--ref", "abc1234")[0], 0)
+        self.assert_invariants()
 
     def test_duplicate_ref_rules_forbid_chains(self):
         self.append("A")
@@ -807,6 +830,7 @@ class TestResolveIssue(IssueBase):
         self.assertEqual(self.resolve("BL-E001-002", "duplicate", "--ref", "BL-E001-001")[0], 0)
         # B is now a resolved duplicate: C may not point at it
         self.assertEqual(self.resolve("BL-E001-003", "duplicate", "--ref", "BL-E001-002")[0], 2)
+        self.assert_invariants()
 
     def test_rerun_is_idempotent(self):
         self.append("A")
@@ -815,6 +839,7 @@ class TestResolveIssue(IssueBase):
         self.assertEqual(code, 0)
         self.assertIn("already resolved", out)
         self.assertEqual(self.resolved_keys(), ["BL-E001-001"])
+        self.assert_invariants()
 
     def test_unknown_key_exits_3(self):
         self.assertEqual(self.resolve("BL-E001-042", "obsolete", "--note", "x")[0], 3)
@@ -832,6 +857,7 @@ class TestResolveIssue(IssueBase):
         self.assertIn("removed the stale open copy", out)
         self.assertEqual(self.open_keys(), [])
         self.assertEqual(self.resolved_keys(), ["BL-E001-001"])
+        self.assert_invariants()
 
     def test_key_duplicated_in_open_file_is_refused(self):
         self.append("A")
@@ -857,6 +883,7 @@ class TestResolveIssue(IssueBase):
         ev = self.events("issue_resolved")[-1]
         self.assertEqual((ev["resolution"], ev["ref"], ev["session"], ev["cause"]),
                          ("fixed", "abc1234", "S-9", "triage"))
+        self.assert_invariants()
 
 
 class TestConcurrentResolveAppend(unittest.TestCase):
@@ -906,23 +933,42 @@ class TestAppendDedupeResolved(IssueBase):
                                      "--key", key, *argv])
         self.assertEqual(code, 0, err)
 
-    def test_wontfix_same_or_lower_severity_is_skipped(self):
-        self.append("A", "001", "01", "Medium")
-        self.resolve("BL-E001-001", "--resolution", "wontfix", "--note", "risk accepted")
-        for sev in ("Medium", "Low"):
-            code, out, _ = self.append("A", "001", "01", sev)
-            self.assertEqual(code, 0)
-            self.assertIn("skipped", out)
-            self.assertIn("resolved as wontfix", out)
-        self.assertEqual(self.open_keys(), [])
+    # Spec §2.1: the severity rule covers all three non-fixed resolutions, not wontfix alone.
+    # duplicate needs --ref naming another key (the open "Survivor", appended first as
+    # BL-E001-001); wontfix and obsolete need --note.
+    NON_FIXED = {"wontfix": ("--note", "risk accepted"),
+                 "duplicate": ("--ref", "BL-E001-001"),
+                 "obsolete": ("--note", "gone")}
 
-    def test_higher_severity_than_wontfix_is_appended_as_reraised(self):
-        self.append("A", "001", "01", "Low")
-        self.resolve("BL-E001-001", "--resolution", "wontfix", "--note", "minor")
-        code, out, _ = self.append("A", "001", "01", "High")
-        self.assertEqual(code, 0)
-        self.assertIn("re-raised above BL-E001-001 wontfix at Low", out)
-        self.assertEqual(self.open_keys(), ["BL-E001-002"])
+    def _append_key(self, title, severity):
+        code, out, err = self.append(title, "001", "01", severity)
+        self.assertEqual(code, 0, err)
+        self.assertTrue(out.startswith("OK append-issue BL-E001-"), out)
+        return out.split()[2]
+
+    def test_non_fixed_resolution_same_or_lower_severity_is_skipped(self):
+        self.assertEqual(self._append_key("Survivor", "Low"), "BL-E001-001")
+        for res, flags in self.NON_FIXED.items():
+            with self.subTest(resolution=res):
+                key = self._append_key(f"A {res}", "Medium")
+                self.resolve(key, "--resolution", res, *flags)
+                for sev in ("Medium", "Low"):
+                    code, out, _ = self.append(f"A {res}", "001", "01", sev)
+                    self.assertEqual(code, 0)
+                    self.assertIn(f"skipped -- matches {key} resolved as {res} (severity Medium)",
+                                  out)
+        self.assertEqual(self.open_keys(), ["BL-E001-001"])
+
+    def test_higher_severity_than_a_non_fixed_resolution_is_appended_as_reraised(self):
+        self.assertEqual(self._append_key("Survivor", "Low"), "BL-E001-001")
+        for res, flags in self.NON_FIXED.items():
+            with self.subTest(resolution=res):
+                key = self._append_key(f"A {res}", "Low")
+                self.resolve(key, "--resolution", res, *flags)
+                code, out, _ = self.append(f"A {res}", "001", "01", "High")
+                self.assertEqual(code, 0)
+                self.assertIn(f"(re-raised above {key} {res} at Low)", out)
+                self.assertIn(out.split()[2], self.open_keys())
 
     def test_fixed_match_is_a_recurrence(self):
         self.append("A")
@@ -6645,6 +6691,25 @@ class TestStoryDocInit(TestLayoutResolution):
         self.assertEqual(meta["key"], "E001-S01-003")
         self.assertEqual(meta["status"], "review")
         self.assertIn("## Acceptance Criteria", text)
+        # the node has no title and no classification: the skeleton falls back to the story
+        # key for both the title and the heading, and to `standard`
+        self.assertEqual(meta["title"], "E001-S01-003")
+        self.assertEqual(meta["classification"], "standard")
+        self.assertIn("---\n\n# E001-S01-003\n\n", text)
+
+    def test_a_title_with_a_quote_and_a_colon_survives_the_frontmatter(self):
+        title = "Don't split: the user's cache: v2"
+        code, _, err = self.run_all(["set-field", "--state-root", self.root, "--story",
+                                     "E001-S01-003", "--field", "title", "--value", title])
+        self.assertEqual(code, 0, err)
+        code, out, err = self.init()
+        self.assertEqual(code, 0, err)
+        with open(self.doc, encoding="utf-8") as fh:
+            text = fh.read()
+        from ruamel.yaml import YAML
+        meta = YAML(typ="safe", pure=True).load(text.split("---\n")[1])   # not pm's own loader
+        self.assertEqual(meta["title"], title)
+        self.assertIn(f"---\n\n# {title}\n\n", text)
 
     def test_existing_document_is_left_untouched(self):
         os.makedirs(os.path.dirname(self.doc))
@@ -6769,6 +6834,7 @@ class TestPromoteIssue(IssueBase):
         ev = self.events("issue_scheduled")
         self.assertEqual((ev[-1]["key"], ev[-1]["story"]), ("BL-E001-001", "E001-S02-001"))
         self.assertNotIn("via", ev[-1])     # repair's link carries via; promote's shape is unchanged
+        self.assert_invariants()
 
     def test_refusals_write_nothing(self):
         self.append("A")
@@ -6797,6 +6863,7 @@ class TestPromoteIssue(IssueBase):
         self.assertEqual(code, 0, err)
         self.assertEqual(list(self.story()["resolves"]), ["BL-E001-001", "BL-E001-002"])
         self.assertEqual({i["status"] for i in self.load_open()["backlog"]}, {"scheduled"})
+        self.assert_invariants()
 
     def test_archived_epic_is_refused(self):
         self.append("Later", "005", "01", "Low", "qa (Q-1)")
@@ -6943,6 +7010,7 @@ class TestPromoteIssue(IssueBase):
         self.assertIn("resumed", out)
         self.assertIsNone(pm.story_file(self.root, "E001-S02-002"), "no second story")
         self.assertEqual(self.load_open()["backlog"][0]["story"], "E001-S02-001")
+        self.assert_invariants()
 
     def test_promote_never_writes_an_estimate_less_node(self):
         """Spec §6.1/§7: the node and its estimate land in ONE save. If the estimate fails
@@ -6989,34 +7057,103 @@ class TestPromoteIssue(IssueBase):
         self.assertEqual(code, 0, err)
         self.assertEqual([i["key"] for i in json.loads(out)], ["BL-E001-001"])
 
+    @unittest.skipUnless(os.path.exists("/proc/locks"), "needs /proc/locks to see a flock waiter")
     def test_concurrent_resolve_cannot_orphan_a_promoted_story(self):
         """A resolve racing a promote must never leave an estimated story listing a resolved
         item: promote holds issues_lock from its item check through scheduling."""
+        # The resolve starts inside promote's first roll-up. It must be SEEN blocked on
+        # issues_lock there, and again at the second roll-up (batch B). A fixed wait window
+        # passed without checking anything whenever an unlocked resolve was merely slower than
+        # the window.
         import subprocess
         self.append("A")
         real_rollup = pm.rollup_parent_estimate
-        procs = []
+        lock = pm.issues_paths(self.root)[0] + ".lock"
+        procs, failures = [], []
 
         def racing_rollup(*a, **kw):
-            if not procs:
-                p = subprocess.Popen([sys.executable, SCRIPT, "resolve-issue", "--state-root",
-                                      self.root, "--key", "BL-E001-001", "--resolution",
-                                      "obsolete", "--note", "raced"],
-                                     stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-                procs.append(p)
-                try:
-                    p.wait(timeout=3)   # unfixed: completes; fixed: blocks on issues_lock
-                except subprocess.TimeoutExpired:
-                    pass
+            try:
+                if not procs:
+                    p = subprocess.Popen([sys.executable, SCRIPT, "resolve-issue", "--state-root",
+                                          self.root, "--key", "BL-E001-001", "--resolution",
+                                          "obsolete", "--note", "raced"],
+                                         stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+                    procs.append(p)
+                    self.addCleanup(p.kill)              # reaps on failure; no-op once done
+                _wait_until_blocked_on(procs[0], lock, "resolve-issue")
+            except AssertionError as e:
+                failures.append(e)          # re-raised below, whatever promote does with it
+                raise
             return real_rollup(*a, **kw)
 
         with mock.patch.object(pm, "rollup_parent_estimate", racing_rollup):
-            code, out, err = self.promote("BL-E001-001")
-        procs[0].communicate(timeout=30)
+            try:
+                code, out, err = self.promote("BL-E001-001")
+            except AssertionError:
+                pass
+        if failures:
+            raise failures[0]
+        _, rerr = procs[0].communicate(timeout=30)
         self.assertEqual(code, 0, err)
+        self.assertEqual(procs[0].returncode, 0, rerr.decode())
         self.assertEqual(list(self.story()["resolves"]), ["BL-E001-001"])
         self.assertEqual(self.resolved_keys(), ["BL-E001-001"])      # the resolve ran after
         self.assertEqual(self.load_resolved()["resolved"][0].get("story"), "E001-S02-001")
+        self.assert_invariants()
+
+    @unittest.skipUnless(os.path.exists("/proc/locks"), "needs /proc/locks to see a flock waiter")
+    def test_promote_holds_the_epic_lock_through_both_rollups(self):
+        # Spec §2.4 step 3: promote rolls up the sprint, then the epic, while it still holds
+        # epic_node_lock, so no other epic.yaml writer can interleave with those saves. A real
+        # `set-field --epic` subprocess takes the same lock (batch D1). It is launched from inside
+        # the FIRST roll-up.
+        # - It must be SEEN blocked on the epic lock as each roll-up starts.
+        # - It must still be waiting, with its field absent, after each roll-up's save.
+        # - Its write then lands only after promote releases the lock, beside the epic roll-up's
+        #   estimate, which that write must leave intact.
+        import subprocess
+        self.append("A")
+        real_rollup = pm.rollup_parent_estimate
+        lock = pm.epic_lock_path(self.root, "E001")
+        procs, failures, after = [], [], []
+
+        def watched_rollup(state_root, epic, sprint, *a, **kw):
+            level = f"sprint {sprint}" if sprint else "epic"
+            try:
+                if not procs:
+                    p = subprocess.Popen([sys.executable, SCRIPT, "set-field", "--state-root",
+                                          self.root, "--epic", "001", "--field", "notes.b9",
+                                          "--value", "landed"],
+                                         stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+                    procs.append(p)
+                    self.addCleanup(p.kill)              # reaps on failure; no-op once done
+                _wait_until_blocked_on(procs[0], lock, f"set-field --epic (at the {level} roll-up)")
+            except AssertionError as e:
+                failures.append(e)          # re-raised below, whatever promote does with it
+                raise
+            result = real_rollup(state_root, epic, sprint, *a, **kw)
+            after.append((level, procs[0].poll(), pm.load_node(pm.epic_file(self.root, "E001"))[1]))
+            return result
+
+        with mock.patch.object(pm, "rollup_parent_estimate", watched_rollup):
+            try:
+                code, out, err = self.promote("BL-E001-001")
+            except AssertionError:
+                pass
+        if failures:
+            raise failures[0]
+        _, serr = procs[0].communicate(timeout=30)
+        self.assertEqual(code, 0, err)
+        self.assertEqual(procs[0].returncode, 0, serr.decode())
+        self.assertEqual([lvl for lvl, _, _ in after], ["sprint S02", "epic"])
+        for lvl, rc, node in after:
+            self.assertIsNone(rc, f"set-field finished during the {lvl} roll-up")
+            self.assertNotIn("notes", node, f"set-field's write landed during the {lvl} roll-up")
+        rolled = after[-1][2]["estimate"]                # what the epic roll-up saved
+        node = pm.load_node(pm.epic_file(self.root, "E001"))[1]
+        self.assertEqual(node["notes"]["b9"], "landed")
+        self.assertEqual(node["estimate"], rolled, "set-field's save undid the epic roll-up")
+        self.assert_invariants()
 
     @unittest.skipUnless(os.path.exists("/proc/locks"), "needs /proc/locks to see a flock waiter")
     def test_clear_lock_waits_for_promote_and_is_not_undone(self):
@@ -7072,6 +7209,27 @@ class TestPromoteIssue(IssueBase):
         self.assertIn("triage", err)
         self.assertEqual(_tree_snapshot(self.d), before)
 
+    def test_two_live_stories_claiming_one_key_refuse_to_triage(self):
+        # Spec §2.4: more than one story claims the key -> exit 2, pointing to triage (audit 1h),
+        # nothing written. The second claimant is a hand-written node (a deliberately corrupt
+        # state), once beside the first and once in another epic -- the walk covers every epic.
+        self.append("A")
+        self._crash_promote_before_scheduling()        # E001-S02-001 lists it; still backlog
+        second = {"E001-S02-002": ("active", "epic-001", "sprint-02"),
+                  "E005-S01-001": ("planned", "epic-005", "sprint-01")}
+        for skey, where in second.items():
+            p = os.path.join(self.root, *where, f"{skey}.yaml")
+            with open(p, "w", encoding="utf-8") as fh:
+                fh.write(f"key: '{skey}'\nepic: '{skey[:4]}'\nsprint: '{skey[5:8]}'\n"
+                         f"status: backlog\nresolves: [BL-E001-001]\n")
+            before = _tree_snapshot(self.d)
+            code, out, err = self.promote("BL-E001-001")
+            self.assertEqual(code, 2, (skey, out, err))
+            self.assertIn(f"BL-E001-001 already claimed by ['E001-S02-001', '{skey}']", err)
+            self.assertIn("run /l3io-util-doctor triage (audit-issues 1d/1h)", err)
+            self.assertEqual(_tree_snapshot(self.d), before, skey)
+            os.remove(p)
+
     def test_resume_refuses_when_the_claimant_lists_other_keys(self):
         self.append("A")
         self.append("B", "001", "02")
@@ -7101,6 +7259,7 @@ class TestPromoteIssue(IssueBase):
         code, out, err = self.promote("BL-E001-001")               # the named retry resumes
         self.assertEqual(code, 0, err)
         self.assertIn("(resumed)", out)
+        self.assert_invariants()
 
 
 class TestEpicWritersHoldTheEpicLock(IssueBase):
@@ -7375,7 +7534,10 @@ class TestDoneHook(IssueBase):
             fh.write("backlog: oops\n")
         code, _, err = self.set_status("done")
         self.assertEqual(code, 0)
-        self.assertIn("warning", err)
+        self.assertIn("pm-status.py: warning -- done hook failed for E001-S02-001: PMError(", err)
+        self.assertIn("has a malformed 'backlog' field", err)
+        self.assertIn("; the status write stands. Run /l3io-util-doctor triage (audit-issues "
+                      "finding 1c) to finish it.", err)
         self.assertEqual(self.story_status(), "done")
 
     def test_other_statuses_do_not_resolve(self):
@@ -7499,6 +7661,33 @@ class TestDoneHook(IssueBase):
         self.assertIn("could not resolve BL-E001-050 for E001-S02-001", err)
         self.assertIn("-- run /l3io-util-doctor triage", err)
         self.assertEqual(self.resolved_keys(), ["BL-E001-001"])
+
+    def test_hook_lines_follow_set_status_and_a_failed_key_does_not_stop_later_ones(self):
+        # The existing mixed test lists the real key FIRST, so it never shows a key resolving
+        # AFTER an earlier key's PMError, and it reads stdout and stderr apart, so it pins no
+        # order. Here the keys are listed unknown -> already resolved -> open, and both streams
+        # go to ONE buffer: its line order is the order the lines were written.
+        self.append("B", "001", "02")
+        code, _, err = self.run_all(["resolve-issue", "--state-root", self.root, "--key",
+                                     "BL-E001-002", "--resolution", "wontfix", "--note", "ok"])
+        self.assertEqual(code, 0, err)
+        self._set_resolves(["BL-E001-050", "BL-E001-002", "BL-E001-001"])
+        buf = io.StringIO()
+        with redirect_stdout(buf), redirect_stderr(buf):
+            code = pm.main(["set-status", "--state-root", self.root, "--story", "E001-S02-001",
+                            "--status", "done"])
+        lines = buf.getvalue().splitlines()
+        self.assertEqual(code, 0, lines)
+        want = ["OK set-status ",
+                "pm-status.py: warning -- could not resolve BL-E001-050 for E001-S02-001: ",
+                "ok BL-E001-002 already resolved (wontfix)",
+                "resolved BL-E001-001 (fixed, ref E001-S02-001)"]
+        self.assertEqual(len(lines), len(want), lines)
+        for line, prefix in zip(lines, want):
+            self.assertTrue(line.startswith(prefix), (prefix, lines))
+        self.assertTrue(lines[0].endswith(" -> done"), lines[0])
+        entry = [r for r in self.load_resolved()["resolved"] if r["key"] == "BL-E001-001"]
+        self.assertEqual([(r["resolution"], r["ref"]) for r in entry], [("fixed", "E001-S02-001")])
 
 
 class TestAuditIssues(IssueBase):
@@ -7695,6 +7884,7 @@ class TestRepairIssue(TestAuditIssues):
         self.assertEqual(item["status"], "backlog")
         self.assertNotIn("story", item)
         self.assertNotIn(("1b", "BL-E001-001"), self.ids())
+        self.assert_invariants()
 
     def test_unschedule_writes_an_issue_unscheduled_event(self):
         """scheduled -> backlog is a status transition, and the events are its history."""
@@ -7717,6 +7907,7 @@ class TestRepairIssue(TestAuditIssues):
         self.assertNotIn(("1g", "BL-E005-001"), self.ids())
         # the archived story still lists the key, but its claim is dead: no 1d, no loop
         self.assertEqual(self.audit(), (0, []))
+        self.assert_invariants()
 
     def test_repromote_after_1g_creates_a_new_story(self):
         self.append("Later", "005", "01", "Low", "qa (Q-1)")
@@ -7734,6 +7925,7 @@ class TestRepairIssue(TestAuditIssues):
         item = self.load_open()["backlog"][0]
         self.assertEqual((item["status"], item["story"]), ("scheduled", "E001-S02-001"))
         self.assertEqual(self.audit(), (0, []))      # the dead archived claim is not 1h
+        self.assert_invariants()
 
     def test_1j_ignores_a_ref_story_that_never_listed_the_key(self):
         """resolve --ref <a story still in progress> is legitimate. That story never listed
@@ -7781,6 +7973,7 @@ class TestRepairIssue(TestAuditIssues):
                                      "BL-E001-001", "--resolution", "obsolete", "--note", "x"])
         self.assertEqual(code, 0, err)                          # the advised repair works
         self.assertEqual(self.audit(), (0, []))
+        self.assert_invariants()
 
     def _set_next(self, *pairs):
         from ruamel.yaml.comments import CommentedMap
@@ -7896,6 +8089,7 @@ class TestRepairIssue(TestAuditIssues):
         code, _, err = self.repair("BL-E001-001", "link", "--story", "E001-S02-001")
         self.assertEqual(code, 0, err)
         self.assertEqual(self.audit(), (0, []))
+        self.assert_invariants()
 
     def test_link_event_says_it_came_from_repair(self):
         """link's issue_scheduled event must be distinguishable from promote's."""
@@ -7915,12 +8109,51 @@ class TestRepairIssue(TestAuditIssues):
         self.assertEqual(self.repair("BL-E001-001", "reseed")[0], 0)
         self.assertEqual(int(self.load_open()["next"]["001"]), 3)
         self.assertEqual(self.audit(), (0, []))
+        self.assert_invariants()
 
     def test_reseed_rebuilds_a_malformed_map(self):
         self.append("A")
         self.edit_open(lambda d: d.__setitem__("next", "garbage"))
         self.assertEqual(self.repair("BL-E001-001", "reseed")[0], 0)
         self.assertEqual(int(self.load_open()["next"]["001"]), 2)
+        self.assert_invariants()
+
+    def test_reseed_rebuilds_a_malformed_next_for_both_epics_at_once(self):
+        # A malformed `next` is rebuilt for EVERY epic with a key in either file, from one
+        # reseed. Epic 005's only key is in the resolved file, so its entry has to come from
+        # there.
+        self.append("A")
+        self.append("B", "001", "02")
+        self.append("C", "005", "01", "Low", "qa (Q-1)")
+        code, _, err = self.run_all(["resolve-issue", "--state-root", self.root, "--key",
+                                     "BL-E005-001", "--resolution", "obsolete", "--note", "gone"])
+        self.assertEqual(code, 0, err)
+        self.edit_open(lambda d: d.__setitem__("next", "garbage"))
+        self.assertEqual(self.ids(), {("1e", "next")})
+        code, _, err = self.repair("BL-E001-001", "reseed")
+        self.assertEqual(code, 0, err)
+        self.assertEqual({str(e): int(v) for e, v in self.load_open()["next"].items()},
+                         {"001": 3, "005": 2})
+        self.assertEqual(self.audit(), (0, []))
+        self.assert_invariants()
+
+    def test_reseed_folds_each_epics_aliases_by_max_and_both_epics_end_clean(self):
+        # Batch A's alias rule, across two epics. Aliases are merged by max, then removed, and
+        # only the named epic's aliases (reseed is per epic). The other epic stays 1e until its
+        # own reseed. Both epics then audit clean.
+        self.append("A")
+        self.append("B", "001", "02")
+        self.append("C", "005", "01", "Low", "qa (Q-1)")
+        self._set_next(("001", 2), (1, 7), ("005", 1), ("5", 4), ("E005", 3))
+        self.assertEqual({f["epic"] for f in self.e1()}, {"001", "005"})       # premise
+        self.assertEqual(self.repair("BL-E001-001", "reseed")[0], 0)
+        self.assertEqual(dict(self.load_open()["next"]),
+                         {"001": 7, "005": 1, "5": 4, "E005": 3})       # 005 not touched
+        self.assertEqual({f["epic"] for f in self.e1()}, {"005"})
+        self.assertEqual(self.repair("BL-E005-001", "reseed")[0], 0)
+        self.assertEqual(dict(self.load_open()["next"]), {"001": 7, "005": 4})
+        self.assertEqual(self.audit(), (0, []))
+        self.assert_invariants()
 
     def test_reseed_refused_when_next_is_fine(self):
         self.append("A")
@@ -7942,6 +8175,7 @@ class TestRepairIssue(TestAuditIssues):
         self.assertEqual(self.resolved_keys(), [])
         self.assertEqual(self.events("issue_reopened")[-1]["session"], "S-4")
         self.assertEqual(self.audit(), (0, []))
+        self.assert_invariants()
 
     def test_reopen_refused_without_1j(self):
         self.append("A")
@@ -7965,6 +8199,7 @@ class TestRepairIssue(TestAuditIssues):
         self.assertEqual(self.repair("BL-E001-001", "reopen")[0], 0)
         self.assertEqual(self.open_keys(), ["BL-E001-001"], "no duplicate open copy")
         self.assertEqual(self.resolved_keys(), [])
+        self.assert_invariants()
 
 
 class TestUnreadableStoryNode(IssueBase):
@@ -8077,6 +8312,123 @@ class TestUnreadableStoryNode(IssueBase):
                       f"then rerun", err)
         self.assertNotIn("Traceback", err)
         self.assertEqual(_tree_snapshot(self.d), before)
+
+
+class TestIssueInvariants(IssueBase):
+    # IssueBase.assert_invariants is only worth calling if it can fail. Each case builds, on
+    # purpose, one state that a spec §1.4 invariant forbids, and requires the helper to reject
+    # it under that invariant's name.
+
+    def _fresh(self):
+        shutil.rmtree(self.root)
+        _build_issue_tree(self.root)
+        for t in ("A", "B"):
+            code, _, err = self.append(t)
+            self.assertEqual(code, 0, err)
+        self.assert_invariants()                                    # premise: a clean state
+
+    def _edit_open(self, fn):
+        y, data = pm._load(self.issues)
+        fn(data)
+        pm._atomic_dump(y, data, self.issues)
+
+    def test_assert_invariants_rejects_each_forbidden_state(self):
+        from ruamel.yaml.comments import CommentedMap
+
+        def in_both_files():            # a resolve that crashed between its two writes
+            with _dump_failing_on(2), redirect_stdout(io.StringIO()), \
+                    redirect_stderr(io.StringIO()):
+                with self.assertRaises(OSError):
+                    pm.main(["resolve-issue", "--state-root", self.root, "--key", "BL-E001-001",
+                             "--resolution", "obsolete", "--note", "x"])
+
+        def non_canonical(d):
+            d["backlog"].append(CommentedMap([("key", "BL-E1-9"), ("epic", "001"),
+                                              ("title", "hand"), ("status", "backlog")]))
+
+        cases = [
+            ("invariant 1", in_both_files),
+            ("invariant 1", lambda: self._edit_open(lambda d: d["backlog"].pop(0))),   # in neither
+            ("invariant 5", lambda: self._edit_open(
+                lambda d: d["backlog"].append(CommentedMap(d["backlog"][0])))),
+            ("invariant 6", lambda: self._edit_open(non_canonical)),
+        ]
+        for i, (invariant, corrupt) in enumerate(cases):
+            with self.subTest(case=i, invariant=invariant):
+                self._fresh()
+                corrupt()
+                with self.assertRaises(AssertionError) as cm:
+                    self.assert_invariants()
+                self.assertIn(invariant + ":", str(cm.exception))
+
+
+class TestEventWriteFailure(IssueBase):
+    # Spec §6.1 "Events": a failing event write never fails the verb. Here events.jsonl is a
+    # directory, so append_event's open() raises inside its catch-all. Each issue verb must
+    # still exit 0 and write its state, and must say on stderr that the event was lost.
+
+    def break_events(self):
+        p = pm.events_path(self.root)
+        if os.path.exists(p):
+            os.remove(p)
+        os.mkdir(p)
+        return p
+
+    def assert_event_lost(self, err, path):
+        self.assertIn("pm-status.py: warning — could not append event: ", err)
+        self.assertIn(repr(path), err)
+
+    def promote(self):
+        code, _, err = self.run_all(["promote-issue", "--state-root", self.root,
+                                     "--artifacts-root", self.arts, "--key", "BL-E001-001",
+                                     "--epic", "001", "--sprint", "02",
+                                     "--classification", "simple"])
+        return code, err
+
+    def test_resolve_issue_still_resolves(self):
+        self.append("A")
+        p = self.break_events()
+        code, out, err = self.run_all(["resolve-issue", "--state-root", self.root, "--key",
+                                       "BL-E001-001", "--resolution", "obsolete", "--note", "x"])
+        self.assertEqual(code, 0, err)
+        self.assertEqual((self.open_keys(), self.resolved_keys()), ([], ["BL-E001-001"]))
+        self.assert_event_lost(err, p)
+        self.assert_invariants()
+
+    def test_update_issue_still_updates(self):
+        self.append("A", "001", "01", "Low")
+        p = self.break_events()
+        code, out, err = self.run_all(["update-issue", "--state-root", self.root, "--key",
+                                       "BL-E001-001", "--severity", "High"])
+        self.assertEqual(code, 0, err)
+        self.assertEqual(self.load_open()["backlog"][0]["severity"], "High")
+        self.assert_event_lost(err, p)
+
+    def test_promote_issue_still_promotes(self):
+        self.append("A")
+        p = self.break_events()
+        code, err = self.promote()
+        self.assertEqual(code, 0, err)
+        node = pm.load_node(pm.story_file(self.root, "E001-S02-001"))[1]
+        self.assertEqual(list(node["resolves"]), ["BL-E001-001"])
+        self.assertIn("estimate", node)
+        item = self.load_open()["backlog"][0]
+        self.assertEqual((item["status"], item["story"]), ("scheduled", "E001-S02-001"))
+        self.assert_event_lost(err, p)
+
+    def test_repair_issue_still_repairs(self):
+        self.append("A")
+        code, err = self.promote()
+        self.assertEqual(code, 0, err)
+        os.remove(pm.story_file(self.root, "E001-S02-001"))       # 1b: the story is gone
+        p = self.break_events()
+        code, out, err = self.run_all(["repair-issue", "--state-root", self.root, "--key",
+                                       "BL-E001-001", "--action", "unschedule"])
+        self.assertEqual(code, 0, err)
+        item = self.load_open()["backlog"][0]
+        self.assertEqual(item["status"], "backlog")
+        self.assertNotIn("story", item)
+        self.assert_event_lost(err, p)
 
 
 if __name__ == "__main__":
