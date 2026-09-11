@@ -575,5 +575,63 @@ class TestAdrs(Project):
         self.assertIn("not-an-epic", r.stderr)
 
 
+class TestLease(Project):
+    def lease(self, *args):
+        return self.sa("lease", *args)
+
+    def test_acquire_then_contend(self):
+        self.assertEqual(self.lease("acquire", "--owner", "E001", "--wait-minutes", "0")
+                         .returncode, 0)
+        r = self.lease("acquire", "--owner", "E002", "--wait-minutes", "0")
+        self.assertEqual(r.returncode, 5)
+        self.assertIn("held by E001", r.stderr)
+        self.assertEqual(self.lease("acquire", "--owner", "E001", "--wait-minutes", "0")
+                         .returncode, 0)                      # the owner may refresh
+
+    def test_expired_lease_is_taken_over_and_logged(self):
+        self.lease("acquire", "--owner", "E001", "--ttl-minutes", "0", "--wait-minutes", "0")
+        r = self.lease("acquire", "--owner", "E002", "--wait-minutes", "0")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertIn("E001", r.stderr)
+        self.assertIn("taking it over", r.stderr)
+
+    def test_release_rules(self):
+        self.assertEqual(self.lease("release", "--owner", "E001").returncode, 0)   # free: no-op
+        self.lease("acquire", "--owner", "E001", "--wait-minutes", "0")
+        r = self.lease("release", "--owner", "E002")
+        self.assertEqual(r.returncode, 2)
+        self.assertEqual(self.lease("release", "--owner", "E001").returncode, 0)
+        self.assertEqual(self.lease("acquire", "--owner", "E002", "--wait-minutes", "0")
+                         .returncode, 0)
+
+    def test_lease_file_lives_in_the_state_root(self):
+        self.lease("acquire", "--owner", "E001", "--wait-minutes", "0")
+        with open(os.path.join(self.state, "spec-sync.lock"), encoding="utf-8") as fh:
+            self.assertEqual(json.load(fh)["owner"], "E001")
+
+    def test_real_processes_contending_get_exactly_one_winner(self):
+        g = ["--project-root", self.root, "--impl-root", self.impl, "--state-root", self.state]
+        procs = [subprocess.Popen([sys.executable, SCRIPT, *g, "lease", "acquire", "--owner",
+                                   f"E{i:03d}", "--wait-minutes", "0"],
+                                  stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+                 for i in range(1, 7)]
+        codes = [p.wait(timeout=120) for p in procs]
+        for p in procs:
+            p.stdout.close()
+            p.stderr.close()
+        self.assertEqual(sorted(codes), [0, 5, 5, 5, 5, 5])
+
+    def test_a_waiter_gets_the_lease_when_the_holder_releases(self):
+        self.lease("acquire", "--owner", "E001", "--wait-minutes", "0")
+        g = ["--project-root", self.root, "--impl-root", self.impl, "--state-root", self.state]
+        waiter = subprocess.Popen([sys.executable, SCRIPT, *g, "lease", "acquire", "--owner",
+                                   "E002", "--wait-minutes", "0.5", "--poll-seconds", "0.1"],
+                                  stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        time.sleep(0.6)
+        self.assertEqual(self.lease("release", "--owner", "E001").returncode, 0)
+        out, err = waiter.communicate(timeout=120)
+        self.assertEqual(waiter.returncode, 0, err.decode())
+
+
 if __name__ == "__main__":
     unittest.main()

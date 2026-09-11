@@ -806,6 +806,142 @@ def cmd_check_links(ctx, a):
     return 0
 
 
+# -- the spec-sync lease ---------------------------------------------------------------------- #
+# Parallel epic closures share one working tree: without a lease two agents can edit one
+# architecture doc at once, or one commits the other's half-made edit. It is a lease, not a
+# flock, because it must survive an agent's many turns; the flock only guards the file's
+# read-decide-write. The `.lock` name puts it under pm-status's `*.lock` rule in
+# state/.gitignore, which exists by epic closure (every set-status takes an epic lock there).
+
+LEASE_NAME = "spec-sync.lock"
+
+
+class LeaseHeld(Exception):
+    pass
+
+
+def _now():
+    from datetime import datetime, timezone
+    return datetime.now(timezone.utc)
+
+
+def _iso(dt):
+    return dt.strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
+def _parse_iso(s):
+    from datetime import datetime, timezone
+    try:
+        return datetime.strptime(str(s), "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=timezone.utc)
+    except ValueError:
+        return None
+
+
+def _lease_path(ctx):
+    ctx.need("state")
+    os.makedirs(ctx.state_root, exist_ok=True)
+    return os.path.join(ctx.state_root, LEASE_NAME)
+
+
+def _lease_read(fh):
+    fh.seek(0)
+    raw = fh.read().strip()
+    if not raw:
+        return None
+    try:
+        cur = json.loads(raw)
+    except ValueError:
+        sys.stderr.write(f"WARN {LEASE_NAME} is not JSON; treating the lease as free\n")
+        return None
+    return cur if isinstance(cur, dict) else None
+
+
+def _lease_write(fh, value):
+    fh.seek(0)
+    fh.truncate()
+    if value is not None:
+        fh.write(json.dumps(value))
+    fh.flush()
+    os.fsync(fh.fileno())
+
+
+def lease_holder(ctx):
+    """The current lease if it is held and unexpired, else None."""
+    import fcntl
+    path = _lease_path(ctx)
+    if not os.path.exists(path):
+        return None
+    with open(path, "a+", encoding="utf-8") as fh:
+        fcntl.flock(fh, fcntl.LOCK_SH)
+        try:
+            cur = _lease_read(fh)
+        finally:
+            fcntl.flock(fh, fcntl.LOCK_UN)
+    if cur and (_parse_iso(cur.get("expires_at")) or _now()) > _now():
+        return cur
+    return None
+
+
+def _lease_try(path, owner, ttl_minutes):
+    import fcntl
+    from datetime import timedelta
+    with open(path, "a+", encoding="utf-8") as fh:
+        fcntl.flock(fh, fcntl.LOCK_EX)
+        try:
+            cur, now = _lease_read(fh), _now()
+            if cur and cur.get("owner") != owner:
+                expires = _parse_iso(cur.get("expires_at"))
+                if expires is not None and expires > now:
+                    raise LeaseHeld(cur)
+                sys.stderr.write(f"WARN spec-sync lease held by {cur.get('owner')} expired at "
+                                 f"{cur.get('expires_at')}; taking it over\n")
+            new = {"owner": owner, "acquired_at": _iso(now),
+                   "expires_at": _iso(now + timedelta(minutes=ttl_minutes))}
+            _lease_write(fh, new)
+            return new
+        finally:
+            fcntl.flock(fh, fcntl.LOCK_UN)
+
+
+def cmd_lease(ctx, a):
+    import fcntl
+    owner = epic_key(a.owner)
+    if owner is None:
+        raise SAError(2, f"--owner {a.owner!r} is not an epic key")
+    path = _lease_path(ctx)
+    if a.lease_cmd == "acquire":
+        from tenacity import retry, retry_if_exception_type, stop_after_delay, wait_fixed
+
+        @retry(retry=retry_if_exception_type(LeaseHeld), reraise=True,
+               stop=stop_after_delay(a.wait_minutes * 60), wait=wait_fixed(a.poll_seconds))
+        def attempt():
+            return _lease_try(path, owner, a.ttl_minutes)
+
+        try:
+            new = attempt()
+        except LeaseHeld as e:
+            cur = e.args[0]
+            sys.stderr.write(f"spec-sync lease held by {cur.get('owner')} until "
+                             f"{cur.get('expires_at')}\n")
+            return 5
+        print(f"OK lease acquired by {owner} until {new['expires_at']}")
+        return 0
+    with open(path, "a+", encoding="utf-8") as fh:
+        fcntl.flock(fh, fcntl.LOCK_EX)
+        try:
+            cur = _lease_read(fh)
+            if not cur:
+                print("OK lease already free")
+                return 0
+            if cur.get("owner") != owner:
+                raise SAError(2, f"the lease is held by {cur.get('owner')}, not {owner}")
+            _lease_write(fh, None)
+        finally:
+            fcntl.flock(fh, fcntl.LOCK_UN)
+    print(f"OK lease released by {owner}")
+    return 0
+
+
 # -- CLI -------------------------------------------------------------------------------------- #
 
 def build_parser():
@@ -860,6 +996,17 @@ def build_parser():
     cl = sub.add_parser("check-links", help="report ADRs their spec section does not link")
     cl.add_argument("--epic", default="")
     cl.set_defaults(func=cmd_check_links)
+
+    le = sub.add_parser("lease", help="the spec-sync lease (acquire | release)")
+    lease_sub = le.add_subparsers(dest="lease_cmd", required=True)
+    la = lease_sub.add_parser("acquire")
+    la.add_argument("--owner", required=True, help="the epic key")
+    la.add_argument("--wait-minutes", type=float, default=15.0)
+    la.add_argument("--ttl-minutes", type=float, default=30.0)
+    la.add_argument("--poll-seconds", type=float, default=5.0)
+    lr = lease_sub.add_parser("release")
+    lr.add_argument("--owner", required=True)
+    le.set_defaults(func=cmd_lease)
 
     # Later tasks register their subcommands above this line.
     return p
