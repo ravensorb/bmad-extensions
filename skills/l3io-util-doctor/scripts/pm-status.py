@@ -326,6 +326,23 @@ _LOCK_IGNORE_CHECKED = set()
 _LOCK_IGNORE_LINE = "*.lock"
 
 
+def _lock_rule_present(text: str) -> bool:
+    """True when git reads `text` (a .gitignore) as ignoring every `*.lock`: some line is
+    exactly `*.lock` and no LATER line is exactly `!*.lock`. Parsed as git parses it: split
+    on "\\n" only -- never str.splitlines(), which also breaks on U+0085 and other characters
+    git keeps inside a line -- and strip only a trailing "\\r" and trailing spaces, since
+    leading spaces are part of the pattern. A narrower negation such as `!keep.lock` is a
+    deliberate user choice and is left as written."""
+    present = False
+    for raw in text.split("\n"):
+        line = raw.rstrip("\r").rstrip(" ")
+        if line == _LOCK_IGNORE_LINE:
+            present = True
+        elif line == "!" + _LOCK_IGNORE_LINE:
+            present = False
+    return present
+
+
 def _ensure_lock_ignore(state_root: str) -> None:
     """Make `{state_root}/.gitignore` carry `*.lock`, so no lock file is ever committed.
 
@@ -337,11 +354,14 @@ def _ensure_lock_ignore(state_root: str) -> None:
     Called on EVERY lock acquisition, not only when a lock file is first created: a project
     whose lock files already exist gets the rule on its next lock. Memoized per process, so
     each state root is checked at most once. Absent file -> created (no-clobber
-    _atomic_create) with one comment line and the rule; present without the line -> the line
-    is appended, after a newline when the file lacks a trailing one, under a flock on the
-    file so two processes cannot both append it; existing content is never rewritten or
-    reordered. Best-effort: this runs inside the lock path, so an OSError or an undecodable
-    file warns once on stderr and returns -- it never raises and never fails the verb."""
+    _atomic_create) with one comment line and the rule. Present -> READ first, and only when
+    the rule is missing (as git reads it, _lock_rule_present) is it opened for append and
+    flocked, then re-checked under the flock so two processes cannot both append it; a
+    read-only .gitignore that already has the rule is never opened for writing. The line is
+    appended after a newline when the file lacks a trailing one; existing content is never
+    rewritten or reordered. Best-effort: this runs inside the lock path, so an OSError or an
+    undecodable file warns once on stderr and returns -- it never raises and never fails the
+    verb."""
     root = os.path.realpath(state_root or ".")
     if root in _LOCK_IGNORE_CHECKED:
         return
@@ -351,6 +371,9 @@ def _ensure_lock_ignore(state_root: str) -> None:
         if not os.path.lexists(path) and _atomic_create(
                 path, f"# pm-status.py lock files -- never commit\n{_LOCK_IGNORE_LINE}\n"):
             return
+        with open(path, "rb") as fh:                # read first: needs no write access
+            if _lock_rule_present(fh.read().decode("utf-8")):
+                return
         try:
             import fcntl
         except ImportError:  # pragma: no cover - non-POSIX
@@ -360,8 +383,8 @@ def _ensure_lock_ignore(state_root: str) -> None:
                 fcntl.flock(fh, fcntl.LOCK_EX)
             try:
                 fh.seek(0)
-                text = fh.read().decode("utf-8")
-                if any(line.strip() == _LOCK_IGNORE_LINE for line in text.splitlines()):
+                text = fh.read().decode("utf-8")   # re-check under the flock
+                if _lock_rule_present(text):
                     return
                 sep = "" if not text or text.endswith("\n") else "\n"
                 fh.write(f"{sep}{_LOCK_IGNORE_LINE}\n".encode("utf-8"))
@@ -926,7 +949,7 @@ _CAL_LOCK = {"depth": 0, "fh": None}
 
 
 @contextlib.contextmanager
-def _file_lock(lock_path: str, depth_state: dict):
+def _file_lock(lock_path: str, depth_state: dict, state_root: str = None):
     """Exclusive flock over a read-modify-write cycle, reentrant per process.
 
     Extracted from calibration_lock so the ADR register can hold a lock without a
@@ -937,6 +960,13 @@ def _file_lock(lock_path: str, depth_state: dict):
     `depth_state` is a dict private to one lock family (e.g. `_CAL_LOCK` or
     `_ADR_LOCK`) with at least a `"depth"` key; each family gets its own dict so
     a calibration hold and an ADR-register hold never share depth counting.
+
+    `state_root` is the root whose .gitignore gets `*.lock` (_ensure_lock_ignore). The
+    calibration, ADR and epic families pass theirs, and issues_lock passes the issues file's
+    directory whenever that path came from a state root. Without one -- only a bare
+    `append-issue --file X` -- the lock's own directory is used only if it holds a status
+    folder: X's directory might be the repo root, where `*.lock` would silently ignore
+    uv.lock, yarn.lock and Cargo.lock repo-wide.
     """
     if depth_state["depth"] > 0:               # already held by this process
         depth_state["depth"] += 1
@@ -954,7 +984,10 @@ def _file_lock(lock_path: str, depth_state: dict):
         return
     lock_dir = os.path.dirname(os.path.abspath(lock_path)) or "."
     os.makedirs(lock_dir, exist_ok=True)
-    _ensure_lock_ignore(lock_dir)   # all four families' lock files sit in the state root
+    if state_root is not None:
+        _ensure_lock_ignore(state_root)
+    elif any(os.path.isdir(os.path.join(lock_dir, s)) for s in STATUS_DIRS):
+        _ensure_lock_ignore(lock_dir)           # a bare --file that does sit in a state root
     fh = open(lock_path, "w")
     fcntl.flock(fh, fcntl.LOCK_EX)
     depth_state["depth"], depth_state["fh"] = 1, fh
@@ -977,7 +1010,7 @@ def calibration_lock(state_root: str):
     second save would drop the first's sample. Callers that mutate must wrap the
     load AND the save in this.
     """
-    with _file_lock(calibration_path(state_root) + ".lock", _CAL_LOCK):
+    with _file_lock(calibration_path(state_root) + ".lock", _CAL_LOCK, state_root):
         yield
 
 
@@ -991,7 +1024,7 @@ def adr_register_lock(state_root: str):
     Same reasoning as calibration_lock: load -> mutate -> save is not atomic, and
     this is exactly the register two parallel adr-reserve calls must not race on.
     """
-    with _file_lock(adr_register_path(state_root) + ".lock", _ADR_LOCK):
+    with _file_lock(adr_register_path(state_root) + ".lock", _ADR_LOCK, state_root):
         yield
 
 
@@ -999,7 +1032,7 @@ _ISSUES_LOCK = {"depth": 0, "fh": None}
 
 
 @contextlib.contextmanager
-def issues_lock(file_path: str):
+def issues_lock(file_path: str, bare_file: bool = False):
     """Hold an exclusive lock over a whole issues.yaml read-modify-write cycle.
 
     Same reasoning as calibration_lock/adr_register_lock: load -> allocate a key
@@ -1013,8 +1046,13 @@ def issues_lock(file_path: str):
     `--state-root` is also given -- so both addressing forms contend on one lock. The
     resolved file lives beside it and is covered by the same hold (IssueStore loads
     both issue files under it).
+
+    `bare_file` is True only for `append-issue --file` given without --state-root. Every
+    other path is `issues_paths(state_root)[0]`, so its directory IS the state root and is
+    passed on as one; a bare --file's directory is not trusted to be one (_file_lock).
     """
-    with _file_lock(file_path + ".lock", _ISSUES_LOCK):
+    with _file_lock(file_path + ".lock", _ISSUES_LOCK,
+                    None if bare_file else os.path.dirname(os.path.abspath(file_path))):
         yield
 
 
@@ -1070,7 +1108,7 @@ def epic_node_lock(state_root: str, epic_key: str):
         raise RuntimeError(f"epic_node_lock: lock order -- {lock_path} requested under {under}; "
                            f"the epic lock is taken first, never under issues_lock or "
                            f"calibration_lock")
-    with _file_lock(lock_path, _EPIC_NODE_LOCK):
+    with _file_lock(lock_path, _EPIC_NODE_LOCK, state_root):
         _EPIC_NODE_LOCK["path"] = lock_path
         try:
             yield
@@ -4942,7 +4980,7 @@ def _append_issue(args) -> int:
         if explicit[4:7] != epic_norm:
             raise PMError(2, f"append-issue: --key {explicit} belongs to epic "
                              f"{explicit[4:7]}, not --epic {epic_norm}")
-    with issues_lock(open_path):
+    with issues_lock(open_path, bare_file=not (getattr(args, "state_root", "") or "")):
         store = IssueStore(open_path)
         if explicit is not None:
             clash = store.open_items(explicit) + store.resolved_items(explicit)

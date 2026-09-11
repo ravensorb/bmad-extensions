@@ -8676,6 +8676,78 @@ class TestLockFilesIgnored(IssueBase):
         self.assertFalse(os.path.exists(self.gi), "a read-only command created .gitignore")
         self.assertFalse(os.path.exists(self.issues + ".lock"))
 
+    # -- "rule present" must mean what git means ---------------------------------------- #
+    # git splits .gitignore on "\n" only, keeps leading spaces, drops trailing spaces (and a
+    # trailing "\r"), and lets a later `!*.lock` undo the rule. Each case goes through a verb.
+    def assert_after_lock(self, before, after):
+        with open(self.gi, "wb") as fh:
+            fh.write(before)
+        code, _, err = self.append("A")
+        self.assertEqual(code, 0, err)
+        self.assertNotIn("could not add", err)
+        self.assertEqual(self.gi_bytes(), after)
+
+    def test_rule_behind_a_nel_character_is_not_the_rule(self):
+        nel = "foo\u0085*.lock\n".encode("utf-8")        # str.splitlines() would split here
+        self.assert_after_lock(nel, nel + b"*.lock\n")
+
+    def test_rule_with_leading_spaces_is_not_the_rule(self):
+        self.assert_after_lock(b"  *.lock\n", b"  *.lock\n*.lock\n")
+
+    def test_crlf_line_endings_are_accepted_as_the_rule(self):
+        crlf = b"# rules\r\n*.lock\r\nnotes/\r\n"
+        self.assert_after_lock(crlf, crlf)
+
+    def test_trailing_spaces_are_accepted_as_the_rule(self):
+        self.assert_after_lock(b"*.lock  \n", b"*.lock  \n")
+
+    def test_a_later_full_negation_undoes_the_rule(self):
+        self.assert_after_lock(b"*.lock\n!*.lock\n", b"*.lock\n!*.lock\n*.lock\n")
+
+    def test_a_narrower_negation_is_left_as_the_user_wrote_it(self):
+        self.assert_after_lock(b"*.lock\n!keep.lock\n", b"*.lock\n!keep.lock\n")
+
+    def test_read_only_gitignore_that_has_the_rule_does_not_warn(self):
+        with open(self.gi, "wb") as fh:
+            fh.write(b"*.lock\n")
+        os.chmod(self.gi, 0o444)
+        code, _, err = self.append("A")
+        self.assertEqual(code, 0, err)
+        self.assertNotIn("could not add", err)
+        self.assertEqual(self.gi_bytes(), b"*.lock\n")
+
+    # -- never outside a state root ------------------------------------------------------ #
+    def append_file(self, path):
+        return self.run_all(["append-issue", "--file", path, "--epic", "001", "--sprint", "01",
+                             "--title", "A", "--source", "code-review (E001-S01-001)",
+                             "--severity", "Low"])
+
+    def test_bare_file_outside_a_state_root_writes_no_gitignore(self):
+        """`append-issue --file X` with no --state-root: X's directory might be the repo root,
+        where `*.lock` would silently ignore uv.lock/yarn.lock/Cargo.lock repo-wide."""
+        bare = os.path.join(self.d, "repo-root")
+        os.makedirs(bare)
+        issues = os.path.join(bare, "issues.yaml")
+        code, _, err = self.append_file(issues)
+        self.assertEqual(code, 0, err)
+        self.assertTrue(os.path.exists(issues + ".lock"), "premise: the issues lock was taken")
+        self.assertFalse(os.path.exists(os.path.join(bare, ".gitignore")))
+
+    def test_bare_file_inside_a_state_root_still_gets_the_rule(self):
+        code, _, err = self.append_file(self.issues)          # self.root has status folders
+        self.assertEqual(code, 0, err)
+        self.assertIn("*.lock", self.gi_lines())
+
+    def test_explicit_state_root_gets_the_rule_before_any_epic_exists(self):
+        fresh = os.path.join(self.d, "fresh", "state")
+        os.makedirs(fresh)
+        code, _, err = self.run_all(["append-issue", "--state-root", fresh, "--epic", "001",
+                                     "--sprint", "01", "--title", "A", "--source",
+                                     "code-review (E001-S01-001)", "--severity", "Low"])
+        self.assertEqual(code, 0, err)
+        with open(os.path.join(fresh, ".gitignore"), encoding="utf-8") as fh:
+            self.assertIn("*.lock", fh.read().splitlines())
+
     # -- real git ---------------------------------------------------------------------- #
     def git(self, *args, check=True):
         import subprocess
