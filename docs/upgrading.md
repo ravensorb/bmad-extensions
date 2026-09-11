@@ -60,6 +60,29 @@ result.
 The skill is the authority on this sequence. If this document and
 `/l3io-util-doctor` ever disagree, the skill is correct and this file is stale.
 
+## Upgrade between runs
+
+Self-install converges every project to one byte-identical `pm-status.py`, but only for
+processes that start **after** it runs. A `pm-status.py` invocation already in flight when the
+upgrade lands keeps running the copy it loaded — it does not pick up a mid-flight file
+replacement.
+
+This matters for locking specifically: an epic's lock file lives at a fixed path per
+`pm-status.py` version, and that path was relocated (from inside the epic's own directory to
+`{state_root}/epic-NNN.lock`) so it survives a `move-epic`/`archive-epic` `git mv`. A
+pre-upgrade process and a post-upgrade process therefore do not lock the *same file* for the
+same epic during the transition window, and so do not exclude each other, even though both
+believe they hold "the" epic lock.
+
+Concretely: if `l3io-pm-execute` sprint agents are mid-flight on the pre-upgrade copy while
+`/l3io-util-doctor` — which self-installs at activation, before dispatching to any mode — runs
+and refreshes `pm-status.py` mid-session, the doctor's own writes (and anything dispatched
+after it) use the new lock path and will not wait behind the still-running agents' lock, and
+vice versa. This is a narrow, self-resolving window: once every process still running has
+exited, every subsequent invocation loads the same, current copy and locks the same file. It
+is not a reason to avoid running `/l3io-util-doctor` between runs — it is a reason not to run
+it, or any manual `pm-status.py` write, against an epic another session is actively executing.
+
 ## Version notes
 
 Find your starting version and read forward. `npx bmad-method install` upgrades across any

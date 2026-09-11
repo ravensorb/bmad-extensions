@@ -398,6 +398,7 @@ Subcommand summary (see `pm-status.py --help` for full flags):
 |---|---|
 | `set-status`, `set-actual`, `set-estimate`, `set-field`, `verify` | `--state-root` + (`--story KEY` \| `--epic ID [--sprint ID]`) |
 | `set-actual` extra | `--block {actual,orchestration}` (default `actual`); `orchestration` writes the orchestrator's own overhead and is valid on a sprint or epic only, never a story |
+| `set-field` extras | Refuses any field in `DERIVED_NODE_FIELDS`, any sub-path of one, and any **parent** path that contains one (e.g. `--field completion_evidence`, which would silently discard `completion_evidence.test_runs`) — outright, exit 2, naming the contained field and the verb that writes it instead. |
 | `story-doc-init` | `--state-root --artifacts-root A --story KEY` — creates the story markdown skeleton from its state node if absent; the only writer of that skeleton. |
 | `estimate-story` | `--state-root --story KEY --classification {simple,standard,complex} [--confidence ...] [--model ID] [--token-rates JSON]` — computes and writes a story's estimate block from `BASE_BANDS` × calibrated scope ratio × fix factor, per metric, then prices `cost` from the estimated `tokens_k` |
 | `estimate-rollup` | `--state-root --epic ID [--sprint ID] [--model ID] [--token-rates JSON]` — sums child estimates and writes the parent's range-form estimate, widened by the calibrated (or cold-start) closure band and the calibrated (or unseeded) orchestration band, then prices `cost` from the rolled-up `tokens_k` range |
@@ -408,10 +409,10 @@ Subcommand summary (see `pm-status.py --help` for full flags):
 | `append-issue` | `--state-root` (preferred) or `--file` (compatibility) |
 | `list-issues` | `--state-root` + optional `--epic`/`--sprint`/`--severity`/`--format`, `--status {backlog,scheduled}`, `--resolved [--resolution R]`, `--all` (JSON `{open, resolved}` read under one lock). Every item reports `origin_archived`. |
 | `resolve-issue` | `--state-root --key K --resolution {fixed,wontfix,duplicate,obsolete}` + `--ref`/`--note` as the resolution requires, optional `--session-id`/`--cause`. Moves the item to `issues-resolved.yaml`; idempotent. |
-| `update-issue` | `--state-root --key K --severity S` + optional `--note`/`--session-id`/`--cause` — re-severities an open item (the promotion path epic closure uses). |
-| `promote-issue` | `--state-root --artifacts-root A --key K [--key K2…] --epic E --sprint S --classification C` + optional `--title` (required with several keys), `--model`, `--token-rates`, `--session-id`, `--cause`. Refuses archived epics, sprints not in `backlog`, a retry that would resume an interrupted promotion into a different epic/sprint than the one it partly completed (exit 2, naming the epic/sprint to retry with), and a foreign epic lock — live (exit 5) or one it cannot evaluate (not a mapping, no `session_id`, a `claimed_at` that is missing, unparseable, or has no timezone, or a non-integer `ttl_minutes`; exit 5, naming `clear-lock` for an abandoned lock). |
-| `audit-issues` | `--state-root [--format {text,json}]` — read-only integrity findings 1a–1j (key in both files, broken scheduling, missed done hook, unlinked promotion, stale `next`, bad status, archived undone story, double claim, duplicate/non-canonical key, fixed-but-reverted); a key with a resolved entry is not evaluated for 1b/1c/1d/1f/1g — its stale open copy shows as 1a, and 1h and 1j still apply — and a key duplicated within one file (1i) is not evaluated for 1b/1c/1d/1f/1g either; 1d/1h ignore a dead claim (a story under `archived/` that is not `done`); 1j fires only when the ref story's `resolves:` lists the key; exit 4 when any is found, and on a malformed issue file `--format json` prints `{"findings": [], "error": MSG}` |
-| `repair-issue` | `--state-root --key K --action {unschedule,link,reseed,reopen}` + `--story` for link — structural repairs, each refused (exit 2) unless its `audit-issues` finding holds (1b/1g, 1d, 1e, 1j); `unschedule`/`link` also refuse a key that already has a resolved entry (audit finding 1a: rerun `resolve-issue` to clear the stale open copy); `reseed` drops non-canonical aliases of the epic's `next` key and never lowers it; `unschedule` writes an `issue_unscheduled` event. |
+| `update-issue` | `--state-root --key K --severity S` + optional `--note`/`--session-id`/`--cause` — re-severities an open item (the promotion path epic closure uses). Setting it to the severity it already has is a no-op: prints `OK update-issue {key} severity {S} unchanged`, writes nothing, appends no event. |
+| `promote-issue` | `--state-root --artifacts-root A --key K [--key K2…] --epic E --sprint S --classification C` + optional `--title` (required with several keys), `--model`, `--token-rates`, `--session-id`, `--cause`. Refuses archived epics, sprints not in `backlog`, a retry that would resume an interrupted promotion into a different epic/sprint than the one it partly completed (exit 2, naming the epic/sprint to retry with), and a foreign epic lock — live (exit 5) or one it cannot evaluate (not a mapping, no `session_id` — a whitespace-only id also reads as absent, so it is never mistaken for a padded match of the caller's own — a `claimed_at` that is missing, unparseable, or has no timezone, or a non-integer `ttl_minutes`; exit 5, naming `clear-lock` for an abandoned lock). Also refuses (exit 2), before any write: a resumable claimant's story node with a malformed `key:`, or any story node it walks that fails to parse, is not a mapping, or is not valid UTF-8. |
+| `audit-issues` | `--state-root [--format {text,json}]` — read-only integrity findings 1a–1j (key in both files, broken scheduling, missed done hook, unlinked promotion, stale `next`, bad status, archived undone story, double claim, duplicate/non-canonical key, fixed-but-reverted); a key with a resolved entry is not evaluated for 1b/1c/1d/1f/1g — its stale open copy shows as 1a, and 1h and 1j still apply — and a key duplicated within one file (1i) is not evaluated for 1b/1c/1d/1f/1g either; 1d/1h ignore a dead claim (a story under `archived/` that is not `done`); 1j fires only when the ref story's `resolves:` lists the key; exit 4 when any is found, and on a malformed issue file, or a story node that fails to parse, is not a mapping, or is not valid UTF-8, `--format json` prints `{"findings": [], "error": MSG}` (same channel, no new finding id). `1e` covers the stale canonical `next[epic]`, any non-canonical alias key (allocate reads only the canonical key), and any value above the BL key space (1000). |
+| `repair-issue` | `--state-root --key K --action {unschedule,link,reseed,reopen}` + `--story` for link — structural repairs, each refused (exit 2) unless its `audit-issues` finding holds (1b/1g, 1d, 1e, 1j); `unschedule`/`link` also refuse a key that already has a resolved entry (audit finding 1a: rerun `resolve-issue` to clear the stale open copy); `reseed` merges non-canonical aliases of the epic's `next` key into the canonical key by max and never lowers it, but refuses outright (exit 2, nothing written) when any of the epic's alias or canonical values exceeds 1000 (report-only; fix it by hand); `unschedule` writes an `issue_unscheduled` event; `link` writes an `issue_scheduled` event carrying `via: repair-link` (promote's own carries no `via`). |
 | `calibration show` \| `migrate-metrics` \| `redrive` | `--state-root [--format {text,json}]` — `show` is a read-only report of every component's sample count and active ratio (a missing file reports cold-start and exits `0`); `migrate-metrics` reshapes a pre-metrics-rework calibration file in place (gated on its own marker, idempotent); `redrive` re-derives calibration samples from the story files already on disk (`redrive_story_samples`), for backfilling or repairing samples without re-running the work |
 | `report` | `--state-root` (+ optional `--plan` pointing at `plan-output-meta.yaml`, `--stall-minutes N`) — walks every epic in every status folder; addresses none individually. Read-only unless `--out` is given. `--status planned,active,archived` narrows the display (default `planned,active`); counting is unaffected. Flags any dispatch opened longer than `--stall-minutes` (default 15) and never closed. Every format carries a **Spend** section attributing actual spend to story / closure / orchestration (metrics-contract.md §6) |
 | `dispatch` | `--state-root --event {open,close} --agent NAME` + optional `--epic`/`--sprint`/`--story`/`--session-id` — records a subagent dispatch boundary into `events.jsonl`; the input to `report`'s stalled-dispatch flags |
@@ -485,9 +486,31 @@ way for order to drift out of sync with intent, the way it could inside a YAML l
 
 ## 9. Concurrency
 
-Per-epic directories mean epic-scoped writes (status, estimate, actual, lock, move) touch
-only that epic's own files — **no flock is needed for any of them.** Two developers working
-different stories, different sprints, or different epics never contend for the same file.
+Every `epic.yaml` write takes `epic_node_lock(state_root, epic_key)` — the epic-scoped
+writers (status, estimate, actual, lock, move) all serialize on it, so two writers to the
+*same* epic never race even though they still touch only that epic's own files. Two
+developers working different epics never contend for the same lock, since each epic has its
+own lock file. `sprint.yaml` and story `.yaml` writes still take no flock of their own —
+sharding gives each epic its own directory, and nothing below the epic level needs one.
+
+**Lock files.**
+- `{state_root}/epic-NNN.lock` — one per epic, created empty (opened `"w"`, never written)
+  the first time any locking verb touches that epic. It lives in the state root itself,
+  beside `issues.yaml.lock` and `pm-calibration.yaml.lock`, never inside an epic directory,
+  so it survives a `move-epic`/`archive-epic` `git mv` unchanged. It is never deleted
+  (deleting a flock file is racy) — do not delete one while a run may be active.
+- `issues.yaml.lock`, `pm-calibration.yaml.lock`, `adr-register.yaml.lock` — the sidecars for
+  the three shared-append targets below, likewise created empty and never deleted.
+- A `.yaml.lock` sidecar per locked node file (taken by `--flock` on
+  `set-status`/`set-actual`/`set-estimate`) — also empty. For an epic node this sidecar is
+  redundant with `epic_node_lock` (a different file, so it cannot self-deadlock against it).
+
+All of these are committed by the sprint-closure checkpoint's `git add
+{implementation_artifacts}/state/` (`steps/sprint/step-04-sprint-closure.md` §9); until then
+they are untracked. Committing them, or gitignoring them with a `state/**/*.lock` rule, are
+both harmless — they carry no content, only a filesystem lock. Old `epic.yaml.lock` files
+left inside an epic directory by a pre-relocation `pm-status.py` are inert leftovers: nothing
+locks them any more, and they are safe to remove.
 
 `pm-calibration.yaml`, `issues.yaml`, and `adr-register.yaml` are the three shared-append
 targets sharding does not shard, because all three are inherently cross-epic aggregates.
@@ -505,15 +528,29 @@ number; for `adr-register.yaml`, two parallel agents both claiming the same ADR 
 both calls still exiting 0. There is no `--flock` flag to remember for any of the three — the
 lock is automatic, not opt-in. All three locks are re-entrant within a process, so a save
 that nests inside its own lock (as `save_calibration` does) does not deadlock against its own
-flock. Contrast this with per-epic node files (`epic.yaml`, `sprint.yaml`, story `.yaml`),
-which need no flock at all because sharding gives each epic its own directory.
+flock. Contrast this with per-epic node files: `sprint.yaml` and story `.yaml` still need no
+flock, because sharding gives each epic its own directory; `epic.yaml` now does, per above.
 
 `issues-resolved.yaml` shares `issues_lock` with `issues.yaml` — every issue verb loads and
-saves both under one hold. One verb holds two locks: `promote-issue` takes `epic_node_lock`,
-and then, nested inside it, `issues_lock`, which it holds from the decisive item check through
-the node + estimate save, the story document, both roll-ups and scheduling. Always that order;
-no verb takes them in reverse, and none holds two `epic_node_lock`s at once — the re-entrancy
-counter is per lock family, not per path.
+saves both under one hold. **The epic lock is always the outer lock; nothing takes it in
+reverse.** The full nesting set:
+
+- **epic → `issues_lock`** — `promote-issue` takes `epic_node_lock`, and then, nested inside
+  it, `issues_lock`, which it holds from the decisive item check through the node + estimate
+  save, the story document, both roll-ups and scheduling.
+- **epic → `calibration_lock`** — `set-actual --node epic` takes `epic_node_lock` across the
+  status write, then nests `calibration_lock` for the closure/orchestration sample
+  (`record_closure_sample` / `record_orchestration_sample`).
+- **epic → the `events.jsonl` flock** — a leaf lock, taken and released inside `append_event`
+  for any epic-level status/actuals write.
+- **epic → epic** — the same epic only, re-entered (promote's own roll-up); no second flock
+  is taken.
+
+None holds two `epic_node_lock`s at once — the re-entrancy counter is per lock family, not
+per path, and requesting a second epic's lock while one is already held raises. **A fresh
+epic lock is never taken while `issues_lock` or `calibration_lock` is held** — that ordering
+is enforced at runtime: `epic_node_lock` raises `RuntimeError` if it is requested fresh (not
+a same-epic re-entry) while either of those locks is held.
 
 ## 10. Read resolution at activation
 

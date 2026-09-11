@@ -24,8 +24,9 @@ uv run {pm_status} audit-issues --state-root {pm_state_root} --format json
 
 Exit `0` → print `✓ Backlog integrity: no findings` and go to T3. Exit `4` with a non-empty
 `findings` list → print every finding (`id`, `key`, `detail`) and the command that repairs it.
-Exit `4` with `findings: []` and an `error` → the issue file is malformed; print the `error`
-and stop — an empty `findings` list on exit 4 is not "clean":
+Exit `4` with `findings: []` and an `error` → a malformed issue file, or a story node that
+failed to parse, was not a mapping, or was not valid UTF-8; print the `error` and stop — an
+empty `findings` list on exit 4 is not "clean":
 
 | Finding | Repair |
 |---|---|
@@ -33,7 +34,8 @@ and stop — an empty `findings` list on exit 4 is not "clean":
 | `1b` with a scheduled item, `1g` | `uv run {pm_status} repair-issue --state-root {pm_state_root} --key {key} --action unschedule` |
 | `1c` | `uv run {pm_status} resolve-issue --state-root {pm_state_root} --key {key} --resolution fixed --ref {story}` |
 | `1d` | `uv run {pm_status} repair-issue --state-root {pm_state_root} --key {key} --action link --story {story}` |
-| `1e` | `uv run {pm_status} repair-issue --state-root {pm_state_root} --key BL-E{epic}-001 --action reseed` (for a malformed `next`, any existing key) |
+| `1e`, an alias key or a stale canonical `next` | `uv run {pm_status} repair-issue --state-root {pm_state_root} --key BL-E{epic}-001 --action reseed` |
+| `1e`, `next` above the BL key space (1000) | report only — print the finding's `repair` text as the manual fix, naming the key and the value; `reseed` refuses this case (exit 2) |
 | `1j` | `uv run {pm_status} repair-issue --state-root {pm_state_root} --key {key} --action reopen` |
 | `1b` naming an unknown key, `1f`, `1h`, `1i` | report only — print the finding's `repair` text as the manual fix |
 
@@ -53,7 +55,10 @@ uv run {skill-root}/scripts/audit-backlog.py --pm-status {pm_status} \
 ```
 
 Print every `warnings` entry first. A `project-root suspect` warning means the paths do not line
-up. Say so plainly and do not continue past this step until the user confirms the project root.
+up — it only engages once there are at least 3 code-marker items and most of their files are
+missing, so a single deleted file still gets its normal `obsolete-candidate` verdict rather than
+being suppressed. Say so plainly and do not continue past this step until the user confirms the
+project root.
 
 Table every `fixed-candidate`, `obsolete-candidate`, and `duplicate-candidate` verdict with its
 `evidence`, marking `origin_archived` items. List `open` verdicts (a marker still present) as
