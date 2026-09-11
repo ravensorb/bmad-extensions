@@ -6159,7 +6159,7 @@ class TestModelMismatch(TestLayoutResolution):
         self.assertIn("gpt-5.6-terra", out)
 
     def test_calibration_show_warns_on_mixed_models(self):
-        import yaml as _yaml_mod
+        from ruamel.yaml import YAML as _YAML
         cal_path = os.path.join(self.root, "pm-calibration.yaml")
         cal = {
             "version": 2,
@@ -6174,8 +6174,9 @@ class TestModelMismatch(TestLayoutResolution):
             },
             "closure": {}, "orchestration": {}, "fix": {},
         }
+        _yaml = _YAML()
         with open(cal_path, "w") as f:
-            _yaml_mod.dump(cal, f)
+            _yaml.dump(cal, f)
         code, out = self.run_main(["calibration", "--state-root", self.root, "show"])
         self.assertEqual(code, 0)
         self.assertIn("WARN", out)
