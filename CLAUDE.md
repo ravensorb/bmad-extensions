@@ -99,25 +99,26 @@ node scripts/write-payload-manifest.mjs   # regenerate the manifests after editi
 `check:docs` runs eleven checks (numbered in the script's own header) asserting facts that have
 each drifted in this repo's history: (1) **skill-names** — every `l3io-*` skill named in a live
 doc resolves to a real `skills/` directory; (2) **gating-tables** — every mirrored phase table
-matches the authoritative matrix in `steps/shared/step-01-classify-work.md` §4 cell for cell;
-(3) **section-refs** — every `<file>.md §N` cross-reference resolves to a section bearing that
-number; (4) **cli-surface** — the documented `pm-status.py` CLI surface agrees with the real one
-in both directions, a doc naming a subcommand the CLI lacks or a CLI subcommand missing from the
+matches the authoritative matrix in `steps/shared/step-01-classify-work.md` §4 cell for cell; (3)
+**section-refs** — every `<file>.md §N` cross-reference resolves to a section bearing that number;
+(4) **cli-surface** — the documented `pm-status.py` CLI surface agrees with the real one in both
+directions, a doc naming a subcommand the CLI lacks or a CLI subcommand missing from the
 reference; (5) **config-values** — values quoted inline in prose (the fix-loop caps) match what
 `customize.toml` ships, including that the four PM skills agree with each other; (6)
 **status-values** — `--status` filters named in skill phrase tables are real state folders; (7)
 **metric-list** — `metrics-contract.md` documents exactly the metrics in `METRIC_FIELDS`; (8)
-**digest-size** — the activation digest stays inside its byte budget; (9) **authoring-paths** —
-no runtime directive tells an agent to read `skills/_shared/` (not installed) instead of the
-installed `references/`/`assets/`/`steps/` path. (10) **cli-docstring** — `pm-status.py`'s
-own module docstring names every subcommand the parser defines; (11)
-**append-issue-pointer** — every `append-issue` invocation under `skills/` (any line, fenced
-or not, where the verb is followed by a flag) passes `--source` and `--description`, found by
-walking `skills/` rather than from a list (tested by `npm run test:scripts`, which plants
-violations in a new directory and after a stray fence). Check (1) deliberately allows a doc to name a
-removed skill when mapping it to its replacement or explaining the change — `docs/upgrading.md`
-must be able to say `/l3io-pm-epic-execute` → `/l3io-pm-execute`. Docs are allowed to quote
-values inline; they are not allowed to quote them wrongly.
+**digest-size** — the activation digest stays inside its byte budget; (9) **authoring-paths** — no
+runtime directive tells an agent to read `skills/_shared/` (not installed) instead of the
+installed `references/`/`assets/`/`steps/` path. (10) **cli-docstring** — `pm-status.py`'s own
+module docstring names every subcommand the parser defines; (11) **append-issue-pointer** — every
+`append-issue` invocation under `skills/` (any logical line — physical lines joined on a trailing
+`\` — fenced or not, where a `pm-status` token is followed by `append-issue` and a flag) passes
+`--source` and `--description`, found by walking `skills/` rather than from a list (tested by `npm
+run test:scripts`, which plants violations in a new directory, after a stray fence, and split
+across continued lines). Check (1) deliberately allows a doc to name a removed skill when mapping
+it to its replacement or explaining the change — `docs/upgrading.md` must be able to say
+`/l3io-pm-epic-execute` → `/l3io-pm-execute`. Docs are allowed to quote values inline; they are
+not allowed to quote them wrongly.
 
 The `postbump` hook chains sync automatically, so every release keeps the payloads in sync.
 

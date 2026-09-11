@@ -91,6 +91,20 @@ test("an inline invocation with flags is caught", (t) => {
   assert.match(r.stderr, /inline\.md:\d+: append-issue without --description/);
 });
 
+test("split-line attack: a token and its append-issue on continued lines are caught", (t) => {
+  const root = fixture(t);
+  write(root, "skills/_shared/steps/brand-new-dir/split.md", [
+    "```bash",
+    "python3 {pm_status} \\",
+    '  append-issue --file {pm_issues_file} --epic 001 --title "T" --source "qa (Q-1)" --severity Low',
+    "```",
+    "",
+  ].join("\n"));
+  const r = run(root);
+  assert.equal(r.status, 1);
+  assert.match(r.stderr, /split\.md:2: append-issue without --description/);
+});
+
 test("prose mentioning append-issue is not an invocation", (t) => {
   const root = fixture(t);
   write(root, "skills/_shared/steps/brand-new-dir/prose.md",

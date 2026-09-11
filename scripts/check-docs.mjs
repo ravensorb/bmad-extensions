@@ -25,8 +25,8 @@
 //                    installed) instead of the installed references/assets/steps path
 //  10. cli-docstring pm-status.py's own module docstring names every subcommand the
 //                    parser defines
-//  11. append-issue-pointer every append-issue invocation in skills/ (fenced or not) passes
-//                    --source and --description, so each backlog item points at its finding
+//  11. append-issue-pointer every append-issue invocation in skills/ (logical lines, `\`-
+//                    continued lines joined, fenced or not) passes --source and --description
 //
 // Usage:
 //   node scripts/check-docs.mjs        # report and exit nonzero on any failure (CI)
@@ -717,11 +717,21 @@ function checkCliDocstring() {
 // and epic closure told the agent to append in prose with no --source at all -- so most items
 // pointed nowhere, and nothing could later tell whether one was already fixed. The file set is
 // walked from skills/ (allSkillDocs), never listed by hand, so a producer added in a new file or
-// directory is covered on arrival. An invocation is any line, fenced or not, on which the verb is
-// followed by a flag or a line continuation. Fence state is deliberately not tracked: a stray or
-// four-backtick fence inverts a naive open/close toggle and hides every invocation after it
-// (skills/l3io-util-doctor/SKILL.md carries one). A prose instruction that names the verb without
-// flags is NOT detected (issue-lifecycle spec §7 records that gap).
+// directory is covered on arrival.
+//
+// Covered. An invocation is any logical line (physical lines joined on a trailing `\`), fenced
+// or not, in which a pm-status token (`{pm_status}` or `pm-status.py`) is followed by
+// `append-issue` and at least one `--` flag.
+//
+// Fences. Fence state is deliberately not tracked: a stray or four-backtick fence inverts a
+// naive open/close toggle and hides every invocation after it (skills/l3io-util-doctor/SKILL.md
+// carries one).
+//
+// Not detected.
+//   - A prose instruction that names the verb without flags (issue-lifecycle spec §7 records
+//     that gap).
+//   - An invocation whose flags start on a following line without a trailing `\`. That isn't
+//     valid shell.
 // ---------------------------------------------------------------------------
 function checkAppendIssuePointer() {
   const offenders = [];
@@ -729,12 +739,17 @@ function checkAppendIssuePointer() {
   for (const file of allSkillDocs()) {
     const lines = read(file).split("\n");
     for (let i = 0; i < lines.length; i++) {
-      if (!/(pm_status\}|pm-status\.py)\S*\s+append-issue(\s+--|\s*\\\s*$)/.test(lines[i])) continue;
+      // Join physical lines continued with a trailing `\` into one logical line before
+      // matching, so a token and its verb split across a continuation cannot escape the check.
       let text = lines[i];
       let j = i;
-      while (/\\\s*$/.test(lines[j]) && j + 1 < lines.length) {
+      while (/\\\s*$/.test(text) && j + 1 < lines.length) {
+        text = text.replace(/\\\s*$/, "");
         j += 1;
         text += " " + lines[j];
+      }
+      if (!/(pm_status\}|pm-status\.py)\S*\s+append-issue\s+--/.test(text)) {
+        continue;
       }
       checked += 1;
       const missing = ["--source", "--description"].filter((flag) => !text.includes(flag));
