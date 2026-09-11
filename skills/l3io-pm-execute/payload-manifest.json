@@ -23,6 +23,6 @@
     "references/status-files.md": "bfffb98ceab77b3c09cce2f840642c9f7972fa45c72674ffe7a8338680ae7eff",
     "references/metrics-contract.md": "f27fc344da23c3e19e74c80ec90bf27941382eb377fe5b5de3c30537c6bfb25a",
     "references/calibration-model.md": "63b15a5c4552d6be78d90ec886ff0a1d581af9440bcff3b87b12ef1e1d01af0f",
-    "scripts/spec-align.py": "819b4f95a085776c063f807721707e889c1eb6964c945e5136efc4d638dadcda"
+    "scripts/spec-align.py": "80a547ad7a38b5bf625596a7ef841cb158803d2e5d8ef0fdf036553b80b9c22a"
   }
 }

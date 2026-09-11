@@ -34,6 +34,7 @@ import hashlib
 import json
 import os
 import re
+import shlex
 import subprocess
 import sys
 import tempfile
@@ -953,16 +954,20 @@ def _pm(ctx, *args):
     return subprocess.run([sys.executable, ctx.pm_status, *args], capture_output=True, text=True)
 
 
-def append_spec_issue(ctx, nnn, kind, ref, ident, title, severity, pointer, where):
-    """One spec-change/spec-proposal backlog item through pm-status; returns its key. A rerun
-    after a crash finds the open twin (append-issue skips a content duplicate and names it)."""
-    ctx.need("state")
+def _spec_issue_args(ctx, nnn, kind, ref, ident, title, severity, pointer, where):
     label = "Spec change" if kind == "spec-change" else "Spec proposal"
-    args = ["append-issue", "--state-root", ctx.state_root, "--epic", nnn, "--sprint", "",
+    return ["append-issue", "--state-root", ctx.state_root, "--epic", nnn, "--sprint", "",
             "--kind", kind, "--ref", ref, "--title", f"{label}: {title}",
             "--source", f"spec-sync ({ident})", "--severity", SEV_MAP.get(severity, "Low"),
             "--description", f"Confirm or reject: /l3io-util-doctor triage. Spec: {pointer}. "
                              f"From: {where}."]
+
+
+def append_spec_issue(ctx, nnn, kind, ref, ident, title, severity, pointer, where):
+    """One spec-change/spec-proposal backlog item through pm-status; returns its key. A rerun
+    after a crash finds the open twin (append-issue skips a content duplicate and names it)."""
+    ctx.need("state")
+    args = _spec_issue_args(ctx, nnn, kind, ref, ident, title, severity, pointer, where)
     r = _pm(ctx, *args)
     if r.returncode == 0 and "resolved as" in r.stdout:     # matched a resolved twin, not open
         r = _pm(ctx, *args, "--allow-duplicate")
@@ -1258,23 +1263,43 @@ def cmd_commit(ctx, a):
     if item["type"] == "adr-link":
         wsec = next((s for s in work if s.anchor == target), None)
         body = read_text(ctx.abs(rel)).splitlines()[wsec.start - 1:wsec.end] if wsec else []
-        if not any(os.path.basename(item["adr"]) in line for line in body):
-            raise SAError(2, f"the edit does not link {item['adr']} from #{target}")
+        link_re = re.compile(r"\]\([^)]*" + re.escape(os.path.basename(item["adr"])) + r"\)")
+        if not any(link_re.search(line) for line in body):
+            raise SAError(2, f"the edit does not link {item['adr']} from #{target} "
+                             f"(a markdown link to it, not a mention of its filename)")
     paths = [rel]
+    rewritten = []
     for old, new in renames.items():
         for s in pointing_stories(ctx, rel, old):
             rewrite_pointer(s, rel, old, new)
+            rewritten.append((s, old, new))
             paths.append(ctx.rel(s))
     message = (f"docs(spec): E{nnn} {ident} — {item['title']}" if item["type"] == "spec-updated"
                else f"docs(spec): E{nnn} link {ident} from {item['spec']}")
-    sha = git_commit(ctx, message, paths)
+    try:
+        sha = git_commit(ctx, message, paths)
+    except Exception:
+        # The spec edit and its pointer rewrites must land in one commit or none, so a failed
+        # commit (e.g. a stuck index.lock) must not strand the rewrites: undo them here, not
+        # via `git restore`/`git checkout`, which would also discard unrelated uncommitted
+        # edits already sitting in those story files.
+        for s, old, new in rewritten:
+            rewrite_pointer(s, rel, new, old)
+        raise
     fields = {"commit": sha}
     if target != anchor and item["type"] == "spec-updated":
         fields["spec"] = f"{rel}#{target}"
         item["spec"] = fields["spec"]
     record_item(ctx, item, **fields)
-    key = append_spec_issue(ctx, nnn, "spec-change", sha, ident, item["title"],
-                            item["severity"], item["spec"], item["review"] or item["adr"])
+    try:
+        key = append_spec_issue(ctx, nnn, "spec-change", sha, ident, item["title"],
+                                item["severity"], item["spec"], item["review"] or item["adr"])
+    except SAError as e:
+        args = _spec_issue_args(ctx, nnn, "spec-change", sha, ident, item["title"],
+                                item["severity"], item["spec"], item["review"] or item["adr"])
+        cmd = " ".join(shlex.quote(x) for x in [ctx.pm_status, *args])
+        raise SAError(2, f"{e}; commit {sha} already landed and is recorded on {ident}'s "
+                         f"disposition -- finish recording the backlog issue by hand: {cmd}")
     record_item(ctx, item, issue=key)
     print(f"OK commit {sha[:12]} {ident} -> {key}")
     return 0

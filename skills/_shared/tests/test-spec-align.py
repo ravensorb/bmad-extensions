@@ -890,6 +890,24 @@ class TestCommit(SyncBase):
         self.assertEqual(r.returncode, 2)
         self.assertIn("stayed locked", r.stderr)
 
+    def test_pointer_rewrite_is_rolled_back_on_a_failed_commit(self):
+        # A rename in play plus a stuck index.lock: git_commit must ultimately fail, and the
+        # pointer rewrite it made before failing must be undone, not left stranded -- else a
+        # retry would search for the old anchor, no longer find it, and silently skip the
+        # story that still needs to move with this commit.
+        self.edit("## Order API", "## Orders API")
+        lock = self.path(".git/index.lock")
+        with open(lock, "w"):
+            pass
+        self.addCleanup(lambda: os.path.exists(lock) and os.remove(lock))
+        r = self.commit("--rename-anchor", "order-api=orders-api")
+        self.assertEqual(r.returncode, 2)
+        self.assertIn("stayed locked", r.stderr)
+        story_rel = f"{IMPL}/epic-003/sprint-01/stories/E003-S01-001.md"
+        story = self.read(story_rel)
+        self.assertIn(f"Spec: {ARCH_REL}#order-api", story)
+        self.assertNotIn(f"Spec: {ARCH_REL}#orders-api", story)
+
     def _adr(self):
         self.write("docs/adr/0001-order-api.md",
                    adr(1, "order-api", departs=f"{ARCH_REL}#order-api"))
@@ -911,6 +929,17 @@ class TestCommit(SyncBase):
     def test_an_adr_link_commit_without_the_link_is_refused(self):
         self._adr()
         self.edit("POST /orders accepts a body.", "POST /orders returns 201.")
+        r = self.sa("commit", "--epic", "E003", "--adr", "docs/adr/0001-order-api.md",
+                    "--paths", ARCH_REL)
+        self.assertEqual(r.returncode, 2)
+        self.assertIn("does not link", r.stderr)
+
+    def test_an_adr_link_commit_refuses_a_bare_filename_mention(self):
+        # A passing mention of the ADR's filename is not a link: the guard's whole job is to
+        # confirm the section actually links back to it.
+        self._adr()
+        self.edit("POST /orders accepts a body.",
+                  "POST /orders accepts a body. TODO: link 0001-order-api.md.")
         r = self.sa("commit", "--epic", "E003", "--adr", "docs/adr/0001-order-api.md",
                     "--paths", ARCH_REL)
         self.assertEqual(r.returncode, 2)
