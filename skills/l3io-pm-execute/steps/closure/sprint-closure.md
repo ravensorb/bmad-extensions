@@ -76,7 +76,8 @@ closure report can still say which phases ran:
 
 - `clean-release` CRITICAL/HIGH: fix immediately (re-invoke dev subagent). MEDIUM/LOW: defer to issues.
 - `adversarial` CRITICAL/HIGH: block closure, fix loop (max `{max_fix_iterations}` iterations).
-  MEDIUM: fix in place. LOW: defer.
+  MEDIUM: fix in place. LOW: defer. Write both scopes' findings, each with its ID and scope
+  tag, to `{sprint_root}/closure/adversarial-review.md`.
 
 ## 4. Red team (skip if in skip_phases)
 
@@ -124,19 +125,28 @@ ls {project-root}/.claude/commands/bmad-ux-review.md 2>/dev/null \
   || echo "absent"
 ```
 If present: invoke with story files that have UX acceptance criteria.
-HIGH: fix. LOW/MEDIUM: defer.
+HIGH: fix. LOW/MEDIUM: defer. Output path: `{sprint_root}/closure/ux-review.md`.
 
 ## 6. Sprint architectural drift review (skip if in skip_phases)
 
 If `l3io-arch-review` is installed: invoke Mode B (architectural review) on this sprint's
 stories and **diff**, plus the ADRs and standard sections they bear on, by path — not the
-repository (see §2–3).
+repository (see §2–3). Output path: `{sprint_root}/closure/arch-drift-review.md`.
 BLOCKER/MAJOR: resolve before marking sprint done, or record an accepted ADR that justifies
 leaving it. MINOR: defer to issues file (as `--severity Low` — see §7).
 
 ## 7. Issue triage
 
 Collect all Low severity issues found across phases 2–6. For each:
+
+Bind `{phase_report}` from the phase that raised the finding:
+
+| Phase | `{phase_report}` |
+|---|---|
+| `clean-release`, `adversarial` | `{sprint_root}/closure/adversarial-review.md` |
+| `redteam` | `{sprint_root}/closure/redteam-report.md` |
+| `ux-review` | `{sprint_root}/closure/ux-review.md` |
+| `arch-drift` | `{sprint_root}/closure/arch-drift-review.md` |
 
 ```bash
 python3 {pm_status} append-issue \
@@ -145,7 +155,8 @@ python3 {pm_status} append-issue \
   --sprint {sprint_num} \
   --title "{issue_title}" \
   --source "{phase} ({finding_id})" \
-  --severity Low
+  --severity Low \
+  --description "See {phase_report}"
 ```
 
 `--key` is omitted — `append-issue` allocates `BL-{epic_key}-{nnn}` itself under a lock,

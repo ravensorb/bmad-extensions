@@ -176,7 +176,8 @@ now fire safely.
 ```bash
 ls -d {pm_state_root}/active/epic-*/ 2>/dev/null || echo "(none)"
 ls -d {pm_state_root}/planned/epic-*/ 2>/dev/null || echo "(none)"
-cat {pm_issues_file} 2>/dev/null || echo "(absent)"
+python3 {pm_status} list-issues --state-root {pm_state_root} --all --format json 2>/dev/null \
+  || cat {pm_issues_file} 2>/dev/null || echo "(absent)"
 cat {planning_artifacts}/plan-output-meta.yaml 2>/dev/null || echo "(absent)"
 ```
 
@@ -214,7 +215,10 @@ Report to user:
   to print.
 
 **Open issues** (from `{pm_issues_file}`):
-- Count by severity: Critical, High, Medium, Low
+- Count open items by severity (Critical, High, Medium, Low), split into untriaged (`status`
+  backlog) and scheduled, and note how many have an archived origin (`origin_archived`). With
+  the `cat` fallback, every item under `backlog:` is open. If any untriaged item is Critical or
+  High, recommend `/l3io-pm-plan` (backlog intake) or `/l3io-util-doctor triage`.
 
 **Plan status** (from `plan-output-meta.yaml`):
 - `readiness`, `generated` timestamp, and the phase count — read `phase_count` when present;

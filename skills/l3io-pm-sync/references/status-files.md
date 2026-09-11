@@ -340,7 +340,8 @@ subcommand that still takes `--file`:
 
 ```bash
 uv run {pm_status} append-issue --file {pm_issues_file} \
-  --epic 001 --title "..." --source "..." --severity Medium
+  --epic 001 --title "..." --source "..." --severity Medium \
+  --description "See <the file and line where the finding is recorded>"
 ```
 
 `--key` is omitted here deliberately — it is optional, and when omitted `append-issue`

@@ -51,11 +51,20 @@ Pass:
 - Story file paths: `{implementation_artifacts}/epic-{epic_nnn}/*/stories/*.md`
 - The epic's cumulative **diff**, not the working tree
 - Named standard sections the ADRs invoke, by path and section number
+- **Output path**: `{implementation_artifacts}/epic-{epic_nnn}/epic-closure/arch-drift-review.md` — one finding per entry, each with an ID (`AD-{n}`)
 
 Findings:
 - BLOCKER/MAJOR: must be resolved before closure completes (fix loop, max
   `{max_fix_iterations}` iterations) or recorded as an accepted ADR that justifies leaving it.
-- MINOR: append to issues file via `pm-status.py append-issue` (as `--severity Low`).
+- MINOR: append each to the issues file:
+  ```bash
+  python3 {pm_status} append-issue --file {pm_issues_file} \
+    --epic {epic_nnn} --sprint "" \
+    --title "{finding_text}" \
+    --source "epic-arch-review ({finding_id})" \
+    --severity Low \
+    --description "See {implementation_artifacts}/epic-{epic_nnn}/epic-closure/arch-drift-review.md"
+  ```
 
 ## 3. Epic security review
 
@@ -95,7 +104,15 @@ arch reviewer's BLOCKER/MAJOR/MINOR:
 - CRITICAL/HIGH: must be resolved before closure completes (fix loop, max
   `{max_fix_iterations}` iterations) or recorded as an accepted ADR that justifies leaving it.
 - MEDIUM: fix in place, or record an accepted ADR that justifies leaving it.
-- LOW: append to issues file via `pm-status.py append-issue` (`--severity Low`).
+- LOW: append each to the issues file:
+  ```bash
+  python3 {pm_status} append-issue --file {pm_issues_file} \
+    --epic {epic_nnn} --sprint "" \
+    --title "{finding_text}" \
+    --source "epic-redteam ({finding_id})" \
+    --severity Low \
+    --description "See {implementation_artifacts}/epic-{epic_nnn}/epic-closure/redteam-report.md"
+  ```
 - OBSERVATION: note in the closure report; no action required.
 
 ## 4. Issue triage
@@ -103,8 +120,14 @@ arch reviewer's BLOCKER/MAJOR/MINOR:
 Collect all Low severity issues identified during the epic's sprint closures (already in issues file).
 Review for any that should be promoted to Medium/High given the full epic context.
 
-For any promoted items: update severity in the issues file (re-write the item via `append-issue`
-after removing the old entry manually, or note for the implementer to do so in-place).
+For any promoted item, change its severity in place — never remove and re-append it:
+
+```bash
+python3 {pm_status} update-issue --state-root {pm_state_root} --key {BL key} \
+  --severity {Medium|High|Critical} --note "{why, given the full epic}" --cause cli
+```
+
+Count an item as promoted only when the command prints `OK update-issue … severity Low -> …`.
 
 Output triage summary: count of issues by severity, count promoted.
 

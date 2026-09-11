@@ -64,6 +64,14 @@ and hold the story to those standards as well.
 Bind `{thin_story_keys}` = every story in `{story_keys}` that failed the check. If it is
 empty, go to §3.
 
+Make sure every story in `{thin_story_keys}` has a document before the spawn. `story-doc-init`
+creates a missing one from its state node and never touches an existing one:
+
+```bash
+python3 {pm_status} story-doc-init --state-root {pm_state_root} \
+  --artifacts-root {implementation_artifacts} --story {story_key}
+```
+
 **One spawn for the whole sprint, not one per story.** An enrichment agent's cost is
 dominated by reading the project — the specs, the architecture, the standards — and that read
 is the same whether it then enriches one story or five. Spawning per story pays it per story.
@@ -78,25 +86,8 @@ identity on both, closing on every exit path. The bracket carries no `--story` b
 span covers several.
 
 ```
-Two things for each story file listed below.
-**If a story file does not exist at its given path, create it first** with this minimal
-skeleton (substituting `key` and `title` from the story's state node at
-`{pm_state_root}/.../sprint-{nn}/{story_key}.yaml`), then perform both actions below:
-```markdown
----
-key: '{story_key}'
-title: '{story_title}'
-status: {story_status}
-classification: standard
----
-
-# {story_title}
-
-## Acceptance Criteria
-
-<!-- Technical ACs to be added below -->
-```
-For existing files, preserve all existing content.
+Two things for each story file listed below. Every file exists — the orchestrator created any
+missing one with `story-doc-init` before this spawn. Preserve all existing content.
 
 1. Enrich it with technical ACs, addressing ALL SIX dimensions, marking any that genuinely
    do not apply as "N/A — <one-line reason>" rather than omitting them:

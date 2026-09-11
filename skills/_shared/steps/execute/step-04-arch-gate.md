@@ -106,7 +106,9 @@ Apply these rules to merge findings across reviewer outputs:
 | MINOR from ≥2 reviewers | → MINOR confirmed. Deferred to issues file. |
 | MINOR from 1 reviewer | → Auto-deferred to issues file. Not a gate finding. |
 
-Annotate each consolidated finding with its source reviewer(s).
+Annotate each consolidated finding with its source reviewer(s). Write the consolidated
+findings — each with an ID (`AG-{n}`), its severity, and its source reviewer(s) — to
+`{implementation_artifacts}/epic-{epic_nnn}/arch/arch-gate-review.md`.
 
 When only `l3io-arch-review` ran — the clean path — every finding is single-source by
 construction, and the rows above still resolve: it raised no BLOCKER and no MAJOR, or §4
@@ -165,7 +167,8 @@ python3 {pm_status} append-issue \
   --sprint "" \
   --title "{finding_text}" \
   --source "arch-gate ({reviewer})" \
-  --severity Low
+  --severity Low \
+  --description "See {implementation_artifacts}/epic-{epic_nnn}/arch/arch-gate-review.md ({finding_id})"
 ```
 
 `--key` is omitted — `append-issue` allocates `BL-{epic_key}-{nnn}` itself under a lock,

@@ -471,8 +471,12 @@ value:
 ```bash
 uv run {pm_status} append-issue --file {pm_issues_file} \
   --epic {epic_num_3digit} --sprint {sprint_num_2digit_or_empty} \
-  --title "{story_title}" --source "migrate-state (deferred)" --severity Low
+  --title "{story_title}" --source "migrate-state (deferred)" --severity Low \
+  --description "Deferred story {story_key} carried over from the legacy layout"
 ```
+
+`{story_key}` is the extracted story's key — the entry of `{extracted_story_keys}` this call
+records.
 
 (`--epic`/`--sprint` take bare zero-padded numbers, no `E`/`S` prefix, e.g. `--epic 003
 --sprint 01` — matching the same numbers used for the directory names above.) If `uv` is

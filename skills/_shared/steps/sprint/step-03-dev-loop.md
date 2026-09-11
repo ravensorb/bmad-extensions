@@ -267,7 +267,8 @@ python3 {pm_status} append-issue \
   --sprint {sprint_num} \
   --title "{finding_text}" \
   --source "code-review ({story_key})" \
-  --severity Low
+  --severity Low \
+  --description "See {sprint_root}/closure/review-{story_key}.md"
 ```
 
 ## 4. Write completion evidence and story actuals
