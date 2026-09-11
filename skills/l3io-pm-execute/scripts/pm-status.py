@@ -321,6 +321,72 @@ def _atomic_create(path: str, text: str) -> bool:
             pass
 
 
+# State roots whose .gitignore this process has already checked (_ensure_lock_ignore).
+_LOCK_IGNORE_CHECKED = set()
+_LOCK_IGNORE_LINE = "*.lock"
+
+
+def _ensure_lock_ignore(state_root: str) -> None:
+    """Make `{state_root}/.gitignore` carry `*.lock`, so no lock file is ever committed.
+
+    Every lock file this script creates is an empty flock target -- the four in the state
+    root and the per-node `.yaml.lock` sidecars below it -- and the sprint-closure
+    checkpoint stages the whole state tree. A `*.lock` pattern matches files only, never
+    the state-root directory, so step-00-activate's `git check-ignore` gate still passes.
+
+    Called on EVERY lock acquisition, not only when a lock file is first created: a project
+    whose lock files already exist gets the rule on its next lock. Memoized per process, so
+    each state root is checked at most once. Absent file -> created (no-clobber
+    _atomic_create) with one comment line and the rule; present without the line -> the line
+    is appended, after a newline when the file lacks a trailing one, under a flock on the
+    file so two processes cannot both append it; existing content is never rewritten or
+    reordered. Best-effort: this runs inside the lock path, so an OSError or an undecodable
+    file warns once on stderr and returns -- it never raises and never fails the verb."""
+    root = os.path.realpath(state_root or ".")
+    if root in _LOCK_IGNORE_CHECKED:
+        return
+    _LOCK_IGNORE_CHECKED.add(root)
+    path = os.path.join(root, ".gitignore")
+    try:
+        if not os.path.lexists(path) and _atomic_create(
+                path, f"# pm-status.py lock files -- never commit\n{_LOCK_IGNORE_LINE}\n"):
+            return
+        try:
+            import fcntl
+        except ImportError:  # pragma: no cover - non-POSIX
+            fcntl = None
+        with open(path, "a+b") as fh:
+            if fcntl is not None:
+                fcntl.flock(fh, fcntl.LOCK_EX)
+            try:
+                fh.seek(0)
+                text = fh.read().decode("utf-8")
+                if any(line.strip() == _LOCK_IGNORE_LINE for line in text.splitlines()):
+                    return
+                sep = "" if not text or text.endswith("\n") else "\n"
+                fh.write(f"{sep}{_LOCK_IGNORE_LINE}\n".encode("utf-8"))
+                fh.flush()
+            finally:
+                if fcntl is not None:
+                    fcntl.flock(fh, fcntl.LOCK_UN)
+    except (OSError, UnicodeDecodeError) as e:
+        sys.stderr.write(f"pm-status.py: warning -- could not add {_LOCK_IGNORE_LINE} to "
+                         f"{path}: {e}\n")
+
+
+def _state_root_of_node(path: str):
+    """The state root above a node file: the parent of the nearest ancestor named for a
+    status folder (active/planned/archived). None when there is no such ancestor."""
+    d = os.path.dirname(os.path.abspath(path))
+    while True:
+        parent = os.path.dirname(d)
+        if os.path.basename(d) in STATUS_DIRS:
+            return parent
+        if parent == d:
+            return None
+        d = parent
+
+
 def _flock_write_or_plain(use_flock: bool, y: YAML, data, path: str) -> None:
     """Acquire an exclusive flock on `path` (or a sidecar .lock file) then atomic-dump."""
     if not use_flock:
@@ -336,6 +402,9 @@ def _flock_write_or_plain(use_flock: bool, y: YAML, data, path: str) -> None:
     lock_path = path + ".lock"
     d = os.path.dirname(os.path.abspath(lock_path)) or "."
     os.makedirs(d, exist_ok=True)
+    state_root = _state_root_of_node(path)
+    if state_root is not None:                  # never a .gitignore inside a node directory
+        _ensure_lock_ignore(state_root)
     with open(lock_path, "w") as lf:
         fcntl.flock(lf, fcntl.LOCK_EX)
         try:
@@ -883,7 +952,9 @@ def _file_lock(lock_path: str, depth_state: dict):
                          f"lock-protected (non-POSIX)\n")
         yield
         return
-    os.makedirs(os.path.dirname(os.path.abspath(lock_path)) or ".", exist_ok=True)
+    lock_dir = os.path.dirname(os.path.abspath(lock_path)) or "."
+    os.makedirs(lock_dir, exist_ok=True)
+    _ensure_lock_ignore(lock_dir)   # all four families' lock files sit in the state root
     fh = open(lock_path, "w")
     fcntl.flock(fh, fcntl.LOCK_EX)
     depth_state["depth"], depth_state["fh"] = 1, fh

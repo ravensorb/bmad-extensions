@@ -2126,10 +2126,15 @@ class TestEpicMovesGitBacked(unittest.TestCase):
         tracked = self._run_git(["ls-files", "archived/epic-001"])
         self.assertIn("archived/epic-001/sprint-01/E001-S01-003.yaml", tracked)
         # Nothing left untracked by a shutil fallback. The ONE expected untracked entry is the
-        # epic's lock file, state/epic-001.lock, outside the moved directory by design
-        # (epic_lock_path) -- pinned exactly, so a stray lock inside the moved tree still fails.
+        # state root's .gitignore, which the epic lock wrote so lock files are never committed.
         untracked = [ln for ln in status.splitlines() if ln.startswith("??")]
-        self.assertEqual(untracked, ["?? epic-001.lock"], status)
+        self.assertEqual(untracked, ["?? .gitignore"], status)
+        # The epic's lock file, state/epic-001.lock, sits outside the moved directory by design
+        # (epic_lock_path) and is now ignored -- pinned exactly among the IGNORED entries, so a
+        # stray lock inside the moved tree still fails.
+        ignored = [ln for ln in self._run_git(["status", "--porcelain", "--ignored"]).splitlines()
+                   if ln.startswith("!!")]
+        self.assertEqual(ignored, ["!! epic-001.lock"], status)
 
     def test_move_epic_warns_on_stderr_when_git_mv_falls_back(self):
         """The fallback is a real loss of history, so it must never be silent."""
@@ -8559,6 +8564,147 @@ class TestEventWriteFailure(IssueBase):
         self.assertNotIn("story", item)
         self.assert_event_lost(err, p)
         self.assert_invariants()
+
+
+class TestLockFilesIgnored(IssueBase):
+    """Lock files must never be committed. Every lock acquisition ensures
+    {state_root}/.gitignore carries `*.lock` -- on every acquisition, not only when a lock
+    file is first created, so a project whose lock files already exist is covered on its
+    next lock. Best-effort: a failure warns on stderr and never fails the verb."""
+
+    STORY = "E001-S01-001"
+
+    def setUp(self):
+        super().setUp()
+        # Memoized per process: reset so each test sees a fresh process's behavior.
+        pm._LOCK_IGNORE_CHECKED.clear()
+        self.addCleanup(pm._LOCK_IGNORE_CHECKED.clear)
+        self.gi = os.path.join(self.root, ".gitignore")
+
+    def gi_bytes(self):
+        with open(self.gi, "rb") as fh:
+            return fh.read()
+
+    def gi_lines(self):
+        return self.gi_bytes().decode("utf-8").splitlines()
+
+    def write_story(self):
+        p = os.path.join(self.root, "active", "epic-001", "sprint-01", f"{self.STORY}.yaml")
+        with open(p, "w", encoding="utf-8") as fh:
+            fh.write(f"key: '{self.STORY}'\nepic: 'E001'\nsprint: 'S01'\nstatus: in-progress\n")
+        return p
+
+    def add_test_run(self):
+        return self.run_all(["add-test-run", "--state-root", self.root, "--story", self.STORY,
+                             "--command", "pytest -q", "--exit-code", "0"])
+
+    def test_first_lock_creates_gitignore(self):
+        code, _, err = self.append("A")
+        self.assertEqual(code, 0, err)
+        self.assertTrue(os.path.exists(self.issues + ".lock"), "premise: a lock was taken")
+        self.assertIn("*.lock", self.gi_lines())
+
+    def test_epic_lock_creates_gitignore(self):
+        code, _, err = self.run_all(["set-lock", "--state-root", self.root, "--epic", "E001",
+                                     "--session-id", "s1", "--ttl-minutes", "30"])
+        self.assertEqual(code, 0, err)
+        self.assertIn("*.lock", self.gi_lines())
+
+    def test_second_lock_leaves_bytes_unchanged(self):
+        self.append("A")
+        before = self.gi_bytes()
+        pm._LOCK_IGNORE_CHECKED.clear()          # as a second process would see it
+        code, _, err = self.run_all(["set-lock", "--state-root", self.root, "--epic", "E001",
+                                     "--session-id", "s1", "--ttl-minutes", "30"])
+        self.assertEqual(code, 0, err)
+        self.append("B")
+        self.assertEqual(self.gi_bytes(), before)
+
+    def test_existing_gitignore_is_appended_once_never_rewritten(self):
+        with open(self.gi, "wb") as fh:
+            fh.write(b"# team rules\nscratch/\n*.tmp")       # no trailing newline
+        self.append("A")
+        self.assertEqual(self.gi_bytes(), b"# team rules\nscratch/\n*.tmp\n*.lock\n")
+        pm._LOCK_IGNORE_CHECKED.clear()
+        self.append("B")
+        self.assertEqual(self.gi_bytes(), b"# team rules\nscratch/\n*.tmp\n*.lock\n")
+
+    def test_existing_gitignore_with_the_line_is_untouched(self):
+        original = b"*.lock\n# local\nnotes/\n"
+        with open(self.gi, "wb") as fh:
+            fh.write(original)
+        self.append("A")
+        self.assertEqual(self.gi_bytes(), original)
+
+    def test_unwritable_target_warns_and_the_verb_still_succeeds(self):
+        os.mkdir(self.gi)                         # a directory where the file should be
+        code, _, err = self.append("A")
+        self.assertEqual(code, 0, err)
+        self.assertIn(f"pm-status.py: warning -- could not add *.lock to {self.gi}: ", err)
+        self.assertEqual(err.count("could not add *.lock"), 1, err)
+        self.assertEqual(self.open_keys(), ["BL-E001-001"], "the verb's state must be written")
+
+    def test_undecodable_gitignore_warns_and_is_left_alone(self):
+        original = b"\xff\xfe not utf-8\n"
+        with open(self.gi, "wb") as fh:
+            fh.write(original)
+        code, _, err = self.append("A")
+        self.assertEqual(code, 0, err)
+        self.assertIn(f"pm-status.py: warning -- could not add *.lock to {self.gi}: ", err)
+        self.assertEqual(self.gi_bytes(), original)
+        self.assertEqual(self.open_keys(), ["BL-E001-001"])
+
+    def test_add_test_run_sidecar_ignores_at_the_state_root_only(self):
+        story = self.write_story()
+        code, _, err = self.add_test_run()
+        self.assertEqual(code, 0, err)
+        self.assertTrue(os.path.exists(story + ".lock"), "premise: the sidecar was taken")
+        self.assertIn("*.lock", self.gi_lines())
+        for d in (os.path.dirname(story), os.path.join(self.root, "active", "epic-001"),
+                  os.path.join(self.root, "active")):
+            self.assertFalse(os.path.exists(os.path.join(d, ".gitignore")),
+                             f"a .gitignore was created inside {d}")
+
+    def test_read_only_commands_on_a_root_without_issue_files_create_nothing(self):
+        for argv in (["list-issues", "--state-root", self.root, "--all", "--format", "json"],
+                     ["audit-issues", "--state-root", self.root]):
+            code, _, err = self.run_all(argv)
+            self.assertEqual(code, 0, err)
+        self.assertFalse(os.path.exists(self.gi), "a read-only command created .gitignore")
+        self.assertFalse(os.path.exists(self.issues + ".lock"))
+
+    # -- real git ---------------------------------------------------------------------- #
+    def git(self, *args, check=True):
+        import subprocess
+        return subprocess.run(["git", "-C", self.d, *args], capture_output=True, text=True,
+                              check=check)
+
+    def init_repo(self):
+        if shutil.which("git") is None:
+            self.skipTest("git not available")
+        self.d = os.path.realpath(self.d)
+        self.arts = os.path.join(self.d, "impl")
+        self.root = os.path.join(self.arts, "state")
+        self.issues = os.path.join(self.root, "issues.yaml")
+        self.gi = os.path.join(self.root, ".gitignore")
+        self.git("init", "-q")
+        self.git("config", "user.email", "t@example.invalid")
+        self.git("config", "user.name", "t")
+        self.git("config", "commit.gpgsign", "false")
+
+    def test_git_sees_the_gitignore_and_no_lock_files_and_the_gate_still_passes(self):
+        self.init_repo()
+        self.write_story()
+        self.assertEqual(self.append("A")[0], 0)
+        self.assertEqual(self.add_test_run()[0], 0)
+        porcelain = self.git("status", "--porcelain", "--untracked-files=all").stdout
+        paths = [line[3:] for line in porcelain.splitlines()]
+        self.assertIn("impl/state/.gitignore", paths)
+        self.assertEqual([p for p in paths if p.endswith(".lock")], [], porcelain)
+        self.assertTrue(os.path.exists(self.issues + ".lock"), "premise: lock files exist")
+        # step-00-activate's gate: the state-root DIRECTORY must not be ignored.
+        gate = self.git("check-ignore", "-q", self.root, check=False)
+        self.assertEqual(gate.returncode, 1, "the state root must stay NOT ignored")
 
 
 if __name__ == "__main__":
