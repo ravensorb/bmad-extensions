@@ -91,7 +91,7 @@ state, checking auth) is performed by **you**, the agent, using GitHub MCP tools
    python3 {pm_status} set-status --state-root {pm_state_root} --story {bmad_key} --status done
    ```
    Skip stories already `done` locally (idempotent — no need to re-write).
-   
+
    A `CLOSED` issue with any other reason (`NOT_PLANNED`, `DUPLICATE`) is **not** marked
    done: `set-status done` resolves the story's backlog items as `fixed`, which a
    not-planned close is not. List it in the report (step 5) and leave the decision to the

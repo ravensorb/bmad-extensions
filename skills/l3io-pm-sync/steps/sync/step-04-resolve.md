@@ -5,7 +5,7 @@ Communicate all responses in `{communication_language}`.
 Consolidate what step-03 did into a final report. There is no separate field-level conflict
 resolver here — `push` already resolves "which side wins" by construction (it always
 overwrites the remote issue with current local content and stamps the hash), and `pull` only
-ever moves a story forward to `done` when its issue closed. Nothing in step-03 leaves a
+ever moves a story forward to `done` when its issue closed as `COMPLETED`. Nothing in step-03 leaves a
 local/remote field disagreement for this step to adjudicate.
 
 ## 1. Handle `missing_local` (mapped, but local file gone)

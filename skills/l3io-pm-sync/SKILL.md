@@ -33,7 +33,7 @@ Parse the invocation argument to determine mode:
 | (none) or `status` | `status` | Show sync state and drift report |
 | `setup` | `setup` | Detect platform (GitHub), verify auth, verify/create `_bmad/sync-state.yaml` |
 | `push` | `push` | Create/update GitHub Issues for unmapped/changed local entities, record mappings |
-| `pull` | `pull` | Read mapped issue state, mark closed-issue stories `done` |
+| `pull` | `pull` | Read mapped issue state, mark stories `done` whose issue closed as completed |
 | `sync` | `sync` | Bidirectional sync (push then pull) |
 
 Bind `{sync_mode}` = parsed mode.
