@@ -101,8 +101,8 @@ Subcommands
                 (--key omitted allocates the next number for --epic under a lock --
                 the caller never invents {nnn}; an explicit --key that already exists
                 exits 2. A content duplicate (same normalized title/epic/sprint/source)
-                of an open item, or of a resolved wontfix/duplicate/obsolete item at
-                the same or lower severity, is skipped (exit 0, nothing written); a
+                of an open item, or of a resolved wontfix/duplicate/obsolete item whose
+                severity is at least the new finding's, is skipped (exit 0, nothing written); a
                 match against a resolved fixed item is appended as a recurrence, and
                 one above a wontfix/duplicate/obsolete severity as re-raised. The
                 newest resolved match decides. --allow-duplicate bypasses all of it)
