@@ -10,6 +10,9 @@
 //   also self-install it to {project-root}/_bmad/scripts/
 //   pm-status.py (no tests) → scripts/ in any OTHER skill that invokes {pm_status} and
 //   must be able to self-install/heal it — currently l3io-util-doctor only
+//   spec-align.py → scripts/ in l3io-pm-execute (arch gate, story prep, closures) and
+//   l3io-util-doctor (health Checks 15-19, triage's spec pass, migrate-adrs); shared because
+//   it has two consumers (ADR-0001), run from each skill's own copy, never self-installed
 //   status-files.md / metrics-contract.md → references/ in PM skills
 //   write-module-config.py → scripts/, config-resolution.md → references/,
 //   module-setup.md → assets/ in EVERY l3io skill
@@ -48,6 +51,13 @@ const pmScriptFiles = [
 // scripts — so this group deliberately carries only the runtime script.
 const pmStatusOnlyFiles = [
   { src: path.join(sharedDir, "pm-status.py"), rel: path.join("scripts", "pm-status.py") },
+];
+
+// spec-align.py: two consumers (pm-execute, util-doctor), so shared per ADR-0001. Each runs
+// its own copy via `uv run {skill-root}/scripts/spec-align.py`; its test suite stays in
+// skills/_shared/tests/ like every other suite.
+const specAlignFiles = [
+  { src: path.join(sharedDir, "spec-align.py"), rel: path.join("scripts", "spec-align.py") },
 ];
 
 // Files every l3io skill ships, regardless of module: the config contract, the setup
@@ -185,6 +195,8 @@ const syncGroups = [
   // pm-status.py (no tests) into l3io-util-doctor — it invokes {pm_status} and self-installs
   // it at activation but is not a PM execution skill; see pmStatusOnlyFiles above.
   { files: pmStatusOnlyFiles, dirs: newUtilDoctorDirs },
+  // spec-align.py into its two consumers
+  { files: specAlignFiles, dirs: [...newPmExecuteDirs, ...newUtilDoctorDirs] },
 ];
 
 // Every repo-relative path this script writes, derived from syncGroups itself so
