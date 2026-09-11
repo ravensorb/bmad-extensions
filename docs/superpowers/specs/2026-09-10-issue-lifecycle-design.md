@@ -798,3 +798,73 @@ findings were merged to 27. Confirmed findings were verified against the code or
 | 25 | No diagrams | §1.5, §2.4, §4.4 |
 | 26 | Skeleton defined in two places | §2.8 |
 | 27 | CI hygiene | §8 |
+
+---
+
+## Post-review amendments (2026-09-11)
+
+This body (§1–§9 above) is the approved design record as reviewed and merged; it is left
+unedited. The follow-up passes that shipped after merge changed several behaviors the body
+still describes the old way. **The live docs are authoritative for current behavior** —
+`skills/_shared/status-files.md`, `docs/l3io-pm-reference.md`, `docs/architecture.md`, and
+`CLAUDE.md`. Where the two disagree, the code and the live docs win.
+
+- A repeat `set-status --status done` on a story prints `ok BL-... already resolved (...)`
+  for each key already resolved, and prints `resolved BL-...` only for a key resolved by
+  *this* call — never for one already closed. See `docs/l3io-pm-reference.md`'s done-hook
+  row and `docs/architecture.md` § Backlog lifecycle.
+- A story under `archived/` that is not `done` is a dead claim, not a live one: `resume`
+  (promote's partial-promotion check) and audit findings 1d/1h both ignore it. See
+  `docs/l3io-pm-reference.md`'s `promote-issue`/`audit-issues` rows.
+- Audit finding 1j, and `repair-issue --action reopen`, fire only when the `ref` story's
+  `resolves:` list actually names the key — not merely when the story exists and isn't
+  `done`. Same rows as above.
+- Audit and repair are resolved-first: a key with a resolved entry is not evaluated for
+  1b/1c/1d/1f/1g (its stale open copy shows as 1a instead), and a key duplicated within one
+  file (1i) is not evaluated for 1b/1c/1d/1f/1g either. See `docs/l3io-pm-reference.md`'s
+  `audit-issues` row.
+- `promote-issue` refuses a retry that would resume an interrupted promotion into a
+  different epic or sprint than the one it partly completed (exit 2, naming the epic/sprint
+  to retry with). See `docs/l3io-pm-reference.md`'s `promote-issue` row.
+- `promote-issue` refuses (exit 5) a foreign epic lock it cannot evaluate — not a mapping,
+  no `session_id` (a whitespace-only id also reads as absent), a `claimed_at` missing,
+  unparseable, or without a timezone, or a non-integer `ttl_minutes` — naming `clear-lock`
+  for an abandoned lock. Same row.
+- Promote's nested `issues_lock` spans wider than the §2.4 diagram shows: it is held from
+  the decisive item check through the node + estimate save, the story document, both
+  roll-ups, and scheduling — not just the final "mark scheduled" step. See
+  `skills/_shared/status-files.md` §9.
+- `check:docs` check 11 (`append-issue-pointer`) matches every logical line under `skills/`
+  — physical lines joined on a trailing `\`, fenced or not — rather than only invocations
+  inside a fenced code block, as §4.5 said. See `CLAUDE.md`'s `check:docs` paragraph.
+- `set-field` refuses not only a field in `DERIVED_NODE_FIELDS` and any sub-path of one, but
+  also any **parent** path that contains one (e.g. `--field completion_evidence`, which would
+  silently discard `completion_evidence.test_runs`). See `docs/l3io-pm-reference.md`'s
+  `set-field` extras row.
+- `append-issue` allocation is refused (exit 2, nothing written) once it would go past
+  `BL-E{nnn}-999` — a three-digit suffix cannot name a higher number. See
+  `skills/_shared/status-files.md` §3.
+- `audit-issues --format json` carries an `error` key not only on a malformed issue file,
+  but also on a story node that fails to parse, is not a mapping, or is not valid UTF-8 —
+  the same error channel, no new finding id. See `docs/l3io-pm-reference.md`'s
+  `audit-issues` row.
+- `repair-issue --action unschedule` emits an `issue_unscheduled` event — the §3.4 action
+  table does not list events for `unschedule`/`link`. See `docs/l3io-pm-reference.md`'s
+  `repair-issue` row.
+- `update-issue` on a key in neither file exits 3 with the message `{key} is in neither
+  {open_path} nor {resolved_path}`, naming both files rather than just "unknown". Setting the
+  severity an item already has is a no-op: it prints `unchanged`, writes nothing, and appends
+  no event, rather than writing a same-value transition. See `docs/l3io-pm-reference.md`'s
+  `update-issue` row.
+- `repair-issue --action link`'s `issue_scheduled` event carries `via: repair-link`;
+  promote's own `issue_scheduled` event carries no `via`. Same row.
+- The `next:` alias rule: `allocate` reads only the canonical per-epic key (`'001'`, not
+  `1`/`'1'`/`'E001'`); audit finding 1e reports any non-canonical alias key, whatever its
+  value, and separately reports any alias or canonical value above the BL key space (1000);
+  `repair-issue --action reseed` merges aliases into the canonical key **by max** (not
+  "highest suffix + 1", as §3.4 said) and refuses outright (exit 2, nothing written) when a
+  value it would merge exceeds 1000. See `docs/l3io-pm-reference.md`'s `audit-issues` and
+  `repair-issue` rows.
+- Every `epic.yaml` write holds `epic_node_lock`, not only the writes §2.4 covered
+  (batch D1). See `skills/_shared/status-files.md` §9 and `docs/architecture.md` §
+  Concurrency.
