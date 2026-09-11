@@ -545,6 +545,10 @@ lock is automatic, not opt-in. All three locks are re-entrant within a process, 
 that nests inside its own lock (as `save_calibration` does) does not deadlock against its own
 flock. Contrast this with per-epic node files: `sprint.yaml` and story `.yaml` still need no
 flock, because sharding gives each epic its own directory; `epic.yaml` now does, per above.
+The first number `adr-reserve` hands out is the larger of the register's `next` and the
+highest ADR number already on disk — in `--adr-dir` and in the old per-epic home
+`epic-*/arch/` — plus one (ADR-0005); outside a git work tree without `--adr-dir` it scans
+the old home only, with a stderr warning.
 
 `issues-resolved.yaml` shares `issues_lock` with `issues.yaml` — every issue verb loads and
 saves both under one hold. **The epic lock is always the outer lock; nothing takes it in

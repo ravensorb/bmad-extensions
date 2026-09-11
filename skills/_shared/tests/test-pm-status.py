@@ -3929,7 +3929,8 @@ class TestConcurrentAdrReservation(unittest.TestCase):
         import subprocess
         procs = [subprocess.Popen(
             [sys.executable, SCRIPT, "adr-reserve", "--state-root", self.root,
-             "--epic", "E001", "--slug", f"slug-{i}"],
+             "--epic", "E001", "--slug", f"slug-{i}",
+             "--adr-dir", os.path.join(self.d, "no-adr-dir")],
             stdout=subprocess.PIPE, stderr=subprocess.PIPE)
             for i in range(1, self.N + 1)]
         # Collected from each process's OWN stdout -- not read back from the
@@ -6117,13 +6118,16 @@ class TestAdrRegister(TestLayoutResolution):
     # TestLayoutResolution supplies the node tree but NOT run_main -- every class
     # extending it defines its own (see TestSetFieldTyping above).
     def run_main(self, argv):
-        buf = io.StringIO()
+        buf, err = io.StringIO(), io.StringIO()
         code = 0
+        if argv and argv[0] == "adr-reserve" and "--adr-dir" not in argv:
+            argv = [*argv, "--adr-dir", os.path.join(self.d, "no-adr-dir")]
         try:
-            with redirect_stdout(buf):
+            with redirect_stdout(buf), redirect_stderr(err):
                 code = pm.main(argv)
         except SystemExit as e:
             code = e.code if isinstance(e.code, int) else 1
+        self.last_err = err.getvalue()
         return code, buf.getvalue()
 
     def test_numbers_are_unique_across_repeated_reservations(self):
@@ -6154,13 +6158,11 @@ class TestAdrRegister(TestLayoutResolution):
         in flight, which is the one thing this register exists to preserve."""
         with open(pm.adr_register_path(self.root), "w") as f:
             f.write("next: 1\nreserved: not-a-list\n")
-        buf = io.StringIO()
-        with redirect_stderr(buf):
-            code, out = self.run_main(["adr-reserve", "--state-root", self.root,
-                                       "--epic", "E001", "--slug", "x"])
+        code, out = self.run_main(["adr-reserve", "--state-root", self.root,
+                                   "--epic", "E001", "--slug", "x"])
         self.assertEqual(code, 2)
         self.assertEqual(out, "")
-        err = buf.getvalue()
+        err = self.last_err
         self.assertIn("reserved", err)
         self.assertIn("malformed", err)
 
@@ -8980,6 +8982,84 @@ class TestIssueKinds(IssueBase):
         self.spec_item()
         code, rep = self.audit()
         self.assertEqual([f for f in rep["findings"] if f["id"] == "1k"], [])
+
+
+class TestAdrReserveScansDisk(unittest.TestCase):
+    """adr-reserve starts at max(register next, highest ADR on disk + 1): docs/adr (the one
+    home, ADR-0005) and the old epic-*/arch home, under the register's own lock."""
+
+    GIT_ENV = {"GIT_CONFIG_GLOBAL": os.devnull, "GIT_CONFIG_NOSYSTEM": "1"}
+
+    def setUp(self):
+        self.d = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, self.d, True)
+        self.impl = os.path.join(self.d, "impl")
+        self.root = os.path.join(self.impl, "state")
+        os.makedirs(self.root)
+        self.empty = os.path.join(self.d, "no-adr-dir")
+
+    def touch(self, *parts):
+        p = os.path.join(self.d, *parts)
+        os.makedirs(os.path.dirname(p), exist_ok=True)
+        with open(p, "w", encoding="utf-8") as fh:
+            fh.write("# ADR\n")
+
+    def reserve(self, *extra):
+        import subprocess
+        r = subprocess.run([sys.executable, SCRIPT, "adr-reserve", "--state-root", self.root,
+                            "--epic", "E001", "--slug", "t", *extra],
+                           capture_output=True, text=True, env={**os.environ, **self.GIT_ENV})
+        return r.returncode, r.stdout.split(), r.stderr
+
+    def test_explicit_adr_dir_is_scanned(self):
+        self.touch("docs", "adr", "0010-z.md")
+        code, out, err = self.reserve("--adr-dir", os.path.join(self.d, "docs", "adr"))
+        self.assertEqual((code, out), (0, ["0011"]), err)
+        self.assertEqual(pm.load_adr_register(self.root)[1]["next"], 12)
+
+    def test_old_home_is_scanned(self):
+        self.touch("impl", "epic-001", "arch", "adr-0004-y.md")
+        code, out, err = self.reserve("--adr-dir", self.empty)
+        self.assertEqual((code, out), (0, ["0005"]), err)
+
+    def test_register_ahead_of_disk_wins(self):
+        with open(pm.adr_register_path(self.root), "w", encoding="utf-8") as fh:
+            fh.write("next: 20\nreserved: []\n")
+        self.touch("docs", "adr", "0007-x.md")
+        code, out, _ = self.reserve("--adr-dir", os.path.join(self.d, "docs", "adr"))
+        self.assertEqual(out, ["0020"])
+
+    def test_default_adr_dir_is_the_git_toplevel(self):
+        import subprocess
+        subprocess.run(["git", "init", "-q", self.d], check=True,
+                       env={**os.environ, **self.GIT_ENV})
+        self.touch("docs", "adr", "0007-x.md")
+        code, out, err = self.reserve()
+        self.assertEqual((code, out), (0, ["0008"]), err)
+        self.assertNotIn("not inside a git work tree", err)
+
+    def test_outside_git_warns_and_scans_old_home_only(self):
+        self.touch("docs", "adr", "0007-x.md")      # unreachable without git or --adr-dir
+        self.touch("impl", "epic-002", "arch", "adr-0002-y.md")
+        code, out, err = self.reserve()
+        self.assertEqual((code, out), (0, ["0003"]))
+        self.assertIn("not inside a git work tree", err)
+
+    def test_concurrent_reservations_skip_a_hand_written_adr(self):
+        import subprocess
+        self.touch("docs", "adr", "0003-hand.md")
+        adr_dir = os.path.join(self.d, "docs", "adr")
+        procs = [subprocess.Popen([sys.executable, SCRIPT, "adr-reserve", "--state-root",
+                                   self.root, "--epic", "E001", "--slug", f"s{i}",
+                                   "--adr-dir", adr_dir],
+                                  stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+                 for i in range(8)]
+        numbers = []
+        for p in procs:
+            out, err = p.communicate(timeout=120)
+            self.assertEqual(p.returncode, 0, err.decode())
+            numbers.extend(out.decode().split())
+        self.assertEqual(sorted(numbers), [f"{n:04d}" for n in range(4, 12)])
 
 
 if __name__ == "__main__":

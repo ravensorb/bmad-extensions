@@ -6,7 +6,7 @@
     "references/config-resolution.md": "db1ac9c41bb785c786663c1207f03b19451b399bb9577ef761216b5392182fd7",
     "assets/module-setup.md": "6a183e230bb6e86ee8dcb4e9c4804dd9f99883de02e4fca4031f3500848a4048",
     "steps/shared/step-00-activate.md": "d4d11f71f61ff8b455ed7bccbc85af51c6af6e74d90caf2485542c95e4a96330",
-    "steps/shared/step-00-digest.md": "d7b7b5d5ac62d577200f892ad4e8b0f52619494e134486bf1c4024efca838c97",
+    "steps/shared/step-00-digest.md": "dc47a7a86dc1147f66a6f5c4b9a89f79f951d5c2ac221ad9efea0db80bd5a997",
     "steps/shared/step-01-classify-work.md": "dcd71a5e3780e24550d8c3ff98051b63f0c0a3fc75203cb1fec29f3ab9bd865f",
     "steps/shared/step-estimate.md": "a52334eb26e17d6c6a69feeabcf865a7c9bd143dfac1e59876627a8b3c207764",
     "steps/execute/step-02-scope-resolve.md": "c77e195e2a3d0450b490486bb2309a37e6603854ec72dd523e0f8fec933c31f9",
@@ -19,8 +19,8 @@
     "steps/sprint/step-04-sprint-closure.md": "b916be4ef2ed43630eb3adb1fb777636e67f435aa630fa060e933b4d74464c0c",
     "steps/closure/sprint-closure.md": "cc895f596abec1916e99c7ab02c695deaccfff921ae325c75acafbbbf03611d1",
     "steps/closure/epic-closure.md": "3dc083bbe7aeb43d029501b15923fa5803c8f221be3f26f05b981bec84665355",
-    "scripts/pm-status.py": "c93ff50f79e9fa064c9cb29e2ea75b5e2819a4ecf1df35e4a22fe2a47d1db8a3",
-    "references/status-files.md": "5d8890fc0f93f2fd44be84e6e57470ddca2c6f50f89ad7854499404187677989",
+    "scripts/pm-status.py": "4df4a6abd18704e7d3185213c7407f0e13c1688e95b0a31e6aa4b43621bd6edf",
+    "references/status-files.md": "bfffb98ceab77b3c09cce2f840642c9f7972fa45c72674ffe7a8338680ae7eff",
     "references/metrics-contract.md": "f27fc344da23c3e19e74c80ec90bf27941382eb377fe5b5de3c30537c6bfb25a",
     "references/calibration-model.md": "63b15a5c4552d6be78d90ec886ff0a1d581af9440bcff3b87b12ef1e1d01af0f"
   }

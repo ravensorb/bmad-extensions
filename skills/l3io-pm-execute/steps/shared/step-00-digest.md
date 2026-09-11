@@ -114,7 +114,7 @@ add-test-run  --state-root S  --story KEY  --command CMD  --exit-code N
 sync-story-doc --artifacts-root A  --story KEY  --status S
               (mirrors status into the story doc's frontmatter; a missing or
               frontmatter-less doc warns and returns 0 — never roll state back)
-adr-reserve   --state-root S  --epic ID  --slug SLUG  [--count N]
+adr-reserve   --state-root S  --epic ID  --slug SLUG  [--count N]  [--adr-dir D]
               (N sequential ADR numbers under a lock, before dispatch; one per line)
 estimate-story   --state-root S  --story KEY  --classification {simple,standard,complex}
                  [--model ID] [--token-rates JSON]

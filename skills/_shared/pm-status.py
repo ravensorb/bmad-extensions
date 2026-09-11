@@ -216,10 +216,12 @@ from __future__ import annotations
 
 import argparse
 import contextlib
+import glob
 import io
 import json
 import os
 import re
+import subprocess
 import sys
 import hashlib
 import tempfile
@@ -2490,6 +2492,52 @@ def load_adr_register(state_root: str):
     return y, data
 
 
+_ADR_DOC_NAME = re.compile(r"^(\d{4})-.+\.md$")
+_ADR_OLD_HOME_NAME = re.compile(r"^adr-(\d{4})-.+\.md$")
+
+
+def _git_toplevel(path: str):
+    """The git work tree containing `path`, or None (not a repo, or no git on PATH)."""
+    try:
+        r = subprocess.run(["git", "-C", path, "rev-parse", "--show-toplevel"],
+                           capture_output=True, text=True)
+    except OSError:
+        return None
+    top = r.stdout.strip()
+    return top if r.returncode == 0 and top else None
+
+
+def highest_adr_on_disk(state_root: str, adr_dir: str = "") -> int:
+    """Highest ADR number already written, in the one home and in the old one (ADR-0005).
+
+    The register still records who is in flight; this scan only stops a new reservation
+    from colliding with a file that already exists: a hand-written ADR, a Mode C ADR, or
+    an ADR in a project that has not run `migrate-adrs`. The one home is `adr_dir` when
+    given (step files pass {project-root}/docs/adr, since a BMad project need not be the
+    repository root), else <git top-level of the state root>/docs/adr."""
+    impl = os.path.dirname(os.path.abspath(state_root))
+    hi = 0
+    for arch in glob.glob(os.path.join(impl, "epic-*", "arch")):
+        for name in os.listdir(arch):
+            m = _ADR_OLD_HOME_NAME.match(name)
+            if m:
+                hi = max(hi, int(m.group(1)))
+    if not adr_dir:
+        top = _git_toplevel(state_root if os.path.isdir(state_root) else impl)
+        if top is None:
+            sys.stderr.write(f"pm-status.py: adr-reserve: {state_root} is not inside a git work "
+                             f"tree -- scanned only the old ADR home (epic-*/arch/); pass "
+                             f"--adr-dir to scan docs/adr too\n")
+        else:
+            adr_dir = os.path.join(top, "docs", "adr")
+    if adr_dir and os.path.isdir(adr_dir):
+        for name in os.listdir(adr_dir):
+            m = _ADR_DOC_NAME.match(name)
+            if m:
+                hi = max(hi, int(m.group(1)))
+    return hi
+
+
 def cmd_adr_reserve(args) -> int:
     """Allocate ADR numbers before dispatch, under a lock.
 
@@ -2527,6 +2575,7 @@ def cmd_adr_reserve(args) -> int:
             start = 1
         if start < 1:
             start = 1
+        start = max(start, highest_adr_on_disk(args.state_root, args.adr_dir) + 1)
         numbers = list(range(start, start + args.count))
         for n in numbers:
             entry = CommentedMap()
@@ -6625,6 +6674,8 @@ def build_parser() -> argparse.ArgumentParser:
     ar.add_argument("--epic", required=True)
     ar.add_argument("--slug", required=True)
     ar.add_argument("--count", type=int, default=1)
+    ar.add_argument("--adr-dir", dest="adr_dir", default="",
+                    help="the one ADR home to scan (default: <git top-level>/docs/adr)")
     ar.set_defaults(func=cmd_adr_reserve)
 
     p.add_argument("--version", action="version", version=f"pm-status.py {PM_STATUS_VERSION}")
