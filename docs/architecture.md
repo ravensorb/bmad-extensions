@@ -115,7 +115,7 @@ Issue verbs address both issue files through `--state-root`; `append-issue` stil
 
 **Concurrency:** every `epic.yaml` write takes `epic_node_lock` — epic-scoped writers (status, estimate, actual, lock, move) serialize against each other on it, so two writers to the *same* epic never race even though they still touch only that epic's files; different epics never contend, since each has its own lock file. `sprint.yaml` and story `.yaml` writes still take no flock — sharding gives each epic its own directory. The three files sharding cannot shard are inherently cross-epic aggregates and all take an automatic exclusive flock: `issues.yaml` and `issues-resolved.yaml` (every issue verb's whole read-modify-write, under one `issues_lock`), `events.jsonl` (on append), and `pm-calibration.yaml` (whole read-modify-write cycle, since two concurrent samplers would otherwise silently drop one another's samples). The epic lock is always the outer lock — promote nests `issues_lock` inside it, `set-actual` on an epic nests `calibration_lock` inside it, and a fresh epic lock is never taken while either of those is held (enforced at runtime).
 
-**Lock files:** `{state_root}/epic-NNN.lock` (one per epic, in the state root — not inside any epic directory — so it survives a `move-epic`/`archive-epic` `git mv`), plus the existing `issues.yaml.lock`, `pm-calibration.yaml.lock`, and `adr-register.yaml.lock`, plus a `.yaml.lock` sidecar per `--flock`'d node write. All are created empty and never deleted. The sprint-closure checkpoint commits them (`git add {implementation_artifacts}/state/`); they must not be deleted while a run may be active. Old `epic.yaml.lock` files left inside an epic directory by a pre-relocation `pm-status.py` are inert leftovers.
+**Lock files:** `{state_root}/epic-NNN.lock` (one per epic, in the state root — not inside any epic directory — so it survives a `move-epic`/`archive-epic` `git mv`), plus the existing `issues.yaml.lock`, `pm-calibration.yaml.lock`, and `adr-register.yaml.lock`, plus a `.yaml.lock` sidecar per `--flock`'d node write and per `add-test-run` (which always flocks, so it leaves a `<story>.yaml.lock` beside every story that records a test run). All are created empty and never deleted. The sprint-closure checkpoint commits them (`git add {implementation_artifacts}/state/`); they must not be deleted while a run may be active. Old `epic.yaml.lock` files left inside an epic directory by a pre-relocation `pm-status.py` are no longer the epic lock; the same filename is reused only as the redundant `--flock` sidecar, so removing one is harmless.
 
 **Reads are lock-free.** Every write goes through an atomic temp-file-plus-rename, so a reader — notably `pm-status.py report --watch` polling during a parallel phase — can never observe a torn node file and needs no lock of its own. The exceptions are `list-issues --all` and `audit-issues`, which read both issue files under `issues_lock` so a concurrent resolve cannot tear the pair.
 
@@ -146,6 +146,7 @@ sequenceDiagram
     participant I as issues_lock
     P->>P: validate every refusal (no writes)
     P->>E: acquire
+    P->>P: re-resolve epic and sprint dirs (a move may have landed while waiting)
     P->>P: re-check foreign lock
     P->>I: acquire (nested)
     P->>P: check item, story node + estimate (one save), story document

@@ -8,7 +8,7 @@
     "steps/shared/step-00-activate.md": "d4d11f71f61ff8b455ed7bccbc85af51c6af6e74d90caf2485542c95e4a96330",
     "steps/shared/step-00-digest.md": "d7b7b5d5ac62d577200f892ad4e8b0f52619494e134486bf1c4024efca838c97",
     "steps/shared/step-01-classify-work.md": "dcd71a5e3780e24550d8c3ff98051b63f0c0a3fc75203cb1fec29f3ab9bd865f",
-    "steps/shared/step-estimate.md": "9990a89e9da513e74bff46664ece409e27f84d2e1d13486ee5f7b7771d7d5a5c",
+    "steps/shared/step-estimate.md": "a52334eb26e17d6c6a69feeabcf865a7c9bd143dfac1e59876627a8b3c207764",
     "steps/plan/step-backlog-intake.md": "2be7c308c8c7ea25a0ed124a4beacc031e88eef8fef756ee207f3fa81eaa22ae",
     "steps/plan/step-02-readiness-check.md": "b5f6fd90caea4e57050393b7aeeb38f6db98547d5cdbecfdcc800a4e6f87ab83",
     "steps/plan/step-03-story-elaboration.md": "ba1a3a0de5e1b7de0a7d39a9b63623718028786aba0fd3b2f344c698aafb0b66",
@@ -16,7 +16,7 @@
     "steps/plan/step-05-dependency-graph.md": "431fefabcbd8295a756afd6523596dbfc6b579add43624a2409853b6fb585e26",
     "steps/plan/step-06-plan-output.md": "f28bc7f01f6a6d79dd165d9f056e535288eb473cf638090233c392a94fa595ff",
     "scripts/pm-status.py": "03be6104b53f7800149614f9cee1133aa384ba278ec442254a46390890e68c87",
-    "references/status-files.md": "70807fbdd802153f14da5f1d1d4f489c7b74ed4f8b8ae7a371ea6d69efe41c23",
+    "references/status-files.md": "0b369d746b10edbb2c1edc423fee78b3610b0d218217a5d91c6cf04f4c1e8da9",
     "references/metrics-contract.md": "f27fc344da23c3e19e74c80ec90bf27941382eb377fe5b5de3c30537c6bfb25a",
     "references/calibration-model.md": "63b15a5c4552d6be78d90ec886ff0a1d581af9440bcff3b87b12ef1e1d01af0f"
   }

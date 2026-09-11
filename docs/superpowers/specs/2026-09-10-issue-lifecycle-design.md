@@ -811,18 +811,21 @@ still describes the old way. **The live docs are authoritative for current behav
 
 - A repeat `set-status --status done` on a story prints `ok BL-... already resolved (...)`
   for each key already resolved, and prints `resolved BL-...` only for a key resolved by
-  *this* call — never for one already closed. See `docs/l3io-pm-reference.md`'s done-hook
-  row and `docs/architecture.md` § Backlog lifecycle.
+  *this* call — never for one already closed. See `docs/l3io-pm-reference.md`'s
+  `set-status`, `set-actual` extras row and `skills/_shared/status-files.md` §7's
+  `set-status` extra row.
 - A story under `archived/` that is not `done` is a dead claim, not a live one: `resume`
   (promote's partial-promotion check) and audit findings 1d/1h both ignore it. See
   `docs/l3io-pm-reference.md`'s `promote-issue`/`audit-issues` rows.
 - Audit finding 1j, and `repair-issue --action reopen`, fire only when the `ref` story's
   `resolves:` list actually names the key — not merely when the story exists and isn't
-  `done`. Same rows as above.
+  `done`. See `docs/l3io-pm-reference.md`'s `audit-issues` row (1j) and `repair-issue` row
+  (each action is refused unless its finding holds — `reopen` needs 1j).
 - Audit and repair are resolved-first: a key with a resolved entry is not evaluated for
   1b/1c/1d/1f/1g (its stale open copy shows as 1a instead), and a key duplicated within one
   file (1i) is not evaluated for 1b/1c/1d/1f/1g either. See `docs/l3io-pm-reference.md`'s
-  `audit-issues` row.
+  `audit-issues` row, and its `repair-issue` row for repair (`unschedule`/`link` refuse a key
+  that already has a resolved entry).
 - `promote-issue` refuses a retry that would resume an interrupted promotion into a
   different epic or sprint than the one it partly completed (exit 2, naming the epic/sprint
   to retry with). See `docs/l3io-pm-reference.md`'s `promote-issue` row.
@@ -853,18 +856,21 @@ still describes the old way. **The live docs are authoritative for current behav
   `repair-issue` row.
 - `update-issue` on a key in neither file exits 3 with the message `{key} is in neither
   {open_path} nor {resolved_path}`, naming both files rather than just "unknown". Setting the
-  severity an item already has is a no-op: it prints `unchanged`, writes nothing, and appends
-  no event, rather than writing a same-value transition. See `docs/l3io-pm-reference.md`'s
+  severity an item already has is a no-op: it prints `unchanged` (plus `(note not recorded)`
+  when `--note` was given), writes nothing, and appends no event, rather than writing a
+  same-value transition. See `docs/l3io-pm-reference.md`'s
   `update-issue` row.
 - `repair-issue --action link`'s `issue_scheduled` event carries `via: repair-link`;
-  promote's own `issue_scheduled` event carries no `via`. Same row.
+  promote's own `issue_scheduled` event carries no `via`. See `docs/l3io-pm-reference.md`'s
+  `repair-issue` row.
 - The `next:` alias rule: `allocate` reads only the canonical per-epic key (`'001'`, not
   `1`/`'1'`/`'E001'`); audit finding 1e reports any non-canonical alias key, whatever its
-  value, and separately reports any alias or canonical value above the BL key space (1000);
+  value, and separately reports any alias or canonical value above the BL key space (1000) —
+  an alias above 1000 then carries the same hand-fix `repair` as that finding, not reseed;
   `repair-issue --action reseed` merges aliases into the canonical key **by max** (not
   "highest suffix + 1", as §3.4 said) and refuses outright (exit 2, nothing written) when a
   value it would merge exceeds 1000. See `docs/l3io-pm-reference.md`'s `audit-issues` and
   `repair-issue` rows.
 - Every `epic.yaml` write holds `epic_node_lock`, not only the writes §2.4 covered
-  (batch D1). See `skills/_shared/status-files.md` §9 and `docs/architecture.md` §
-  Concurrency.
+  (batch D1). See `skills/_shared/status-files.md` §9 and the **Concurrency** paragraph of
+  `docs/architecture.md` § State Contract.

@@ -14,7 +14,7 @@ to a mode.
 Skill: `/l3io-util-doctor [command]`.
 
 > **Renamed in 2.1.0.** This skill was `l3io-util-cleanup` through 2.0.x. "Cleanup"
-> described about three of its sixteen modes, while the default behavior is a
+> described about three of its seventeen modes, while the default behavior is a
 > diagnose-report-repair health check. `/l3io-util-cleanup` still works — it forwards to
 > `/l3io-util-doctor` and prints a notice — but it is deprecated and will be removed in a
 > future release. Update any scripts or docs that invoke the old name.
@@ -49,6 +49,8 @@ Key settings (with defaults):
 |---------|--------------|
 | `migrate-schema` | Upgrades an existing `sprint-status.yaml` to the current field schema — adds missing fields with zero/empty defaults, never overwrites existing values. |
 | `split-status` | Splits a single `sprint-status.yaml` into the three-file layout (`sprint-status.yaml` active / `sprint-status-backlog.yaml` / `sprint-status-archived.yaml`). One-way; original preserved as `sprint-status.yaml.legacy`. |
+| `migrate-state` | Makes a legacy project usable by the PM skills again — migrates a legacy state layout (flat `sprint-status.yaml`, or legacy per-epic `_bmad/state/`) to the sharded state tree. |
+| `bootstrap-state` | Creates state nodes from story `.md` artifacts — for projects whose stories were created via `bmad-create-story` without going through `l3io-pm-plan`. |
 
 ### Ongoing maintenance (safe to repeat)
 
@@ -57,6 +59,7 @@ Key settings (with defaults):
 | `normalize` | Convenience — runs `reconcile-status` then `sort-status` in one confirmed pass. |
 | `reconcile-status` | Fixes placement/structure drift: misplaced epics, nested per-epic `backlog:` arrays (flatten to the top-level list), stale non-`backlog` items, empty epic shells. |
 | `sort-status` | Read-only. Validates zero-padded naming (`epic-{nnn}/`, `sprint-{nn}/`, `E{nnn}-S{nn}-{nnn}.yaml`) in the sharded state tree and reports misnamed entries. Performs no reordering and applies no fixes — ordering itself cannot drift under the sharded layout, since each node is its own file and zero-padded names already make directory-listing order the correct order. |
+| `triage` | Audits the backlog and resolves findings that are already fixed — confirms every write, including when the health check runs it. |
 | `layout-cleanup` | Reorganizes flat artifact files into the `epic-XX/sprint-YY` folder hierarchy, reconciles references, verifies state. |
 | `redrive` | Rebuilds the `scope` and `fix` calibration components from the story nodes on disk — repairs samples poisoned by a fixed defect that once stored `fix_iterations` as a string and misclassified them as `backout` instead of `exact`. Backs up the calibration file first (only if no backup already exists); `closure`, `orchestration`, and `token_mix` are untouched. Safe to run repeatedly. |
 
@@ -79,11 +82,11 @@ Key settings (with defaults):
 
 ## Project Health Check
 
-The default mode runs twelve read-only checks, prints a findings table (✓ pass / ⚠ flagged), and — unless invoked as `check`/`status` — proposes the flagged actions in a fixed priority sequence behind a single confirmation:
+The default mode runs thirteen numbered read-only checks (Checks 1–13, plus 2b and 2c), prints a findings table (✓ pass / ⚠ flagged), and — unless invoked as `check`/`status` — proposes the flagged actions in a fixed priority sequence behind a single confirmation:
 
-`rename-active → rename-epic-dirs → migrate-schema → split-status → migrate-state → reconcile-status → layout-cleanup → sort-status → harvest-debt → update-ai-rules → redrive → clean-legacy`
+`rename-active → rename-epic-dirs → migrate-schema → split-status → migrate-state → bootstrap-state → reconcile-status → layout-cleanup → sort-status → harvest-debt → triage → update-ai-rules → redrive → clean-legacy`
 
-Each executed action runs its full mode (dry-run + verify still shown); per-mode confirmations are suppressed since the user already confirmed. If any action fails, the sequence stops and reports.
+Each executed action runs its full mode (dry-run + verify still shown); per-mode confirmations are suppressed since the user already confirmed — except `triage`, which keeps its own confirmations, because every triage action resolves or rewrites backlog items the single confirmation did not show item by item. If any action fails, the sequence stops and reports.
 
 ## Safety Rules
 

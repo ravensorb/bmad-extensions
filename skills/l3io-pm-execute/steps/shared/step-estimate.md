@@ -96,7 +96,8 @@ Same `--model`/`--token-rates` rule as §2: `--model` always, `--token-rates` on
 `{token_rates_json}` is non-empty. The rolled-up `cost_low`/`cost_high` are priced from the
 rolled-up token range under that model.
 
-No `--flock` needed: each epic's estimate write touches only that epic's own directory (see
+No `--flock` needed: every `epic.yaml` write takes `epic_node_lock` automatically, and a
+sprint roll-up's `sprint.yaml` write stays inside its own epic's directory (see
 `references/status-files.md` §9, Concurrency).
 
 ## 4. Output estimate summary

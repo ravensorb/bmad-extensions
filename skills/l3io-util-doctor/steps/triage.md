@@ -34,8 +34,9 @@ empty `findings` list on exit 4 is not "clean":
 | `1b` with a scheduled item, `1g` | `uv run {pm_status} repair-issue --state-root {pm_state_root} --key {key} --action unschedule` |
 | `1c` | `uv run {pm_status} resolve-issue --state-root {pm_state_root} --key {key} --resolution fixed --ref {story}` |
 | `1d` | `uv run {pm_status} repair-issue --state-root {pm_state_root} --key {key} --action link --story {story}` |
-| `1e`, an alias key or a stale canonical `next` | `uv run {pm_status} repair-issue --state-root {pm_state_root} --key BL-E{epic}-001 --action reseed` |
-| `1e`, `next` above the BL key space (1000) | report only — print the finding's `repair` text as the manual fix, naming the key and the value; `reseed` refuses this case (exit 2) |
+| `1e` with key `next` (a malformed map) | `uv run {pm_status} repair-issue --state-root {pm_state_root} --key {any existing BL key} --action reseed` — the finding names no epic; one reseed rebuilds every epic |
+| `1e`, an alias key (value at most 1000) or a stale canonical `next` | `uv run {pm_status} repair-issue --state-root {pm_state_root} --key BL-E{epic}-001 --action reseed` |
+| `1e` whose `repair` starts `report only` — a `next` value, alias or canonical, above the BL key space (1000) | report only — print the finding's `repair` text as the manual fix, naming the key and the value; `reseed` refuses this case (exit 2). An alias above 1000 reports two such findings (the alias, and the value), both with this hand-fix `repair` |
 | `1j` | `uv run {pm_status} repair-issue --state-root {pm_state_root} --key {key} --action reopen` |
 | `1b` naming an unknown key, `1f`, `1h`, `1i` | report only — print the finding's `repair` text as the manual fix |
 
