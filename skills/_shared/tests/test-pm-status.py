@@ -6847,6 +6847,26 @@ class TestPromoteIssue(IssueBase):
         self.assertIn("triage", err)
         self.assertEqual(_tree_snapshot(self.d), before)
 
+    def test_resume_refuses_a_claimant_in_another_epic(self):
+        """A retry naming a different --epic (or --sprint) must not resume a claimant
+        elsewhere: its lock was never taken and its roll-up would target the wrong epic."""
+        self.append("A")
+        self._crash_promote_before_scheduling()                   # claimant E001-S02-001
+        s3 = os.path.join(self.root, "active", "epic-001", "sprint-03", "sprint.yaml")
+        os.makedirs(os.path.dirname(s3))
+        with open(s3, "w", encoding="utf-8") as fh:              # a second backlog sprint
+            fh.write("key: 'S03'\nepic: 'E001'\ntitle: 'Three'\nstatus: backlog\n")
+        for epic, sprint in (("005", "01"), ("001", "03")):
+            before = _tree_snapshot(self.d)
+            code, out, err = self.promote("BL-E001-001", epic=epic, sprint=sprint)
+            self.assertEqual(code, 2, (epic, sprint, out, err))
+            self.assertIn("E001-S02-001", err)
+            self.assertIn("--epic 001 --sprint 02", err)
+            self.assertEqual(_tree_snapshot(self.d), before, (epic, sprint))
+        code, out, err = self.promote("BL-E001-001")               # the named retry resumes
+        self.assertEqual(code, 0, err)
+        self.assertIn("(resumed)", out)
+
 
 class TestConcurrentPromote(unittest.TestCase):
     N = 4
@@ -7136,6 +7156,25 @@ class TestRepairIssue(TestAuditIssues):
         self.run_all(["archive-epic", "--state-root", self.root, "--epic", "E005"])
         self.assertEqual(self.repair("BL-E005-001", "unschedule")[0], 0)
         self.assertNotIn(("1g", "BL-E005-001"), self.ids())
+        # the archived story still lists the key, but its claim is dead: no 1d, no loop
+        self.assertEqual(self.audit(), (0, []))
+
+    def test_repromote_after_1g_creates_a_new_story(self):
+        self.append("Later", "005", "01", "Low", "qa (Q-1)")
+        self.promote("BL-E005-001", "005", "01")
+        self.run_all(["archive-epic", "--state-root", self.root, "--epic", "E005"])
+        self.assertEqual(self.repair("BL-E005-001", "unschedule")[0], 0)
+        code, out, err = self.run_all(["promote-issue", "--state-root", self.root,
+                                       "--artifacts-root", self.arts, "--key", "BL-E005-001",
+                                       "--epic", "001", "--sprint", "02",
+                                       "--classification", "simple"])
+        self.assertEqual(code, 0, err)
+        self.assertIn("-> E001-S02-001", out)
+        self.assertNotIn("resumed", out)
+        self.assertIsNotNone(pm.story_file(self.root, "E001-S02-001"))
+        item = self.load_open()["backlog"][0]
+        self.assertEqual((item["status"], item["story"]), ("scheduled", "E001-S02-001"))
+        self.assertEqual(self.audit(), (0, []))      # the dead archived claim is not 1h
 
     def test_unschedule_refused_on_a_healthy_item(self):
         self.append("A")

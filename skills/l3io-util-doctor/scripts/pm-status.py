@@ -4916,6 +4916,13 @@ def _walk_story_nodes(state_root):
                         yield str(node.get("key") or fname[:-5]), sdir, node
 
 
+def _dead_claim(status_dir, node) -> bool:
+    """A story under archived/ that never reached `done`. Its epic is closed, so its
+    `resolves:` can never fire: the claim is dead. Promote's resume and audit 1d/1h ignore
+    it; audit 1g still reports an item SCHEDULED to it (1g is keyed on the item's `story:`)."""
+    return status_dir == "archived" and str(node.get("status", "")) != "done"
+
+
 def _partial_promotion(state_root, keys):
     """The story (if any) that already claims these `keys` via its `resolves`, across EVERY
     epic -- keys spread across stories, or a story listing a superset/subset of what was
@@ -4923,10 +4930,15 @@ def _partial_promotion(state_root, keys):
     (audit-issues 1d/1h). Resumes only the exact match: exactly one claimant, whose
     `resolves` set equals `keys` exactly, and whose status is not `done`. Anything else --
     no exact claimant, more than one claimant, or a lone claimant whose resolves is a
-    superset/subset or who is already done -- refuses (PMError 2) rather than guess."""
+    superset/subset or who is already done -- refuses (PMError 2) rather than guess.
+    A dead claim (`_dead_claim`) is not a claimant at all: after the 1g repair the item is
+    backlog again and a re-promotion must mint a new story, not resume the archived one.
+    The caller refuses a returned claimant outside its own --epic/--sprint."""
     keyset = set(keys)
     claimants = {}
-    for story_key, _sdir, node in _walk_story_nodes(state_root):
+    for story_key, sdir, node in _walk_story_nodes(state_root):
+        if _dead_claim(sdir, node):
+            continue
         resolves = {str(k) for k in (node.get("resolves") or [])}
         if resolves & keyset:
             claimants[story_key] = node
@@ -5040,7 +5052,15 @@ def _promote_issue(args) -> int:
             items = _promotable_items(store, keys)             # decisive
             story_key = _partial_promotion(sr, keys)
             resumed = story_key is not None
-            if not resumed:
+            if resumed:
+                # Resume only the interrupted call itself (spec §2.4, "a story in the target
+                # epic"): a claimant elsewhere was never locked or foreign-lock-checked here,
+                # and the roll-ups below would target --epic, not the claimant's epic.
+                c_epic, c_sprint, _ = parse_story_key(story_key)
+                if (c_epic, c_sprint) != (epic_key, sprint_key):
+                    raise PMError(2, f"{', '.join(keys)} were partly promoted into {story_key} "
+                                     f"-- retry with --epic {c_epic[1:]} --sprint {c_sprint[1:]}")
+            else:
                 story_key = _next_story_key(sr, ar, epic_key, sprint_key)
                 if os.path.exists(story_doc_path(ar, story_key)):
                     raise PMError(2, f"story document for {story_key} already exists -- "
@@ -5085,11 +5105,16 @@ def _audit_findings(state_root, store) -> list:
         findings.append({"id": fid, "key": key, "story": story, "epic": epic,
                          "detail": detail, "repair": repair})
 
-    stories, claims = {}, {}
+    # claims: every story listing a key (1b and 1j read it). live: the same minus dead claims
+    # (_dead_claim) -- 1d and 1h read only live claims, so the 1g repair leaves a clean audit.
+    stories, claims, live = {}, {}, {}
     for skey, sdir, node in _walk_story_nodes(state_root):
         stories[skey] = (sdir, str(node.get("status", "")))
+        dead = _dead_claim(sdir, node)
         for k in node.get("resolves") or []:
             claims.setdefault(str(k), []).append(skey)
+            if not dead:
+                live.setdefault(str(k), []).append(skey)
     open_by, res_by = {}, {}
     for lst, by in ((store.backlog, open_by), (store.resolved, res_by)):
         for it in lst:
@@ -5121,8 +5146,9 @@ def _audit_findings(state_root, store) -> list:
                 add("1g", k, f"scheduled to {sk}, which is archived and not done",
                     "repair-issue --action unschedule", story=sk)
     for k, sks in claims.items():
-        if len(sks) > 1:
-            add("1h", k, f"listed in resolves of {', '.join(sks)}",
+        lsks = live.get(k, [])
+        if len(lsks) > 1:
+            add("1h", k, f"listed in resolves of {', '.join(lsks)}",
                 "report only -- decide which story owns it")
         if k not in open_by and k not in res_by:
             add("1b", k, f"named in resolves of {', '.join(sks)} but in neither issue file",
@@ -5131,7 +5157,7 @@ def _audit_findings(state_root, store) -> list:
         if k not in open_by:
             continue
         it = open_by[k][0]
-        for sk in sks:
+        for sk in lsks:
             if sk not in stories:
                 continue
             if stories[sk][1] == "done":
