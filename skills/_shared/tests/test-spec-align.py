@@ -738,6 +738,36 @@ class TestSyncPlan(SyncBase):
         self.assertEqual(r.returncode, 2)
         self.assertIn("not a pending spec item", r.stderr)
 
+    def test_a_resolved_twin_is_reopened_with_a_new_key_not_reused(self):
+        # A rerun after the original backlog item was already resolved must not silently
+        # reuse the resolved key: it re-opens the finding under a genuinely new one.
+        out = self.plan("--defer")
+        key = next(d["issue"] for d in out["deferred"] if d["id"] == "AD-1")
+        r = self.pm("resolve-issue", "--state-root", self.state, "--key", key,
+                   "--resolution", "wontfix", "--note", "not applicable here", "--cause", "cli")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        from ruamel.yaml import YAML
+        dpath = self.path(f"{IMPL}/epic-003/epic-closure/drift-dispositions.yaml")
+        y = YAML()
+        with open(dpath, encoding="utf-8") as fh:
+            data = y.load(fh)
+        data["findings"]["AD-1"]["issue"] = None       # plant: the CLI cannot reach this state
+        with open(dpath, "w", encoding="utf-8") as fh:
+            y.dump(data, fh)
+        out2 = self.plan("--defer")
+        key2 = next(d["issue"] for d in out2["deferred"] if d["id"] == "AD-1")
+        self.assertNotEqual(key2, key)
+        self.assertTrue(key2.startswith("BL-E003-"))
+        self.assertIn(key2, {i["key"] for i in self.issues("spec-proposal")})
+
+    def test_a_bad_epic_key_is_refused_by_both_commands(self):
+        r = self.sa("sync-plan", "--epic", "not-an-epic")
+        self.assertEqual(r.returncode, 2)
+        self.assertIn("not-an-epic", r.stderr)
+        r = self.sa("propose", "--epic", "not-an-epic", "--finding", "AD-1")
+        self.assertEqual(r.returncode, 2)
+        self.assertIn("not-an-epic", r.stderr)
+
 
 if __name__ == "__main__":
     unittest.main()
