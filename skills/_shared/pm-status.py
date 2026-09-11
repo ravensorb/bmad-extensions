@@ -108,6 +108,9 @@ Subcommands
                 newest resolved match decides. --allow-duplicate bypasses all of it)
   list-issues   --state-root S  [--epic E] [--sprint S]
                 [--severity {Low,Medium,High,Critical}] [--format {text,json}]
+                [--status {backlog,scheduled}] [--resolved [--resolution R]] [--all]
+                (--all: JSON {open, resolved} under one lock; every JSON item carries
+                origin_archived)
                 (filters combine with AND; a repeated --severity ORs the given severities;
                 a missing issues.yaml, or a filter matching nothing, is success — exit 0
                 with an empty result, not an error)
@@ -4669,22 +4672,53 @@ def _norm_num(v, width: int) -> str:
     return s
 
 
+def _origin_archived(state_root, epic) -> bool:
+    try:
+        d = find_epic_dir(state_root, "E" + _norm_num(epic, 3))
+    except ValueError:
+        return False
+    return d is not None and os.path.basename(os.path.dirname(d)) == "archived"
+
+
 def cmd_list_issues(args) -> int:
     """List (with optional filters) the flat backlog in issues.yaml.
 
     A missing issues.yaml and a filter set that matches nothing are both success
     (exit 0) — an empty backlog is a normal project state, not a failure. Filters
     combine with AND; a repeated --severity ORs the given severities together.
+
+    --all reads both files under one issues_lock so a concurrent resolve cannot
+    tear the snapshot.
     """
-    path = os.path.join(args.state_root, "issues.yaml")
-    _, data = _load(path)
-    items = list((data or {}).get("backlog") or [])
+    return _run_core(lambda: _list_issues(args))
+
+
+def _list_issues(args) -> int:
+    if args.resolution and not args.resolved:
+        raise PMError(2, "--resolution filters resolved items; add --resolved")
+    if args.status and (args.resolved or args.all):
+        raise PMError(2, "--status filters open items; drop --resolved/--all")
+    if args.all and args.format != "json":
+        raise PMError(2, "--all is JSON only; add --format json")
+    open_path, res_path = issues_paths(args.state_root)
+    if args.all:
+        if not os.path.isdir(args.state_root):
+            opened, resolved = [], []
+        else:
+            with issues_lock(open_path):
+                opened = list((_load(open_path)[1] or {}).get("backlog") or [])
+                resolved = list((_load(res_path)[1] or {}).get("resolved") or [])
+    else:
+        src = res_path if args.resolved else open_path
+        items = list((_load(src)[1] or {}).get("resolved" if args.resolved else "backlog") or [])
 
     epic_filter = _norm_num(args.epic, 3) if args.epic else None
     sprint_filter = _norm_num(args.sprint, 2) if args.sprint else None
     severity_filter = set(args.severity) if args.severity else None
 
     def matches(item) -> bool:
+        if not isinstance(item, dict):
+            return False
         if epic_filter is not None and _norm_num(item.get("epic", ""), 3) != epic_filter:
             return False
         if sprint_filter is not None:
@@ -4694,23 +4728,36 @@ def cmd_list_issues(args) -> int:
                 return False
         if severity_filter is not None and item.get("severity") not in severity_filter:
             return False
+        if args.status and str(item.get("status", "")) != args.status:
+            return False
+        if args.resolution and str(item.get("resolution", "")) != args.resolution:
+            return False
         return True
 
-    filtered = [i for i in items if matches(i)]
+    def as_json(item):
+        d = dict(item)
+        d["origin_archived"] = _origin_archived(args.state_root, item.get("epic", ""))
+        return d
 
-    if args.format == "json":
-        import json
-        sys.stdout.write(json.dumps([dict(i) for i in filtered], indent=2) + "\n")
+    if args.all:
+        sys.stdout.write(json.dumps({"open": [as_json(i) for i in opened if matches(i)],
+                                     "resolved": [as_json(i) for i in resolved if matches(i)]},
+                                    indent=2) + "\n")
         return 0
-
+    filtered = [i for i in items if matches(i)]
+    if args.format == "json":
+        sys.stdout.write(json.dumps([as_json(i) for i in filtered], indent=2) + "\n")
+        return 0
     if not filtered:
         sys.stdout.write("(no matching issues)\n")
         return 0
-
-    headers = ["KEY", "EPIC", "SPRINT", "SEVERITY", "STATUS", "TITLE"]
+    state_col = "RESOLUTION" if args.resolved else "STATUS"
+    headers = ["KEY", "EPIC", "SPRINT", "SEVERITY", state_col, "ORIGIN", "TITLE"]
     rows = [[str(i.get("key", "")), str(i.get("epic", "")), str(i.get("sprint", "")) or "-",
-             str(i.get("severity", "")), str(i.get("status", "")), str(i.get("title", ""))]
-            for i in filtered]
+             str(i.get("severity", "")),
+             str(i.get("resolution" if args.resolved else "status", "")),
+             "archived" if _origin_archived(args.state_root, i.get("epic", "")) else "-",
+             str(i.get("title", ""))] for i in filtered]
     widths = [max(len(headers[c]), *(len(r[c]) for r in rows)) for c in range(len(headers))]
 
     def _fmt_row(cells):
@@ -5297,6 +5344,12 @@ def build_parser() -> argparse.ArgumentParser:
     li.add_argument("--severity", action="append", choices=["Low", "Medium", "High", "Critical"],
                     help="filter by severity; repeat to OR multiple severities")
     li.add_argument("--format", choices=["text", "json"], default="text")
+    li.add_argument("--status", choices=["backlog", "scheduled"],
+                    help="open items with this status")
+    li.add_argument("--resolved", action="store_true", help="list issues-resolved.yaml instead")
+    li.add_argument("--resolution", choices=list(RESOLUTIONS), help="with --resolved only")
+    li.add_argument("--all", action="store_true",
+                    help='JSON {"open": [...], "resolved": [...]} read under one lock')
     li.set_defaults(func=cmd_list_issues)
 
     mv = sub.add_parser("move-epic", help="move an epic directory between status folders")

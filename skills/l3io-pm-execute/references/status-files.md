@@ -366,7 +366,7 @@ Subcommand summary (see `pm-status.py --help` for full flags):
 | `move-epic` | `--state-root --epic ID --to {planned,active,archived}` |
 | `archive-epic` | `--state-root --epic ID` — alias for `move-epic --to archived` |
 | `append-issue` | `--state-root` (preferred) or `--file` (compatibility) |
-| `list-issues` | `--state-root` (reads `{state-root}/issues.yaml`) + optional `--epic`/`--sprint`/`--severity`/`--format` filters |
+| `list-issues` | `--state-root` + optional `--epic`/`--sprint`/`--severity`/`--format`, `--status {backlog,scheduled}`, `--resolved [--resolution R]`, `--all` (JSON `{open, resolved}` read under one lock). Every item reports `origin_archived`. |
 | `resolve-issue` | `--state-root --key K --resolution {fixed,wontfix,duplicate,obsolete}` + `--ref`/`--note` as the resolution requires, optional `--session-id`/`--cause`. Moves the item to `issues-resolved.yaml`; idempotent. |
 | `update-issue` | `--state-root --key K --severity S` + optional `--note`/`--session-id`/`--cause` — re-severities an open item (the promotion path epic closure uses). |
 | `calibration show` \| `migrate-metrics` \| `redrive` | `--state-root [--format {text,json}]` — `show` is a read-only report of every component's sample count and active ratio (a missing file reports cold-start and exits `0`); `migrate-metrics` reshapes a pre-metrics-rework calibration file in place (gated on its own marker, idempotent); `redrive` re-derives calibration samples from the story files already on disk (`redrive_story_samples`), for backfilling or repairing samples without re-running the work |

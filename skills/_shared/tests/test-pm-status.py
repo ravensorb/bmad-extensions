@@ -849,10 +849,11 @@ class TestConcurrentResolveAppend(unittest.TestCase):
         self.addCleanup(shutil.rmtree, self.d, True)
         self.root = os.path.join(self.d, "state")
         _build_issue_tree(self.root)
-        for i in range(1, self.N + 1):
-            self.assertEqual(pm.main(["append-issue", "--state-root", self.root, "--epic", "001",
-                                      "--title", f"seed {i}", "--source", "qa",
-                                      "--severity", "Low"]), 0)
+        with redirect_stdout(io.StringIO()):
+            for i in range(1, self.N + 1):
+                self.assertEqual(pm.main(["append-issue", "--state-root", self.root, "--epic",
+                                          "001", "--title", f"seed {i}", "--source", "qa",
+                                          "--severity", "Low"]), 0)
 
     def test_parallel_resolves_and_appends_lose_nothing(self):
         import subprocess
@@ -6394,6 +6395,105 @@ class TestUpdateIssue(IssueBase):
         self.assertEqual(code, 2)
         self.assertIn("obsolete", err)
         self.assertEqual(self.load_open()["backlog"][0]["severity"], "Low")
+
+
+class TestListIssuesLifecycle(IssueBase):
+    def ls(self, *extra):
+        code, out, err = self.run_all(["list-issues", "--state-root", self.root,
+                                       "--format", "json", *extra])
+        self.assertEqual(code, 0, err)
+        return json.loads(out)
+
+    def test_resolved_flag_and_resolution_filter(self):
+        self.append("A")
+        self.append("B", "001", "02")
+        self.run_all(["resolve-issue", "--state-root", self.root, "--key", "BL-E001-001",
+                      "--resolution", "obsolete", "--note", "x"])
+        self.assertEqual([i["key"] for i in self.ls()], ["BL-E001-002"])
+        self.assertEqual([i["key"] for i in self.ls("--resolved")], ["BL-E001-001"])
+        self.assertEqual(self.ls("--resolved", "--resolution", "fixed"), [])
+
+    def test_all_returns_both_lists(self):
+        self.append("A")
+        self.append("B", "001", "02")
+        self.run_all(["resolve-issue", "--state-root", self.root, "--key", "BL-E001-002",
+                      "--resolution", "obsolete", "--note", "x"])
+        data = self.ls("--all")
+        self.assertEqual([i["key"] for i in data["open"]], ["BL-E001-001"])
+        self.assertEqual([i["key"] for i in data["resolved"]], ["BL-E001-002"])
+
+    def test_flag_combinations_that_make_no_sense_exit_2(self):
+        for argv in (["--resolution", "fixed"], ["--resolved", "--status", "backlog"]):
+            code, _, _ = self.run_all(["list-issues", "--state-root", self.root,
+                                       "--format", "json", *argv])
+            self.assertEqual(code, 2, argv)
+        code, _, _ = self.run_all(["list-issues", "--state-root", self.root, "--all"])
+        self.assertEqual(code, 2, "--all is JSON only")
+
+    def test_origin_archived_follows_the_epic_directory(self):
+        self.append("Later thing", "005", "01", "Low", "qa (Q-1)")
+        self.assertFalse(self.ls()[0]["origin_archived"])
+        self.assertEqual(self.run_all(["archive-epic", "--state-root", self.root,
+                                       "--epic", "E005"])[0], 0)
+        self.assertTrue(self.ls()[0]["origin_archived"])
+        code, out, _ = self.run_all(["list-issues", "--state-root", self.root])
+        self.assertIn("archived", out)
+
+    def test_status_filter(self):
+        self.append("A")
+        y, data = pm._load(self.issues)      # a scheduled item (promote lands in Task 8)
+        data["backlog"][0]["status"] = "scheduled"
+        pm._atomic_dump(y, data, self.issues)
+        self.append("B", "001", "02")
+        self.assertEqual([i["key"] for i in self.ls("--status", "scheduled")], ["BL-E001-001"])
+        self.assertEqual([i["key"] for i in self.ls("--status", "backlog")], ["BL-E001-002"])
+
+    def test_all_on_missing_state_root_creates_nothing(self):
+        ghost = os.path.join(self.d, "nope")
+        code, out, _ = self.run_all(["list-issues", "--state-root", ghost, "--all",
+                                     "--format", "json"])
+        self.assertEqual(code, 0)
+        self.assertEqual(json.loads(out), {"open": [], "resolved": []})
+        self.assertFalse(os.path.exists(ghost))
+
+
+class TestListAllConsistency(unittest.TestCase):
+    """--all reads both files under issues_lock: a concurrent resolve can never show
+    a key in both lists or in neither."""
+    N = 8
+
+    def setUp(self):
+        self.d = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, self.d, True)
+        self.root = os.path.join(self.d, "state")
+        _build_issue_tree(self.root)
+        for i in range(1, self.N + 1):
+            with redirect_stdout(io.StringIO()):
+                self.assertEqual(pm.main(["append-issue", "--state-root", self.root, "--epic",
+                                          "001", "--title", f"t{i}", "--source", "qa",
+                                          "--severity", "Low"]), 0)
+
+    def test_snapshots_are_consistent_under_concurrent_resolves(self):
+        import subprocess
+        procs = [subprocess.Popen([sys.executable, SCRIPT, "resolve-issue", "--state-root",
+                                   self.root, "--key", f"BL-E001-{i:03d}", "--resolution",
+                                   "obsolete", "--note", "x"],
+                                  stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+                 for i in range(1, self.N + 1)]
+        snapshots = []
+        for _ in range(15):
+            r = subprocess.run([sys.executable, SCRIPT, "list-issues", "--state-root",
+                                self.root, "--all", "--format", "json"],
+                               capture_output=True, text=True)
+            self.assertEqual(r.returncode, 0, r.stderr)
+            snapshots.append(json.loads(r.stdout))
+        for p in procs:
+            p.communicate(timeout=120)
+        for s in snapshots:
+            o = {i["key"] for i in s["open"]}
+            r = {i["key"] for i in s["resolved"]}
+            self.assertFalse(o & r, "key in both lists")
+            self.assertEqual(len(o | r), self.N, "a key vanished")
 
 
 if __name__ == "__main__":

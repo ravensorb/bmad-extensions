@@ -450,7 +450,7 @@ backlog:
 | `move-epic` | `--state-root --epic ID --to {planned,active,archived}` |
 | `archive-epic` | `--state-root --epic ID` — alias for `move-epic --to archived`; does not accept `--to` itself |
 | `append-issue` | `--state-root` (preferred) or `--file` (compatibility; must equal `<state-root>/issues.yaml`). `--key` is optional: omitted, the key is allocated as max(`next[epic]`, highest suffix in either issue file + 1); given, it is canonicalized, must match `--epic`, and exits 2 if it exists in either file. `--allow-duplicate` forces a content duplicate. |
-| `list-issues` | `--state-root` + optional `--epic`/`--sprint`/`--severity`/`--format` |
+| `list-issues` | `--state-root` + optional `--epic`/`--sprint`/`--severity`/`--format`, `--status {backlog,scheduled}`, `--resolved [--resolution R]`, `--all` (JSON `{open, resolved}` read under one lock). Every item reports `origin_archived`. |
 | `resolve-issue` | `--state-root --key K --resolution {fixed,wontfix,duplicate,obsolete}` + `--ref`/`--note` as the resolution requires, optional `--session-id`/`--cause`. Moves the item to `issues-resolved.yaml`; idempotent. |
 | `update-issue` | `--state-root --key K --severity S` + optional `--note`/`--session-id`/`--cause` — re-severities an open item (the promotion path epic closure uses). |
 | `calibration show` | `--state-root [--format {text,json}]` |
