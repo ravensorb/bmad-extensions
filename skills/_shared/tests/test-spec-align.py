@@ -569,6 +569,11 @@ class TestAdrs(Project):
         self.assertIn("0004-gone.md", r.stdout)
         self.assertIn("pointer does not resolve", r.stdout)
 
+    def test_check_links_refuses_an_unparseable_epic(self):
+        r = self.sa("check-links", "--epic", "not-an-epic")
+        self.assertEqual(r.returncode, 2)
+        self.assertIn("not-an-epic", r.stderr)
+
 
 if __name__ == "__main__":
     unittest.main()

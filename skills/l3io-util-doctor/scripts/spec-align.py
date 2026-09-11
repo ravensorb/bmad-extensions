@@ -794,6 +794,8 @@ def cmd_check_links(ctx, a):
     adrs = all_adrs(ctx)
     if a.epic:
         ek = epic_key(a.epic)
+        if ek is None:
+            raise SAError(2, f"--epic {a.epic!r} is not an epic key")
         adrs = [x for x in adrs if x["epic"] == ek]
     gaps = link_gaps(ctx, load_catalog(ctx), adrs)
     for x, dep, why in gaps:
