@@ -6456,6 +6456,14 @@ class TestListIssuesLifecycle(IssueBase):
         self.assertEqual(json.loads(out), {"open": [], "resolved": []})
         self.assertFalse(os.path.exists(ghost))
 
+    def test_all_on_a_state_root_without_issue_files_creates_nothing(self):
+        code, out, _ = self.run_all(["list-issues", "--state-root", self.root, "--all",
+                                     "--format", "json"])
+        self.assertEqual(code, 0)
+        self.assertEqual(json.loads(out), {"open": [], "resolved": []})
+        self.assertFalse(os.path.exists(self.issues + ".lock"),
+                         "a read-only command left a lock file behind")
+
 
 class TestListAllConsistency(unittest.TestCase):
     """--all reads both files under issues_lock: a concurrent resolve can never show

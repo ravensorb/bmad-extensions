@@ -4702,7 +4702,7 @@ def _list_issues(args) -> int:
         raise PMError(2, "--all is JSON only; add --format json")
     open_path, res_path = issues_paths(args.state_root)
     if args.all:
-        if not os.path.isdir(args.state_root):
+        if not (os.path.exists(open_path) or os.path.exists(res_path)):
             opened, resolved = [], []
         else:
             with issues_lock(open_path):
