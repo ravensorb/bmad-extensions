@@ -7164,6 +7164,41 @@ class TestDoneHook(IssueBase):
             self.assertIn("is not directly writable", err, name)
         self.assertEqual(self._story_bytes("E001-S02-001"), before)
 
+    def test_set_field_refuses_a_parent_path_of_a_derived_field(self):
+        """`--field completion_evidence` replaced the whole mapping, discarding test_runs and
+        the tests_passing derived from them."""
+        code, _, err = self.run_all(["add-test-run", "--state-root", self.root, "--story",
+                                     "E001-S02-001", "--command", "pytest", "--exit-code", "0"])
+        self.assertEqual(code, 0, err)                          # premise: real test_runs exist
+        before = self._story_bytes("E001-S02-001")
+        code, _, err = self.run_all(["set-field", "--state-root", self.root, "--story",
+                                     "E001-S02-001", "--field", "completion_evidence",
+                                     "--value", "x"])
+        self.assertEqual(code, 2, err)
+        self.assertIn("--field completion_evidence is not directly writable (it contains "
+                      "completion_evidence.tests_passing)", err)
+        self.assertIn("add-test-run", err)
+        self.assertEqual(self._story_bytes("E001-S02-001"), before)
+        # the rule is `<field>.` -- a sibling name that merely starts with it stays writable
+        code, _, err = self.run_all(["set-field", "--state-root", self.root, "--story",
+                                     "E001-S02-001", "--field", "completion_evidence_note",
+                                     "--value", "x"])
+        self.assertEqual(code, 0, err)
+
+    def test_set_field_refuses_every_parent_path_of_every_derived_field(self):
+        """Scope from the source of truth: every proper dot-prefix of every DERIVED_NODE_FIELDS
+        entry, not a hand list."""
+        parents = {".".join(name.split(".")[:i]) for name in pm.DERIVED_NODE_FIELDS
+                   for i in range(1, name.count(".") + 1)}
+        self.assertTrue(parents, "no derived field has a parent path: this loop checks nothing")
+        before = self._story_bytes("E001-S02-001")
+        for field in sorted(parents):
+            code, _, err = self.run_all(["set-field", "--state-root", self.root, "--story",
+                                         "E001-S02-001", "--field", field, "--value", "v"])
+            self.assertEqual(code, 2, (field, err))
+            self.assertIn(f"--field {field} is not directly writable (it contains ", err, field)
+        self.assertEqual(self._story_bytes("E001-S02-001"), before)
+
     def _set_resolves(self, value):
         p = pm.story_file(self.root, "E001-S02-001")
         y, n = pm.load_node(p)

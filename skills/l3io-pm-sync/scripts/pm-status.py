@@ -67,9 +67,10 @@ Subcommands
                 declared but always rejected; use estimate-story/estimate-rollup instead)
                 [--confidence {low,medium,high}] [--flock]
   set-field     --state-root S  (--story KEY | --epic ID [--sprint ID])  --field NAME --value V
-                (refuses any field in DERIVED_NODE_FIELDS, or any sub-path of one
-                (<name>.x) -- completion_evidence.tests_passing (use add-test-run), status (use
-                set-status), resolves (use promote-issue))
+                (refuses any field in DERIVED_NODE_FIELDS, any sub-path of one
+                (<name>.x), or any parent path of one (completion_evidence, which would
+                replace test_runs) -- completion_evidence.tests_passing (use
+                add-test-run), status (use set-status), resolves (use promote-issue))
   add-test-run  --state-root S  --story KEY  --command CMD  --exit-code N
                 (appends {command, exit_code} to completion_evidence.test_runs and
                 derives completion_evidence.tests_passing as all(exit_code == 0) over
@@ -4382,6 +4383,13 @@ def cmd_set_field(args) -> int:
         inside = "" if derived == args.field else f" (it is inside {derived})"
         _die_usage(f"--field {args.field} is not directly writable{inside}: "
                    f"{DERIVED_NODE_FIELDS[derived]}")
+    # ...or a PARENT of one: `completion_evidence` would replace the whole mapping and
+    # discard the test_runs that tests_passing is derived from.
+    contained = next((d for d in sorted(DERIVED_NODE_FIELDS)
+                      if d.startswith(args.field + ".")), None)
+    if contained is not None:
+        _die_usage(f"--field {args.field} is not directly writable (it contains {contained}): "
+                   f"{DERIVED_NODE_FIELDS[contained]}")
 
     kind = _infer_kind(args)
     y, node, path, label = _load_checked(args.state_root, args, kind)
