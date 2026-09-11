@@ -5323,8 +5323,12 @@ def _list_issues(args) -> int:
             opened, resolved = [], []
         else:
             with issues_lock(open_path):
-                opened = list((_load(open_path)[1] or {}).get("backlog") or [])
-                resolved = list((_load(res_path)[1] or {}).get("resolved") or [])
+                od, rd = _load(open_path)[1] or {}, _load(res_path)[1] or {}
+            for name, data, path in (("backlog", od, open_path), ("resolved", rd, res_path)):
+                if data.get(name) is not None and not isinstance(data.get(name), list):
+                    raise PMError(2, f"{path} has a malformed '{name}' field")
+            opened = list(od.get("backlog") or [])
+            resolved = list(rd.get("resolved") or [])
     else:
         src = res_path if args.resolved else open_path
         items = list((_load(src)[1] or {}).get("resolved" if args.resolved else "backlog") or [])

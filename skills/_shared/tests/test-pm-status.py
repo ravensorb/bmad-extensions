@@ -6475,6 +6475,13 @@ class TestListIssuesLifecycle(IssueBase):
         self.assertFalse(os.path.exists(self.issues + ".lock"),
                          "a read-only command left a lock file behind")
 
+    def test_all_refuses_a_malformed_list(self):
+        with open(self.issues, "w", encoding="utf-8") as fh:
+            fh.write("backlog: oops\n")
+        code, _, _ = self.run_all(["list-issues", "--state-root", self.root, "--all",
+                                   "--format", "json"])
+        self.assertEqual(code, 2)
+
 
 class TestListAllConsistency(unittest.TestCase):
     """--all reads both files under issues_lock: a concurrent resolve can never show
