@@ -6846,6 +6846,37 @@ class TestPromoteIssue(IssueBase):
         code, _, err = self.promote("BL-E001-001", extra=("--session-id", "me"))
         self.assertEqual(code, 0, err)
 
+    def test_a_padded_holder_session_is_foreign(self):
+        """Ruling F2: the holder is compared to the caller EXACTLY, as check-lock and set-lock
+        compare it. promote used to strip a hand-edited 'me ' and read it as its own -- then
+        wave an otherwise unevaluable lock through."""
+        now = pm._now_iso()
+        self.append("A")
+        me = ("--session-id", "me")
+        # well-formed and live: foreign to `me`, and check-lock's verdict agrees
+        self._set_epic_lock(f"session_id: 'me '\nclaimed_at: '{now}'\nttl_minutes: 30\n")
+        check, _, _ = self.run_all(["check-lock", "--state-root", self.root, "--epic", "E001",
+                                    "--session-id", "me"])
+        self.assertEqual(check, 5)
+        before = _tree_snapshot(self.d)
+        code, _, err = self.promote("BL-E001-001", extra=me)
+        self.assertEqual(code, 5, err)
+        self.assertEqual(_tree_snapshot(self.d), before)
+        # no claimed_at: foreign, so unevaluable -- stripping read it as own and wrote the story
+        self._set_epic_lock("session_id: 'me '\nttl_minutes: 30\n")
+        before = _tree_snapshot(self.d)
+        code, _, err = self.promote("BL-E001-001", extra=me)
+        self.assertEqual(code, 5, err)
+        self.assertIn("cannot be evaluated (claimed_at is missing or unparseable)", err)
+        self.assertEqual(_tree_snapshot(self.d), before)
+        # only the presence check strips: a whitespace-only holder is no session_id at all
+        self._set_epic_lock(f"session_id: '  '\nclaimed_at: '{now}'\nttl_minutes: 30\n")
+        before = _tree_snapshot(self.d)
+        code, _, err = self.promote("BL-E001-001", extra=me)
+        self.assertEqual(code, 5, err)
+        self.assertIn("cannot be evaluated (no session_id)", err)
+        self.assertEqual(_tree_snapshot(self.d), before)
+
     def test_allocation_skips_an_artifact_only_document(self):
         self.append("A")
         stories = os.path.join(self.arts, "epic-001", "sprint-02", "stories")

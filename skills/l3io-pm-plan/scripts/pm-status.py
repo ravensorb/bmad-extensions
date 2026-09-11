@@ -146,7 +146,9 @@ Subcommands
                 archived/ that is not done) is ignored; a foreign epic lock exits 5 when
                 check-lock would report it LOCKED, and whenever promote cannot evaluate
                 it (not a mapping, no session_id, a missing, unparseable or timezone-less
-                claimed_at, a non-integer ttl_minutes) -- clear-lock removes an
+                claimed_at, a non-integer ttl_minutes); the holder must equal
+                --session-id exactly to count as this session's own, as in set-lock and
+                check-lock, and a whitespace-only one is no session_id -- clear-lock removes an
                 abandoned one; a story node that does not parse, or a claimant whose
                 key: is malformed, exits 2 naming the file, before any write)
   audit-issues  --state-root S  [--format {text,json}]
@@ -4918,11 +4920,16 @@ def _unevaluable_lock_reason(lock, session_id):
     cannot read refuses, even where check-lock (a read) reports such a lock FREE. A lock
     naming this session is this session's own and is not refused -- set-lock re-claims its
     own lock the same way, whatever else the block holds. Everything this returns None for
-    is exactly what `_check_lock_verdict` can judge without raising."""
+    is exactly what `_check_lock_verdict` can judge without raising.
+
+    The holder is compared to the caller EXACTLY (Ruling F2), as `_check_lock_verdict` and
+    cmd_set_lock compare it: a hand-edited 'me ' is foreign to `me` in all three paths, so a
+    padded id fails safe. Only the presence check strips, reading a whitespace-only
+    session_id as missing."""
     if not isinstance(lock, dict):
         return "not a mapping"
-    holder = str(lock.get("session_id", "") or "").strip()
-    if not holder:
+    holder = str(lock.get("session_id", "") or "")
+    if not holder.strip():
         return "no session_id"
     if session_id and holder == session_id:
         return None
