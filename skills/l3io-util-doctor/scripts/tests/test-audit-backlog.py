@@ -191,8 +191,12 @@ class TestCli(Base):
     def test_unlistable_state_exits_2(self):
         with open(os.path.join(self.state, "issues.yaml"), "w", encoding="utf-8") as fh:
             fh.write("backlog: oops\n")
-        self.assertEqual(ab.main(["--pm-status", PM, "--state-root", self.state,
-                                  "--artifacts-root", self.arts, "--project-root", self.proj]), 2)
+        err = io.StringIO()
+        with redirect_stderr(err):
+            code = ab.main(["--pm-status", PM, "--state-root", self.state,
+                            "--artifacts-root", self.arts, "--project-root", self.proj])
+        self.assertEqual(code, 2)
+        self.assertIn("issues.yaml has a malformed 'backlog' field", err.getvalue())
 
     def test_unlistable_resolved_list_exits_2(self):
         # the same refusal for the resolved file: list-issues --all reads both lists

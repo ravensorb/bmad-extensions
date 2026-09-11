@@ -54,7 +54,8 @@ class TestSelfInstall(Base):
         code, out = self.run_main(["self-install", "--dest", dest])
         self.assertEqual(code, 0, out)
         self.assertTrue(os.path.exists(dest))
-        self.assertIn("pm-status-version:", open(dest, encoding="utf-8").read())
+        with open(dest, encoding="utf-8") as fh:
+            self.assertIn("pm-status-version:", fh.read())
 
     def test_skips_when_same_or_newer(self):
         dest = os.path.join(self.d, "pm-status.py")
@@ -70,7 +71,8 @@ class TestSelfInstall(Base):
         code, out = self.run_main(["self-install", "--dest", dest])
         self.assertEqual(code, 0, out)
         self.assertIn("0.0.1 ->", out)
-        self.assertIn("pm-status-version:", open(dest, encoding="utf-8").read())
+        with open(dest, encoding="utf-8") as fh:
+            self.assertIn("pm-status-version:", fh.read())
 
     def test_force_overwrites(self):
         dest = os.path.join(self.d, "pm-status.py")
@@ -90,7 +92,8 @@ class TestSelfInstall(Base):
         """
         dest = os.path.join(self.d, "pm-status.py")
         self.run_main(["self-install", "--dest", dest])
-        real = open(dest, encoding="utf-8").read()
+        with open(dest, encoding="utf-8") as fh:
+            real = fh.read()
 
         truncated = real[: len(real) // 3]
         self.assertIn("pm-status-version:", truncated,
@@ -98,11 +101,19 @@ class TestSelfInstall(Base):
         with open(dest, "w", encoding="utf-8") as fh:
             fh.write(truncated)
 
-        code, out = self.run_main(["self-install", "--dest", dest])
+        out_buf, err = io.StringIO(), io.StringIO()
+        try:
+            with redirect_stdout(out_buf), redirect_stderr(err):
+                code = pm.main(["self-install", "--dest", dest])
+        except SystemExit as e:
+            code = e.code
+        out = out_buf.getvalue()
         self.assertEqual(code, 0, out)
         self.assertNotIn("skipped", out)
-        self.assertEqual(open(dest, encoding="utf-8").read(), real,
-                         "a same-version copy with different content must be replaced")
+        self.assertIn("content differs from this copy; reinstalling", err.getvalue())
+        with open(dest, encoding="utf-8") as fh:
+            self.assertEqual(fh.read(), real,
+                             "a same-version copy with different content must be replaced")
 
     def test_skips_only_when_bytes_are_identical(self):
         dest = os.path.join(self.d, "pm-status.py")
@@ -119,7 +130,8 @@ class TestSelfInstall(Base):
         code, out = self.run_main(["self-install", "--dest", dest])
         self.assertEqual(code, 0, out)
         self.assertIn("refusing to downgrade", out)
-        self.assertIn("print('newer')", open(dest, encoding="utf-8").read())
+        with open(dest, encoding="utf-8") as fh:
+            self.assertIn("print('newer')", fh.read())
 
 
 class TestLockCommands(Base):
@@ -313,7 +325,7 @@ class TestAppendIssue(unittest.TestCase):
         buf = io.StringIO()
         code = 0
         try:
-            with redirect_stdout(buf):
+            with redirect_stdout(buf), redirect_stderr(io.StringIO()):
                 code = pm.main(argv)
         except SystemExit as e:
             code = e.code if isinstance(e.code, int) else 1
@@ -806,12 +818,14 @@ class TestResolveIssue(IssueBase):
 
     def test_required_flags_refuse_and_write_nothing(self):
         self.append("A")
-        before = open(self.issues, encoding="utf-8").read()
+        with open(self.issues, encoding="utf-8") as fh:
+            before = fh.read()
         for argv in (("fixed",), ("wontfix",), ("obsolete",), ("duplicate",),
                      ("fixed", "--ref", "later")):
             code, _, _ = self.resolve("BL-E001-001", *argv)
             self.assertEqual(code, 2, argv)
-        self.assertEqual(open(self.issues, encoding="utf-8").read(), before)
+        with open(self.issues, encoding="utf-8") as fh:
+            self.assertEqual(fh.read(), before)
         self.assertFalse(os.path.exists(self.resolved))
 
     def test_fixed_ref_accepts_story_key_or_sha(self):
@@ -1351,7 +1365,7 @@ class TestKeyBasedAddressing(TestLayoutResolution):
     def run_main(self, argv):
         buf = io.StringIO()
         try:
-            with redirect_stdout(buf):
+            with redirect_stdout(buf), redirect_stderr(io.StringIO()):
                 code = pm.main(argv)
         except SystemExit as e:
             code = e.code
@@ -1433,7 +1447,7 @@ class TestStructuredActualTokens(TestLayoutResolution):
     def run_main(self, argv):
         buf = io.StringIO()
         try:
-            with redirect_stdout(buf):
+            with redirect_stdout(buf), redirect_stderr(io.StringIO()):
                 code = pm.main(argv)
         except SystemExit as e:
             code = e.code
@@ -1488,7 +1502,7 @@ class TestVerify(TestLayoutResolution):
     def run_main(self, argv):
         buf = io.StringIO()
         try:
-            with redirect_stdout(buf):
+            with redirect_stdout(buf), redirect_stderr(io.StringIO()):
                 code = pm.main(argv)
         except SystemExit as e:
             code = e.code
@@ -1680,7 +1694,7 @@ class TestVerifyEpicScope(TestLayoutResolution):
     def run_main(self, argv):
         buf = io.StringIO()
         try:
-            with redirect_stdout(buf):
+            with redirect_stdout(buf), redirect_stderr(io.StringIO()):
                 code = pm.main(argv)
         except SystemExit as e:
             code = e.code
@@ -1696,9 +1710,15 @@ class TestVerifyEpicScope(TestLayoutResolution):
         p = pm.story_file(self.root, "E001-S01-003")
         with open(p, "w") as f:
             f.write("key: 'E001-S01-003'\nepic: 'E999'\nsprint: 'S01'\nstatus: review\n")
-        code, _ = self.run_main(
-            ["verify", "--state-root", self.root, "--scope", "epic", "--epic", "E001"])
+        err = io.StringIO()
+        try:
+            with redirect_stderr(err):
+                code = pm.main(
+                    ["verify", "--state-root", self.root, "--scope", "epic", "--epic", "E001"])
+        except SystemExit as e:
+            code = e.code
         self.assertEqual(code, 4)
+        self.assertIn("epic back-reference 'E999' != path epic 'E001'", err.getvalue())
 
     def test_scope_epic_nonexistent_exits_3(self):
         code, _ = self.run_main(
@@ -1778,7 +1798,7 @@ class TestRollups(TestLayoutResolution):
     def run_main(self, argv):
         buf = io.StringIO()
         try:
-            with redirect_stdout(buf):
+            with redirect_stdout(buf), redirect_stderr(io.StringIO()):
                 code = pm.main(argv)
         except SystemExit as e:
             code = e.code
@@ -1886,7 +1906,7 @@ class TestLockOnMissingEpic(Base):
     def run_main(self, argv):
         buf = io.StringIO()
         try:
-            with redirect_stdout(buf):
+            with redirect_stdout(buf), redirect_stderr(io.StringIO()):
                 code = pm.main(argv)
         except SystemExit as e:
             code = e.code
@@ -1938,25 +1958,28 @@ class TestEpicMoves(TestLayoutResolution):
     def run_main(self, argv):
         buf = io.StringIO()
         try:
-            with redirect_stdout(buf):
+            with redirect_stdout(buf), redirect_stderr(io.StringIO()):
                 code = pm.main(argv)
         except SystemExit as e:
             code = e.code
         return code, buf.getvalue()
 
     def test_move_epic_planned_to_active(self):
-        new = pm.move_epic(self.root, "E005", "active")
+        with redirect_stderr(io.StringIO()):             # no .git here: the fallback warns
+            new = pm.move_epic(self.root, "E005", "active")
         self.assertTrue(new.endswith("active/epic-005"))
         self.assertTrue(os.path.isdir(new))
         self.assertFalse(os.path.isdir(os.path.join(self.root, "planned", "epic-005")))
 
     def test_move_epic_preserves_tree(self):
-        pm.move_epic(self.root, "E001", "archived")
+        with redirect_stderr(io.StringIO()):             # no .git here: the fallback warns
+            pm.move_epic(self.root, "E001", "archived")
         self.assertTrue(os.path.exists(os.path.join(
             self.root, "archived", "epic-001", "sprint-01", "E001-S01-003.yaml")))
 
     def test_move_epic_updates_status_field(self):
-        pm.move_epic(self.root, "E005", "active")
+        with redirect_stderr(io.StringIO()):             # no .git here: the fallback warns
+            pm.move_epic(self.root, "E005", "active")
         _, node = pm.load_node(pm.epic_file(self.root, "E005"))
         self.assertEqual(node["status"], "in-progress")
 
@@ -2566,7 +2589,7 @@ class TestCalibrationMetricsMigrationReadOnlySafety(TestLayoutResolution):
                     "estimate:\n  man_hours: 4\n  elapsed_hours: 1\n"
                     "  tokens_k: 10\n  cost: 0.5\n")
         buf = io.StringIO()
-        with redirect_stdout(buf):
+        with redirect_stdout(buf), redirect_stderr(io.StringIO()):
             code = pm.main(["estimate-rollup", "--state-root", self.root,
                             "--epic", "E001", "--sprint", "S01"])
         self.assertEqual(code, 0, buf.getvalue())
@@ -2723,7 +2746,8 @@ class TestStorySampling(unittest.TestCase):
         p = pm.calibration_path(self.root)
         with open(p, "w") as f:
             f.write("version: 1\nratio: 1.3\n")
-        pm.record_story_sample(self.root, self._story(0))
+        with redirect_stderr(io.StringIO()):    # migration announces its steps on stderr
+            pm.record_story_sample(self.root, self._story(0))
         _, cal = pm.load_calibration(self.root)
         self.assertEqual(cal["version"], pm.CALIBRATION_SCHEMA_VERSION)
         self.assertTrue(os.path.exists(p + ".v1"))
@@ -2958,7 +2982,8 @@ class TestClosureSampling(TestLayoutResolution):
         p = pm.calibration_path(self.root)
         with open(p, "w") as f:
             f.write("version: 1\nratio: 1.3\n")
-        pm.record_closure_sample(self.root, "sprint", "E001", "S01")
+        with redirect_stderr(io.StringIO()):    # migration announces its steps on stderr
+            pm.record_closure_sample(self.root, "sprint", "E001", "S01")
         _, cal = pm.load_calibration(self.root)
         self.assertEqual(cal["version"], pm.CALIBRATION_SCHEMA_VERSION)
         self.assertTrue(os.path.exists(p + ".v1"))
@@ -3140,7 +3165,7 @@ class TestSetActualCalibrates(TestLayoutResolution):
     def run_main(self, argv):
         buf = io.StringIO()
         try:
-            with redirect_stdout(buf):
+            with redirect_stdout(buf), redirect_stderr(io.StringIO()):
                 code = pm.main(argv)
         except SystemExit as e:
             code = e.code
@@ -3186,12 +3211,18 @@ class TestSetActualCalibrates(TestLayoutResolution):
         self._estimated_story()
         # make the calibration path unwritable by putting a directory there
         os.makedirs(pm.calibration_path(self.root))
-        code, out = self.run_main(
-            ["set-actual", "--state-root", self.root, "--node", "story",
-             "--story", "E001-S01-003", "--man-hours", "7"])
-        self.assertEqual(code, 0, out)          # actuals are primary
+        out_buf, err = io.StringIO(), io.StringIO()
+        try:
+            with redirect_stdout(out_buf), redirect_stderr(err):
+                code = pm.main(
+                    ["set-actual", "--state-root", self.root, "--node", "story",
+                     "--story", "E001-S01-003", "--man-hours", "7"])
+        except SystemExit as e:
+            code = e.code
+        self.assertEqual(code, 0, out_buf.getvalue())          # actuals are primary
         _, node = pm.load_node(pm.story_file(self.root, "E001-S01-003"))
         self.assertEqual(node["actual"]["man_hours"], 7)
+        self.assertIn("actual written, but calibration sample failed", err.getvalue())
 
     def test_claude_runtime_still_rejects_na(self):
         self._estimated_story()
@@ -3240,7 +3271,7 @@ class TestEstimateStory(TestLayoutResolution):
     def run_main(self, argv):
         buf = io.StringIO()
         try:
-            with redirect_stdout(buf):
+            with redirect_stdout(buf), redirect_stderr(io.StringIO()):
                 code = pm.main(argv)
         except SystemExit as e:
             code = e.code
@@ -3298,7 +3329,7 @@ class TestEstimateTokensAndCost(TestLayoutResolution):
     def run_main(self, argv):
         buf = io.StringIO()
         try:
-            with redirect_stdout(buf):
+            with redirect_stdout(buf), redirect_stderr(io.StringIO()):
                 code = pm.main(argv)
         except SystemExit as e:
             code = e.code
@@ -3440,7 +3471,7 @@ class TestEstimateRollup(TestLayoutResolution):
     def run_main(self, argv):
         buf = io.StringIO()
         try:
-            with redirect_stdout(buf):
+            with redirect_stdout(buf), redirect_stderr(io.StringIO()):
                 code = pm.main(argv)
         except SystemExit as e:
             code = e.code
@@ -3540,8 +3571,9 @@ class TestRollupOrchestrationBand(TestLayoutResolution):
         """cost is no longer banded independently (Task 10): it must be priced
         from the ALREADY-BANDED tokens_k_min/max, not from its own residual."""
         self._story_estimate()
-        code, out = self.run_main(["estimate-rollup", "--state-root", self.root,
-                                   "--epic", "E001", "--sprint", "S01"])
+        with redirect_stderr(io.StringIO()):    # unseeded orchestration warns; not under test here
+            code, out = self.run_main(["estimate-rollup", "--state-root", self.root,
+                                       "--epic", "E001", "--sprint", "S01"])
         self.assertEqual(code, 0, out)
         _, node = pm.load_node(pm.sprint_file(self.root, "E001", "S01"))
         est = node["estimate"]
@@ -3557,9 +3589,10 @@ class TestRollupOrchestrationBand(TestLayoutResolution):
 
     def test_model_flag_selects_rate_card(self):
         self._story_estimate()
-        code, out = self.run_main(["estimate-rollup", "--state-root", self.root,
-                                   "--epic", "E001", "--sprint", "S01",
-                                   "--model", "claude-haiku-4-5"])
+        with redirect_stderr(io.StringIO()):    # unseeded orchestration warns; not under test here
+            code, out = self.run_main(["estimate-rollup", "--state-root", self.root,
+                                       "--epic", "E001", "--sprint", "S01",
+                                       "--model", "claude-haiku-4-5"])
         self.assertEqual(code, 0, out)
         _, node = pm.load_node(pm.sprint_file(self.root, "E001", "S01"))
         est = node["estimate"]
@@ -3606,16 +3639,18 @@ class TestRollupOrchestrationBand(TestLayoutResolution):
         hit once (Task 3's review) — assert the override actually changes the
         priced number, not just that it's accepted without error."""
         self._story_estimate()
-        code, out = self.run_main(["estimate-rollup", "--state-root", self.root,
-                                   "--epic", "E001", "--sprint", "S01"])
+        with redirect_stderr(io.StringIO()):    # unseeded orchestration warns; not under test here
+            code, out = self.run_main(["estimate-rollup", "--state-root", self.root,
+                                       "--epic", "E001", "--sprint", "S01"])
         self.assertEqual(code, 0, out)
         _, node = pm.load_node(pm.sprint_file(self.root, "E001", "S01"))
         baseline_cost = float(node["estimate"]["cost_low"])
 
         overrides = json.dumps({"claude-opus-5": {"input": 500.0}})
-        code, out = self.run_main(["estimate-rollup", "--state-root", self.root,
-                                   "--epic", "E001", "--sprint", "S01",
-                                   "--token-rates", overrides])
+        with redirect_stderr(io.StringIO()):    # unseeded orchestration warns; not under test here
+            code, out = self.run_main(["estimate-rollup", "--state-root", self.root,
+                                       "--epic", "E001", "--sprint", "S01",
+                                       "--token-rates", overrides])
         self.assertEqual(code, 0, out)
         _, node = pm.load_node(pm.sprint_file(self.root, "E001", "S01"))
         overridden_cost = float(node["estimate"]["cost_low"])
@@ -3976,7 +4011,7 @@ class TestConvergence(TestLayoutResolution):
     def run_main(self, argv):
         buf = io.StringIO()
         try:
-            with redirect_stdout(buf):
+            with redirect_stdout(buf), redirect_stderr(io.StringIO()):
                 code = pm.main(argv)
         except SystemExit as e:
             code = e.code
@@ -5082,7 +5117,8 @@ class TestRates(Base):
         self.assertIn("6.25", out)
 
     def test_rates_subcommand_rejects_unknown_model(self):
-        code, out = self.run_main(["rates", "--model", "nope"])
+        with redirect_stderr(io.StringIO()):
+            code, out = self.run_main(["rates", "--model", "nope"])
         self.assertEqual(code, 2, out)
 
     def test_rates_lists_override_only_models(self):
@@ -6616,12 +6652,14 @@ class TestEstimateCores(TestLayoutResolution):
 
     def test_compute_story_estimate_raises_instead_of_exiting(self):
         path = pm.story_file(self.root, "E001-S01-003")
-        before = open(path, encoding="utf-8").read()
+        with open(path, encoding="utf-8") as fh:
+            before = fh.read()
         _, node = pm.load_node(path)
         with self.assertRaises(pm.PMError) as cm:
             pm.compute_story_estimate(self.root, node, "standard", "no-such-model", None)
         self.assertEqual(cm.exception.code, 2)
-        self.assertEqual(open(path, encoding="utf-8").read(), before, "core must never save")
+        with open(path, encoding="utf-8") as fh:
+            self.assertEqual(fh.read(), before, "core must never save")
 
     def test_compute_story_estimate_fills_node_in_memory(self):
         _, node = pm.load_node(pm.story_file(self.root, "E001-S01-003"))
@@ -6642,12 +6680,14 @@ class TestEstimateCores(TestLayoutResolution):
 
     def test_cli_unknown_model_still_exits_2_and_writes_nothing(self):
         path = pm.story_file(self.root, "E001-S01-003")
-        before = open(path, encoding="utf-8").read()
+        with open(path, encoding="utf-8") as fh:
+            before = fh.read()
         code, _ = self.run_main(["estimate-story", "--state-root", self.root, "--story",
                                  "E001-S01-003", "--classification", "simple",
                                  "--model", "no-such-model"])
         self.assertEqual(code, 2)
-        self.assertEqual(open(path, encoding="utf-8").read(), before)
+        with open(path, encoding="utf-8") as fh:
+            self.assertEqual(fh.read(), before)
 
     def test_compute_story_estimate_leaves_node_untouched_when_it_raises(self):
         path = pm.story_file(self.root, "E001-S01-003")
@@ -6685,7 +6725,8 @@ class TestStoryDocInit(TestLayoutResolution):
         code, out, err = self.init()
         self.assertEqual(code, 0, err)
         self.assertIn("created", out)
-        text = open(self.doc, encoding="utf-8").read()
+        with open(self.doc, encoding="utf-8") as fh:
+            text = fh.read()
         self.assertTrue(text.startswith("---\n"))
         meta = pm._yaml().load(text.split("---\n")[1])
         self.assertEqual(meta["key"], "E001-S01-003")
@@ -6718,7 +6759,8 @@ class TestStoryDocInit(TestLayoutResolution):
         code, out, _ = self.init()
         self.assertEqual(code, 0)
         self.assertIn("exists", out)
-        self.assertEqual(open(self.doc, encoding="utf-8").read(), "hand written\n")
+        with open(self.doc, encoding="utf-8") as fh:
+            self.assertEqual(fh.read(), "hand written\n")
 
     def test_missing_state_node_exits_3(self):
         code, _, _ = self.run_all(["story-doc-init", "--state-root", self.root,
@@ -6736,7 +6778,8 @@ class TestStoryDocInit(TestLayoutResolution):
         pm.init_story_doc(self.root, self.arts, "E001-S01-003",
                           context_md="## Context\n\nfrom BL-E001-002",
                           ac_lines=["The deferred finding BL-E001-002 is resolved: X"])
-        text = open(self.doc, encoding="utf-8").read()
+        with open(self.doc, encoding="utf-8") as fh:
+            text = fh.read()
         self.assertIn("## Context\n\nfrom BL-E001-002", text)
         self.assertIn("- The deferred finding BL-E001-002 is resolved: X", text)
         self.assertLess(text.index("## Context"), text.index("## Acceptance Criteria"))
@@ -8403,6 +8446,7 @@ class TestEventWriteFailure(IssueBase):
         self.assertEqual(code, 0, err)
         self.assertEqual(self.load_open()["backlog"][0]["severity"], "High")
         self.assert_event_lost(err, p)
+        self.assert_invariants()
 
     def test_promote_issue_still_promotes(self):
         self.append("A")
@@ -8415,6 +8459,7 @@ class TestEventWriteFailure(IssueBase):
         item = self.load_open()["backlog"][0]
         self.assertEqual((item["status"], item["story"]), ("scheduled", "E001-S02-001"))
         self.assert_event_lost(err, p)
+        self.assert_invariants()
 
     def test_repair_issue_still_repairs(self):
         self.append("A")
@@ -8429,6 +8474,7 @@ class TestEventWriteFailure(IssueBase):
         self.assertEqual(item["status"], "backlog")
         self.assertNotIn("story", item)
         self.assert_event_lost(err, p)
+        self.assert_invariants()
 
 
 if __name__ == "__main__":
