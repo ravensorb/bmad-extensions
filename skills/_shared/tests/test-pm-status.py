@@ -7514,12 +7514,70 @@ class TestRepairIssue(TestAuditIssues):
         from ruamel.yaml.comments import CommentedMap
         self.edit_open(lambda d: d.__setitem__("next", CommentedMap(pairs)))
 
-    def test_audit_survives_an_unquoted_numeric_next_key(self):
-        """next: {1: 5} -- a hand edit with an int key -- must not crash the audit's sort."""
+    def e1(self):
+        return [f for f in self.audit()[1] if f["id"] == "1e"]
+
+    def test_audit_reports_an_unquoted_numeric_next_key_as_an_alias(self):
+        """next: {1: 5} -- a hand edit with an int key -- must not crash the audit's sort. By the
+        user's decision it is 1e whatever its value: allocate reads only the canonical '001'."""
         self.append("A")
         self.append("C", "005", "01", "Low", "qa (Q-1)")
         self._set_next((1, 5), ("005", 2))
+        code, findings = self.audit()                   # parseable JSON: the sort did not crash
+        self.assertEqual(code, 4)
+        e1 = [f for f in findings if f["id"] == "1e"]
+        self.assertEqual([(f["key"], f["epic"]) for f in e1], [("BL-E001", "001")], findings)
+        self.assertIn("non-canonical key 1 ", e1[0]["detail"])
+        self.assertIn("run repair-issue --action reseed", e1[0]["detail"])
+        self.assertEqual(e1[0]["repair"], "repair-issue --action reseed")
+
+    def test_audit_reports_every_string_next_alias_as_1e(self):
+        self.append("A")
+        for alias in ("1", "01", "E001"):
+            self._set_next(("001", 9), (alias, 9))          # both values healthy
+            e1 = self.e1()
+            self.assertEqual(len(e1), 1, (alias, e1))
+            self.assertIn(f"non-canonical key {alias!r} ", e1[0]["detail"])
+
+    def test_audit_reports_a_next_beyond_the_key_space_as_1e(self):
+        """Keys run 001-999, so next is at most 1000."""
+        self.append("A")
+        self._set_next(("001", 1000))
         self.assertEqual(self.audit(), (0, []))
+        self._set_next(("001", 1001))
+        e1 = self.e1()
+        self.assertEqual([(f["key"], f["epic"]) for f in e1], [("BL-E001", "001")])
+        self.assertIn("next['001'] = 1001 exceeds the BL key space", e1[0]["detail"])
+
+    def test_reseed_refuses_a_value_beyond_the_key_space_and_writes_nothing(self):
+        self.append("A")
+        self.append("B", "001", "02")
+        for pairs, named in (((("001", 1), (1, 5000)), "next[1] = 5000"),     # 1e: '001' stale
+                             ((("001", 5000),), "next['001'] = 5000")):
+            self._set_next(*pairs)
+            before = _tree_snapshot(self.d)
+            code, _, err = self.repair("BL-E001-001", "reseed")
+            self.assertEqual(code, 2, (pairs, err))
+            self.assertIn(named, err)
+            self.assertIn("by hand", err)
+            self.assertEqual(_tree_snapshot(self.d), before, pairs)
+
+    def test_reseed_merges_every_alias_into_the_canonical_key_by_max(self):
+        self.append("A")
+        self.append("B", "001", "02")
+        self._set_next(("001", 2), (1, 7), ("1", 4))
+        code, _, err = self.repair("BL-E001-001", "reseed")
+        self.assertEqual(code, 0, err)
+        self.assertEqual(dict(self.load_open()["next"]), {"001": 7})
+        self.assertEqual(self.audit(), (0, []))
+
+    def test_allocate_reads_only_the_canonical_next_key(self):
+        """User decision: an alias never feeds allocation -- audit and reseed deal with it."""
+        self.append("A")
+        self._set_next((1, 50))
+        code, out, err = self.append("B", "001", "02")
+        self.assertEqual(code, 0, err)
+        self.assertIn("BL-E001-002", out)
 
     def test_reseed_drops_a_numeric_alias_so_1e_clears(self):
         self.append("A")

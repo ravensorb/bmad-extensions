@@ -161,7 +161,9 @@ Subcommands
                 apply; a key duplicated within one file (1i) is not evaluated
                 for 1b, 1c, 1d, 1f or 1g either; 1d/1h ignore a dead claim -- a
                 story under archived/ that is not done; 1j fires only when the
-                ref story's resolves: lists the key; exit 4 when anything is
+                ref story's resolves: lists the key; 1e also reports every
+                non-canonical alias key in next (1 or '1' for '001') whatever its
+                value, and any next above 1000; exit 4 when anything is
                 found, and on a malformed issue file or a story node that does
                 not parse, where --format json prints {"findings": [], "error": MSG})
   repair-issue  --state-root S  --key K  --action {unschedule,link,reseed,reopen}
@@ -169,8 +171,10 @@ Subcommands
                 (each action refuses unless its audit finding holds: unschedule 1b/1g,
                 link 1d (--story must be the story that lists K), reseed 1e, reopen 1j;
                 unschedule and link also refuse a key with a resolved entry -- rerun
-                resolve-issue to clear the stale open copy (1a); reseed drops
-                non-canonical aliases of the epic's next key and never lowers it;
+                resolve-issue to clear the stale open copy (1a); reseed merges
+                non-canonical aliases of the epic's next key by max, drops them, and
+                never lowers it, but refuses (nothing written) any of those values
+                above 1000;
                 unschedule writes an issue_unscheduled event; a story node that does
                 not parse exits 2 naming the file, before any write)
   move-epic     --state-root S  --epic ID  --to {planned,active,archived}
@@ -5225,6 +5229,10 @@ def _promote_issue(args) -> int:
     return 0
 
 
+# BL keys run 001-999, so next[epic] -- the NEXT key to hand out -- is at most 1000.
+_BL_NEXT_MAX = 1000
+
+
 def _audit_findings(state_root, store) -> list:
     """Structural integrity findings 1a-1j (spec §3.1). The caller holds issues_lock."""
     findings = []
@@ -5308,12 +5316,24 @@ def _audit_findings(state_root, store) -> list:
     elif nxt:
         # Sort on the normalised epic: a hand-edited unquoted key (`1: 5`) is an int, and
         # sorting it against the string keys raised TypeError.
-        for e in sorted(nxt, key=lambda e: _norm_num(str(e), 3)):
+        for e in sorted(nxt, key=lambda e: (_norm_num(str(e), 3), str(e))):
             en = _norm_num(str(e), 3)
             stored, highest = _int_or_none(nxt.get(e)), store.highest_suffix(en)
-            if stored is None or stored <= highest:
+            if e != en:
+                # User decision: allocate reads only the canonical key, so an alias (`1` or
+                # '1' for '001') is 1e whatever its value; reseed folds it in by max.
+                add("1e", f"BL-E{en}", f"next has a non-canonical key {e!r} for epic {en} "
+                                      f"(= {nxt.get(e)!r}); allocate reads only {en!r} -- run "
+                                      f"repair-issue --action reseed",
+                    "repair-issue --action reseed", epic=en)
+            elif stored is None or stored <= highest:
                 add("1e", f"BL-E{en}", f"next[{e}] = {nxt.get(e)!r} but the highest key is "
                                       f"{highest:03d}", "repair-issue --action reseed", epic=en)
+            if stored is not None and stored > _BL_NEXT_MAX:
+                add("1e", f"BL-E{en}", f"next[{e!r}] = {stored} exceeds the BL key space (keys "
+                                      f"stop at 999, so next is at most {_BL_NEXT_MAX})",
+                    f"report only -- fix it by hand; reseed refuses a value above "
+                    f"{_BL_NEXT_MAX}", epic=en)
     for k, its in res_by.items():
         it = its[-1]
         ref = str(it.get("ref", "") or "")
@@ -5440,6 +5460,14 @@ def _repair_issue(args) -> int:
                 # would otherwise keep reporting as 1e -- folding their values into the max,
                 # so `next` never decreases.
                 aliases = [a for a in nxt if _norm_num(str(a), 3) == epic]
+                # ...but never fold a value past the key space into the canonical key: that
+                # is a hand edit gone wrong, and the max would make it permanent.
+                for a in aliases:
+                    v = _int_or_none(nxt.get(a))
+                    if v is not None and v > _BL_NEXT_MAX:
+                        raise PMError(2, f"reseed: next[{a!r}] = {v} exceeds the BL key space "
+                                         f"(keys stop at 999, so next is at most "
+                                         f"{_BL_NEXT_MAX}) -- fix it by hand; nothing written")
                 known = [v for v in (_int_or_none(nxt.get(a)) for a in aliases) if v is not None]
                 for a in aliases:
                     if a != epic:
