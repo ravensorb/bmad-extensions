@@ -88,3 +88,17 @@ This project uses l3io-pm for sprint and epic management. State lives under `{pm
 
 Never edit state files directly. Use `/l3io-util-doctor` for diagnostics and housekeeping.
 ````
+
+Adapt the heading style and surrounding content to match the existing file format for that AI system.
+
+**Step AR6 — Verify and report**
+
+Re-read each updated and created file. Confirm no legacy state reference (per the Detection rule — `sprint-status*.yaml`, `E{nnn}-status.yaml`, `_bmad/state/`, non-`.legacy`) remains. If any remain, list them as unresolved.
+
+```
+DONE — AI rules update complete.
+  References updated: {N} across {M} file(s)
+  Files created:      {C}
+  Unresolved:         {U} (list if > 0)
+  Files checked (no changes needed): {files}
+```

@@ -42,6 +42,14 @@ SEE_RE = re.compile(r"^See (\S+)")
 KEY_RE = re.compile(r"^BL-E\d{3}-(\d{3})$")
 SEVERITY_RANK = {"Low": 0, "Medium": 1, "High": 2, "Critical": 3}
 
+# The mass-missing guard exists to catch a project-root mismatch (the script pointed at
+# the wrong checkout, so every code-marker path resolves to nothing) rather than the
+# ordinary case of one or two markers whose files were legitimately deleted. With fewer
+# than this many marker items there's no sample to judge "mismatched root" from, so a
+# single missing file must fall through to its normal obsolete-candidate verdict instead
+# of being suppressed as "suspect".
+MIN_MARKERS_FOR_MASS_MISSING_GUARD = 3
+
 
 def norm(text) -> str:
     return " ".join(str(text).split()).casefold()
@@ -160,7 +168,8 @@ def audit(open_items, resolved, project_root, artifacts_root):
         if m:
             markers[it.get("key")] = (m.group(1), os.path.join(project_root, m.group(1)))
     missing = [k for k, (_, p) in markers.items() if not os.path.isfile(p)]
-    suspect = bool(markers) and len(missing) * 2 > len(markers)
+    suspect = (len(markers) >= MIN_MARKERS_FOR_MASS_MISSING_GUARD
+               and len(missing) * 2 > len(markers))
     if suspect:
         warnings.append(f"project-root suspect: {len(missing)} of {len(markers)} code-marker "
                         f"files are missing under {project_root}; no obsolete-candidate "

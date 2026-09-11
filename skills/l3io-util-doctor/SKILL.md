@@ -219,7 +219,8 @@ state/
 │       ├── sprint.yaml
 │       └── E{nnn}-S{nn}-{nnn}.yaml
 ├── archived/epic-{nnn}/    ← status: done
-├── issues.yaml             ← flat deferred-issue backlog (BL-E{nnn}-{nnn})
+├── issues.yaml             ← open BL-E{nnn}-{nnn} items + next: key allocator
+├── issues-resolved.yaml    ← resolved BL items, with resolution
 └── pm-calibration.yaml
 ```
 
@@ -230,20 +231,3 @@ state/
 - Do not hand-edit these files, and do not create parallel status files.
 
 Older layouts (a flat `sprint-status*.yaml`, or a per-epic `_bmad/state/` tree) are legacy. Migrate with `/l3io-util-doctor migrate-state`.
-````
-
-Adapt the heading style and surrounding content to match the existing file format for that AI system.
-
-**Step AR6 — Verify and report**
-
-Re-read each updated and created file. Confirm no legacy state reference (per the Detection rule — `sprint-status*.yaml`, `E{nnn}-status.yaml`, `_bmad/state/`, non-`.legacy`) remains. If any remain, list them as unresolved.
-
-```
-DONE — AI rules update complete.
-  References updated: {N} across {M} file(s)
-  Files created:      {C}
-  Unresolved:         {U} (list if > 0)
-  Files checked (no changes needed): {files}
-```
-
----

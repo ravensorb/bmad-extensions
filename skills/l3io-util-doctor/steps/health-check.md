@@ -170,7 +170,8 @@ PY
 - No `{pm_state_root}` yet, or none found → ✓
 
 **Check 13 — Backlog integrity and audit**
-If `{pm_issues_file}` exists:
+If `{pm_state_root}` exists — not gated on `{pm_issues_file}`, because `audit-issues` still
+walks story nodes (1d/1h/1j-class findings) even with no issues file present:
 
 ```bash
 uv run {pm_status} audit-issues --state-root {pm_state_root} --format json; echo "exit=$?"
@@ -180,12 +181,14 @@ uv run {skill-root}/scripts/audit-backlog.py --pm-status {pm_status} \
 ```
 - `audit-issues` exit 4 with a non-empty `findings` list → flag `triage` · Priority: **High** ·
   note the finding ids
-- `audit-issues` exit 4 with `findings: []` and an `error` → the issue file is malformed;
-  report the error as Check 13's result and never mark Check 13 ✓ — an empty `findings` list
-  on exit 4 is not "clean" — then continue with the remaining checks
+- `audit-issues` exit 4 with `findings: []` and an `error` → a malformed issue file or an
+  unreadable story node (the node failed to parse, was not a mapping, or was not valid
+  UTF-8); report the error as Check 13's result and never mark Check 13 ✓ — an empty
+  `findings` list on exit 4 is not "clean" — then continue with the remaining checks
 - any `fixed-candidate`, `obsolete-candidate`, or `duplicate-candidate` → flag `triage` ·
   Priority: **Medium** · note the count
-- no issues file, or neither → ✓
+- no `{pm_state_root}` yet → ✓
+- no findings and no candidates → ✓
 
 ### Step HC3 — Report findings
 

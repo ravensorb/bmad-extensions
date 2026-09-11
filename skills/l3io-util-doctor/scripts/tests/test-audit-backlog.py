@@ -105,6 +105,14 @@ class TestMarkers(Base):
         self.assertNotIn("obsolete-candidate", {v["verdict"] for v in result["verdicts"]})
         self.assertTrue(any("project-root suspect" in w for w in result["warnings"]))
 
+    def test_a_single_missing_marker_is_obsolete_candidate_not_suspect(self):
+        # Below MIN_MARKERS_FOR_MASS_MISSING_GUARD: one deleted file must not be read as
+        # a project-root mismatch and suppressed into "needs-review".
+        self.append("linear scan over the cache.", "code-marker (src/gone.py:1)")
+        result = self.run_audit()
+        self.assertEqual(self.verdicts()["BL-E001-001"]["verdict"], "obsolete-candidate")
+        self.assertFalse(any("project-root suspect" in w for w in result["warnings"]))
+
     def test_marker_path_with_a_space_is_recognized(self):
         self.write("src/my file.py", "x = 1\n")
         self.append("linear scan over the cache.", "code-marker (src/my file.py:3)")
