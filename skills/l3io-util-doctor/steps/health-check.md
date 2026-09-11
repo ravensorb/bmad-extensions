@@ -8,7 +8,10 @@ Load config same as described above under On Activation.
 
 ### Step HC2 — Scan (14 checks, read-only)
 
-Run all checks. No files are changed at this step.
+Run all checks. They change no project files, with one exception: a check that runs
+`pm-status.py` (Check 13) takes its locks when an issue file exists, and taking a lock may
+create that lock file and `{pm_state_root}/.gitignore` (the `*.lock` rule `pm-status.py`
+maintains).
 
 **Check 1 — Status file naming**
 Does `{implementation_artifacts}/sprint-status-active.yaml` exist?
@@ -195,17 +198,23 @@ uv run {skill-root}/scripts/audit-backlog.py --pm-status {pm_status} \
 and `adr-register.yaml.lock` in `{pm_state_root}`, and a `.yaml.lock` sidecar beside some node
 files below it — are empty flock targets and must never be committed. `pm-status.py` keeps
 `*.lock` in `{pm_state_root}/.gitignore`, but a project that committed them before that rule
-existed still tracks them. If `{pm_state_root}` exists and `{project-root}` is a git repository:
+existed still tracks them. Run the check only if `{pm_state_root}` exists and `{project-root}`
+is a git work tree — the first command below prints `true` (outside a repository it exits 128;
+inside `.git/` it prints `false`):
 
 ```bash
+git -C {project-root} rev-parse --is-inside-work-tree
 git -C {project-root} ls-files -- '{pm_state_root}/*.lock'
 ```
 
 The explicit `/` keeps the pattern inside the state root: `{pm_state_root}` is bound without a
 trailing slash, and `state*.lock` would also match a sibling such as `state.lock`. A git
 pathspec `*` also matches `/`, so the pattern reaches sidecars at any depth.
-- Any path listed → flag `untrack-locks` · Priority: **Low** · note the count
-- None listed, no `{pm_state_root}` yet, or not a git repository → ✓
+- Any path listed → flag `untrack-locks` · Priority: **Low** · note the count, and keep the
+  list: Step HC3 prints it before HC5 asks
+- `ls-files` exits 128 — `{pm_state_root}` lies outside the repository → report that as
+  Check 14's result and skip the check: neither flag it nor mark it ✓
+- None listed, no `{pm_state_root}` yet, or not a git work tree → ✓
 
 ### Step HC3 — Report findings
 
@@ -238,6 +247,10 @@ If flagged items exist, append the recommended execution sequence (only flagged 
 ```
 Recommended actions (in order): rename-active → rename-epic-dirs → split-status → migrate-state → layout-cleanup → harvest-debt
 ```
+
+If `untrack-locks` is flagged, print Check 14's `ls-files` list under the table — every path
+the action would untrack. That is this action's dry run, shown before HC5 asks, as every other
+action's dry-run output is.
 
 Never emit a sequence that includes a legacy-only action (`migrate-schema`, `split-status`,
 `reconcile-status`) but omits `migrate-state`. Those modes only exist to prepare a legacy tree
@@ -308,7 +321,7 @@ Each action runs its full mode implementation from its own section. **Suppress t
 **`untrack-locks` (Check 14) has no mode file — run it here, inline.** First make sure
 `{pm_state_root}/.gitignore` contains a `*.lock` line: create the file with that line if it is
 absent, or append the line if it is missing, never rewriting or reordering the lines already
-there. Then untrack the lock files, leaving them on disk:
+there. Then untrack the lock files Step HC3 listed, leaving them on disk:
 
 ```bash
 git -C {project-root} rm -r --cached --quiet --ignore-unmatch -- '{pm_state_root}/*.lock'
