@@ -4631,12 +4631,12 @@ def update_issue_core(store, key, severity, note=None, session=None, cause="cli"
     k = canonical_bl_key(key)
     if k is None:
         raise PMError(2, f"{key!r} is not a backlog key")
+    done = store.resolved_items(k)
+    if done:
+        raise PMError(2, f"{k} is resolved ({done[-1].get('resolution')}) -- only open "
+                         f"items can be re-severitied")
     item = store.single_open(k)
     if item is None:
-        done = store.resolved_items(k)
-        if done:
-            raise PMError(2, f"{k} is resolved ({done[-1].get('resolution')}) -- only open "
-                             f"items can be re-severitied")
         raise PMError(3, f"{k} is not in {store.open_path}")
     before = str(item.get("severity", ""))
     item["severity"] = severity

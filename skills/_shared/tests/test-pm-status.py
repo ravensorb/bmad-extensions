@@ -6381,6 +6381,20 @@ class TestUpdateIssue(IssueBase):
         self.assertEqual(code, 2)
         self.assertIn("1i", err)
 
+    def test_key_in_both_files_is_refused_as_resolved(self):
+        """Resolve's crash window leaves a key in both files; it is resolved, so an
+        update must be refused, not applied to the stale open copy."""
+        self.append("A", "001", "01", "Low")
+        with _dump_failing_on(2):
+            with self.assertRaises(OSError):
+                pm.main(["resolve-issue", "--state-root", self.root, "--key",
+                         "BL-E001-001", "--resolution", "obsolete", "--note", "x"])
+        self.assertEqual(self.open_keys(), ["BL-E001-001"])       # premise: both files
+        code, _, err = self.update("BL-E001-001", "High")
+        self.assertEqual(code, 2)
+        self.assertIn("obsolete", err)
+        self.assertEqual(self.load_open()["backlog"][0]["severity"], "Low")
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)
