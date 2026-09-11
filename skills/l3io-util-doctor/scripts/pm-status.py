@@ -34,6 +34,9 @@ Subcommands
                 YAML stays the source of truth. Never fails its caller -- a
                 missing file, missing/unterminated frontmatter, or a parse
                 error prints WARN to stderr and exits 0)
+  story-doc-init --state-root S  --artifacts-root R  --story KEY
+                (creates the story document skeleton from the state node when absent;
+                an existing document is left untouched, exit 0 "exists")
   set-actual    --state-root S   --node {story,sprint,epic}  (--story KEY | --epic ID [--sprint ID])
                 [--elapsed-hours H] [--man-hours H] [--hitl-hours H]
                 [--tokens-input K] [--tokens-output K] [--tokens-cache-write K] [--tokens-cache-read K]
@@ -3377,6 +3380,61 @@ def cmd_sync_story_doc(args) -> int:
     return 0
 
 
+def init_story_doc(state_root, artifacts_root, story_key, context_md="", ac_lines=None,
+                   must_not_exist=False) -> str:
+    """Create a story document's skeleton from its state node -- the only writer of
+    that skeleton (story prep and promote-issue both call it). Returns 'created' or
+    'exists'. Raises PMError: 2 for a bad key or, under must_not_exist, an existing
+    document; 3 for a missing state node."""
+    from ruamel.yaml.comments import CommentedMap
+    from ruamel.yaml.scalarstring import SingleQuotedScalarString as SQ
+    try:
+        doc = story_doc_path(artifacts_root, story_key)
+    except ValueError as e:
+        raise PMError(2, str(e))
+    path = story_file(state_root, story_key)
+    if path is None:
+        raise PMError(3, f"story {story_key}")
+    _, node = load_node(path)
+    if node is None:
+        raise PMError(3, f"story {story_key} — file is empty")
+    if os.path.exists(doc):
+        if must_not_exist:
+            raise PMError(2, f"story document {doc} already exists -- refusing to adopt it")
+        return "exists"
+    title = str(node.get("title") or story_key)
+    meta = CommentedMap()
+    meta["key"] = SQ(story_key)
+    meta["title"] = SQ(title)
+    meta["status"] = str(node.get("status") or "backlog")
+    meta["classification"] = str(node.get("classification") or "standard")
+    buf = io.StringIO()
+    _yaml().dump(meta, buf)
+    parts = ["---\n", buf.getvalue(), "---\n\n", f"# {title}\n\n"]
+    if context_md:
+        parts.append(context_md.rstrip("\n") + "\n\n")
+    parts.append("## Acceptance Criteria\n\n")
+    if ac_lines:
+        parts.extend(f"- {line}\n" for line in ac_lines)
+    else:
+        parts.append("<!-- Technical ACs to be added below -->\n")
+    os.makedirs(os.path.dirname(doc), exist_ok=True)
+    fd, tmp = tempfile.mkstemp(prefix=".pm-status.", suffix=".tmp", dir=os.path.dirname(doc))
+    with os.fdopen(fd, "w", encoding="utf-8") as fh:
+        fh.write("".join(parts))
+    os.replace(tmp, doc)
+    return "created"
+
+
+def cmd_story_doc_init(args) -> int:
+    def run():
+        result = init_story_doc(args.state_root, args.artifacts_root, args.story)
+        sys.stdout.write(f"OK story-doc-init {args.story} {result} -> "
+                         f"{story_doc_path(args.artifacts_root, args.story)}\n")
+        return 0
+    return _run_core(run)
+
+
 def cmd_set_actual(args) -> int:
     kind = args.node
     block = getattr(args, "block", "actual")
@@ -5191,6 +5249,14 @@ def build_parser() -> argparse.ArgumentParser:
     sd.add_argument("--status", required=True)
     sd.add_argument("--quiet", action="store_true")
     sd.set_defaults(func=cmd_sync_story_doc)
+
+    di = sub.add_parser("story-doc-init",
+                        help="create a story document skeleton from its state node")
+    di.add_argument("--state-root", required=True)
+    di.add_argument("--artifacts-root", required=True,
+                    help="implementation_artifacts root (NOT the state root)")
+    di.add_argument("--story", required=True)
+    di.set_defaults(func=cmd_story_doc_init)
 
     a = sub.add_parser("set-actual", help="write a validated actual block")
     a.add_argument("--state-root", required=True, help="path to {implementation_artifacts}/state")

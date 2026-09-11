@@ -6562,5 +6562,66 @@ class TestEstimateCores(TestLayoutResolution):
         self.assertEqual(node["classification"], before_cls)
 
 
+class TestStoryDocInit(TestLayoutResolution):
+    def setUp(self):
+        super().setUp()
+        self.arts = os.path.join(self.d, "impl")
+        self.doc = os.path.join(self.arts, "epic-001", "sprint-01", "stories", "E001-S01-003.md")
+
+    def run_all(self, argv):
+        out, err = io.StringIO(), io.StringIO()
+        try:
+            with redirect_stdout(out), redirect_stderr(err):
+                code = pm.main(argv)
+        except SystemExit as e:
+            code = e.code
+        return code, out.getvalue(), err.getvalue()
+
+    def init(self):
+        return self.run_all(["story-doc-init", "--state-root", self.root,
+                             "--artifacts-root", self.arts, "--story", "E001-S01-003"])
+
+    def test_creates_skeleton_from_the_state_node(self):
+        code, out, err = self.init()
+        self.assertEqual(code, 0, err)
+        self.assertIn("created", out)
+        text = open(self.doc, encoding="utf-8").read()
+        self.assertTrue(text.startswith("---\n"))
+        meta = pm._yaml().load(text.split("---\n")[1])
+        self.assertEqual(meta["key"], "E001-S01-003")
+        self.assertEqual(meta["status"], "review")
+        self.assertIn("## Acceptance Criteria", text)
+
+    def test_existing_document_is_left_untouched(self):
+        os.makedirs(os.path.dirname(self.doc))
+        with open(self.doc, "w", encoding="utf-8") as fh:
+            fh.write("hand written\n")
+        code, out, _ = self.init()
+        self.assertEqual(code, 0)
+        self.assertIn("exists", out)
+        self.assertEqual(open(self.doc, encoding="utf-8").read(), "hand written\n")
+
+    def test_missing_state_node_exits_3(self):
+        code, _, _ = self.run_all(["story-doc-init", "--state-root", self.root,
+                                   "--artifacts-root", self.arts, "--story", "E001-S01-099"])
+        self.assertEqual(code, 3)
+
+    def test_must_not_exist_refuses_an_existing_document(self):
+        os.makedirs(os.path.dirname(self.doc))
+        open(self.doc, "w").close()
+        with self.assertRaises(pm.PMError) as cm:
+            pm.init_story_doc(self.root, self.arts, "E001-S01-003", must_not_exist=True)
+        self.assertEqual(cm.exception.code, 2)
+
+    def test_context_and_acceptance_lines(self):
+        pm.init_story_doc(self.root, self.arts, "E001-S01-003",
+                          context_md="## Context\n\nfrom BL-E001-002",
+                          ac_lines=["The deferred finding BL-E001-002 is resolved: X"])
+        text = open(self.doc, encoding="utf-8").read()
+        self.assertIn("## Context\n\nfrom BL-E001-002", text)
+        self.assertIn("- The deferred finding BL-E001-002 is resolved: X", text)
+        self.assertLess(text.index("## Context"), text.index("## Acceptance Criteria"))
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)
