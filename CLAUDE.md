@@ -96,7 +96,7 @@ npm run check:manifest  # verify per-skill payload-manifest.json matches the pay
 node scripts/write-payload-manifest.mjs   # regenerate the manifests after editing a payload file
 ```
 
-`check:docs` runs eleven checks (numbered in the script's own header) asserting facts that have
+`check:docs` runs twelve checks (numbered in the script's own header) asserting facts that have
 each drifted in this repo's history: (1) **skill-names** — every `l3io-*` skill named in a live
 doc resolves to a real `skills/` directory; (2) **gating-tables** — every mirrored phase table
 matches the authoritative matrix in `steps/shared/step-01-classify-work.md` §4 cell for cell; (3)
@@ -116,10 +116,11 @@ module docstring names every subcommand the parser defines; (11) **append-issue-
 and a flag) passes
 `--source` and `--description`, found by walking `skills/` rather than from a list (tested by `npm
 run test:scripts`, which plants violations in a new directory, after a stray fence, and split
-across continued lines). Check (1) deliberately allows a doc to name a removed skill when mapping
-it to its replacement or explaining the change — `docs/upgrading.md` must be able to say
-`/l3io-pm-epic-execute` → `/l3io-pm-execute`. Docs are allowed to quote values inline; they are
-not allowed to quote them wrongly.
+across continued lines); (12) **pm-status-size** — `skills/_shared/pm-status.py` stays within the
+size limit ADR-0001 sets (8,000 lines). Check (1) deliberately allows a doc to name a removed
+skill when mapping it to its replacement or explaining the change — `docs/upgrading.md` must be
+able to say `/l3io-pm-epic-execute` → `/l3io-pm-execute`. Docs are allowed to quote values
+inline; they are not allowed to quote them wrongly.
 
 The `postbump` hook chains sync automatically, so every release keeps the payloads in sync.
 

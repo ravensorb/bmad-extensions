@@ -1,4 +1,5 @@
-// Tests for scripts/check-docs.mjs check 11 (append-issue-pointer). Run: npm run test:scripts
+// Tests for scripts/check-docs.mjs checks 11 (append-issue-pointer) and 12 (pm-status-size).
+// Run: npm run test:scripts
 // Each test runs the REAL checker against a temp copy of the repo (via CHECK_DOCS_ROOT),
 // so what is tested is the entry point CI runs, not an extracted function.
 import { test } from "node:test";
@@ -111,4 +112,15 @@ test("prose mentioning append-issue is not an invocation", (t) => {
         "Record it with `pm-status.py append-issue`, pointing at the report.\n");
   const r = run(root);
   assert.equal(r.status, 0, r.stderr + r.stdout);
+});
+
+test("check 12: pm-status.py over the 8,000-line limit is caught", (t) => {
+  const root = fixture(t);
+  // Padded with comment-only lines so every other check that parses this file (cli-surface,
+  // cli-docstring, metric-list, append-issue-pointer) still sees the same real content and
+  // still passes -- only the line count should trip.
+  write(root, "skills/_shared/pm-status.py", "# pad\n".repeat(8001), true);
+  const r = run(root);
+  assert.equal(r.status, 1);
+  assert.match(r.stderr, /pm-status\.py: \d+ lines, over the 8000-line limit/);
 });

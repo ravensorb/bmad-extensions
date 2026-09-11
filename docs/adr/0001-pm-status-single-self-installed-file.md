@@ -46,3 +46,23 @@ through its CLI. The first application: the issue audit's heuristic checks go to
 - Follow-ups / exit plan: revisit when the file passes ~6,000 lines, or when a verb needs a
   dependency its other callers do not; Option C is the first candidate then, after evaluating an
   existing bundler.
+
+## Amendment (2026-09-11)
+
+The ~6,000-line size trigger fired: `skills/_shared/pm-status.py` was 6,479 lines at this
+commit. Decision: **keep Option A.** The file is still one runtime writer with one
+self-install hash guard, and no verb yet needs a dependency its other callers do not — the
+dependency trigger is unchanged.
+
+The revisit trigger is replaced with a hard, mechanically enforced number: **8,000 lines.**
+`npm run check:docs` gains check 12 (`pm-status-size`), which reads
+`skills/_shared/pm-status.py` and fails when its line count exceeds 8,000, naming the count,
+the limit, and this ADR. This is deliberately a different mechanism from the ~6,000-line
+prose trigger it replaces — a number that only lives in an ADR's prose was exactly the
+failure mode global rule 3 warns about (a rule that isn't checked is a rule that gets missed
+at 8,000 the same way it was crossed silently at 6,000).
+
+When check 12 trips, **Option C stays the first candidate** — after evaluating an existing
+bundler (for example `stickytape` or `pinliner`), not a hand-rolled one, per global rule 1.
+The dependency trigger from the original decision (a verb needing a dependency its other
+callers do not) is unchanged and still applies independently of line count.

@@ -27,6 +27,8 @@
 //                    parser defines
 //  11. append-issue-pointer every append-issue invocation in skills/ (logical lines, `\`-
 //                    continued lines joined, fenced or not) passes --source and --description
+//  12. pm-status-size skills/_shared/pm-status.py stays within the 8,000-line limit
+//                    ADR-0001 sets
 //
 // Usage:
 //   node scripts/check-docs.mjs        # report and exit nonzero on any failure (CI)
@@ -770,6 +772,31 @@ function checkAppendIssuePointer() {
 }
 
 // ---------------------------------------------------------------------------
+// 12. pm-status.py stays within the size limit ADR-0001 sets.
+//
+// The number, and the check itself, are owned by docs/adr/0001-pm-status-single-self-installed-
+// file.md's Amendment (2026-09-11): the ~6,000-line prose trigger fired unnoticed, so the
+// revisit point is now a hard, mechanically enforced line count instead of a number that only
+// lives in an ADR's prose. Raising PM_STATUS_LINE_LIMIT is a decision for that ADR, not a
+// number to move here on its own.
+const PM_STATUS_LINE_LIMIT = 8000;
+
+function checkPmStatusSize() {
+  // Newline count, matching `wc -l` -- not split("\n").length, which overcounts by one on
+  // any file (all of them) that ends with a trailing newline.
+  const lines = (read(PM_STATUS).match(/\n/g) || []).length;
+  if (lines > PM_STATUS_LINE_LIMIT) {
+    failures.push(
+      `${PM_STATUS}: ${lines} lines, over the ${PM_STATUS_LINE_LIMIT}-line limit ` +
+        `docs/adr/0001-pm-status-single-self-installed-file.md sets by ${lines - PM_STATUS_LINE_LIMIT}\n` +
+        `      Revisit the ADR's options (Option C, a bundler, is the first candidate) before\n` +
+        `      raising PM_STATUS_LINE_LIMIT in scripts/check-docs.mjs.`,
+    );
+  }
+  if (verbose) console.log(`  pm-status-size: ${lines} / ${PM_STATUS_LINE_LIMIT} line limit`);
+}
+
+// ---------------------------------------------------------------------------
 
 checkSkillNames();
 checkGatingTables();
@@ -782,6 +809,7 @@ checkDigestSize();
 checkAuthoringPathDirectives();
 checkCliDocstring();
 checkAppendIssuePointer();
+checkPmStatusSize();
 
 for (const note of notes) if (verbose) console.log(`  note: ${note}`);
 
