@@ -84,10 +84,12 @@ nothing, print `No bmad-defer: markers found. Clean tree — nothing to harvest.
 
 **Step H3 — Dedupe against the existing backlog**
 
-Read the `backlog:` list from `{status_backlog}` (empty if the file or list is absent). A marker is
+Read both issue lists with `uv run {pm_status} list-issues --state-root {pm_state_root} --all --format json` (if `{pm_status}` is absent, read the `backlog:` list from `{status_backlog}` and treat the resolved list as empty). A marker is
 **already harvested** if an existing item has `source` containing `code-marker ({file}:{line})` — this matches both entries written by `harvest-debt` itself (`source: 'code-marker ({file}:{line})'`) and entries written by sprint closure Step 9 (`source: 'clean-release (code-marker {file}:{line})'`), so running either tool first does not produce duplicates when the other runs later. Dedupe is matched by `source` field, not by key — so legacy `DEBT-NN` keyed entries from prior runs are also correctly deduped by their source field. Partition the swept markers:
-- `new` — not present in the backlog.
-- `existing` — already harvested (skip; do not duplicate or re-key).
+- `existing` — matches an open item, or a resolved item whose `resolution` is not `fixed`
+  (skip; do not duplicate or re-key).
+- `new` — matches nothing, **or matches only resolved `fixed` items**: the shortcut came back
+  after it was fixed. H6 passes it to `append-issue`, which records it as a recurrence.
 
 **Step H4 — Dry-run ledger**
 

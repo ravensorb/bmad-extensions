@@ -76,7 +76,7 @@ story node. Accumulate:
 
 **Read directly in both branches:**
 
-- **Backlog items** — the `backlog:` list in `{pm_issues_file}` — count by severity (Critical, High, Medium, Low, unknown), total. Absent file = zero items, not an error.
+- **Backlog items** — `uv run {pm_status} list-issues --state-root {pm_state_root} --all --format json`: count `open` by severity (Critical, High, Medium, Low, unknown) and by status (untriaged = `backlog`, `scheduled`) plus `origin_archived`; count `resolved` by `resolution`. An absent file = zero items, not an error.
 - **Last closed sprint** — across all epics, the highest `epic-{nnn}/sprint-{nn}` whose `sprint.yaml` has `status: done` (lexical order over the zero-padded names is the correct order — §8).
 - **Last closed epic** — the highest `epic-{nnn}` under `{pm_state_root}/archived/`; note its key and title.
 - **Calibration file** — check `{pm_calibration_file}` (`{pm_state_root}/pm-calibration.yaml` — migrate-state moves it here from `{project-root}/_bmad/`); if present, note its version and the number of scope/closure/fix sample entries.
@@ -114,6 +114,8 @@ does not cover:
 ----------------------------------------------------------------
 Backlog items
   Critical: {n}  High: {n}  Medium: {n}  Low: {n}  total: {n}
+  untriaged: {n}  scheduled: {n}  origin archived: {n}
+  resolved: {n}  (fixed {n} · wontfix {n} · duplicate {n} · obsolete {n})
 Last sprint closed:  Epic {nnn} / Sprint {nn}  (or "none")
 Last epic closed:    E{nnn} — {title}          (or "none")
 Calibration file:    {version}, {n} scope samples  (or "not found")

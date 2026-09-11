@@ -25,35 +25,33 @@ using the layout detection from Check 2b:
 
 Exit in either case.
 
-**Step BL2 — Parse**
+**Step BL2 — Read**
 
-Read the top-level `backlog:` list. If the list is absent or empty, print `Backlog is empty — no items found.` and exit.
+```bash
+uv run {pm_status} list-issues --state-root {pm_state_root} --format json
+```
+
+If the list is empty, print `Backlog is empty — no open items.` and exit.
 
 **Step BL3 — Print table**
 
-Group items by severity (Critical → High → Medium → Low → unknown). Within each group, sort by `epic` ascending then `key` ascending. Print:
+Group items by severity (Critical → High → Medium → Low → unknown); within a group, sort by
+`epic` then `key`. `scheduled` items show their story; `origin_archived` items are marked.
 
 ```
 BACKLOG — {pm_issues_file}
 ================================================================
-Sev      Key           Epic  Sprint  Title
+Sev    Key           Epic  Sprint  Status              Title
 ----------------------------------------------------------------
-Critical
-  CRIT   BL-E001-001   001   02      {title (truncated to 50 chars)}
-  ...
 High
-  HIGH   BL-E001-002   001   —       {title}
-  ...
-Medium
-  MED    BL-E000-001   000   —       {title}
-  ...
+  HIGH   BL-E001-002   001   —       scheduled E003-S02-004  {title}
 Low
-  LOW    BL-E002-001   002   03      {title}
-  ...
+  LOW    BL-E002-001   002   03      backlog (archived)      {title}
 ================================================================
-Total: {n} item(s)  (Critical: {n}  High: {n}  Medium: {n}  Low: {n})
+Open: {n}  (untriaged {u} · scheduled {s} · origin archived {o})
+Run /l3io-util-doctor triage to audit these and close what is already fixed.
 ```
 
-Truncate titles at 50 characters with `…`. Sprint shown as `—` when blank.
+Truncate titles at 50 characters with `…`. Show the sprint as `—` when blank.
 
 ---

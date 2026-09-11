@@ -6,7 +6,7 @@ The default mode — runs when no recognized keyword is passed, or when `check`/
 
 Load config same as described above under On Activation.
 
-### Step HC2 — Scan (12 checks, read-only)
+### Step HC2 — Scan (13 checks, read-only)
 
 Run all checks. No files are changed at this step.
 
@@ -169,6 +169,20 @@ PY
   output for as long as it goes unrepaired.
 - No `{pm_state_root}` yet, or none found → ✓
 
+**Check 13 — Backlog integrity and audit**
+If `{pm_issues_file}` exists:
+
+```bash
+uv run {pm_status} audit-issues --state-root {pm_state_root} --format json; echo "exit=$?"
+uv run {skill-root}/scripts/audit-backlog.py --pm-status {pm_status} \
+  --state-root {pm_state_root} --artifacts-root {implementation_artifacts} \
+  --project-root {project-root} --format json
+```
+- `audit-issues` exit 4 → flag `triage` · Priority: **High** · note the finding ids
+- any `fixed-candidate`, `obsolete-candidate`, or `duplicate-candidate` → flag `triage` ·
+  Priority: **Medium** · note the count
+- no issues file, or neither → ✓
+
 ### Step HC3 — Report findings
 
 Print the health check table. Use ✓ for passing checks, ⚠ for flagged items:
@@ -191,6 +205,7 @@ Migration backup files          ⚠ 1 .legacy file found         clean-legacy
 Epic directory padding          ⚠ 1 legacy epic-{nn}/ dir       rename-epic-dirs
 State/artifact drift            ⚠ 2 orphaned key(s)             — (report only)
 Calibration provenance           ⚠ 4 poisoned sample(s)         redrive
+Backlog integrity & audit       ⚠ 1 integrity, 4 candidate(s)  triage
 ================================================================
 ```
 
@@ -241,9 +256,10 @@ Run each approved action in this fixed priority sequence (skip any that were not
 8. `layout-cleanup`
 9. `sort-status`
 10. `harvest-debt`
-11. `update-ai-rules`
-12. `redrive`
-13. `clean-legacy`
+11. `triage`
+12. `update-ai-rules`
+13. `redrive`
+14. `clean-legacy`
 
 `bootstrap-state` runs after `migrate-state` because migrate-state may have created the sharded
 tree that bootstrap-state then augments with story nodes from the artifact tree. `redrive` must
@@ -260,6 +276,8 @@ Before each action, print a separator header:
 ```
 
 Each action runs its full mode implementation from its own section. **Suppress the per-mode confirmation prompts** — the user already confirmed in HC5; proceed as if they answered yes at each mode's own confirm step. The per-mode dry-run output and verify steps still run and are shown.
+
+**`triage` keeps its own confirmations here.** The rule above does not apply to it: every triage action resolves or rewrites backlog items, which the HC5 yes did not see item by item. It runs right after `harvest-debt`, so markers harvested in the same run are audited too.
 
 If any action fails (exits with FAILED), stop and report — do not run remaining actions.
 

@@ -1,0 +1,134 @@
+## Triage Mode
+
+Invoked with the `triage` argument. Reviews the open backlog in `{pm_issues_file}` and closes
+what is already resolved — with evidence, and only on confirmation. It runs three passes:
+structural integrity (`audit-issues`), mechanical evidence (`scripts/audit-backlog.py`), then
+an optional agent review of whatever is left. All [Safety Rules](`SKILL.md` § Safety Rules)
+apply: nothing is written without a yes, and nothing uncertain is closed.
+
+### Step T1 — Load config
+
+Load config (same as layout cleanup), then bind:
+
+- `{model_review}` — `modules.l3io-pm.model_review` (default `{model}`)
+- `{triage_session}` — `triage-{UTC timestamp, e.g. 20260910T153000Z}`; pass it as
+  `--session-id` and `--cause triage` on every write below
+
+If `{pm_issues_file}` does not exist, print `Backlog is empty — nothing to triage.` and exit.
+
+### Step T2 — Integrity
+
+```bash
+uv run {pm_status} audit-issues --state-root {pm_state_root} --format json
+```
+
+Exit `0` → print `✓ Backlog integrity: no findings` and go to T3. Exit `4` → print every finding
+(`id`, `key`, `detail`) and the command that repairs it:
+
+| Finding | Repair |
+|---|---|
+| `1a` | `uv run {pm_status} resolve-issue --state-root {pm_state_root} --key {key} --resolution obsolete --note "clear stale open copy (audit 1a)"` — the resolution already recorded is kept; this only clears the open copy |
+| `1b` with a scheduled item, `1g` | `uv run {pm_status} repair-issue --state-root {pm_state_root} --key {key} --action unschedule` |
+| `1c` | `uv run {pm_status} resolve-issue --state-root {pm_state_root} --key {key} --resolution fixed --ref {story}` |
+| `1d` | `uv run {pm_status} repair-issue --state-root {pm_state_root} --key {key} --action link --story {story}` |
+| `1e` | `uv run {pm_status} repair-issue --state-root {pm_state_root} --key BL-E{epic}-001 --action reseed` (for a malformed `next`, any existing key) |
+| `1j` | `uv run {pm_status} repair-issue --state-root {pm_state_root} --key {key} --action reopen` |
+| `1b` naming an unknown key, `1f`, `1h`, `1i` | report only — print the finding's `repair` text as the manual fix |
+
+Add `--session-id {triage_session} --cause triage` to every command. When one key carries both
+`1a` and `1j`, run only `reopen`: it completes an interrupted reopen, whereas the `1a` repair
+would re-close the item.
+
+Ask: `Apply {n} repair(s)? (Y = all / p = pick / n = none)`. Run the confirmed ones, then rerun
+`audit-issues` and report what remains.
+
+### Step T3 — Mechanical proposals
+
+```bash
+uv run {skill-root}/scripts/audit-backlog.py --pm-status {pm_status} \
+  --state-root {pm_state_root} --artifacts-root {implementation_artifacts} \
+  --project-root {project-root} --format json
+```
+
+Print every `warnings` entry first. A `project-root suspect` warning means the paths do not line
+up. Say so plainly and do not continue past this step until the user confirms the project root.
+
+Table every `fixed-candidate`, `obsolete-candidate`, and `duplicate-candidate` verdict with its
+`evidence`, marking `origin_archived` items. List `open` verdicts (a marker still present) as
+information. Ask: `Resolve {n}? (Y = all / p = pick / n = none)`. For each confirmed item:
+
+- **`fixed-candidate`** — find the commit that removed the marker:
+  `git -C {project-root} log -n1 --format=%h -S "{title}" -- {pointer}`. Use it as `--ref`;
+  if that prints nothing, use `git -C {project-root} rev-parse --short HEAD`. Then run
+  `resolve-issue --resolution fixed --ref {sha} --note "{evidence}"`. Outside a git repository,
+  run `resolve-issue --resolution obsolete --note "{evidence}"` instead.
+- **`obsolete-candidate`** — `resolve-issue --resolution obsolete --note "{evidence}"`
+- **`duplicate-candidate`** — `resolve-issue --resolution duplicate --ref {ref}`. If it refuses
+  (for example, a duplicate chain), show the refusal and leave the item open.
+
+### Step T4 — Agent review (optional; costs tokens)
+
+Count the `needs-review` verdicts, split into those with a `pointer` and those without (`u`).
+Ask:
+
+```
+{n} item(s) need a reviewer to check them against the current code
+→ {ceil(n / 8)} spawn(s) on {model_review}. Run? (y/n)
+Include the {u} untraceable item(s) too? (y/n)
+```
+
+Spawn nothing without a yes. Group the chosen items by epic, in batches of at most 8. Bracket
+each spawn, closing it on every exit path:
+
+```bash
+uv run {pm_status} dispatch --state-root {pm_state_root} --event open \
+  --agent l3io-util-triage --epic E{epic} --session-id {triage_session}
+# ... spawn on {model_review} ...
+uv run {pm_status} dispatch --state-root {pm_state_root} --event close \
+  --agent l3io-util-triage --epic E{epic} --session-id {triage_session}
+```
+
+Send this prompt verbatim, filling in the item lines:
+
+```
+You are checking whether recorded findings are already fixed in the current code.
+Read-only: do not edit, create, or delete any file, and run no git write command.
+For each item, read the finding at its pointer (file:line) when one is given, then inspect
+the current code it concerns. Answer with exactly one JSON object per item, one per line:
+{"key": "<BL key>", "verdict": "fixed" | "still-present" | "can't-tell", "evidence": "<file:line> — <one sentence>"}
+A "fixed" verdict MUST cite file:line evidence showing the fix. If you cannot find the code
+the finding describes, answer "can't-tell".
+Items (key | severity | title | source | pointer):
+{one line per item}
+```
+
+### Step T5 — Agent proposals
+
+Parse one JSON object per line. Treat a `fixed` verdict whose `evidence` has no `file:line` as
+`can't-tell`. Table the `fixed` verdicts with their evidence. `still-present` and `can't-tell`
+items stay open; list them. Ask as in T3. For each confirmed item:
+`resolve-issue --resolution fixed --ref $(git -C {project-root} rev-parse --short HEAD) --note "{evidence}"`
+("fixed as of this commit, per the reviewer's evidence"). Outside git, use `obsolete` with the
+same note.
+
+### Step T6 — Manual pass (optional)
+
+Ask: `Re-severity or close anything else? (list keys, or n)`. For each key the user names, run
+`update-issue --severity {S} --note "{why}"`, or
+`resolve-issue --resolution {wontfix|obsolete} --note "{why}"` — whichever they choose.
+
+### Step T7 — Summary
+
+Recount with `uv run {pm_status} list-issues --state-root {pm_state_root} --all --format json`:
+
+```
+BACKLOG TRIAGE — {pm_issues_file}
+================================================================
+  Integrity repairs:  {n}  ({finding ids})
+  Resolved:           {n}  (fixed {a} · obsolete {b} · duplicate {c} · wontfix {d})
+  Re-severitied:      {n}
+  Still open:         {n}  (untriaged {u} · scheduled {s} · origin archived {o})
+================================================================
+```
+
+---
