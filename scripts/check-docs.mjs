@@ -25,8 +25,8 @@
 //                    installed) instead of the installed references/assets/steps path
 //  10. cli-docstring pm-status.py's own module docstring names every subcommand the
 //                    parser defines
-//  11. append-issue-pointer every fenced append-issue invocation in skills/ passes --source
-//                    and --description, so each backlog item points at its finding
+//  11. append-issue-pointer every append-issue invocation in skills/ (fenced or not) passes
+//                    --source and --description, so each backlog item points at its finding
 //
 // Usage:
 //   node scripts/check-docs.mjs        # report and exit nonzero on any failure (CI)
@@ -711,27 +711,25 @@ function checkCliDocstring() {
 }
 
 // ---------------------------------------------------------------------------
-// 11. Every fenced append-issue invocation records where its finding lives.
+// 11. Every append-issue invocation records where its finding lives.
 //
 // Caught in practice: five of seven producers appended backlog items with no --description,
 // and epic closure told the agent to append in prose with no --source at all -- so most items
 // pointed nowhere, and nothing could later tell whether one was already fixed. The file set is
 // walked from skills/ (allSkillDocs), never listed by hand, so a producer added in a new file or
-// directory is covered on arrival. Only fenced invocations are checked: a prose instruction to
-// append is NOT detected (issue-lifecycle spec §7 records that gap).
+// directory is covered on arrival. An invocation is any line, fenced or not, on which the verb is
+// followed by a flag or a line continuation. Fence state is deliberately not tracked: a stray or
+// four-backtick fence inverts a naive open/close toggle and hides every invocation after it
+// (skills/l3io-util-doctor/SKILL.md carries one). A prose instruction that names the verb without
+// flags is NOT detected (issue-lifecycle spec §7 records that gap).
 // ---------------------------------------------------------------------------
 function checkAppendIssuePointer() {
   const offenders = [];
   let checked = 0;
   for (const file of allSkillDocs()) {
     const lines = read(file).split("\n");
-    let fence = false;
     for (let i = 0; i < lines.length; i++) {
-      if (/^\s*```/.test(lines[i])) {
-        fence = !fence;
-        continue;
-      }
-      if (!fence || !/(pm_status\}|pm-status\.py)\S*\s+append-issue\b/.test(lines[i])) continue;
+      if (!/(pm_status\}|pm-status\.py)\S*\s+append-issue(\s+--|\s*\\\s*$)/.test(lines[i])) continue;
       let text = lines[i];
       let j = i;
       while (/\\\s*$/.test(lines[j]) && j + 1 < lines.length) {
@@ -753,7 +751,7 @@ function checkAppendIssuePointer() {
         `      Pass --source "<phase> (<finding id>)" and --description "See <report path>".`,
     );
   }
-  if (verbose) console.log(`  append-issue-pointer: ${checked} fenced invocation(s) checked`);
+  if (verbose) console.log(`  append-issue-pointer: ${checked} invocation(s) checked`);
 }
 
 // ---------------------------------------------------------------------------

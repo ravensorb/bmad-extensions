@@ -74,6 +74,23 @@ test("a producer inside a skill's assets/ is caught", (t) => {
   assert.match(r.stderr, /assets\/brand-new\.md:\d+/);
 });
 
+test("fence attack: a producer after a stray four-backtick fence is caught", (t) => {
+  const root = fixture(t);
+  write(root, "skills/_shared/steps/brand-new-dir/odd-fence.md", "# Odd\n\n````\nstray\n\n" + UNPOINTED);
+  const r = run(root);
+  assert.equal(r.status, 1);
+  assert.match(r.stderr, /odd-fence\.md:\d+: append-issue without --description/);
+});
+
+test("an inline invocation with flags is caught", (t) => {
+  const root = fixture(t);
+  write(root, "skills/_shared/steps/brand-new-dir/inline.md",
+        'Run `{pm_status} append-issue --epic 001 --title "T" --source "qa (Q-1)" --severity Low` now.\n');
+  const r = run(root);
+  assert.equal(r.status, 1);
+  assert.match(r.stderr, /inline\.md:\d+: append-issue without --description/);
+});
+
 test("prose mentioning append-issue is not an invocation", (t) => {
   const root = fixture(t);
   write(root, "skills/_shared/steps/brand-new-dir/prose.md",
