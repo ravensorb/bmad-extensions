@@ -351,8 +351,10 @@ def _ensure_lock_ignore(state_root: str) -> None:
     checkpoint stages the whole state tree. A `*.lock` pattern matches files only, never
     the state-root directory, so step-00-activate's `git check-ignore` gate still passes.
 
-    Called on EVERY lock acquisition, not only when a lock file is first created: a project
-    whose lock files already exist gets the rule on its next lock. Memoized per process, so
+    Called on EVERY lock acquisition inside a state root, not only when a lock file is first
+    created: a project whose lock files already exist gets the rule on its next lock. A bare
+    `append-issue --file` outside one (no status folders, no --state-root) is skipped, so it
+    never writes a .gitignore into a repo root (_file_lock). Memoized per process, so
     each state root is checked at most once. Absent file -> created (no-clobber
     _atomic_create) with one comment line and the rule. Present -> READ first, and only when
     the rule is missing (as git reads it, _lock_rule_present) is it opened for append and
