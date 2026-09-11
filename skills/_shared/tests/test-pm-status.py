@@ -6993,6 +6993,44 @@ class TestDoneHook(IssueBase):
         self.assertEqual(self.story_status(), "backlog")
         self.assertEqual(self.open_keys(), ["BL-E001-001"])
 
+    def _story_bytes(self, key):
+        with open(pm.story_file(self.root, key), "rb") as fh:
+            return fh.read()
+
+    def test_set_field_refuses_a_subpath_of_resolves(self):
+        """`resolves.x` used to walk into the node and save a mapping under resolves:."""
+        p = os.path.join(self.root, "active", "epic-001", "sprint-01", "E001-S01-001.yaml")
+        with open(p, "w", encoding="utf-8") as fh:              # a story with no resolves:
+            fh.write("key: 'E001-S01-001'\nepic: 'E001'\nsprint: 'S01'\nstatus: review\n")
+        before = self._story_bytes("E001-S01-001")
+        code, _, err = self.run_all(["set-field", "--state-root", self.root, "--story",
+                                     "E001-S01-001", "--field", "resolves.x", "--value", "v"])
+        self.assertEqual(code, 2, err)
+        self.assertIn("--field resolves.x is not directly writable", err)
+        self.assertEqual(self._story_bytes("E001-S01-001"), before)
+
+    def test_set_field_refuses_a_subpath_of_status(self):
+        before = self._story_bytes("E001-S02-001")
+        code, _, err = self.run_all(["set-field", "--state-root", self.root, "--story",
+                                     "E001-S02-001", "--field", "status.x", "--value", "done"])
+        self.assertEqual(code, 2, err)
+        self.assertIn("--field status.x is not directly writable", err)
+        self.assertEqual(self._story_bytes("E001-S02-001"), before)
+        # the rule is `<name>.` -- a sibling name that merely starts with it stays writable
+        code, _, err = self.run_all(["set-field", "--state-root", self.root, "--story",
+                                     "E001-S02-001", "--field", "status_note", "--value", "x"])
+        self.assertEqual(code, 0, err)
+
+    def test_set_field_refuses_a_subpath_of_every_derived_field(self):
+        """Scope from the source of truth: every DERIVED_NODE_FIELDS entry, not a hand list."""
+        before = self._story_bytes("E001-S02-001")
+        for name in pm.DERIVED_NODE_FIELDS:
+            code, _, err = self.run_all(["set-field", "--state-root", self.root, "--story",
+                                         "E001-S02-001", "--field", f"{name}.x", "--value", "v"])
+            self.assertEqual(code, 2, (name, err))
+            self.assertIn("is not directly writable", err, name)
+        self.assertEqual(self._story_bytes("E001-S02-001"), before)
+
     def _set_resolves(self, value):
         p = pm.story_file(self.root, "E001-S02-001")
         y, n = pm.load_node(p)

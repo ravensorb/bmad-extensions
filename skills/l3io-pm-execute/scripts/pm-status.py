@@ -65,8 +65,8 @@ Subcommands
                 declared but always rejected; use estimate-story/estimate-rollup instead)
                 [--confidence {low,medium,high}] [--flock]
   set-field     --state-root S  (--story KEY | --epic ID [--sprint ID])  --field NAME --value V
-                (refuses any field in DERIVED_NODE_FIELDS,
-                completion_evidence.tests_passing (use add-test-run), status (use
+                (refuses any field in DERIVED_NODE_FIELDS, or any sub-path of one
+                (<name>.x) -- completion_evidence.tests_passing (use add-test-run), status (use
                 set-status), resolves (use promote-issue))
   add-test-run  --state-root S  --story KEY  --command CMD  --exit-code N
                 (appends {command, exit_code} to completion_evidence.test_runs and
@@ -4333,9 +4333,14 @@ def cmd_set_field(args) -> int:
     --field: dot-path within the node, e.g. 'retrospective.summary', 'closed.date'
     --value: string value to set
     """
-    if args.field in DERIVED_NODE_FIELDS:
-        _die_usage(f"--field {args.field} is not directly writable: "
-                   f"{DERIVED_NODE_FIELDS[args.field]}")
+    # The field itself OR any sub-path of it: an exact-match lookup let `resolves.x` walk
+    # into the node and save a mapping under resolves:, and `status.x` crash mid-walk.
+    derived = next((d for d in DERIVED_NODE_FIELDS
+                    if args.field == d or args.field.startswith(d + ".")), None)
+    if derived is not None:
+        inside = "" if derived == args.field else f" (it is inside {derived})"
+        _die_usage(f"--field {args.field} is not directly writable{inside}: "
+                   f"{DERIVED_NODE_FIELDS[derived]}")
 
     kind = _infer_kind(args)
     y, node, path, label = _load_checked(args.state_root, args, kind)
