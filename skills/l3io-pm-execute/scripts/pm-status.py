@@ -146,7 +146,8 @@ Subcommands
                 check-lock would report it LOCKED, and whenever promote cannot evaluate
                 it (not a mapping, no session_id, a missing, unparseable or timezone-less
                 claimed_at, a non-integer ttl_minutes) -- clear-lock removes an
-                abandoned one)
+                abandoned one; a story node that does not parse, or a claimant whose
+                key: is malformed, exits 2 naming the file, before any write)
   audit-issues  --state-root S  [--format {text,json}]
                 (read-only integrity checks 1a-1j over both issue files and the story
                 nodes' resolves:, read under issues_lock when either issue file exists;
@@ -157,8 +158,8 @@ Subcommands
                 for 1b, 1c, 1d, 1f or 1g either; 1d/1h ignore a dead claim -- a
                 story under archived/ that is not done; 1j fires only when the
                 ref story's resolves: lists the key; exit 4 when anything is
-                found, and on a malformed issue file, where --format json
-                prints {"findings": [], "error": MSG})
+                found, and on a malformed issue file or a story node that does
+                not parse, where --format json prints {"findings": [], "error": MSG})
   repair-issue  --state-root S  --key K  --action {unschedule,link,reseed,reopen}
                 [--story KEY] [--session-id ID] [--cause C]
                 (each action refuses unless its audit finding holds: unschedule 1b/1g,
@@ -166,7 +167,8 @@ Subcommands
                 unschedule and link also refuse a key with a resolved entry -- rerun
                 resolve-issue to clear the stale open copy (1a); reseed drops
                 non-canonical aliases of the epic's next key and never lowers it;
-                unschedule writes an issue_unscheduled event)
+                unschedule writes an issue_unscheduled event; a story node that does
+                not parse exits 2 naming the file, before any write)
   move-epic     --state-root S  --epic ID  --to {planned,active,archived}
   archive-epic  --state-root S  --epic ID   (alias for move-epic --to archived)
   calibration   show  --state-root S  [--format {text,json}]
@@ -4974,8 +4976,22 @@ def _next_story_key(state_root, artifacts_root, epic_key, sprint_key) -> str:
     return f"{prefix}{highest + 1:03d}"
 
 
+def _yaml_error_reason(e) -> str:
+    """One line from a ruamel parse error: its problem and where, not the multi-line dump."""
+    problem = getattr(e, "problem", None) or (str(e).splitlines() or [type(e).__name__])[0]
+    mark = getattr(e, "problem_mark", None)
+    if mark is None:
+        return problem
+    return f"{problem} (line {mark.line + 1}, column {mark.column + 1})"
+
+
 def _walk_story_nodes(state_root):
-    """Yield (story_key, status_dir, node) for every story node in every status folder."""
+    """Yield (story_key, status_dir, node, path) for every story node in every status folder.
+
+    A node that does not parse is PMError(2) naming the file (Ruling F1): every caller is a
+    verb that must refuse before its first write rather than exit 1 with a traceback.
+    audit-issues maps it onto its existing error channel (exit 4), not a new finding id."""
+    from ruamel.yaml.error import YAMLError
     for sdir in STATUS_DIRS:
         base = os.path.join(state_root, sdir)
         if not os.path.isdir(base):
@@ -4991,9 +5007,14 @@ def _walk_story_nodes(state_root):
                 for fname in sorted(os.listdir(spd)):
                     if not fname.endswith(".yaml") or fname == "sprint.yaml":
                         continue
-                    node = load_node(os.path.join(spd, fname))[1]
+                    path = os.path.join(spd, fname)
+                    try:
+                        node = load_node(path)[1]
+                    except YAMLError as e:
+                        raise PMError(2, f"{path} does not parse: {_yaml_error_reason(e)} -- "
+                                         f"fix the file by hand")
                     if node is not None:
-                        yield str(node.get("key") or fname[:-5]), sdir, node
+                        yield str(node.get("key") or fname[:-5]), sdir, node, path
 
 
 def _dead_claim(status_dir, node) -> bool:
@@ -5015,21 +5036,27 @@ def _partial_promotion(state_root, keys):
     superset/subset or who is already done -- refuses (PMError 2) rather than guess.
     A dead claim (`_dead_claim`) is not a claimant at all: after the 1g repair the item is
     backlog again and a re-promotion must mint a new story, not resume the archived one.
-    The caller refuses a returned claimant outside its own --epic/--sprint."""
+    The caller refuses a returned claimant outside its own --epic/--sprint, which parses the
+    claimant's key -- so a malformed one is refused here, naming the node, before any write."""
     keyset = set(keys)
     claimants = {}
-    for story_key, sdir, node in _walk_story_nodes(state_root):
+    for story_key, sdir, node, path in _walk_story_nodes(state_root):
         if _dead_claim(sdir, node):
             continue
         resolves = {str(k) for k in (node.get("resolves") or [])}
         if resolves & keyset:
-            claimants[story_key] = node
+            claimants[story_key] = (node, path)
     if not claimants:
         return None
     if len(claimants) == 1:
-        (story_key, node), = claimants.items()
+        (story_key, (node, path)), = claimants.items()
         resolves = {str(k) for k in (node.get("resolves") or [])}
         if resolves == keyset and str(node.get("status", "")) != "done":
+            try:
+                parse_story_key(story_key)
+            except ValueError:
+                raise PMError(2, f"story node {path} has a malformed key {story_key!r} -- fix "
+                                 f"it by hand, then rerun")
             return story_key
     raise PMError(2, f"{', '.join(keys)} already claimed by {sorted(claimants)} -- run "
                      f"/l3io-util-doctor triage (audit-issues 1d/1h)")
@@ -5190,7 +5217,7 @@ def _audit_findings(state_root, store) -> list:
     # claims: every story listing a key (1b and 1j read it). live: the same minus dead claims
     # (_dead_claim) -- 1d and 1h read only live claims, so the 1g repair leaves a clean audit.
     stories, claims, live = {}, {}, {}
-    for skey, sdir, node in _walk_story_nodes(state_root):
+    for skey, sdir, node, _ in _walk_story_nodes(state_root):
         stories[skey] = (sdir, str(node.get("status", "")))
         dead = _dead_claim(sdir, node)
         for k in node.get("resolves") or []:
@@ -5286,7 +5313,8 @@ def cmd_audit_issues(args) -> int:
     fake a finding. When neither exists, no lock is taken -- a read-only command must
     not create issues.yaml.lock -- and the story walk still runs, unlocked, over an
     empty store, so finding 1b can still report a resolves: key that names neither
-    file. Exit 4 when anything is found. A malformed issue file also exits 4; under
+    file. Exit 4 when anything is found. A malformed issue file, or a story node that
+    does not parse (Ruling F1: the existing channel, not a new finding id), also exits 4; under
     --format json it still prints a parseable document, {"findings": [], "error": MSG},
     because triage and the health check parse it. Heuristic checks live in
     l3io-util-doctor/scripts/audit-backlog.py."""

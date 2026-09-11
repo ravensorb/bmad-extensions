@@ -7544,5 +7544,79 @@ class TestRepairIssue(TestAuditIssues):
         self.assertEqual(self.resolved_keys(), [])
 
 
+class TestUnreadableStoryNode(IssueBase):
+    """Ruling F1: a story node the walk cannot read is a refusal naming the file, never a
+    traceback. promote-issue and repair-issue exit 2 before any write; audit-issues reports it
+    through its existing error channel (exit 4; JSON {"findings": [], "error": MSG})."""
+
+    def setUp(self):
+        super().setUp()
+        self.append("A")
+        self.bad = os.path.join(self.root, "active", "epic-001", "sprint-01", "E001-S01-001.yaml")
+
+    def write_story(self, path, text):
+        with open(path, "w", encoding="utf-8") as fh:
+            fh.write(text)
+
+    def promote(self):
+        return self.run_all(["promote-issue", "--state-root", self.root, "--artifacts-root",
+                             self.arts, "--key", "BL-E001-001", "--epic", "001", "--sprint", "02",
+                             "--classification", "simple"])
+
+    def break_story(self):
+        self.write_story(self.bad, "key: 'E001-S01-001'\nresolves: [BL-E001-001\n")
+
+    def test_promote_refuses_an_unparseable_story_node_and_writes_nothing(self):
+        self.break_story()
+        before = _tree_snapshot(self.d)
+        code, out, err = self.promote()
+        self.assertEqual(code, 2, (out, err))
+        self.assertIn(f"{self.bad} does not parse:", err)
+        self.assertIn("-- fix the file by hand", err)
+        self.assertNotIn("Traceback", err)
+        self.assertEqual(_tree_snapshot(self.d), before)
+
+    def test_repair_refuses_an_unparseable_story_node_and_writes_nothing(self):
+        self.edit_next_stale()
+        self.break_story()
+        before = _tree_snapshot(self.d)
+        code, out, err = self.run_all(["repair-issue", "--state-root", self.root, "--key",
+                                       "BL-E001-001", "--action", "reseed"])
+        self.assertEqual(code, 2, (out, err))
+        self.assertIn(f"{self.bad} does not parse:", err)
+        self.assertEqual(_tree_snapshot(self.d), before)
+
+    def edit_next_stale(self):
+        """A real 1e, so reseed would otherwise act: the refusal is the walk's, not the gate's."""
+        y, data = pm._load(self.issues)
+        data["next"]["001"] = 1
+        pm._atomic_dump(y, data, self.issues)
+
+    def test_audit_reports_an_unparseable_story_node_through_its_error_channel(self):
+        self.break_story()
+        code, out, err = self.run_all(["audit-issues", "--state-root", self.root,
+                                       "--format", "json"])
+        self.assertEqual(code, 4, err)
+        doc = json.loads(out)
+        self.assertEqual(doc["findings"], [])
+        self.assertIn(f"{self.bad} does not parse:", doc["error"])
+        code, out, err = self.run_all(["audit-issues", "--state-root", self.root])
+        self.assertEqual((code, out), (4, ""))
+        self.assertIn(f"{self.bad} does not parse:", err)
+
+    def test_promote_refuses_a_claimant_with_a_malformed_key(self):
+        """The resume path parses the claimant's key: a malformed one raised ValueError."""
+        claimant = os.path.join(self.root, "active", "epic-001", "sprint-02", "E001-S02-001.yaml")
+        self.write_story(claimant, "key: 'E001-S02'\nepic: 'E001'\nsprint: 'S02'\n"
+                                   "status: backlog\nresolves: [BL-E001-001]\n")
+        before = _tree_snapshot(self.d)
+        code, out, err = self.promote()
+        self.assertEqual(code, 2, (out, err))
+        self.assertIn(f"story node {claimant} has a malformed key 'E001-S02' -- fix it by hand, "
+                      f"then rerun", err)
+        self.assertNotIn("Traceback", err)
+        self.assertEqual(_tree_snapshot(self.d), before)
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)
