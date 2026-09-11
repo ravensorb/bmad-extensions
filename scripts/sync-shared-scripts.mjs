@@ -136,6 +136,7 @@ const sharedStepFiles = [
 ];
 
 const planStepFiles = [
+  { src: path.join(sharedDir, "steps", "plan", "step-backlog-intake.md"), rel: path.join("steps", "plan", "step-backlog-intake.md") },
   { src: path.join(sharedDir, "steps", "plan", "step-02-readiness-check.md"), rel: path.join("steps", "plan", "step-02-readiness-check.md") },
   { src: path.join(sharedDir, "steps", "plan", "step-03-story-elaboration.md"), rel: path.join("steps", "plan", "step-03-story-elaboration.md") },
   { src: path.join(sharedDir, "steps", "plan", "step-04-load-state.md"), rel: path.join("steps", "plan", "step-04-load-state.md") },

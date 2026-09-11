@@ -34,6 +34,7 @@ Load `{skill-root}/assets/module-setup.md` first **only** when the user passes `
 Bind `{scope}` = `all` before loading step-estimate.
 
 ```
+{skill-root}/steps/plan/step-backlog-intake.md         ← offers backlog → story promotion; never automatic
 {skill-root}/steps/plan/step-02-readiness-check.md
 {skill-root}/steps/plan/step-03-story-elaboration.md   ← skipped if work_type is DOCS or CONFIG
 {skill-root}/steps/plan/step-04-load-state.md
