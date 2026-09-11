@@ -983,12 +983,22 @@ def epic_node_lock(state_root: str, epic_key: str):
     ONE EPIC AT A TIME. The re-entrancy counter is per lock family, not per epic, so a nested
     acquire of a SECOND epic's lock would skip its flock silently; it raises instead.
     Re-entry on the same epic (promote -> rollup_parent_estimate) nests on the one flock.
-    Lock order is epic_node_lock before issues_lock, never the reverse."""
+
+    LOCK ORDER, enforced: the epic lock is taken first, never under issues_lock or
+    calibration_lock. promote holds epic -> issues and set-actual holds epic -> calibration;
+    a FRESH epic lock taken inside either would invert that order and can deadlock against
+    them, so it raises. A same-epic re-entry is not fresh -- promote's roll-up re-enters its
+    epic under issues_lock -- and is allowed."""
     lock_path = epic_lock_path(state_root, epic_key)
     held = _EPIC_NODE_LOCK["path"]
     if held is not None and held != lock_path:
         raise RuntimeError(f"epic_node_lock: {lock_path} requested while {held} is held -- "
                            f"one epic lock at a time")
+    if held is None and (_ISSUES_LOCK["depth"] or _CAL_LOCK["depth"]):
+        under = "issues_lock" if _ISSUES_LOCK["depth"] else "calibration_lock"
+        raise RuntimeError(f"epic_node_lock: lock order -- {lock_path} requested under {under}; "
+                           f"the epic lock is taken first, never under issues_lock or "
+                           f"calibration_lock")
     with _file_lock(lock_path, _EPIC_NODE_LOCK):
         _EPIC_NODE_LOCK["path"] = lock_path
         try:
@@ -1002,9 +1012,12 @@ def _require_epic_lock(path: str) -> None:
     """Refuse an epic.yaml write unless this process holds THAT epic's epic_node_lock.
 
     Called from `_atomic_dump`, which every node write reaches, so the rule is checked on
-    every route to the disk rather than trusted to a list of verbs -- the list once left
-    clear-lock, move-epic and the node verbs all writing epic.yaml unlocked. A RuntimeError,
-    not a PMError: no input causes this, only a code path that skipped the lock."""
+    every write pm-status.py makes rather than trusted to a list of verbs -- the list once
+    left clear-lock, move-epic and the node verbs all writing epic.yaml unlocked. Files made
+    outside this script (doctor's bootstrap-state heredoc, agent-written migrate-state
+    output) are not covered; they only create epic files, so there is nothing to race. A
+    RuntimeError, not a PMError: no input causes this, only a code path that skipped the
+    lock."""
     if os.path.basename(path) != "epic.yaml":
         return
     epic_dir = os.path.dirname(os.path.abspath(path))
@@ -3652,6 +3665,9 @@ def cmd_set_actual(args) -> int:
     if block == "orchestration" and kind == "story":
         _die_usage("--block orchestration is only valid on a sprint or epic — a story's "
                    "orchestration belongs to its parent sprint")
+    if args.cost is not None:   # a usage error on any node: refused before the epic lock
+        _die_usage("--cost is not accepted: cost is derived from tokens x rates. "
+                   "Fix the token counts or modules.l3io-pm.token_rates instead.")
     # Both the node save and, for a sprint or epic, the calibration sample's replay marker
     # (_mark_sampled) write the node, so an epic's whole cycle runs under its lock. Lock
     # order: epic_node_lock, then calibration_lock inside the record_* helpers.
@@ -3668,10 +3684,6 @@ def _set_actual(args, kind, block) -> int:
         "man_hours": args.man_hours,
         "hitl_hours": args.hitl_hours,
     }
-
-    if args.cost is not None:
-        _die_usage("--cost is not accepted: cost is derived from tokens x rates. "
-                   "Fix the token counts or modules.l3io-pm.token_rates instead.")
 
     classes = {c: getattr(args, "tokens_" + c) for c in TOKEN_CLASSES}
     given = {c: v for c, v in classes.items() if v is not None}

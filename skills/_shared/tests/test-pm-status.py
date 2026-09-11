@@ -2056,11 +2056,11 @@ class TestEpicMovesGitBacked(unittest.TestCase):
                         f"expected a staged rename (R), got:\n{status}")
         tracked = self._run_git(["ls-files", "archived/epic-001"])
         self.assertIn("archived/epic-001/sprint-01/E001-S01-003.yaml", tracked)
-        # Nothing left untracked by a shutil fallback. The epic's lock file (state/epic-001.lock,
-        # outside the moved directory by design -- epic_lock_path) is untracked and expected.
-        untracked = [ln for ln in status.splitlines()
-                     if ln.startswith("??") and not ln.rstrip().endswith(".lock")]
-        self.assertEqual(untracked, [], status)
+        # Nothing left untracked by a shutil fallback. The ONE expected untracked entry is the
+        # epic's lock file, state/epic-001.lock, outside the moved directory by design
+        # (epic_lock_path) -- pinned exactly, so a stray lock inside the moved tree still fails.
+        untracked = [ln for ln in status.splitlines() if ln.startswith("??")]
+        self.assertEqual(untracked, ["?? epic-001.lock"], status)
 
     def test_move_epic_warns_on_stderr_when_git_mv_falls_back(self):
         """The fallback is a real loss of history, so it must never be silent."""
@@ -6699,6 +6699,45 @@ def _tree_snapshot(top):
     return snap
 
 
+def _wait_until_blocked_on(proc, lock_path, what="child", hang_guard=30.0):
+    """Return once `proc` is SEEN blocked on `lock_path`'s flock; fail if it exits first.
+
+    The verdict comes from one of two positive events, never from elapsed time:
+    - `proc` appears in /proc/locks as a blocked waiter -- a `->` line carrying its pid on
+      `lock_path`'s inode -- so it is honoring the lock, and this returns;
+    - `proc` exits first, so it never waited and the lock was not honored: AssertionError.
+    A fixed sleep can only fail when an unlocked writer happens to finish inside the window,
+    so on a loaded runner it passes having checked nothing. `hang_guard` only stops a wedged
+    child from hanging the suite: tripping it kills the child and fails loudly; it never
+    passes a test.
+
+    Linux-only -- decorate callers with
+    `@unittest.skipUnless(os.path.exists("/proc/locks"), ...)`. A waiter's line reads
+    `25: -> FLOCK  ADVISORY  WRITE <pid> <maj>:<min>:<inode> 0 EOF`; the inode is matched,
+    not the device, whose numbering is filesystem-specific. Start `proc` directly (no shell
+    or wrapper), so `proc.pid` is the process that takes the lock."""
+    import time
+    ino, pid = str(os.stat(lock_path).st_ino), str(proc.pid)
+    deadline = time.monotonic() + hang_guard
+    while True:
+        if proc.poll() is not None:
+            out, err = proc.communicate()
+            raise AssertionError(f"{what} (pid {pid}) exited {proc.returncode} without waiting "
+                                 f"on {lock_path} -- the lock was not honored\n"
+                                 f"stdout: {out!r}\nstderr: {err!r}")
+        with open("/proc/locks", encoding="ascii", errors="replace") as fh:
+            for line in fh:
+                f = line.split()
+                if len(f) > 6 and f[1] == "->" and f[5] == pid and f[6].rsplit(":", 1)[-1] == ino:
+                    return
+        if time.monotonic() > deadline:
+            proc.kill()
+            proc.communicate()
+            raise AssertionError(f"hang guard: {what} (pid {pid}) neither exited nor blocked on "
+                                 f"{lock_path} within {hang_guard}s")
+        time.sleep(0.01)
+
+
 class TestPromoteIssue(IssueBase):
     def promote(self, *keys, epic="001", sprint="02", cls="standard", extra=()):
         argv = ["promote-issue", "--state-root", self.root, "--artifacts-root", self.arts]
@@ -6979,6 +7018,7 @@ class TestPromoteIssue(IssueBase):
         self.assertEqual(self.resolved_keys(), ["BL-E001-001"])      # the resolve ran after
         self.assertEqual(self.load_resolved()["resolved"][0].get("story"), "E001-S02-001")
 
+    @unittest.skipUnless(os.path.exists("/proc/locks"), "needs /proc/locks to see a flock waiter")
     def test_clear_lock_waits_for_promote_and_is_not_undone(self):
         # A clear-lock racing promote's epic roll-up must not be silently reverted (batch D1).
         # promote saves the epic's estimate roll-up under epic_node_lock; a clear-lock that
@@ -6992,7 +7032,8 @@ class TestPromoteIssue(IssueBase):
                                      "--session-id", "me"])
         self.assertEqual(code, 0, err)
         real_save = pm.save_node
-        procs, polled = [], []
+        lock = pm.epic_lock_path(self.root, "E001")
+        procs, failures = [], []
 
         def racing_save(y, node, path, *a, **kw):
             if os.path.basename(path) == "epic.yaml" and not procs:
@@ -7000,18 +7041,22 @@ class TestPromoteIssue(IssueBase):
                                       self.root, "--epic", "E001"],
                                      stdout=subprocess.PIPE, stderr=subprocess.PIPE)
                 procs.append(p)
-                try:
-                    p.wait(timeout=3)   # unfixed: completes; fixed: blocks on epic_node_lock
-                except subprocess.TimeoutExpired:
-                    pass
-                polled.append(p.poll())
+                try:    # deterministic: seen blocked on the epic lock, or it exited first
+                    _wait_until_blocked_on(p, lock, "clear-lock")
+                except AssertionError as e:
+                    failures.append(e)      # re-raised below, whatever promote does with it
+                    raise
             return real_save(y, node, path, *a, **kw)
 
         with mock.patch.object(pm, "save_node", racing_save):
-            code, out, err = self.promote("BL-E001-001", extra=("--session-id", "me"))
+            try:
+                code, out, err = self.promote("BL-E001-001", extra=("--session-id", "me"))
+            except AssertionError:
+                pass
+        if failures:
+            raise failures[0]
         _, cerr = procs[0].communicate(timeout=30)
         self.assertEqual(code, 0, err)
-        self.assertIsNone(polled[0], "clear-lock finished while promote held the epic lock")
         self.assertEqual(procs[0].returncode, 0, cerr.decode())
         node = pm.load_node(pm.epic_file(self.root, "E001"))[1]
         self.assertNotIn("_lock", node, "promote's roll-up save restored a cleared lock")
@@ -7068,9 +7113,9 @@ class TestEpicWritersHoldTheEpicLock(IssueBase):
     old one. The lock file lives outside the epic directory, which is why a move cannot
     carry it away from a waiter."""
 
+    @unittest.skipUnless(os.path.exists("/proc/locks"), "needs /proc/locks to see a flock waiter")
     def test_every_epic_writer_waits_and_follows_a_move(self):
         import subprocess
-        import time
         self.append("A")
         sr = self.root
         for argv in (["set-lock", "--state-root", sr, "--epic", "E001", "--session-id", "me"],
@@ -7098,23 +7143,19 @@ class TestEpicWritersHoldTheEpicLock(IssueBase):
         with open(epic_yaml, "rb") as fh:
             before = fh.read()
         procs = {}
+        lock = pm.epic_lock_path(sr, "E001")
         with pm.epic_node_lock(sr, "E001"):
             for name, argv in writers.items():
                 procs[name] = subprocess.Popen([sys.executable, SCRIPT, *argv],
                                                stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-            deadline = time.monotonic() + 3
-            for p in procs.values():
-                try:
-                    p.wait(timeout=max(0.0, deadline - time.monotonic()))
-                except subprocess.TimeoutExpired:
-                    pass
-            finished = sorted(n for n, p in procs.items() if p.poll() is not None)
+                self.addCleanup(procs[name].kill)            # reaps on failure; no-op once done
+            for name, p in procs.items():   # deterministic: each seen blocked, or it exited first
+                _wait_until_blocked_on(p, lock, name)
             with open(epic_yaml, "rb") as fh:
                 during = fh.read()
             with redirect_stderr(io.StringIO()):             # no .git here: the fallback warns
                 pm.move_epic(sr, "E001", "planned")          # re-entrant: this process holds it
         results = {n: (p.communicate(timeout=60), p.returncode) for n, p in procs.items()}
-        self.assertEqual(finished, [], "these did not wait for E001's epic_node_lock")
         self.assertEqual(during, before)
         for name, ((out, err), rc) in results.items():
             self.assertEqual(rc, 0, f"{name}: {out.decode()} {err.decode()}")
@@ -7206,6 +7247,44 @@ class TestEpicNodeLockScope(unittest.TestCase):
             pm.move_epic(self.root, "E001", "archived")
         self.assertEqual(pm.epic_lock_path(self.root, "E001"), lock)
         self.assertTrue(os.path.exists(lock))
+
+    def test_a_fresh_epic_lock_under_issues_or_calibration_lock_is_refused(self):
+        # Lock order: epic_node_lock is taken first, never under issues_lock or
+        # calibration_lock -- the reverse of promote's epic -> issues is a deadlock.
+        outers = {"issues_lock": lambda: pm.issues_lock(pm.issues_paths(self.root)[0]),
+                  "calibration_lock": lambda: pm.calibration_lock(self.root)}
+        for name, outer in outers.items():
+            with outer():
+                with self.assertRaises(RuntimeError, msg=name) as cm:
+                    with pm.epic_node_lock(self.root, "E001"):
+                        pass
+                self.assertIn("lock order", str(cm.exception), name)
+            self.assertEqual(pm._EPIC_NODE_LOCK["depth"], 0, name)
+            self.assertIsNone(pm._EPIC_NODE_LOCK["path"], name)
+
+    def test_same_epic_reentry_under_issues_lock_is_allowed(self):
+        # promote's shape: epic lock, then issues_lock, then the roll-up re-enters the epic.
+        with pm.epic_node_lock(self.root, "E001"):
+            with pm.issues_lock(pm.issues_paths(self.root)[0]):
+                with pm.epic_node_lock(self.root, "001"):
+                    self._touch(pm.epic_file(self.root, "E001"))
+
+    def test_set_actual_cost_is_refused_before_the_epic_lock(self):
+        # --cost is a usage error on any node, so it is refused before the epic lock: it
+        # neither waits behind a holder nor creates the lock file.
+        path = pm.epic_file(self.root, "E001")
+        with open(path, "rb") as fh:
+            before = fh.read()
+        err = io.StringIO()
+        with redirect_stdout(io.StringIO()), redirect_stderr(err):
+            with self.assertRaises(SystemExit) as cm:
+                pm.main(["set-actual", "--state-root", self.root, "--node", "epic",
+                         "--epic", "E001", "--man-hours", "1", "--cost", "5"])
+        self.assertEqual(cm.exception.code, 2)
+        self.assertIn("--cost is not accepted", err.getvalue())
+        self.assertFalse(os.path.exists(pm.epic_lock_path(self.root, "E001")))
+        with open(path, "rb") as fh:
+            self.assertEqual(fh.read(), before)
 
 
 class TestConcurrentPromote(unittest.TestCase):
