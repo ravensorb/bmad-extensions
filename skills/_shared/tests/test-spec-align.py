@@ -281,5 +281,115 @@ class TestBuild(Project):
         self.assertIn("WARN spec index is", r.stderr)
 
 
+DIMS = ["Interface contracts", "Error and edge case handling", "Observability requirements",
+        "Security considerations", "Testability approach", "Existing-library check"]
+
+
+def story(dims, head="# E001-S01-001: A story\n\nSome prose.\n"):
+    parts = [head, "## Technical acceptance criteria\n"]
+    for name in DIMS:
+        if name in dims:
+            parts.append(f"### {name}\n\n{dims[name]}\n")
+    parts.append("## Files in scope\n\n- `src/a.py` — the module\n")
+    return "\n".join(parts)
+
+
+def full_story(**overrides):
+    dims = {d: f"Content for {d}.\nSpec: {ARCH_REL}#data-model" for d in DIMS}
+    for k, v in overrides.items():
+        dims[k.replace("_", " ")] = v
+    return story(dims)
+
+
+STORY_REL = f"{IMPL}/epic-001/sprint-01/stories/E001-S01-001.md"
+
+
+class TestPointers(Project):
+    def setUp(self):
+        super().setUp()
+        self.write(ARCH_REL, ARCH)
+
+    def check(self, text, rel=STORY_REL):
+        self.write(rel, text)
+        return self.sa("check-pointers", "--story", self.path(rel))
+
+    def test_complete_story_passes(self):
+        r = self.check(full_story())
+        self.assertEqual(r.returncode, 0, r.stderr)
+
+    def test_missing_dimension_blocks(self):
+        dims = {d: f"x\nSpec: {ARCH_REL}#data-model" for d in DIMS if d != DIMS[2]}
+        r = self.check(story(dims))
+        self.assertEqual(r.returncode, 2)
+        self.assertIn("Observability requirements: missing dimension", r.stderr)
+
+    def test_not_applicable_dimension_needs_no_pointer(self):
+        r = self.check(full_story(Security_considerations="N/A — internal batch job, no input."))
+        self.assertEqual(r.returncode, 0, r.stderr)
+
+    def test_applicable_dimension_without_pointer_blocks(self):
+        r = self.check(full_story(Testability_approach="Unit tests at the service boundary."))
+        self.assertEqual(r.returncode, 2)
+        self.assertIn("Testability approach: no Spec: line", r.stderr)
+
+    def test_spec_none_with_reason_passes(self):
+        r = self.check(full_story(
+            Observability_requirements="Log each order.\nSpec: none — no observability section"))
+        self.assertEqual(r.returncode, 0, r.stderr)
+
+    def test_spec_none_without_reason_blocks(self):
+        r = self.check(full_story(Observability_requirements="Log it.\nSpec: none"))
+        self.assertEqual(r.returncode, 2)
+        self.assertIn("needs a reason", r.stderr)
+
+    def test_spec_none_plus_pointer_blocks(self):
+        r = self.check(full_story(Observability_requirements=(
+            f"Log it.\nSpec: none — nothing\nSpec: {ARCH_REL}#data-model")))
+        self.assertEqual(r.returncode, 2)
+        self.assertIn("must be the only Spec: line", r.stderr)
+
+    def test_several_pointers_on_one_dimension_pass(self):
+        r = self.check(full_story(Interface_contracts=(
+            f"POST /orders.\nSpec: {ARCH_REL}#order-api\n- Spec: {ARCH_REL}#data-model-1")))
+        self.assertEqual(r.returncode, 0, r.stderr)
+
+    def test_unknown_path_and_anchor_block(self):
+        r = self.check(full_story(Interface_contracts=(
+            "x\nSpec: docs/nowhere.md#a\nSpec: " + ARCH_REL + "#no-such-anchor")))
+        self.assertEqual(r.returncode, 2)
+        self.assertIn("docs/nowhere.md is not in the spec index", r.stderr)
+        self.assertIn("has no anchor #no-such-anchor", r.stderr)
+
+    def test_spec_line_inside_a_fence_does_not_count(self):
+        r = self.check(full_story(Interface_contracts=(
+            f"Example:\n\n```\nSpec: {ARCH_REL}#data-model\n```\n")))
+        self.assertEqual(r.returncode, 2)
+        self.assertIn("Interface contracts: no Spec: line", r.stderr)
+
+    def test_pre_provenance_blocks_story_mode(self):
+        r = self.check("# Old story\n\nInterface: POST /x.\n")
+        self.assertEqual(r.returncode, 2)
+        self.assertIn("pre-provenance", r.stderr)
+
+    def test_all_mode_informs_on_pre_provenance_and_reports_broken(self):
+        self.write(STORY_REL, "# Old story\n\nNo ACs.\n")
+        r = self.sa("check-pointers", "--all")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertIn("INFO pre-provenance", r.stdout)
+        self.write(f"{IMPL}/epic-001/sprint-02/stories/E001-S02-001.md",
+                   full_story(Interface_contracts=f"x\nSpec: {ARCH_REL}#gone"))
+        r = self.sa("check-pointers", "--all")
+        self.assertEqual(r.returncode, 1)
+        self.assertIn("E001-S02-001.md", r.stderr)
+
+    def test_sections_dedupes_and_prints_ranges(self):
+        a = self.write(STORY_REL, full_story(Interface_contracts=f"x\nSpec: {ARCH_REL}#order-api"))
+        b = self.write(f"{IMPL}/epic-001/sprint-01/stories/E001-S01-002.md", full_story())
+        r = self.sa("sections", "--stories", a, b)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertEqual(r.stdout.splitlines(), [f"{ARCH_REL}#data-model L5–8",
+                                                 f"{ARCH_REL}#order-api L9–16"])
+
+
 if __name__ == "__main__":
     unittest.main()

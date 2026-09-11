@@ -368,6 +368,176 @@ def cmd_build(ctx, a):
     return 0
 
 
+# -- provenance pointers ---------------------------------------------------------------------- #
+
+# The six technical-AC dimensions, in the order the enrichment prompt writes them
+# (steps/sprint/step-02-story-prep.md §2). check-docs check 13 compares this tuple with the
+# prompt's layout block; keep it a literal, one name per line.
+DIMENSIONS = (
+    "Interface contracts",
+    "Error and edge case handling",
+    "Observability requirements",
+    "Security considerations",
+    "Testability approach",
+    "Existing-library check",
+)
+TAC_HEADING = "Technical acceptance criteria"
+SPEC_LINE_RE = re.compile(r"^\s*(?:[-*]\s+)?Spec:\s*(.*?)\s*$")
+NONE_RE = re.compile(r"^none\s*(?:—|--|-)\s*(\S.*)$", re.I)
+PTR_RE = re.compile(r"^([^\s#`]+\.md)#([^\s#`]+)$")
+NA_RE = re.compile(r"^\s*N/A\s*(?:—|--|-)\s*\S")
+
+
+def story_dimensions(text):
+    """(found, {casefolded dimension: (h3 line, [(lineno, line), ...])}) under the story's
+    `## Technical acceptance criteria`. Lines inside fenced or indented code are dropped."""
+    tokens = md().parse(text)
+    lines = text.splitlines()
+    fenced = set()
+    for t in tokens:
+        if t.type in ("fence", "code_block") and t.map:
+            fenced.update(range(t.map[0], t.map[1]))
+    heads = [(t.map[0], int(t.tag[1:]), tokens[i + 1].content.strip())
+             for i, t in enumerate(tokens) if t.type == "heading_open"]
+    tac = next((ln for ln, lvl, title in heads
+                if lvl == 2 and title.casefold() == TAC_HEADING.casefold()), None)
+    if tac is None:
+        return False, {}
+    tac_end = next((ln for ln, lvl, _ in heads if ln > tac and lvl <= 2), len(lines))
+    h3 = [(ln, title) for ln, lvl, title in heads if tac < ln < tac_end and lvl == 3]
+    dims = {}
+    for n, (ln, title) in enumerate(h3):
+        end = h3[n + 1][0] if n + 1 < len(h3) else tac_end
+        body = [(i + 1, lines[i]) for i in range(ln + 1, end) if i not in fenced]
+        dims[title.casefold()] = (ln + 1, body)
+    return True, dims
+
+
+def resolve_pointer(cat, value):
+    """((path, anchor, Section, kind), None) or (None, why)."""
+    m = PTR_RE.match(value.strip().strip("`"))
+    if not m:
+        return None, f"not a pointer: {value!r} (expected <path>#<anchor>)"
+    path, anchor = m.groups()
+    e = cat.get(path)
+    if e is None:
+        return None, f"{path} is not in the spec index"
+    if e["error"]:
+        return None, f"{path} is unreadable ({e['error']})"
+    s = e["anchors"].get(anchor)
+    if s is None:
+        return None, f"{path} has no anchor #{anchor}"
+    return (path, anchor, s, e["kind"]), None
+
+
+def story_pointers(text):
+    """[(lineno, dimension, value)] for every Spec: line under a known dimension."""
+    found, dims = story_dimensions(text)
+    out = []
+    for dim in DIMENSIONS:
+        for n, line in (dims.get(dim.casefold()) or (0, []))[1]:
+            m = SPEC_LINE_RE.match(line)
+            if m:
+                out.append((n, dim, m.group(1)))
+    return out
+
+
+def check_story(cat, text):
+    """None when the story has no AC section (pre-provenance), else a list of problems."""
+    found, dims = story_dimensions(text)
+    if not found:
+        return None
+    errs = []
+    for dim in DIMENSIONS:
+        d = dims.get(dim.casefold())
+        if d is None:
+            errs.append((0, f"{dim}: missing dimension (### {dim})"))
+            continue
+        h3_line, body = d
+        content = [(n, line) for n, line in body if line.strip()]
+        if not content:
+            errs.append((h3_line, f"{dim}: empty"))
+            continue
+        if NA_RE.match(content[0][1]):
+            continue
+        specs = [(n, SPEC_LINE_RE.match(line).group(1)) for n, line in content
+                 if SPEC_LINE_RE.match(line)]
+        if not specs:
+            errs.append((h3_line, f"{dim}: no Spec: line -- end it with `Spec: <path>#<anchor>` "
+                                  f"or `Spec: none — <reason>`"))
+            continue
+        nones = [(n, v) for n, v in specs if v.lower().startswith("none")]
+        if nones:
+            if len(specs) > 1:
+                errs.append((nones[0][0], f"{dim}: `Spec: none` must be the only Spec: line"))
+            elif not NONE_RE.match(nones[0][1]):
+                errs.append((nones[0][0], f"{dim}: `Spec: none` needs a reason after the dash"))
+            continue
+        for n, v in specs:
+            hit, why = resolve_pointer(cat, v)
+            if hit is None:
+                errs.append((n, f"{dim}: {why}"))
+    return errs
+
+
+def all_story_files(ctx):
+    ctx.need("impl")
+    return sorted(glob.glob(os.path.join(ctx.impl, "epic-*", "sprint-*", "stories", "*.md")))
+
+
+def cmd_check_pointers(ctx, a):
+    cat = load_catalog(ctx)
+    stories = all_story_files(ctx) if a.all else [ctx.abs(s) for s in a.story]
+    broken, pre = 0, []
+    for s in stories:
+        rel = ctx.rel(s)
+        try:
+            text = read_text(s)
+        except (OSError, UnicodeDecodeError) as e:
+            sys.stderr.write(f"{rel}: unreadable ({e})\n")
+            broken += 1
+            continue
+        errs = check_story(cat, text)
+        if errs is None:
+            pre.append(rel)
+            if not a.all:
+                sys.stderr.write(f"{rel}: pre-provenance: no '## {TAC_HEADING}' section -- "
+                                 f"treat it as thin and enrich it\n")
+                broken += 1
+            continue
+        for n, msg in errs:
+            sys.stderr.write(f"{rel}:{n}: {msg}\n")
+        broken += bool(errs)
+    if a.all:
+        for rel in pre:
+            print(f"INFO pre-provenance: {rel}")
+        if broken:
+            print(f"check-pointers --all: {broken} story file(s) with broken pointers")
+            return 1
+        print(f"OK check-pointers --all: {len(stories)} story file(s), "
+              f"{len(pre)} pre-provenance")
+        return 0
+    if broken:
+        return 2
+    print(f"OK check-pointers: {len(stories)} story file(s)")
+    return 0
+
+
+def cmd_sections(ctx, a):
+    cat = load_catalog(ctx)
+    seen = {}
+    for s in a.stories:
+        for _, _, value in story_pointers(read_text(ctx.abs(s))):
+            hit, _ = resolve_pointer(cat, value)
+            if hit is not None:
+                seen[(hit[0], hit[1])] = hit[2]
+    for (path, anchor), sec in sorted(seen.items(), key=lambda kv: (kv[0][0], kv[1].start)):
+        print(f"{path}#{anchor} L{sec.start}–{sec.end}")
+    if not seen:
+        print("(no resolvable pointers)")
+    return 0
+
+
 # -- CLI -------------------------------------------------------------------------------------- #
 
 def build_parser():
@@ -387,6 +557,17 @@ def build_parser():
     g.add_argument("--if-stale", action="store_true", help="rewrite only when the specs changed")
     g.add_argument("--check", action="store_true", help="exit 1 when stale; write nothing")
     b.set_defaults(func=cmd_build)
+
+    cp = sub.add_parser("check-pointers", help="provenance: every dimension's Spec: line")
+    g = cp.add_mutually_exclusive_group(required=True)
+    g.add_argument("--story", nargs="+", help="gate mode: exit 2 on any problem")
+    g.add_argument("--all", action="store_true",
+                   help="report mode over every story: exit 1 on broken pointers")
+    cp.set_defaults(func=cmd_check_pointers)
+
+    se = sub.add_parser("sections", help="the stories' pointers as de-duplicated line ranges")
+    se.add_argument("--stories", nargs="+", required=True)
+    se.set_defaults(func=cmd_sections)
 
     # Later tasks register their subcommands above this line.
     return p
