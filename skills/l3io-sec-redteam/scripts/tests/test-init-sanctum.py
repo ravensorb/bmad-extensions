@@ -22,23 +22,35 @@ _spec.loader.exec_module(m)
 
 
 # -- temp-dir leak guard ---------------------------------------------------------------- #
-# Every tempfile.mkdtemp()/mkstemp()/NamedTemporaryFile() made while this suite runs lands in
-# one private run directory (tempfile.tempdir), and tearDownModule fails the run if anything
-# is left in it. Fixtures without cleanup once left 60,936 directories in /tmp and exhausted
+# setUpModule points tempfile.tempdir (this test process) AND the TMPDIR environment variable
+# (inherited by every subprocess it spawns) at one private run directory; tearDownModule fails
+# the run if anything is left in it, then removes it and restores both. Covered: every
+# tempfile.mkdtemp()/mkstemp()/NamedTemporaryFile() made by this process or by a child that
+# honours TMPDIR. Not covered: a child that writes to a hard-coded directory. The one name it
+# ignores is `uv-*.lock`, which `uv run` leaves in TMPDIR by design (test-write-module-config
+# spawns `uv run`). Fixtures without cleanup once left 60,936 directories in /tmp and exhausted
 # its inodes. Set in setUpModule, not at import, so a child process that re-imports this
 # module never creates a run directory it would not remove.
 _RUN_TMP = None
+_PREV_TMPDIR = None
 
 
 def setUpModule():
-    global _RUN_TMP
+    global _RUN_TMP, _PREV_TMPDIR
     _RUN_TMP = tempfile.mkdtemp(prefix="test-init-sanctum-")
     tempfile.tempdir = _RUN_TMP
+    _PREV_TMPDIR = os.environ.get("TMPDIR")
+    os.environ["TMPDIR"] = _RUN_TMP
 
 
 def tearDownModule():
     tempfile.tempdir = None
-    leaked = sorted(os.listdir(_RUN_TMP))
+    if _PREV_TMPDIR is None:
+        os.environ.pop("TMPDIR", None)
+    else:
+        os.environ["TMPDIR"] = _PREV_TMPDIR
+    leaked = sorted(n for n in os.listdir(_RUN_TMP)
+                    if not (n.startswith("uv-") and n.endswith(".lock")))
     shutil.rmtree(_RUN_TMP, ignore_errors=True)
     if leaked:
         raise AssertionError(f"temp-dir leak: {len(leaked)} entr"

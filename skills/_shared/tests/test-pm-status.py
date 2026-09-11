@@ -29,23 +29,35 @@ spec.loader.exec_module(pm)
 
 
 # -- temp-dir leak guard ---------------------------------------------------------------- #
-# Every tempfile.mkdtemp()/mkstemp()/NamedTemporaryFile() made while this suite runs lands in
-# one private run directory (tempfile.tempdir), and tearDownModule fails the run if anything
-# is left in it. Fixtures without cleanup once left 60,936 directories in /tmp and exhausted
+# setUpModule points tempfile.tempdir (this test process) AND the TMPDIR environment variable
+# (inherited by every subprocess it spawns) at one private run directory; tearDownModule fails
+# the run if anything is left in it, then removes it and restores both. Covered: every
+# tempfile.mkdtemp()/mkstemp()/NamedTemporaryFile() made by this process or by a child that
+# honours TMPDIR. Not covered: a child that writes to a hard-coded directory. The one name it
+# ignores is `uv-*.lock`, which `uv run` leaves in TMPDIR by design (test-write-module-config
+# spawns `uv run`). Fixtures without cleanup once left 60,936 directories in /tmp and exhausted
 # its inodes. Set in setUpModule, not at import, so a child process that re-imports this
 # module never creates a run directory it would not remove.
 _RUN_TMP = None
+_PREV_TMPDIR = None
 
 
 def setUpModule():
-    global _RUN_TMP
+    global _RUN_TMP, _PREV_TMPDIR
     _RUN_TMP = tempfile.mkdtemp(prefix="test-pm-status-")
     tempfile.tempdir = _RUN_TMP
+    _PREV_TMPDIR = os.environ.get("TMPDIR")
+    os.environ["TMPDIR"] = _RUN_TMP
 
 
 def tearDownModule():
     tempfile.tempdir = None
-    leaked = sorted(os.listdir(_RUN_TMP))
+    if _PREV_TMPDIR is None:
+        os.environ.pop("TMPDIR", None)
+    else:
+        os.environ["TMPDIR"] = _PREV_TMPDIR
+    leaked = sorted(n for n in os.listdir(_RUN_TMP)
+                    if not (n.startswith("uv-") and n.endswith(".lock")))
     shutil.rmtree(_RUN_TMP, ignore_errors=True)
     if leaked:
         raise AssertionError(f"temp-dir leak: {len(leaked)} entr"
@@ -8798,6 +8810,13 @@ class TestLockFilesIgnored(IssueBase):
         add = next(i for i, ln in enumerate(lines)
                    if ln.startswith("git add {implementation_artifacts}/state/"))
         self.assertLess(lines.index(self.UNTRACK), add, "untrack must run before the git add")
+        # step-04's `git add` is one logical command continued over several lines.
+        add_parts = []
+        for ln in lines[add:]:
+            add_parts.append(ln.rstrip().rstrip("\\").strip())
+            if not ln.rstrip().endswith("\\"):
+                break
+        add_cmd = " ".join(add_parts)
 
         self.init_repo()
         story = self.write_story()
@@ -8810,18 +8829,35 @@ class TestLockFilesIgnored(IssueBase):
         for p in decoys:
             open(p, "w").close()
         rel = [os.path.relpath(p, self.d) for p in locks + decoys]
+        planning = os.path.join(self.d, "planning")
+        for p in (os.path.join(self.arts, "epic-001", "stories", f"{self.STORY}.md"),
+                  os.path.join(planning, "plan.md")):              # the git add's other paths
+            os.makedirs(os.path.dirname(p))
+            open(p, "w").close()
 
         # A trailing slash on the placeholder value must work too (git collapses the `//`).
-        for arts in (self.arts, self.arts + "/"):
+        for n, arts in enumerate((self.arts, self.arts + "/")):
             with self.subTest(implementation_artifacts=arts):
                 self.git("add", "-f", "--", *rel)
                 self.git("commit", "-q", "-m", "an older run committed its lock files")
                 cmd = (found[0].replace("{project-root}", self.d)
                        .replace("{implementation_artifacts}", arts))
                 subprocess.run(shlex.split(cmd), check=True, capture_output=True)
+                # ...then step-04's own git add of the state tree, run from the project root.
+                add_run = (add_cmd.replace("{implementation_artifacts}", arts)
+                           .replace("{epic_num}", "001").replace("{planning_artifacts}", planning))
+                self.assertNotIn("{", add_run, f"unbound placeholder in step-04's git add: {add_run}")
+                subprocess.run(shlex.split(add_run), check=True, capture_output=True, cwd=self.d)
                 tracked = self.git("ls-files", "--", "*.lock").stdout.split()
                 self.assertEqual(sorted(tracked), sorted(rel[2:]),
-                                 "state-root lock files untracked; look-alikes left alone")
+                                 "state-root lock files stay untracked through the git add; "
+                                 "look-alikes left alone")
+                self.assertIn("impl/state/.gitignore",
+                              self.git("ls-files", "--", "impl/state/.gitignore").stdout.split())
+                if n == 0:
+                    self.assertIn("impl/state/.gitignore",
+                                  self.git("diff", "--cached", "--name-only").stdout.split(),
+                                  "the checkpoint's git add stages the new .gitignore")
                 for p in locks:
                     self.assertTrue(os.path.exists(p), f"{p} must stay on disk")
                 self.git("commit", "-q", "-m", "checkpoint")   # as step-04 commits the removal
