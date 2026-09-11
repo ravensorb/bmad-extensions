@@ -91,7 +91,8 @@ plus a `.yaml.lock` sidecar beside some node files. The sprint-closure checkpoin
 them. `pm-status.py` now keeps `*.lock` in `state/.gitignore`, so an existing project sees two
 things after upgrading. Both are expected:
 
-- **A new `state/.gitignore`.** The first `pm-status.py` command that takes a lock writes it,
+- **A new `state/.gitignore`.** The first `pm-status.py` command that takes a lock inside the
+  state root writes it,
   and the checkpoint commits it with the rest of `state/`. If a `.gitignore` is already there,
   it keeps its lines and gains one `*.lock` line.
 - **A commit that deletes the tracked `*.lock` files from git.** The next sprint-closure
