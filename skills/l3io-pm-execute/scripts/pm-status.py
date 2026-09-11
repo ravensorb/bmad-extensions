@@ -273,7 +273,11 @@ def _load(path: str):
 
 
 def _atomic_dump(y: YAML, data, path: str) -> None:
-    """Write to a temp file in the same directory, then os.replace (atomic on POSIX)."""
+    """Write to a temp file in the same directory, then os.replace (atomic on POSIX).
+
+    Every node write reaches the disk through here, so this is where the rule "an epic.yaml
+    write holds its epic_node_lock" is checked (`_require_epic_lock`)."""
+    _require_epic_lock(path)
     d = os.path.dirname(os.path.abspath(path)) or "."
     os.makedirs(d, exist_ok=True)
     fd, tmp = tempfile.mkstemp(prefix=".pm-status.", suffix=".tmp", dir=d)
@@ -491,6 +495,17 @@ def _infer_kind(args) -> str:
     if args.epic:
         return "epic"
     _die_usage("specify --story, or --epic [--sprint]")
+
+
+def _epic_write_lock(args, kind):
+    """epic_node_lock around a node verb's read-modify-write when the node is an epic; no
+    lock for a sprint or story, whose files are not epic.yaml. Resolves the epic first, so
+    an absent one exits 3 exactly as before with no lock file created; the verb resolves
+    again inside the hold, since a move-epic may land while it waits."""
+    if kind != "epic":
+        return contextlib.nullcontext()
+    resolve_node_path(args.state_root, args, "epic")
+    return epic_node_lock(args.state_root, args.epic)
 
 
 def _die_usage(msg: str):
@@ -932,25 +947,72 @@ def issues_lock(file_path: str):
         yield
 
 
-_EPIC_NODE_LOCK = {"depth": 0, "fh": None}
+_EPIC_NODE_LOCK = {"depth": 0, "fh": None, "path": None}
+
+
+def epic_lock_path(state_root: str, epic_key: str) -> str:
+    """One epic's lock file: `{state_root}/epic-{nnn}.lock`.
+
+    OUTSIDE the epic's directory, deliberately. move-epic / archive-epic `git mv` that whole
+    directory between status folders. A lock file inside it would travel with it: a waiter
+    that had resolved the old path would then lock a file that is no longer there (and
+    recreate the old directory to hold it) while later callers lock the moved file -- two
+    holders of one lock. A name built from the state root and the epic key alone is the same
+    before, during and after a move, and for every spelling of the key ('E001', '001', '1')
+    and of the root (relative or absolute -- realpath)."""
+    return os.path.join(os.path.realpath(state_root), epic_dirname(epic_key) + ".lock")
 
 
 @contextlib.contextmanager
-def epic_node_lock(path: str):
-    """Hold an exclusive lock over one epic node file's set-lock claim cycle.
+def epic_node_lock(state_root: str, epic_key: str):
+    """Hold an exclusive lock over one epic's epic.yaml read-modify-write cycle.
 
-    Same reasoning as calibration_lock/adr_register_lock/issues_lock: `set-lock`
-    reads the existing `_lock` block, decides whether to claim/refuse/take it over,
-    then writes -- load -> decide -> save is not atomic, so without one lock around
-    that whole cycle two sessions could both read "no live foreign lock" and both
-    write a claim, which is the exact mutual-exclusion bug this exists to close.
-    Keyed off the epic file path, like issues_lock keys off its caller-supplied
-    path, rather than a single state-root-derived path, because each epic file is
-    its own contention domain (unlike calibration/ADR, which are one shared file
-    per state root).
-    """
-    with _file_lock(path + ".lock", _EPIC_NODE_LOCK):
-        yield
+    Same reasoning as calibration_lock/adr_register_lock/issues_lock: load -> decide -> save
+    is not atomic. set-lock needs the lock for mutual exclusion (two sessions both reading
+    "no live foreign lock" and both claiming), and every other epic.yaml writer needs it so a
+    concurrent holder cannot overwrite its change with a stale copy -- promote's roll-up once
+    restored a `_lock` that clear-lock, which took no lock, had just removed. `_atomic_dump`
+    refuses an epic.yaml write made without it (`_require_epic_lock`). Each epic is its own
+    contention domain, so the lock is per epic (epic_lock_path), not per state root.
+
+    Callers resolve the epic, take this lock, then RESOLVE AGAIN inside it: move-epic holds
+    it too, so a move that landed while a caller waited has moved the directory its first
+    answer named. They resolve first as well, so an absent epic exits 3 with no lock file
+    created.
+
+    ONE EPIC AT A TIME. The re-entrancy counter is per lock family, not per epic, so a nested
+    acquire of a SECOND epic's lock would skip its flock silently; it raises instead.
+    Re-entry on the same epic (promote -> rollup_parent_estimate) nests on the one flock.
+    Lock order is epic_node_lock before issues_lock, never the reverse."""
+    lock_path = epic_lock_path(state_root, epic_key)
+    held = _EPIC_NODE_LOCK["path"]
+    if held is not None and held != lock_path:
+        raise RuntimeError(f"epic_node_lock: {lock_path} requested while {held} is held -- "
+                           f"one epic lock at a time")
+    with _file_lock(lock_path, _EPIC_NODE_LOCK):
+        _EPIC_NODE_LOCK["path"] = lock_path
+        try:
+            yield
+        finally:
+            if held is None:
+                _EPIC_NODE_LOCK["path"] = None
+
+
+def _require_epic_lock(path: str) -> None:
+    """Refuse an epic.yaml write unless this process holds THAT epic's epic_node_lock.
+
+    Called from `_atomic_dump`, which every node write reaches, so the rule is checked on
+    every route to the disk rather than trusted to a list of verbs -- the list once left
+    clear-lock, move-epic and the node verbs all writing epic.yaml unlocked. A RuntimeError,
+    not a PMError: no input causes this, only a code path that skipped the lock."""
+    if os.path.basename(path) != "epic.yaml":
+        return
+    epic_dir = os.path.dirname(os.path.abspath(path))
+    state_root = os.path.dirname(os.path.dirname(epic_dir))
+    want = os.path.join(os.path.realpath(state_root), os.path.basename(epic_dir) + ".lock")
+    if _EPIC_NODE_LOCK["path"] != want:
+        raise RuntimeError(f"{path} written without its epic_node_lock ({want}) -- "
+                           f"every epic.yaml write must hold it")
 
 
 def save_calibration(y, cal, state_root: str) -> None:
@@ -2607,7 +2669,20 @@ def rollup_parent_estimate(state_root, epic, sprint, model, overrides):
 
     Never exits: raises PMError(3) for a missing parent, PMError(2) for
     nothing to roll up or an unpriceable model.
+
+    The epic-level roll-up rewrites epic.yaml, so it runs under that epic's
+    epic_node_lock -- re-entrantly when promote-issue, which already holds it,
+    is the caller. An absent epic is left to the body's PMError(3), with no
+    lock file created for it.
     """
+    if sprint or epic_file(state_root, epic) is None:
+        return _rollup_parent_estimate(state_root, epic, sprint, model, overrides)
+    with epic_node_lock(state_root, epic):
+        return _rollup_parent_estimate(state_root, epic, sprint, model, overrides)
+
+
+def _rollup_parent_estimate(state_root, epic, sprint, model, overrides):
+    """rollup_parent_estimate's body; the caller holds the epic lock for an epic roll-up."""
     level = "sprint" if sprint else "epic"
     if level == "sprint":
         ppath = sprint_file(state_root, epic, sprint)
@@ -3410,20 +3485,23 @@ def cmd_set_status(args) -> int:
     if args.status not in valid:
         _die_usage(f"invalid {kind} status '{args.status}' — expected one of {sorted(valid)}")
 
-    y, node, path, label = _load_checked(args.state_root, args, kind)
-    prior = str(node.get("status", "")) or None
-    node["status"] = args.status
-    node["updated_at"] = _now_iso()
-    if args.title:
-        node["title"] = args.title
-    save_node(y, node, path, getattr(args, "flock", False))
+    # An epic node is written under its epic_node_lock. The event append inside is a leaf
+    # lock, and the done hook below (issues_lock) runs only for a story, outside any hold.
+    with _epic_write_lock(args, kind):
+        y, node, path, label = _load_checked(args.state_root, args, kind)
+        prior = str(node.get("status", "")) or None
+        node["status"] = args.status
+        node["updated_at"] = _now_iso()
+        if args.title:
+            node["title"] = args.title
+        save_node(y, node, path, getattr(args, "flock", False))
 
-    if not getattr(args, "no_events", False):
-        payload = {"ts": _now_iso(), "event": "status",
-                   "from": prior, "to": args.status,
-                   "session": getattr(args, "session_id", None)}
-        payload.update(_event_keys(kind, args))
-        append_event(args.state_root, payload)
+        if not getattr(args, "no_events", False):
+            payload = {"ts": _now_iso(), "event": "status",
+                       "from": prior, "to": args.status,
+                       "session": getattr(args, "session_id", None)}
+            payload.update(_event_keys(kind, args))
+            append_event(args.state_root, payload)
 
     sys.stdout.write(f"OK set-status {label} -> {args.status}\n")
     if kind == "story" and args.status == "done":
@@ -3574,6 +3652,15 @@ def cmd_set_actual(args) -> int:
     if block == "orchestration" and kind == "story":
         _die_usage("--block orchestration is only valid on a sprint or epic — a story's "
                    "orchestration belongs to its parent sprint")
+    # Both the node save and, for a sprint or epic, the calibration sample's replay marker
+    # (_mark_sampled) write the node, so an epic's whole cycle runs under its lock. Lock
+    # order: epic_node_lock, then calibration_lock inside the record_* helpers.
+    with _epic_write_lock(args, kind):
+        return _set_actual(args, kind, block)
+
+
+def _set_actual(args, kind, block) -> int:
+    """cmd_set_actual's body; the caller holds the epic lock for an epic node."""
     y, node, path, label = _load_checked(args.state_root, args, kind)
 
     provided = {
@@ -4177,8 +4264,9 @@ def cmd_set_lock(args) -> int:
     the same check-then-act race this function exists to close.
     """
     from ruamel.yaml.comments import CommentedMap
-    path = _epic_path_or_die(args)
-    with epic_node_lock(path):
+    _epic_path_or_die(args)                     # exit 3 before any lock file is created
+    with epic_node_lock(args.state_root, args.epic):
+        path = _epic_path_or_die(args)          # again: a move may have landed meanwhile
         y, data = load_node(path)
         if data is None:
             _die_notfound(f"epic {args.epic} file is empty")
@@ -4238,19 +4326,27 @@ def cmd_set_lock(args) -> int:
 
 
 def cmd_clear_lock(args) -> int:
-    path = epic_file(args.state_root, args.epic)
-    if path is None:
-        sys.stdout.write(f"OK clear-lock epic {args.epic} (epic/file absent — no-op)\n")
+    """Remove the epic's `_lock`. The read-delete-write runs under epic_node_lock, like every
+    epic.yaml write: without it, a concurrent promote-issue roll-up (which saves the whole
+    epic node under that lock) could land after this write and restore the lock it removed."""
+    absent = f"OK clear-lock epic {args.epic} (epic/file absent — no-op)\n"
+    if epic_file(args.state_root, args.epic) is None:
+        sys.stdout.write(absent)                # no lock file for an absent epic
         return 0
-    y, data = load_node(path)
-    if data is None:
-        sys.stdout.write(f"OK clear-lock epic {args.epic} (file empty — no-op)\n")
-        return 0
-    if "_lock" not in data:
-        sys.stdout.write(f"OK clear-lock epic {args.epic} (no _lock present — no-op)\n")
-        return 0
-    del data["_lock"]
-    _atomic_dump(y, data, path)
+    with epic_node_lock(args.state_root, args.epic):
+        path = epic_file(args.state_root, args.epic)     # again: a move may have landed
+        if path is None:
+            sys.stdout.write(absent)
+            return 0
+        y, data = load_node(path)
+        if data is None:
+            sys.stdout.write(f"OK clear-lock epic {args.epic} (file empty — no-op)\n")
+            return 0
+        if "_lock" not in data:
+            sys.stdout.write(f"OK clear-lock epic {args.epic} (no _lock present — no-op)\n")
+            return 0
+        del data["_lock"]
+        _atomic_dump(y, data, path)
     sys.stdout.write(f"OK clear-lock epic {args.epic}\n")
     return 0
 
@@ -4324,6 +4420,12 @@ def cmd_set_estimate(args) -> int:
                    "fix the token counts or modules.l3io-pm.token_rates instead")
 
     kind = _infer_kind(args)
+    with _epic_write_lock(args, kind):
+        return _set_estimate(args, kind)
+
+
+def _set_estimate(args, kind) -> int:
+    """cmd_set_estimate's body; the caller holds the epic lock for an epic node."""
     y, node, path, label = _load_checked(args.state_root, args, kind)
 
     from ruamel.yaml.comments import CommentedMap
@@ -4399,6 +4501,12 @@ def cmd_set_field(args) -> int:
                    f"{DERIVED_NODE_FIELDS[contained]}")
 
     kind = _infer_kind(args)
+    with _epic_write_lock(args, kind):
+        return _set_field(args, kind)
+
+
+def _set_field(args, kind) -> int:
+    """cmd_set_field's body; the caller holds the epic lock for an epic node."""
     y, node, path, label = _load_checked(args.state_root, args, kind)
 
     field_parts = args.field.split(".")
@@ -5125,6 +5233,25 @@ def _promotion_context(items) -> str:
     return "\n".join(lines)
 
 
+def _promote_target(sr, epic_key, sprint_key):
+    """(epic path, sprint path) for promote-issue, refusing an absent (3) or archived (2)
+    epic and an absent (3) or already-started (2) sprint. Run once before the epic lock, to
+    refuse fast, and again under it, where the answer is decisive."""
+    epath = epic_file(sr, epic_key)
+    if epath is None:
+        raise PMError(3, f"epic {epic_key} not found under {sr}")
+    if os.path.basename(os.path.dirname(os.path.dirname(epath))) == "archived":
+        raise PMError(2, f"epic {epic_key} is archived -- promote into a planned or active epic")
+    spath = sprint_file(sr, epic_key, sprint_key)
+    if spath is None:
+        raise PMError(3, f"sprint {epic_key}-{sprint_key} not found")
+    sstatus = str((load_node(spath)[1] or {}).get("status", ""))
+    if sstatus != "backlog":
+        raise PMError(2, f"sprint {epic_key}-{sprint_key} is {sstatus!r}, not backlog -- "
+                         f"promote into a sprint that has not started")
+    return epath, spath
+
+
 def cmd_promote_issue(args) -> int:
     """Turn open BL items into a new story (spec §2.4). Every refusal is checked before
     the first write. An early advisory `issues_lock` check refuses fast, before the epic
@@ -5164,25 +5291,18 @@ def _promote_issue(args) -> int:
         raise PMError(2, f"model {model!r} has no rate for {missing}")
     epic_key = "E" + _norm_num(args.epic, 3)
     sprint_key = "S" + _norm_num(args.sprint, 2)
-    epath = epic_file(sr, epic_key)
-    if epath is None:
-        raise PMError(3, f"epic {epic_key} not found under {sr}")
-    if os.path.basename(os.path.dirname(os.path.dirname(epath))) == "archived":
-        raise PMError(2, f"epic {epic_key} is archived -- promote into a planned or active epic")
-    spath = sprint_file(sr, epic_key, sprint_key)
-    if spath is None:
-        raise PMError(3, f"sprint {epic_key}-{sprint_key} not found")
-    sstatus = str((load_node(spath)[1] or {}).get("status", ""))
-    if sstatus != "backlog":
-        raise PMError(2, f"sprint {epic_key}-{sprint_key} is {sstatus!r}, not backlog -- "
-                         f"promote into a sprint that has not started")
+    epath, spath = _promote_target(sr, epic_key, sprint_key)
     open_path = issues_paths(sr)[0]
     with issues_lock(open_path):
         _promotable_items(IssueStore(open_path), keys)     # advisory: refuse fast, no epic lock yet
     err = _foreign_lock_error(epath, args.session_id, epic_key)          # advisory
     if err:
         raise err
-    with epic_node_lock(epath):
+    with epic_node_lock(sr, epic_key):
+        # Resolve again under the lock: move-epic holds it too, so a move that landed while
+        # this call waited has moved the directory the paths above name, and writing
+        # through them would recreate the old directory as a ghost.
+        epath, spath = _promote_target(sr, epic_key, sprint_key)
         err = _foreign_lock_error(epath, args.session_id, epic_key)      # decisive
         if err:
             raise err
@@ -5643,10 +5763,23 @@ def move_epic(state_root: str, epic_key: str, to_status: str) -> str:
     the `shutil.move` fallback with exit 0 and no rename recorded. Preserving history via
     `git mv` is the entire reason this function moves directories instead of collapsing
     them, so that degradation must not be silent: the fallback now warns on stderr.
+
+    The move and the epic.yaml status write run under the epic's epic_node_lock. Its lock
+    file lives outside the directory being moved (epic_lock_path), so the move cannot carry
+    it away from a waiter; every waiter resolves the epic again once it holds the lock, and
+    so finds the moved directory. Two movers serialize the same way.
     """
     if to_status not in STATUS_DIRS:
         raise ValueError(f"bad status folder {to_status!r} — expected one of {list(STATUS_DIRS)}")
     state_root = os.path.abspath(state_root)
+    if find_epic_dir(state_root, epic_key) is None:          # before any lock file exists
+        raise FileNotFoundError(f"epic {epic_key} not found under {state_root}")
+    with epic_node_lock(state_root, epic_key):
+        return _move_epic_locked(state_root, epic_key, to_status)
+
+
+def _move_epic_locked(state_root: str, epic_key: str, to_status: str) -> str:
+    """move_epic's body; the caller holds the epic's lock and passes an absolute root."""
     src = find_epic_dir(state_root, epic_key)
     if src is None:
         raise FileNotFoundError(f"epic {epic_key} not found under {state_root}")

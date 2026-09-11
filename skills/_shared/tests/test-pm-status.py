@@ -2056,7 +2056,11 @@ class TestEpicMovesGitBacked(unittest.TestCase):
                         f"expected a staged rename (R), got:\n{status}")
         tracked = self._run_git(["ls-files", "archived/epic-001"])
         self.assertIn("archived/epic-001/sprint-01/E001-S01-003.yaml", tracked)
-        self.assertNotIn("??", status)  # nothing left untracked by a shutil fallback
+        # Nothing left untracked by a shutil fallback. The epic's lock file (state/epic-001.lock,
+        # outside the moved directory by design -- epic_lock_path) is untracked and expected.
+        untracked = [ln for ln in status.splitlines()
+                     if ln.startswith("??") and not ln.rstrip().endswith(".lock")]
+        self.assertEqual(untracked, [], status)
 
     def test_move_epic_warns_on_stderr_when_git_mv_falls_back(self):
         """The fallback is a real loss of history, so it must never be silent."""
@@ -6787,10 +6791,11 @@ class TestPromoteIssue(IssueBase):
         """Give epic E001 a hand-written `_lock` -- a deliberately built state (no verb writes
         a malformed or back-dated lock), keeping the rest of the node as the verbs left it."""
         from ruamel.yaml import YAML
-        p = pm.epic_file(self.root, "E001")
-        y, n = pm.load_node(p)
-        n["_lock"] = YAML().load(lock_yaml)
-        pm.save_node(y, n, p)
+        with pm.epic_node_lock(self.root, "E001"):       # every epic.yaml write holds it
+            p = pm.epic_file(self.root, "E001")
+            y, n = pm.load_node(p)
+            n["_lock"] = YAML().load(lock_yaml)
+            pm.save_node(y, n, p)
 
     def test_foreign_lock_verdict_matches_check_lock(self):
         """For a WELL-FORMED lock, promote takes check-lock's verdict (carryover 16) -- its
@@ -6974,6 +6979,44 @@ class TestPromoteIssue(IssueBase):
         self.assertEqual(self.resolved_keys(), ["BL-E001-001"])      # the resolve ran after
         self.assertEqual(self.load_resolved()["resolved"][0].get("story"), "E001-S02-001")
 
+    def test_clear_lock_waits_for_promote_and_is_not_undone(self):
+        # A clear-lock racing promote's epic roll-up must not be silently reverted (batch D1).
+        # promote saves the epic's estimate roll-up under epic_node_lock; a clear-lock that
+        # did not hold that lock could land between the roll-up's load and its save, and
+        # promote's copy would then restore the `_lock` the operator had just removed. The
+        # clear is launched from inside the epic roll-up's save -- after the load, before the
+        # write. (A comment, not a docstring: verbose unittest prints a docstring to stderr.)
+        import subprocess
+        self.append("A")
+        code, _, err = self.run_all(["set-lock", "--state-root", self.root, "--epic", "E001",
+                                     "--session-id", "me"])
+        self.assertEqual(code, 0, err)
+        real_save = pm.save_node
+        procs, polled = [], []
+
+        def racing_save(y, node, path, *a, **kw):
+            if os.path.basename(path) == "epic.yaml" and not procs:
+                p = subprocess.Popen([sys.executable, SCRIPT, "clear-lock", "--state-root",
+                                      self.root, "--epic", "E001"],
+                                     stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+                procs.append(p)
+                try:
+                    p.wait(timeout=3)   # unfixed: completes; fixed: blocks on epic_node_lock
+                except subprocess.TimeoutExpired:
+                    pass
+                polled.append(p.poll())
+            return real_save(y, node, path, *a, **kw)
+
+        with mock.patch.object(pm, "save_node", racing_save):
+            code, out, err = self.promote("BL-E001-001", extra=("--session-id", "me"))
+        _, cerr = procs[0].communicate(timeout=30)
+        self.assertEqual(code, 0, err)
+        self.assertIsNone(polled[0], "clear-lock finished while promote held the epic lock")
+        self.assertEqual(procs[0].returncode, 0, cerr.decode())
+        node = pm.load_node(pm.epic_file(self.root, "E001"))[1]
+        self.assertNotIn("_lock", node, "promote's roll-up save restored a cleared lock")
+        self.assertIn("estimate", node)                              # the roll-up itself landed
+
     def test_keys_split_across_stories_refuse_to_triage(self):
         self.append("A")
         self._crash_promote_before_scheduling()
@@ -7013,6 +7056,156 @@ class TestPromoteIssue(IssueBase):
         code, out, err = self.promote("BL-E001-001")               # the named retry resumes
         self.assertEqual(code, 0, err)
         self.assertIn("(resumed)", out)
+
+
+class TestEpicWritersHoldTheEpicLock(IssueBase):
+    """Every epic.yaml read-modify-write holds epic_node_lock (batch D1).
+
+    While this test holds E001's lock, every writer of E001's epic.yaml must wait. Each one
+    runs as a real subprocess, because the lock's re-entrancy counter is per process. A
+    move-epic that lands while they wait must not strand them: each re-resolves the epic
+    under the lock and writes into the moved directory, never into a recreated ghost of the
+    old one. The lock file lives outside the epic directory, which is why a move cannot
+    carry it away from a waiter."""
+
+    def test_every_epic_writer_waits_and_follows_a_move(self):
+        import subprocess
+        import time
+        self.append("A")
+        sr = self.root
+        for argv in (["set-lock", "--state-root", sr, "--epic", "E001", "--session-id", "me"],
+                     ["set-estimate", "--state-root", sr, "--epic", "E001", "--sprint", "S01",
+                      "--man-hours-low", "1", "--man-hours-high", "2"]):
+            code, _, err = self.run_all(argv)
+            self.assertEqual(code, 0, err)
+        writers = {
+            "set-field": ["set-field", "--state-root", sr, "--epic", "001",
+                          "--field", "notes.d1", "--value", "x"],
+            "set-estimate": ["set-estimate", "--state-root", sr, "--epic", "001",
+                             "--man-hours-low", "4", "--man-hours-high", "5"],
+            "set-actual": ["set-actual", "--state-root", sr, "--node", "epic", "--epic", "001",
+                           "--man-hours", "3"],
+            "set-status": ["set-status", "--state-root", sr, "--epic", "001",
+                           "--status", "backlog"],
+            "clear-lock": ["clear-lock", "--state-root", sr, "--epic", "E001"],
+            "estimate-rollup": ["estimate-rollup", "--state-root", sr, "--epic", "001"],
+            "move-epic": ["move-epic", "--state-root", sr, "--epic", "E001", "--to", "planned"],
+            "promote-issue": ["promote-issue", "--state-root", sr, "--artifacts-root", self.arts,
+                              "--key", "BL-E001-001", "--epic", "001", "--sprint", "02",
+                              "--classification", "standard", "--session-id", "me"],
+        }
+        epic_yaml = pm.epic_file(sr, "E001")
+        with open(epic_yaml, "rb") as fh:
+            before = fh.read()
+        procs = {}
+        with pm.epic_node_lock(sr, "E001"):
+            for name, argv in writers.items():
+                procs[name] = subprocess.Popen([sys.executable, SCRIPT, *argv],
+                                               stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+            deadline = time.monotonic() + 3
+            for p in procs.values():
+                try:
+                    p.wait(timeout=max(0.0, deadline - time.monotonic()))
+                except subprocess.TimeoutExpired:
+                    pass
+            finished = sorted(n for n, p in procs.items() if p.poll() is not None)
+            with open(epic_yaml, "rb") as fh:
+                during = fh.read()
+            with redirect_stderr(io.StringIO()):             # no .git here: the fallback warns
+                pm.move_epic(sr, "E001", "planned")          # re-entrant: this process holds it
+        results = {n: (p.communicate(timeout=60), p.returncode) for n, p in procs.items()}
+        self.assertEqual(finished, [], "these did not wait for E001's epic_node_lock")
+        self.assertEqual(during, before)
+        for name, ((out, err), rc) in results.items():
+            self.assertEqual(rc, 0, f"{name}: {out.decode()} {err.decode()}")
+        self.assertFalse(os.path.exists(os.path.join(sr, "active", "epic-001")),
+                         "a writer recreated the epic's old directory after the move")
+        path = pm.epic_file(sr, "E001")
+        self.assertTrue(path.endswith(os.path.join("planned", "epic-001", "epic.yaml")), path)
+        node = pm.load_node(path)[1]
+        self.assertEqual(node["notes"]["d1"], "x")
+        self.assertEqual(float(node["actual"]["man_hours"]), 3.0)
+        self.assertEqual(node["status"], "backlog")
+        self.assertNotIn("_lock", node)
+        self.assertIn("estimate", node)
+        self.assertTrue(os.path.exists(os.path.join(sr, "planned", "epic-001", "sprint-02",
+                                                    "E001-S02-001.yaml")))
+
+
+class TestEpicNodeLockScope(unittest.TestCase):
+    """The epic lock's reach, attacked directly (batch D1): the rule is enforced at the one
+    write chokepoint (`_atomic_dump`), so these plant writes by routes the verbs never
+    take, rather than trusting the verb inventory to be complete."""
+
+    # TestLayoutResolution's tree, without inheriting (and so re-running) its tests.
+    setUp = TestLayoutResolution.setUp
+    tearDown = TestLayoutResolution.tearDown
+
+    def _touch(self, path):
+        y, node = pm.load_node(path)
+        node["touched"] = True
+        pm.save_node(y, node, path)
+
+    def test_an_epic_yaml_write_without_the_lock_is_refused_on_every_route(self):
+        path = pm.epic_file(self.root, "E001")
+        with open(path, "rb") as fh:
+            before = fh.read()
+        y, node = pm.load_node(path)
+        routes = {"save_node": lambda: pm.save_node(y, node, path),
+                  "save_node(use_flock)": lambda: pm.save_node(y, node, path, use_flock=True),
+                  "_atomic_dump": lambda: pm._atomic_dump(y, node, path),
+                  "_mark_sampled": lambda: pm._mark_sampled(node, path, y)}
+        for name, route in routes.items():
+            with self.assertRaises(RuntimeError, msg=name):
+                route()
+        with open(path, "rb") as fh:
+            self.assertEqual(fh.read(), before)
+
+    def test_another_epics_lock_does_not_cover_the_write(self):
+        with pm.epic_node_lock(self.root, "E005"):
+            with self.assertRaises(RuntimeError):
+                self._touch(pm.epic_file(self.root, "E001"))
+
+    def test_the_same_epic_under_any_spelling_covers_the_write(self):
+        with pm.epic_node_lock(os.path.relpath(self.root), "1"):    # relative root, bare key
+            self._touch(pm.epic_file(self.root, "E001"))
+        self.assertTrue(pm.load_node(pm.epic_file(self.root, "E001"))[1]["touched"])
+
+    def test_sprint_and_story_nodes_are_not_gated(self):
+        self._touch(pm.sprint_file(self.root, "E001", "S01"))
+        self._touch(pm.story_file(self.root, "E001-S01-003"))
+
+    def test_reentry_on_the_same_epic_nests_without_a_second_flock(self):
+        with pm.epic_node_lock(self.root, "E001"):
+            fh = pm._EPIC_NODE_LOCK["fh"]
+            with pm.epic_node_lock(self.root, "001"):
+                self.assertEqual(pm._EPIC_NODE_LOCK["depth"], 2)
+                self.assertIs(pm._EPIC_NODE_LOCK["fh"], fh)
+                self._touch(pm.epic_file(self.root, "E001"))
+            self.assertEqual(pm._EPIC_NODE_LOCK["depth"], 1)
+        self.assertEqual(pm._EPIC_NODE_LOCK["depth"], 0)
+
+    def test_a_second_epics_lock_cannot_nest(self):
+        # The re-entrancy counter is per lock family, so a nested second epic's lock would
+        # silently skip its flock -- refused outright instead.
+        with pm.epic_node_lock(self.root, "E001"):
+            with self.assertRaises(RuntimeError):
+                with pm.epic_node_lock(self.root, "E005"):
+                    pass
+            self._touch(pm.epic_file(self.root, "E001"))     # the outer hold survives
+        self.assertEqual(pm._EPIC_NODE_LOCK["depth"], 0)
+
+    def test_the_lock_file_is_outside_the_epic_directory_and_survives_a_move(self):
+        lock = pm.epic_lock_path(self.root, "E001")
+        with pm.epic_node_lock(self.root, "E001"):
+            pass
+        self.assertTrue(os.path.exists(lock))
+        self.assertFalse(os.path.realpath(lock).startswith(
+            os.path.realpath(pm.find_epic_dir(self.root, "E001")) + os.sep))
+        with redirect_stderr(io.StringIO()):                 # no .git here: the fallback warns
+            pm.move_epic(self.root, "E001", "archived")
+        self.assertEqual(pm.epic_lock_path(self.root, "E001"), lock)
+        self.assertTrue(os.path.exists(lock))
 
 
 class TestConcurrentPromote(unittest.TestCase):
