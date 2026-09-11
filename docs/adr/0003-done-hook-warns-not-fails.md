@@ -1,6 +1,6 @@
 # ADR-0003: The story `done` hook warns and never fails `set-status`
 
-- **Status:** Proposed (accepted with the issue-lifecycle spec)
+- **Status:** Accepted (with the issue-lifecycle spec, 2026-09-10)
 - **Date:** 2026-09-10
 - **Deciders:** Package maintainer; reviewed by `l3io-arch-review` Mode B
 - **Principle(s) in tension:** Core §3 fail loudly vs. never reporting a durable transition as failed

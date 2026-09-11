@@ -1,6 +1,6 @@
 # ADR-0002: Issue storage — open file, resolved file, per-epic high-water
 
-- **Status:** Proposed (accepted with the issue-lifecycle spec)
+- **Status:** Accepted (with the issue-lifecycle spec, 2026-09-10)
 - **Date:** 2026-09-10
 - **Deciders:** Package maintainer; reviewed by `l3io-arch-review` Mode B and `bmad-review`
 - **Principle(s) in tension:** Core §3 design by contract (invariants, no silent key reuse) vs. minimal change to a shared file format

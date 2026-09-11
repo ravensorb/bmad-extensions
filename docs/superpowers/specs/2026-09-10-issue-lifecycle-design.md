@@ -1,8 +1,8 @@
 # Issue Lifecycle: Resolution, Triage, and Backlog Intake
 
 **Date:** 2026-09-10
-**Status:** Draft, revision 2 — revised after an architecture review (`l3io-arch-review` Mode B)
-and an edge-case/adversarial review (`bmad-review`); dispositions in §9.
+**Status:** Approved 2026-09-10 (revision 2 — revised after an architecture review
+(`l3io-arch-review` Mode B) and an edge-case/adversarial review (`bmad-review`); dispositions in §9).
 **Decision records:** [ADR-0001](../../adr/0001-pm-status-single-self-installed-file.md),
 [ADR-0002](../../adr/0002-issue-storage-open-resolved-high-water.md),
 [ADR-0003](../../adr/0003-done-hook-warns-not-fails.md)
@@ -609,14 +609,22 @@ point it at a fixture tree.
   every payload manifest (manifests cover shared payload only). Tests live in
   `skills/l3io-util-doctor/scripts/tests/`, as `l3io-pm-sync` and `l3io-sec-redteam` already do.
 
-### 4.7 `pm-sync` pull — `stateReason`
+### 4.7 `pm-sync` pull — mark done only on completion
 
-`sync/step-03-operations.md` Mode: pull step 2 fetches `state` **and** `stateReason`
-(`gh issue view … --json state,stateReason,title,labels`, or the equivalent field from the
-GitHub MCP tools). Step 3 marks a story `done` only when the issue is `CLOSED` with
-`stateReason` `COMPLETED`. Any other closed reason (`NOT_PLANNED`, `DUPLICATE`) is reported as
-"closed without completion — not marked done" and left for the user. Without this, the `done`
-hook would record a not-planned close as `fixed`.
+**Rule, for every sync platform:** a pull marks a story `done` only when the remote item was
+closed as *completed*. Any other close reason — not planned, duplicate, removed, cut — is
+reported as "closed without completion — not marked done" and left for the user. Without this
+rule, the `done` hook would record such a close as `resolution: fixed`. A platform added to
+`pm-sync` later (Azure DevOps, for instance) must map its own close reasons onto this rule
+before its pull may call `set-status`.
+
+**GitHub, the only platform `pm-sync` supports today:** `sync/step-03-operations.md` Mode: pull
+step 2 fetches `state` **and** `stateReason` (`gh issue view … --json
+state,stateReason,title,labels`, or the equivalent field from the GitHub MCP tools). Step 3
+marks a story `done` only when the issue is `CLOSED` with `stateReason` `COMPLETED`.
+
+The lifecycle does not depend on sync: without `pm-sync`, stories reach `done` through the dev
+loop and sprint closure, which fire the same hook.
 
 ### 4.8 Node runtime in CI
 
@@ -737,7 +745,7 @@ guard reverted and confirm it fails. The implementation plan lists this per guar
 | `resolves` is written only by promote | `set-field` refusal; `bootstrap-state` and hand edits are **not** blocked, only detected (audit 1b, 1h) |
 | Producers pass a pointer | `check:docs` check 11 + test, for fenced invocations; a **prose-only** instruction to append is not detected |
 | New verbs are documented | `check:docs` checks 4 and 10 (existing) |
-| `pm-sync` marks done only on `COMPLETED` | **Prose only** — the pull is performed by an agent following `step-03-operations.md` |
+| `pm-sync` marks done only on a completion close reason | **Prose only** — the pull is performed by an agent following `step-03-operations.md` |
 | Triage agent cites `file:line` for `fixed` | **Prose only** — T5's downgrade is performed by the orchestrating agent |
 | Intake never auto-promotes | **Prose only** — no configuration enables it; `promote-issue` needs explicit `--key`/`--epic`/`--sprint` |
 | Triage and intake apply nothing unconfirmed | **Prose only** — confirmation prompts live in step files |
