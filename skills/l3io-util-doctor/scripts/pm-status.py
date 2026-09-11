@@ -4375,39 +4375,6 @@ def _norm_issue_title(title) -> str:
     return " ".join(str(title).split()).casefold()
 
 
-def _next_issue_number(backlog, epic_norm: str) -> str:
-    """Scan `backlog` for BL-E{epic}-{nnn} keys belonging to this epic (by
-    normalized epic number) and return the next zero-padded 3-digit number.
-
-    `issues.yaml` is hand-editable: an entry whose key does not match
-    `^BL-E(\\d+)-(\\d+)$` at all (malformed, or a non-dict list entry from a typo)
-    is skipped rather than raising -- it simply cannot participate in the max,
-    the same tolerance `_norm_num` already applies to a single value.
-    """
-    highest = 0
-    for item in backlog:
-        if not isinstance(item, dict):
-            continue
-        m = _BL_KEY_RE.match(str(item.get("key", "")))
-        if not m:
-            continue
-        if _norm_num(m.group(1), 3) != epic_norm:
-            continue
-        try:
-            n = int(m.group(2))
-        except ValueError:
-            continue
-        highest = max(highest, n)
-    return f"{highest + 1:03d}"
-
-
-def _find_issue_by_key(backlog, key: str):
-    for item in backlog:
-        if isinstance(item, dict) and str(item.get("key", "")) == key:
-            return item
-    return None
-
-
 def _find_issue_by_content(backlog, epic_norm: str, sprint_norm: str, source: str, norm_title: str):
     """Match on all four of normalized title + epic + sprint + source, deliberately.
     Over-matching (e.g. title alone) loses a real finding; under-matching leaves
