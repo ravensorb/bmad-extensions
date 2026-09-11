@@ -6876,5 +6876,80 @@ class TestConcurrentPromote(unittest.TestCase):
                          "the last roll-up saved during the race missed a story")
 
 
+class TestDoneHook(IssueBase):
+    def setUp(self):
+        super().setUp()
+        self.append("A")
+        code, _, err = self.run_all(["promote-issue", "--state-root", self.root,
+                                     "--artifacts-root", self.arts, "--key", "BL-E001-001",
+                                     "--epic", "001", "--sprint", "02",
+                                     "--classification", "simple"])
+        self.assertEqual(code, 0, err)
+
+    def set_status(self, status, *extra, story="E001-S02-001"):
+        return self.run_all(["set-status", "--state-root", self.root, "--story", story,
+                             "--status", status, *extra])
+
+    def story_status(self, key="E001-S02-001"):
+        return pm.load_node(pm.story_file(self.root, key))[1]["status"]
+
+    def test_done_resolves_the_items_the_story_lists(self):
+        code, out, err = self.set_status("done", "--session-id", "S-3")
+        self.assertEqual(code, 0, err)
+        self.assertIn("resolved BL-E001-001 (fixed, ref E001-S02-001)", out)
+        self.assertEqual(self.open_keys(), [])
+        entry = self.load_resolved()["resolved"][0]
+        self.assertEqual((entry["resolution"], entry["ref"]), ("fixed", "E001-S02-001"))
+        ev = self.events("issue_resolved")[-1]
+        self.assertEqual((ev["cause"], ev["session"]), ("set-status", "S-3"))
+
+    def test_hook_runs_under_no_events(self):
+        self.set_status("done", "--no-events")
+        self.assertEqual(self.resolved_keys(), ["BL-E001-001"])
+
+    def test_second_done_is_a_noop(self):
+        self.set_status("done")
+        code, out, _ = self.set_status("done")
+        self.assertEqual(code, 0)
+        self.assertIn("already resolved", out)
+        self.assertEqual(self.resolved_keys(), ["BL-E001-001"])
+
+    def test_hook_failure_warns_and_set_status_still_exits_0(self):
+        with mock.patch.object(pm, "resolve_issue_core", side_effect=SystemExit(2)):
+            code, _, err = self.set_status("done")
+        self.assertEqual(code, 0)
+        self.assertIn("done hook failed", err)
+        self.assertEqual(self.story_status(), "done")
+        self.assertEqual(self.open_keys(), ["BL-E001-001"])
+
+    def test_malformed_issues_file_warns_and_status_stands(self):
+        with open(self.issues, "w", encoding="utf-8") as fh:
+            fh.write("backlog: oops\n")
+        code, _, err = self.set_status("done")
+        self.assertEqual(code, 0)
+        self.assertIn("warning", err)
+        self.assertEqual(self.story_status(), "done")
+
+    def test_other_statuses_do_not_resolve(self):
+        self.set_status("in-progress")
+        self.set_status("review")
+        self.assertEqual(self.open_keys(), ["BL-E001-001"])
+
+    def test_story_without_resolves_touches_no_issue_file(self):
+        p = os.path.join(self.root, "active", "epic-001", "sprint-01", "E001-S01-001.yaml")
+        with open(p, "w", encoding="utf-8") as fh:
+            fh.write("key: 'E001-S01-001'\nepic: 'E001'\nsprint: 'S01'\nstatus: review\n")
+        self.set_status("done", story="E001-S01-001")
+        self.assertFalse(os.path.exists(self.resolved))
+
+    def test_set_field_refuses_status(self):
+        code, _, err = self.run_all(["set-field", "--state-root", self.root, "--story",
+                                     "E001-S02-001", "--field", "status", "--value", "done"])
+        self.assertEqual(code, 2)
+        self.assertIn("set-status", err)
+        self.assertEqual(self.story_status(), "backlog")
+        self.assertEqual(self.open_keys(), ["BL-E001-001"])
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

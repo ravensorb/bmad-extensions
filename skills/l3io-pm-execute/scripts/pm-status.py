@@ -28,6 +28,8 @@ Subcommands
 -----------
   set-status    --state-root S  (--story KEY | --epic ID [--sprint ID])  --status S
                 [--title T] [--flock] [--no-events] [--session-id ID]
+                (a story set to done resolves every key in its resolves: as fixed, ref
+                the story; a failure there warns and still exits 0 -- ADR-0003)
   sync-story-doc --artifacts-root R  (NOT the state root)  --story KEY  --status S
                 [--quiet]
                 (writes status: into the story markdown's frontmatter; the state
@@ -63,8 +65,9 @@ Subcommands
                 declared but always rejected; use estimate-story/estimate-rollup instead)
                 [--confidence {low,medium,high}] [--flock]
   set-field     --state-root S  (--story KEY | --epic ID [--sprint ID])  --field NAME --value V
-                (refuses any field in DERIVED_NODE_FIELDS, e.g.
-                completion_evidence.tests_passing — use add-test-run instead)
+                (refuses any field in DERIVED_NODE_FIELDS,
+                completion_evidence.tests_passing (use add-test-run), status (use
+                set-status), resolves (use promote-issue))
   add-test-run  --state-root S  --story KEY  --command CMD  --exit-code N
                 (appends {command, exit_code} to completion_evidence.test_runs and
                 derives completion_evidence.tests_passing as all(exit_code == 0) over
@@ -1289,6 +1292,9 @@ DERIVED_NODE_FIELDS = {
     "resolves":
         "written by `promote-issue`, which also schedules the items it names -- a hand "
         "write would link a story the backlog does not know about",
+    "status":
+        "status changes go through `set-status`, which records the transition event and "
+        "runs the done hook that resolves a story's backlog items",
 }
 
 
@@ -3305,6 +3311,36 @@ def render_md(model: dict) -> str:
 # --------------------------------------------------------------------------- #
 # subcommands
 # --------------------------------------------------------------------------- #
+def _resolve_story_items(state_root, node, story_key, session) -> None:
+    """After a story reaches `done`, resolve every key in its `resolves:` as fixed.
+
+    ADR-0003: this never fails set-status. The status save already happened and is
+    durable; reporting it as failed would invite a retry or a rollback of finished
+    work. Every exception except KeyboardInterrupt -- SystemExit included -- becomes
+    a warning, and audit-issues finding 1c catches what was missed."""
+    keys = [str(k) for k in (node.get("resolves") or [])]
+    if not keys:
+        return
+    try:
+        open_path = issues_paths(state_root)[0]
+        with issues_lock(open_path):
+            store = IssueStore(open_path)
+            for k in keys:
+                try:
+                    msg = resolve_issue_core(store, k, "fixed", story_key, None,
+                                             session, "set-status")
+                    sys.stdout.write(f"resolved {msg}\n")
+                except PMError as e:
+                    sys.stderr.write(f"pm-status.py: warning -- could not resolve {k} "
+                                     f"for {story_key}: {e.msg}\n")
+    except KeyboardInterrupt:
+        raise
+    except BaseException as e:  # noqa: BLE001 -- deliberate, ADR-0003
+        sys.stderr.write(f"pm-status.py: warning -- done hook failed for {story_key}: "
+                         f"{e!r}; the status write stands. Run /l3io-util-doctor triage "
+                         f"(audit-issues finding 1c) to finish it.\n")
+
+
 def cmd_set_status(args) -> int:
     kind = _infer_kind(args)
     valid = {"story": VALID_STORY_STATUS, "sprint": VALID_SPRINT_STATUS, "epic": VALID_EPIC_STATUS}[kind]
@@ -3327,6 +3363,9 @@ def cmd_set_status(args) -> int:
         append_event(args.state_root, payload)
 
     sys.stdout.write(f"OK set-status {label} -> {args.status}\n")
+    if kind == "story" and args.status == "done":
+        _resolve_story_items(args.state_root, node, args.story,
+                             getattr(args, "session_id", None))
     return 0
 
 

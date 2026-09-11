@@ -437,8 +437,8 @@ backlog:
 | Subcommand | Addressing |
 |---|---|
 | `set-status`, `set-actual`, `set-estimate`, `set-field`, `verify` | `--state-root` + (`--story KEY` \| `--epic ID [--sprint ID]`) |
-| `set-status`, `set-actual` extras | `--no-events` skips the `events.jsonl` append; `--session-id ID` stamps it |
-| `set-field` extras | Refuses any field in `DERIVED_NODE_FIELDS` outright (exit 2) — currently `completion_evidence.tests_passing` and `resolves`, derived from `test_runs` via `add-test-run` rather than asserted |
+| `set-status`, `set-actual` extras | `--no-events` skips the `events.jsonl` append; `--session-id ID` stamps it; `set-status --status done` on a story resolves the backlog items its `resolves:` lists (a failure warns, never fails the call) |
+| `set-field` extras | Refuses any field in `DERIVED_NODE_FIELDS` outright (exit 2) — currently `completion_evidence.tests_passing` (use `add-test-run`), `status` (use `set-status`), and `resolves` (use `promote-issue`), rather than asserted directly |
 | `add-test-run` | `--state-root --story KEY --command CMD --exit-code N` — appends `{command, exit_code}` to `completion_evidence.test_runs` and derives `completion_evidence.tests_passing` from the **last run of each distinct command** (the full history is kept in `test_runs`, so a failing run you then fixed is superseded by its passing re-run) |
 | `sync-story-doc` | `--artifacts-root A --story KEY --status S [--quiet]` — writes `status:` into the story markdown's frontmatter (ruamel round-trip: key order and comments survive). Runs after a `set-status` that already succeeded, so it is deliberately incapable of failing its caller: a missing story file, missing frontmatter, or an unterminated frontmatter block each warn on stderr and return 0. Only an invalid `--status` or a malformed story key — both caller errors detectable before any state was touched — return 2 |
 | `story-doc-init` | `--state-root --artifacts-root A --story KEY` — creates the story markdown skeleton from its state node if absent; the only writer of that skeleton. |
