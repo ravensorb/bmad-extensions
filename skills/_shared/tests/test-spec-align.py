@@ -633,5 +633,111 @@ class TestLease(Project):
         self.assertEqual(waiter.returncode, 0, err.decode())
 
 
+class SyncBase(Project):
+    """Epic E003 in a real git repo: an architecture spec, a PRD, an epic drift review with a
+    spec-updated (AD-1 -> order-api) and a spec-proposal (AD-3 -> PRD deletion), and a story
+    pointing at order-api. Tasks 10 and 11 build on this."""
+
+    def setUp(self):
+        super().setUp()
+        self.write(ARCH_REL, ARCH)
+        self.write(PRD_REL, PRD)
+        self.review = self.write(EPIC_REVIEW_REL, REVIEW)
+        self.story = self.write(f"{IMPL}/epic-003/sprint-01/stories/E003-S01-001.md",
+                                full_story(Interface_contracts=f"POST.\nSpec: {ARCH_REL}#order-api"))
+        self.write("README.md", "readme\n")
+        self.init_git()
+        self.dispose("AD-1", "spec-updated", "--spec", f"{ARCH_REL}#order-api")
+        self.dispose("AD-3", "spec-proposal", "--spec", f"{PRD_REL}#deletion")
+
+    def dispose(self, fid, disposition, *extra, review=None):
+        r = self.sa("disposition", "--review", review or self.review, "--finding", fid,
+                    "--disposition", disposition, *extra)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        return r
+
+    def plan(self, *extra):
+        r = self.sa("sync-plan", "--epic", "E003", *extra)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        return json.loads(r.stdout)
+
+    def issues(self, kind, resolved=False):
+        args = ["list-issues", "--state-root", self.state, "--format", "json"]
+        args += ["--resolved"] if resolved else ["--kind", kind]
+        r = self.pm(*args)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        return json.loads(r.stdout)
+
+    def disp(self):
+        from ruamel.yaml import YAML
+        with open(self.path(f"{IMPL}/epic-003/epic-closure/drift-dispositions.yaml"),
+                  encoding="utf-8") as fh:
+            return YAML(typ="safe").load(fh)
+
+
+class TestSyncPlan(SyncBase):
+    def test_plan_lists_pending_spec_items_with_ranges(self):
+        items = {i["id"]: i for i in self.plan()["items"]}
+        self.assertEqual(set(items), {"AD-1", "AD-3"})
+        self.assertEqual(items["AD-1"]["type"], "spec-updated")
+        self.assertEqual(items["AD-1"]["range"], "L9–16")
+        self.assertEqual(items["AD-1"]["title"], "Orders bypass the repository")
+        self.assertEqual(items["AD-3"]["range"], "L3–5")
+        self.assertEqual(items["AD-3"]["review"], EPIC_REVIEW_REL)
+
+    def test_an_epic_without_dispositions_plans_nothing(self):
+        r = self.sa("sync-plan", "--epic", "E009")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertEqual(json.loads(r.stdout), {"epic": "E009", "items": []})
+
+    def test_sprint_findings_are_included(self):
+        rel = f"{IMPL}/epic-003/sprint-01/closure/arch-drift-review.md"
+        review = self.write(rel, REVIEW.replace("AD-", "SD-01-"))
+        self.dispose("SD-01-1", "spec-updated", "--spec", f"{ARCH_REL}#data-model", review=review)
+        self.assertIn("SD-01-1", {i["id"] for i in self.plan()["items"]})
+
+    def test_an_unlinked_accepted_adr_becomes_an_adr_link_item(self):
+        self.write("docs/adr/0001-order-api.md",
+                   adr(1, "order-api", departs=f"{ARCH_REL}#order-api"))
+        items = {i["id"]: i for i in self.plan()["items"]}
+        self.assertEqual(items["ADR-0001"]["type"], "adr-link")
+        self.assertEqual(items["ADR-0001"]["adr"], "docs/adr/0001-order-api.md")
+
+    def test_defer_writes_pointer_only_proposals_and_backlog_items(self):
+        out = self.plan("--defer")
+        self.assertEqual({d["id"] for d in out["deferred"]}, {"AD-1", "AD-3"})
+        prop = self.read(f"{IMPL}/epic-003/epic-closure/spec-proposals/AD-1.md")
+        self.assertIn(f"`{ARCH_REL}#order-api`", prop)
+        self.assertIn("(deferred)", prop)
+        items = self.issues("spec-proposal")
+        self.assertEqual(len(items), 2)
+        self.assertEqual({i["ref"] for i in items},
+                         {f"{IMPL}/epic-003/epic-closure/spec-proposals/AD-1.md",
+                          f"{IMPL}/epic-003/epic-closure/spec-proposals/AD-3.md"})
+        self.assertEqual({i["severity"] for i in items}, {"Medium", "High"})
+        d = self.disp()["findings"]["AD-1"]
+        self.assertEqual((d["disposition"], d["deferred"]), ("spec-proposal", True))
+        self.assertTrue(d["issue"].startswith("BL-E003-"))
+        self.assertEqual(self.plan()["items"], [])            # nothing left pending
+
+    def test_propose_records_an_agent_written_proposal(self):
+        rel = f"{IMPL}/epic-003/epic-closure/spec-proposals/AD-3.md"
+        r = self.sa("propose", "--epic", "E003", "--finding", "AD-3")
+        self.assertEqual(r.returncode, 2)                     # no file yet
+        self.assertIn("write the proposal", r.stderr)
+        self.write(rel, "# Proposal\n\nMake deletion hard.\n")
+        r = self.sa("propose", "--epic", "E003", "--finding", "AD-3")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        [it] = self.issues("spec-proposal")
+        self.assertEqual(it["ref"], rel)
+        self.assertEqual(it["title"], "Spec proposal: PRD says soft delete")
+        self.assertEqual(self.disp()["findings"]["AD-3"]["proposal"], rel)
+
+    def test_propose_refuses_a_finding_that_is_not_pending(self):
+        r = self.sa("propose", "--epic", "E003", "--finding", "AD-2")
+        self.assertEqual(r.returncode, 2)
+        self.assertIn("not a pending spec item", r.stderr)
+
+
 if __name__ == "__main__":
     unittest.main()
