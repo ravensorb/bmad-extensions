@@ -7100,5 +7100,108 @@ class TestAuditIssues(IssueBase):
         self.assertIn("repair:", out)
 
 
+class TestRepairIssue(TestAuditIssues):
+    """Inherits TestAuditIssues' helpers, so each corrupt state is built the same way
+    the audit test proved it detectable. The inherited audit tests run again here too;
+    that is harmless and keeps the fixture code in one place."""
+
+    def repair(self, key, action, *extra):
+        return self.run_all(["repair-issue", "--state-root", self.root, "--key", key,
+                             "--action", action, *extra])
+
+    def ids(self):
+        return {(f["id"], f["key"]) for f in self.audit()[1]}
+
+    def test_unschedule_clears_1b(self):
+        self.append("A")
+        self.promote()
+        os.remove(pm.story_file(self.root, "E001-S02-001"))
+        code, _, err = self.repair("BL-E001-001", "unschedule")
+        self.assertEqual(code, 0, err)
+        item = self.load_open()["backlog"][0]
+        self.assertEqual(item["status"], "backlog")
+        self.assertNotIn("story", item)
+        self.assertNotIn(("1b", "BL-E001-001"), self.ids())
+
+    def test_unschedule_clears_1g(self):
+        self.append("Later", "005", "01", "Low", "qa (Q-1)")
+        self.promote("BL-E005-001", "005", "01")
+        self.run_all(["archive-epic", "--state-root", self.root, "--epic", "E005"])
+        self.assertEqual(self.repair("BL-E005-001", "unschedule")[0], 0)
+        self.assertNotIn(("1g", "BL-E005-001"), self.ids())
+
+    def test_unschedule_refused_on_a_healthy_item(self):
+        self.append("A")
+        self.promote()
+        with open(self.issues, encoding="utf-8") as fh:
+            before = fh.read()
+        self.assertEqual(self.repair("BL-E001-001", "unschedule")[0], 2)
+        with open(self.issues, encoding="utf-8") as fh:
+            self.assertEqual(fh.read(), before)
+
+    def test_link_clears_1d_and_is_refused_for_the_wrong_story(self):
+        self.append("A")
+        self._crash_promote_before_scheduling(cls="simple")
+        self.assertEqual(self.repair("BL-E001-001", "link")[0], 2)                       # no --story
+        self.assertEqual(self.repair("BL-E001-001", "link", "--story", "E001-S02-009")[0], 2)
+        code, _, err = self.repair("BL-E001-001", "link", "--story", "E001-S02-001")
+        self.assertEqual(code, 0, err)
+        self.assertEqual(self.audit(), (0, []))
+
+    def test_reseed_clears_1e(self):
+        self.append("A")
+        self.append("B", "001", "02")
+        self.edit_open(lambda d: d["next"].__setitem__("001", 1))
+        self.assertEqual(self.repair("BL-E001-001", "reseed")[0], 0)
+        self.assertEqual(int(self.load_open()["next"]["001"]), 3)
+        self.assertEqual(self.audit(), (0, []))
+
+    def test_reseed_rebuilds_a_malformed_map(self):
+        self.append("A")
+        self.edit_open(lambda d: d.__setitem__("next", "garbage"))
+        self.assertEqual(self.repair("BL-E001-001", "reseed")[0], 0)
+        self.assertEqual(int(self.load_open()["next"]["001"]), 2)
+
+    def test_reseed_refused_when_next_is_fine(self):
+        self.append("A")
+        self.assertEqual(self.repair("BL-E001-001", "reseed")[0], 2)
+
+    def test_reopen_clears_1j(self):
+        self.append("A")
+        self.promote()
+        for st in ("done", "in-progress"):
+            self.run_all(["set-status", "--state-root", self.root, "--story", "E001-S02-001",
+                          "--status", st])
+        code, _, err = self.repair("BL-E001-001", "reopen", "--session-id", "S-4")
+        self.assertEqual(code, 0, err)
+        item = self.load_open()["backlog"][0]
+        self.assertEqual((item["status"], item["story"]), ("scheduled", "E001-S02-001"))
+        self.assertNotIn("resolution", item)
+        self.assertEqual(self.resolved_keys(), [])
+        self.assertEqual(self.events("issue_reopened")[-1]["session"], "S-4")
+        self.assertEqual(self.audit(), (0, []))
+
+    def test_reopen_refused_without_1j(self):
+        self.append("A")
+        self.run_all(["resolve-issue", "--state-root", self.root, "--key", "BL-E001-001",
+                      "--resolution", "obsolete", "--note", "x"])
+        self.assertEqual(self.repair("BL-E001-001", "reopen")[0], 2)
+
+    def test_reopen_interrupted_after_the_open_write_completes_on_rerun(self):
+        self.append("A")
+        self.promote()
+        for st in ("done", "in-progress"):
+            self.run_all(["set-status", "--state-root", self.root, "--story", "E001-S02-001",
+                          "--status", st])
+        with _dump_failing_on(2):
+            with redirect_stdout(io.StringIO()), redirect_stderr(io.StringIO()):
+                with self.assertRaises(OSError):
+                    pm.main(["repair-issue", "--state-root", self.root, "--key", "BL-E001-001",
+                             "--action", "reopen"])
+        self.assertEqual(self.repair("BL-E001-001", "reopen")[0], 0)
+        self.assertEqual(self.open_keys(), ["BL-E001-001"], "no duplicate open copy")
+        self.assertEqual(self.resolved_keys(), [])
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

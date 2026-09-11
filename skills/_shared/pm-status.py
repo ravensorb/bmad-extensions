@@ -141,6 +141,10 @@ Subcommands
                 nodes' resolves:, read under issues_lock when either issue file exists;
                 otherwise the story walk still runs, unlocked, over an empty store;
                 exit 4 when anything is found)
+  repair-issue  --state-root S  --key K  --action {unschedule,link,reseed,reopen}
+                [--story KEY] [--session-id ID] [--cause C]
+                (each action refuses unless its audit finding holds: unschedule 1b/1g,
+                link 1d (--story must be the story that lists K), reseed 1e, reopen 1j)
   move-epic     --state-root S  --epic ID  --to {planned,active,archived}
   archive-epic  --state-root S  --epic ID   (alias for move-epic --to archived)
   calibration   show  --state-root S  [--format {text,json}]
@@ -5185,6 +5189,94 @@ def cmd_audit_issues(args) -> int:
     return 4 if findings else 0
 
 
+def cmd_repair_issue(args) -> int:
+    """Narrow structural repairs (spec §3.4). Each action refuses (exit 2) unless its
+    audit finding holds for --key, so it can only move the backlog toward a state
+    audit-issues accepts -- never invent one it would flag."""
+    return _run_core(lambda: _repair_issue(args))
+
+
+def _repair_issue(args) -> int:
+    from ruamel.yaml.comments import CommentedMap
+    k = canonical_bl_key(args.key)
+    if k is None:
+        raise PMError(2, f"--key {args.key!r} is not a backlog key")
+    epic = k[4:7]
+    act = args.action
+    open_path = issues_paths(args.state_root)[0]
+    with issues_lock(open_path):
+        store = IssueStore(open_path)
+        findings = _audit_findings(args.state_root, store)
+
+        def holds(ids, story=None):
+            return any(f["id"] in ids and f["key"] == k and (story is None or f["story"] == story)
+                       for f in findings)
+
+        if act == "unschedule":
+            opens = store.open_items(k)
+            if not (holds({"1b", "1g"}) and len(opens) == 1
+                    and str(opens[0].get("status")) == "scheduled"):
+                raise PMError(2, f"unschedule: audit finding 1b/1g does not hold for {k}")
+            it = opens[0]
+            it["status"] = "backlog"
+            it.pop("story", None)
+            it.pop("scheduled_at", None)
+            store.save_open()
+            msg = f"{k} unscheduled -> backlog"
+        elif act == "link":
+            if not args.story:
+                raise PMError(2, "--action link needs --story")
+            if not holds({"1d"}, story=args.story):
+                raise PMError(2, f"link: audit finding 1d does not hold for {k} and {args.story}")
+            it = store.open_items(k)[0]
+            it["status"] = "scheduled"
+            it["story"] = args.story
+            it["scheduled_at"] = _now_iso()
+            store.save_open()
+            _issue_event(store.state_root, "issue_scheduled", it, args.session_id, args.cause,
+                         story=args.story)
+            msg = f"{k} scheduled to {args.story}"
+        elif act == "reseed":
+            if not any(f["id"] == "1e" and (f["epic"] == epic or f["key"] == "next")
+                       for f in findings):
+                raise PMError(2, f"reseed: audit finding 1e does not hold for epic {epic}")
+            nxt = store.open.get("next")
+            if not isinstance(nxt, dict):
+                nxt = CommentedMap()
+                store.open["next"] = nxt
+                epics = sorted({canonical_bl_key(str(i.get("key", "")))[4:7]
+                                for i in list(store.backlog) + list(store.resolved)
+                                if isinstance(i, dict) and canonical_bl_key(str(i.get("key", "")))})
+                for e in epics:
+                    nxt[e] = store.highest_suffix(e) + 1
+            else:
+                nxt[epic] = store.highest_suffix(epic) + 1
+            store.save_open()
+            msg = f"next reseeded ({', '.join(f'{e}={v}' for e, v in nxt.items())})"
+        else:  # reopen
+            if not holds({"1j"}):
+                raise PMError(2, f"reopen: audit finding 1j does not hold for {k}")
+            entry = store.resolved_items(k)[-1]
+            ref = str(entry.get("ref"))
+            if not store.open_items(k):        # absent unless a previous reopen was interrupted
+                item = CommentedMap()
+                for kk, vv in entry.items():
+                    if kk not in ("resolution", "resolved_at", "ref", "note"):
+                        item[kk] = vv
+                item["status"] = "scheduled"
+                item["story"] = ref
+                item["scheduled_at"] = _now_iso()
+                store.backlog.append(item)
+                store.save_open()               # add first: an item is never lost
+            _remove_identity(store.resolved, entry)
+            store.save_resolved()
+            _issue_event(store.state_root, "issue_reopened", entry, args.session_id,
+                         args.cause, story=ref)
+            msg = f"{k} reopened, scheduled to {ref}"
+    sys.stdout.write(f"OK repair-issue {msg}\n")
+    return 0
+
+
 def _norm_num(v, width: int) -> str:
     """Normalize a possibly key-prefixed or unpadded numeric id to a zero-padded digit
     string: 'E1'/'001' -> '001' (width=3); 'S1'/'01' -> '01' (width=2). Falls back to the
@@ -5889,6 +5981,15 @@ def build_parser() -> argparse.ArgumentParser:
     au.add_argument("--state-root", required=True)
     au.add_argument("--format", choices=["text", "json"], default="text")
     au.set_defaults(func=cmd_audit_issues)
+
+    rp = sub.add_parser("repair-issue", help="structural repair gated on an audit-issues finding")
+    rp.add_argument("--state-root", required=True)
+    rp.add_argument("--key", required=True, help="the item; for reseed, any key of the epic")
+    rp.add_argument("--action", required=True, choices=["unschedule", "link", "reseed", "reopen"])
+    rp.add_argument("--story", default=None, help="with --action link")
+    rp.add_argument("--session-id", dest="session_id", default=None)
+    rp.add_argument("--cause", default="cli", choices=["cli", "triage", "plan-intake"])
+    rp.set_defaults(func=cmd_repair_issue)
 
     li = sub.add_parser("list-issues", help="list (with filters) the flat backlog in issues.yaml")
     li.add_argument("--state-root", required=True, help="path to {implementation_artifacts}/state")

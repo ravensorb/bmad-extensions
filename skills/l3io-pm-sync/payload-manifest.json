@@ -12,8 +12,8 @@
     "steps/sync/step-02-detect-platform.md": "50e1b487e3ede3db461ccc1b684838f2a31adbec36144ee86e684dd5dc3199fe",
     "steps/sync/step-03-operations.md": "32b628994c2ba12d255a1cfbf07a331ba5490d2a74aea904f460835be000c87c",
     "steps/sync/step-04-resolve.md": "5c93859664364c285225568a95eb1a53745f39f04414aea4ba1f440c5d48a6f9",
-    "scripts/pm-status.py": "b01728486caa3e6b5be3cba8fc25e31c410d5f0571c8015c31dceb6f2676a4c5",
-    "references/status-files.md": "91363fc1a1cc6494a7648ec01658aba60cf86fc091620d8bbd983f240429fedd",
+    "scripts/pm-status.py": "2c44c1aa4b18c9d290c49d7c59e1f8a51caa6771eb8fb8db79f7725208419e0b",
+    "references/status-files.md": "8a61753aa9b393ba3727186a721828c643c89b9be2b0dcbd78a1ad6a5f419131",
     "references/metrics-contract.md": "f27fc344da23c3e19e74c80ec90bf27941382eb377fe5b5de3c30537c6bfb25a",
     "references/calibration-model.md": "63b15a5c4552d6be78d90ec886ff0a1d581af9440bcff3b87b12ef1e1d01af0f"
   }
