@@ -80,22 +80,27 @@ state, checking auth) is performed by **you**, the agent, using GitHub MCP tools
    ```bash
    python3 {skill-root}/scripts/sync-state.py {project-root} list
    ```
-2. For each mapping with `bmad_type` = `story`, **you** fetch the issue's current state —
-   GitHub MCP tools, else:
+2. For each mapping with `bmad_type` = `story`, **you** fetch the issue's current state and
+   its close reason (`state_reason` in the GitHub MCP tools) — GitHub MCP tools, else:
    ```bash
-   gh issue view {remote_id} --repo {platform_owner}/{platform_repo} --json state,title,labels
+   gh issue view {remote_id} --repo {platform_owner}/{platform_repo} --json state,stateReason,title,labels
    ```
-3. Where the issue state is `CLOSED`, update the story through `pm-status.py` — never write
+3. Where the issue is `CLOSED` **and its `stateReason` is `COMPLETED`**, update the story through `pm-status.py` — never write
    state YAML directly:
    ```bash
    python3 {pm_status} set-status --state-root {pm_state_root} --story {bmad_key} --status done
    ```
    Skip stories already `done` locally (idempotent — no need to re-write).
+   
+   A `CLOSED` issue with any other reason (`NOT_PLANNED`, `DUPLICATE`) is **not** marked
+   done: `set-status done` resolves the story's backlog items as `fixed`, which a
+   not-planned close is not. List it in the report (step 5) and leave the decision to the
+   user. Any future sync platform must map its own close reasons onto this rule first.
 4. Mappings with `bmad_type` in `sprint`/`epic`/`backlog` are enumerated and reported but not
    auto-transitioned in this mode — `pm-status.py set-status` addresses one story/sprint/epic
    node per call and there is no defined mapping from an issue's state to a
    sprint/epic/backlog status here; report them as informational.
-5. Report: stories updated to `done` (count, listed), mappings that failed to resolve
+5. Report: stories updated to `done` (count, listed), issues closed without completion (listed with their reason — not marked done), mappings that failed to resolve
    remotely (issue deleted/inaccessible), sprint/epic/backlog mappings seen but not acted on.
 
 ## Mode: sync
