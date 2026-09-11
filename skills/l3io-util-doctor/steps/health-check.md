@@ -178,7 +178,10 @@ uv run {skill-root}/scripts/audit-backlog.py --pm-status {pm_status} \
   --state-root {pm_state_root} --artifacts-root {implementation_artifacts} \
   --project-root {project-root} --format json
 ```
-- `audit-issues` exit 4 → flag `triage` · Priority: **High** · note the finding ids
+- `audit-issues` exit 4 with a non-empty `findings` list → flag `triage` · Priority: **High** ·
+  note the finding ids
+- `audit-issues` exit 4 with `findings: []` and an `error` → the issue file is malformed; report
+  the error and stop — an empty `findings` list on exit 4 is not "clean"
 - any `fixed-candidate`, `obsolete-candidate`, or `duplicate-candidate` → flag `triage` ·
   Priority: **Medium** · note the count
 - no issues file, or neither → ✓

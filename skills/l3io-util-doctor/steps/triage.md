@@ -22,8 +22,10 @@ If `{pm_issues_file}` does not exist, print `Backlog is empty — nothing to tri
 uv run {pm_status} audit-issues --state-root {pm_state_root} --format json
 ```
 
-Exit `0` → print `✓ Backlog integrity: no findings` and go to T3. Exit `4` → print every finding
-(`id`, `key`, `detail`) and the command that repairs it:
+Exit `0` → print `✓ Backlog integrity: no findings` and go to T3. Exit `4` with a non-empty
+`findings` list → print every finding (`id`, `key`, `detail`) and the command that repairs it.
+Exit `4` with `findings: []` and an `error` → the issue file is malformed; print the `error`
+and stop — an empty `findings` list on exit 4 is not "clean":
 
 | Finding | Repair |
 |---|---|

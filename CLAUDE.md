@@ -43,7 +43,7 @@ skills/
 | `l3io-pm-help` | Reads project state and recommends the exact next l3io-pm action |
 | `l3io-pm-sync` | Bidirectional sync between l3io-pm state and GitHub Issues — setup, push, pull, sync, and status modes |
 | `l3io-sec-redteam` | Red team security analysis — five threat lenses + AI poisoning cross-cut, live cloud/platform best practices research |
-| `l3io-util-doctor` | Project state diagnostics and housekeeping — default is a health check that reports findings and proposes an ordered fix plan; `stats` is the plan-aware progress dashboard; plus `migrate-state`, `split-status`, `harvest-debt`, `sort-status`, `update-ai-rules`, `clean-legacy`, `redrive`. Renamed from `l3io-util-cleanup` in 2.1.0, which survives as a deprecated forwarder (backward compatible — the old command forwards) |
+| `l3io-util-doctor` | Project state diagnostics and housekeeping — default is a health check that reports findings and proposes an ordered fix plan; `stats` is the plan-aware progress dashboard; plus `triage`, `migrate-state`, `split-status`, `harvest-debt`, `sort-status`, `update-ai-rules`, `clean-legacy`, `redrive`. Renamed from `l3io-util-cleanup` in 2.1.0, which survives as a deprecated forwarder (backward compatible — the old command forwards) |
 | `l3io-arch-review` | Engineering-standards architecture guardrails and review — three modes: design guardrails (new project), architectural review (audit), decision support + ADR recording |
 
 ## Shared Files

@@ -144,9 +144,10 @@ sequenceDiagram
     participant I as issues_lock
     P->>P: validate every refusal (no writes)
     P->>E: acquire
-    P->>P: story node + estimate (one save), story document
-    P->>P: roll up sprint, then epic
+    P->>P: re-check foreign lock
     P->>I: acquire (nested)
+    P->>P: check item, story node + estimate (one save), story document
+    P->>P: roll up sprint, then epic
     P->>P: mark items scheduled
     P->>I: release
     P->>E: release
