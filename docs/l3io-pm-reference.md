@@ -422,9 +422,10 @@ Open items live in `issues.yaml`; resolved items move, whole, to `issues-resolve
 with their `resolution`, `resolved_at`, `ref`, and `note`. Keys come from a per-epic `next:`
 high-water mark — `max(next[epic], highest suffix in either file + 1)` — so a resolved or
 deleted key is never handed out again. Every change goes through a `pm-status.py` verb under
-`issues_lock`; `append-issue` skips a content duplicate of an open item (or of a `wontfix`,
-`duplicate`, or `obsolete` item at the same or higher severity), and re-appends a finding
-that matches a `fixed` item as a recurrence.
+`issues_lock`; `append-issue` skips a content duplicate of an open item, or of a resolved
+`wontfix`, `duplicate`, or `obsolete` item whose severity is at least the new finding's; a
+finding above that item's severity is appended as re-raised, and one that matches a `fixed`
+item as a recurrence. The newest resolved match decides.
 
 ```mermaid
 stateDiagram-v2
