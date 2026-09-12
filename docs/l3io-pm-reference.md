@@ -93,6 +93,14 @@ Scalars override; arrays append. The root key is `[workflow]` for all four PM sk
 | `include_estimates` | `true` | `false` skips the estimate step entirely |
 | `plan_output` | `"markdown"` | `"markdown"` writes `plan-{date}-v{n}.yaml`; `"console"` prints a summary only |
 
+**`l3io-pm-sync`:**
+
+| Key | Default | Description |
+|-----|---------|-------------|
+| `github_auth_method` | `"mcp"` | Preferred auth path for GitHub operations — `"mcp"` or `"gh-cli"`. A preference, not a guarantee: `mcp` falls through to the `gh` CLI check when no `mcp__github*` tools are present, rather than blocking. See [Sync Reference](#sync-reference) |
+
+`l3io-pm-help` ships no keys of its own beyond the shared ones above.
+
 ## Plan Reference
 
 `l3io-pm-plan` is read-only with respect to code — it validates, elaborates, estimates, and plans. It does not execute work.
@@ -305,6 +313,149 @@ Closure ends with a commit checkpoint that stages `state/`, the sprint's artifac
 
 Outputs go to `{implementation_artifacts}/epic-{nnn}/epic-closure/`. Epic closure also renders a progress tree unconditionally — it runs once per epic after its sprints finish, so it never competes with sibling sprints for stdout — and regenerates `{implementation_artifacts}/progress-report.md`.
 
+## Help Reference
+
+`l3io-pm-help` is **read-only**. It calls no `pm-status.py` write verb, never self-installs
+`pm-status.py` (unlike the other three PM skills), and prints its recommendations as commands
+for you to run — including the stale-lock `clear-lock` suggestion, which it shows but does not
+execute.
+
+### Modes
+
+| Invocation | What it does |
+|---|---|
+| *(none)* | Health snapshot plus a next-action recommendation |
+| `progress` | Plan-aware progress tree, delegated to `pm-status.py report`. See [Progress Reporting](#progress-reporting) |
+| `list plan` | Enumerates every plan snapshot, classifies each as unstarted / in progress / complete against current state, and prints the YAML to repoint `plan-output-meta.yaml` |
+| `setup` / `configure` / `install` | Loads `assets/module-setup.md` — the only module-setup trigger |
+
+`progress` and `list plan` still run config resolution and the layout gate first, then skip the
+recommendation sections. The gate therefore applies to every mode: a legacy tree short-circuits
+all three to the same migration recommendation, because the progress report and the epic status
+probes only understand the sharded layout.
+
+### The layout gate
+
+Before any recommendation, in every mode, it **counts** rather than stops at the first hit —
+sharded `state/`, a legacy per-epic `_bmad/state/`, and a legacy flat `sprint-status.yaml`:
+
+| Layouts found | Outcome |
+|---|---|
+| Two or more | `BLOCKED` — an earlier migration did not finish. No state is read and no recommendation is offered |
+| Exactly one, legacy | One recommendation only: `/l3io-util-doctor migrate-state`. It never suggests creating epics or running a plan, because a legacy tree means work already exists |
+| Exactly one, sharded | Proceeds normally |
+| None | Possibly a first run — but not trusted until the orphan check below passes |
+
+**Orphan check.** Before accepting "nothing exists yet", it probes git and the filesystem for a
+`state/active/epic-*/epic.yaml` outside the configured root, which is the signature of
+`implementation_artifacts` having been repointed after state already existed. A hit is
+`BLOCKED`, not an invitation to start fresh. Only when both probes come back empty does the
+first-run recommendation become reachable.
+
+### Presence versus staleness
+
+Two independent checks on the installed `pm-status.py`, treated differently:
+
+- **Presence** is a file-exists test. When absent, every `pm-status.py` call becomes
+  conditional: the state read falls back to parsing each `epic.yaml` directly, and `progress`
+  refuses outright, because dwell times and phase roll-ups cannot be derived from `epic.yaml`.
+- **Staleness** compares the installed copy's `--version` against this skill's own
+  `module.yaml` — derived, so there is no hardcoded minimum to drift. An unreadable or
+  pre-`--version` copy counts as stale rather than current.
+
+The distinction is behavioural: presence gates *whether* the helper is called; staleness does
+not. A stale copy is used exactly like a current one, and the only effect is a warning
+**prepended** to whatever recommendation was already chosen — because a subcommand the installed
+copy lacks fails as an opaque argparse error rather than a clear one.
+
+### What it reads, and never writes
+
+Reads: epic nodes under `active/` and `planned/` (or `show --epic` when the helper is present),
+`list-issues --all --format json` with a `cat` fallback, `plan-output-meta.yaml`, a
+`git check-ignore` health probe on the state root, and — in `list plan` — every
+`plan-*-v*.yaml` snapshot plus a state-folder probe per epic key.
+
+Writes: nothing. No state file, no write verb, no pointer edit. `list plan`'s repoint
+instructions are printed for you to apply.
+
+## Sync Reference
+
+`l3io-pm-sync` maps l3io-pm state onto GitHub Issues. Every remote call is made by the agent
+through GitHub MCP tools or the `gh` CLI; the three helper scripts
+(`detect-platform.py`, `drift-report.py`, `sync-state.py`) are local-computation only and never
+touch the network.
+
+### Modes
+
+| Argument | What it does |
+|---|---|
+| *(none)* or `status` | Drift report only. Mutates nothing |
+| `setup` | Detects the platform, verifies auth, verifies or creates `_bmad/sync-state.yaml` |
+| `push` | Creates issues for unmapped entities, edits issues for changed ones, records mappings |
+| `pull` | Reads mapped issue state and marks stories `done` whose issue closed as completed |
+| `sync` | `push` in full, then `pull` in full — never interleaved, so creations land before the re-read |
+
+Note that `setup` here selects the sync-setup mode, **not** shared module setup; only
+`configure` and `install` load `assets/module-setup.md`. This is the one PM skill where `setup`
+means something else.
+
+### Platform detection and auth
+
+`detect-platform.py` reads the git remote (`origin`, then `upstream`, then the first remote),
+normalises SSH form to HTTPS, and recognises **GitHub only**. Anything else returns `unknown`
+and the run blocks — there is no GitLab, Azure DevOps or Jira support today, despite the
+config template's schema implying a future `platform` choice.
+
+`github_auth_method` is a *preference, not a guarantee*. With `mcp`, it checks for
+`mcp__github*` tools in the current tool set and **falls through** to the `gh` CLI rather than
+blocking when none are present; the `gh-cli` path runs `gh auth status`. If neither succeeds the
+run blocks. The resolved method is bound separately from the configured preference, because they
+differ whenever the fallback fires.
+
+### `_bmad/sync-state.yaml`
+
+Managed only by `sync-state.py` — never hand-edited. A missing file loads as empty state at
+every mode rather than erroring, and materialises the first time `push` records a mapping.
+
+```yaml
+version: 1
+mappings:
+  - bmad_key: E001-S02-003        # required — the only field upsert enforces
+    bmad_type: story              # story | sprint | epic | backlog (convention, not enforced)
+    bmad_path: "..."              # story markdown; null for epics and sprints
+    remote_id: 4821               # GitHub issue number
+    remote_url: "https://github.com/..."
+    last_synced_hash: "a1b2c3d4"  # 8-char content fingerprint
+    last_synced_at: "2026-09-12T10:00:00Z"
+```
+
+The skeleton also carries a top-level `last_sync` key that **nothing writes** — treat it as
+reserved, not as a timestamp you can rely on. `upsert` validates only `bmad_key` and *replaces*
+an entry wholesale, so a partial blob overwrites the previous mapping rather than merging into
+it.
+
+`_bmad/sync-config.yaml` is separate and optional, created best-effort during `setup`. Its own
+header states it is not yet read by any of the three scripts: its `field_rules` and
+`status_labels` are reserved for a feature that does not exist. Do not rely on field-level
+conflict authority.
+
+### Drift detection and conflict model
+
+`drift-report.py` walks `state/{active,planned,archived}/`, collects every epic, sprint, story
+and backlog item, fingerprints each as an 8-character `sha256` over its fields, and sorts the
+results into three buckets against the recorded hashes: `unmapped_local` (never pushed),
+`changed_local` (fingerprint moved), and `missing_local` (mapping exists, entity gone). When the
+state root is absent it still exits 0 with an empty manifest but reports
+`state_root_found: false`, deliberately distinct from "walked the tree and found no drift".
+
+**Push wins by construction.** There is no field-level resolver: `push` overwrites the remote
+issue with current local content. `pull` transitions a story to `done` only when its issue closed
+as *completed* — a `not planned` or `duplicate` close is deliberately left alone, because
+`set-status done` resolves the story's `resolves:` backlog items as fixed, which those closes are
+not. Sprint, epic and backlog mappings are reported but never auto-transitioned; no mapping from
+issue state to those statuses is defined. `missing_local` entries are reported and left intact
+unless you confirm removal, which clears the mapping irreversibly.
+
 ## Headless Dispatch
 
 Step-05 spawns each sprint with an authoritative context block:
@@ -479,6 +630,33 @@ backlog:
 `/l3io-pm-plan` offers open items for promotion before readiness; `/l3io-util-doctor triage`
 audits the backlog (`audit-issues`, then `scripts/audit-backlog.py`) and resolves what is
 already fixed, on confirmation. Full design: `docs/superpowers/specs/2026-09-10-issue-lifecycle-design.md`.
+
+### Severity vocabularies
+
+Four vocabularies are in play, and only one is enforced by code. The backlog's is:
+`append-issue` and `update-issue` take `--severity` as an argparse choice of
+**`Low` / `Medium` / `High` / `Critical`**, so anything else is rejected before a write. The
+three upstream vocabularies are asserted only in their own reviewing skills' references and in
+step-file prose — an out-of-vocabulary severity word from a reviewer would not be caught by any
+gate.
+
+| Source | Its severities | What reaches the backlog |
+|---|---|---|
+| `l3io-arch-review` | BLOCKER / MAJOR / MINOR | MINOR → `Low`. BLOCKER and MAJOR reach it **never** |
+| `l3io-sec-redteam` | CRITICAL / HIGH / MEDIUM / LOW / OBSERVATION | LOW → `Low`. OBSERVATION is noted in the closure report and has no backlog form at all |
+| `bmad-code-review`, `bmad-review-adversarial-general` | CRITICAL / HIGH / MEDIUM / LOW | Pass-through — the same four words, so LOW → `Low` with no translation |
+| `bmad-ux-review` | HIGH / MEDIUM / LOW *(as the step files use it)* | HIGH is fixed; MEDIUM and LOW defer |
+
+**Blocking severities have no backlog equivalent, by design.** An arch BLOCKER or MAJOR, and a
+redteam CRITICAL or HIGH, gate the run rather than deferring: they are resolved in code, or
+justified by an accepted ADR, or the run halts `BLOCKED`. There is deliberately no path that
+files one as a backlog item and proceeds — so if you are looking for the severity such a finding
+would carry, there isn't one.
+
+Two known rough edges, stated rather than smoothed over: epic closure specifies handling for a
+redteam MEDIUM ("fix in place, or record an accepted ADR") while **sprint** closure's redteam
+section names only CRITICAL/HIGH and LOW, leaving sprint-level MEDIUM unspecified; and the
+step files name no CRITICAL tier for `bmad-ux-review`.
 
 ### `pm-status.py` subcommands
 
