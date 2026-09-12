@@ -1387,6 +1387,120 @@ def cmd_check_stale(ctx, a):
     return 0
 
 
+# -- migrate-adrs: the old per-epic home -> docs/adr (ADR-0005) ------------------------------- #
+
+def _migration_plan(ctx):
+    ctx.need("impl", "state")
+    docs_dir = os.path.join(ctx.project, "docs", "adr")
+    docs_nums = set()
+    if os.path.isdir(docs_dir):
+        docs_nums = {int(m.group(1)) for m in map(DOC_ADR_RE.match, os.listdir(docs_dir)) if m}
+    moves, taken = [], set(docs_nums)
+    for p in sorted(glob.glob(os.path.join(ctx.impl, "epic-*", "arch", "adr-*.md"))):
+        m = LEGACY_ADR_RE.match(os.path.basename(p))
+        em = re.search(r"epic-(\d{3})", os.path.basename(os.path.dirname(os.path.dirname(p))))
+        if not (m and em):
+            continue
+        n, slug = int(m.group(1)), m.group(2)
+        moves.append({"from": ctx.rel(p), "number": n, "slug": slug, "epic": f"E{em.group(1)}",
+                      "collision": n in taken,
+                      "to": None if n in taken else f"docs/adr/{n:04d}-{slug}.md"})
+        taken.add(n)
+    reg = load_yaml(os.path.join(ctx.state_root, "adr-register.yaml")) or {}
+    try:
+        nxt = int(reg.get("next", 1))
+    except (TypeError, ValueError):
+        nxt = 1
+    hi = max([*docs_nums, *(mv["number"] for mv in moves)], default=0)
+    return {"moves": moves,
+            "register": {"next": nxt, "highest_on_disk": hi, "lagging": hi > 0 and nxt <= hi},
+            "rewritten": [], "review": [], "commit": None}
+
+
+def _add_epic_line(text, ek):
+    if re.search(r"^-\s+\*\*Epic:\*\*", text, re.M):
+        return text
+    text2, n = re.subn(r"^(-\s+\*\*Status:\*\*.*)$", rf"\1\n- **Epic:** {ek}", text,
+                       count=1, flags=re.M)
+    return text2 if n else re.sub(r"^(#[^\n]*\n)", rf"\1\n- **Epic:** {ek}\n", text, count=1)
+
+
+def cmd_migrate_adrs(ctx, a):
+    plan = _migration_plan(ctx)
+    if a.plan or not plan["moves"]:
+        print(json.dumps(plan, indent=2))
+        return 0
+    if _git(ctx, "rev-parse", "--is-inside-work-tree", check=False).stdout.strip() != "true":
+        raise SAError(2, "migrate-adrs --apply needs a git work tree")
+    docs_dir = os.path.join(ctx.project, "docs", "adr")
+    os.makedirs(docs_dir, exist_ok=True)
+    md_files = sorted(set(glob.glob(os.path.join(ctx.impl, "**", "*.md"), recursive=True)))
+    other_docs = sorted(glob.glob(os.path.join(ctx.project, "docs", "**", "*.md"),
+                                  recursive=True))
+    commit_paths, rewritten = [], set()
+    for mv in plan["moves"]:
+        old, nnn = mv["number"], mv["epic"][1:]
+        new = old
+        if mv["collision"]:
+            r = _pm(ctx, "adr-reserve", "--state-root", ctx.state_root, "--epic", mv["epic"],
+                    "--slug", f"migrate-{mv['slug']}", "--adr-dir", docs_dir)
+            if r.returncode != 0 or not r.stdout.split():
+                raise SAError(2, f"adr-reserve failed: {(r.stderr or r.stdout).strip()}")
+            new = int(r.stdout.split()[0])
+            mv["renumbered_to"] = new
+            mv["to"] = f"docs/adr/{new:04d}-{mv['slug']}.md"
+        tracked = _git(ctx, "ls-files", "--error-unmatch", "--", mv["from"],
+                       check=False).returncode == 0
+        if tracked:
+            _git(ctx, "mv", "--", mv["from"], mv["to"])
+            commit_paths += [mv["from"], mv["to"]]
+        else:
+            os.replace(ctx.abs(mv["from"]), ctx.abs(mv["to"]))
+            _git(ctx, "add", "--", mv["to"])
+            commit_paths.append(mv["to"])
+        body = read_text(ctx.abs(mv["to"]))
+        if new != old:
+            body = re.sub(rf"\bADR-{old:04d}\b", f"ADR-{new:04d}", body)
+        atomic_write(ctx.abs(mv["to"]), _add_epic_line(body, mv["epic"]))
+        path_re = re.compile(rf"[\w./-]*epic-{nnn}/arch/adr-{old:04d}-{re.escape(mv['slug'])}\.md")
+        num_re = re.compile(rf"\bADR-{old:04d}\b")
+        epic_tree = os.path.join(ctx.impl, f"epic-{nnn}")
+        for f in md_files:
+            if not os.path.isfile(f):
+                continue
+            text = read_text(f)
+            inside = _under(f, epic_tree)
+            if new != old and not inside:
+                for i, line in enumerate(text.splitlines(), 1):
+                    if num_re.search(line):
+                        plan["review"].append({"file": ctx.rel(f), "line": i,
+                                               "text": line.strip()})
+            text2 = path_re.sub(mv["to"], text)
+            if new != old and inside:
+                text2 = num_re.sub(f"ADR-{new:04d}", text2)
+            if text2 != text:
+                atomic_write(f, text2)
+                rewritten.add(ctx.rel(f))
+        if new != old:
+            for f in other_docs:
+                if re.match(rf"{old:04d}-", os.path.basename(f)) and _under(f, docs_dir):
+                    continue                          # that number's rightful owner
+                for i, line in enumerate(read_text(f).splitlines(), 1):
+                    if num_re.search(line):
+                        plan["review"].append({"file": ctx.rel(f), "line": i,
+                                               "text": line.strip()})
+    for rel in sorted(rewritten):
+        if _git(ctx, "ls-files", "--error-unmatch", "--", rel, check=False).returncode == 0:
+            commit_paths.append(rel)
+        else:
+            sys.stderr.write(f"WARN {rel} was rewritten but is not tracked; not committed\n")
+    plan["rewritten"] = sorted(rewritten)
+    plan["commit"] = git_commit(ctx, "docs(adr): migrate epic ADRs to docs/adr",
+                                list(dict.fromkeys(commit_paths)))
+    print(json.dumps(plan, indent=2))
+    return 0
+
+
 # -- CLI -------------------------------------------------------------------------------------- #
 
 def build_parser():
@@ -1481,6 +1595,12 @@ def build_parser():
 
     cs = sub.add_parser("check-stale", help="report unconfirmed spec changes built upon")
     cs.set_defaults(func=cmd_check_stale)
+
+    mi = sub.add_parser("migrate-adrs", help="move ADRs from epic-*/arch/ to docs/adr/")
+    g = mi.add_mutually_exclusive_group(required=True)
+    g.add_argument("--plan", action="store_true")
+    g.add_argument("--apply", action="store_true")
+    mi.set_defaults(func=cmd_migrate_adrs)
 
     # Later tasks register their subcommands above this line.
     return p

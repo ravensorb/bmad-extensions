@@ -1071,5 +1071,67 @@ sys.exit(subprocess.run([sys.executable, {PM!r}, *sys.argv[1:]]).returncode)
         self.assertIn("1 later commit", r.stdout)
 
 
+class TestMigrateAdrs(Project):
+    def setUp(self):
+        super().setUp()
+        self.write("docs/adr/0003-stack.md", adr(3, "stack", epic="n/a"))
+        self.write(f"{IMPL}/epic-001/arch/adr-0003-auth.md",
+                   "# ADR-0003: auth\n\n- **Status:** Accepted\n\n## Context\n\nx\n")
+        self.write(f"{IMPL}/epic-001/arch/adr-0004-cache.md",
+                   "# ADR-0004: cache\n\n- **Status:** Accepted\n\n## Context\n\ny\n")
+        self.s1 = f"{IMPL}/epic-001/sprint-01/stories/E001-S01-001.md"
+        self.s2 = f"{IMPL}/epic-002/sprint-01/stories/E002-S01-001.md"
+        self.write(self.s1, f"# S\n\nPer ADR-0003 and {IMPL}/epic-001/arch/adr-0004-cache.md.\n")
+        self.write(self.s2, "# S\n\nPer ADR-0003 (the stack).\n")
+        self.init_git()
+
+    def run_json(self, *args):
+        r = self.sa("migrate-adrs", *args)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        return json.loads(r.stdout)
+
+    def test_plan_is_read_only(self):
+        out = self.run_json("--plan")
+        moves = {m["from"]: m for m in out["moves"]}
+        self.assertTrue(moves[f"{IMPL}/epic-001/arch/adr-0003-auth.md"]["collision"])
+        self.assertEqual(moves[f"{IMPL}/epic-001/arch/adr-0004-cache.md"]["to"],
+                         "docs/adr/0004-cache.md")
+        self.assertEqual(self.git("status", "--porcelain"), "")
+
+    def test_apply_moves_renumbers_rewrites_and_commits(self):
+        out = self.run_json("--apply")
+        self.assertEqual(self.git("log", "-1", "--format=%s").strip(),
+                         "docs(adr): migrate epic ADRs to docs/adr")
+        self.assertEqual(out["commit"], self.git("rev-parse", "HEAD").strip())
+        # no collision: moved, Epic line added, exact path reference rewritten
+        cache = self.read("docs/adr/0004-cache.md")
+        self.assertIn("- **Epic:** E001", cache)
+        self.assertIn("docs/adr/0004-cache.md", self.read(self.s1))
+        # collision: docs/adr keeps 0003; the epic ADR gets a fresh number (disk max 4 -> 5)
+        auth = self.read("docs/adr/0005-auth.md")
+        self.assertTrue(auth.startswith("# ADR-0005: auth"))
+        self.assertIn("ADR-0005", self.read(self.s1))           # inside epic-001: rewritten
+        self.assertIn("ADR-0003", self.read(self.s2))           # elsewhere: left alone...
+        self.assertIn(self.s2, {r["file"] for r in out["review"]})   # ...and listed
+        self.assertFalse(os.path.exists(self.path(f"{IMPL}/epic-001/arch/adr-0003-auth.md")))
+        tracked = self.git("ls-files", "docs/adr").split()
+        self.assertEqual(sorted(tracked), ["docs/adr/0003-stack.md", "docs/adr/0004-cache.md",
+                                           "docs/adr/0005-auth.md"])
+        self.assertEqual(self.git("status", "--porcelain", "--",
+                                  "docs", f"{IMPL}/epic-001", f"{IMPL}/epic-002").strip(), "")
+
+    def test_nothing_to_move(self):
+        self.git("rm", "-q", "-r", f"{IMPL}/epic-001/arch")
+        self.git("commit", "-q", "-m", "no legacy")
+        out = self.run_json("--apply")
+        self.assertEqual((out["moves"], out["commit"]), ([], None))
+
+    def test_register_lag_is_reported(self):
+        with open(os.path.join(self.state, "adr-register.yaml"), "w", encoding="utf-8") as fh:
+            fh.write("next: 2\nreserved: []\n")
+        reg = self.run_json("--plan")["register"]
+        self.assertEqual(reg, {"next": 2, "highest_on_disk": 4, "lagging": True})
+
+
 if __name__ == "__main__":
     unittest.main()
