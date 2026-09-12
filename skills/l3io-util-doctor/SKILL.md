@@ -1,6 +1,6 @@
 ---
 name: l3io-util-doctor
-description: Migration and housekeeping utilities for BMad artifacts and l3io-pm state. Use when the user needs to migrate a legacy state layout (flat sprint-status.yaml, or legacy per-epic _bmad/state/) to the current sharded state tree, bootstrap sharded state nodes from existing story .md artifact files (for projects whose stories were created via bmad-create-story without going through l3io-pm-plan), reorganize legacy flat artifact outputs into the structured epic/sprint folder layout, harvest deferred-shortcut code markers into the issues backlog, validate zero-padded naming in the state tree, review the issues backlog or a plan-aware progress dashboard, triage the backlog (audit it and resolve findings that are already fixed), or update AI system instruction files to describe the current state layout. Also carries older legacy-only bridging modes (migrate-schema, split-status, reconcile-status) for repos that have not yet migrated. Run without arguments for an auto-diagnostic that scans project state and proposes the right actions.
+description: Migration and housekeeping utilities for BMad artifacts and l3io-pm state. Use when the user needs to migrate a legacy state layout (flat sprint-status.yaml, or legacy per-epic _bmad/state/) to the current sharded state tree, bootstrap sharded state nodes from existing story .md artifact files (for projects whose stories were created via bmad-create-story without going through l3io-pm-plan), reorganize legacy flat artifact outputs into the structured epic/sprint folder layout, harvest deferred-shortcut code markers into the issues backlog, validate zero-padded naming in the state tree, review the issues backlog or a plan-aware progress dashboard, triage the backlog (audit it and resolve findings that are already fixed), move ADRs from the old per-epic home to docs/adr/, or update AI system instruction files to describe the current state layout. Also carries older legacy-only bridging modes (migrate-schema, split-status, reconcile-status) for repos that have not yet migrated. Run without arguments for an auto-diagnostic that scans project state and proposes the right actions.
 ---
 
 # l3io-util-doctor — Project State Diagnostics & Utilities
@@ -31,6 +31,7 @@ Modes (pass as argument to skip directly to that mode):
 - **`layout-cleanup`:** Runs only the artifact layout reorganization (the original default behavior) — reorganizes flat artifact outputs into the structured epic/sprint folder hierarchy, reconciles references, verifies state consistency.
 - **`redrive`:** Rebuilds the `scope` and `fix` calibration components from the story nodes on disk — repairs samples poisoned by a fixed defect where `fix_iterations` was once stored as a string and misclassified as `backout` instead of `exact`. Backs up the calibration file first (only if no backup already exists); `closure`, `orchestration`, and `token_mix` are untouched. Safe to run repeatedly — it derives fresh from the same nodes each time.
 - **`triage`:** Audits the issues backlog — integrity (`audit-issues`), mechanical evidence (`scripts/audit-backlog.py`), and an optional agent review — and resolves what is already fixed, with evidence, only on confirmation.
+- **`migrate-adrs`:** Moves ADRs from the old per-epic home (`{implementation_artifacts}/epic-*/arch/`) to `{project-root}/docs/adr/`, renumbering a colliding one only inside its own epic's artifacts; plans first, confirms, commits once.
 
 **Source & external sync**
 - **`harvest-debt`:** Greps the whole source tree for `bmad-defer:` deferred-shortcut markers (the comment crumbs developers and dev subagents leave when they take an intentional simplification) and harvests them into the consolidated `backlog:` list so deferrals do not rot into "later means never." Language-generic — recognizes the comment syntax of every common language. Re-runnable: dedupes against already-harvested markers. Report-only by default; backlog merge is confirmed. Respects `harvest_exclude_dirs` in the `l3io-util` config section for additional exclusions beyond the built-in list.
@@ -52,8 +53,8 @@ Modes (pass as argument to skip directly to that mode):
 
 **Load exactly one mode file.** Every mode below lives in its own file under `steps/`, and
 only the one the argument selects is ever loaded. That is the point of the layout: this skill
-carries seventeen procedures and a run needs one, so inlining them all charged every
-invocation for sixteen it would not execute. Read this file, match the keyword, load that
+carries eighteen procedures and a run needs one, so inlining them all charged every
+invocation for seventeen it would not execute. Read this file, match the keyword, load that
 one file, and follow it.
 
 **Recognized keywords** — if the user's argument exactly matches any of these, load that
@@ -74,6 +75,7 @@ file and follow it:
 | `sort-status` | `steps/sort-status.md` |  |
 | `redrive` | `steps/redrive.md` | rebuild calibration `scope`/`fix` from story nodes |
 | `triage` | `steps/triage.md` | audit the backlog and resolve findings already fixed — confirms every write |
+| `migrate-adrs` | `steps/migrate-adrs.md` | move ADRs from the old per-epic home to `docs/adr/` — confirms before writing |
 | `rename-active` | `steps/rename-active.md` |  |
 | `rename-epic-dirs` | `steps/rename-epic-dirs.md` |  |
 | `update-ai-rules` | `steps/update-ai-rules.md` |  |
@@ -110,6 +112,7 @@ One-time migrations (run in this order)
                      that makes a legacy project usable by the PM skills again
   bootstrap-state    Create sharded state nodes from existing story .md artifact files
                      (for projects using bmad-create-story without l3io-pm-plan)
+  migrate-adrs       Move ADRs from epic-*/arch/ to docs/adr/, the one ADR home
 
 Ongoing maintenance (safe to repeat)
   normalize          Reconcile then sort all status files in one pass
@@ -190,6 +193,10 @@ normal — that is the common case, not a problem. Failure here is BLOCKED.
 
 Bind `{pm_status}` = `{project-root}/_bmad/scripts/pm-status.py` for use in all mode files
 below.
+
+Bind `{spec_align}` = `uv run {skill-root}/scripts/spec-align.py --project-root {project-root} --planning-root {planning_artifacts} --impl-root {implementation_artifacts} --state-root {pm_state_root} --pm-status {pm_status}`
+for health Checks 15–19, triage's spec pass and `migrate-adrs`. It passes no `--spec-paths`,
+so it checks the spec set the project's spec index recorded (pm-execute's `spec_paths`).
 
 **Current vs. legacy-only modes.** The sharded state tree under `{pm_state_root}` is the
 layout the PM skills read and write today; they hard-block on anything else. Three modes

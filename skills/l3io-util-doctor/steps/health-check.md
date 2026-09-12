@@ -6,12 +6,12 @@ The default mode — runs when no recognized keyword is passed, or when `check`/
 
 Load config same as described above under On Activation.
 
-### Step HC2 — Scan (14 checks, read-only)
+### Step HC2 — Scan (19 checks, read-only)
 
 Run all checks. They change no project files, with one exception: a check that runs
 `pm-status.py` (Check 13) takes its locks when an issue file exists, and taking a lock may
 create that lock file and `{pm_state_root}/.gitignore` (the `*.lock` rule `pm-status.py`
-maintains).
+maintains). Checks 15–19 run `{spec_align}` in its read-only modes, which write nothing.
 
 **Check 1 — Status file naming**
 Does `{implementation_artifacts}/sprint-status-active.yaml` exist?
@@ -216,6 +216,65 @@ pathspec `*` also matches `/`, so the pattern reaches sidecars at any depth.
   Check 14's result and skip the check: neither flag it nor mark it ✓
 - None listed, no `{pm_state_root}` yet, or not a git work tree → ✓
 
+**Check 15 — ADR home and register**
+Run only if `{implementation_artifacts}` exists.
+
+```bash
+{spec_align} migrate-adrs --plan
+```
+
+- `moves` non-empty → flag `migrate-adrs` · Priority: **Medium** · note the count, and how
+  many are a `collision`
+- `register.lagging` is true → report
+  `adr-register next {next} ≤ highest ADR on disk {highest_on_disk}`. This is report only:
+  the next `adr-reserve` corrects it by itself
+- otherwise → ✓
+
+**Check 16 — Spec pointers**
+Run only if `{implementation_artifacts}/spec/spec-index.md` exists, meaning the project has
+run spec alignment.
+
+```bash
+{spec_align} check-pointers --all
+```
+
+- exit 1 → report every broken pointer it printed on stderr. This is report only: fix the
+  story's `Spec:` line, or let story prep re-enrich it
+- exit 0 → ✓, noting its pre-provenance count
+
+**Check 17 — ADR links**
+
+```bash
+{spec_align} check-links
+```
+
+- exit 1 → report each ADR it names. This is report only: the next epic closure's spec sync
+  links it
+- exit 0 → ✓
+
+**Check 18 — Unconfirmed spec changes that have been built upon**
+Run only if `{project-root}` is a git work tree (`git -C {project-root} rev-parse --is-inside-work-tree`
+prints `true`).
+
+```bash
+{spec_align} check-stale
+```
+
+- exit 1 → flag `triage` · Priority: **Medium**. Its spec pass confirms or rejects them;
+  each later commit on the same file makes a clean revert less likely
+- exit 0 → ✓
+
+**Check 19 — Spec index freshness**
+Run only if the index exists.
+
+```bash
+{spec_align} build --check
+```
+
+- exit 1 → report `spec index is stale`. This is report only: the next pm-execute run
+  rebuilds it, or `{spec_align} build` rebuilds it now
+- exit 0 → ✓
+
 ### Step HC3 — Report findings
 
 Print the health check table. Use ✓ for passing checks, ⚠ for flagged items:
@@ -240,6 +299,11 @@ State/artifact drift            ⚠ 2 orphaned key(s)             — (report on
 Calibration provenance           ⚠ 4 poisoned sample(s)         redrive
 Backlog integrity & audit       ⚠ 1 integrity, 4 candidate(s)  triage
 Tracked lock files              ⚠ 3 *.lock tracked in git      untrack-locks
+ADR home & register             ⚠ 2 ADR(s) in epic-*/arch/     migrate-adrs
+Spec pointers                   ⚠ 1 broken pointer             — (report only)
+ADR links                       ⚠ 1 unlinked departure         — (report only)
+Unconfirmed spec changes        ⚠ 1 built upon                 triage
+Spec index freshness            ✓ Fresh                        —
 ================================================================
 ```
 
@@ -294,11 +358,12 @@ Run each approved action in this fixed priority sequence (skip any that were not
 8. `layout-cleanup`
 9. `sort-status`
 10. `harvest-debt`
-11. `triage`
-12. `update-ai-rules`
-13. `redrive`
-14. `untrack-locks`
-15. `clean-legacy`
+11. `migrate-adrs`
+12. `triage`
+13. `update-ai-rules`
+14. `redrive`
+15. `untrack-locks`
+16. `clean-legacy`
 
 `bootstrap-state` runs after `migrate-state` because migrate-state may have created the sharded
 tree that bootstrap-state then augments with story nodes from the artifact tree. `redrive` must
@@ -309,6 +374,10 @@ samples from the most fully-corrected tree available. It runs before `clean-lega
 because that step is the fixed final tidy-up; nothing about `redrive` depends on backup files
 still being present.
 
+`migrate-adrs` runs before `triage` so that ADR paths a backlog item cites are already the new
+ones when triage reads them. It keeps its own plan and confirmation (Step MA2), like `triage`
+does, because it commits.
+
 Before each action, print a separator header:
 ```
 ─── Running: {action-name} ──────────────────────────────────
@@ -317,6 +386,8 @@ Before each action, print a separator header:
 Each action runs its full mode implementation from its own section. **Suppress the per-mode confirmation prompts** — the user already confirmed in HC5; proceed as if they answered yes at each mode's own confirm step. The per-mode dry-run output and verify steps still run and are shown.
 
 **`triage` keeps its own confirmations here.** The rule above does not apply to it: every triage action resolves or rewrites backlog items, which the HC5 yes did not see item by item. It runs right after `harvest-debt`, so markers harvested in the same run are audited too.
+
+**`migrate-adrs` keeps its own confirmation too** — it moves files and commits.
 
 **`untrack-locks` (Check 14) has no mode file — run it here, inline.** First make sure
 `{pm_state_root}/.gitignore` contains a `*.lock` line: create the file with that line if it is
