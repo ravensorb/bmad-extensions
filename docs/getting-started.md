@@ -345,6 +345,12 @@ To split a legacy single `sprint-status.yaml` into the active/backlog/archived t
 
 If a PM skill detects a legacy `sprint-status.yaml`, it halts and tells you to run `/l3io-util-doctor migrate-state` — it never splits it automatically.
 
+> **`split-status` alone is not enough.** The three-file layout it produces is still a legacy
+> shape that the PM skills cannot read. It exists only so `reconcile-status` can tidy a messy
+> flat file before `migrate-state` consumes it — so always follow it with `migrate-state`, or
+> let the health check sequence the whole migration for you. See
+> [Upgrading](upgrading.md) for the full ordered sequence.
+
 To sweep the source tree for `bmad-defer:` deferred-shortcut markers and harvest them into the backlog (report-only until you confirm the merge):
 
 ```
