@@ -71,9 +71,15 @@ six-dimension technical-AC layout, the `## Files in scope` rules, spec provenanc
 read-scope rule, `{agent_contract}`, and the batching policy. The skill name's only load-bearing
 use is the `--agent` label on `pm-status.py dispatch` events.
 
-Therefore: replace the two spawns with plain subagents under stable in-package identities,
-carrying the **same prompts unchanged**, and migrate only the two sites that consume real BMad
-behavior.
+**The honest limit of that claim:** it describes what we *send*, not proof the skill contributes
+nothing. Where the skill exists, its own `SKILL.md` loads alongside our prompt, so removing the
+invocation would remove whatever that added. That is unmeasured, so this design does not rely on
+it being nothing.
+
+Therefore: keep invoking the BMad skill wherever it is installed, and fall back to a general
+subagent carrying the **same prompt unchanged** only where it is absent (§4.1). Migrate the
+reviewer and readiness sites the same tolerant way. A working install keeps working; a clean
+v6.12.0 install starts working.
 
 This preserves token discipline (no added subagents, no nested fix loop), keeps `pm-status.py`
 the sole writer of story frontmatter, and removes shim dependence entirely.
@@ -82,17 +88,34 @@ the sole writer of story frontmatter, and removes shim dependence entirely.
 
 | Dead name | Becomes | Mechanism |
 |---|---|---|
-| `bmad-create-story` | plain subagent, `--agent l3io-story-enrich` | prompts unchanged |
-| `bmad-dev-story` | plain subagent, `--agent l3io-dev-implement` | prompts unchanged |
-| `bmad-review-adversarial-general` | `bmad-review` with `lenses=adversarial` | real migration |
-| `bmad-check-implementation-readiness` | `bmad-sprint-planning` with `intent=readiness` | real migration |
-| `bmad-ux-review` | `bmad-ux` (Reviewer Gate), presence-gated | real migration |
+| `bmad-create-story` | itself when installed, else a general subagent as `l3io-story-enrich` | name-tolerant (§4.1) |
+| `bmad-dev-story` | itself when installed, else a general subagent as `l3io-dev-implement` | name-tolerant (§4.1) |
+| `bmad-review-adversarial-general` | `bmad-review lenses=adversarial`, else itself | name-tolerant (§4.1) |
+| `bmad-check-implementation-readiness` | `bmad-sprint-planning intent=readiness`, else itself | name-tolerant (§4.1) |
+| `bmad-ux-review` | `bmad-ux` Reviewer Gate, else itself | name-tolerant (§4.1) |
 | `bmad-agent-architect` | unchanged — it exists | probe path only (§5) |
+| `bmad-architect` | `bmad-architecture` | `l3io-arch` customization-overlay target |
 
-**Mechanism for the two replaced spawns:** dispatch a general subagent with no skill invocation,
-keeping the existing prompt body verbatim. The only edits are the skill name in the "Spawn ..."
-directive and the `--agent` label on the `pm-status.py dispatch` bracket. No `bmad-*` name
-remains in either dispatch.
+`bmad-architect` is a fourth stale name, found by dry-running check 17's scope: the install ships
+`bmad-agent-architect` (the agent) and `bmad-architecture` (the workflow), but no
+`bmad-architect`. It appears only as a `bmad-customize` overlay target in the `l3io-arch` module.
+The overlay's own text — "Before finalizing any architecture or technology decision" — identifies
+the workflow, so the replacement is `bmad-architecture`. `bmad-agent-architect` is a separate
+concern: the arch gate detects it as a *reviewer* (§5).
+
+### 4.1 Name tolerance — the binding rule
+
+**No migration is a switch.** Every site resolves its skill by preferred name first, falls back
+to the pre-6.12 name when that is the one installed, and only then degrades. A project running
+today on an older BMad must behave **identically** after this change; the only behavior that
+changes is on installs where the preferred name is what exists, or where neither does.
+
+For the two dev-loop spawns, degrading means dispatching a general subagent with the existing
+prompt body **verbatim**, under `--agent l3io-story-enrich` / `l3io-dev-implement`. When the BMad
+skill is present it is still invoked, and the `--agent` label keeps its current value so
+`usage --agent` continuity is preserved on working installs.
+
+This supersedes any reading of §3 as "always use a plain subagent."
 
 Sites to change:
 
@@ -104,6 +127,14 @@ Sites to change:
 - `steps/closure/sprint-closure.md` — lines 43, 67 (adversarial), 121, 123–124 (ux)
 - `metrics-contract.md` — line 650 (attribution table)
 - `status-files.md` — line 94
+- `skills/l3io-arch-review/module.yaml` — lines 10, 18; `skills/l3io-arch-review/SKILL.md` — line
+  87; `skills/l3io-arch-review/assets/customize-architect.md` — line 12 (`bmad-architect`) and
+  **line 21** (`## Overlay for bmad-create-story`)
+- The four `l3io-pm-*/module.yaml` files — `post-install-notes` lines 13, 15, 17 in each of
+  `l3io-pm-execute`, `l3io-pm-plan`, `l3io-pm-help`, `l3io-pm-sync`
+- Doctor's **historical** mentions, which describe legacy projects accurately and are therefore
+  kept, not reworded: `skills/l3io-util-doctor/SKILL.md:3,25,84,114` and
+  `skills/l3io-util-doctor/assets/migrate-state.md:122` (see §7.2's allowance)
 
 **Calibration is unaffected.** `set-actual` keys samples by classification and level, never by
 agent name, so `pm-calibration.yaml` ratios carry over intact. Only `usage --agent
@@ -125,6 +156,20 @@ ls {project-root}/.claude/skills/<name>/SKILL.md 2>/dev/null \
 ```
 
 Applies to `steps/execute/step-04-arch-gate.md:34,35` and `steps/closure/sprint-closure.md:123`.
+
+### 5.1 The canonical resolver
+
+Every name-tolerant site (§4.1) uses this one shape — preferred name, then fallback, across both
+layouts and both roots. Bind the first hit; an empty result means absent.
+
+```bash
+for n in <preferred-name> <fallback-name>; do
+  ls {project-root}/.claude/skills/$n/SKILL.md 2>/dev/null \
+    || ls {project-root}/.claude/commands/$n.md 2>/dev/null \
+    || ls ~/.claude/skills/$n/SKILL.md 2>/dev/null \
+    || ls ~/.claude/commands/$n.md 2>/dev/null
+done | head -1
+```
 
 `steps/plan/step-02-readiness-check.md:83`'s probe is **removed, not fixed**: the skill it tests
 for no longer exists, and its replacement `bmad-sprint-planning` ships in the default install, so
@@ -198,14 +243,38 @@ dependency to a deliberately zero-dependency package costs more than the checker
       "invoked_as": "intent=readiness" },
     { "name": "bmad-ux", "status": "optional", "module": "bmm" },
     { "name": "bmad-create-story", "status": "removed", "removed_in": "6.12.0",
-      "replaced_by": "l3io-story-enrich (in-package subagent)" }
+      "replaced_by": "l3io-story-enrich (in-package subagent)" },
+    { "name": "bmad-defer", "status": "not-a-skill",
+      "reason": "deferred-shortcut marker `bmad-defer:`, swept by harvest-debt" }
   ]
 }
 ```
 
-Fields: `name` (required); `status` one of `required` | `optional` | `removed`; `module` required
-when status is `required`/`optional`; `replaced_by` and `removed_in` required when status is
-`removed`; `invoked_as` optional.
+The example above is illustrative. The inventory must be **complete**, or check 17 fails on its
+first run. The full set, from the dry run cross-checked against the 29 skills a default v6.12.0
+install provides:
+
+- `required` (referenced and present): `bmad-code-review`, `bmad-retrospective`,
+  `bmad-qa-generate-e2e-tests`, `bmad-review`, `bmad-sprint-planning`, `bmad-architecture`
+- `optional` (referenced, present, every use self-skips when absent): `bmad-agent-architect`,
+  `bmad-ux`, `bmad-help`, `bmad-customize`, `bmad-brainstorming`, `bmad-forge-idea`,
+  `bmad-create-epics-and-stories`
+- `removed`: `bmad-create-story`, `bmad-dev-story`, `bmad-review-adversarial-general`,
+  `bmad-ux-review`, `bmad-check-implementation-readiness`, `bmad-architect`
+- `not-a-skill`: `bmad-output`, `bmad-defer`, `bmad-l3io-extensions`
+
+Fields: `name` (required); `status` one of `required` | `optional` | `removed` | `not-a-skill`;
+`module` required when status is `required`/`optional`; `replaced_by` and `removed_in` required
+when status is `removed`; `reason` required when status is `not-a-skill`; `invoked_as` optional;
+`fallback` optional — the pre-6.12 name this entry resolves to when the preferred name is absent,
+which is what makes §4.1's tolerance declared data rather than scattered prose.
+
+`not-a-skill` exists because a dry run of check 17's scope found three `bmad-`-prefixed tokens
+that are not skills: `bmad-output` (matched inside `_bmad-output`, the `output_folder` default),
+`bmad-defer` (the deferred-shortcut marker `bmad-defer:` that `harvest-debt` sweeps for), and
+`bmad-l3io-extensions` (this package's own name). Declaring them here rather than hiding an
+exclusion list inside the script keeps the inventory the single source of truth — a hidden list
+would rot silently, which is the failure mode this guard exists to prevent.
 
 ### 7.2 Level 1 — CI, `check:docs` check 17 (`bmad-dependency-inventory`)
 
@@ -215,13 +284,30 @@ Two scopes, both **derived by walking, never enumerated by hand**:
    generator (`scripts/check-docs.mjs:176`, which already skips `superpowers` directories).
    `.py` files are out of scope — dependency declarations live in the prose that dispatches
    agents.
+
+   The token pattern is `/(?<![\w-])bmad-[a-z0-9-]+/g`. The lookbehind is load-bearing: without
+   it, `_bmad-output` yields a spurious `bmad-output`. Tokens whose inventory status is
+   `not-a-skill` are then skipped.
 2. Every `bmad-*` token in each `skills/*/module.yaml` `post-install-notes`.
 
 Assertions:
 
 - Every token found in either scope is declared in the inventory.
-- No token in either scope names a skill whose status is `removed`. This is the regression guard:
-  a step file naming a dead skill fails CI.
+- No token in either scope names a skill whose status is `removed`, **except** where the
+  mention is self-evidently historical: the **same line** also names that entry's `replaced_by`,
+  or contains `legacy` or `historical`. A note is recorded (`notes.push`, as check 1 does) and
+  the mention is allowed. This is the regression guard: a step file dispatching a dead skill
+  fails CI, while prose accurately describing a legacy project passes.
+
+  **Deliberately tighter than check 1**, which widens to a ±4-line window matching
+  `/renam|deprecat|remov|previously|no longer|.../i`. Dry-run against this repo, that window
+  passes `l3io-util-doctor/SKILL.md:84` only because an unrelated routing row four lines away
+  says "remove migration backup files" — an accidental pass, which is how a guard starts crying
+  wolf and gets switched off. Same-line evidence cannot be satisfied by a neighbour.
+
+  Cost of the tighter rule: the five historical mentions in §4's site list need the word
+  `legacy` added (e.g. `SKILL.md:84` → "(legacy `bmad-create-story` workflow)"). That is a
+  one-word edit per line and it makes each claim self-documenting.
 - Inventory self-consistency: required fields present for each `status`, no duplicate `name`.
 
 Raises the check count from sixteen to **seventeen** (CLAUDE.md and the script header).
@@ -262,13 +348,23 @@ standalone mode, deliberately not a health-check numbered check, so that count s
 
 ## 8. Documentation and configuration truth
 
-- Six `module.yaml` `post-install-notes` — replace the required-skills list; keep `--modules bmm`
-  (verified correct against `docs/start/install-bmad.md:105`); state that `bmad-ux` is optional.
+- The **four** `l3io-pm-*/module.yaml` `post-install-notes` (`l3io-pm-execute`, `l3io-pm-plan`,
+  `l3io-pm-help`, `l3io-pm-sync`, each at lines 13/15/17) — restate the dependency list in
+  tolerance terms: name the preferred skill and note that an older install resolves to the
+  pre-6.12 name automatically. Keep `--modules bmm` (verified against
+  `docs/start/install-bmad.md:105`). Do **not** assert a minimum BMad version.
+- `skills/l3io-arch-review/module.yaml:10,18` — `bmad-architect` → `bmad-architecture`.
 - `docs/l3io-pm-reference.md:898,919` — the `bmad-check-implementation-readiness` rows.
 - `docs/l3io-util-reference.md` — the new `check-deps` mode row.
 - `CLAUDE.md` — the Dependencies section; "sixteen checks" → "seventeen"; mode count → twenty.
-- `docs/getting-started.md` and `README.md` — note that BMad ≥6.12.0 installs to
-  `.claude/skills/`, and that no `--shims` flag is needed.
+- The four **docs/** sites naming `bmad-architect`, which check 17 does not scan but users read:
+  `docs/l3io-arch-reference.md:9,96`, `docs/architecture.md:57`, `docs/getting-started.md:136`.
+- The five doctor historical mentions gain the word `legacy` so §7.2's same-line rule is
+  satisfied without weakening it: `skills/l3io-util-doctor/SKILL.md:3,25,84,114` and
+  `skills/l3io-util-doctor/assets/migrate-state.md:122`.
+- `docs/getting-started.md` and `README.md` — state that BMad ≥6.12.0 installs skills to
+  `.claude/skills/` and needs no `--shims` flag, **and** that older installs keep working
+  unchanged. This is information, not a version floor.
 
 ## 9. Rejected: adopting `bmad-build-auto`
 
@@ -311,12 +407,23 @@ runtime guard, because prose dependency lists drifted undetected through three B
 **Check 17** — `node:test` cases in `scripts/tests/check-docs.test.mjs`:
 
 1. a step file naming an undeclared `bmad-*` skill fails
-2. a step file naming a `removed` skill fails
+2. a step file **dispatching** a `removed` skill, with no same-line evidence, fails
 3. a `module.yaml` `post-install-notes` naming an undeclared skill fails
 4. an inventory entry missing a required field for its status fails
 5. a duplicate `name` in the inventory fails
 6. **scope attack** — a new skill directory with a new step file naming an undeclared skill fails
 7. negative case — a valid inventory with valid references passes (exit 0)
+8. a `removed` skill named on a line that **also names its `replaced_by`** is allowed, and
+   records a note
+9. a `removed` skill named on a line containing `legacy` is allowed, and records a note
+10. **the divergence from check 1** — a `removed` skill whose only explanatory word (`removed`,
+    `renamed`, …) sits four lines away **still fails**. This is the accidental pass that check
+    1's ±4-line window admits; without this case the tighter rule is untested and will erode
+    back to the loose one.
+11. `_bmad-output` yields **no** token — proves the `(?<![\w-])` lookbehind
+12. `bmad-defer` and `bmad-l3io-extensions` are skipped via their `not-a-skill` status
+13. an entry with `status: not-a-skill` and no `reason` fails
+14. an entry carrying `fallback` validates; a `fallback` naming an undeclared skill fails
 
 **`bmad-deps.py`** — `unittest` driven through the real CLI via `subprocess`, real temp
 directories, and the private-`TMPDIR` leak-guard block used by the other Python suites:
@@ -329,6 +436,18 @@ directories, and the private-`TMPDIR` leak-guard block used by the other Python 
 6. `manifest.yaml` absent → exit 4
 7. malformed inventory → exit 2
 8. `--format json` emits the documented shape
+
+The tolerance guarantee (§4.1) is the point of this migration, so it gets its own cases. Without
+these, "a working install keeps working" is an assertion, not a tested property:
+
+9. **preferred absent, `fallback` present** → exit 0, and the output names the fallback as the
+   resolved skill
+10. **both present** → exit 0, and the output resolves to the *preferred* name
+11. **both absent, status `required`** → exit 3
+12. **both absent, status `optional`** → exit 0 with a warning
+13. a fixture tree holding only pre-6.12 names resolves **every** site via `fallback` — this is
+    the executable form of §12's acceptance criterion 2
+14. a `removed` skill found on disk is reported as a shim in use
 
 Each guard needs a non-hollow proof: revert the guard, confirm the test fails.
 
@@ -344,5 +463,10 @@ Step files are shared sources, so after editing: `npm run sync:scripts`, then
 `node scripts/write-payload-manifest.mjs`. Then all five gates must pass: `check:scripts`,
 `check:docs`, `check:manifest`, `check:version`, `test:scripts`, plus the Python suites.
 
-Acceptance: a clean `npx bmad-method install --yes --modules bmm --tools claude-code` followed by
-`/l3io-util-doctor check-deps` reports every required dependency present and no shim in use.
+Acceptance, both halves required:
+
+1. A clean `npx bmad-method install --yes --modules bmm --tools claude-code` followed by
+   `/l3io-util-doctor check-deps` reports every required dependency present and no shim in use.
+2. **An install carrying the pre-6.12 skill names still resolves every site to those names**, so
+   a project working today is behaviorally unchanged. Verified by running `check-deps` against a
+   fixture tree holding the old names and confirming each resolves via `fallback`.
