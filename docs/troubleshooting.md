@@ -121,7 +121,7 @@ The readiness check found blocking issues. They are listed in
 ### `artifact-only stories detected`
 
 Story markdown files exist without matching state nodes — normal for projects whose stories were
-created with `bmad-create-story` outside this package. Run
+created with the legacy `bmad-create-story` outside this package. Run
 `/l3io-util-doctor bootstrap-state` once. It is idempotent: existing correct nodes are skipped.
 
 ### `dependency graph has errors`

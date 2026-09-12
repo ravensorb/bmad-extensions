@@ -126,7 +126,7 @@ you asking:
 | Before any sprint of an epic | `l3io-arch-review` Mode B over the whole epic's design | CODE or MIXED work | The gate skips entirely — it never partially skips |
 | Story preparation | The six-dimension technical-AC check | Always enforced | Falls back to a built-in checklist |
 | Per story | Core dev, code review, fix loop | Always | — |
-| Sprint closure | Retrospective, drift review (`l3io-arch-review`), security review (`l3io-sec-redteam`), UX review (`bmad-ux-review`) | Code-bearing work; UX only for UI-facing stories | Each phase skips gracefully |
+| Sprint closure | Retrospective, drift review (`l3io-arch-review`), security review (`l3io-sec-redteam`), UX review (legacy `bmad-ux-review`, else `bmad-ux`) | Code-bearing work; UX only for UI-facing stories | Each phase skips gracefully |
 | Epic closure | All of the above at epic scope, plus issue triage and the closure report | Code-bearing work | Skips gracefully |
 
 The consequence: installing `l3io-arch` and `l3io-sec` does not add steps you have to remember.
@@ -189,9 +189,16 @@ authoritative. See [Upgrading](upgrading.md) for the ordered sequence and the ro
 | `l3io-arch` | Optional | The epic architecture gate skips; the story technical-AC gate falls back to a built-in checklist; drift reviews lose their reviewer |
 | `l3io-sec` | Optional | Closure runs without a security review |
 
-From core BMad, these must be present: `bmad-create-story`, `bmad-dev-story`,
-`bmad-code-review`, `bmad-qa-generate-e2e-tests`, `bmad-retrospective`,
-`bmad-review-adversarial-general`. `bmad-ux-review` is optional and its phases skip gracefully.
+From core BMad and the official `bmm` module, these must be present: `bmad-code-review`,
+`bmad-qa-generate-e2e-tests`, `bmad-retrospective`, `bmad-review` (adversarial lens — the
+legacy `bmad-review-adversarial-general` is used only when it is absent), and
+`bmad-sprint-planning` (readiness gate — the legacy `bmad-check-implementation-readiness` is
+preferred when installed, because its presence is evidence `intent=readiness` may not be
+understood there). Story enrichment and implementation prefer the legacy `bmad-create-story` and
+legacy `bmad-dev-story` when installed, else this package runs its own in-package agent in their
+place, so no `--shims` flag is ever needed. UX review is optional — the legacy `bmad-ux-review`
+is preferred when installed, `bmad-ux`'s opt-in Reviewer Gate otherwise, and the phase skips
+gracefully when neither is present.
 
 ## Which skills write state
 

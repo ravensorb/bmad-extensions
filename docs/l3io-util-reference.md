@@ -51,7 +51,7 @@ Key settings (with defaults):
 | `migrate-schema` | Upgrades an existing `sprint-status.yaml` to the current field schema — adds missing fields with zero/empty defaults, never overwrites existing values. |
 | `split-status` | Splits a single `sprint-status.yaml` into the three-file layout (`sprint-status.yaml` active / `sprint-status-backlog.yaml` / `sprint-status-archived.yaml`). One-way; original preserved as `sprint-status.yaml.legacy`. |
 | `migrate-state` | Makes a legacy project usable by the PM skills again — migrates a legacy state layout (flat `sprint-status.yaml`, or legacy per-epic `_bmad/state/`) to the sharded state tree. |
-| `bootstrap-state` | Creates state nodes from story `.md` artifacts — for projects whose stories were created via `bmad-create-story` without going through `l3io-pm-plan`. |
+| `bootstrap-state` | Creates state nodes from story `.md` artifacts — for projects whose stories were created via the legacy `bmad-create-story` without going through `l3io-pm-plan`. |
 | `migrate-adrs` | Moves ADRs from the old per-epic home (`{implementation_artifacts}/epic-*/arch/`) to `{project-root}/docs/adr/`, the one ADR home (ADR-0005). Renumbers a colliding ADR only inside its own epic's artifacts. Plans first, confirms, then commits once. |
 
 ### Ongoing maintenance (safe to repeat)
