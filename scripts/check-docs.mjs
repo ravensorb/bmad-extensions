@@ -947,8 +947,13 @@ function checkAdrHome() {
   for (const rel of walkMarkdown("skills")) {
     if (ADR_OLD_HOME_ALLOWED.has(rel.split(path.sep).join("/"))) continue;
     read(rel).split("\n").forEach((line, i) => {
-      if (!ADR_OLD_HOME.test(line)) return;
-      if (/\b(old home|old per-epic home|legacy|migrat)/i.test(line)) return;
+      const m = ADR_OLD_HOME.exec(line);
+      if (!m) return;
+      // The qualifier must introduce the path ("the old per-epic home, `epic-*/arch/adr-*`"),
+      // not merely appear somewhere on it ("read `epic-*/arch/adr-*.md` for legacy reasons").
+      // Look only at the text before the match, and not across a sentence break.
+      const before = line.slice(0, m.index);
+      if (/\b(old home|old per-epic home|legacy|migrat\w*)\b[^.]{0,60}$/i.test(before)) return;
       offenders.push(`${rel}:${i + 1}: ${line.trim()}`);
     });
   }

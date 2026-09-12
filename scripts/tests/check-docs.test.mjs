@@ -240,3 +240,20 @@ test("check 14: naming the old home as legacy, and the gate review file, pass", 
   const r = run(root);
   assert.equal(r.status, 0, r.stderr + r.stdout);
 });
+
+test("check 14: a qualifier word appended after the path does not exempt it", (t) => {
+  const root = fixture(t);
+  write(root, "skills/_shared/steps/brand-new-dir/bypass.md",
+        "Write it to `{implementation_artifacts}/epic-001/arch/adr-0001-x.md` for legacy reasons.\n");
+  const r = run(root);
+  assert.equal(r.status, 1);
+  assert.match(r.stderr, /bypass\.md:1: .*arch\/adr-0001-x\.md/);
+});
+
+test("check 14: a qualifier that introduces the path still exempts it", (t) => {
+  const root = fixture(t);
+  write(root, "skills/_shared/steps/brand-new-dir/prose.md",
+        "See the old per-epic home (`epic-*/arch/adr-*`) for background.\n");
+  const r = run(root);
+  assert.equal(r.status, 0, r.stderr + r.stdout);
+});
