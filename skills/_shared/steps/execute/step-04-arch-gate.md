@@ -48,6 +48,8 @@ Bind `{story_file_paths}` = full list of story markdown files across all sprints
 stories' `Spec:` pointers into line ranges. Neither step calls a model, and `build --if-stale`
 rewrites nothing when the specs are unchanged:
 
+Skip this block entirely when `{spec_alignment}` is `false`.
+
 ```bash
 {spec_align} build --if-stale
 {spec_align} sections --stories {story_file_paths}

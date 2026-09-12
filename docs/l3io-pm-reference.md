@@ -339,7 +339,7 @@ Epic directories are 3-digit zero-padded, sprints 2-digit. Zero-padding makes le
 | `{implementation_artifacts}/epic-{nnn}/sprint-{nn}/stories/{story-key}.md` | Story markdown |
 | `{implementation_artifacts}/epic-{nnn}/sprint-{nn}/closure/` | Sprint closure outputs |
 | `{implementation_artifacts}/epic-{nnn}/sprint-{nn}/tests/` | Sprint-scoped QA evidence |
-| `{implementation_artifacts}/epic-{nnn}/arch/` | ADRs from the architecture gate |
+| `{implementation_artifacts}/epic-{nnn}/arch/` | Arch-gate review output (`arch-gate-review.md`); ADRs live in `{project-root}/docs/adr/` (ADR-0005) |
 | `{implementation_artifacts}/epic-{nnn}/epic-closure/` | Epic closure outputs |
 | `{implementation_artifacts}/epic-{nnn}/tests/` | Epic-scoped fix verification |
 | `{planning_artifacts}/plan-{date}-v{n}.yaml` | Plan snapshot |
