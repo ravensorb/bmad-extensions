@@ -1433,15 +1433,32 @@ def cmd_migrate_adrs(ctx, a):
     if _git(ctx, "rev-parse", "--is-inside-work-tree", check=False).stdout.strip() != "true":
         raise SAError(2, "migrate-adrs --apply needs a git work tree")
     docs_dir = os.path.join(ctx.project, "docs", "adr")
+    md_files = sorted(set(glob.glob(os.path.join(ctx.impl, "**", "*.md"), recursive=True)))
     # Pre-flight: refuse if any path this run would touch already has uncommitted changes.
     # A previous --apply that stopped partway (adr-reserve, git mv, or the process itself
     # failing) leaves the tree mutated with nothing committed; a rerun's _migration_plan no
     # longer sees the already-moved files (they left epic-*/arch/), so it would quietly plan
     # less work over stray state instead of surfacing it. This is what stops that compounding.
+    # The loop below can rewrite a *.md file in ANY epic (an exact path reference to the
+    # moved ADR, or -- when renumbering -- a bare ADR-NNNN mention inside the moving ADR's own
+    # epic tree), not only files under the source epic-*/arch/ or its own tree, so those
+    # matching files are checked individually rather than assumed clean.
     check_paths = {ctx.rel(docs_dir)}
     for mv in plan["moves"]:
+        nnn, old, slug = mv["epic"][1:], mv["number"], mv["slug"]
         check_paths.add(os.path.dirname(mv["from"]))                       # its epic-*/arch/
-        check_paths.add(f"{ctx.rel(ctx.impl)}/epic-{mv['epic'][1:]}")       # the epic tree
+        check_paths.add(f"{ctx.rel(ctx.impl)}/epic-{nnn}")                  # its own epic tree
+        path_re = re.compile(rf"[\w./-]*epic-{nnn}/arch/adr-{old:04d}-{re.escape(slug)}\.md")
+        for f in md_files:
+            if os.path.isfile(f) and path_re.search(read_text(f)):
+                check_paths.add(ctx.rel(f))                                # any file naming it
+        if mv["collision"]:
+            num_re = re.compile(rf"\bADR-{old:04d}\b")
+            epic_tree = os.path.join(ctx.impl, f"epic-{nnn}")
+            for f in md_files:
+                if (os.path.isfile(f) and _under(f, epic_tree)
+                        and num_re.search(read_text(f))):
+                    check_paths.add(ctx.rel(f))                            # renumber target
     dirty = _git(ctx, "status", "--porcelain", "--", *sorted(check_paths), check=False).stdout
     if dirty.strip():
         raise SAError(2, "migrate-adrs --apply refuses: uncommitted changes already sit under "
@@ -1450,7 +1467,6 @@ def cmd_migrate_adrs(ctx, a):
                          f"repo-wide discard; other agents share this checkout), then retry:\n"
                          f"{dirty}")
     os.makedirs(docs_dir, exist_ok=True)
-    md_files = sorted(set(glob.glob(os.path.join(ctx.impl, "**", "*.md"), recursive=True)))
     other_docs = sorted(glob.glob(os.path.join(ctx.project, "docs", "**", "*.md"),
                                   recursive=True))
     commit_paths, rewritten, touched = [], set(), []
@@ -1510,29 +1526,32 @@ def cmd_migrate_adrs(ctx, a):
                         if num_re.search(line):
                             plan["review"].append({"file": ctx.rel(f), "line": i,
                                                    "text": line.strip()})
+        rewritten_committed, rewritten_uncommitted = [], []
+        for rel in sorted(rewritten):
+            if _git(ctx, "ls-files", "--error-unmatch", "--", rel, check=False).returncode == 0:
+                commit_paths.append(rel)
+                rewritten_committed.append(rel)
+            else:
+                sys.stderr.write(f"WARN {rel} was rewritten but is not tracked; not committed\n")
+                rewritten_uncommitted.append(rel)
+        plan["rewritten"] = rewritten_committed
+        plan["rewritten_uncommitted"] = rewritten_uncommitted
+        plan["commit"] = git_commit(ctx, "docs(adr): migrate epic ADRs to docs/adr",
+                                    list(dict.fromkeys(commit_paths)))
     except Exception as e:
         # No automatic rollback: undoing renames and text substitutions across a repo is more
         # dangerous than the problem, and the pre-flight refusal above is what stops a rerun
         # from compounding this. Fail loud instead, naming exactly what this run already
-        # touched so a person can inspect and commit or revert those paths by hand.
+        # touched so a person can inspect and commit or revert those paths by hand. The commit
+        # itself is inside this guard too: a commit-time failure (a rejecting hook, or the
+        # index lock exhausted after retries) happens once every file is already moved and
+        # rewritten -- exactly the state this message exists to describe.
         code = e.code if isinstance(e, SAError) else 2
         detail = ", ".join(dict.fromkeys(touched)) or "(nothing written yet)"
         raise SAError(code, f"{e} -- migrate-adrs --apply failed partway; paths already moved "
                              f"or rewritten in this run: {detail}. Inspect them and either "
                              f"commit or revert exactly those paths by hand -- never a "
                              f"repo-wide discard; other agents share this checkout.") from e
-    rewritten_committed, rewritten_uncommitted = [], []
-    for rel in sorted(rewritten):
-        if _git(ctx, "ls-files", "--error-unmatch", "--", rel, check=False).returncode == 0:
-            commit_paths.append(rel)
-            rewritten_committed.append(rel)
-        else:
-            sys.stderr.write(f"WARN {rel} was rewritten but is not tracked; not committed\n")
-            rewritten_uncommitted.append(rel)
-    plan["rewritten"] = rewritten_committed
-    plan["rewritten_uncommitted"] = rewritten_uncommitted
-    plan["commit"] = git_commit(ctx, "docs(adr): migrate epic ADRs to docs/adr",
-                                list(dict.fromkeys(commit_paths)))
     print(json.dumps(plan, indent=2))
     return 0
 

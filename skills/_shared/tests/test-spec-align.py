@@ -1177,6 +1177,46 @@ class TestMigrateAdrs(Project):
         self.assertFalse(os.path.exists(self.path("docs/adr/0004-cache.md")))   # nothing moved
         self.assertEqual(self.git("status", "--porcelain"), before)             # tree unchanged
 
+    def test_apply_refuses_when_a_non_source_epic_reference_is_dirty(self):
+        # A story outside every source epic can still reference the moved ADR's old path (the
+        # loop's path_re.sub runs over every *.md under the implementation root, not just the
+        # source epics), so the pre-flight must check it individually, not assume it clean.
+        ref = f"{IMPL}/epic-003/sprint-01/stories/E003-S01-001.md"
+        self.write(ref, f"# S\n\nSee {IMPL}/epic-001/arch/adr-0004-cache.md for context.\n")
+        before = self.git("status", "--porcelain")
+        r = self.sa("migrate-adrs", "--apply")
+        self.assertEqual(r.returncode, 2)
+        self.assertIn("uncommitted", r.stderr.lower())
+        self.assertFalse(os.path.exists(self.path("docs/adr/0004-cache.md")))   # nothing moved
+        self.assertEqual(self.git("status", "--porcelain"), before)             # tree unchanged
+
+    def test_apply_reports_touched_paths_when_the_commit_fails(self):
+        # The move loop must succeed -- every ADR already moved and rewritten on disk -- with
+        # only the final commit failing (a stuck index.lock, the pattern TestCommit uses). A
+        # lock present from the start would also fail the loop's own `git mv`/`git add`, so a
+        # background watcher drops it the instant the second move's destination file appears
+        # on disk (git mv having already renamed it), leaving plenty of remaining move-loop
+        # work (the epic-line write, the md_files rewrite pass, the rewritten/commit-paths
+        # split) as headroom before the real commit attempt.
+        lock = self.path(".git/index.lock")
+        self.addCleanup(lambda: os.path.exists(lock) and os.remove(lock))
+        target = self.path("docs/adr/0004-cache.md")
+
+        def drop_lock_once_moved():
+            deadline = time.time() + 5
+            while not os.path.exists(target) and time.time() < deadline:
+                time.sleep(0.01)
+            if os.path.exists(target):
+                with open(lock, "w"):
+                    pass
+
+        threading.Thread(target=drop_lock_once_moved, daemon=True).start()
+        r = self.sa("migrate-adrs", "--apply")
+        self.assertEqual(r.returncode, 2, r.stderr)
+        self.assertIn("stayed locked", r.stderr)
+        self.assertIn("paths already moved or rewritten in this run", r.stderr)
+        self.assertIn("docs/adr/0004-cache.md", r.stderr)
+
 
 if __name__ == "__main__":
     unittest.main()
