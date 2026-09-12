@@ -89,6 +89,9 @@ were distilled from. Every token read in early is re-read on every later turn
 spend the AC gate already paid to make unnecessary. If an AC turns out **not** to carry what
 the dev needs, that is a story-prep defect: name the missing dimension and the section that
 supplied it in the completion notes, rather than widening the read for the rest of the run.
+When that dimension carries a `Spec: <path>#<anchor>` line, the section it names is the one to
+open — its line range is in `{implementation_artifacts}/spec/spec-index.md` — and nothing
+wider.
 
 **Nothing enforces this at run time** — it is prose a subagent can ignore, and no CI check can
 see what a dispatched agent chose to read. It is measurable afterwards, which is the next best

@@ -59,6 +59,21 @@ Apply the built-in checklist above. If `l3io-arch-review` is installed, also loa
 `l3io-arch-review/references/standards-core.md` (plus any overlay matching the story's stack)
 and hold the story to those standards as well.
 
+**Provenance (when `{spec_alignment}` is `true`).** Every applicable dimension must also name
+the spec section it came from. This is checked mechanically: no model is called, and a fresh
+index is not rewritten.
+
+```bash
+{spec_align} build --if-stale
+{spec_align} check-pointers --story {one {sprint_root}/stories/{story_key}.md per key in {story_keys}}
+```
+
+Bind `{spec_index_path}` = `{implementation_artifacts}/spec/spec-index.md`. Exit 0 → every
+story carries a resolving `Spec:` line on each applicable dimension. Exit 2 → every story it
+names on stderr fails this gate: a missing dimension, a missing or broken `Spec:` line, or no
+`## Technical acceptance criteria` section at all. Add those stories to `{thin_story_keys}`
+below, even if they passed the six-dimension check.
+
 **If technical ACs are missing (gate: "block" — always enforced):**
 
 Bind `{thin_story_keys}` = every story in `{story_keys}` that failed the check. If it is
@@ -89,16 +104,28 @@ span covers several.
 Two things for each story file listed below. Every file exists — the orchestrator created any
 missing one with `story-doc-init` before this spawn. Preserve all existing content.
 
-1. Enrich it with technical ACs, addressing ALL SIX dimensions, marking any that genuinely
-   do not apply as "N/A — <one-line reason>" rather than omitting them:
-   - Interface contracts
-   - Error and edge case handling
-   - Observability requirements
-   - Security considerations
-   - Testability approach
-   - Existing-library check: name the library or platform capability that covers this work,
-     or state why none does and custom code is warranted. Do not propose hand-written code
-     for a problem a maintained library already solves.
+1. Enrich it with technical ACs under exactly this layout — all six `###` headings, in this
+   order. A dimension that genuinely does not apply is a paragraph starting
+   "N/A — <one-line reason>", never an omitted heading:
+
+   ## Technical acceptance criteria
+
+   ### Interface contracts
+   ### Error and edge case handling
+   ### Observability requirements
+   ### Security considerations
+   ### Testability approach
+   ### Existing-library check
+
+   The existing-library check names the library or platform capability that covers this
+   work, or states why none does and custom code is warranted. Do not propose hand-written
+   code for a problem a maintained library already solves.
+
+   Provenance (only when spec_alignment is true): end every applicable dimension with one or
+   more `Spec: <path>#<anchor>` lines copied from the spec index at {spec_index_path} — cite
+   the section, never copy its text — or with exactly one `Spec: none — <reason>` when no
+   spec section covers it (`Spec: none — no spec docs in this project` when the index is
+   empty). Open only the index and the sections you cite.
 
 2. Write a `## Files in scope` section into the document — you are reading the project to
    do (1), so you are the cheapest place in the whole run to answer this. Repo-relative
@@ -120,6 +147,8 @@ Story files (do both for every one):
 {one {sprint_root}/stories/{story_key}.md per line, for each key in {thin_story_keys}}
 Epic goal: {epic_goal}
 work_type: {work_type}
+spec_alignment: {spec_alignment}
+Spec index: {spec_index_path}
 {agent_contract}
 ```
 
@@ -128,8 +157,10 @@ across their `actual` blocks (`references/metrics-contract.md` §6). The even sp
 approximation and is meant to be — the alternative is paying N project reads to measure a
 number that feeds calibration as a ratio, and prep cost does scale roughly with story count.
 
-After enrichment, re-check every key in `{thin_story_keys}` against all six dimensions. For
-any still carrying an unfilled applicable dimension:
+After enrichment, re-check every key in `{thin_story_keys}` against all six dimensions — and,
+when `{spec_alignment}` is `true`, rerun `{spec_align} check-pointers --story …` over those
+story files (exit 2 is a failure). For any still carrying an unfilled applicable dimension or
+a failing pointer:
 ```
 BLOCKED: story {story_key} still missing technical ACs after elaboration. Investigate manually.
 ```

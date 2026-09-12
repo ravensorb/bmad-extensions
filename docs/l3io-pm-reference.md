@@ -225,6 +225,13 @@ the story.
 faces no auth — but it has to be *stated*, because an absent dimension and an inapplicable one
 are otherwise indistinguishable.
 
+**Provenance.** With `spec_alignment` on (the default), the ACs use a fixed layout — a
+`## Technical acceptance criteria` section with one `###` heading per dimension — and each
+applicable dimension ends with `Spec: <path>#<anchor>`, a pointer into the spec index, or
+`Spec: none — <reason>`. `spec-align.py check-pointers` checks every story mechanically before
+`ready-for-dev`; a story it rejects is enriched like any thin story. The dev loop still never
+opens the spec tree: when an AC falls short, the pointer names the one section to read.
+
 Dimension 6 is paired with a **reused-before-written check** in the dev loop's code review,
 which flags hand-rolled retries, date handling, config merging, HTTP clients, parsing,
 validation and caching — normally HIGH, since a hand-rolled equivalent must be maintained
