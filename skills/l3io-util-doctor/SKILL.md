@@ -22,7 +22,7 @@ Modes (pass as argument to skip directly to that mode):
 - **`migrate-schema`:** *(legacy-only)* Upgrades an existing legacy flat `sprint-status.yaml` to the current field schema — adds missing fields with zero/empty defaults, never overwrites existing values.
 - **`split-status`:** *(legacy-only)* Splits a legacy flat `sprint-status.yaml` into the three-file `sprint-status{,-backlog,-archived}.yaml` form, partitioning every epic/sprint by status. The PM skills do **not** read these files — this is an intermediate shape that lets `reconcile-status` clean up a messy flat file before `migrate-state` consumes it. One-time; the original is preserved as `sprint-status.yaml.legacy`.
 - **`migrate-state`:** Migrates from either legacy layout (flat `sprint-status*.yaml`, or legacy per-epic `_bmad/state/`) to the sharded state tree under `{implementation_artifacts}/state/`. Preserves originals as `.legacy` files.
-- **`bootstrap-state`:** Creates sharded state YAML nodes from existing story `.md` artifact files — for projects whose stories were created via `bmad-create-story` (or another workflow) outside of `l3io-pm-plan`. Never overwrites existing state nodes (additive and safe to repeat). After bootstrap, run `/l3io-pm-plan` or `/l3io-pm-execute` normally.
+- **`bootstrap-state`:** Creates sharded state YAML nodes from existing story `.md` artifact files — for projects whose stories were created via the legacy `bmad-create-story` workflow (or another) outside of `l3io-pm-plan`. Never overwrites existing state nodes (additive and safe to repeat). After bootstrap, run `/l3io-pm-plan` or `/l3io-pm-execute` normally.
 - **`migrate-adrs`:** Moves ADRs from the old per-epic home (`{implementation_artifacts}/epic-*/arch/`) to `{project-root}/docs/adr/`, renumbering a colliding one only inside its own epic's artifacts; plans first, confirms, commits once.
 
 **Ongoing maintenance (safe to repeat)**
@@ -81,7 +81,7 @@ file and follow it:
 | `update-ai-rules` | `steps/update-ai-rules.md` |  |
 | `clean-legacy` | `steps/clean-legacy.md` | remove migration backup files |
 | `migrate-state` | `steps/migrate-state.md` | makes a legacy project usable by the PM skills again |
-| `bootstrap-state` | `steps/bootstrap-state.md` | create state nodes from story .md artifacts (bmad-create-story workflow) |
+| `bootstrap-state` | `steps/bootstrap-state.md` | create state nodes from story .md artifacts (legacy `bmad-create-story` workflow) |
 | `setup`, `configure`, `install` | `assets/module-setup.md` | then continue to `steps/health-check.md` |
 
 **Everything else** (no argument, unrecognized text, or a natural-language description) →
@@ -111,7 +111,7 @@ One-time migrations (run in this order)
   migrate-state      Migrate either legacy layout to the sharded state tree  <- the one
                      that makes a legacy project usable by the PM skills again
   bootstrap-state    Create sharded state nodes from existing story .md artifact files
-                     (for projects using bmad-create-story without l3io-pm-plan)
+                     (for projects using the legacy bmad-create-story workflow without l3io-pm-plan)
   migrate-adrs       Move ADRs from epic-*/arch/ to docs/adr/, the one ADR home
 
 Ongoing maintenance (safe to repeat)

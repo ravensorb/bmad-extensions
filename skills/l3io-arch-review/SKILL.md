@@ -84,7 +84,7 @@ unrecorded.
 
 ## Wiring into core BMad (customization)
 
-This module is also designed to be wired **into** the core `bmad-architect` and
+This module is also designed to be wired **into** the core `bmad-architecture` and
 `bmad-code-review` skills so the standards apply automatically. `assets/customize-architect.md`
 documents the `bmad-customize` overlay to author in a consuming project. Offer to set it up.
 

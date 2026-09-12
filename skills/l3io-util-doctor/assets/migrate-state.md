@@ -119,8 +119,8 @@ cross-reference normalization, Stage B onward — runs for **both** source layou
 Continue to Stage A.
 
 **Else if `ARTIFACT_STORIES` is non-empty** (`LEGACY_FLAT=0`, `LEGACY_EPIC=0`, `SHARDED=0`,
-but story `.md` artifacts exist) → this project's stories were created via `bmad-create-story`
-or another workflow that does not produce l3io-pm state YAML. `migrate-state` only migrates
+but story `.md` artifacts exist) → this project's stories were created via the legacy `bmad-create-story`
+workflow (or another) that does not produce l3io-pm state YAML. `migrate-state` only migrates
 *state* from legacy layouts; it cannot bootstrap state from story artifacts. Exit with a
 diagnostic:
 ```

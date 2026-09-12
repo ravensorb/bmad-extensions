@@ -9,7 +9,7 @@ Author these overlays **in the consuming project** (not in this extensions repo 
 skills live in the target repo). Run `/bmad-customize` and add, for each target skill, an
 instruction block equivalent to the following.
 
-## Overlay for `bmad-architect` (design + decisions)
+## Overlay for `bmad-architecture` (design + decisions)
 
 > Before finalizing any architecture or technology decision, load
 > `l3io-arch-review/references/standards-core.md` and the overlay(s) matching the project's
@@ -18,7 +18,7 @@ instruction block equivalent to the following.
 > using the l3io-arch ADR template. Produce at least a C4 context + one flow diagram (Mermaid
 > preferred). Ensure the docs skeleton covers architectural / developer / operational axes.
 
-## Overlay for `bmad-create-story` (technical acceptance criteria)
+## Overlay for the story enricher — legacy `bmad-create-story` (technical acceptance criteria)
 
 > When drafting a story's acceptance criteria, additionally load
 > `l3io-arch-review/references/standards-core.md` (plus the overlay(s) matching the story's

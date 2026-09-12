@@ -6,7 +6,7 @@ Invoked with `bootstrap-state` argument.
 
 Creates sharded state YAML nodes for stories that exist as `.md` artifact files but have no
 corresponding state YAML under `{pm_state_root}`. Intended for projects whose stories were
-created via `bmad-create-story` (or another workflow) without going through `l3io-pm-plan`
+created via the legacy `bmad-create-story` workflow (or another) without going through `l3io-pm-plan`
 — the artifacts exist and are the source of truth; this mode makes the state tree agree with
 them. The mode never overwrites an existing state YAML, so it is additive and safe to run
 on a project that already has partial state.

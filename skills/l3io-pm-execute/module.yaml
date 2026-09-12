@@ -10,12 +10,14 @@ module_greeting: >
   Use /l3io-pm-help to get a state-aware next-action recommendation.
   Use /l3io-pm-sync to mirror state to GitHub Issues.
 post-install-notes: >
-  Required BMad skills, all from the official bmm module: bmad-create-story, bmad-dev-story,
-  bmad-code-review, bmad-qa-generate-e2e-tests, bmad-retrospective,
-  bmad-review-adversarial-general. bmm is not part of core, so install it with
-  `--modules bmm` if you have not already.
-  Optional: bmad-ux-review (UX phases skip when absent), l3io-arch-review (epic architecture
-  gate and drift reviews), l3io-sec-redteam (closure security review).
+  Required BMad skills from the bmm module: bmad-code-review, bmad-qa-generate-e2e-tests,
+  bmad-retrospective, bmad-review (adversarial lens), bmad-sprint-planning (readiness gate).
+  bmm is not part of core, so install it with `--modules bmm` if you have not already.
+  Story enrichment and implementation run as in-package agents when BMad's
+  legacy bmad-create-story / bmad-dev-story skills are absent, so no shim flag is needed.
+  Optional: bmad-ux (UX phases skip when absent), l3io-arch-review (epic architecture gate
+  and drift reviews), l3io-sec-redteam (closure security review).
+  Run /l3io-util-doctor check-deps to confirm what resolved in this project.
   /l3io-pm-sync additionally needs an authenticated GitHub CLI (gh) or a configured GitHub
   MCP server.
   Requires uv on PATH: the Python helpers run via `uv run`.

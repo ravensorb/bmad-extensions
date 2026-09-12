@@ -7,7 +7,7 @@ module_greeting: >
   LiquidLogicLabs Architecture Standards module is configured!
   Use /l3io-arch-review to apply engineering standards at new-project design time, during an
   architectural review, or when recording an architecture/technology decision (ADR).
-  Wire the standards into core bmad-architect and bmad-code-review via bmad-customize —
+  Wire the standards into core bmad-architecture and bmad-code-review via bmad-customize —
   see assets/customize-architect.md.
 
 post-install-notes: >
@@ -15,7 +15,7 @@ post-install-notes: >
   Active stack overlays: python, nodejs, dotnet, github-actions.
   Coming next (currently stubs): docker, powershell, shell.
   Optional wiring: run /bmad-customize in the consuming repo to apply the standards
-  automatically inside bmad-architect and bmad-code-review.
+  automatically inside bmad-architecture and bmad-code-review.
 
 preferred_diagram_format:
   prompt: "Preferred diagram format for architecture docs (mermaid or ascii)?"
