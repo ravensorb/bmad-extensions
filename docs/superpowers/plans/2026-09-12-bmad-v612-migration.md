@@ -214,7 +214,7 @@ git commit -s -m "feat(l3io-util): declare every BMad dependency in one inventor
 Immediately before the existing `dispatch --event open` fence at line 73, add:
 
 ```markdown
-**Resolve the implementer.** BMad deprecated `bmad-dev-story` at 6.12.0; where it is installed
+**Resolve the implementer.** The legacy `bmad-dev-story` skill is gone from BMad ≥6.12.0; where it is installed
 it is still what runs, and where it is absent the prompt below is the whole instruction anyway.
 
 ```bash
@@ -224,8 +224,8 @@ ls {project-root}/.claude/skills/bmad-dev-story/SKILL.md 2>/dev/null \
   || ls ~/.claude/commands/bmad-dev-story.md 2>/dev/null
 ```
 
-If a path printed, bind `{dev_agent}` = `bmad-dev-story` and spawn that skill. If nothing
-printed, bind `{dev_agent}` = `l3io-dev-implement` and spawn a **general subagent** — no skill
+If a path printed, bind `{dev_agent}` = the legacy `bmad-dev-story` and spawn that skill. If
+nothing printed, bind `{dev_agent}` = `l3io-dev-implement` and spawn a **general subagent** — no skill
 invocation — with the identical inputs. `{dev_agent}` is the `--agent` label on every dispatch
 bracket in this step, so a working install keeps its existing `usage --agent` history.
 ```
@@ -302,8 +302,8 @@ ls {project-root}/.claude/skills/bmad-create-story/SKILL.md 2>/dev/null \
   || ls ~/.claude/commands/bmad-create-story.md 2>/dev/null
 ```
 
-A path printed → `{enrich_agent}` = `bmad-create-story`. Nothing printed → `{enrich_agent}` =
-`l3io-story-enrich`, dispatched as a general subagent. The instruction below is unchanged either
+A path printed → `{enrich_agent}` = the legacy `bmad-create-story`. Nothing printed →
+`{enrich_agent}` = `l3io-story-enrich`, dispatched as a general subagent. The instruction below is unchanged either
 way, including the batching rule: **one spawn for the whole sprint, not one per story.**
 ```
 
@@ -379,7 +379,7 @@ ls {project-root}/.claude/skills/bmad-review/SKILL.md 2>/dev/null \
 A path printed → `{adversarial_reviewer}` = `bmad-review`, invoked as
 `skill:bmad-review lenses=adversarial`, with the clean-release checklist passed as
 `also_consider` (a documented `bmad-review` input). Nothing printed → probe
-`bmad-review-adversarial-general` the same four ways and invoke it with both scopes exactly as
+the legacy `bmad-review-adversarial-general` the same four ways and invoke it with both scopes exactly as
 before. Neither present → skip the phase and say so in the phase output, so a skipped review is
 never mistaken for a passed one.
 ```
@@ -400,8 +400,8 @@ for n in bmad-ux-review bmad-ux; do
     || ls ~/.claude/commands/$n.md 2>/dev/null
 done | head -1
 ```
-Bind `{ux_reviewer}` to whichever resolved — `bmad-ux-review` preferred because it is built for
-review, `bmad-ux` used via its **Reviewer Gate** (opt-in, lens-selectable) when it is all that
+Bind `{ux_reviewer}` to whichever resolved — the legacy `bmad-ux-review` preferred because it is
+built for review, `bmad-ux` used via its **Reviewer Gate** (opt-in, lens-selectable) when it is all that
 exists. Empty result → skip the phase.
 ```
 
@@ -444,7 +444,7 @@ done | head -1
 
 Bind `{readiness_checker}` to whichever name resolved; an empty result leaves it unbound.
 
-- `{readiness_checker}` = `bmad-check-implementation-readiness` → invoke it per story with the
+- `{readiness_checker}` = the legacy `bmad-check-implementation-readiness` → invoke it per story with the
   story file path, as before.
 - `{readiness_checker}` = `bmad-sprint-planning` → invoke it once with `intent=readiness`; it runs its own
   readiness gate and returns `gate` as `PASS`, `CONCERNS`, or `FAIL`. Map `CONCERNS` → amber and
