@@ -336,16 +336,48 @@ test("check 14: a genuine new sentence after the qualifier is still caught", (t)
 });
 
 // ---- check 15 (doctor-mode-count) ----
+//
+// These three probes plant one extra (or one altered) mode on top of the REAL doctor tree,
+// so their expected numbers must be derived from that tree rather than typed as literals --
+// a literal drifts the moment a real mode is added or removed, which is exactly the class of
+// bug check 15 exists to catch in the docs it polices. See the repo rule: derive scope from
+// the source of truth, never enumerate it by hand -- applied here to the tests that police it.
+
+// Same source of truth check 15 itself counts from: .md files under doctor's steps/.
+function realModeCount(root) {
+  return fs.readdirSync(path.join(root, "skills", "l3io-util-doctor", "steps"))
+    .filter((f) => f.endsWith(".md")).length;
+}
+
+// The English number word CLAUDE.md currently states, read back rather than assumed.
+function claudeModeWord(root) {
+  const text = fs.readFileSync(path.join(root, "CLAUDE.md"), "utf8");
+  const m = text.match(/each of its ([a-z-]+) modes lives in its own `steps\/` file/);
+  return m ? m[1] : null;
+}
+
+// Local lookup, not imported from check-docs.mjs (awkward from a test file since the script
+// has no exports) -- but every use below indexes it by a count derived from the tree, never
+// by a hard-coded number.
+const NUMBER_WORDS = ["zero", "one", "two", "three", "four", "five", "six", "seven", "eight",
+  "nine", "ten", "eleven", "twelve", "thirteen", "fourteen", "fifteen", "sixteen",
+  "seventeen", "eighteen", "nineteen", "twenty", "twenty-one", "twenty-two", "twenty-three",
+  "twenty-four", "twenty-five"];
 
 test("check 15: a stated count one below the real one is caught", (t) => {
   const root = fixture(t);
+  const n = realModeCount(root);
+  const word = claudeModeWord(root);
+  assert.equal(NUMBER_WORDS.indexOf(word), n,
+    "fixture's CLAUDE.md claim should match the real steps/ count before this test mutates it");
+  const wrong = NUMBER_WORDS[n - 1];
   write(root, "CLAUDE.md",
         fs.readFileSync(path.join(root, "CLAUDE.md"), "utf8")
-          .replace("each of its nineteen modes lives in its own `steps/` file",
-                   "each of its eighteen modes lives in its own `steps/` file"));
+          .replace(`each of its ${word} modes lives in its own \`steps/\` file`,
+                   `each of its ${wrong} modes lives in its own \`steps/\` file`));
   const r = run(root);
   assert.equal(r.status, 1);
-  assert.match(r.stderr, /CLAUDE\.md: says "eighteen" modes, but the doctor has 19 mode\(s\)/);
+  assert.match(r.stderr, new RegExp(`CLAUDE\\.md: says "${wrong}" modes, but the doctor has ${n} mode\\(s\\)`));
 });
 
 test("check 15: the correct count passes", (t) => {
@@ -356,6 +388,10 @@ test("check 15: the correct count passes", (t) => {
 
 test("check 15 scope attack: a new steps file plus its routing row, prose unchanged, is caught", (t) => {
   const root = fixture(t);
+  const n = realModeCount(root);
+  const word = claudeModeWord(root);
+  assert.equal(NUMBER_WORDS.indexOf(word), n,
+    "fixture's CLAUDE.md claim should match the real steps/ count before this test mutates it");
   write(root, "skills/l3io-util-doctor/steps/zzz-extra-mode.md", "# Extra mode\n");
   const rel = "skills/l3io-util-doctor/SKILL.md";
   const text = fs.readFileSync(path.join(root, rel), "utf8");
@@ -365,15 +401,17 @@ test("check 15 scope attack: a new steps file plus its routing row, prose unchan
       "| `zzz-extra` | `steps/zzz-extra-mode.md` | test-only extra mode |"));
   const r = run(root);
   assert.equal(r.status, 1);
-  assert.match(r.stderr, /says "nineteen" modes, but the doctor has 20 mode\(s\)/);
+  assert.match(r.stderr, new RegExp(`says "${word}" modes, but the doctor has ${n + 1} mode\\(s\\)`));
 });
 
 test("check 15: a steps file with no routing row trips the derivations-disagree branch", (t) => {
   const root = fixture(t);
+  const n = realModeCount(root);
   write(root, "skills/l3io-util-doctor/steps/zzz-orphan-mode.md", "# Orphan mode\n");
   const r = run(root);
   assert.equal(r.status, 1);
-  assert.match(r.stderr, /mode count derivations disagree — 20 steps\/ file\(s\), 19 routing row\(s\), 19 file\(s\) referenced/);
+  assert.match(r.stderr, new RegExp(
+    `mode count derivations disagree — ${n + 1} steps\\/ file\\(s\\), ${n} routing row\\(s\\), ${n} file\\(s\\) referenced`));
 });
 
 // ---- check 17 (bmad-dependency-inventory) ----
