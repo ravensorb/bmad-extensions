@@ -57,7 +57,7 @@ The skill auto-detects the stack in scope and loads the matching overlay on top 
 
 ### Mode A — Design guardrails (new project)
 
-Walk `standards-core.md` §1–10 plus each loaded overlay as a design checklist. Produce a boundaries/architecture sketch (C4 context + at least one flow diagram), the initial ADR set for every load-bearing call, a `/docs` skeleton across the architectural / developer / operational axes, and a dependency policy note.
+Walk `standards-core.md` §1–10 plus each loaded overlay as a design checklist. Produce a boundaries/architecture sketch (C4 context + at least one flow diagram), the initial ADR set for every load-bearing call (numbered and placed as in Mode C), a `/docs` skeleton across the architectural / developer / operational axes, and a dependency policy note.
 
 ### Mode B — Review
 
@@ -65,7 +65,19 @@ Audit the target against every principle. Each finding names **severity · princ
 
 ### Mode C — Decision support
 
-Identify the principle(s) in tension, weigh options against them, recommend, and record an ADR (`assets/adr-template.md`).
+Identify the principle(s) in tension, weigh options against them, recommend, and record an ADR (`assets/adr-template.md`) at `{project-root}/docs/adr/NNNN-slug.md` — the one ADR home.
+
+**Numbering.** When `{project-root}/_bmad/scripts/pm-status.py` is present, take the number from the l3io-pm register rather than choosing one:
+
+```bash
+python3 {project-root}/_bmad/scripts/pm-status.py adr-reserve \
+  --state-root {implementation_artifacts}/state --epic n/a --slug {slug} \
+  --adr-dir {project-root}/docs/adr
+```
+
+A directory listing shows who has finished, not who is in flight, so parallel writers that derive a number from one will collide. Without l3io-pm there is no register: use the highest number in `docs/adr/` plus one, which is safe only for the single-writer case that implies, and `adr-reserve` skips those numbers later.
+
+Fill `Epic:` (`n/a` outside an epic) and `Departs from spec:` with the `path#anchor` of the spec section the decision departs from, or `n/a`.
 
 Invocation shortcuts: `/l3io-arch-review design|review|decision [--stack python|nodejs|dotnet|github-actions]`.
 
@@ -89,4 +101,4 @@ The overlays point at the standards files rather than duplicating them, keeping 
 ## Artifacts Produced
 
 - **Review** → severity-graded findings report at `implementation_artifacts`.
-- **Design / Decision** → ADRs under `{project-root}/docs/adr/` (from `assets/adr-template.md`) and a docs skeleton.
+- **Design / Decision** → ADRs under `{project-root}/docs/adr/` — the one ADR home — from `assets/adr-template.md`, numbered by `adr-reserve` when l3io-pm is installed (see Mode C), plus a docs skeleton.

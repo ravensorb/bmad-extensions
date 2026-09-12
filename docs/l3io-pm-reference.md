@@ -79,6 +79,8 @@ Scalars override; arrays append. The root key is `[workflow]` for all four PM sk
 |-----|---------|-------------|
 | `max_parallel_subagents` | `4` | Maximum epics dispatched concurrently within a parallel plan phase |
 | `epic_lock_ttl_minutes` | `30` | TTL on the epic ownership lock; stale locks can be reclaimed |
+| `spec_alignment` | `true` | Spec↔implementation alignment. The spec index reaches the epic architecture gate and the drift reviews, every applicable technical-AC dimension must end with a resolving `Spec: <path>#<anchor>` line, and epic closure runs spec sync. `false` disables all of it |
+| `spec_paths` | `[]` | Project-root-relative paths or globs that **replace** spec discovery. `[]` discovers every spec under `{planning_artifacts}` by name and kind |
 
 **`l3io-pm-plan`:**
 
