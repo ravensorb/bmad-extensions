@@ -23,8 +23,8 @@
 //   8. digest-size   the activation digest stays inside its byte budget
 //   9. authoring-paths no runtime directive tells an agent to read skills/_shared/ (not
 //                    installed) instead of the installed references/assets/steps path
-//  10. cli-docstring pm-status.py's own module docstring names every subcommand the
-//                    parser defines
+//  10. cli-docstring pm-status.py's and spec-align.py's own module docstrings name every
+//                    subcommand each parser defines
 //  11. append-issue-pointer every append-issue invocation in skills/ (logical lines, `\`-
 //                    continued lines joined, fenced or not) passes --source and --description
 //  12. pm-status-size skills/_shared/pm-status.py stays within the 8,000-line limit
@@ -750,38 +750,67 @@ function checkAuthoringPathDirectives() {
 // compared the script's OWN docstring against itself. Six subcommands (dispatch,
 // estimate-rollup, estimate-story, rates, sync-story-doc, usage) existed in the parser
 // but were never added there, so the signature reference a reader opens first was
-// missing a quarter of the CLI surface. Reuses cliSubcommands() — the parser stays the
-// only source of truth — rather than a hand-kept list, so a future subcommand is caught
-// automatically instead of silently sitting outside this check's view.
+// missing a quarter of the CLI surface. Reuses cliSubcommands()/specAlignSubcommands() —
+// the parser stays the only source of truth — rather than a hand-kept list, so a future
+// subcommand is caught automatically instead of silently sitting outside this check's view.
+//
+// Runs once per script (pm-status.py, spec-align.py): each names its subcommands in its own
+// module docstring, but in a different shape, so each gets its own matcher below --
+// checkCliDocstringFor() is the one shared piece: look the subcommand set up, report what's
+// missing, same message shape either way.
 // ---------------------------------------------------------------------------
-function pmStatusDocstring() {
-  const src = read(PM_STATUS);
+function scriptDocstring(path) {
+  const src = read(path);
   const m = src.match(/"""([\s\S]*?)"""/);
   return m ? m[1] : "";
 }
 
-function checkCliDocstring() {
-  const real = cliSubcommands();
-  const doc = pmStatusDocstring();
+// pm-status.py lists one subcommand per line, each starting the line (after only
+// indentation) with the bare name, e.g. "  verify        --state-root S ...". Anchoring to
+// line-start is what keeps a prose mention elsewhere in the docstring from masking a
+// genuinely removed entry: pm-status.py's own "Why this exists" section says "`verify` is a
+// hard read-back gate" well before the formal list, but that line's first non-whitespace
+// character is "*", not "verify", so it never matches.
+function pmStatusHasSubcommand(doc, name) {
+  const escaped = name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  return new RegExp(`(^|\\n)[ \\t]*${escaped}\\b`).test(doc);
+}
+
+// spec-align.py instead names every subcommand inline, in one run-on "Subcommands: a, b,
+// c." sentence -- pm-status.py's line-start anchor would only ever match that sentence's
+// first name. Isolate the sentence first (spec-align.py's own "Exit codes" paragraph
+// mentions "lease" too, so matching the whole docstring could mask a removed entry the same
+// way), then a plain word-boundary match inside just that sentence is safe.
+function specAlignHasSubcommand(doc, name) {
+  const m = doc.match(/Subcommands:[\s\S]*?\n[ \t]*\n/);
+  const section = m ? m[0] : doc;
+  const escaped = name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  return new RegExp(`\\b${escaped}\\b`).test(section);
+}
+
+function checkCliDocstringFor(path, subcommands, hasSubcommand) {
+  const doc = scriptDocstring(path);
   if (!doc) {
-    failures.push(`${PM_STATUS}: no module docstring found — has it moved or been removed?`);
+    failures.push(`${path}: no module docstring found — has it moved or been removed?`);
     return;
   }
-  const missing = [...real].filter((name) => {
-    const escaped = name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-    return !new RegExp(`(^|\\n)[ \\t]*${escaped}\\b`).test(doc);
-  });
+  const missing = [...subcommands].filter((name) => !hasSubcommand(doc, name));
   if (missing.length) {
     failures.push(
-      `${PM_STATUS}: module docstring's Subcommands list is missing ${missing.length} ` +
+      `${path}: module docstring's Subcommands list is missing ${missing.length} ` +
         `subcommand(s) the parser defines: ${missing.sort().join(", ")}\n` +
         `      Add a Subcommands entry for each, matching the existing terse style — ` +
         `real flags, required vs optional, a parenthetical note for non-obvious behaviour.`,
     );
   }
   if (verbose) {
-    console.log(`  cli-docstring:  ${real.size} subcommand(s) checked against the module docstring`);
+    console.log(`  cli-docstring:  ${subcommands.size} subcommand(s) checked against ${path}'s module docstring`);
   }
+}
+
+function checkCliDocstring() {
+  checkCliDocstringFor(PM_STATUS, cliSubcommands(), pmStatusHasSubcommand);
+  checkCliDocstringFor(SPEC_ALIGN, specAlignSubcommands(), specAlignHasSubcommand);
 }
 
 // ---------------------------------------------------------------------------

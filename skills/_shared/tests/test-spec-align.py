@@ -267,6 +267,38 @@ class TestBuild(Project):
         self.assertEqual(r.returncode, 2)
         self.assertIn("--spec-paths", r.stderr)
 
+    def test_empty_and_whitespace_spec_paths_behave_like_an_empty_list_but_malformed_still_fails(self):
+        # An orchestrator that renders "no override" as an empty string rather than the
+        # documented `[]`/`[...]` JSON must not turn every build/check-pointers into a hard
+        # failure -- empty or whitespace-only means "no override, discover normally", exactly
+        # like an explicit `[]`. The leniency this adds must not spill over into genuinely
+        # malformed input, which still has to exit 2.
+        self.write(ARCH_REL, ARCH)
+
+        def build_with(spec_paths):
+            return subprocess.run(
+                [sys.executable, SCRIPT, "--project-root", self.root, "--planning-root",
+                 self.planning, "--impl-root", self.impl, "--spec-paths", spec_paths, "build"],
+                capture_output=True, text=True)
+
+        r_list = build_with("[]")
+        self.assertEqual(r_list.returncode, 0, r_list.stderr)
+        idx_from_list = self.index()
+        self.assertIn(ARCH_REL, idx_from_list)
+        self.assertEqual(idx_from_list.splitlines()[2], "# spec-paths: []")
+
+        r_empty = build_with("")
+        self.assertEqual(r_empty.returncode, 0, r_empty.stderr)
+        self.assertEqual(self.index(), idx_from_list)
+
+        r_whitespace = build_with("   \t  ")
+        self.assertEqual(r_whitespace.returncode, 0, r_whitespace.stderr)
+        self.assertEqual(self.index(), idx_from_list)
+
+        r_bad = build_with("not-json")
+        self.assertEqual(r_bad.returncode, 2)
+        self.assertIn("--spec-paths", r_bad.stderr)
+
     def test_index_never_indexes_itself(self):
         self.write(f"_bmad-output/architecture.md", ARCH)
         parent = os.path.join(self.root, "_bmad-output")
@@ -982,6 +1014,71 @@ class TestCommit(SyncBase):
         self.assertEqual(r.returncode, 2)
         self.assertIn("architecture specs only", r.stderr)
         self.assertIn("0004-agents-edit-architecture-specs.md", r.stderr)
+
+    def test_a_failed_append_issue_after_commit_prints_a_runnable_recovery_command(self):
+        # The docs(spec) commit lands, but the backlog write that follows it fails: the
+        # disposition already records the SHA (record_item writes `commit` before
+        # append_spec_issue runs), so a rerun cannot re-drive this the way a fresh `commit`
+        # normally would -- the printed recovery command is the only way back. Mirrors
+        # test_a_failed_refile_after_resolve_prints_a_runnable_recovery_command's mechanism
+        # (a wrapper that forwards every subcommand to the real pm-status.py except
+        # append-issue), but goes one step further: that sibling test only parses the
+        # printed argv, this one actually executes it and confirms it files the item.
+        #
+        # The wrapper disables append-issue only on its first attempt (a marker file records
+        # that the attempt happened) so the identical recovery command, rerun unmodified
+        # against the same wrapper, reaches the real pm-status.py the second time -- the
+        # way rerunning the exact printed command against a since-fixed environment would.
+        marker = self.path("append-issue-attempted")
+        wrapper = self.write("fake-pm-status.py", f"""#!/usr/bin/env python3
+import os, subprocess, sys
+if "append-issue" in sys.argv[1:] and not os.path.exists({marker!r}):
+    open({marker!r}, "w").close()
+    sys.stderr.write("append-issue disabled by test wrapper (first attempt only)\\n")
+    sys.exit(2)
+sys.exit(subprocess.run([sys.executable, {PM!r}, *sys.argv[1:]]).returncode)
+""")
+        os.chmod(wrapper, 0o755)
+        self.edit("POST /orders accepts a body.", "POST /orders accepts a body; returns 201.")
+        r = self.sa("commit", "--epic", "E003", "--finding", "AD-1", "--paths", ARCH_REL,
+                    pm_status=wrapper)
+        self.assertEqual(r.returncode, 2)
+        sha = self.head()
+        self.assertIn(f"commit {sha} already landed and is recorded on AD-1's disposition",
+                      r.stderr)
+        self.assertIn("finish recording the backlog issue by hand:", r.stderr)
+        self.assertIn(wrapper, r.stderr)
+        # the commit is already recorded on the disposition; the item is not -- a rerun of
+        # `commit` cannot re-drive this the normal way (mirrors
+        # test_a_committed_findings_disposition_cannot_change's proof that a disposition
+        # is frozen once applied).
+        d = self.disp()["findings"]["AD-1"]
+        self.assertEqual(d["commit"], sha)
+        self.assertIsNone(d.get("issue"))
+        r2 = self.sa("disposition", "--review", self.review, "--finding", "AD-1",
+                    "--disposition", "resolved-in-code")
+        self.assertEqual(r2.returncode, 2)
+        self.assertIn("already applied", r2.stderr)
+        cmd = r.stderr.strip().rsplit("hand: ", 1)[1]
+        argv = shlex.split(cmd)
+        self.assertEqual(argv[0], wrapper)
+        self.assertEqual(argv[1], "append-issue")
+        self.assertEqual(argv[argv.index("--sprint") + 1], "")
+        self.assertEqual(argv[argv.index("--ref") + 1], sha)
+        self.assertEqual(argv[argv.index("--title") + 1],
+                         "Spec change: Orders bypass the repository")
+        self.assertEqual(argv[argv.index("--source") + 1], "spec-sync (AD-1)")
+        # Execute the printed recovery command for real, unmodified. The marker means the
+        # wrapper's outage was a one-time thing, so this run reaches the real pm-status.py
+        # and must genuinely file the backlog item -- not merely look plausible.
+        rr = subprocess.run(argv, capture_output=True, text=True,
+                            env={**os.environ, **GIT_ENV})
+        self.assertEqual(rr.returncode, 0, rr.stderr)
+        [it] = self.issues("spec-change")
+        self.assertEqual(it["ref"], sha)
+        self.assertEqual(it["title"], "Spec change: Orders bypass the repository")
+        self.assertEqual(it["source"], "spec-sync (AD-1)")
+        self.assertEqual(it["severity"], "Medium")
 
 
 class TestRejectAndStale(SyncBase):

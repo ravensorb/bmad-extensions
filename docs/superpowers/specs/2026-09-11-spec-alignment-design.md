@@ -275,7 +275,7 @@ names, and records that in its completion notes as it does today.
 **Sprint drift review** (`sprint-closure.md` §6):
 - **Inputs.** The reviewer gets the index path plus the `sections --stories` ranges for this
   sprint's stories.
-- **Finding IDs.** Its findings table uses the IDs `SD-{n}`.
+- **Finding IDs.** Its findings table uses the IDs `SD-{nn}-{n}`.
 - **Extra reading.** A diff hunk with no covering pointer allows one extra section, picked
   from the index.
 - **The `Sections read:` footer** lists every range the reviewer opened.

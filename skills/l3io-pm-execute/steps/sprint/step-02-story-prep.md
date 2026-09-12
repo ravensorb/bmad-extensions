@@ -30,10 +30,10 @@ Check the story against **every** dimension below. This is not an any-one-of che
 | # | Dimension | Satisfied when the story states… |
 |---|---|---|
 | 1 | Interface contracts | API signatures, data models, events the story adds or changes |
-| 2 | Error and edge cases | what fails, how it fails, and what the caller sees |
-| 3 | Observability | the logging, metrics or tracing the change must emit |
-| 4 | Security | auth, validation, and how data is handled |
-| 5 | Testability | test entry points and mock boundaries |
+| 2 | Error and edge case handling | what fails, how it fails, and what the caller sees |
+| 3 | Observability requirements | the logging, metrics or tracing the change must emit |
+| 4 | Security considerations | auth, validation, and how data is handled |
+| 5 | Testability approach | test entry points and mock boundaries |
 | 6 | **Existing-library check** | which library or platform capability covers this, or why none does and custom code is warranted |
 
 **Every dimension is either satisfied or explicitly marked not-applicable with a one-line

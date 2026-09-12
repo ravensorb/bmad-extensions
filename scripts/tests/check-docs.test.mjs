@@ -184,6 +184,21 @@ test("check 4: spec-align names in backticks are not read as pm-status subcomman
   assert.equal(r.status, 0, r.stderr + r.stdout);
 });
 
+test("check 10: a spec-align.py subcommand missing from its own docstring is caught", (t) => {
+  const root = fixture(t);
+  const rel = "skills/_shared/spec-align.py";
+  const text = fs.readFileSync(path.join(root, rel), "utf8");
+  write(root, rel, text.replace(
+    'sub = p.add_subparsers(dest="cmd", required=True)',
+    'sub = p.add_subparsers(dest="cmd", required=True)\n\n'
+      + '    fr = sub.add_parser("frobnicate", help="not in the docstring")\n'
+      + '    fr.set_defaults(func=cmd_build)',
+  ));
+  const r = run(root);
+  assert.equal(r.status, 1);
+  assert.match(r.stderr, /spec-align\.py: module docstring's Subcommands list is missing 1 subcommand\(s\).*frobnicate/s);
+});
+
 test("check 13: a pattern added to layout-cleanup alone is caught", (t) => {
   const root = fixture(t);
   const rel = "skills/l3io-util-doctor/steps/layout-cleanup.md";

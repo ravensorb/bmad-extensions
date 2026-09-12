@@ -14,7 +14,7 @@
     "steps/execute/step-04-arch-gate.md": "92b788f6718f04070717f88e73d13c48c92af89d2c8c3a2ce6e95ad44a9c3f49",
     "steps/execute/step-05-epic-loop.md": "d195f9a3058dff9851bbbc95c942a9775b0e1c4dc9b6caa8e806576399b4238f",
     "steps/execute/step-06-epic-closure.md": "53d3f8ceff83ca0403e49d1e52a8a50926524b6e979319511d80d6a674aa1f71",
-    "steps/sprint/step-02-story-prep.md": "f3e6ca6452eda4daf9b0f6173f409b584540151a8ea5ffae7e819df29bd4dfbf",
+    "steps/sprint/step-02-story-prep.md": "0799e69580d65e8b1a3da6818a8f85f1a2b9e53daba357cdc2ac57c0bd9fdfad",
     "steps/sprint/step-03-dev-loop.md": "61c90230325135da5f40f3ea6d61201108684b313db2756c808782821efa2870",
     "steps/sprint/step-04-sprint-closure.md": "dd6d8061f5a635b254fa5d2791baee678d61e850674b1120f93ab044461afa60",
     "steps/closure/sprint-closure.md": "94fc6b89f03a18a840c57cdde6da53e4b7cb763b00cd913e98f482b0c5278efc",
@@ -23,6 +23,6 @@
     "references/status-files.md": "049056d402143e032a91ca929aaec606a250670cd57e8b11f6b9706fb140769c",
     "references/metrics-contract.md": "f27fc344da23c3e19e74c80ec90bf27941382eb377fe5b5de3c30537c6bfb25a",
     "references/calibration-model.md": "63b15a5c4552d6be78d90ec886ff0a1d581af9440bcff3b87b12ef1e1d01af0f",
-    "scripts/spec-align.py": "3b25461bf7f7bb504e07808be607e987d4af5437ad4b461e1c1feabd2c0976f8"
+    "scripts/spec-align.py": "54e660827d75571f4757d74375cf5a48591bf39167359cc6def06aa82792ab9e"
   }
 }

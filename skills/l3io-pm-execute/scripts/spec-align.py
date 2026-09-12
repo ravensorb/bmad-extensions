@@ -81,10 +81,13 @@ class Ctx:
         self.pm_status = a.pm_status or None
         self.spec_paths_arg = None
         if a.spec_paths is not None:
-            try:
-                value = json.loads(a.spec_paths)
-            except ValueError as e:
-                raise SAError(2, f"--spec-paths is not JSON: {e}")
+            if not a.spec_paths.strip():
+                value = []
+            else:
+                try:
+                    value = json.loads(a.spec_paths)
+                except ValueError as e:
+                    raise SAError(2, f"--spec-paths is not JSON: {e}")
             if not isinstance(value, list) or not all(isinstance(x, str) for x in value):
                 raise SAError(2, "--spec-paths must be a JSON list of strings")
             self.spec_paths_arg = value
