@@ -131,9 +131,42 @@ HIGH: fix. LOW/MEDIUM: defer. Output path: `{sprint_root}/closure/ux-review.md`.
 
 If `l3io-arch-review` is installed: invoke Mode B (architectural review) on this sprint's
 stories and **diff**, plus the ADRs and standard sections they bear on, by path — not the
-repository (see §2–3). Output path: `{sprint_root}/closure/arch-drift-review.md`.
-BLOCKER/MAJOR: resolve before marking sprint done, or record an accepted ADR that justifies
-leaving it. MINOR: defer to issues file (as `--severity Low` — see §7).
+repository (see §2–3). List the epic's ADRs with `{spec_align} adrs --epic {epic_key}`. Output
+path: `{sprint_root}/closure/arch-drift-review.md`. Its findings table follows
+`references/review-report.md`, with each ID in the `#` column as `SD-{nn}-{n}`, where `{nn}` is
+this sprint's two-digit number (the `sprint-{nn}` in `{sprint_root}`) — for example `SD-02-3`.
+
+When `{spec_alignment}` is `true`, also pass the spec index and the ranges this sprint's
+pointers name:
+
+```bash
+{spec_align} build --if-stale
+{spec_align} sections --stories {sprint_root}/stories/*.md
+```
+
+The reviewer opens only those ranges, plus one section picked from
+`{implementation_artifacts}/spec/spec-index.md` for a diff hunk no pointer covers, and ends
+with a `Sections read:` footer listing every range it opened.
+
+Record a disposition for every BLOCKER and MAJOR finding (a MINOR may have one too), then gate
+on them against the reviewer's final `Blocker: N, Major: N, Minor: N` line:
+
+```bash
+{spec_align} disposition --review {sprint_root}/closure/arch-drift-review.md \
+  --finding {finding_id} --disposition {disposition} [--spec {path#anchor}] [--adr {adr path}] \
+  --spec-alignment {spec_alignment}
+{spec_align} check-dispositions --review {sprint_root}/closure/arch-drift-review.md \
+  --expect "{the reviewer's Blocker/Major/Minor line}"
+```
+
+BLOCKER/MAJOR are resolved before the sprint is marked done. Each one is either:
+- fixed in code (`resolved-in-code`);
+- justified by an accepted ADR (`adr-justified`); or
+- when `{spec_alignment}` is `true`, carried to epic closure as a spec edit (`spec-updated`,
+  architecture sections only) or as a proposal (`spec-proposal`).
+
+A `check-dispositions` exit 2 blocks the sprint. MINOR: defer to the issues file (as
+`--severity Low` — see §7).
 
 ## 7. Issue triage
 

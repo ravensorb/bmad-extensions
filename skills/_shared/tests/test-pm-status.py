@@ -8850,6 +8850,7 @@ class TestLockFilesIgnored(IssueBase):
         rel = [os.path.relpath(p, self.d) for p in locks + decoys]
         planning = os.path.join(self.d, "planning")
         for p in (os.path.join(self.arts, "epic-001", "stories", f"{self.STORY}.md"),
+                  os.path.join(self.arts, "spec", "spec-index.md"),
                   os.path.join(planning, "plan.md")):              # the git add's other paths
             os.makedirs(os.path.dirname(p))
             open(p, "w").close()

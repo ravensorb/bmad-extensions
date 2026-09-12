@@ -284,15 +284,19 @@ Outputs go to `{sprint_root}/closure/` — `retrospective.md` and `closure-repor
 
 Closure also regenerates `{implementation_artifacts}/progress-report.md`, and renders a progress tree when the phase holds a single epic.
 
-Closure ends with a commit checkpoint that stages `state/` and the sprint's artifacts. It first untracks any `*.lock` file an earlier run committed under `state/`, leaving the files on disk. `pm-status.py`'s lock files are never committed: it keeps `*.lock` in `state/.gitignore`.
+Its architectural-drift phase gives every finding an ID (`SD-{nn}-{n}`), records a disposition for each BLOCKER/MAJOR, and gates on `spec-align.py check-dispositions`; with `spec_alignment` on it also receives the spec index and the ranges the stories' `Spec:` pointers name.
+
+Closure ends with a commit checkpoint that stages `state/`, the sprint's artifacts and `spec/`. It first untracks any `*.lock` file an earlier run committed under `state/`, leaving the files on disk. `pm-status.py`'s lock files are never committed: it keeps `*.lock` in `state/.gitignore`.
 
 ### Epic closure (step-06)
 
 1. **Retrospective** — reviews every sprint retro for the epic; summarizes velocity, recurring pain points, and up to five learnings
-2. **Architectural drift** — `l3io-arch-review` Mode B over the epic's ADRs and story files. CODE/MIXED only, and only when installed. BLOCKER/MAJOR must resolve before closure — or be recorded as an accepted ADR — under the `{max_fix_iterations}` cap (3); MINOR defers to the issues file
+2. **Architectural drift** — `l3io-arch-review` Mode B over the epic's ADRs (`spec-align.py adrs`), story files and cumulative diff, plus the spec index and pointed-to ranges when `spec_alignment` is on. CODE/MIXED only, and only when installed. Every BLOCKER/MAJOR gets a disposition — `resolved-in-code` (fix loop, `{max_fix_iterations}` cap, 3), `adr-justified`, `spec-updated` or `spec-proposal` — gated by `spec-align.py check-dispositions`; MINOR defers to the issues file
+2a. **Spec sync** — when `spec_alignment` is on and `spec-align.py sync-plan` finds pending items: one `l3io-spec-sync` agent under a spec-edit lease writes each accepted architecture departure back as its own `docs(spec)` commit (a scope guard keeps it inside the section; an anchor guard protects story pointers) and writes proposals for PRD/UX/epic changes; each becomes a `spec-change` or `spec-proposal` backlog item, confirmed or rejected in `/l3io-util-doctor triage`. An empty plan dispatches nothing.
 3. **Epic security review** — `l3io-sec-redteam` over the epic's cumulative diff, story files, and ADRs, with explicit permission to widen for surface mapping. CODE/MIXED only, and only when installed. Uses redteam's own vocabulary (CRITICAL/HIGH/MEDIUM/LOW/OBSERVATION); CRITICAL/HIGH/MEDIUM must resolve before closure, under the `{max_fix_iterations}` cap — 3
 4. **Issue triage** — re-reviews the epic's deferred Low items for promotion now that full epic context exists
-5. **Closure report** — epic goal and final status, estimate-vs-actual for all five metrics, sprint velocity, learnings, outstanding issues, ADRs produced
+5. **Closure report** — epic goal and final status, estimate-vs-actual for all five metrics, sprint velocity, learnings, outstanding issues, ADRs produced, and a Spec changes section (dispositions, commits, proposals, index size, sections read, spec sync's token share against the 5% budget)
+6. **Commit checkpoint** — stages `state/`, the epic's artifacts, `spec/` and planning artifacts, and commits `chore({epic_key}): close epic`
 
 Outputs go to `{implementation_artifacts}/epic-{nnn}/epic-closure/`. Epic closure also renders a progress tree unconditionally — it runs once per epic after its sprints finish, so it never competes with sibling sprints for stdout — and regenerates `{implementation_artifacts}/progress-report.md`.
 

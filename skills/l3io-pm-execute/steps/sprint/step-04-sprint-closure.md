@@ -208,6 +208,7 @@ lock files are never committed; `pm-status.py` keeps `*.lock` in `state/.gitigno
 git -C {project-root} rm -r --cached --quiet --ignore-unmatch -- '{implementation_artifacts}/state/*.lock'
 git add {implementation_artifacts}/state/ \
         {implementation_artifacts}/epic-{epic_num}/ \
+        {implementation_artifacts}/spec/ \
         {planning_artifacts}/
 git status --short
 ```

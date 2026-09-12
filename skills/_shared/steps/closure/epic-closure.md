@@ -47,15 +47,38 @@ what was planned).
 **Scope it, do not hand it the repository.** A reviewer pointed at the project pays a full
 `cache_write` over the corpus before its first thought, then re-reads that prefix every turn.
 Pass:
-- ADR paths: `{implementation_artifacts}/epic-{epic_nnn}/arch/*.md`
+- ADR paths: the output of `{spec_align} adrs --epic {epic_key}` — the epic's ADRs in
+  `docs/adr/`, plus any still in the old per-epic home
+- When `{spec_alignment}` is `true`: `{implementation_artifacts}/spec/spec-index.md` and the
+  ranges from `{spec_align} build --if-stale` followed by
+  `{spec_align} sections --stories {implementation_artifacts}/epic-{epic_nnn}/*/stories/*.md`.
+  Open only those ranges, plus one index-picked section for a diff hunk no pointer covers,
+  and end the review with a `Sections read:` footer listing every range opened.
 - Story file paths: `{implementation_artifacts}/epic-{epic_nnn}/*/stories/*.md`
 - The epic's cumulative **diff**, not the working tree
 - Named standard sections the ADRs invoke, by path and section number
 - **Output path**: `{implementation_artifacts}/epic-{epic_nnn}/epic-closure/arch-drift-review.md` — one finding per entry, each with an ID (`AD-{n}`)
 
-Findings:
-- BLOCKER/MAJOR: must be resolved before closure completes (fix loop, max
-  `{max_fix_iterations}` iterations) or recorded as an accepted ADR that justifies leaving it.
+Findings — record a disposition for every BLOCKER and MAJOR (a MINOR may have one), then gate
+on them, exactly as sprint closure §6 does:
+
+```bash
+{spec_align} disposition --review {implementation_artifacts}/epic-{epic_nnn}/epic-closure/arch-drift-review.md \
+  --finding {finding_id} --disposition {disposition} [--spec {path#anchor}] [--adr {adr path}] \
+  --spec-alignment {spec_alignment}
+{spec_align} check-dispositions --review {implementation_artifacts}/epic-{epic_nnn}/epic-closure/arch-drift-review.md \
+  --expect "{the reviewer's Blocker/Major/Minor line}"
+```
+
+- BLOCKER/MAJOR: must be resolved before closure completes. Each one is either:
+  - fixed in code under the fix loop (max `{max_fix_iterations}` iterations,
+    `resolved-in-code`);
+  - recorded as an accepted ADR that justifies leaving it (`adr-justified`); or
+  - when `{spec_alignment}` is `true`, written back to the architecture spec
+    (`spec-updated`) or proposed for the PRD/UX/epic docs (`spec-proposal`), both carried out
+    by §2a.
+
+  A `check-dispositions` exit 2 blocks closure.
 - MINOR: append each to the issues file:
   ```bash
   python3 {pm_status} append-issue --file {pm_issues_file} \
@@ -65,6 +88,64 @@ Findings:
     --severity Low \
     --description "See {implementation_artifacts}/epic-{epic_nnn}/epic-closure/arch-drift-review.md"
   ```
+
+## 2a. Spec sync (only when `{spec_alignment}` is `true`)
+
+Runs after §2's fix loop. The plan costs no tokens, and it decides whether an agent runs at
+all:
+
+```bash
+{spec_align} sync-plan --epic {epic_key}
+```
+
+It prints JSON `{"epic": …, "items": […]}`. **If `items` is empty, go to §3 — nothing is
+dispatched.**
+
+Otherwise take the lease. Parallel epic closures share one working tree:
+
+```bash
+{spec_align} lease acquire --owner {epic_key} --wait-minutes 15
+```
+
+**Exit 5** (still held after 15 minutes): dispatch nothing. Turn every pending item into a
+pointer-only proposal and backlog item, then go to §3:
+
+```bash
+{spec_align} sync-plan --epic {epic_key} --defer
+```
+
+**Exit 0:** dispatch one agent as `--agent l3io-spec-sync --epic {epic_key}`, bracketed per
+this file's dispatch rule. Give it the `items` JSON,
+`{implementation_artifacts}/spec/spec-index.md` and `{agent_contract}`, with these
+instructions:
+
+- **Each `spec-updated` item.** Edit only the section its `range` names, so that the spec
+  describes what was built. When the item has an ADR, add a relative link to it. Then run
+  `{spec_align} commit --epic {epic_key} --finding {id} --paths {the spec file}`.
+  - Exit 2 names the problem: an edit outside the section, or a renamed anchor that stories
+    point to. Pass `--rename-anchor OLD=NEW` when the rename is intended.
+  - Fix and retry once. On a second refusal, restore the file
+    (`git -C {project-root} restore -- {the spec file}`) and handle the item as a proposal
+    (below).
+- **Each `adr-link` item.** Add a relative link to the ADR inside the section, then run
+  `{spec_align} commit --epic {epic_key} --adr {adr} --paths {the spec file}`.
+- **Each `spec-proposal` item**, and any item refused twice above. Write
+  `{implementation_artifacts}/epic-{epic_nnn}/epic-closure/spec-proposals/{id}.md`, giving the
+  target pointer, the proposed change, why, and the finding. Then run
+  `{spec_align} propose --epic {epic_key} --finding {id}` (use `--adr {adr}` for an ADR link).
+- Open nothing but the index, the listed ranges, and the review rows the items carry.
+
+`commit` and `propose` record each backlog item themselves (`spec-change`, `spec-proposal`) —
+do not call `append-issue` for them.
+
+Release the lease on **every** exit path:
+
+```bash
+{spec_align} lease release --owner {epic_key}
+```
+
+Then run `{spec_align} check-pointers --all`, and carry any broken pointer it prints into the
+closure report. It does not block.
 
 ## 3. Epic security review
 
@@ -90,7 +171,7 @@ boundaries is incomplete — expand until the picture is coherent"). Pass:
   replaying its sprint-scoped passes.
 - **Seed artifacts** (a starting set, not a fence): the epic's cumulative **diff**, the story
   file paths (`{implementation_artifacts}/epic-{epic_nnn}/*/stories/*.md`), and the ADR paths
-  (`{implementation_artifacts}/epic-{epic_nnn}/arch/*.md`).
+  (`{spec_align} adrs --epic {epic_key}`).
 - **Explicit permission to widen**: it may read beyond the seeds to trace entry points, trust
   boundaries, data flows, and auth checkpoints spanning the epic's sprints — that is its
   method, not a workaround.
@@ -140,6 +221,17 @@ Write `{implementation_artifacts}/epic-{epic_nnn}/epic-closure/closure-report.md
 - Retrospective learnings
 - Outstanding issues count (by severity)
 - ADRs produced (if any)
+- **Spec changes** (when `{spec_alignment}` is `true`):
+  - one row per disposition in the epic's `drift-dispositions.yaml` files: finding,
+    disposition, commit SHA or proposal file, and backlog key;
+  - the spec index's `bytes` and `sections` (its header line 2);
+  - the number of ranges across every review's `Sections read:` footer;
+  - spec sync's share of the epic's fresh tokens (input + output + cache_write): run
+    `usage --agent l3io-spec-sync --epic {epic_key}` with the same transcript arguments as
+    this epic's actuals capture, and divide by the epic's `actual.tokens_k` fresh total.
+
+  When the share is above 5%, add the line `⚠ spec sync used {share}% of fresh tokens
+  (budget 5%)`. It blocks nothing.
 
 ## 6. Progress render and report regeneration
 
@@ -160,3 +252,22 @@ python3 {pm_status} report \
 
 Print the tree verbatim. Both commands are read-only with respect to state; a failure in either
 is a reporting problem — note it in one line and continue rather than failing epic closure.
+
+## 7. Commit checkpoint
+
+Epic closure writes actuals, calibration samples, dispositions, proposals and the spec index.
+Commit them as sprint closure does (`steps/sprint/step-04-sprint-closure.md` §9). The
+`docs(spec)` commits that §2a made are already in history.
+
+```bash
+git -C {project-root} rm -r --cached --quiet --ignore-unmatch -- '{implementation_artifacts}/state/*.lock'
+git add {implementation_artifacts}/state/ \
+        {implementation_artifacts}/epic-{epic_nnn}/ \
+        {implementation_artifacts}/spec/ \
+        {planning_artifacts}/
+git status --short
+git commit -s -m "chore({epic_key}): close epic"
+```
+
+If unrelated files appear in `git status`, stage only these paths. If nothing is staged, skip
+the commit.
