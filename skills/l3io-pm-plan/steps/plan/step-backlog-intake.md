@@ -6,7 +6,7 @@ Runs in full-plan mode only, after `step-01-classify-work.md` and before
 `step-02-readiness-check.md`. It offers to turn open backlog items into stories, and **never
 promotes anything without an explicit choice** — there is no automatic mode. Running before
 readiness is deliberate: a promoted story then flows through readiness (graded Amber —
-functional ACs only), elaboration (`bmad-create-story` adds the technical ACs), and
+functional ACs only), elaboration (the enricher adds the technical ACs), and
 `step-estimate`, like every other story.
 
 ## 1. Read the open backlog

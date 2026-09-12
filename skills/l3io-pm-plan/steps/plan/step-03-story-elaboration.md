@@ -54,13 +54,26 @@ agent's cost is dominated by reading the project, and that read is identical whe
 enriches one story or twelve. Batch in groups of at most 8; past that a single agent's
 attention per story thins out.
 
+**Resolve the enricher.** Same shape as the dev loop's implementer.
+
+```bash
+ls {project-root}/.claude/skills/bmad-create-story/SKILL.md 2>/dev/null \
+  || ls {project-root}/.claude/commands/bmad-create-story.md 2>/dev/null \
+  || ls ~/.claude/skills/bmad-create-story/SKILL.md 2>/dev/null \
+  || ls ~/.claude/commands/bmad-create-story.md 2>/dev/null
+```
+
+A path printed → `{enrich_agent}` = the legacy `bmad-create-story`. Nothing printed →
+`{enrich_agent}` = `l3io-story-enrich`, dispatched as a general subagent. The instruction below is unchanged either
+way, including the batching rule: **one spawn for the whole sprint, not one per story.**
+
 Bracket each batch with `dispatch --event open` / `--event close`, same
-`--agent bmad-create-story --epic {epic_key} --session-id {session_id}` identity on both,
+`--agent {enrich_agent} --epic {epic_key} --session-id {session_id}` identity on both,
 closed on every exit path, so a hung elaboration shows up in `report --stall-minutes` rather
 than at invoice time. Planning spend sits outside the execution roll-up, so the bracket here
 is for stall detection only — there is no bucket to attribute it to.
 
-Spawn `bmad-create-story` with:
+Spawn `{enrich_agent}` with:
 - Every thin story file path in the batch. **For each path: if the file does not yet exist
   at the given path, create it first** with this minimal skeleton (substituting the story's
   `key` and `title` from its state YAML node), then enrich with technical ACs:
@@ -88,7 +101,7 @@ Spawn `bmad-create-story` with:
 Issue the next batch only after the previous one has returned. That is sequencing, not waiting
 on a reply — nothing is ever awaited from a subagent that has not returned.
 
-Record result: `elaborated` or `failed` (if bmad-create-story is not installed or errors).
+Record result: `elaborated` or `failed` (if `{enrich_agent}` errors).
 
 ## 5. Re-run readiness on updated stories
 
@@ -113,7 +126,7 @@ Stories failed: {failed_count}
 | Story | Result | Notes |
 |-------|--------|-------|
 | E001-S01-002 | ✅ Elaborated | Technical ACs added (interfaces, error handling, observability) |
-| E002-S01-001 | ❌ Failed | bmad-create-story not installed |
+| E002-S01-001 | ❌ Failed | enrichment agent returned an error |
 ```
 
 ## 7. Output status line

@@ -647,7 +647,7 @@ home:
 
 | Spawn site | Bucket | Recorded in |
 |---|---|---|
-| `sprint/step-02-story-prep.md` — `bmad-create-story` (batched per sprint) | child | split evenly across the `actual` of each story the batch enriched |
+| `sprint/step-02-story-prep.md` — the enricher (legacy `bmad-create-story`) (batched per sprint) | child | split evenly across the `actual` of each story the batch enriched |
 | `sprint/step-03-dev-loop.md` §2/§3 — dev, code review, fix passes | child | that story's `actual` |
 | `execute/step-05-epic-loop.md` §5 — sprint subagent | child | that sprint's `actual` |
 | `closure/sprint-closure.md`, `closure/epic-closure.md` — every phase | closure | the parent's own `actual`, on top of the children's sum |

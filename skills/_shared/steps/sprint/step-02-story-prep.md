@@ -95,8 +95,21 @@ sprint goes from five cold reads to one. If `{thin_story_keys}` exceeds 8, split
 of at most 8 — past that a single agent's attention per story starts to thin, which is the
 thing being bought here.
 
+**Resolve the enricher.** Same shape as the dev loop's implementer.
+
+```bash
+ls {project-root}/.claude/skills/bmad-create-story/SKILL.md 2>/dev/null \
+  || ls {project-root}/.claude/commands/bmad-create-story.md 2>/dev/null \
+  || ls ~/.claude/skills/bmad-create-story/SKILL.md 2>/dev/null \
+  || ls ~/.claude/commands/bmad-create-story.md 2>/dev/null
+```
+
+A path printed → `{enrich_agent}` = the legacy `bmad-create-story`. Nothing printed →
+`{enrich_agent}` = `l3io-story-enrich`, dispatched as a general subagent. The instruction below is unchanged either
+way, including the batching rule: **one spawn for the whole sprint, not one per story.**
+
 Bracket the spawn with `dispatch --event open` / `--event close`, same
-`--agent bmad-create-story --epic {epic_key} --sprint {sprint_num} --session-id {session_id}`
+`--agent {enrich_agent} --epic {epic_key} --sprint {sprint_num} --session-id {session_id}`
 identity on both, closing on every exit path. The bracket carries no `--story` because the
 span covers several.
 
@@ -190,7 +203,7 @@ Otherwise **one spawn for the whole set, not one per story**, for the same reaso
 the cost is dominated by reading the project, and that read is the same whether the agent
 then scopes one story or five. Split into batches of at most 8. Bracket the spawn with
 `dispatch --event open` / `--event close`, same
-`--agent bmad-create-story --epic {epic_key} --sprint {sprint_num} --session-id {session_id}`
+`--agent {enrich_agent} --epic {epic_key} --sprint {sprint_num} --session-id {session_id}`
 identity on both, closing on every exit path; no `--story`, the span covers several.
 
 Send the *same* instruction 2 and example block as §2's prompt above — verbatim, including
