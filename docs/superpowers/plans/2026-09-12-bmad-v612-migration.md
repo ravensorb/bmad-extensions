@@ -140,22 +140,22 @@ The set is complete as given; it was derived by dry-running check 17's scope aga
     { "name": "bmad-code-review", "status": "required", "module": "bmm" },
     { "name": "bmad-retrospective", "status": "required", "module": "bmm" },
     { "name": "bmad-qa-generate-e2e-tests", "status": "required", "module": "bmm" },
-    { "name": "bmad-review", "status": "required", "module": "bmm",
+    { "name": "bmad-review", "status": "required", "module": "core",
       "invoked_as": "lenses=adversarial",
       "fallback": "bmad-review-adversarial-general" },
     { "name": "bmad-sprint-planning", "status": "required", "module": "bmm",
       "invoked_as": "intent=readiness",
       "fallback": "bmad-check-implementation-readiness" },
-    { "name": "bmad-architecture", "status": "required", "module": "bmm",
+    { "name": "bmad-architecture", "status": "optional", "module": "bmm",
       "fallback": "bmad-architect" },
 
     { "name": "bmad-agent-architect", "status": "optional", "module": "bmm" },
     { "name": "bmad-ux", "status": "optional", "module": "bmm",
       "fallback": "bmad-ux-review" },
-    { "name": "bmad-help", "status": "optional", "module": "bmm" },
-    { "name": "bmad-customize", "status": "optional", "module": "bmm" },
-    { "name": "bmad-brainstorming", "status": "optional", "module": "bmm" },
-    { "name": "bmad-forge-idea", "status": "optional", "module": "bmm" },
+    { "name": "bmad-help", "status": "optional", "module": "core" },
+    { "name": "bmad-customize", "status": "optional", "module": "core" },
+    { "name": "bmad-brainstorming", "status": "optional", "module": "core" },
+    { "name": "bmad-forge-idea", "status": "optional", "module": "core" },
     { "name": "bmad-create-epics-and-stories", "status": "optional", "module": "bmm" },
 
     { "name": "bmad-create-story", "status": "removed", "removed_in": "6.12.0",
@@ -176,12 +176,16 @@ The set is complete as given; it was derived by dry-running check 17's scope aga
     { "name": "bmad-defer", "status": "not-a-skill",
       "reason": "the bmad-defer: deferred-shortcut marker that harvest-debt sweeps for" },
     { "name": "bmad-l3io-extensions", "status": "not-a-skill",
-      "reason": "this package's own name" }
+      "reason": "this package's own name" },
+    { "name": "bmad-deps", "status": "not-a-skill",
+      "reason": "this package's own runtime verifier script, scripts/bmad-deps.py" }
   ]
 }
 ```
 
 Note `bmad-create-story`/`bmad-dev-story` carry a `replaced_by` that is an in-package agent identity, not a BMad skill. Task 10's fallback validation only checks `fallback` targets, never `replaced_by`, so this is intentional and valid.
+
+**Amended after the final review.** Three corrections landed against this block, and the shipped `skills/l3io-util-doctor/assets/bmad-dependencies.json` is authoritative over it: (a) `bmad-architecture` is `optional`, not `required` — nothing dispatches it, see Task 14 Step 5; (b) `bmad-deps` was added as a fourth `not-a-skill` entry; (c) `bmad-review`, `bmad-help`, `bmad-customize`, `bmad-brainstorming` and `bmad-forge-idea` ship in `core`, not `bmm` — measured against a core-only install, where all five resolve and every genuinely-`bmm` entry reports MISSING.
 
 - [ ] **Step 2: Verify it parses**
 

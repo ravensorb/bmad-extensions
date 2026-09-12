@@ -91,8 +91,8 @@ For a single IDE, use just that code, e.g. `--tools claude-code` or `--tools git
 **`--modules bmm` is not optional.** A `--custom-source` install brings BMad's `core` plus the
 custom modules and nothing else, so without it you get the four `l3io` modules and none of the
 BMad skills they dispatch to — `bmad-code-review`, `bmad-retrospective`,
-`bmad-qa-generate-e2e-tests`, `bmad-review` and `bmad-sprint-planning` all live in the official
-`bmm` module, not in `core`. The failure shows up late: planning works, then the first phase
+`bmad-qa-generate-e2e-tests` and `bmad-sprint-planning` live in the official `bmm` module, not
+in `core`. The failure shows up late: planning works, then the first phase
 that dispatches one of them has nothing to invoke. Add other official modules to the same flag
 if you use them (`--modules bmm,tea`).
 

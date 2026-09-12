@@ -285,13 +285,18 @@ install provides:
 `bmad-architecture` was `required` in the first draft of this list and that was wrong on this
 section's own definition of the word: **nothing dispatches it.** Its only four references are
 `bmad-customize` overlay *documentation* (`skills/l3io-arch-review/module.yaml:10,18`,
-`SKILL.md:87`, `assets/customize-architect.md:12`) — "referenced, present, every use self-skips
-when absent", verbatim. It landed in `required` only because check 17 needed some declaration
+`SKILL.md:87`, `assets/customize-architect.md:12`) — documentation, which has nothing to
+self-skip, so `optional` is the nearest honest status rather than a word-for-word match for the
+definition above. It landed in `required` only because check 17 needed some declaration
 for the stale `bmad-architect` token those docs used to carry, which is an argument for
 declaring it, never for requiring it. Reclassified `optional` in the final fix wave.
 
 Fields: `name` (required); `status` one of `required` | `optional` | `removed` | `not-a-skill`;
-`module` required when status is `required`/`optional`; `replaced_by` and `removed_in` required
+`module` required when status is `required`/`optional`, naming the module the skill actually
+ships in — which is not always `bmm`: `bmad-review`, `bmad-help`, `bmad-customize`,
+`bmad-brainstorming` and `bmad-forge-idea` are `core`, measured on a core-only install. **No
+check validates this value** — check 17 asserts only that the field is non-empty, so a wrong
+module is invisible to CI and shows up as misdirected install advice; `replaced_by` and `removed_in` required
 when status is `removed`; `reason` required when status is `not-a-skill`, and allowed on any
 entry as an explanatory note — JSON has no comments, so this is where a "why is this declared
 at all" answer goes; `invoked_as` optional;
