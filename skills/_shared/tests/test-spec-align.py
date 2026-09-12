@@ -8,6 +8,7 @@ backlog items are created only through the real pm-status.py CLI.
 """
 import json
 import os
+import shlex
 import shutil
 import subprocess
 import sys
@@ -125,9 +126,10 @@ class Project(unittest.TestCase):
         with open(self.path(rel), encoding="utf-8") as fh:
             return fh.read()
 
-    def sa(self, *args, spec_paths=None, planning=None):
+    def sa(self, *args, spec_paths=None, planning=None, pm_status=None):
         g = ["--project-root", self.root, "--planning-root", planning or self.planning,
-             "--impl-root", self.impl, "--state-root", self.state, "--pm-status", PM]
+             "--impl-root", self.impl, "--state-root", self.state, "--pm-status",
+             pm_status or PM]
         if spec_paths is not None:
             g += ["--spec-paths", json.dumps(spec_paths)]
         return subprocess.run([sys.executable, SCRIPT, *g, *args], capture_output=True,
@@ -1005,7 +1007,8 @@ class TestRejectAndStale(SyncBase):
         before = self.git("rev-parse", "HEAD").strip()
         r = self.sa("reject", "--key", self.key)
         self.assertEqual(r.returncode, 2)
-        self.assertIn("conflicts", r.stderr)
+        self.assertIn("failed", r.stderr)
+        self.assertIn("unmerged: " + ARCH_REL, r.stderr)
         self.assertIn("stays open", r.stderr)
         self.assertFalse(os.path.exists(self.path(".git/REVERT_HEAD")))
         self.assertEqual(self.git("rev-parse", "HEAD").strip(), before)
@@ -1030,6 +1033,32 @@ class TestRejectAndStale(SyncBase):
         r = self.sa("reject", "--key", key)
         self.assertEqual(r.returncode, 2)
         self.assertIn("spec-change and spec-proposal items only", r.stderr)
+
+    def test_a_failed_refile_after_resolve_prints_a_runnable_recovery_command(self):
+        # resolve-issue succeeds but append-issue fails: the item is now wontfix with nothing
+        # refiled, and the printed recovery command is the only way back -- it must actually
+        # run, not just read plausibly. A wrapper forwards every subcommand to the real
+        # pm-status.py except append-issue, which it fails outright.
+        wrapper = self.write("fake-pm-status.py", f"""#!/usr/bin/env python3
+import subprocess, sys
+if "append-issue" in sys.argv[1:]:
+    sys.stderr.write("append-issue disabled by test wrapper\\n")
+    sys.exit(2)
+sys.exit(subprocess.run([sys.executable, {PM!r}, *sys.argv[1:]]).returncode)
+""")
+        r = self.sa("reject", "--key", self.key, pm_status=wrapper)
+        self.assertEqual(r.returncode, 2)
+        self.assertIn("is resolved but the code fix was not filed -- rerun:", r.stderr)
+        self.assertIn(wrapper, r.stderr)
+        cmd = r.stderr.strip().rsplit("rerun: ", 1)[1]
+        argv = shlex.split(cmd)
+        self.assertEqual(argv[0], wrapper)
+        self.assertEqual(argv[argv.index("--sprint") + 1], "")
+        self.assertEqual(argv[argv.index("--title") + 1],
+                         "Code diverges from spec: Orders bypass the repository")
+        # the item is still wontfix -- reject is not retried, only the code fix is refiled
+        [res] = [i for i in self.issues("", resolved=True) if i["key"] == self.key]
+        self.assertEqual(res["resolution"], "wontfix")
 
     def test_check_stale_reports_an_unconfirmed_change_that_was_built_upon(self):
         r = self.sa("check-stale")

@@ -1329,12 +1329,12 @@ def cmd_reject(ctx, a):
     if kind == "spec-change":
         r = _git(ctx, "revert", "--no-edit", "--signoff", ref, check=False)
         if r.returncode != 0:
-            conflicts = _git(ctx, "diff", "--name-only", "--diff-filter=U",
-                             check=False).stdout.split()
+            unmerged = [l for l in _git(ctx, "diff", "--name-only", "--diff-filter=U",
+                                        check=False).stdout.splitlines() if l]
             _git(ctx, "revert", "--abort", check=False)
-            raise SAError(2, f"git revert {ref} conflicts in "
-                             f"{', '.join(conflicts) or '(see git status)'}; aborted -- "
-                             f"{a.key} stays open. Revert by hand, then resolve it.")
+            raise SAError(2, f"git revert {ref} failed (unmerged: "
+                             f"{', '.join(unmerged) or 'none reported'}); aborted the revert, "
+                             f"{a.key} stays open. Resolve by hand, then resolve it.")
         res_ref = _git(ctx, "rev-parse", "HEAD").stdout.strip()
     else:
         res_ref = ref
@@ -1353,8 +1353,8 @@ def cmd_reject(ctx, a):
     r = _pm(ctx, *args)
     m = ISSUE_KEY_RE.search(r.stdout)
     if r.returncode != 0 or not m:
-        raise SAError(2, f"{a.key} is resolved but the code fix was not filed -- rerun: "
-                         f"pm-status.py {' '.join(args)}")
+        cmd = " ".join(shlex.quote(x) for x in [ctx.pm_status, *args])
+        raise SAError(2, f"{a.key} is resolved but the code fix was not filed -- rerun: {cmd}")
     print(f"OK reject {a.key} ({kind}) -> wontfix {res_ref}; code fix {m.group(1)}")
     return 0
 
@@ -1366,7 +1366,8 @@ def cmd_check_stale(ctx, a):
         ref = str(it.get("ref") or "")
         if not ref:
             continue                                  # audit-issues 1k reports a missing ref
-        files = _git(ctx, "show", "--name-only", "--format=", ref, check=False).stdout.split()
+        files = [l for l in _git(ctx, "show", "--name-only", "--format=", ref,
+                                 check=False).stdout.splitlines() if l]
         if not files:
             findings.append(f"{it['key']}: its commit {ref} is not in this repository")
             continue
