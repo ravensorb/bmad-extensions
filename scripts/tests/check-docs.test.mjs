@@ -155,3 +155,88 @@ test("check 12 boundary: 8,001 lines fails on check 12 alone", (t) => {
   assert.equal(entries.length, 1, r.stderr);
   assert.match(entries[0], /pm-status\.py: 8001 lines, over the 8000-line limit .* by 1$/);
 });
+
+// ---- check 4 (spec-align surface), 13 (spec-align contract), 14 (adr-home) ----
+
+test("check 4: a step file naming a spec-align subcommand the CLI lacks is caught", (t) => {
+  const root = fixture(t);
+  write(root, "skills/_shared/steps/brand-new-dir/sa.md",
+        "```bash\n{spec_align} frobnicate --epic E001\n```\n");
+  const r = run(root);
+  assert.equal(r.status, 1);
+  assert.match(r.stderr, /sa\.md:2: names spec-align\.py subcommand 'frobnicate'/);
+});
+
+test("check 4: an undocumented spec-align subcommand is caught", (t) => {
+  const root = fixture(t);
+  const rel = "docs/l3io-pm-reference.md";
+  const text = fs.readFileSync(path.join(root, rel), "utf8");
+  write(root, rel, text.replace(/^\| `check-stale` \|.*\n/m, ""));
+  const r = run(root);
+  assert.equal(r.status, 1);
+  assert.match(r.stderr, /does not document spec-align\.py subcommand 'check-stale'/);
+});
+
+test("check 4: spec-align names in backticks are not read as pm-status subcommands", (t) => {
+  const root = fixture(t);
+  write(root, "CLAUDE.md", "\nRun `check-pointers`, then `check-stale`.\n", true);
+  const r = run(root);
+  assert.equal(r.status, 0, r.stderr + r.stdout);
+});
+
+test("check 13: a pattern added to layout-cleanup alone is caught", (t) => {
+  const root = fixture(t);
+  const rel = "skills/l3io-util-doctor/steps/layout-cleanup.md";
+  const text = fs.readFileSync(path.join(root, rel), "utf8");
+  write(root, rel, text.replace("`*tech-design*`", "`*tech-design*`, `*blueprint*`"));
+  const r = run(root);
+  assert.equal(r.status, 1);
+  assert.match(r.stderr, /architecture patterns differ.*\*blueprint\*/s);
+});
+
+test("check 13: a renamed dimension in the enrichment prompt is caught", (t) => {
+  const root = fixture(t);
+  const rel = "skills/_shared/steps/sprint/step-02-story-prep.md";
+  const text = fs.readFileSync(path.join(root, rel), "utf8");
+  write(root, rel, text.replace("   ### Testability approach", "   ### Test approach"));
+  const r = run(root);
+  assert.equal(r.status, 1);
+  assert.match(r.stderr, /dimensions differ/);
+});
+
+test("check 13 scope: a prompt that lost its layout block is caught", (t) => {
+  const root = fixture(t);
+  const rel = "skills/_shared/steps/sprint/step-02-story-prep.md";
+  const text = fs.readFileSync(path.join(root, rel), "utf8");
+  write(root, rel, text.replace(/^\s*## Technical acceptance criteria\s*$/m, ""));
+  const r = run(root);
+  assert.equal(r.status, 1);
+  assert.match(r.stderr, /no '## Technical acceptance criteria' layout block/);
+});
+
+test("check 14: the old ADR home in a new directory is caught", (t) => {
+  const root = fixture(t);
+  write(root, "skills/_shared/steps/brand-new-dir/adr.md",
+        "Write it to `{implementation_artifacts}/epic-001/arch/adr-0001-x.md`.\n");
+  const r = run(root);
+  assert.equal(r.status, 1);
+  assert.match(r.stderr, /adr\.md:1: .*arch\/adr-0001-x\.md/);
+});
+
+test("check 14: the old ADR glob inside a fence is caught", (t) => {
+  const root = fixture(t);
+  write(root, "skills/l3io-util-doctor/assets/brand-new.md",
+        "```\nls {implementation_artifacts}/epic-*/arch/*.md\n```\n");
+  const r = run(root);
+  assert.equal(r.status, 1);
+  assert.match(r.stderr, /brand-new\.md:2/);
+});
+
+test("check 14: naming the old home as legacy, and the gate review file, pass", (t) => {
+  const root = fixture(t);
+  write(root, "skills/_shared/steps/brand-new-dir/ok.md",
+        "The old home `epic-*/arch/adr-*` is legacy.\n" +
+        "The review lives at `{implementation_artifacts}/epic-001/arch/arch-gate-review.md`.\n");
+  const r = run(root);
+  assert.equal(r.status, 0, r.stderr + r.stdout);
+});

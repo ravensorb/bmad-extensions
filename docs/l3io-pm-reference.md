@@ -510,6 +510,31 @@ Exit codes: `0` success · `2` usage error · `3` node not found · `4` verifica
 
 `verify --scope epic` checks **structural integrity** (every sprint directory has a `sprint.yaml`; every back-reference matches its directory — a *missing* back-reference fails exactly like a mismatched one). It deliberately does not check completion, since an in-progress epic legitimately holds unfinished stories. `verify --scope story|sprint` checks **completion** of one node. Activation runs the epic scope only.
 
+### `spec-align.py` subcommands
+
+The spec-alignment helper (`skills/_shared/spec-align.py`, shipped in pm-execute's and
+util-doctor's `scripts/`; ADR-0004, ADR-0005). It runs with `uv run` and never calls a model.
+Global flags go before the subcommand: `--project-root`, `--planning-root`, `--impl-root`,
+`--state-root`, `--pm-status`, `--spec-paths JSON`. Exit codes: 0 ok · 1 report-mode findings ·
+2 a gate refused, or bad input · 5 the lease is held.
+
+| Subcommand | What it does |
+|---|---|
+| `build` | Writes `{implementation_artifacts}/spec/spec-index.md`: one line per H1–H3 heading (anchor, first sentence, line range) of every discovered spec. `--if-stale` rewrites only when the specs changed; `--check` exits 1 when stale |
+| `check-pointers` | `--story F…`: gate, exit 2 unless every applicable dimension ends with a resolving `Spec:` line (or `Spec: none — <reason>`). `--all`: report, exit 1 on broken pointers |
+| `sections` | `--stories F…`: the pointers as de-duplicated `path#anchor Lstart–end` ranges |
+| `disposition` | Records a drift finding's disposition (`resolved-in-code`, `adr-justified`, `spec-updated` — architecture sections only — or `spec-proposal`) in `drift-dispositions.yaml` beside the review |
+| `check-dispositions` | Gate: every BLOCKER/MAJOR has a disposition, and the parsed findings match the reviewer's `Blocker: N, Major: N, Minor: N` |
+| `adrs` | `--epic E`: the epic's ADRs from `docs/adr/` (its `Epic:` line) and the old per-epic home |
+| `check-links` | Report: accepted ADRs whose `Departs from spec:` section does not link back |
+| `lease` | `acquire --owner E` / `release --owner E`: the spec-edit lease (`state/spec-sync.lock`) |
+| `sync-plan` | `--epic E`: pending spec-sync items as JSON; `--defer` writes pointer-only proposals and backlog items instead |
+| `propose` | Records an agent-written proposal file and its `spec-proposal` backlog item |
+| `commit` | One guarded `docs(spec)` commit per finding or ADR link: the diff must stay inside the section, pointed-to anchors may not vanish (`--rename-anchor OLD=NEW` rewrites story pointers in the same commit); opens the `spec-change` backlog item |
+| `reject` | `--key K`: reverts a spec change (or declines a proposal), resolves it `wontfix`, and files the drift as a code fix |
+| `check-stale` | Report: unconfirmed spec changes that a later commit has built upon |
+| `migrate-adrs` | `--plan` / `--apply`: moves ADRs from `epic-*/arch/` to `docs/adr/`, renumbering a collision only inside its own epic's artifacts, in one commit |
+
 ### Legacy migration
 
 Read resolution counts layout matches rather than stopping at the first hit — two populated layouts block rather than silently forking state. Legacy flat `sprint-status.yaml` and legacy `_bmad/state/` both migrate via `/l3io-util-doctor migrate-state` (original preserved as `.legacy`).

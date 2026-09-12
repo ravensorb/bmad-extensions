@@ -16,7 +16,7 @@
 //   1. skill-names   every l3io-* skill named in docs resolves to a real skills/ directory
 //   2. gating-tables every mirrored phase table matches the authoritative matrix, cell for cell
 //   3. section-refs  every "<file>.md §N" cross-reference resolves to a section bearing that number
-//   4. cli-surface   documented pm-status.py subcommands and the real CLI agree, both ways
+//   4. cli-surface   documented pm-status.py and spec-align.py subcommands and the real CLIs agree, both ways
 //   5. config-values values quoted in prose match the defaults customize.toml ships
 //   6. status-values --status filters named in skill phrase tables are real state folders
 //   7. metric-list   metrics-contract.md documents exactly the metrics in METRIC_FIELDS
@@ -29,6 +29,9 @@
 //                    continued lines joined, fenced or not) passes --source and --description
 //  12. pm-status-size skills/_shared/pm-status.py stays within the 8,000-line limit
 //                    ADR-0001 sets
+//  13. spec-align-contract spec-align.py's spec kinds match layout-cleanup.md heuristic 5, and
+//                    its six DIMENSIONS match the enrichment prompt's layout block
+//  14. adr-home      no runtime directive names the old per-epic ADR home (epic-*/arch/adr-*)
 //
 // Usage:
 //   node scripts/check-docs.mjs        # report and exit nonzero on any failure (CI)
@@ -266,8 +269,28 @@ function cliSubcommands() {
   return new Set([...src.matchAll(/sub\.add_parser\(\s*"([a-z-]+)"/g)].map((m) => m[1]));
 }
 
+const SPEC_ALIGN = "skills/_shared/spec-align.py";
+const SPEC_ALIGN_HEADING = "### `spec-align.py` subcommands";
+
+function specAlignSubcommands() {
+  // Top-level registrations only: `\bsub.` excludes nested parsers such as lease_sub.
+  if (!exists(SPEC_ALIGN)) return new Set();
+  return new Set([...read(SPEC_ALIGN).matchAll(/\bsub\.add_parser\(\s*"([a-z-]+)"/g)]
+    .map((m) => m[1]));
+}
+
+// The text of a markdown section: from its heading to the next ##/### heading.
+function docSection(text, heading) {
+  const i = text.indexOf(heading);
+  if (i < 0) return "";
+  const rest = text.slice(i + heading.length);
+  const end = rest.search(/\n#{2,3} /);
+  return end < 0 ? rest : rest.slice(0, end);
+}
+
 function checkCliSurface() {
   const real = cliSubcommands();
+  const saReal = specAlignSubcommands();
   if (real.size === 0) {
     failures.push(`${PM_STATUS}: no sub.add_parser() calls found — has the CLI been restructured?`);
     return;
@@ -295,6 +318,8 @@ function checkCliSurface() {
       // Only judge tokens that look like they are claiming to be subcommands: either the CLI
       // has one by that name, or the doc used the explicit pm-status.py form.
       const explicit = new RegExp(`pm-status\\.py\\s+${name}\\b`).test(text);
+      // spec-align.py has check-* subcommands of its own; they are not pm-status claims.
+      if (!explicit && saReal.has(name)) continue;
       if (!explicit && !/^(set|estimate|move|archive|append|list|check|clear|self)-/.test(name)) continue;
       checked += 1;
       if (real.has(name)) continue;
@@ -354,6 +379,52 @@ function tableRowSubcommands(text) {
     }
   }
   return names;
+}
+
+// 4 (continued). The spec-align.py CLI surface, both ways. Step files invoke it through the
+// `{spec_align}` binding, so forward reads `{spec_align} <sub>` anywhere, and the explicit
+// `spec-align.py <sub>` form only inside code (a fence or a backtick span) -- prose such as
+// "spec-align.py stays one file" is not a claim. Scope: every live doc and every skill doc.
+function checkSpecAlignSurface() {
+  const real = specAlignSubcommands();
+  if (real.size === 0) {
+    failures.push(`${SPEC_ALIGN}: no sub.add_parser() calls found — has the CLI moved?`);
+    return;
+  }
+  let checked = 0;
+  for (const rel of [...LIVE_DOCS, ...walkMarkdown("skills")]) {
+    let inFence = false;
+    read(rel).split("\n").forEach((line, i) => {
+      if (/^\s*```/.test(line)) inFence = !inFence;
+      const spans = [...line.matchAll(/`[^`]*`/g)].map((m) => [m.index, m.index + m[0].length]);
+      const inCode = (at) => inFence || spans.some(([a, b]) => at > a && at < b);
+      for (const m of line.matchAll(/\{spec_align\}\s+([a-z][a-z-]*)/g)) {
+        checked += 1;
+        if (!real.has(m[1])) {
+          failures.push(`${rel}:${i + 1}: names spec-align.py subcommand '${m[1]}', which ` +
+            `the CLI does not have\n      CLI has: ${[...real].sort().join(", ")}`);
+        }
+      }
+      for (const m of line.matchAll(/spec-align\.py\s+([a-z][a-z-]*)/g)) {
+        if (!inCode(m.index) || PROSE_AFTER_CMD.has(m[1])) continue;
+        checked += 1;
+        if (!real.has(m[1])) {
+          failures.push(`${rel}:${i + 1}: names spec-align.py subcommand '${m[1]}', which ` +
+            `the CLI does not have\n      CLI has: ${[...real].sort().join(", ")}`);
+        }
+      }
+    });
+  }
+  const section = docSection(exists(CLI_REFERENCE_DOC) ? read(CLI_REFERENCE_DOC) : "",
+                             SPEC_ALIGN_HEADING);
+  const documented = tableRowSubcommands(section);
+  for (const name of real) {
+    checked += 1;
+    if (documented.has(name)) continue;
+    failures.push(`${CLI_REFERENCE_DOC}: does not document spec-align.py subcommand '${name}' ` +
+      `as a table row under "${SPEC_ALIGN_HEADING}"`);
+  }
+  if (verbose) console.log(`  spec-align-surface: ${checked} claim(s) checked both ways`);
 }
 
 // ---------------------------------------------------------------------------
@@ -797,11 +868,105 @@ function checkPmStatusSize() {
 }
 
 // ---------------------------------------------------------------------------
+// 13. spec-align.py's contract with the docs it mirrors.
+//
+// Its spec kinds are copied from doctor's layout-cleanup heuristic 5 (the spec says one source
+// of truth), and its DIMENSIONS must be the six headings the enrichment prompt tells the agent
+// to write -- check-pointers rejects any other name, so a drift here blocks every story.
+// ---------------------------------------------------------------------------
+const LAYOUT_CLEANUP = "skills/l3io-util-doctor/steps/layout-cleanup.md";
+const STORY_PREP = "skills/_shared/steps/sprint/step-02-story-prep.md";
+const KIND_LABELS = { architecture: "Architecture", prd: "Requirements / PRD", ux: "UX spec" };
+
+function pyTuple(src, name) {
+  const m = src.match(new RegExp(`^${name} = \\(([\\s\\S]*?)^\\)`, "m"));
+  return m ? m[1] : null;
+}
+
+function checkSpecAlignContract() {
+  if (!exists(SPEC_ALIGN)) return;
+  const src = read(SPEC_ALIGN);
+  const kindsBlock = pyTuple(src, "KINDS");
+  const dimsBlock = pyTuple(src, "DIMENSIONS");
+  if (!kindsBlock || !dimsBlock) {
+    failures.push(`${SPEC_ALIGN}: KINDS or DIMENSIONS is no longer a literal tuple`);
+    return;
+  }
+  const kinds = {};
+  for (const m of kindsBlock.matchAll(/\(\s*"([a-z]+)",\s*\(([^)]*)\)\s*\)/g)) {
+    kinds[m[1]] = [...m[2].matchAll(/"([^"]+)"/g)].map((x) => x[1]).sort();
+  }
+  const doctor = read(LAYOUT_CLEANUP).split("\n");
+  for (const [kind, label] of Object.entries(KIND_LABELS)) {
+    const line = doctor.find((l) => l.includes(`**${label}**:`));
+    const theirs = line ? [...line.matchAll(/`([^`]+)`/g)].map((m) => m[1]).sort() : [];
+    const ours = kinds[kind] || [];
+    if (JSON.stringify(theirs) !== JSON.stringify(ours)) {
+      failures.push(`${kind} patterns differ: ${SPEC_ALIGN} has [${ours.join(", ")}], ` +
+        `${LAYOUT_CLEANUP} heuristic 5 has [${theirs.join(", ")}]`);
+    }
+  }
+  const dims = [...dimsBlock.matchAll(/"([^"]+)"/g)].map((x) => x[1]);
+  const lines = read(STORY_PREP).split("\n");
+  const at = lines.findIndex((l) => /^\s*## Technical acceptance criteria\s*$/.test(l));
+  if (at < 0) {
+    failures.push(`${STORY_PREP}: no '## Technical acceptance criteria' layout block in the ` +
+      `enrichment prompt — ${SPEC_ALIGN} check-pointers requires it`);
+    return;
+  }
+  const prompt = [];
+  for (const l of lines.slice(at + 1)) {
+    if (/^\s*## /.test(l) || /^\s*```/.test(l) || prompt.length === dims.length) break;
+    const m = l.match(/^\s*### (.+?)\s*$/);
+    if (m) prompt.push(m[1]);
+  }
+  if (JSON.stringify(prompt) !== JSON.stringify(dims)) {
+    failures.push(`dimensions differ: ${SPEC_ALIGN} DIMENSIONS is [${dims.join(", ")}], the ` +
+      `enrichment prompt in ${STORY_PREP} lays out [${prompt.join(", ")}]`);
+  }
+  if (verbose) console.log(`  spec-align-contract: ${Object.keys(KIND_LABELS).length} kinds, ${dims.length} dimensions`);
+}
+
+// ---------------------------------------------------------------------------
+// 14. No runtime directive names the old per-epic ADR home.
+//
+// ADR-0005 makes docs/adr/ the one home; spec-align.py adrs lists an epic's ADRs. A step file
+// still globbing epic-*/arch/*.md would hand a reviewer only the ADRs nobody has migrated.
+// Scope is every markdown file under skills/ (walked, not listed). Allowed: the migration mode
+// and the health check that detects the old home, plus any line that calls it legacy/old.
+// arch/arch-gate-review.md is a review, not an ADR, and stays legal.
+// ---------------------------------------------------------------------------
+const ADR_OLD_HOME = /arch\/adr-|arch\/\*\.md/;
+const ADR_OLD_HOME_ALLOWED = new Set([
+  "skills/l3io-util-doctor/steps/migrate-adrs.md",
+  "skills/l3io-util-doctor/steps/health-check.md",
+]);
+
+function checkAdrHome() {
+  const offenders = [];
+  for (const rel of walkMarkdown("skills")) {
+    if (ADR_OLD_HOME_ALLOWED.has(rel.split(path.sep).join("/"))) continue;
+    read(rel).split("\n").forEach((line, i) => {
+      if (!ADR_OLD_HOME.test(line)) return;
+      if (/\b(old home|old per-epic home|legacy|migrat)/i.test(line)) return;
+      offenders.push(`${rel}:${i + 1}: ${line.trim()}`);
+    });
+  }
+  if (offenders.length) {
+    failures.push(`runtime directives name the old per-epic ADR home:\n      ` +
+      `${offenders.join("\n      ")}\n      ADRs live in {project-root}/docs/adr/ ` +
+      `(docs/adr/0005-one-adr-home.md); list an epic's with \`{spec_align} adrs --epic\`.`);
+  }
+  if (verbose) console.log(`  adr-home:       ${offenders.length} offending directive(s)`);
+}
+
+// ---------------------------------------------------------------------------
 
 checkSkillNames();
 checkGatingTables();
 checkSectionRefs();
 checkCliSurface();
+checkSpecAlignSurface();
 checkConfigValues();
 checkStatusValues();
 checkMetricList();
@@ -810,6 +975,8 @@ checkAuthoringPathDirectives();
 checkCliDocstring();
 checkAppendIssuePointer();
 checkPmStatusSize();
+checkSpecAlignContract();
+checkAdrHome();
 
 for (const note of notes) if (verbose) console.log(`  note: ${note}`);
 
