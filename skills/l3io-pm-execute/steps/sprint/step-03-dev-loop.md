@@ -184,6 +184,20 @@ Spawn `bmad-code-review` subagent with:
   block already received `model_review: {model_review}` from the epic loop dispatch; use it
   here. If the context block does not carry `model_review`, fall back to `{model}`.
 
+Two additional passes, both reported into the same findings file:
+
+- **Deletion check** — run only if the diff removed or replaced meaningful code (ignore pure
+  renames and whitespace). For each removed chunk, ask: did it carry behavior or a contract that
+  this change neither re-established nor intended to drop? These are inferences, so rate each
+  `high` / `medium` / `low` confidence. Tag them `kind: deletion`. Add nothing if nothing
+  qualifies.
+- **Claims check** — read the story's functional and technical ACs as the change's own claims,
+  and report only where the code contradicts one. Quote or tightly paraphrase the claim as the
+  trigger condition, and name where the code contradicts it as the location. Tag them
+  `kind: claim`. Verified claims produce nothing.
+
+Report what is real — never pad to reach a count.
+
 ```bash
 python3 {pm_status} dispatch --state-root {pm_state_root} --event close \
   --agent bmad-code-review --epic {epic_key} --sprint {sprint_num} --story {story_key} \
