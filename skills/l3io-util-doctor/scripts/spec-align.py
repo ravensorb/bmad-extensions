@@ -1414,7 +1414,7 @@ def _migration_plan(ctx):
     hi = max([*docs_nums, *(mv["number"] for mv in moves)], default=0)
     return {"moves": moves,
             "register": {"next": nxt, "highest_on_disk": hi, "lagging": hi > 0 and nxt <= hi},
-            "rewritten": [], "review": [], "commit": None}
+            "rewritten": [], "rewritten_uncommitted": [], "review": [], "commit": None}
 
 
 def _add_epic_line(text, ek):
@@ -1433,68 +1433,104 @@ def cmd_migrate_adrs(ctx, a):
     if _git(ctx, "rev-parse", "--is-inside-work-tree", check=False).stdout.strip() != "true":
         raise SAError(2, "migrate-adrs --apply needs a git work tree")
     docs_dir = os.path.join(ctx.project, "docs", "adr")
+    # Pre-flight: refuse if any path this run would touch already has uncommitted changes.
+    # A previous --apply that stopped partway (adr-reserve, git mv, or the process itself
+    # failing) leaves the tree mutated with nothing committed; a rerun's _migration_plan no
+    # longer sees the already-moved files (they left epic-*/arch/), so it would quietly plan
+    # less work over stray state instead of surfacing it. This is what stops that compounding.
+    check_paths = {ctx.rel(docs_dir)}
+    for mv in plan["moves"]:
+        check_paths.add(os.path.dirname(mv["from"]))                       # its epic-*/arch/
+        check_paths.add(f"{ctx.rel(ctx.impl)}/epic-{mv['epic'][1:]}")       # the epic tree
+    dirty = _git(ctx, "status", "--porcelain", "--", *sorted(check_paths), check=False).stdout
+    if dirty.strip():
+        raise SAError(2, "migrate-adrs --apply refuses: uncommitted changes already sit under "
+                         f"{', '.join(sorted(check_paths))} -- a previous run may have stopped "
+                         f"midway. Inspect and commit or revert those paths by hand (never a "
+                         f"repo-wide discard; other agents share this checkout), then retry:\n"
+                         f"{dirty}")
     os.makedirs(docs_dir, exist_ok=True)
     md_files = sorted(set(glob.glob(os.path.join(ctx.impl, "**", "*.md"), recursive=True)))
     other_docs = sorted(glob.glob(os.path.join(ctx.project, "docs", "**", "*.md"),
                                   recursive=True))
-    commit_paths, rewritten = [], set()
-    for mv in plan["moves"]:
-        old, nnn = mv["number"], mv["epic"][1:]
-        new = old
-        if mv["collision"]:
-            r = _pm(ctx, "adr-reserve", "--state-root", ctx.state_root, "--epic", mv["epic"],
-                    "--slug", f"migrate-{mv['slug']}", "--adr-dir", docs_dir)
-            if r.returncode != 0 or not r.stdout.split():
-                raise SAError(2, f"adr-reserve failed: {(r.stderr or r.stdout).strip()}")
-            new = int(r.stdout.split()[0])
-            mv["renumbered_to"] = new
-            mv["to"] = f"docs/adr/{new:04d}-{mv['slug']}.md"
-        tracked = _git(ctx, "ls-files", "--error-unmatch", "--", mv["from"],
-                       check=False).returncode == 0
-        if tracked:
-            _git(ctx, "mv", "--", mv["from"], mv["to"])
-            commit_paths += [mv["from"], mv["to"]]
-        else:
-            os.replace(ctx.abs(mv["from"]), ctx.abs(mv["to"]))
-            _git(ctx, "add", "--", mv["to"])
-            commit_paths.append(mv["to"])
-        body = read_text(ctx.abs(mv["to"]))
-        if new != old:
-            body = re.sub(rf"\bADR-{old:04d}\b", f"ADR-{new:04d}", body)
-        atomic_write(ctx.abs(mv["to"]), _add_epic_line(body, mv["epic"]))
-        path_re = re.compile(rf"[\w./-]*epic-{nnn}/arch/adr-{old:04d}-{re.escape(mv['slug'])}\.md")
-        num_re = re.compile(rf"\bADR-{old:04d}\b")
-        epic_tree = os.path.join(ctx.impl, f"epic-{nnn}")
-        for f in md_files:
-            if not os.path.isfile(f):
-                continue
-            text = read_text(f)
-            inside = _under(f, epic_tree)
-            if new != old and not inside:
-                for i, line in enumerate(text.splitlines(), 1):
-                    if num_re.search(line):
-                        plan["review"].append({"file": ctx.rel(f), "line": i,
-                                               "text": line.strip()})
-            text2 = path_re.sub(mv["to"], text)
-            if new != old and inside:
-                text2 = num_re.sub(f"ADR-{new:04d}", text2)
-            if text2 != text:
-                atomic_write(f, text2)
-                rewritten.add(ctx.rel(f))
-        if new != old:
-            for f in other_docs:
-                if re.match(rf"{old:04d}-", os.path.basename(f)) and _under(f, docs_dir):
-                    continue                          # that number's rightful owner
-                for i, line in enumerate(read_text(f).splitlines(), 1):
-                    if num_re.search(line):
-                        plan["review"].append({"file": ctx.rel(f), "line": i,
-                                               "text": line.strip()})
+    commit_paths, rewritten, touched = [], set(), []
+    try:
+        for mv in plan["moves"]:
+            old, nnn = mv["number"], mv["epic"][1:]
+            new = old
+            if mv["collision"]:
+                r = _pm(ctx, "adr-reserve", "--state-root", ctx.state_root, "--epic", mv["epic"],
+                        "--slug", f"migrate-{mv['slug']}", "--adr-dir", docs_dir)
+                if r.returncode != 0 or not r.stdout.split():
+                    raise SAError(2, f"adr-reserve failed: {(r.stderr or r.stdout).strip()}")
+                new = int(r.stdout.split()[0])
+                mv["renumbered_to"] = new
+                mv["to"] = f"docs/adr/{new:04d}-{mv['slug']}.md"
+            tracked = _git(ctx, "ls-files", "--error-unmatch", "--", mv["from"],
+                           check=False).returncode == 0
+            if tracked:
+                _git(ctx, "mv", "--", mv["from"], mv["to"])
+                commit_paths += [mv["from"], mv["to"]]
+            else:
+                os.replace(ctx.abs(mv["from"]), ctx.abs(mv["to"]))
+                _git(ctx, "add", "--", mv["to"])
+                commit_paths.append(mv["to"])
+            touched.append(mv["to"])
+            body = read_text(ctx.abs(mv["to"]))
+            if new != old:
+                body = re.sub(rf"\bADR-{old:04d}\b", f"ADR-{new:04d}", body)
+            atomic_write(ctx.abs(mv["to"]), _add_epic_line(body, mv["epic"]))
+            path_re = re.compile(
+                rf"[\w./-]*epic-{nnn}/arch/adr-{old:04d}-{re.escape(mv['slug'])}\.md")
+            num_re = re.compile(rf"\bADR-{old:04d}\b")
+            epic_tree = os.path.join(ctx.impl, f"epic-{nnn}")
+            for f in md_files:
+                if not os.path.isfile(f):
+                    continue
+                text = read_text(f)
+                inside = _under(f, epic_tree)
+                if new != old and not inside:
+                    for i, line in enumerate(text.splitlines(), 1):
+                        if num_re.search(line):
+                            plan["review"].append({"file": ctx.rel(f), "line": i,
+                                                   "text": line.strip()})
+                text2 = path_re.sub(mv["to"], text)
+                if new != old and inside:
+                    text2 = num_re.sub(f"ADR-{new:04d}", text2)
+                if text2 != text:
+                    atomic_write(f, text2)
+                    rel = ctx.rel(f)
+                    rewritten.add(rel)
+                    touched.append(rel)
+            if new != old:
+                for f in other_docs:
+                    if re.match(rf"{old:04d}-", os.path.basename(f)) and _under(f, docs_dir):
+                        continue                      # that number's rightful owner
+                    for i, line in enumerate(read_text(f).splitlines(), 1):
+                        if num_re.search(line):
+                            plan["review"].append({"file": ctx.rel(f), "line": i,
+                                                   "text": line.strip()})
+    except Exception as e:
+        # No automatic rollback: undoing renames and text substitutions across a repo is more
+        # dangerous than the problem, and the pre-flight refusal above is what stops a rerun
+        # from compounding this. Fail loud instead, naming exactly what this run already
+        # touched so a person can inspect and commit or revert those paths by hand.
+        code = e.code if isinstance(e, SAError) else 2
+        detail = ", ".join(dict.fromkeys(touched)) or "(nothing written yet)"
+        raise SAError(code, f"{e} -- migrate-adrs --apply failed partway; paths already moved "
+                             f"or rewritten in this run: {detail}. Inspect them and either "
+                             f"commit or revert exactly those paths by hand -- never a "
+                             f"repo-wide discard; other agents share this checkout.") from e
+    rewritten_committed, rewritten_uncommitted = [], []
     for rel in sorted(rewritten):
         if _git(ctx, "ls-files", "--error-unmatch", "--", rel, check=False).returncode == 0:
             commit_paths.append(rel)
+            rewritten_committed.append(rel)
         else:
             sys.stderr.write(f"WARN {rel} was rewritten but is not tracked; not committed\n")
-    plan["rewritten"] = sorted(rewritten)
+            rewritten_uncommitted.append(rel)
+    plan["rewritten"] = rewritten_committed
+    plan["rewritten_uncommitted"] = rewritten_uncommitted
     plan["commit"] = git_commit(ctx, "docs(adr): migrate epic ADRs to docs/adr",
                                 list(dict.fromkeys(commit_paths)))
     print(json.dumps(plan, indent=2))

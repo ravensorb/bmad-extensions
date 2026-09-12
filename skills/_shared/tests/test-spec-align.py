@@ -1132,6 +1132,51 @@ class TestMigrateAdrs(Project):
         reg = self.run_json("--plan")["register"]
         self.assertEqual(reg, {"next": 2, "highest_on_disk": 4, "lagging": True})
 
+    def test_collision_between_two_legacy_adrs_in_different_epics_gets_distinct_numbers(self):
+        # ADR-0005's most careful scenario: two legacy ADRs in different epics share a number.
+        # The first one seen keeps it; the second collides and must be reserved a fresh one,
+        # and that renumber must stay scoped to its own epic tree (never the other epic's).
+        self.write(f"{IMPL}/epic-005/arch/adr-0007-first.md", adr(7, "first", epic="E005"))
+        self.write(f"{IMPL}/epic-006/arch/adr-0007-second.md", adr(7, "second", epic="E006"))
+        s5 = f"{IMPL}/epic-005/sprint-01/stories/E005-S01-001.md"
+        s6 = f"{IMPL}/epic-006/sprint-01/stories/E006-S01-001.md"
+        self.write(s5, "# S\n\nPer ADR-0007.\n")
+        self.write(s6, "# S\n\nPer ADR-0007.\n")
+        self.git("add", "-A")
+        self.git("commit", "-q", "-m", "two legacy ADRs sharing a number")
+        out = self.run_json("--apply")
+        moved = {m["epic"]: m for m in out["moves"] if m["slug"] in ("first", "second")}
+        self.assertFalse(moved["E005"]["collision"])              # first seen: keeps 0007
+        self.assertTrue(moved["E006"]["collision"])                # second seen: reserved fresh
+        self.assertEqual(moved["E005"]["to"], "docs/adr/0007-first.md")
+        n6 = moved["E006"]["renumbered_to"]
+        self.assertNotEqual(n6, 7)
+        self.assertIn(f"ADR-{n6:04d}", self.read(s6))               # its own story: rewritten
+        self.assertNotIn(f"ADR-{n6:04d}", self.read(s5))            # the other epic: untouched
+        self.assertIn("ADR-0007", self.read(s5))                    # E005's own number: unchanged
+        tracked = set(self.git("ls-files", "docs/adr").split())
+        self.assertIn("docs/adr/0007-first.md", tracked)
+        self.assertIn(moved["E006"]["to"], tracked)
+
+    def test_add_epic_line_inserts_after_title_when_no_status_line(self):
+        self.write(f"{IMPL}/epic-007/arch/adr-0009-nostat.md",
+                   "# ADR-0009: nostat\n\n## Context\n\nno status line here\n")
+        self.git("add", "-A")
+        self.git("commit", "-q", "-m", "legacy ADR without a Status line")
+        out = self.run_json("--apply")
+        [mv] = [m for m in out["moves"] if m["slug"] == "nostat"]
+        body = self.read(mv["to"])
+        self.assertTrue(body.startswith("# ADR-0009: nostat\n\n- **Epic:** E007\n"))
+
+    def test_apply_refuses_when_the_touched_paths_are_already_dirty(self):
+        self.write(f"{IMPL}/epic-001/arch/stray.md", "stray uncommitted change\n")
+        before = self.git("status", "--porcelain")
+        r = self.sa("migrate-adrs", "--apply")
+        self.assertEqual(r.returncode, 2)
+        self.assertIn("uncommitted", r.stderr.lower())
+        self.assertFalse(os.path.exists(self.path("docs/adr/0004-cache.md")))   # nothing moved
+        self.assertEqual(self.git("status", "--porcelain"), before)             # tree unchanged
+
 
 if __name__ == "__main__":
     unittest.main()
