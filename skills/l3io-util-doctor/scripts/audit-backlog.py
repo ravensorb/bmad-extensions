@@ -12,7 +12,8 @@ A backlog nothing ever pruned is full of findings that were fixed long ago. This
 script proposes, with evidence, which open items look resolved: a bmad-defer: marker
 that is gone, a file that no longer exists, a duplicate, and for everything else the
 exact place the finding was recorded, so a reviewer checks one pointer instead of
-searching. Every verdict is a proposal; doctor `triage` asks before acting.
+searching. Every verdict is a proposal; doctor `triage` asks before acting. Spec items
+(kind spec-change / spec-proposal) are skipped: triage's spec pass handles them.
 
 Structural integrity lives in `pm-status.py audit-issues`. This script is the
 single-consumer, heuristic half, so it ships in doctor's own scripts/ (ADR-0001), and
@@ -161,6 +162,8 @@ def pointer_for(item, project_root, artifacts_root):
 
 
 def audit(open_items, resolved, project_root, artifacts_root):
+    # Spec items (docs/adr/0004) are confirmed or rejected in triage's spec pass, never here.
+    open_items = [it for it in open_items if str(it.get("kind") or "defect") == "defect"]
     verdicts, warnings = [], []
     markers = {}
     for it in open_items:

@@ -55,7 +55,8 @@ target project, produce:
 - A boundaries/architecture sketch honoring separation of concerns (§1) with at least a C4
   context + one flow diagram (Mermaid preferred, ASCII fallback — §10).
 - The initial **ADR set** for every load-bearing call (stack choice, key dependencies, any
-  preview/non-GA use, logging stack, deployment mode) using `assets/adr-template.md`.
+  preview/non-GA use, logging stack, deployment mode) using `assets/adr-template.md` —
+  numbered and placed as in Mode C.
 - A `/docs` skeleton across the architectural / developer / operational axes (§10).
 - A dependency policy note (GA-over-beta §8, maintenance+license §7).
 
@@ -70,7 +71,15 @@ findings must be resolved or ADR-justified; MINOR auto-defers to the backlog.
 ### Mode C — Decision support
 
 Given a decision in play, identify the principle(s) in tension, weigh the options against them,
-recommend, and **record an ADR** (`assets/adr-template.md`). Never let a load-bearing call go
+recommend, and **record an ADR** (`assets/adr-template.md`) at
+`{project-root}/docs/adr/NNNN-slug.md`, the one ADR home. When
+`{project-root}/_bmad/scripts/pm-status.py` exists, take the number from the l3io-pm
+register:
+`python3 {project-root}/_bmad/scripts/pm-status.py adr-reserve --state-root {implementation_artifacts}/state --epic n/a --slug {slug} --adr-dir {project-root}/docs/adr`
+prints it. Without l3io-pm there is no register, so use the highest number in `docs/adr/`
+plus one. That is safe only for a single writer, which is the only case without the
+register, and `adr-reserve` skips those numbers later. Fill `Epic:` (`n/a` outside an epic)
+and `Departs from spec:` (a `path#anchor`, or `n/a`). Never let a load-bearing call go
 unrecorded.
 
 ## Wiring into core BMad (customization)
@@ -82,7 +91,7 @@ documents the `bmad-customize` overlay to author in a consuming project. Offer t
 ## Output
 
 - **Review** → report to `{implementation_artifacts}` (or the path the orchestrator passes).
-- **Design/Decision** → ADRs under `{project-root}/docs/adr/` and the docs skeleton.
+- **Design/Decision** → ADRs under `{project-root}/docs/adr/` (numbered by `adr-reserve` when l3io-pm is installed — Mode C) and the docs skeleton.
 
 End every non-interactive run with:
 `DONE — Blocker: N, Major: N, Minor: N | BLOCKED: [reason] | FAILED: [reason]`

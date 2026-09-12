@@ -258,5 +258,20 @@ class TestCli(Base):
         self.assertIn("issues-resolved.yaml has a malformed 'resolved' field", err.getvalue())
 
 
+class TestSpecItemsSkipped(Base):
+    """spec-change/spec-proposal items are confirmed or rejected in triage's spec pass; the
+    mechanical audit must not propose resolving them as obsolete or needs-review."""
+
+    def test_spec_items_get_no_verdict(self):
+        self.pm("append-issue", "--state-root", self.state, "--epic", "001", "--sprint", "",
+                "--title", "Spec change: order API", "--source", "spec-sync (AD-1)",
+                "--severity", "Medium", "--kind", "spec-change", "--ref", "3f9c2a1",
+                "--description", "Confirm or reject: /l3io-util-doctor triage")
+        self.append("A defect", "code-review (E001-S01-001)")
+        v = self.verdicts()
+        self.assertNotIn("BL-E001-001", v)
+        self.assertIn("BL-E001-002", v)
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

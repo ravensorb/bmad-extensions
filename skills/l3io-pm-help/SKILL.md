@@ -218,7 +218,11 @@ Report to user:
 - Count open items by severity (Critical, High, Medium, Low), split into untriaged (`status`
   backlog) and scheduled, and note how many have an archived origin (`origin_archived`). With
   the `cat` fallback, every item under `backlog:` is open. If any untriaged item is Critical or
-  High, recommend `/l3io-pm-plan` (backlog intake) or `/l3io-util-doctor triage`.
+  High, recommend `/l3io-pm-plan` (backlog intake) or `/l3io-util-doctor triage`. Count
+  `spec-change` items (unconfirmed spec edits) and `spec-proposal` items (proposed PRD/UX/epic
+  changes) separately, by their `kind` field — with the `cat` fallback read each item's `kind:`;
+  an item without one is a defect. If any are open, recommend `/l3io-util-doctor triage` (its
+  spec pass confirms or rejects them).
 
 **Plan status** (from `plan-output-meta.yaml`):
 - `readiness`, `generated` timestamp, and the phase count — read `phase_count` when present;

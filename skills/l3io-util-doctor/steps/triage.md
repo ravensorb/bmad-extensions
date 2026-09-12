@@ -74,6 +74,34 @@ information. Ask: `Resolve {n}? (Y = all / p = pick / n = none)`. For each confi
 - **`duplicate-candidate`** — `resolve-issue --resolution duplicate --ref {ref}`. If it refuses
   (for example, a duplicate chain), show the refusal and leave the item open.
 
+### Step T3b — Spec changes and proposals
+
+```bash
+uv run {pm_status} list-issues --state-root {pm_state_root} --kind spec-change --format json
+uv run {pm_status} list-issues --state-root {pm_state_root} --kind spec-proposal --format json
+```
+
+Skip this step when both are empty. Otherwise take each item in turn, oldest first:
+- `spec-change`: show `git -C {project-root} show --stat {ref}`, then the diff
+  (`git -C {project-root} show {ref}`)
+- `spec-proposal`: show the proposal file at `{ref}`
+
+Ask: `Confirm, reject, or skip {key}? (c/r/s)`.
+
+- **Confirm a spec change** →
+  `uv run {pm_status} resolve-issue --state-root {pm_state_root} --key {key} --resolution fixed --ref {ref} --session-id {triage_session} --cause triage`
+- **Confirm a proposal** → ask for the commit that changed the spec, then run the same
+  command with `--ref {that sha}`. If there is no such commit yet, skip the item. A proposal
+  is confirmed only once the spec actually says it.
+- **Reject either kind** → `{spec_align} reject --key {key}`. It does three things:
+  - reverts a spec change (`git revert`; a proposal needs nothing reverted);
+  - resolves the item `wontfix`;
+  - files the drift as a code fix (`Code diverges from spec: …`, at the original severity).
+
+  Exit 2 on a revert conflict means it aborted the revert and left the item open: print its
+  message. Nothing else changed.
+- **Skip** → leave the item open. Health Check 18 reports it once a later commit builds on it.
+
 ### Step T4 — Agent review (optional; costs tokens)
 
 Count the `needs-review` verdicts, split into those with a `pointer` and those without (`u`).
@@ -135,6 +163,7 @@ BACKLOG TRIAGE — {pm_issues_file}
   Integrity repairs:  {n}  ({finding ids})
   Resolved:           {n}  (fixed {a} · obsolete {b} · duplicate {c} · wontfix {d})
   Re-severitied:      {n}
+  Spec items:         {n}  (confirmed {a} · rejected {r} · still open {o})
   Still open:         {n}  (untriaged {u} · scheduled {s} · origin archived {o})
 ================================================================
 ```
