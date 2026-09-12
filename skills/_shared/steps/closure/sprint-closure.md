@@ -146,7 +146,7 @@ done | head -1
 ```
 Bind `{ux_reviewer}` to whichever resolved — the legacy `bmad-ux-review` preferred because it is
 built for review, `bmad-ux` used via its **Reviewer Gate** (opt-in, lens-selectable) when it is all that
-exists. Empty result → skip the phase.
+exists. Empty result → skip the phase and say so in the phase output, so a skipped review is never mistaken for a passed one.
 If present: invoke with story files that have UX acceptance criteria.
 HIGH: fix. LOW/MEDIUM: defer. Output path: `{sprint_root}/closure/ux-review.md`.
 
