@@ -31,8 +31,8 @@ Halt step and continue to step-05.
 | Reviewer | Detection command |
 |---|---|
 | `l3io-arch-review` | Already confirmed present |
-| `bmad-agent-architect` | `ls {project-root}/.claude/commands/bmad-agent-architect.md 2>/dev/null \|\| ls ~/.claude/commands/bmad-agent-architect.md 2>/dev/null` |
-| superpowers | `ls {project-root}/.claude/commands/superpowers:requesting-code-review.md 2>/dev/null \|\| ls ~/.claude/commands/superpowers:requesting-code-review.md 2>/dev/null` |
+| `bmad-agent-architect` | `ls {project-root}/.claude/skills/bmad-agent-architect/SKILL.md 2>/dev/null \|\| ls {project-root}/.claude/commands/bmad-agent-architect.md 2>/dev/null \|\| ls ~/.claude/skills/bmad-agent-architect/SKILL.md 2>/dev/null \|\| ls ~/.claude/commands/bmad-agent-architect.md 2>/dev/null` |
+| superpowers | `ls {project-root}/.claude/skills/superpowers:requesting-code-review/SKILL.md 2>/dev/null \|\| ls {project-root}/.claude/commands/superpowers:requesting-code-review.md 2>/dev/null \|\| ls ~/.claude/skills/superpowers:requesting-code-review/SKILL.md 2>/dev/null \|\| ls ~/.claude/commands/superpowers:requesting-code-review.md 2>/dev/null` |
 
 Bind `{active_reviewers}` = list of detected reviewer names. Minimum: `[l3io-arch-review]`.
 
