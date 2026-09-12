@@ -62,10 +62,10 @@ Files in `skills/_shared/` are the canonical sources for content shared across P
 | `skills/_shared/module-setup.md` | `assets/module-setup.md` | **all 8 skills** |
 | `skills/_shared/write-module-config.py` | `scripts/write-module-config.py` | **all 8 skills** |
 
-**Test suites are never shipped as payload.** `skills/_shared/tests/test-pm-status.py` and
+**Test suites are never shipped as payload.** `skills/_shared/tests/test-pm-status.py`,
 `skills/_shared/tests/test-write-module-config.py` and `skills/_shared/tests/test-spec-align.py` stay in `skills/_shared/tests/` only — CI
-runs both straight from there (`.github/workflows/checks.yml`), no consumer skill invokes
-either, and `sync-shared-scripts.mjs` deliberately excludes them from every sync group. Ten
+runs all three straight from there (`.github/workflows/checks.yml`), no consumer skill invokes
+any of them, and `sync-shared-scripts.mjs` deliberately excludes them from every sync group. Ten
 copies (`test-pm-status.py` into pm-execute/pm-plan/pm-sync, `test-write-module-config.py`
 into all 8) shipped as dead payload — ~842 KB across the package — until removed; do not add
 either back to a manifest.
