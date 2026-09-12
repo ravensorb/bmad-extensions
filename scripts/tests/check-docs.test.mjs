@@ -24,8 +24,8 @@ function fixture(t) {
   return dir;
 }
 
-function run(root) {
-  return spawnSync(process.execPath, [CHECK], {
+function run(root, args = []) {
+  return spawnSync(process.execPath, [CHECK, ...args], {
     cwd: REPO,
     env: { ...process.env, CHECK_DOCS_ROOT: root },
     encoding: "utf8",
@@ -374,4 +374,169 @@ test("check 15: a steps file with no routing row trips the derivations-disagree 
   const r = run(root);
   assert.equal(r.status, 1);
   assert.match(r.stderr, /mode count derivations disagree — 20 steps\/ file\(s\), 19 routing row\(s\), 19 file\(s\) referenced/);
+});
+
+// ---- check 17 (bmad-dependency-inventory) ----
+//
+// The check's scope is derived by walking skills/ markdown plus every skills/<dir>/module.yaml,
+// so the planted violations below go into new files, a new skills/ directory, and a module.yaml,
+// not only into files the check's author happened to think of.
+
+const DEP_INV = "skills/l3io-util-doctor/assets/bmad-dependencies.json";
+
+// Rewrites the fixture's REAL inventory through JSON.parse/stringify, so what is tested is the
+// schema the check reads, not a hand-built stand-in.
+function editInventory(root, mutate) {
+  const inv = JSON.parse(fs.readFileSync(path.join(root, DEP_INV), "utf8"));
+  mutate(inv);
+  write(root, DEP_INV, `${JSON.stringify(inv, null, 2)}\n`);
+}
+
+test("check 17: an undeclared bmad-* token is caught", (t) => {
+  const root = fixture(t);
+  write(root, "skills/l3io-pm-execute/steps/x-undeclared.md",
+        "Spawn `bmad-frobnicate` with the story path.\n");
+  const r = run(root);
+  assert.equal(r.status, 1, r.stdout);
+  assert.match(r.stderr, /x-undeclared\.md:1: names 'bmad-frobnicate', not declared in/);
+});
+
+test("check 17: a step file dispatching a removed skill fails", (t) => {
+  const root = fixture(t);
+  write(root, "skills/l3io-pm-execute/steps/x.md",
+        "Spawn `bmad-dev-story` subagent with the story path.\n");
+  const r = run(root);
+  assert.equal(r.status, 1, r.stdout);
+  assert.match(r.stderr, /dispatches removed skill 'bmad-dev-story'/);
+});
+
+test("check 17: a module.yaml naming an undeclared skill is caught", (t) => {
+  const root = fixture(t);
+  // Appended as a comment so check 16 (module-yaml-agreement) sees no new field and stays green:
+  // this must fail on check 17 alone.
+  write(root, "skills/l3io-arch-review/module.yaml", "\n# also requires bmad-frobnicate\n", true);
+  const r = run(root);
+  assert.equal(r.status, 1, r.stdout);
+  assert.match(r.stderr, /l3io-arch-review\/module\.yaml:\d+: names 'bmad-frobnicate', not declared in/);
+});
+
+test("check 17: an entry missing a status-required field is caught", (t) => {
+  const root = fixture(t);
+  editInventory(root, (inv) => {
+    delete inv.skills.find((e) => e.name === "bmad-code-review").module;
+  });
+  const r = run(root);
+  assert.equal(r.status, 1, r.stdout);
+  assert.match(r.stderr, /'bmad-code-review' is required but names no module/);
+});
+
+test("check 17: a duplicate inventory entry is caught", (t) => {
+  const root = fixture(t);
+  editInventory(root, (inv) => {
+    inv.skills.push({ name: "bmad-help", status: "optional", module: "bmm" });
+  });
+  const r = run(root);
+  assert.equal(r.status, 1, r.stdout);
+  assert.match(r.stderr, /duplicate entry 'bmad-help'/);
+});
+
+test("check 17 scope attack: a brand-new skills/<dir>/ with a new step file is caught", (t) => {
+  const root = fixture(t);
+  write(root, "skills/l3io-pm-brandnew-gate/steps/step-new.md",
+        "Dispatch `bmad-frobnicate` for the gate review.\n");
+  const r = run(root);
+  assert.equal(r.status, 1, r.stdout);
+  assert.match(r.stderr, /l3io-pm-brandnew-gate\/steps\/step-new\.md:1: names 'bmad-frobnicate'/);
+});
+
+test("check 17: the real tree passes", (t) => {
+  const r = run(fixture(t));
+  assert.equal(r.status, 0, r.stderr + r.stdout);
+});
+
+test("check 17: a removed skill named beside its replacement is allowed", (t) => {
+  const root = fixture(t);
+  write(root, "skills/l3io-pm-execute/steps/x-mapped.md",
+        "Migrated: `bmad-review-adversarial-general` is now `bmad-review`.\n");
+  const r = run(root, ["-v"]);
+  assert.equal(r.status, 0, r.stderr + r.stdout);
+  assert.match(r.stdout,
+               /x-mapped\.md:1: names removed skill 'bmad-review-adversarial-general' as history/);
+});
+
+test("check 17: a removed skill on a line saying legacy is allowed", (t) => {
+  const root = fixture(t);
+  write(root, "skills/l3io-pm-execute/steps/x-legacy.md",
+        "The `bmad-ux-review` name is legacy.\n");
+  const r = run(root, ["-v"]);
+  assert.equal(r.status, 0, r.stderr + r.stdout);
+  assert.match(r.stdout, /x-legacy\.md:1: names removed skill 'bmad-ux-review' as history/);
+});
+
+test("check 17: an explanatory word four lines away does NOT excuse a dispatch", (t) => {
+  const root = fixture(t);
+  write(root, "skills/l3io-pm-execute/steps/x-window.md",
+        "This skill was removed upstream.\n\n\n\nSpawn `bmad-dev-story` subagent.\n");
+  const r = run(root);
+  assert.equal(r.status, 1, "check 1's ±4-line window would have allowed this; check 17 must not");
+  assert.match(r.stderr, /dispatches removed skill/);
+});
+
+test("check 17: a leading underscore yields no token (_bmad-output, _bmad-frobnicate)", (t) => {
+  const root = fixture(t);
+  // _bmad-output is declared not-a-skill, so on its own it would pass either way; the second
+  // path is undeclared and fails the moment the lookbehind is dropped from BMAD_TOKEN_RE.
+  write(root, "skills/l3io-pm-execute/steps/x-underscore.md",
+        "Reports land in `{project-root}/_bmad-output/` and `{project-root}/_bmad-frobnicate/`.\n");
+  const r = run(root);
+  assert.equal(r.status, 0, r.stderr + r.stdout);
+});
+
+test("check 17: not-a-skill tokens are skipped via their status", (t) => {
+  const root = fixture(t);
+  write(root, "skills/l3io-pm-execute/steps/x-not-a-skill.md",
+        "The `bmad-defer:` marker in a `bmad-l3io-extensions` checkout.\n");
+  const r = run(root);
+  assert.equal(r.status, 0, r.stderr + r.stdout);
+});
+
+test("check 17: a not-a-skill entry without a reason is caught", (t) => {
+  const root = fixture(t);
+  editInventory(root, (inv) => {
+    delete inv.skills.find((e) => e.name === "bmad-defer").reason;
+  });
+  const r = run(root);
+  assert.equal(r.status, 1, r.stdout);
+  assert.match(r.stderr, /'bmad-defer' is not-a-skill but gives no reason/);
+});
+
+test("check 17: a fallback naming an undeclared skill is caught", (t) => {
+  const root = fixture(t);
+  editInventory(root, (inv) => {
+    inv.skills.find((e) => e.name === "bmad-ux").fallback = "bmad-nonexistent";
+  });
+  const r = run(root);
+  assert.equal(r.status, 1, r.stdout);
+  assert.match(r.stderr, /'bmad-ux' falls back to 'bmad-nonexistent', not declared/);
+});
+
+// Case 15 — the probe arm. Without this the check rejects the resolution blocks that
+// implement tolerance, i.e. it would forbid the fix it exists to protect.
+test("check 17: an existence probe naming a removed skill is allowed", (t) => {
+  const root = fixture(t);
+  write(root, "skills/l3io-pm-execute/steps/x-probe.md",
+        "```bash\nls {project-root}/.claude/skills/bmad-dev-story/SKILL.md 2>/dev/null\n```\n");
+  const r = run(root);
+  assert.equal(r.status, 0, "a probe line cannot dispatch anything; it must pass");
+});
+
+// Case 16 — the token-boundary hole. bmad-ux-review's replaced_by is bmad-ux, which is a
+// SUBSTRING of it, so a naive includes() check would let the guard pass its own worst case.
+test("check 17: replaced_by must match as a token, not a substring", (t) => {
+  const root = fixture(t);
+  write(root, "skills/l3io-pm-execute/steps/x-substring.md",
+        "Invoke `bmad-ux-review` with the story files.\n");
+  const r = run(root);
+  assert.equal(r.status, 1, "bmad-ux-review contains 'bmad-ux'; substring matching would pass this");
+  assert.match(r.stderr, /dispatches removed skill 'bmad-ux-review'/);
 });

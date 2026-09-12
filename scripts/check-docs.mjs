@@ -35,6 +35,9 @@
 //  15. doctor-mode-count  the doctor's stated mode count equals the modes it actually has
 //  16. module-yaml-agreement  sibling module.yaml files sharing a `code:` agree on the
 //                    module-level fields, since the installer picks one of them arbitrarily
+//  17. bmad-dependency-inventory  every bmad-* name a runtime directive under skills/ uses is
+//                    declared in skills/l3io-util-doctor/assets/bmad-dependencies.json, and no
+//                    directive dispatches a removed one without same-line historical evidence
 //
 // Usage:
 //   node scripts/check-docs.mjs        # report and exit nonzero on any failure (CI)
@@ -1134,6 +1137,104 @@ function checkModuleYamlAgreement() {
 }
 
 // ---------------------------------------------------------------------------
+// 17. Every bmad-* name a runtime directive uses is declared in one inventory.
+//
+// Three BMad releases renamed or removed skills this package dispatches and nothing noticed:
+// bmad-create-story and bmad-dev-story became shims, bmad-review-adversarial-general merged
+// into bmad-review, and bmad-check-implementation-readiness was removed. A clean v6.12.0
+// install could not run the dev loop, and the failure was invisible until someone installed
+// BMad by hand and looked.
+//
+// A removed name may still appear where the mention is self-evidently historical, but the
+// evidence must be on the SAME LINE. Check 1 widens to a ±4-line window; dry-run here, that
+// window excused l3io-util-doctor/SKILL.md:84 because an unrelated routing row nearby said
+// "remove migration backup files". An accidental pass is how a guard starts crying wolf.
+//
+// Scope is derived by walking skills/ markdown and every skills/<dir>/module.yaml, never a list.
+// ---------------------------------------------------------------------------
+const DEP_INVENTORY = "skills/l3io-util-doctor/assets/bmad-dependencies.json";
+const BMAD_TOKEN_RE = /(?<![\w-])bmad-[a-z0-9-]+/g;
+const DEP_STATUSES = ["required", "optional", "removed", "not-a-skill"];
+
+function checkBmadDependencyInventory() {
+  if (!exists(DEP_INVENTORY)) {
+    failures.push(`${DEP_INVENTORY}: missing — it is the one place every bmad-* name is declared`);
+    return;
+  }
+  let inv;
+  try {
+    inv = JSON.parse(read(DEP_INVENTORY));
+  } catch (e) {
+    failures.push(`${DEP_INVENTORY}: not valid JSON — ${e.message}`);
+    return;
+  }
+  const byName = new Map();
+  for (const e of inv.skills ?? []) {
+    if (!e.name) { failures.push(`${DEP_INVENTORY}: an entry has no name`); continue; }
+    if (byName.has(e.name)) { failures.push(`${DEP_INVENTORY}: duplicate entry '${e.name}'`); continue; }
+    byName.set(e.name, e);
+    if (!DEP_STATUSES.includes(e.status)) {
+      failures.push(`${DEP_INVENTORY}: '${e.name}' has unknown status '${e.status}'`);
+    } else if ((e.status === "required" || e.status === "optional") && !e.module) {
+      failures.push(`${DEP_INVENTORY}: '${e.name}' is ${e.status} but names no module`);
+    } else if (e.status === "removed" && !(e.replaced_by && e.removed_in)) {
+      failures.push(`${DEP_INVENTORY}: '${e.name}' is removed but lacks replaced_by/removed_in`);
+    } else if (e.status === "not-a-skill" && !e.reason) {
+      failures.push(`${DEP_INVENTORY}: '${e.name}' is not-a-skill but gives no reason`);
+    }
+  }
+  for (const e of byName.values()) {
+    if (e.fallback && !byName.has(e.fallback)) {
+      failures.push(`${DEP_INVENTORY}: '${e.name}' falls back to '${e.fallback}', not declared`);
+    }
+  }
+
+  const sources = [...walkMarkdown("skills")];
+  for (const entry of fs.readdirSync(path.join(repoRoot, "skills"), { withFileTypes: true })) {
+    if (!entry.isDirectory()) continue;
+    const rel = `skills/${entry.name}/module.yaml`;
+    if (exists(rel)) sources.push(rel);
+  }
+
+  let checked = 0;
+  for (const rel of sources) {
+    const lines = read(rel).split("\n");
+    for (let i = 0; i < lines.length; i += 1) {
+      for (const m of lines[i].matchAll(BMAD_TOKEN_RE)) {
+        const name = m[0];
+        checked += 1;
+        const e = byName.get(name);
+        if (!e) {
+          failures.push(`${rel}:${i + 1}: names '${name}', not declared in ${DEP_INVENTORY}\n` +
+            `      context: ${lines[i].trim().slice(0, 110)}`);
+          continue;
+        }
+        if (e.status !== "removed") continue;
+        const line = lines[i];
+        // Three arms. (c) is load-bearing: the tolerance design REQUIRES step files to probe
+        // for the pre-6.12 names, so a rule forbidding the name would forbid the fix. A probe
+        // line cannot dispatch anything. (b) must be token-bounded — "bmad-ux-review".includes
+        // ("bmad-ux") is true, which would let the guard pass its own worst case.
+        const isProbe = line.includes("ls ") && line.includes(".claude/");
+        const replacedByToken = new RegExp(`(?<![\\w-])${e.replaced_by.split(" ")[0]}(?![\\w-])`);
+        const historical = isProbe || replacedByToken.test(line) ||
+          /\blegacy\b|\bhistorical\b/i.test(line);
+        if (historical) {
+          notes.push(`${rel}:${i + 1}: names removed skill '${name}' as history — allowed`);
+          continue;
+        }
+        failures.push(`${rel}:${i + 1}: dispatches removed skill '${name}' — replaced by ` +
+          `'${e.replaced_by}'. If the mention is historical, say so on the same line.\n` +
+          `      context: ${line.trim().slice(0, 110)}`);
+      }
+    }
+  }
+  if (verbose) {
+    console.log(`  bmad-dependency-inventory: ${checked} reference(s), ${byName.size} declared`);
+  }
+}
+
+// ---------------------------------------------------------------------------
 
 checkSkillNames();
 checkGatingTables();
@@ -1152,6 +1253,7 @@ checkSpecAlignContract();
 checkAdrHome();
 checkDoctorModeCount();
 checkModuleYamlAgreement();
+checkBmadDependencyInventory();
 
 for (const note of notes) if (verbose) console.log(`  note: ${note}`);
 

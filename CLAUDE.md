@@ -97,7 +97,7 @@ npm run check:manifest  # verify per-skill payload-manifest.json matches the pay
 node scripts/write-payload-manifest.mjs   # regenerate the manifests after editing a payload file
 ```
 
-`check:docs` runs sixteen checks (numbered in the script's own header) asserting facts that have
+`check:docs` runs seventeen checks (numbered in the script's own header) asserting facts that have
 each drifted in this repo's history: (1) **skill-names** — every `l3io-*` skill named in a live
 doc resolves to a real `skills/` directory; (2) **gating-tables** — every mirrored phase table
 matches the authoritative matrix in `steps/shared/step-01-classify-work.md` §4 cell for cell; (3)
@@ -119,7 +119,7 @@ and a flag) passes
 run test:scripts`, which plants violations in a new directory, after a stray fence, and split
 across continued lines); (12) **pm-status-size** — `skills/_shared/pm-status.py` stays within the
 size limit ADR-0001 sets (8,000 lines). (13) **spec-align-contract** — `spec-align.py`'s spec kinds match `layout-cleanup.md` heuristic 5 and its six `DIMENSIONS` match the enrichment prompt's `## Technical acceptance criteria` layout; (14) **adr-home** — no runtime directive under `skills/` names the old per-epic ADR home (`epic-*/arch/adr-*`), found by walking `skills/`. (15) **doctor-mode-count** — `l3io-util-doctor`'s stated mode count matches the modes it
-actually has, counted from its `steps/` directory and routing table. Check (1) deliberately allows a doc to name a removed
+actually has, counted from its `steps/` directory and routing table; (17) **bmad-dependency-inventory** — every `bmad-*` name a runtime directive under `skills/` uses is declared in `skills/l3io-util-doctor/assets/bmad-dependencies.json`, and no directive dispatches a name BMad removed unless the same line carries the evidence that the mention is historical (its replacement as a whole token, the word `legacy`/`historical`, or an `ls .claude/` existence probe), found by walking `skills/` markdown plus every `skills/*/module.yaml`. Check (1) deliberately allows a doc to name a removed
 skill when mapping it to its replacement or explaining the change — `docs/upgrading.md` must be
 able to say `/l3io-pm-epic-execute` → `/l3io-pm-execute`. Docs are allowed to quote values
 inline; they are not allowed to quote them wrongly.
