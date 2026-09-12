@@ -177,12 +177,20 @@ The detected reviewers do not all run together: `l3io-arch-review` Mode B always
 
 Before any ADR subagent is dispatched, the whole batch of numbers is reserved in one call —
 `adr-reserve --state-root {pm_state_root} --epic {epic_key} --slug arch-gate --count
-{blocking_finding_count}` — under a lock in `adr-register.yaml`, so parallel agents are handed
-distinct numbers rather than each deriving one from a directory listing (which shows only who
-has finished, not who is in flight). Each blocking finding is then resolved by an ADR written
-to `{implementation_artifacts}/epic-{nnn}/arch/adr-{adr_number}-{slug}.md` using its reserved
-number, **and** by patching the affected story files with the technical ACs the decision
-implies. One re-validation pass follows; persistent blockers emit `BLOCKED`.
+{blocking_finding_count} --adr-dir {project-root}/docs/adr` — under a lock in
+`adr-register.yaml`, so parallel agents are handed distinct numbers rather than each deriving
+one from a directory listing (which shows only who has finished, not who is in flight). Each
+blocking finding is then resolved by an ADR written
+to `{project-root}/docs/adr/{adr_number}-{slug}.md` (the one ADR home, ADR-0005) using its reserved
+number, with its `Epic:` and `Departs from spec:` lines filled, **and** by patching the affected
+story files with the technical ACs the decision implies. One re-validation pass follows;
+persistent blockers emit `BLOCKED`.
+
+With `spec_alignment` on (the default, pm-execute `customize.toml`), the reviewer also receives
+the spec index (`{implementation_artifacts}/spec/spec-index.md`, built by
+`spec-align.py build` without a model) and the line ranges the stories' `Spec:` pointers name
+— never whole spec documents — and may raise `spec-conflict` and `spec-gap` findings. Every
+reviewer ends with a `Sections read:` footer, so extra reading is measurable.
 
 Zero findings on non-trivial CODE scope prompts for confirmation rather than passing silently.
 

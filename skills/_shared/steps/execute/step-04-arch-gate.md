@@ -44,6 +44,20 @@ ls {implementation_artifacts}/epic-{epic_nnn}/*/stories/*.md 2>/dev/null
 ```
 Bind `{story_file_paths}` = full list of story markdown files across all sprints of the scoped epics.
 
+**Spec inputs (when `{spec_alignment}` is `true`).** Refresh the spec index and turn the
+stories' `Spec:` pointers into line ranges. Neither step calls a model, and `build --if-stale`
+rewrites nothing when the specs are unchanged:
+
+```bash
+{spec_align} build --if-stale
+{spec_align} sections --stories {story_file_paths}
+```
+
+Bind `{spec_index_path}` = `{implementation_artifacts}/spec/spec-index.md` and
+`{spec_sections}` = the `sections` output, one `path#anchor Lstart–end` per line. Stories
+prepared before spec alignment carry no pointers, so `{spec_sections}` may be short or
+`(no resolvable pointers)`; the index still goes to the reviewer.
+
 ## 3a. Dispatch rule for every spawn in this step
 
 Applies to the reviewers in §4 and the ADR subagents in §6 alike. Bracket each spawn with
@@ -84,8 +98,15 @@ first thought, then re-reads that prefix on every turn it takes:
 - Paths in `{story_file_paths}` (reads from disk)
 - Epic goal and scope context
 - l3io-pm context preamble (work_type, epic key, sprint plan)
+- When `{spec_alignment}` is `true`: `{spec_index_path}` and `{spec_sections}` — the specs by
+  pointer, never whole. Open only those line ranges; when a story needs a section it does not
+  point to, pick that one section from the index. End the review with a `Sections read:`
+  footer listing every range opened.
 - Reviewer-specific framing:
-  - `l3io-arch-review`: invoke as Mode B (architectural review of existing design)
+  - `l3io-arch-review`: invoke as Mode B (architectural review of existing design). When
+    `{spec_alignment}` is `true`, also check each story against the spec sections it points
+    to: a story that contradicts its spec is a `spec-conflict` finding, and a story that needs
+    a decision its spec does not make is a `spec-gap` finding — both at the usual severities.
   - `bmad-agent-architect`: architect persona — design coherence, story quality, artifact completeness
   - superpowers: broad software architecture principles, independent of either framework
 
@@ -127,7 +148,7 @@ and hand each agent the number it must use:
 
 ```bash
 python3 {pm_status} adr-reserve --state-root {pm_state_root} --epic {epic_key} \
-  --slug arch-gate --count {blocking_finding_count}
+  --slug arch-gate --count {blocking_finding_count} --adr-dir {project-root}/docs/adr
 ```
 
 It prints one zero-padded number per line, in order. Pair them with the findings in that order
@@ -139,8 +160,11 @@ two different documents.
 
 For each blocking finding, spawn an ADR resolution subagent:
 - Read the affected story files
-- Draft an ADR at `{implementation_artifacts}/epic-{epic_nnn}/arch/adr-{adr_number}-{slug}.md`
-  using the number you were given. Do not derive it, do not list the directory to check it.
+- Draft an ADR at `{project-root}/docs/adr/{adr_number}-{slug}.md` — the one ADR home — from
+  `l3io-arch-review/assets/adr-template.md`, using the number you were given. Do not derive
+  it, do not list the directory to check it. Fill `- **Epic:** {epic_key}`, and fill
+  `- **Departs from spec:**` with the `path#anchor` of the spec section the decision departs
+  from, or `n/a`.
 - Patch affected story files with technical ACs implied by the ADR decision
 - Return: `ADR written: {path}`
 
