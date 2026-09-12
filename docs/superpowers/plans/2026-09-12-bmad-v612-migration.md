@@ -19,6 +19,7 @@
 - Five gates must pass: `check:scripts`, `check:docs`, `check:manifest`, `check:version`, `test:scripts`, plus every Python suite.
 - Tests drive the real CLI via `subprocess` with real temp dirs and the private-`TMPDIR` leak-guard block. Never hand-written fixtures, never a custom harness.
 - Every guard needs a **non-hollow proof**: revert the guard, confirm the test fails, restore.
+- **Naming a removed skill: the same-physical-line rule.** Check 17 (Task 10) inspects one line at a time. Wherever prose names a `removed` skill, that **same physical line** must also carry the word `legacy` (or `historical`), or the replacement's exact token. Reflow the sentence if a line break would separate them — `legacy` at the end of one line and the skill name at the start of the next does **not** pass. Three arms satisfy the check: (a) same-line `legacy`/`historical`; (b) same-line `replaced_by` as a whole token; (c) the line is a filesystem existence probe (contains `ls ` and `.claude/`), which the tolerance design requires and which cannot dispatch anything.
 - **No version bumps.** `pm-status.py`'s version marker, `PM_STATUS_VERSION`, and every `module.yaml` `module_version` stay untouched.
 - Conventional Commits, `git commit -s`, explicit-path staging only (never `-A`), never `git stash`. Trailers on every commit:
   ```
@@ -428,9 +429,9 @@ git commit -s -m "fix(l3io-pm): resolve closure reviewers across BMad versions"
 `bmad-sprint-planning` exists on older BMad too, but `intent=readiness` is the 6.12.0 shape (#2659) and older copies were never verified to accept it. The old skill's presence is positive evidence of an older install, so it is probed **first**. Replace lines 83–85:
 
 ```markdown
-Resolve the readiness checker. `bmad-check-implementation-readiness` was folded into
-`bmad-sprint-planning` at 6.12.0. The old name is probed first: where it exists, this is an
-older install and `intent=readiness` may not be understood.
+Resolve the readiness checker. The legacy `bmad-check-implementation-readiness` skill was folded into `bmad-sprint-planning` at 6.12.0.
+The old name is probed first: where it exists, this is an older install and `intent=readiness`
+may not be understood.
 
 ```bash
 for n in bmad-check-implementation-readiness bmad-sprint-planning; do
@@ -606,8 +607,8 @@ post-install-notes: >
   Required BMad skills from the bmm module: bmad-code-review, bmad-qa-generate-e2e-tests,
   bmad-retrospective, bmad-review (adversarial lens), bmad-sprint-planning (readiness gate).
   bmm is not part of core, so install it with `--modules bmm` if you have not already.
-  Story enrichment and implementation run as in-package agents when BMad's deprecated
-  bmad-create-story / bmad-dev-story are absent, so no shim flag is needed.
+  Story enrichment and implementation run as in-package agents when BMad's
+  legacy bmad-create-story / bmad-dev-story skills are absent, so no shim flag is needed.
   Optional: bmad-ux (UX phases skip when absent), l3io-arch-review (epic architecture gate
   and drift reviews), l3io-sec-redteam (closure security review).
   Run /l3io-util-doctor check-deps to confirm what resolved in this project.
@@ -616,19 +617,23 @@ post-install-notes: >
   Requires uv on PATH: the Python helpers run via `uv run`.
 ```
 
-Note the two removed names survive here on a line that also names their replacement context
-("BMad's deprecated bmad-create-story / bmad-dev-story are absent"). The word `deprecated` is not
-one of check 17's two allowances, so add `legacy` to that line if check 17 rejects it — the rule
-is same-line `legacy`/`historical` or the entry's `replaced_by`.
+Note the deliberate reflow: `legacy` sits on the **same physical line** as both skill names. An
+earlier draft ended the previous line with `legacy`, which check 17 rejects — it inspects one line
+at a time. Do not re-wrap this block.
 
 - [ ] **Step 5: Verify every removed token now has same-line evidence**
 
+Mirror check 17's three arms exactly — drop a line if it carries `legacy`/`historical`, or is an
+existence probe. Do not exclude by variable name; that would mask real misses.
+
 ```bash
-grep -rn "bmad-create-story\|bmad-dev-story\|bmad-review-adversarial-general\|bmad-ux-review\|bmad-architect\b" \
+grep -rn "bmad-create-story\|bmad-dev-story\|bmad-review-adversarial-general\|bmad-ux-review\|bmad-check-implementation-readiness\|bmad-architect\b" \
   skills/ --include=*.md --include=*.yaml | grep -v superpowers \
-  | grep -viE "legacy|historical|bmad-architecture|\{dev_agent\}|\{enrich_agent\}"
+  | grep -viE "legacy|historical" \
+  | grep -vE "ls .*\.claude/" \
+  | grep -vE "bmad-architecture"
 ```
-Expected: no output. Any line printed is one check 17 will reject in Task 10.
+Expected: no output. Any line printed is one check 17 will reject in Task 10 — fix it here.
 
 - [ ] **Step 6: Regenerate manifests and commit**
 
@@ -655,7 +660,7 @@ git commit -s -m "docs: retire stale BMad skill names outside the shared sources
 
 - [ ] **Step 1: Write the failing tests first**
 
-Add to `scripts/tests/check-docs.test.mjs`, following its existing planted-violation pattern (a temp repo, a doctored file, run the checker, assert exit). All 14:
+Add to `scripts/tests/check-docs.test.mjs`, following its existing planted-violation pattern (a temp repo, a doctored file, run the checker, assert exit). All 16:
 
 ```js
 // 1 undeclared token fails; 2 dispatching a removed skill with no same-line evidence fails;
@@ -666,7 +671,10 @@ Add to `scripts/tests/check-docs.test.mjs`, following its existing planted-viola
 // allowed + notes; 10 DIVERGENCE FROM CHECK 1: removed skill whose only explanatory word is four
 // lines away STILL fails; 11 "_bmad-output" yields no token (lookbehind); 12 bmad-defer and
 // bmad-l3io-extensions skipped via not-a-skill; 13 not-a-skill without reason fails;
-// 14 fallback naming an undeclared skill fails.
+// 14 fallback naming an undeclared skill fails; 15 THE PROBE ARM: an `ls .claude/...` existence
+// probe naming a removed skill is allowed, while a prose dispatch of the same name still fails;
+// 16 THE TOKEN-BOUNDARY HOLE: a line naming only bmad-ux-review fails, even though its
+// replaced_by (bmad-ux) is a substring of it.
 
 test("check 17: a step file dispatching a removed skill fails", async () => {
   const repo = await plantRepo();
@@ -685,14 +693,35 @@ test("check 17: an explanatory word four lines away does NOT excuse a dispatch",
   assert.equal(code, 1, "check 1's ±4-line window would have allowed this; check 17 must not");
   assert.match(stderr, /dispatches removed skill/);
 });
+
+// Case 15 — the probe arm. Without this the check rejects the resolution blocks that
+// implement tolerance, i.e. it would forbid the fix it exists to protect.
+test("check 17: an existence probe naming a removed skill is allowed", async () => {
+  const repo = await plantRepo();
+  await writeFile(join(repo, "skills/l3io-pm-execute/steps/x.md"),
+    "```bash\nls {project-root}/.claude/skills/bmad-dev-story/SKILL.md 2>/dev/null\n```\n");
+  const { code } = await runCheckDocs(repo);
+  assert.equal(code, 0, "a probe line cannot dispatch anything; it must pass");
+});
+
+// Case 16 — the token-boundary hole. bmad-ux-review's replaced_by is bmad-ux, which is a
+// SUBSTRING of it, so a naive includes() check would let the guard pass its own worst case.
+test("check 17: replaced_by must match as a token, not a substring", async () => {
+  const repo = await plantRepo();
+  await writeFile(join(repo, "skills/l3io-pm-execute/steps/x.md"),
+    "Invoke `bmad-ux-review` with the story files.\n");
+  const { code, stderr } = await runCheckDocs(repo);
+  assert.equal(code, 1, "bmad-ux-review contains 'bmad-ux'; substring matching would pass this");
+  assert.match(stderr, /dispatches removed skill 'bmad-ux-review'/);
+});
 ```
 
-Write the remaining twelve in the same shape, one assertion each.
+Write the remaining fourteen in the same shape, one assertion each.
 
 - [ ] **Step 2: Run them to verify they fail**
 
 Run: `npm run test:scripts`
-Expected: the 14 new tests fail (`checkBmadDependencyInventory is not defined` or no failure raised).
+Expected: the 16 new tests fail (`checkBmadDependencyInventory is not defined` or no failure raised).
 
 - [ ] **Step 3: Implement the check**
 
@@ -774,7 +803,14 @@ function checkBmadDependencyInventory() {
         }
         if (e.status !== "removed") continue;
         const line = lines[i];
-        const historical = line.includes(e.replaced_by) || /\blegacy\b|\bhistorical\b/i.test(line);
+        // Three arms. (c) is load-bearing: the tolerance design REQUIRES step files to probe
+        // for the pre-6.12 names, so a rule forbidding the name would forbid the fix. A probe
+        // line cannot dispatch anything. (b) must be token-bounded — "bmad-ux-review".includes
+        // ("bmad-ux") is true, which would let the guard pass its own worst case.
+        const isProbe = line.includes("ls ") && line.includes(".claude/");
+        const replacedByToken = new RegExp(`(?<![\\w-])${e.replaced_by.split(" ")[0]}(?![\\w-])`);
+        const historical = isProbe || replacedByToken.test(line) ||
+          /\blegacy\b|\bhistorical\b/i.test(line);
         if (historical) {
           notes.push(`${rel}:${i + 1}: names removed skill '${name}' as history — allowed`);
           continue;
