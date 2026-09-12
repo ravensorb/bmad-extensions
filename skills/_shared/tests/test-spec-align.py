@@ -969,6 +969,20 @@ class TestCommit(SyncBase):
         self.assertEqual(r.returncode, 2)
         self.assertIn("does not link", r.stderr)
 
+    def test_an_adr_link_commit_into_a_prd_is_refused(self):
+        # ADR-0004: agents edit architecture specs only. An ADR whose `Departs from spec:`
+        # names a PRD anchor must not be linkable via commit --adr, even though the pointer
+        # resolves fine -- the section it resolves to is the wrong kind.
+        self.write("docs/adr/0001-order-api.md",
+                   adr(1, "order-api", departs=f"{PRD_REL}#deletion"))
+        self.git("add", "docs/adr/0001-order-api.md")
+        self.git("commit", "-q", "-m", "adr")
+        r = self.sa("commit", "--epic", "E003", "--adr", "docs/adr/0001-order-api.md",
+                    "--paths", PRD_REL)
+        self.assertEqual(r.returncode, 2)
+        self.assertIn("architecture specs only", r.stderr)
+        self.assertIn("0004-agents-edit-architecture-specs.md", r.stderr)
+
 
 class TestRejectAndStale(SyncBase):
     def setUp(self):

@@ -1202,6 +1202,14 @@ def adr_link_item(ctx, nnn, path):
     dep = (rows[0]["departs"] or "").strip()
     if not PTR_RE.match(dep):
         raise SAError(2, f"{path} has no `Departs from spec:` pointer to link from")
+    cat = load_catalog(ctx)
+    hit, why = resolve_pointer(cat, dep)
+    if hit is None:
+        raise SAError(2, f"{path}: `Departs from spec:` {dep} does not resolve ({why})")
+    if hit[3] != "architecture":
+        raise SAError(2, f"{path} departs from {hit[0]}, a {hit[3]} spec; agents edit "
+                         f"architecture specs only (docs/adr/0004-agents-edit-architecture-"
+                         f"specs.md) -- add the {ident} link there by hand")
     if ident in ((load_yaml(epic_disp_path(ctx, nnn)) or {}).get("adr_links") or {}):
         raise SAError(2, f"{ident} is already linked or proposed for E{nnn}")
     return {"type": "adr-link", "id": ident, "severity": "MINOR",
