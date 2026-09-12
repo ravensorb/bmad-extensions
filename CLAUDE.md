@@ -9,7 +9,7 @@ Architecture decisions are recorded in `docs/adr/` — ADR-0001: `pm-status.py` 
 ## Module Layout
 
 `l3io-util-doctor` routes: `SKILL.md` carries the overview, the keyword table, safety rules
-and the state layout, and each of its eighteen modes lives in its own `steps/` file loaded
+and the state layout, and each of its nineteen modes lives in its own `steps/` file loaded
 only when its keyword selects it. Add a mode as a file plus a table row — never inline. The
 modes were inlined once and `SKILL.md` reached 96,980 B, so every invocation paid for fifteen
 procedures it would not run.
@@ -97,7 +97,7 @@ npm run check:manifest  # verify per-skill payload-manifest.json matches the pay
 node scripts/write-payload-manifest.mjs   # regenerate the manifests after editing a payload file
 ```
 
-`check:docs` runs fourteen checks (numbered in the script's own header) asserting facts that have
+`check:docs` runs fifteen checks (numbered in the script's own header) asserting facts that have
 each drifted in this repo's history: (1) **skill-names** — every `l3io-*` skill named in a live
 doc resolves to a real `skills/` directory; (2) **gating-tables** — every mirrored phase table
 matches the authoritative matrix in `steps/shared/step-01-classify-work.md` §4 cell for cell; (3)
@@ -118,7 +118,8 @@ and a flag) passes
 `--source` and `--description`, found by walking `skills/` rather than from a list (tested by `npm
 run test:scripts`, which plants violations in a new directory, after a stray fence, and split
 across continued lines); (12) **pm-status-size** — `skills/_shared/pm-status.py` stays within the
-size limit ADR-0001 sets (8,000 lines). (13) **spec-align-contract** — `spec-align.py`'s spec kinds match `layout-cleanup.md` heuristic 5 and its six `DIMENSIONS` match the enrichment prompt's `## Technical acceptance criteria` layout; (14) **adr-home** — no runtime directive under `skills/` names the old per-epic ADR home (`epic-*/arch/adr-*`), found by walking `skills/`. Check (1) deliberately allows a doc to name a removed
+size limit ADR-0001 sets (8,000 lines). (13) **spec-align-contract** — `spec-align.py`'s spec kinds match `layout-cleanup.md` heuristic 5 and its six `DIMENSIONS` match the enrichment prompt's `## Technical acceptance criteria` layout; (14) **adr-home** — no runtime directive under `skills/` names the old per-epic ADR home (`epic-*/arch/adr-*`), found by walking `skills/`. (15) **doctor-mode-count** — `l3io-util-doctor`'s stated mode count matches the modes it
+actually has, counted from its `steps/` directory and routing table. Check (1) deliberately allows a doc to name a removed
 skill when mapping it to its replacement or explaining the change — `docs/upgrading.md` must be
 able to say `/l3io-pm-epic-execute` → `/l3io-pm-execute`. Docs are allowed to quote values
 inline; they are not allowed to quote them wrongly.

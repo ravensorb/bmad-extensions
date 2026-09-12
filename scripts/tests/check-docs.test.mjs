@@ -257,3 +257,61 @@ test("check 14: a qualifier that introduces the path still exempts it", (t) => {
   const r = run(root);
   assert.equal(r.status, 0, r.stderr + r.stdout);
 });
+
+test("check 14: an abbreviation's period between the qualifier and the path does not break the sentence", (t) => {
+  const root = fixture(t);
+  write(root, "skills/_shared/steps/brand-new-dir/eg.md",
+        "This describes the old per-epic home, e.g. `epic-001/arch/adr-0001-x.md`, for background.\n");
+  const r = run(root);
+  assert.equal(r.status, 0, r.stderr + r.stdout);
+});
+
+test("check 14: a genuine new sentence after the qualifier is still caught", (t) => {
+  const root = fixture(t);
+  write(root, "skills/_shared/steps/brand-new-dir/new-sentence.md",
+        "That was the legacy layout. Read `epic-001/arch/adr-0001-x.md` now.\n");
+  const r = run(root);
+  assert.equal(r.status, 1);
+  assert.match(r.stderr, /new-sentence\.md:1: .*arch\/adr-0001-x\.md/);
+});
+
+// ---- check 15 (doctor-mode-count) ----
+
+test("check 15: a stated count one below the real one is caught", (t) => {
+  const root = fixture(t);
+  write(root, "CLAUDE.md",
+        fs.readFileSync(path.join(root, "CLAUDE.md"), "utf8")
+          .replace("each of its nineteen modes lives in its own `steps/` file",
+                   "each of its eighteen modes lives in its own `steps/` file"));
+  const r = run(root);
+  assert.equal(r.status, 1);
+  assert.match(r.stderr, /CLAUDE\.md: says "eighteen" modes, but the doctor has 19 mode\(s\)/);
+});
+
+test("check 15: the correct count passes", (t) => {
+  const root = fixture(t);
+  const r = run(root);
+  assert.equal(r.status, 0, r.stderr + r.stdout);
+});
+
+test("check 15 scope attack: a new steps file plus its routing row, prose unchanged, is caught", (t) => {
+  const root = fixture(t);
+  write(root, "skills/l3io-util-doctor/steps/zzz-extra-mode.md", "# Extra mode\n");
+  const rel = "skills/l3io-util-doctor/SKILL.md";
+  const text = fs.readFileSync(path.join(root, rel), "utf8");
+  write(root, rel, text.replace(
+    "| `stats` | `steps/stats.md` | read-only — plan-aware progress dashboard |",
+    "| `stats` | `steps/stats.md` | read-only — plan-aware progress dashboard |\n" +
+      "| `zzz-extra` | `steps/zzz-extra-mode.md` | test-only extra mode |"));
+  const r = run(root);
+  assert.equal(r.status, 1);
+  assert.match(r.stderr, /says "nineteen" modes, but the doctor has 20 mode\(s\)/);
+});
+
+test("check 15: a steps file with no routing row trips the derivations-disagree branch", (t) => {
+  const root = fixture(t);
+  write(root, "skills/l3io-util-doctor/steps/zzz-orphan-mode.md", "# Orphan mode\n");
+  const r = run(root);
+  assert.equal(r.status, 1);
+  assert.match(r.stderr, /mode count derivations disagree — 20 steps\/ file\(s\), 19 routing row\(s\), 19 file\(s\) referenced/);
+});

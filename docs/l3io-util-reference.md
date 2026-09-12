@@ -14,7 +14,7 @@ to a mode.
 Skill: `/l3io-util-doctor [command]`.
 
 > **Renamed in 2.1.0.** This skill was `l3io-util-cleanup` through 2.0.x. "Cleanup"
-> described about three of its eighteen modes, while the default behavior is a
+> described about three of its modes, while the default behavior is a
 > diagnose-report-repair health check. `/l3io-util-cleanup` still works — it forwards to
 > `/l3io-util-doctor` and prints a notice — but it is deprecated and will be removed in a
 > future release. Update any scripts or docs that invoke the old name.

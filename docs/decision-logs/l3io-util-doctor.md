@@ -19,7 +19,7 @@ last_touched: 2026-06-15
 >
 > **Correction (current behaviour):** this skill outgrew the single-file shape. It is now a
 > **router**: `SKILL.md` carries the overview, keyword table, safety rules, and state layout,
-> and each of its fourteen modes lives in its own `steps/` file loaded only when its keyword
+> and each of its modes lives in its own `steps/` file loaded only when its keyword
 > selects it (the modes were inlined once and `SKILL.md` reached 96,980 B). See `CLAUDE.md`
 > § Module Layout.
 

@@ -32,6 +32,7 @@
 //  13. spec-align-contract spec-align.py's spec kinds match layout-cleanup.md heuristic 5, and
 //                    its six DIMENSIONS match the enrichment prompt's layout block
 //  14. adr-home      no runtime directive names the old per-epic ADR home (epic-*/arch/adr-*)
+//  15. doctor-mode-count  the doctor's stated mode count equals the modes it actually has
 //
 // Usage:
 //   node scripts/check-docs.mjs        # report and exit nonzero on any failure (CI)
@@ -941,6 +942,7 @@ const ADR_OLD_HOME_ALLOWED = new Set([
   "skills/l3io-util-doctor/steps/migrate-adrs.md",
   "skills/l3io-util-doctor/steps/health-check.md",
 ]);
+const ADR_OLD_HOME_QUALIFIER = /\b(old home|old per-epic home|legacy|migrat\w*)\b/i;
 
 function checkAdrHome() {
   const offenders = [];
@@ -949,11 +951,20 @@ function checkAdrHome() {
     read(rel).split("\n").forEach((line, i) => {
       const m = ADR_OLD_HOME.exec(line);
       if (!m) return;
-      // The qualifier must introduce the path ("the old per-epic home, `epic-*/arch/adr-*`"),
-      // not merely appear somewhere on it ("read `epic-*/arch/adr-*.md` for legacy reasons").
-      // Look only at the text before the match, and not across a sentence break.
-      const before = line.slice(0, m.index);
-      if (/\b(old home|old per-epic home|legacy|migrat\w*)\b[^.]{0,60}$/i.test(before)) return;
+      // The qualifier must introduce the path within the SAME SENTENCE. A sentence break is a
+      // period followed by whitespace and a capital, so "e.g." and a filename such as
+      // `adr-0001-x.md` do not end the sentence. An earlier `[^.]{0,60}$` form treated every
+      // period as a break and wrongly flagged legitimate prose.
+      const sentences = line.split(/(?<=\.)\s+(?=[A-Z])/);
+      let off = 0;
+      for (const s of sentences) {
+        const start = line.indexOf(s, off);
+        off = start + s.length;
+        if (m.index >= start && m.index < start + s.length) {
+          if (ADR_OLD_HOME_QUALIFIER.test(s.slice(0, m.index - start))) return;
+          break;
+        }
+      }
       offenders.push(`${rel}:${i + 1}: ${line.trim()}`);
     });
   }
@@ -963,6 +974,63 @@ function checkAdrHome() {
       `(docs/adr/0005-one-adr-home.md); list an epic's with \`{spec_align} adrs --epic\`.`);
   }
   if (verbose) console.log(`  adr-home:       ${offenders.length} offending directive(s)`);
+}
+
+// ---------------------------------------------------------------------------
+// 15. The doctor's stated mode count equals the number of modes it actually has.
+//
+// The count is DERIVED three ways from the source of truth -- the steps/ directory, the
+// routing table, and the Modes list -- and those three must agree; a disagreement means a
+// mode file with no routing row, or a row with no file. Only the two *claim sites* are named
+// here, because "is this sentence a live claim or frozen history?" cannot be derived
+// mechanically: docs/upgrading.md and the decision log deliberately keep stale counts as
+// release history, and CLAUDE.md's "fifteen procedures" is tied to a past measurement.
+//
+// Caught in practice: the count was bumped seventeen->eighteen when it should have gone
+// eighteen->nineteen, and stayed wrong because nothing compared it to anything.
+// ---------------------------------------------------------------------------
+const NUMBER_WORDS = ["zero", "one", "two", "three", "four", "five", "six", "seven", "eight",
+  "nine", "ten", "eleven", "twelve", "thirteen", "fourteen", "fifteen", "sixteen",
+  "seventeen", "eighteen", "nineteen", "twenty", "twenty-one", "twenty-two", "twenty-three",
+  "twenty-four", "twenty-five"];
+const DOCTOR_DIR = "skills/l3io-util-doctor";
+
+function checkDoctorModeCount() {
+  const steps = fs.readdirSync(path.join(repoRoot, DOCTOR_DIR, "steps"))
+    .filter((f) => f.endsWith(".md"));
+  const skill = read(`${DOCTOR_DIR}/SKILL.md`);
+  const rows = [...skill.matchAll(/^\| `[^|]+` \| `steps\/[a-z-]+\.md`/gm)].length;
+  const referenced = new Set([...skill.matchAll(/steps\/([a-z-]+)\.md/g)].map((m) => m[1]));
+  if (new Set([steps.length, rows, referenced.size]).size !== 1) {
+    failures.push(`${DOCTOR_DIR}: mode count derivations disagree — ${steps.length} steps/ ` +
+      `file(s), ${rows} routing row(s), ${referenced.size} file(s) referenced by SKILL.md; ` +
+      `a mode is a file plus a table row`);
+    return;
+  }
+  const n = steps.length;
+  const flat = (s) => s.replace(/\s+/g, " ");
+  const claims = [
+    ["CLAUDE.md", /each of its ([a-z-]+) modes lives in its own `steps\/` file/,
+      flat(read("CLAUDE.md")), n, "modes"],
+    [`${DOCTOR_DIR}/SKILL.md`, /carries ([a-z-]+) procedures and a run needs one/,
+      flat(skill), n, "procedures"],
+    [`${DOCTOR_DIR}/SKILL.md`, /invocation for ([a-z-]+) it would not execute/,
+      flat(skill), n - 1, "procedures not executed"],
+  ];
+  for (const [file, re, text, expect, what] of claims) {
+    const m = text.match(re);
+    if (!m) {
+      failures.push(`${file}: the ${what} claim was not found — has the sentence been ` +
+        `reworded? check 15 must be updated with it`);
+      continue;
+    }
+    const got = NUMBER_WORDS.indexOf(m[1].toLowerCase());
+    if (got !== expect) {
+      failures.push(`${file}: says "${m[1]}" ${what}, but the doctor has ${n} mode(s) ` +
+        `(${expect} expected here) — counted from ${DOCTOR_DIR}/steps/ and the routing table`);
+    }
+  }
+  if (verbose) console.log(`  doctor-mode-count: ${n} mode(s), ${claims.length} claim(s)`);
 }
 
 // ---------------------------------------------------------------------------
@@ -982,6 +1050,7 @@ checkAppendIssuePointer();
 checkPmStatusSize();
 checkSpecAlignContract();
 checkAdrHome();
+checkDoctorModeCount();
 
 for (const note of notes) if (verbose) console.log(`  note: ${note}`);
 
