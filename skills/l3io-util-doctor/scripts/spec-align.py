@@ -38,6 +38,7 @@ import shlex
 import subprocess
 import sys
 import tempfile
+import time
 
 INDEX_FORMAT = 1
 INDEX_REL = os.path.join("spec", "spec-index.md")
@@ -1306,6 +1307,85 @@ def cmd_commit(ctx, a):
     return 0
 
 
+# -- confirm/reject support ------------------------------------------------------------------- #
+
+def _open_items(ctx, *extra):
+    ctx.need("state", "pm")
+    r = _pm(ctx, "list-issues", "--state-root", ctx.state_root, "--format", "json", *extra)
+    if r.returncode != 0:
+        raise SAError(2, f"list-issues failed: {(r.stderr or r.stdout).strip()}")
+    return json.loads(r.stdout or "[]")
+
+
+def cmd_reject(ctx, a):
+    it = next((i for i in _open_items(ctx) if i.get("key") == a.key), None)
+    if it is None:
+        raise SAError(2, f"{a.key} is not an open backlog item")
+    kind = it.get("kind") or "defect"
+    if kind not in ("spec-change", "spec-proposal"):
+        raise SAError(2, f"{a.key} is a {kind} item; reject handles spec-change and "
+                         f"spec-proposal items only")
+    ref = str(it.get("ref") or "")
+    if kind == "spec-change":
+        r = _git(ctx, "revert", "--no-edit", "--signoff", ref, check=False)
+        if r.returncode != 0:
+            conflicts = _git(ctx, "diff", "--name-only", "--diff-filter=U",
+                             check=False).stdout.split()
+            _git(ctx, "revert", "--abort", check=False)
+            raise SAError(2, f"git revert {ref} conflicts in "
+                             f"{', '.join(conflicts) or '(see git status)'}; aborted -- "
+                             f"{a.key} stays open. Revert by hand, then resolve it.")
+        res_ref = _git(ctx, "rev-parse", "HEAD").stdout.strip()
+    else:
+        res_ref = ref
+    r = _pm(ctx, "resolve-issue", "--state-root", ctx.state_root, "--key", a.key,
+            "--resolution", "wontfix", "--ref", res_ref, "--note",
+            f"{kind} rejected in triage", "--cause", "triage")
+    if r.returncode != 0:
+        raise SAError(2, f"resolve-issue failed after {res_ref}: "
+                         f"{(r.stderr or r.stdout).strip()}")
+    title = re.sub(r"^Spec (change|proposal):\s*", "", str(it.get("title", "")))
+    args = ["append-issue", "--state-root", ctx.state_root, "--epic", str(it.get("epic", "")),
+            "--sprint", "", "--title", f"Code diverges from spec: {title}",
+            "--source", f"spec-reject ({a.key})", "--severity", str(it.get("severity") or "Medium"),
+            "--description", (f"{kind} {a.key} was rejected, so the code must change to match "
+                              f"the spec. {it.get('description') or ''}").strip()]
+    r = _pm(ctx, *args)
+    m = ISSUE_KEY_RE.search(r.stdout)
+    if r.returncode != 0 or not m:
+        raise SAError(2, f"{a.key} is resolved but the code fix was not filed -- rerun: "
+                         f"pm-status.py {' '.join(args)}")
+    print(f"OK reject {a.key} ({kind}) -> wontfix {res_ref}; code fix {m.group(1)}")
+    return 0
+
+
+def cmd_check_stale(ctx, a):
+    items = _open_items(ctx, "--kind", "spec-change")
+    findings = []
+    for it in items:
+        ref = str(it.get("ref") or "")
+        if not ref:
+            continue                                  # audit-issues 1k reports a missing ref
+        files = _git(ctx, "show", "--name-only", "--format=", ref, check=False).stdout.split()
+        if not files:
+            findings.append(f"{it['key']}: its commit {ref} is not in this repository")
+            continue
+        later = _git(ctx, "log", "--format=%h", f"{ref}..HEAD", "--", *files,
+                     check=False).stdout.split()
+        if later:
+            ct = _git(ctx, "show", "-s", "--format=%ct", ref, check=False).stdout.strip()
+            age = f"{(time.time() - int(ct)) / 86400:.0f} day(s) old, " if ct.isdigit() else ""
+            findings.append(f"{it['key']}: unconfirmed spec change {ref[:12]} ({age}"
+                            f"{len(later)} later commit(s) on {', '.join(files)}) -- confirm "
+                            f"or reject it in /l3io-util-doctor triage")
+    for f in findings:
+        print(f)
+    if findings:
+        return 1
+    print(f"OK check-stale: {len(items)} unconfirmed spec change(s), none built upon")
+    return 0
+
+
 # -- CLI -------------------------------------------------------------------------------------- #
 
 def build_parser():
@@ -1393,6 +1473,13 @@ def build_parser():
     co.add_argument("--paths", nargs="+", required=True, help="exactly the pointed-to spec file")
     co.add_argument("--rename-anchor", action="append", default=[], metavar="OLD=NEW")
     co.set_defaults(func=cmd_commit)
+
+    rj = sub.add_parser("reject", help="revert/decline a spec item and refile it as a code fix")
+    rj.add_argument("--key", required=True)
+    rj.set_defaults(func=cmd_reject)
+
+    cs = sub.add_parser("check-stale", help="report unconfirmed spec changes built upon")
+    cs.set_defaults(func=cmd_check_stale)
 
     # Later tasks register their subcommands above this line.
     return p

@@ -968,5 +968,79 @@ class TestCommit(SyncBase):
         self.assertIn("does not link", r.stderr)
 
 
+class TestRejectAndStale(SyncBase):
+    def setUp(self):
+        super().setUp()
+        self.sa("lease", "acquire", "--owner", "E003", "--wait-minutes", "0")
+        text = self.read(ARCH_REL).replace("POST /orders accepts a body.",
+                                           "POST /orders accepts a body; returns 201.")
+        self.write(ARCH_REL, text)
+        r = self.sa("commit", "--epic", "E003", "--finding", "AD-1", "--paths", ARCH_REL)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.sa("lease", "release", "--owner", "E003")
+        self.spec_sha = self.git("rev-parse", "HEAD").strip()
+        self.key = self.disp()["findings"]["AD-1"]["issue"]
+
+    def commit_all(self, msg):
+        self.git("add", ARCH_REL)
+        self.git("commit", "-q", "-m", msg)
+
+    def test_reject_reverts_resolves_and_refiles_the_drift(self):
+        r = self.sa("reject", "--key", self.key)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertTrue(self.git("log", "-1", "--format=%s").startswith(
+            'Revert "docs(spec): E003 AD-1'))
+        self.assertEqual(self.read(ARCH_REL), ARCH)
+        [res] = [i for i in self.issues("", resolved=True) if i["key"] == self.key]
+        self.assertEqual(res["resolution"], "wontfix")
+        self.assertEqual(res["ref"], self.git("rev-parse", "HEAD").strip())
+        [fix] = self.issues("defect")
+        self.assertEqual(fix["title"], "Code diverges from spec: Orders bypass the repository")
+        self.assertEqual(fix["source"], f"spec-reject ({self.key})")
+        self.assertEqual(fix["severity"], "Medium")
+
+    def test_a_conflicting_revert_aborts_and_leaves_the_item_open(self):
+        self.write(ARCH_REL, self.read(ARCH_REL).replace("returns 201.", "returns 202."))
+        self.commit_all("later edit on the same line")
+        before = self.git("rev-parse", "HEAD").strip()
+        r = self.sa("reject", "--key", self.key)
+        self.assertEqual(r.returncode, 2)
+        self.assertIn("conflicts", r.stderr)
+        self.assertIn("stays open", r.stderr)
+        self.assertFalse(os.path.exists(self.path(".git/REVERT_HEAD")))
+        self.assertEqual(self.git("rev-parse", "HEAD").strip(), before)
+        self.assertEqual([i["key"] for i in self.issues("spec-change")], [self.key])
+
+    def test_rejecting_a_proposal_declines_it_without_git(self):
+        deferred = {d["id"]: d for d in self.plan("--defer")["deferred"]}
+        key = deferred["AD-3"]["issue"]
+        before = self.git("rev-parse", "HEAD").strip()
+        r = self.sa("reject", "--key", key)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertEqual(self.git("rev-parse", "HEAD").strip(), before)
+        [res] = [i for i in self.issues("", resolved=True) if i["key"] == key]
+        self.assertEqual(res["ref"], deferred["AD-3"]["proposal"])
+        self.assertIn("High", {i["severity"] for i in self.issues("defect")})
+
+    def test_reject_refuses_a_defect(self):
+        self.pm("append-issue", "--state-root", self.state, "--epic", "003", "--sprint", "",
+                "--title", "A bug", "--source", "qa (Q-1)", "--severity", "Low",
+                "--description", "d")
+        key = self.issues("defect")[0]["key"]
+        r = self.sa("reject", "--key", key)
+        self.assertEqual(r.returncode, 2)
+        self.assertIn("spec-change and spec-proposal items only", r.stderr)
+
+    def test_check_stale_reports_an_unconfirmed_change_that_was_built_upon(self):
+        r = self.sa("check-stale")
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.write(ARCH_REL, self.read(ARCH_REL) + "\n## Events\n\nKafka.\n")
+        self.commit_all("built on top")
+        r = self.sa("check-stale")
+        self.assertEqual(r.returncode, 1)
+        self.assertIn(self.key, r.stdout)
+        self.assertIn("1 later commit", r.stdout)
+
+
 if __name__ == "__main__":
     unittest.main()
