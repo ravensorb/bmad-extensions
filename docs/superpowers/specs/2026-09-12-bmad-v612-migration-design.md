@@ -171,9 +171,18 @@ for n in <preferred-name> <fallback-name>; do
 done | head -1
 ```
 
-`steps/plan/step-02-readiness-check.md:83`'s probe is **removed, not fixed**: the skill it tests
-for no longer exists, and its replacement `bmad-sprint-planning` ships in the default install, so
-the readiness check calls it unconditionally (§4).
+`steps/plan/step-02-readiness-check.md:83`'s single-directory probe is **replaced, not merely
+repaired**: it resolves through §4.1's two-name resolver rather than testing one hard-coded name
+in one directory.
+
+An earlier draft of this paragraph said the check "calls `bmad-sprint-planning` unconditionally"
+because that skill ships in the default install. That contradicted §4.1, which is the binding
+rule, and §4.1 governs. The reason is concrete: `bmad-sprint-planning` **predates** 6.12.0, but
+`intent=readiness` is the 6.12.0 shape of it, and older copies were never verified to accept that
+argument. So this is one of the two overlapping pairs where the *old* name is probed first — its
+presence is positive evidence of an older install. Calling the new shape unconditionally would
+break exactly the working installs this design exists to protect, including this repo's own
+BMad 6.11.0.
 
 ## 6. Harvested from `bmad-build-auto`
 
