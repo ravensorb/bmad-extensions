@@ -54,7 +54,7 @@ l3io-arch-review        (standalone, plus invoked by the gate and drift reviews 
 
 `l3io-sec` is optionally dependent on `l3io-pm` at runtime (called during closure), but has no build-time or config dependency. It runs standalone and only uses the l3io-pm config section if l3io-pm has already been configured.
 
-`l3io-arch` carries the engineering-standards charter (`references/standards-*.md`). It is invoked by l3io-pm's architecture gate and drift reviews, and is designed to also be wired into core `bmad-architecture`, `bmad-create-story`, and `bmad-code-review` via `bmad-customize`, so the standards apply automatically during design and review without forking those core skills.
+`l3io-arch` carries the engineering-standards charter (`references/standards-*.md`). It is invoked by l3io-pm's architecture gate and drift reviews, and is designed to also be wired into core `bmad-architecture`, legacy `bmad-create-story`, and `bmad-code-review` via `bmad-customize`, so the standards apply automatically during design and review without forking those core skills.
 
 ## Orchestrator Pattern
 

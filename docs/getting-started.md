@@ -44,15 +44,15 @@ a `BLOCKED:` message, see [Troubleshooting](troubleshooting.md); unfamiliar term
   `spec-align.py`) are invoked as `uv run`, which provisions their dependencies from an inline
   PEP 723 header — there is nothing else to install, but without `uv` the first status write
   fails.
-- Required BMad skills present, from the `bmm` module: `bmad-code-review`,
-  `bmad-qa-generate-e2e-tests`, `bmad-retrospective`, `bmad-review` (adversarial lens; legacy
-  fallback `bmad-review-adversarial-general`), `bmad-sprint-planning` (readiness gate; legacy
-  fallback `bmad-check-implementation-readiness`). The legacy `bmad-create-story` /
-  `bmad-dev-story` skills are preferred for story enrichment and implementation when installed;
-  this package runs its own in-package agent in their place when either is absent, so no
-  minimum BMad version is required.
-- Optional: `bmad-ux` (legacy fallback `bmad-ux-review`) — UX review phases are skipped
-  gracefully when neither is present.
+- Required BMad skills present, from the `bmm` module. Each site below resolves between two
+  names in a deliberately chosen order — for some the 6.12 name is tried first, for others the
+  legacy name is tried first because its presence is positive evidence about the install; no
+  fixed minimum BMad version is required: `bmad-code-review`, `bmad-qa-generate-e2e-tests`,
+  `bmad-retrospective`, `bmad-review` (adversarial lens, tried first; legacy `bmad-review-adversarial-general` used only when `bmad-review` is absent — a disjoint pair, so order is immaterial in practice), and legacy `bmad-check-implementation-readiness` (readiness gate, preferred when installed, since its presence is itself evidence that `intent=readiness` may not be understood on that install; `bmad-sprint-planning intent=readiness` is used only when the legacy skill is absent).
+- The legacy `bmad-create-story` / `bmad-dev-story` skills are preferred for story enrichment
+  and implementation when installed; this package runs its own in-package agent in their place
+  when either is absent, so no shim flag is needed either way.
+- Optional — UX review: legacy `bmad-ux-review` is preferred when installed, because it is purpose-built for review; `bmad-ux`'s opt-in Reviewer Gate is used only when `bmad-ux-review` is absent. UX review phases are skipped gracefully when neither is present.
 - **WebSearch permission** granted in your IDE if you plan to use `l3io-sec` (required for live cloud/platform best practices research)
 
 Node.js is **not** needed to use the skills — only to develop this package itself, where
