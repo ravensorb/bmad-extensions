@@ -65,7 +65,7 @@ ls {project-root}/.claude/skills/bmad-create-story/SKILL.md 2>/dev/null \
 
 A path printed → `{enrich_agent}` = the legacy `bmad-create-story`. Nothing printed →
 `{enrich_agent}` = `l3io-story-enrich`, dispatched as a general subagent. The instruction below is unchanged either
-way, including the batching rule: **one spawn for the whole sprint, not one per story.**
+way, including the batching rule above: **one spawn per epic's worth of thin stories, not one per story.**
 
 Bracket each batch with `dispatch --event open` / `--event close`, same
 `--agent {enrich_agent} --epic {epic_key} --session-id {session_id}` identity on both,
