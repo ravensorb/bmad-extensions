@@ -2,6 +2,56 @@
 
 All notable changes to this project will be documented in this file. See [commit-and-tag-version](https://github.com/absolute-version/commit-and-tag-version) for commit guidelines.
 
+## [2.5.1](https://github.com/ravensorb/bmad-extensions/compare/2.5.0...2.5.1) (2026-09-12)
+
+
+### Features
+
+* **infra:** add check 17, every BMad dependency is declared ([08ba1c8](https://github.com/ravensorb/bmad-extensions/commit/08ba1c827c92473bec5e780b336b12ebc73ec4aa))
+* **l3io-pm:** add deletion and claims checks to story code review ([9aa26bb](https://github.com/ravensorb/bmad-extensions/commit/9aa26bb1c06e00d247349df80de865b3ef4342fd))
+* **l3io-util:** add the check-deps doctor mode ([0e2e63c](https://github.com/ravensorb/bmad-extensions/commit/0e2e63cb10e854354673dff23dfe405003f2a6f2))
+* **l3io-util:** declare every BMad dependency in one inventory ([d183b17](https://github.com/ravensorb/bmad-extensions/commit/d183b1724946798a902d5259ccd928f3e07bd2bf))
+* **l3io-util:** verify installed BMad skills against the inventory ([bef400f](https://github.com/ravensorb/bmad-extensions/commit/bef400f7082a945ddac1b223dbbe3b97da0f516c))
+
+
+### Fixes
+
+* **infra:** token-bound check 17's probe arm and escape replaced_by ([aa29745](https://github.com/ravensorb/bmad-extensions/commit/aa297453b4d91432e48027efb791b09f615ecfd7))
+* install bmm explicitly, and stop sibling module.yaml files diverging ([3c5df13](https://github.com/ravensorb/bmad-extensions/commit/3c5df135875eb517461413eeea980e280cac93ef))
+* **l3io-pm:** probe both skill layouts so the arch gate stops self-skipping ([4be6389](https://github.com/ravensorb/bmad-extensions/commit/4be63895c443e746d173a67dcff24862c0ffc957))
+* **l3io-pm:** resolve closure reviewers across BMad versions ([406fbb5](https://github.com/ravensorb/bmad-extensions/commit/406fbb52b6a3a8eee77e6813e314cbcc74147876))
+* **l3io-pm:** resolve the dev-loop implementer instead of hard-coding it ([3615c5b](https://github.com/ravensorb/bmad-extensions/commit/3615c5b899046b4180ea446bf69f0edcb025ca30))
+* **l3io-pm:** resolve the readiness checker across BMad versions ([06db4e1](https://github.com/ravensorb/bmad-extensions/commit/06db4e1f8c511ca0a33a74c8d2017e449d85ff58))
+* **l3io-pm:** resolve the story enricher instead of hard-coding it ([19c2d61](https://github.com/ravensorb/bmad-extensions/commit/19c2d61c0983f45c6f9f8bae6c2b4ea2b023e619))
+* **l3io-pm:** say so when the UX review phase skips, as the adversarial one does ([1b48562](https://github.com/ravensorb/bmad-extensions/commit/1b485620b9c1314c074c753bf0c1aee164098474))
+* **l3io-util:** close review findings in the v6.12 dependency guard ([61990aa](https://github.com/ravensorb/bmad-extensions/commit/61990aaf39c07a0926edf421b6ef0ddafbae8fbe))
+* **l3io-util:** name the module five BMad skills actually ship in ([99d6ada](https://github.com/ravensorb/bmad-extensions/commit/99d6adaeac1dcb76c6844dff815e7a87e30750c0))
+* **l3io-util:** reject an unknown inventory status instead of warning ([79bcf9b](https://github.com/ravensorb/bmad-extensions/commit/79bcf9b0e32a60f2e1718a7bc59c8d6d9dcb4490))
+
+
+### Documentation
+
+* **adr:** record ADR-0006, one guarded BMad dependency inventory ([f28a5fe](https://github.com/ravensorb/bmad-extensions/commit/f28a5fe0d645998682fc5854c63e300f63a4196d))
+* correct task 14's acceptance criterion to what this machine reports ([ab80097](https://github.com/ravensorb/bmad-extensions/commit/ab80097d6588ba370f2e5b0d09025c2b1390c6a2))
+* correct the migration plan for four pre-flight rulings ([b397353](https://github.com/ravensorb/bmad-extensions/commit/b397353c4b69757a1230bc6188c2a4fd542be28c))
+* correct three docs that still described the pre-6.12 dependency set ([767ba9f](https://github.com/ravensorb/bmad-extensions/commit/767ba9fc08d28316abcc2dfe90f218ee00d6d87b))
+* design the BMad v6.12.0 dependency migration ([9583b4b](https://github.com/ravensorb/bmad-extensions/commit/9583b4bae76f7e5299e69b9432d910aa48ca2c9f))
+* fix prefer/fallback direction and legacy qualifiers from review round 1 ([c599fc2](https://github.com/ravensorb/bmad-extensions/commit/c599fc2c79d384089f162d1f3f735cb92d14b4fd))
+* give task 9 the measured violation list, not a hand-built one ([dcedc71](https://github.com/ravensorb/bmad-extensions/commit/dcedc717576dd287b06ba25ed27939f48ca15bd4))
+* **l3io-pm:** state elaboration's batching unit as the epic, not the sprint ([233d3d9](https://github.com/ravensorb/bmad-extensions/commit/233d3d90ee4f1f90f052f4d0dad9e2cd861b8913))
+* make the v6.12.0 migration version-tolerant, not a switch ([82b984c](https://github.com/ravensorb/bmad-extensions/commit/82b984c873ee4803392529815e50b1622127703d))
+* plan the BMad v6.12.0 dependency migration ([073f48e](https://github.com/ravensorb/bmad-extensions/commit/073f48e5be178aaba26ed02820f5af483101330d))
+* put legacy on the same line as each dead skill name the plan prescribes ([cccf7e5](https://github.com/ravensorb/bmad-extensions/commit/cccf7e5572ee90a17893194e882f66507b619e1b))
+* qualify every remaining unqualified removed-skill mention ([b03a642](https://github.com/ravensorb/bmad-extensions/commit/b03a6422db9023ae1d7d1a0c8bfe13845c2c0bac))
+* retire stale BMad skill names outside the shared sources ([cb6fdaf](https://github.com/ravensorb/bmad-extensions/commit/cb6fdafccca7a501bf32fd5a0f934df7dc563b0b))
+* **spec:** make section 5.1 defer to the binding tolerance rule ([fdc75a6](https://github.com/ravensorb/bmad-extensions/commit/fdc75a6d7ef2e0693db1368677e08aaca72b99d6))
+* state BMad dependencies as they resolve on both install shapes ([2c339a2](https://github.com/ravensorb/bmad-extensions/commit/2c339a260466e8787e1e76b9b0c8ffdd18ebcb1c))
+
+
+### Testing
+
+* **l3io-util:** derive check 15's planted-mode expectations from the tree ([862df0c](https://github.com/ravensorb/bmad-extensions/commit/862df0cfbe765e19be19014dc2eb517a3d87f0c4))
+
 ## [2.5.0](https://github.com/ravensorb/bmad-extensions/compare/2.4.13...2.5.0) (2026-09-12)
 
 
