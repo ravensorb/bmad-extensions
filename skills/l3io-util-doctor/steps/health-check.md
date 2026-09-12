@@ -243,8 +243,8 @@ run spec alignment.
 - exit 0 → ✓, noting its pre-provenance count
 
 **Check 17 — ADR links**
-Run only if `{project-root}/docs/adr/` exists or `{implementation_artifacts}/spec/spec-index.md`
-exists.
+Run only if `{project-root}/docs/adr/` exists or any
+`{implementation_artifacts}/epic-*/arch/adr-*.md` exists — the two homes `check-links` reads.
 
 ```bash
 {spec_align} check-links
