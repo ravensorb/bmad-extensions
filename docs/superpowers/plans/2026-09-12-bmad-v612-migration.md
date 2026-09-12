@@ -621,6 +621,34 @@ Note the deliberate reflow: `legacy` sits on the **same physical line** as both 
 earlier draft ended the previous line with `legacy`, which check 17 rejects — it inspects one line
 at a time. Do not re-wrap this block.
 
+- [ ] **Step 4b: Work from the MEASURED violation list, not from the file list above**
+
+The file lists in this task were assembled by reading citations; a dry run of check 17's real
+three-arm logic against the tree found **26 violations**, because several lines carry more than
+one dead token. This is the authoritative target list — every entry must end up satisfying an
+arm (same-line `legacy`/`historical`, same-line whole-word `replaced_by`, or an `ls … .claude/`
+probe):
+
+| File | Line | Token |
+|---|---|---|
+| `skills/l3io-arch-review/SKILL.md` | 87 | `bmad-architect` |
+| `skills/l3io-arch-review/assets/customize-architect.md` | 12 | `bmad-architect` |
+| `skills/l3io-arch-review/assets/customize-architect.md` | 21 | `bmad-create-story` |
+| `skills/l3io-arch-review/module.yaml` | 10, 18 | `bmad-architect` |
+| each of the **four** `l3io-pm-*/module.yaml` | 13 | `bmad-create-story` **and** `bmad-dev-story` |
+| each of the **four** `l3io-pm-*/module.yaml` | 15 | `bmad-review-adversarial-general` |
+| each of the **four** `l3io-pm-*/module.yaml` | 17 | `bmad-ux-review` |
+| `skills/l3io-util-doctor/SKILL.md` | 25, 84, 114 | `bmad-create-story` |
+| `skills/l3io-util-doctor/assets/migrate-state.md` | 122 | `bmad-create-story` |
+| `skills/l3io-util-doctor/steps/bootstrap-state.md` | 9 | `bmad-create-story` |
+
+The four `module.yaml` files contribute **16** of the 26 — four tokens each — which the earlier
+"lines 13/15/17" phrasing understated. The `post-install-notes` rewrite in Step 4 removes all
+sixteen at once by replacing that whole block.
+
+**`skills/l3io-util-doctor/SKILL.md:3` is NOT in the list** — it already satisfies an arm. Do not
+edit it.
+
 - [ ] **Step 5: Verify every removed token now has same-line evidence**
 
 Mirror check 17's three arms exactly — drop a line if it carries `legacy`/`historical`, or is an
