@@ -193,7 +193,7 @@ Epic directories are 3-digit zero-padded (`epic-001`); sprints are 2-digit (`spr
       closure/retrospective.md
       closure/closure-report.md
       tests/
-    arch/adr-001-{slug}.md        ← written by the architecture gate
+    arch/arch-gate-review.md      ← written by the architecture gate
     epic-closure/retrospective.md
     epic-closure/closure-report.md
     tests/
@@ -221,7 +221,7 @@ The gate is **skipped entirely** for `DOCS` and `CONFIG` work types, and when `l
 | MINOR from ≥2 reviewers | MINOR confirmed — deferred to issues |
 | MINOR from 1 reviewer | Auto-deferred to issues |
 
-Each blocking finding is resolved by writing an ADR under `epic-{nnn}/arch/` **and** patching the affected story files with the technical ACs the decision implies. One re-validation pass follows; unresolved blockers halt execution.
+Each blocking finding is resolved by writing an ADR under `{project-root}/docs/adr/` — the one ADR home (ADR-0005), with numbers reserved up front by `pm-status.py adr-reserve` so parallel agents cannot collide — **and** patching the affected story files with the technical ACs the decision implies. One re-validation pass follows; unresolved blockers halt execution.
 
 If the gate finds zero findings on non-trivial CODE scope it asks for confirmation rather than passing silently — a clean result there is unusual enough to be worth a second look.
 

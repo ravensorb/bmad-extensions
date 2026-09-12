@@ -14,7 +14,7 @@ to a mode.
 Skill: `/l3io-util-doctor [command]`.
 
 > **Renamed in 2.1.0.** This skill was `l3io-util-cleanup` through 2.0.x. "Cleanup"
-> described about three of its seventeen modes, while the default behavior is a
+> described about three of its eighteen modes, while the default behavior is a
 > diagnose-report-repair health check. `/l3io-util-cleanup` still works — it forwards to
 > `/l3io-util-doctor` and prints a notice — but it is deprecated and will be removed in a
 > future release. Update any scripts or docs that invoke the old name.
@@ -51,6 +51,7 @@ Key settings (with defaults):
 | `split-status` | Splits a single `sprint-status.yaml` into the three-file layout (`sprint-status.yaml` active / `sprint-status-backlog.yaml` / `sprint-status-archived.yaml`). One-way; original preserved as `sprint-status.yaml.legacy`. |
 | `migrate-state` | Makes a legacy project usable by the PM skills again — migrates a legacy state layout (flat `sprint-status.yaml`, or legacy per-epic `_bmad/state/`) to the sharded state tree. |
 | `bootstrap-state` | Creates state nodes from story `.md` artifacts — for projects whose stories were created via `bmad-create-story` without going through `l3io-pm-plan`. |
+| `migrate-adrs` | Moves ADRs from the old per-epic home (`{implementation_artifacts}/epic-*/arch/`) to `{project-root}/docs/adr/`, the one ADR home (ADR-0005). Renumbers a colliding ADR only inside its own epic's artifacts. Plans first, confirms, then commits once. |
 
 ### Ongoing maintenance (safe to repeat)
 
@@ -82,9 +83,9 @@ Key settings (with defaults):
 
 ## Project Health Check
 
-The default mode runs fourteen numbered read-only checks (Checks 1–14, plus 2b and 2c), prints a findings table (✓ pass / ⚠ flagged), and — unless invoked as `check`/`status` — proposes the flagged actions in a fixed priority sequence behind a single confirmation:
+The default mode runs nineteen numbered read-only checks (Checks 1–19, plus 2b and 2c), prints a findings table (✓ pass / ⚠ flagged), and — unless invoked as `check`/`status` — proposes the flagged actions in a fixed priority sequence behind a single confirmation:
 
-`rename-active → rename-epic-dirs → migrate-schema → split-status → migrate-state → bootstrap-state → reconcile-status → layout-cleanup → sort-status → harvest-debt → triage → update-ai-rules → redrive → untrack-locks → clean-legacy`
+`rename-active → rename-epic-dirs → migrate-schema → split-status → migrate-state → bootstrap-state → reconcile-status → layout-cleanup → sort-status → harvest-debt → migrate-adrs → triage → update-ai-rules → redrive → untrack-locks → clean-legacy`
 
 `untrack-locks` (Check 14, lock files tracked in git) is the one action that is not a mode: the health check makes sure `state/.gitignore` has a `*.lock` line, then runs `git rm --cached` over the tracked `*.lock` files under the state root. The files stay on disk, and the removal is staged for your next commit.
 

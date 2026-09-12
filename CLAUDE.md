@@ -4,12 +4,12 @@
 
 `bmad-l3io-extensions` is a BMad community module package with four modules: `l3io-pm` (sprint/epic orchestration), `l3io-sec` (red team security agent), `l3io-util` (artifact utilities), and `l3io-arch` (engineering-standards architecture guardrails & review). It ships as installable Claude Code slash commands.
 
-Architecture decisions are recorded in `docs/adr/` — ADR-0001: `pm-status.py` stays one self-installed file; single-consumer code lives in its skill's own `scripts/`.
+Architecture decisions are recorded in `docs/adr/` — ADR-0001: `pm-status.py` stays one self-installed file; single-consumer code lives in its skill's own `scripts/`; ADR-0004: agents edit architecture specs, PRD/UX/epic docs are proposal-only, and every edit is confirmed after it lands; ADR-0005: `docs/adr/` is the one ADR home and `adr-reserve` allocates from max(register, files on disk).
 
 ## Module Layout
 
 `l3io-util-doctor` routes: `SKILL.md` carries the overview, the keyword table, safety rules
-and the state layout, and each of its seventeen modes lives in its own `steps/` file loaded
+and the state layout, and each of its eighteen modes lives in its own `steps/` file loaded
 only when its keyword selects it. Add a mode as a file plus a table row — never inline. The
 modes were inlined once and `SKILL.md` reached 96,980 B, so every invocation paid for fifteen
 procedures it would not run.
@@ -20,7 +20,7 @@ Module setup is **embedded** in each operational skill (`assets/module-setup.md`
 
 ```
 skills/
-  _shared/                ← canonical shared files (pm-status.py, status-files.md,
+  _shared/                ← canonical shared files (pm-status.py, spec-align.py, status-files.md,
   |                          metrics-contract.md, calibration-model.md, config-resolution.md,
   |                          module-setup.md, write-module-config.py, steps/, tests/) —
   |                          NEVER edit per-skill copies
@@ -43,7 +43,7 @@ skills/
 | `l3io-pm-help` | Reads project state and recommends the exact next l3io-pm action |
 | `l3io-pm-sync` | Bidirectional sync between l3io-pm state and GitHub Issues — setup, push, pull, sync, and status modes |
 | `l3io-sec-redteam` | Red team security analysis — five threat lenses + AI poisoning cross-cut, live cloud/platform best practices research |
-| `l3io-util-doctor` | Project state diagnostics and housekeeping — default is a health check that reports findings and proposes an ordered fix plan; `stats` is the plan-aware progress dashboard; plus `triage`, `migrate-state`, `split-status`, `harvest-debt`, `sort-status`, `update-ai-rules`, `clean-legacy`, `redrive`. Renamed from `l3io-util-cleanup` in 2.1.0, which survives as a deprecated forwarder (backward compatible — the old command forwards) |
+| `l3io-util-doctor` | Project state diagnostics and housekeeping — default is a health check that reports findings and proposes an ordered fix plan; `stats` is the plan-aware progress dashboard; plus `triage`, `migrate-adrs`, `migrate-state`, `split-status`, `harvest-debt`, `sort-status`, `update-ai-rules`, `clean-legacy`, `redrive`. Renamed from `l3io-util-cleanup` in 2.1.0, which survives as a deprecated forwarder (backward compatible — the old command forwards) |
 | `l3io-arch-review` | Engineering-standards architecture guardrails and review — three modes: design guardrails (new project), architectural review (audit), decision support + ADR recording |
 
 ## Shared Files
@@ -53,6 +53,7 @@ Files in `skills/_shared/` are the canonical sources for content shared across P
 | Canonical source | Per-skill destination | Skills |
 |---|---|---|
 | `skills/_shared/pm-status.py` | `scripts/pm-status.py` | pm-execute, pm-plan, pm-sync, **l3io-util-doctor** (no test suite — see below) |
+| `skills/_shared/spec-align.py` | `scripts/spec-align.py` | pm-execute, **l3io-util-doctor** — run from each skill's own copy, never self-installed; its suite `tests/test-spec-align.py` stays in `_shared/tests/` |
 | `skills/_shared/status-files.md` | `references/status-files.md` | pm-execute, pm-plan, pm-sync |
 | `skills/_shared/metrics-contract.md` | `references/metrics-contract.md` | pm-execute, pm-plan, pm-sync |
 | `skills/_shared/calibration-model.md` | `references/calibration-model.md` | pm-execute, pm-plan, pm-sync |
@@ -62,7 +63,7 @@ Files in `skills/_shared/` are the canonical sources for content shared across P
 | `skills/_shared/write-module-config.py` | `scripts/write-module-config.py` | **all 8 skills** |
 
 **Test suites are never shipped as payload.** `skills/_shared/tests/test-pm-status.py` and
-`skills/_shared/tests/test-write-module-config.py` stay in `skills/_shared/tests/` only — CI
+`skills/_shared/tests/test-write-module-config.py` and `skills/_shared/tests/test-spec-align.py` stay in `skills/_shared/tests/` only — CI
 runs both straight from there (`.github/workflows/checks.yml`), no consumer skill invokes
 either, and `sync-shared-scripts.mjs` deliberately excludes them from every sync group. Ten
 copies (`test-pm-status.py` into pm-execute/pm-plan/pm-sync, `test-write-module-config.py`
@@ -96,12 +97,12 @@ npm run check:manifest  # verify per-skill payload-manifest.json matches the pay
 node scripts/write-payload-manifest.mjs   # regenerate the manifests after editing a payload file
 ```
 
-`check:docs` runs twelve checks (numbered in the script's own header) asserting facts that have
+`check:docs` runs fourteen checks (numbered in the script's own header) asserting facts that have
 each drifted in this repo's history: (1) **skill-names** — every `l3io-*` skill named in a live
 doc resolves to a real `skills/` directory; (2) **gating-tables** — every mirrored phase table
 matches the authoritative matrix in `steps/shared/step-01-classify-work.md` §4 cell for cell; (3)
 **section-refs** — every `<file>.md §N` cross-reference resolves to a section bearing that number;
-(4) **cli-surface** — the documented `pm-status.py` CLI surface agrees with the real one in both
+(4) **cli-surface** — the documented `pm-status.py` and `spec-align.py` CLI surfaces agree with the real ones in both
 directions, a doc naming a subcommand the CLI lacks or a CLI subcommand missing from the
 reference; (5) **config-values** — values quoted inline in prose (the fix-loop caps) match what
 `customize.toml` ships, including that the four PM skills agree with each other; (6)
@@ -117,7 +118,7 @@ and a flag) passes
 `--source` and `--description`, found by walking `skills/` rather than from a list (tested by `npm
 run test:scripts`, which plants violations in a new directory, after a stray fence, and split
 across continued lines); (12) **pm-status-size** — `skills/_shared/pm-status.py` stays within the
-size limit ADR-0001 sets (8,000 lines). Check (1) deliberately allows a doc to name a removed
+size limit ADR-0001 sets (8,000 lines). (13) **spec-align-contract** — `spec-align.py`'s spec kinds match `layout-cleanup.md` heuristic 5 and its six `DIMENSIONS` match the enrichment prompt's `## Technical acceptance criteria` layout; (14) **adr-home** — no runtime directive under `skills/` names the old per-epic ADR home (`epic-*/arch/adr-*`), found by walking `skills/`. Check (1) deliberately allows a doc to name a removed
 skill when mapping it to its replacement or explaining the change — `docs/upgrading.md` must be
 able to say `/l3io-pm-epic-execute` → `/l3io-pm-execute`. Docs are allowed to quote values
 inline; they are not allowed to quote them wrongly.
@@ -171,11 +172,12 @@ can be installed and unconfigured. Full contract: `skills/_shared/config-resolut
 - `state/{planned,active,archived}/epic-{nnn}/epic.yaml` — one bare node per epic file, no `sprints:` list wrapper; children are discovered by listing the directory.
 - `state/{planned,active,archived}/epic-{nnn}/sprint-{nn}/sprint.yaml` — one bare node per sprint file, no `stories:` list wrapper.
 - `state/{planned,active,archived}/epic-{nnn}/sprint-{nn}/{story-key}.yaml` — one bare node per story file (`E{nnn}-S{nn}-{nnn}.yaml`).
-- `state/issues.yaml` — OPEN deferred issues (`BL-E{nnn}-{nnn}`, `status` `backlog` or `scheduled`) plus a per-epic `next:` key allocator that never decreases, so a key is never reused. Changed only through `pm-status.py` verbs (`append-issue`, `update-issue`, `promote-issue`, `resolve-issue`, `repair-issue`), all under `issues_lock`.
+- `state/issues.yaml` — OPEN deferred issues (`BL-E{nnn}-{nnn}`, `status` `backlog` or `scheduled`), each with an optional `kind` (`spec-change` | `spec-proposal`; absent = defect) and `ref`, plus a per-epic `next:` key allocator that never decreases, so a key is never reused. Changed only through `pm-status.py` verbs (`append-issue`, `update-issue`, `promote-issue`, `resolve-issue`, `repair-issue`), all under `issues_lock`.
 - `state/issues-resolved.yaml` — resolved items, moved whole with `resolution` (`fixed` | `wontfix` | `duplicate` | `obsolete`), `resolved_at`, `ref`, `note`. A story's `resolves:` list is resolved as `fixed` automatically when `set-status` marks the story `done`. `audit-issues` checks integrity; `/l3io-util-doctor triage` audits and closes what is already fixed. Design: `docs/superpowers/specs/2026-09-10-issue-lifecycle-design.md`, ADR-0002.
 - `state/events.jsonl` — append-only transition log, `flock`-guarded, one JSON object per status/actuals write plus a `dispatch_open`/`dispatch_close` pair per subagent dispatch (`pm-status.py dispatch`, unconditional — no `--no-events` opt-out). The only source for per-status dwell time (`updated_at` is overwritten by any field write) and the input to `pm-status.py report`, including its `--stall-minutes` flag and `usage --agent` scoping, both of which read the dispatch records exclusively. Absent on pre-existing projects, which fall back to `updated_at` with dwell marked approximate.
 - `state/pm-calibration.yaml` — learned estimation-calibration ratios (see Estimation calibration below).
-- `state/adr-register.yaml` — the ADR number allocator (`next:` plus a `reserved:` list). `pm-status.py adr-reserve --epic E --slug S [--count N]` hands out sequential numbers under a flock **before** dispatch, so parallel arch-gate agents cannot both claim ADR-0007. Absent, empty, or an unparseable `next` all resolve to "start at 1" — a project that has never recorded an ADR still works. A malformed `reserved` (not a list) is the one exception: that field is the record of who is in flight, so `adr-reserve` refuses outright (exit 2) rather than discarding it, since silently resetting it to `[]` could let a new reservation collide with one already in flight.
+- `state/adr-register.yaml` — the ADR number allocator (`next:` plus a `reserved:` list). `pm-status.py adr-reserve --epic E --slug S [--count N]` hands out sequential numbers under a flock **before** dispatch, so parallel arch-gate agents cannot both claim ADR-0007. Absent, empty, or an unparseable `next` all resolve to "start at 1" — a project that has never recorded an ADR still works. A malformed `reserved` (not a list) is the one exception: that field is the record of who is in flight, so `adr-reserve` refuses outright (exit 2) rather than discarding it, since silently resetting it to `[]` could let a new reservation collide with one already in flight. The first number handed out is the larger of the register's `next` and the highest ADR number already on disk — in `--adr-dir` (default `<git top-level>/docs/adr`) and in the old per-epic home — plus one.
+- `state/spec-sync.lock` — the spec-edit lease (`spec-align.py lease`): owner and expiry as JSON, taken by an epic closure's spec sync so parallel closures sharing one tree never edit or commit a spec at once; ignored by the `*.lock` rule.
 
 **Placement rule**: an epic's directory lives in the folder named for its status (`planned/`, `active/`, or `archived/`), and every status transition is a `git mv` of that whole directory — sprints and stories travel with it, never moved independently.
 
@@ -213,7 +215,7 @@ FAILED: [one-line reason]
 
 **Quality gates**: Sprint and epic closure require all Critical, High, and Medium severity findings to be resolved (plus undocumented architecture drift and functional AC gaps at epic level). Low severity findings auto-defer to backlog. The fix loop runs autonomously without per-item prompts and only halts after `max_fix_iterations` iterations (**3**, per-skill in `customize.toml`) if items remain unresolved. The cap was 10 until measurement showed each fix iteration is a *turn* multiplier inside an already-long session, and session cost grows with the square of turn count — 10 bought a tail of retries at the steepest part of that curve. `max_fix_iterations_non_code` is also 3 and remains doubly inert: the two values are now equal, and every phase containing a fix loop is already skipped for DOCS and CONFIG work types, so it has nothing to bound either way.
 
-**Pre-execution gates (shift-left)**: Two gates catch architecture/spec gaps *before* development instead of at closure. (1) **Epic architecture gate** (`epic_arch_gate`, pm-execute) — before any sprint runs, `l3io-arch-review` Mode B reviews the whole epic's design **alone**, escalating to the other detected reviewers in parallel only on a BLOCKER or MAJOR — a single MAJOR already blocks, so extra reviewers cannot turn a clean verdict into a blocking one and were buying a corroboration label for two extra full-epic reads on the common path; BLOCKER/MAJOR block execution, each resolved with an ADR and by patching the affected story files with the technical ACs the decision implies; MINOR defers to backlog. (2) **Story technical-AC gate** (`story_technical_ac_gate`, pm-execute story prep) — verifies each story carries technical ACs across **six** dimensions — interfaces/data model, error and edge handling, observability, security, testability, and an **existing-library check** (which library or platform capability covers this, or why custom code is warranted) — and enriches when missing, before `ready-for-dev`. Every dimension is either satisfied or explicitly marked N/A with a reason; an unfilled applicable dimension blocks advancement — this is always enforced, not a configurable option. The step file read "at least one of" until 2026-08-19, which made the gate five times weaker than this description and let a story with interface contracts alone reach `ready-for-dev`. The library dimension is paired with a reused-before-written check in the dev loop's code review, so the rule is enforced at both specification and implementation — it was previously stated in neither. Both self-skip when `l3io-arch-review` is not installed; the story gate then falls back to a built-in checklist. `assets/customize-architect.md` also wires the standards into core `bmad-create-story`/`bmad-architect`/`bmad-code-review` in the consuming repo.
+**Pre-execution gates (shift-left)**: Two gates catch architecture/spec gaps *before* development instead of at closure. (1) **Epic architecture gate** (`epic_arch_gate`, pm-execute) — before any sprint runs, `l3io-arch-review` Mode B reviews the whole epic's design **alone**, escalating to the other detected reviewers in parallel only on a BLOCKER or MAJOR — a single MAJOR already blocks, so extra reviewers cannot turn a clean verdict into a blocking one and were buying a corroboration label for two extra full-epic reads on the common path; BLOCKER/MAJOR block execution, each resolved with an ADR and by patching the affected story files with the technical ACs the decision implies; MINOR defers to backlog. (2) **Story technical-AC gate** (`story_technical_ac_gate`, pm-execute story prep) — verifies each story carries technical ACs across **six** dimensions — interfaces/data model, error and edge handling, observability, security, testability, and an **existing-library check** (which library or platform capability covers this, or why custom code is warranted) — and enriches when missing, before `ready-for-dev`. Every dimension is either satisfied or explicitly marked N/A with a reason; an unfilled applicable dimension blocks advancement — this is always enforced, not a configurable option. The step file read "at least one of" until 2026-08-19, which made the gate five times weaker than this description and let a story with interface contracts alone reach `ready-for-dev`. The library dimension is paired with a reused-before-written check in the dev loop's code review, so the rule is enforced at both specification and implementation — it was previously stated in neither. Both self-skip when `l3io-arch-review` is not installed; the story gate then falls back to a built-in checklist. `assets/customize-architect.md` also wires the standards into core `bmad-create-story`/`bmad-architect`/`bmad-code-review` in the consuming repo. With `spec_alignment` on (pm-execute `customize.toml`, default `true`), both gates also take the project's specs — by pointer, never whole: `spec-align.py build` indexes every spec under `{planning_artifacts}` (headings, anchors, first sentences, line ranges; no model), the arch gate's reviewer reads only the ranges the stories point to, and every technical-AC dimension must end with a resolving `Spec: <path>#<anchor>` line (or `Spec: none — <reason>`), checked by `spec-align.py check-pointers` before `ready-for-dev`. Sprint and epic drift reviews record a disposition for every BLOCKER/MAJOR finding, and epic closure's spec sync writes accepted architecture departures back as one guarded `docs(spec)` commit each, confirmed or rejected in `/l3io-util-doctor triage`. Design: `docs/superpowers/specs/2026-09-11-spec-alignment-design.md`.
 
 **Parallelism**: within a plan phase marked `parallel: true`, `l3io-pm-execute` dispatches epics concurrently up to `max_parallel_subagents` (default 4, per-skill in `customize.toml`). Sprints within an epic are **always sequential**, so calibration from each finished sprint feeds forward into re-estimating the rest. Phase parallelism is decided at plan time: `steps/plan/step-05-dependency-graph.md` runs a topological sort over `depends_on` and marks a phase parallel only when its epics have no dependency on one another. Atomic status writes via `pm-status.py` are what make concurrent epics safe at the state layer. **`parallel_mode`, `parallel_ceiling`, and `safe_batch_size` are not implemented** — they describe an intended adaptive model specced in `docs/superpowers/specs/2026-08-17-adaptive-parallelism-design.md`, not current behavior. Note that concurrent epics currently share one working tree with no source-file independence check; that spec addresses it.
 

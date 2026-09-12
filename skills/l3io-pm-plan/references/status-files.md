@@ -506,6 +506,9 @@ sharding gives each epic its own directory, and nothing below the epic level nee
   (deleting a flock file is racy) — do not delete one while a run may be active.
 - `issues.yaml.lock`, `pm-calibration.yaml.lock`, `adr-register.yaml.lock` — the sidecars for
   the three shared-append targets below, likewise created empty and never deleted.
+- `spec-sync.lock` — the spec-edit lease written by `spec-align.py lease` (JSON: `owner`,
+  `acquired_at`, `expires_at`), not an empty flock target: an epic closure's spec sync holds it
+  across an agent's turns. It is a `*.lock`, so the same ignore rule keeps it out of git.
 - A `.yaml.lock` sidecar per locked node file — taken by `--flock` on
   `set-status`/`set-actual`/`set-estimate`, and always by `add-test-run`, which therefore
   leaves an `E{nnn}-S{nn}-{nnn}.yaml.lock` beside every story that records a test run — also

@@ -46,7 +46,7 @@ The full ordered sequence:
 ```
 rename-active → rename-epic-dirs → migrate-schema → split-status → migrate-state
   → bootstrap-state → reconcile-status → layout-cleanup → sort-status → harvest-debt
-  → triage → update-ai-rules → redrive → untrack-locks → clean-legacy
+  → migrate-adrs → triage → update-ai-rules → redrive → untrack-locks → clean-legacy
 ```
 
 `migrate-state` is the pivot. It is what produces the sharded `state/` tree that 2.0.1+ skills
