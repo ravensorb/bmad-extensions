@@ -227,7 +227,11 @@ runs automatically on first use, or on demand via the module's `configure` actio
 **Start here**
 
 - [Getting started](docs/getting-started.md) — prerequisites, install, first sprint and epic run
+- [Skills and sequence](docs/skills-and-sequence.md) — why each skill exists, what runs automatically, and the orders that make sense
 - [Upgrading](docs/upgrading.md) — version-by-version notes, the migration sequence, backups and rollback
+- [Troubleshooting](docs/troubleshooting.md) — what each `BLOCKED:` and `FAILED:` message means, and how to clear it
+- [Glossary](docs/glossary.md) — the terms and enum values this package uses
+- [Limits](docs/limits.md) — what this package deliberately does not do
 
 **By role**
 

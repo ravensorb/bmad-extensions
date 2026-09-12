@@ -30,6 +30,11 @@ short agents beat one long one.
 | **Architect** reviewing the model | [Architecture and execution model](architecture.md) — the context boundary, the state contract, and the pre-execution gates |
 | **Contributor** to this package | [CONTRIBUTING.md](../CONTRIBUTING.md) — note that `skills/_shared/` holds the only editable copies of shared files |
 
+New to the eight skills? [Skills and sequence](skills-and-sequence.md) explains why each one
+exists and which of them run automatically rather than being invoked. When something stops with
+a `BLOCKED:` message, see [Troubleshooting](troubleshooting.md); unfamiliar terms are in the
+[Glossary](glossary.md).
+
 ## Prerequisites
 
 - **An agent IDE** — Claude Code or GitHub Copilot. Both are supported; pick one or both with
