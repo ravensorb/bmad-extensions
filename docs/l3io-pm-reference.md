@@ -895,7 +895,7 @@ Calibration:  none yet — formula baseline (components calibrate at ≥3 sample
 
 | Phase | Skill invoked |
 |-------|--------------|
-| Readiness check (plan) | `bmad-check-implementation-readiness` (optional; presence-gated, CODE/MIXED stories only) |
+| Readiness check (plan) | `bmad-sprint-planning intent=readiness` (legacy `bmad-check-implementation-readiness`) (optional; presence-gated, CODE/MIXED stories only) |
 | Story prep / elaboration | `bmad-create-story` — **one batched call per sprint**, not one per story |
 | Development | `bmad-dev-story` |
 | Fix loop | `bmad-dev-story` |
@@ -916,6 +916,6 @@ Dependency declarations and actual invocations do not currently agree in both di
 |---|---|---|
 | `bmad-qa-generate-e2e-tests` | Required in `marketplace.json`, CLAUDE.md, README, getting-started, and `l3io-pm-execute/module.yaml` | **Never** — the dev loop is develop → code review → fix → done |
 | `bmad-create-story` | **Absent** from `l3io-pm-execute/module.yaml` | Yes — sprint step-02 story prep, and plan step-03 elaboration |
-| `bmad-check-implementation-readiness` | Optional in `l3io-pm-plan/module.yaml` only | Yes — plan step-02 readiness check |
+| `bmad-sprint-planning intent=readiness` (legacy `bmad-check-implementation-readiness`) | Optional in `l3io-pm-plan/module.yaml` only | Yes — plan step-02 readiness check |
 
 The `tests/` directories in the artifact layout are real but are not written by a QA phase. Treat the QA dependency as aspirational until a step actually calls it.

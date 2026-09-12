@@ -95,6 +95,10 @@ rest all live in the official `bmm` module. The failure shows up late: planning 
 first dev phase has nothing to invoke. Add other official modules to the same flag if you use
 them (`--modules bmm,tea`).
 
+BMad ≥6.12.0 installs skills to `.claude/skills/<name>/SKILL.md`; older installs used
+`.claude/commands/<name>.md`. No `--shims` flag is needed for either — this package resolves
+both layouts and both name generations at every dependency site.
+
 Interactive path: `npx bmad-method install` -> Community modules -> `bmad-l3io-extensions`
 (the installer prompts for which IDEs to target).
 
@@ -138,7 +142,7 @@ This extension standardizes those patterns so teams can run a repeatable, audita
 | `/l3io-pm-sync` | Bidirectional sync between l3io-pm state and GitHub Issues — `setup`, `push`, `pull`, `sync`, `status` (default) |
 | `/l3io-sec-redteam` | Adversarial security review through five threat lenses — external attacker, malicious insider, chaos engineer, abusive legitimate user, and design/architecture red team — with AI poisoning cross-cut and live cloud/platform best practices research |
 | `/l3io-util-doctor` | **Run without arguments** for a project health check — scans for all known issues (stale file naming, unsplit status, schema gaps, flat artifacts, sort order, untracked debt markers, AI instruction references, ADRs left in the old per-epic home, story spec pointers, and spec-index freshness) and proposes the right actions in order with a single confirmation. Or pass a keyword to skip directly to a specific mode: `layout-cleanup` (reorganize flat artifacts), `migrate-schema` (upgrade status file schema), `split-status` (split legacy single file into three), `rename-active` (migrate old sprint-status-active.yaml naming), `harvest-debt` (sweep for `bmad-defer:` markers), `sort-status` (reorder status file nodes), `update-ai-rules` (update AI instruction files), `migrate-adrs` (move ADRs from the old per-epic home to `docs/adr/`), `triage` (audit the issues backlog and close what is already fixed), `check` (read-only diagnostic only), `stats` (plan-aware progress dashboard), `clean-legacy` (remove migration backups) |
-| `/l3io-arch-review` | Apply engineering standards in one of three modes: **design** (new-project guardrails — boundaries, initial ADRs, docs skeleton), **review** (audit a design/component/diff → severity-graded findings against every principle, with a BLOCKER/MAJOR gate), or **decision** (weigh options against the standards and record an ADR). Auto-detects the stack and loads the matching overlay (Python, Node.js, .NET, GitHub Actions). Wire it into core `bmad-architect` / `bmad-code-review` via `bmad-customize` for automatic application |
+| `/l3io-arch-review` | Apply engineering standards in one of three modes: **design** (new-project guardrails — boundaries, initial ADRs, docs skeleton), **review** (audit a design/component/diff → severity-graded findings against every principle, with a BLOCKER/MAJOR gate), or **decision** (weigh options against the standards and record an ADR). Auto-detects the stack and loads the matching overlay (Python, Node.js, .NET, GitHub Actions). Wire it into core `bmad-architecture` / `bmad-code-review` via `bmad-customize` for automatic application |
 
 ## Context Boundary Rule
 
@@ -193,16 +197,26 @@ original as `.legacy`.
 
 ## Dependencies
 
-Required BMad skills, all from the official `bmm` module:
+Every BMad dependency site resolves a **preferred** skill name first and falls back to the
+legacy name when the preferred one is absent, so no fixed minimum BMad version is required.
 
-`bmad-create-story`, `bmad-dev-story`, `bmad-code-review`, `bmad-qa-generate-e2e-tests`, `bmad-retrospective`, `bmad-review-adversarial-general`
+Required, all from the official `bmm` module: `bmad-code-review`, `bmad-qa-generate-e2e-tests`,
+`bmad-retrospective`, `bmad-review` (adversarial lens; legacy fallback
+`bmad-review-adversarial-general`), `bmad-sprint-planning` (readiness gate, `intent=readiness`;
+legacy fallback `bmad-check-implementation-readiness`).
 
-Optional: `bmad-ux-review` (also `bmm`) — UX review phases skip gracefully when it is absent.
+Story enrichment and implementation prefer the legacy `bmad-create-story` / `bmad-dev-story`
+skills when installed; when either is absent this package runs its own in-package agent in its
+place instead, so no shim flag is needed either way.
+
+Optional: `bmad-ux` (also `bmm`; legacy fallback `bmad-ux-review`) — UX review phases skip
+gracefully when neither is present.
 
 `bmm` is an **official module, not part of `core`**, so a `--custom-source` install does not
 include it unless you pass `--modules bmm` — see [Quick Start](#quick-start). If these skills
 are missing, the l3io skills install and activate normally and then fail at the first phase that
-dispatches to one.
+dispatches to one. Run `/l3io-util-doctor check-deps` in a target project to see exactly what
+resolved there.
 
 ## Repo Layout
 

@@ -44,8 +44,15 @@ a `BLOCKED:` message, see [Troubleshooting](troubleshooting.md); unfamiliar term
   `spec-align.py`) are invoked as `uv run`, which provisions their dependencies from an inline
   PEP 723 header — there is nothing else to install, but without `uv` the first status write
   fails.
-- Required BMad skills present: `bmad-create-story`, `bmad-dev-story`, `bmad-code-review`, `bmad-qa-generate-e2e-tests`, `bmad-retrospective`, `bmad-review-adversarial-general`
-- Optional: `bmad-ux-review` (UX review phases are skipped gracefully when absent)
+- Required BMad skills present, from the `bmm` module: `bmad-code-review`,
+  `bmad-qa-generate-e2e-tests`, `bmad-retrospective`, `bmad-review` (adversarial lens; legacy
+  fallback `bmad-review-adversarial-general`), `bmad-sprint-planning` (readiness gate; legacy
+  fallback `bmad-check-implementation-readiness`). The legacy `bmad-create-story` /
+  `bmad-dev-story` skills are preferred for story enrichment and implementation when installed;
+  this package runs its own in-package agent in their place when either is absent, so no
+  minimum BMad version is required.
+- Optional: `bmad-ux` (legacy fallback `bmad-ux-review`) — UX review phases are skipped
+  gracefully when neither is present.
 - **WebSearch permission** granted in your IDE if you plan to use `l3io-sec` (required for live cloud/platform best practices research)
 
 Node.js is **not** needed to use the skills — only to develop this package itself, where
@@ -78,7 +85,7 @@ npx bmad-method install \
 ```
 
 **Do not drop `--modules bmm`.** A `--custom-source` install installs BMad's `core` plus the
-custom modules only. The six required BMad skills listed under
+custom modules only. The required BMad skills listed under
 [Prerequisites](#prerequisites) live in the official `bmm` module, so omitting the flag leaves
 you with the `l3io` skills and nothing for them to dispatch to. Everything appears to install
 correctly and then fails at the first dev phase.
@@ -86,6 +93,10 @@ correctly and then fails at the first dev phase.
 `--tools` selects which agent surfaces are generated: `claude-code` (`.claude/commands/*`),
 `github-copilot` (`.github/agents/*.agent.md` plus `.github/copilot-instructions.md`), or both
 as a comma-separated list with no spaces.
+
+BMad ≥6.12.0 installs skills to `.claude/skills/<name>/SKILL.md`; earlier releases install to
+`.claude/commands/<name>.md`. No `--shims` flag is needed either way — every dependency site in
+this package probes both layouts and both name generations and resolves whichever is present.
 
 Interactive path: `npx bmad-method install` -> Community modules -> `bmad-l3io-extensions`
 (the installer prompts for which IDEs to target).
@@ -133,7 +144,7 @@ No explicit setup step. The first time `/l3io-util-doctor` runs it registers the
 
 ### l3io-arch
 
-No explicit setup step. The first time you invoke `/l3io-arch-review` it registers the module automatically (if no `l3io-arch` section exists in config), then runs. The standards themselves live in the skill's `references/standards-*.md` files — a universal `standards-core.md` plus per-stack overlays that load automatically based on the detected stack. To apply the standards automatically inside core `bmad-architect` and `bmad-code-review`, run `/bmad-customize` in your project and add the overlays documented in the skill's `assets/customize-architect.md`.
+No explicit setup step. The first time you invoke `/l3io-arch-review` it registers the module automatically (if no `l3io-arch` section exists in config), then runs. The standards themselves live in the skill's `references/standards-*.md` files — a universal `standards-core.md` plus per-stack overlays that load automatically based on the detected stack. To apply the standards automatically inside core `bmad-architecture` and `bmad-code-review`, run `/bmad-customize` in your project and add the overlays documented in the skill's `assets/customize-architect.md`.
 
 See [l3io-arch reference](l3io-arch-reference.md) for the standards catalog, the three modes, and the customization wiring.
 

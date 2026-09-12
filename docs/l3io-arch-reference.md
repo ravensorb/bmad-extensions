@@ -6,7 +6,7 @@ Engineering-standards architecture guardrails and review.
 
 `l3io-arch` applies a LiquidLogicLabs engineering-standards charter to a project's architecture. It operates in three modes — **design guardrails** (new project), **review** (audit a design, component, or diff), and **decision support** (weigh options and record an ADR). The standards are the single source of truth in the skill's `references/standards-*.md` files; the skill applies and cites them rather than inventing rules.
 
-The module is standalone — no orchestrator relationship and no runtime dependency on the other l3io modules. It is also designed to be wired into core `bmad-architect` and `bmad-code-review` via `bmad-customize`, so the standards apply automatically during design and review without forking those core skills.
+The module is standalone — no orchestrator relationship and no runtime dependency on the other l3io modules. It is also designed to be wired into core `bmad-architecture` and `bmad-code-review` via `bmad-customize`, so the standards apply automatically during design and review without forking those core skills.
 
 Skill: `/l3io-arch-review`.
 
@@ -93,7 +93,7 @@ Invocation shortcuts: `/l3io-arch-review design|review|decision [--stack python|
 
 `assets/customize-architect.md` documents the `bmad-customize` overlays to author **in the consuming project** (the core skills live there, not in this extension repo):
 
-- **`bmad-architect`** — load the standards before finalizing any architecture/technology decision; hold the design against every principle; record ADRs; produce diagrams and the docs skeleton.
+- **`bmad-architecture`** — load the standards before finalizing any architecture/technology decision; hold the design against every principle; record ADRs; produce diagrams and the docs skeleton.
 - **`bmad-code-review`** (and/or `l3io-sec-redteam`) — additionally check standards compliance during review; treat BLOCKER/MAJOR as gating, MINOR as backlog.
 
 The overlays point at the standards files rather than duplicating them, keeping a single source of truth.
