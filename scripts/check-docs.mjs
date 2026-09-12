@@ -33,6 +33,8 @@
 //                    its six DIMENSIONS match the enrichment prompt's layout block
 //  14. adr-home      no runtime directive names the old per-epic ADR home (epic-*/arch/adr-*)
 //  15. doctor-mode-count  the doctor's stated mode count equals the modes it actually has
+//  16. module-yaml-agreement  sibling module.yaml files sharing a `code:` agree on the
+//                    module-level fields, since the installer picks one of them arbitrarily
 //
 // Usage:
 //   node scripts/check-docs.mjs        # report and exit nonzero on any failure (CI)
@@ -1063,6 +1065,75 @@ function checkDoctorModeCount() {
 }
 
 // ---------------------------------------------------------------------------
+// 16. Sibling module.yaml files that share a `code:` agree on the module-level fields.
+//
+// The installer's resolver matches ONE module.yaml per module code, so when several skills of
+// the same module each carry one, whichever it enumerates first supplies the module's identity.
+// Which one that is, is not something this repo controls.
+//
+// Caught in practice: all four l3io-pm files declared `code: l3io-pm` with four DIFFERENT
+// descriptions -- three of them describing a single skill rather than the module -- and three
+// different post-install-notes, each listing only that one skill's requirements. A consumer's
+// post-install message therefore named a fraction of the real prerequisites, chosen by
+// directory order. module_version cannot drift (postbump stamps every file), but these
+// hand-authored fields could and did.
+//
+// Scope is derived by reading every skills/<dir>/module.yaml, never a list.
+// ---------------------------------------------------------------------------
+const MODULE_SHARED_FIELDS = ["name", "description", "module_greeting", "post-install-notes",
+  "default_selected", "module_version"];
+
+function checkModuleYamlAgreement() {
+  const skillsDir = path.join(repoRoot, "skills");
+  const byCode = new Map();
+  for (const entry of fs.readdirSync(skillsDir, { withFileTypes: true })) {
+    if (!entry.isDirectory()) continue;
+    const rel = `skills/${entry.name}/module.yaml`;
+    if (!exists(rel)) continue;
+    const text = read(rel);
+    // Block scalars (`key: >`) continue over indented lines; capture the whole value.
+    const fields = {};
+    const lines = text.split("\n");
+    for (let i = 0; i < lines.length; i += 1) {
+      const m = lines[i].match(/^([A-Za-z][A-Za-z0-9_-]*):\s*(.*)$/);
+      if (!m) continue;
+      let value = m[2].trim();
+      if (value === ">" || value === "|" || value === ">-" || value === "|-") {
+        const body = [];
+        for (let j = i + 1; j < lines.length && /^\s+\S/.test(lines[j]); j += 1) body.push(lines[j].trim());
+        value = body.join(" ");
+      }
+      fields[m[1]] = value.replace(/\s+/g, " ");
+    }
+    if (!fields.code) continue;
+    if (!byCode.has(fields.code)) byCode.set(fields.code, []);
+    byCode.get(fields.code).push({ rel, fields });
+  }
+  let shared = 0;
+  for (const [code, files] of byCode) {
+    if (files.length < 2) continue;
+    shared += 1;
+    for (const field of MODULE_SHARED_FIELDS) {
+      const seen = new Map();
+      for (const f of files) seen.set(f.fields[field] ?? "(absent)", f.rel);
+      if (seen.size > 1) {
+        const detail = [...seen.entries()]
+          .map(([v, rel]) => `        ${rel}: ${v.length > 90 ? `${v.slice(0, 90)}…` : v}`)
+          .join("\n");
+        failures.push(`module.yaml files sharing \`code: ${code}\` disagree on \`${field}\` ` +
+          `(${seen.size} values across ${files.length} files). The installer picks one of them ` +
+          `for the whole module, and which one is not defined:\n${detail}\n      ` +
+          `Make the module-level fields identical across every skill of the module.`);
+      }
+    }
+  }
+  if (verbose) {
+    console.log(`  module-yaml-agreement: ${byCode.size} module code(s), ${shared} shared by ` +
+      `multiple skills, ${MODULE_SHARED_FIELDS.length} field(s) each`);
+  }
+}
+
+// ---------------------------------------------------------------------------
 
 checkSkillNames();
 checkGatingTables();
@@ -1080,6 +1151,7 @@ checkPmStatusSize();
 checkSpecAlignContract();
 checkAdrHome();
 checkDoctorModeCount();
+checkModuleYamlAgreement();
 
 for (const note of notes) if (verbose) console.log(`  note: ${note}`);
 

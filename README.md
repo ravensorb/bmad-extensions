@@ -81,11 +81,19 @@ whichever code you don't use:
 npx bmad-method install \
   --directory . \
   --custom-source https://github.com/ravensorb/bmad-extensions \
+  --modules bmm \
   --tools claude-code,github-copilot \
   --yes
 ```
 
 For a single IDE, use just that code, e.g. `--tools claude-code` or `--tools github-copilot`.
+
+**`--modules bmm` is not optional.** A `--custom-source` install brings BMad's `core` plus the
+custom modules and nothing else, so without it you get the four `l3io` modules and none of the
+BMad skills they dispatch to — `bmad-create-story`, `bmad-dev-story`, `bmad-code-review` and the
+rest all live in the official `bmm` module. The failure shows up late: planning works, then the
+first dev phase has nothing to invoke. Add other official modules to the same flag if you use
+them (`--modules bmm,tea`).
 
 Interactive path: `npx bmad-method install` -> Community modules -> `bmad-l3io-extensions`
 (the installer prompts for which IDEs to target).
@@ -185,11 +193,16 @@ original as `.legacy`.
 
 ## Dependencies
 
-Required BMad skills (part of the standard BMad bmm module):
+Required BMad skills, all from the official `bmm` module:
 
 `bmad-create-story`, `bmad-dev-story`, `bmad-code-review`, `bmad-qa-generate-e2e-tests`, `bmad-retrospective`, `bmad-review-adversarial-general`
 
-Optional: `bmad-ux-review`
+Optional: `bmad-ux-review` (also `bmm`) — UX review phases skip gracefully when it is absent.
+
+`bmm` is an **official module, not part of `core`**, so a `--custom-source` install does not
+include it unless you pass `--modules bmm` — see [Quick Start](#quick-start). If these skills
+are missing, the l3io skills install and activate normally and then fail at the first phase that
+dispatches to one.
 
 ## Repo Layout
 

@@ -51,6 +51,51 @@ test("an unmodified copy passes", (t) => {
   assert.equal(r.status, 0, r.stderr + r.stdout);
 });
 
+// ---- check 16 (module-yaml-agreement) ----
+
+test("check 16: siblings sharing a code disagreeing on description is caught", (t) => {
+  const root = fixture(t);
+  const p = path.join(root, "skills", "l3io-pm-help", "module.yaml");
+  const before = fs.readFileSync(p, "utf8");
+  fs.writeFileSync(p, before.replace(/^description: .*$/m, 'description: "Something else."'));
+  const r = run(root);
+  assert.equal(r.status, 1, r.stdout);
+  assert.match(r.stderr, /sharing `code: l3io-pm` disagree on `description`/);
+});
+
+test("check 16: a divergent post-install-notes block scalar is caught", (t) => {
+  const root = fixture(t);
+  const p = path.join(root, "skills", "l3io-pm-sync", "module.yaml");
+  fs.appendFileSync(p, "\nextra-key: >\n  only on this sibling\n");
+  fs.writeFileSync(p, fs.readFileSync(p, "utf8")
+    .replace(/^post-install-notes: >$/m, "post-install-notes: >\n  A different first line."));
+  const r = run(root);
+  assert.equal(r.status, 1, r.stdout);
+  assert.match(r.stderr, /disagree on `post-install-notes`/);
+});
+
+test("check 16: a module with only one module.yaml is not compared", (t) => {
+  const root = fixture(t);
+  // l3io-arch and l3io-sec each have exactly one file; changing one must stay clean.
+  const p = path.join(root, "skills", "l3io-arch-review", "module.yaml");
+  const before = fs.readFileSync(p, "utf8");
+  fs.writeFileSync(p, before.replace(/^description: .*$/m, 'description: "Solo module, changed."'));
+  const r = run(root);
+  assert.equal(r.status, 0, r.stderr + r.stdout);
+});
+
+test("check 16: scope attack — a new skill joining a module must agree too", (t) => {
+  const root = fixture(t);
+  const dir = path.join(root, "skills", "l3io-pm-brandnew");
+  fs.mkdirSync(dir, { recursive: true });
+  fs.writeFileSync(path.join(dir, "module.yaml"),
+    'code: l3io-pm\nname: "Different Name"\ndescription: "New sibling."\n' +
+    "module_version: 0.0.1\ndefault_selected: true\n");
+  const r = run(root);
+  assert.equal(r.status, 1, r.stdout);
+  assert.match(r.stderr, /sharing `code: l3io-pm` disagree on/);
+});
+
 test("scope attack: a producer in a new file in a new directory is caught", (t) => {
   const root = fixture(t);
   write(root, "skills/_shared/steps/brand-new-dir/step-new.md", "# New\n\n" + UNPOINTED);

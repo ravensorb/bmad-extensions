@@ -72,9 +72,16 @@ Run in the project repo where you want to use the extension:
 npx bmad-method install \
   --directory . \
   --custom-source https://github.com/ravensorb/bmad-extensions \
+  --modules bmm \
   --tools claude-code \
   --yes
 ```
+
+**Do not drop `--modules bmm`.** A `--custom-source` install installs BMad's `core` plus the
+custom modules only. The six required BMad skills listed under
+[Prerequisites](#prerequisites) live in the official `bmm` module, so omitting the flag leaves
+you with the `l3io` skills and nothing for them to dispatch to. Everything appears to install
+correctly and then fails at the first dev phase.
 
 `--tools` selects which agent surfaces are generated: `claude-code` (`.claude/commands/*`),
 `github-copilot` (`.github/agents/*.agent.md` plus `.github/copilot-instructions.md`), or both
@@ -138,9 +145,14 @@ Re-run the same install command to pull the latest version:
 npx bmad-method install \
   --directory . \
   --custom-source https://github.com/ravensorb/bmad-extensions \
+  --modules bmm \
   --tools claude-code \
   --yes
 ```
+
+Keeping `--modules bmm` here refreshes the BMad skills alongside the extension. If you would
+rather leave core BMad untouched and update only this package, use the no-prompt form instead:
+`npx bmad-method install --directory . --action quick-update --yes`.
 
 After upgrading, your `_bmad/custom/config.toml` and `config.user.toml` overrides are preserved — the installer never touches those layers.
 

@@ -7,3 +7,10 @@ module_greeting: >
   LiquidLogicLabs Utilities module is configured!
   Run /l3io-util-doctor for a project health check, or /l3io-util-doctor stats for the
   plan-aware progress dashboard.
+  /l3io-util-cleanup is a deprecated alias that forwards to /l3io-util-doctor.
+post-install-notes: >
+  Run /l3io-util-doctor once after installing or upgrading, before any sprint or epic run.
+  The installer refreshes skills but does not migrate project data; the doctor detects the
+  layout, sequences every migration you need behind one confirmation, and self-installs the
+  shared pm-status.py helper.
+  Requires uv on PATH: the Python helpers run via `uv run`.

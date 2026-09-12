@@ -97,7 +97,7 @@ npm run check:manifest  # verify per-skill payload-manifest.json matches the pay
 node scripts/write-payload-manifest.mjs   # regenerate the manifests after editing a payload file
 ```
 
-`check:docs` runs fifteen checks (numbered in the script's own header) asserting facts that have
+`check:docs` runs sixteen checks (numbered in the script's own header) asserting facts that have
 each drifted in this repo's history: (1) **skill-names** — every `l3io-*` skill named in a live
 doc resolves to a real `skills/` directory; (2) **gating-tables** — every mirrored phase table
 matches the authoritative matrix in `steps/shared/step-01-classify-work.md` §4 cell for cell; (3)
