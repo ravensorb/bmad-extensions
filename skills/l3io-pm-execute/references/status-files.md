@@ -91,7 +91,7 @@ about the same epic. They are not duplicates of each other.
 | | `state/{status}/epic-001/` | `epic-001/` (top level) |
 |---|---|---|
 | Holds | Status, estimates, actuals, locks | Story markdown, closure reports, QA tests, ADRs |
-| Written by | `pm-status.py` only, atomically | Humans and `bmad-dev-story` / review agents |
+| Written by | `pm-status.py` only, atomically | Humans and the story implementer (legacy `bmad-dev-story`) / review agents |
 | Format | YAML metadata | Prose, code, test files |
 | Moves? | Yes — `planned/` → `active/` → `archived/` | Never. Created once, stays forever |
 | Answers | "What state is it in?" | "What is it?" |

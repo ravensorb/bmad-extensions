@@ -70,9 +70,24 @@ overwrite-on-duplicate-identity behavior is intentional in `pm-status.py` (a ret
 agent on the same node reuses the identity on purpose) — the burden it places on this step is
 simply: never skip the close.
 
+**Resolve the implementer.** The legacy `bmad-dev-story` skill is gone from BMad ≥6.12.0; where it is installed
+it is still what runs, and where it is absent the prompt below is the whole instruction anyway.
+
+```bash
+ls {project-root}/.claude/skills/bmad-dev-story/SKILL.md 2>/dev/null \
+  || ls {project-root}/.claude/commands/bmad-dev-story.md 2>/dev/null \
+  || ls ~/.claude/skills/bmad-dev-story/SKILL.md 2>/dev/null \
+  || ls ~/.claude/commands/bmad-dev-story.md 2>/dev/null
+```
+
+If a path printed, bind `{dev_agent}` = the legacy `bmad-dev-story` and spawn that skill. If
+nothing printed, bind `{dev_agent}` = `l3io-dev-implement` and spawn a **general subagent** — no skill
+invocation — with the identical inputs. `{dev_agent}` is the `--agent` label on every dispatch
+bracket in this step, so a working install keeps its existing `usage --agent` history.
+
 ```bash
 python3 {pm_status} dispatch --state-root {pm_state_root} --event open \
-  --agent bmad-dev-story --epic {epic_key} --sprint {sprint_num} --story {story_key} \
+  --agent {dev_agent} --epic {epic_key} --sprint {sprint_num} --story {story_key} \
   --session-id {session_id}
 ```
 
@@ -95,12 +110,12 @@ wider.
 
 **Nothing enforces this at run time** — it is prose a subagent can ignore, and no CI check can
 see what a dispatched agent chose to read. It is measurable afterwards, which is the next best
-thing: `usage --agent bmad-dev-story --story {story_key}` scopes to this dispatch bracket, and
+thing: `usage --agent {dev_agent} --story {story_key}` scopes to this dispatch bracket, and
 the `cache_write` it reports is very nearly the volume the agent read in. An outlier there is
 this rule being broken, not a large story — per-file spend measured between 19k and 138k
 tokens across one sprint on stories of comparable size.
 
-Spawn `bmad-dev-story` subagent with:
+Spawn `{dev_agent}` with (a general subagent when `{dev_agent}` is `l3io-dev-implement`):
 - Story file path: `{sprint_root}/stories/{story_key}.md`
 - Project context: the config resolved at activation (`references/config-resolution.md`) —
   pass the bound values, not a config file path
@@ -119,7 +134,7 @@ Spawn `bmad-dev-story` subagent with:
 
 ```bash
 python3 {pm_status} dispatch --state-root {pm_state_root} --event close \
-  --agent bmad-dev-story --epic {epic_key} --sprint {sprint_num} --story {story_key} \
+  --agent {dev_agent} --epic {epic_key} --sprint {sprint_num} --story {story_key} \
   --session-id {session_id}
 ```
 
@@ -183,15 +198,15 @@ Code review returns findings by severity.
 
 **If CRITICAL or HIGH findings:** spawn dev subagent again to fix (fix iteration). Bracket this
 re-dispatch with its own open/close pair — same agent name and story identity as §2's
-`bmad-dev-story` call, so a hang here is flagged the same way:
+`{dev_agent}` call, so a hang here is flagged the same way:
 
 ```bash
 python3 {pm_status} dispatch --state-root {pm_state_root} --event open \
-  --agent bmad-dev-story --epic {epic_key} --sprint {sprint_num} --story {story_key} \
+  --agent {dev_agent} --epic {epic_key} --sprint {sprint_num} --story {story_key} \
   --session-id {session_id}
 ```
 
-Spawn `bmad-dev-story` subagent again with the findings **path**
+Spawn `{dev_agent}` again with the findings **path**
 (`{sprint_root}/closure/review-{story_key}.md`), the severities to fix, and the changed files —
 not the findings text, and not a fresh read of the story tree. The same read scope as §2
 applies, and a fix round starts from a narrower position than the original: the reviewer
@@ -199,7 +214,7 @@ already named the files and the sections.
 
 ```bash
 python3 {pm_status} dispatch --state-root {pm_state_root} --event close \
-  --agent bmad-dev-story --epic {epic_key} --sprint {sprint_num} --story {story_key} \
+  --agent {dev_agent} --epic {epic_key} --sprint {sprint_num} --story {story_key} \
   --session-id {session_id}
 ```
 
@@ -321,7 +336,7 @@ suite never speaks for another.
 
 **Two-tier test strategy — fix iterations vs. final verification.**
 
-**During fix iterations** (each bmad-dev-story re-dispatch in §3): run only the tests covering
+**During fix iterations** (each `{dev_agent}` re-dispatch in §3): run only the tests covering
 the files you changed. Use the project's per-module test command, a pattern-matched test file
 path, or the narrowest scope you can establish with confidence. Do not run the full test suite
 during a fix pass — each full-suite run executes at the deepest, most expensive point in the
