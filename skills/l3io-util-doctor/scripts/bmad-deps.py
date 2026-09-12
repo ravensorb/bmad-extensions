@@ -26,8 +26,21 @@ Usage
   bmad-deps.py verify --project-root R [--inventory PATH] [--format {text,json}]
 
 Exit 0 when every required skill resolves (optional ones only warn), 2 on a usage error or an
-unparseable inventory, 3 when a required skill resolves nowhere, 4 when the inventory or the
-BMad manifest cannot be read.
+unparseable inventory -- bad JSON, a non-object top level, a non-object entry, or a `status`
+outside STATUSES -- 3 when a required skill resolves nowhere, 4 when the inventory or the BMad
+manifest cannot be read. Exit 4 covers a manifest that is missing or unreadable, but not one
+that is merely contentless: a manifest parsing to no `installation` key is a successful read
+and the run proceeds, reporting `BMad None`.
+
+`--format json` emits nothing on the exit-2 and exit-4 paths; otherwise one object:
+  bmad_version      installation.version, or null when the manifest omits it
+  shims_installed   installation.installShims, false when the key is absent (pre-6.12)
+  modules           the names in modules[], skipping any non-map entry
+  resolved          [{name, status, resolved_as, path}] -- resolved_as is the preferred name,
+                    or the fallback when the preferred one was absent
+  missing_required  required entries resolving nowhere; non-empty is what makes the exit 3
+  optional_absent   optional entries resolving nowhere -- a warning, the exit stays 0
+  shims_in_use      [{name, path, replaced_by}] -- removed entries still present on disk
 """
 from __future__ import annotations
 
@@ -40,6 +53,10 @@ import sys
 from ruamel.yaml import YAML
 
 DEFAULT_INVENTORY = pathlib.Path(__file__).resolve().parent.parent / "assets" / "bmad-dependencies.json"
+
+# The only statuses this script knows how to act on. Anything else is a broken inventory, not
+# a skill to be treated leniently -- see check_inventory().
+STATUSES = ("required", "optional", "removed", "not-a-skill")
 
 
 def resolve(name: str, project_root: str) -> str | None:
@@ -80,6 +97,33 @@ def read_manifest(project_root: str):
     return inst.get("version"), bool(inst.get("installShims", False)), mods
 
 
+def check_inventory(inv, source: str) -> str | None:
+    """Return a complaint about the inventory's shape, or None when it is usable.
+
+    This lives here, not only in check-docs.mjs: that check validates the *shipped* inventory,
+    while --inventory accepts any path, so the script would otherwise trust a shape it never
+    examined -- a guard proving its rule but not the rule's reach.
+
+    An unknown `status` is fatal rather than lenient. Falling through to the optional bucket
+    would report a typo'd "requried" skill as "optional -- its phase self-skips" and exit 0:
+    a false green in exactly the class this script exists to prevent. A non-object top level
+    or entry is fatal for the same reason read_manifest skips non-map modules -- an unchecked
+    .get() would surface as exit 1, the one code this contract does not define.
+    """
+    if not isinstance(inv, dict):
+        return f"top level is {type(inv).__name__}, expected an object"
+    entries = inv.get("skills") or []
+    if not isinstance(entries, list):
+        return f"'skills' is {type(entries).__name__}, expected a list"
+    for i, e in enumerate(entries):
+        if not isinstance(e, dict):
+            return f"skills[{i}] is {type(e).__name__}, expected an object"
+        if e.get("status") not in STATUSES:
+            return (f"skills[{i}] ({e.get('name') or 'unnamed'}) has status "
+                    f"{e.get('status')!r}, expected one of {', '.join(STATUSES)}")
+    return None
+
+
 def verify(args: argparse.Namespace) -> int:
     # Unreadable and unparseable are different failures with different exit codes: 4 says
     # "I could not look", 2 says "I looked and the inventory is broken".
@@ -93,6 +137,10 @@ def verify(args: argparse.Namespace) -> int:
     except json.JSONDecodeError as exc:
         print(f"cannot parse inventory {args.inventory}: {exc}", file=sys.stderr)
         return 2
+    complaint = check_inventory(inv, args.inventory)
+    if complaint:
+        print(f"cannot parse inventory {args.inventory}: {complaint}", file=sys.stderr)
+        return 2
     man = read_manifest(args.project_root)
     if man is None:
         print(f"cannot read {args.project_root}/_bmad/_config/manifest.yaml — is BMad installed?",
@@ -101,7 +149,7 @@ def verify(args: argparse.Namespace) -> int:
     version, shims, modules = man
 
     resolved, missing, shims_in_use, warnings = [], [], [], []
-    for e in inv.get("skills") or []:
+    for e in inv.get("skills") or []:  # shape already validated by check_inventory
         status = e.get("status")
         name = e.get("name")
         if status == "not-a-skill":

@@ -218,6 +218,40 @@ class TestUnreadable(Base):
         self.assertIn("inventory", self.err)
 
 
+class TestInventoryShape(Base):
+    """A broken inventory must never resolve to a lenient reading. check-docs.mjs validates
+    only the shipped inventory, while --inventory accepts any path, so the reach of that rule
+    is guarded here -- and a shape error must land on the documented exit 2, never as the
+    undefined exit 1 an unchecked .get() would produce."""
+
+    def test_unknown_status_exits_2(self):
+        # A typo'd status once fell through to the optional bucket, reporting a REQUIRED skill
+        # as "optional -- its phase self-skips" at exit 0: a false green of exactly the class
+        # this script exists to prevent. It must be fatal, never coerced to optional.
+        inv = self._inv([{"name": "a-one", "status": "requried"}])
+        root = self._tree(["a-one"])
+        code, out = self.run_cli(["verify", "--project-root", root, "--inventory", inv])
+        self.assertEqual(code, 2)
+        self.assertIn("a-one", self.err)          # the message names the entry
+        self.assertIn("'requried'", self.err)     # ...and the bad value
+        self.assertNotIn("self-skips", out)       # ...and never reports it as optional
+
+    def test_top_level_array_inventory_exits_2(self):
+        # The one malformed shape that slips past both this script's JSON parse and check 17.
+        inv = self._raw_inv('[{"name": "a-one", "status": "required"}]')
+        root = self._tree(["a-one"])
+        code, _ = self.run_cli(["verify", "--project-root", root, "--inventory", inv])
+        self.assertEqual(code, 2)
+        self.assertIn("expected an object", self.err)
+
+    def test_non_object_entry_exits_2(self):
+        inv = self._raw_inv(json.dumps({"skills": ["a-one"]}))
+        root = self._tree(["a-one"])
+        code, _ = self.run_cli(["verify", "--project-root", root, "--inventory", inv])
+        self.assertEqual(code, 2)
+        self.assertIn("skills[0]", self.err)
+
+
 class TestJson(Base):
     def test_json_format_shape(self):
         inv = self._inv([{"name": "a-one", "status": "required"},
