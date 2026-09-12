@@ -43,7 +43,7 @@ Artifact-only stories:
 
 Fix: run /l3io-util-doctor bootstrap-state to create state nodes from your artifact
 files. This is a one-time step for projects whose stories were created outside l3io-pm
-(e.g. via bmad-create-story without going through l3io-pm-plan).
+(e.g. via the legacy `bmad-create-story` workflow, without going through l3io-pm-plan).
 ```
 
 BLOCKED: artifact-only stories detected — run `/l3io-util-doctor bootstrap-state` first.
@@ -80,9 +80,29 @@ Technical ACs check only applies when `{work_type}` is CODE or MIXED. For DOCS a
 
 ## 3. BMad readiness integration
 
-If `.claude/commands/bmad-check-implementation-readiness.md` or `~/.claude/commands/bmad-check-implementation-readiness.md` exists:
+Resolve the readiness checker. The legacy `bmad-check-implementation-readiness` skill was folded into `bmad-sprint-planning` at 6.12.0.
+The old name is probed first: where it exists, this is an older install and `intent=readiness`
+may not be understood.
 
-For each CODE or MIXED story, invoke `bmad-check-implementation-readiness` with the story file path. Fold its "not ready" findings into the gate:
+```bash
+for n in bmad-check-implementation-readiness bmad-sprint-planning; do
+  ls {project-root}/.claude/skills/$n/SKILL.md 2>/dev/null \
+    || ls {project-root}/.claude/commands/$n.md 2>/dev/null \
+    || ls ~/.claude/skills/$n/SKILL.md 2>/dev/null \
+    || ls ~/.claude/commands/$n.md 2>/dev/null
+done | head -1
+```
+
+Bind `{readiness_checker}` to whichever name resolved; an empty result leaves it unbound.
+
+- `{readiness_checker}` = the legacy `bmad-check-implementation-readiness` → invoke it per story with the
+  story file path, as before.
+- `{readiness_checker}` = `bmad-sprint-planning` → invoke it once with `intent=readiness`; it runs its own
+  readiness gate and returns `gate` as `PASS`, `CONCERNS`, or `FAIL`. Map `CONCERNS` → amber and
+  `FAIL` → red. It is headless-aware ("When invoked headless, do not ask").
+- Neither → skip this section; `{readiness}` is decided by §1–§2 alone.
+
+Fold "not ready" findings into the gate:
 - Fewer than half the stories flagged as not ready → amber
 - Half or more flagged → red
 
