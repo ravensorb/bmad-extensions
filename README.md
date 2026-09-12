@@ -90,7 +90,7 @@ For a single IDE, use just that code, e.g. `--tools claude-code` or `--tools git
 
 **`--modules bmm` is not optional.** A `--custom-source` install brings BMad's `core` plus the
 custom modules and nothing else, so without it you get the four `l3io` modules and none of the
-BMad skills they dispatch to — `bmad-create-story`, `bmad-dev-story`, `bmad-code-review` and the
+BMad skills they dispatch to — legacy `bmad-create-story`, legacy `bmad-dev-story`, `bmad-code-review` and the
 rest all live in the official `bmm` module. The failure shows up late: planning works, then the
 first dev phase has nothing to invoke. Add other official modules to the same flag if you use
 them (`--modules bmm,tea`).
@@ -202,20 +202,15 @@ the 6.12 name is tried first, for others the legacy name is tried first because 
 positive evidence about the install. No site requires a fixed minimum BMad version.
 
 Required, all from the official `bmm` module: `bmad-code-review`, `bmad-qa-generate-e2e-tests`,
-`bmad-retrospective`, `bmad-review` (adversarial lens, tried first; the legacy
-`bmad-review-adversarial-general` is used only when `bmad-review` is absent — a disjoint pair,
-so the order is immaterial in practice), `bmad-sprint-planning` (readiness gate,
-`intent=readiness`) — but here the legacy `bmad-check-implementation-readiness` is preferred
-**when installed**, since its presence is itself evidence that `intent=readiness` may not be
-understood on that install; `bmad-sprint-planning` is used only when the legacy skill is absent.
+`bmad-retrospective`, `bmad-review` (adversarial lens, tried first; the legacy `bmad-review-adversarial-general` is used only when `bmad-review` is absent — a disjoint pair, so the order is immaterial in practice), `bmad-sprint-planning` (readiness gate, `intent=readiness`) — but here the legacy `bmad-check-implementation-readiness` is preferred **when installed**, since its presence is itself evidence that `intent=readiness` may not be understood on that install; `bmad-sprint-planning` is used only when the legacy `bmad-check-implementation-readiness` is absent.
 
 Story enrichment and implementation prefer the legacy `bmad-create-story` / `bmad-dev-story`
 skills when installed; when either is absent this package runs its own in-package agent in its
 place instead, so no shim flag is needed either way.
 
 Optional — UX review: the legacy `bmad-ux-review` (also `bmm`) is preferred when installed,
-because it is purpose-built for review; `bmad-ux`'s opt-in Reviewer Gate is used only when
-`bmad-ux-review` is absent. UX review phases skip gracefully when neither is present.
+because it is purpose-built for review; `bmad-ux`'s opt-in Reviewer Gate is used only when the
+legacy `bmad-ux-review` is absent. UX review phases skip gracefully when neither is present.
 
 `bmm` is an **official module, not part of `core`**, so a `--custom-source` install does not
 include it unless you pass `--modules bmm` — see [Quick Start](#quick-start). If these skills

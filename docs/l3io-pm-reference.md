@@ -261,8 +261,8 @@ Stories process in order; a story with `depends_on` waits until each referenced 
 
 | Phase | What happens |
 |---|---|
-| Story prep | Technical-AC gate over **six** dimensions (below); `bmad-create-story` enriches what is missing, in one batched call for the sprint. Estimates written, status → `ready-for-dev` |
-| Development | Status → `in-progress`. `bmad-dev-story` implements all tasks |
+| Story prep | Technical-AC gate over **six** dimensions (below); the legacy `bmad-create-story` enriches what is missing when installed, else this package's own in-package agent does, in one batched call for the sprint. Estimates written, status → `ready-for-dev` |
+| Development | Status → `in-progress`. The legacy `bmad-dev-story` implements all tasks when installed, else this package's own in-package agent does |
 | Code review | `bmad-code-review` on changed files. Skipped for `DOCS`/`CONFIG` |
 | Fix loop | CRITICAL/HIGH re-invoke the dev subagent, capped at `{max_fix_iterations}` iterations per story |
 | Completion | Completion evidence, then actuals, then status → `done` |
@@ -286,7 +286,7 @@ Exceeding the `{max_fix_iterations}` cap emits `FAILED` for that story, leaves i
 | Clean release review | run | skip | run | run |
 | Adversarial analysis | run | skip | skip | run |
 | Red team (`l3io-sec-redteam`) | run | skip | skip | run |
-| UX review (`bmad-ux-review`) | run | skip | skip | run |
+| UX review (legacy `bmad-ux-review`) | run | skip | skip | run |
 | Sprint architectural drift (`l3io-arch-review` Mode B) | run | skip | run | run |
 | Issue triage | run | run | run | run |
 
@@ -644,8 +644,8 @@ gate.
 |---|---|---|
 | `l3io-arch-review` | BLOCKER / MAJOR / MINOR | MINOR → `Low`. BLOCKER and MAJOR reach it **never** |
 | `l3io-sec-redteam` | CRITICAL / HIGH / MEDIUM / LOW / OBSERVATION | LOW → `Low`. OBSERVATION is noted in the closure report and has no backlog form at all |
-| `bmad-code-review`, `bmad-review-adversarial-general` | CRITICAL / HIGH / MEDIUM / LOW | Pass-through — the same four words, so LOW → `Low` with no translation |
-| `bmad-ux-review` | HIGH / MEDIUM / LOW *(as the step files use it)* | HIGH is fixed; MEDIUM and LOW defer |
+| `bmad-code-review`, legacy `bmad-review-adversarial-general` | CRITICAL / HIGH / MEDIUM / LOW | Pass-through — the same four words, so LOW → `Low` with no translation |
+| legacy `bmad-ux-review` | HIGH / MEDIUM / LOW *(as the step files use it)* | HIGH is fixed; MEDIUM and LOW defer |
 
 **Blocking severities have no backlog equivalent, by design.** An arch BLOCKER or MAJOR, and a
 redteam CRITICAL or HIGH, gate the run rather than deferring: they are resolved in code, or
@@ -656,7 +656,7 @@ would carry, there isn't one.
 Two known rough edges, stated rather than smoothed over: epic closure specifies handling for a
 redteam MEDIUM ("fix in place, or record an accepted ADR") while **sprint** closure's redteam
 section names only CRITICAL/HIGH and LOW, leaving sprint-level MEDIUM unspecified; and the
-step files name no CRITICAL tier for `bmad-ux-review`.
+step files name no CRITICAL tier for legacy `bmad-ux-review`.
 
 ### `pm-status.py` subcommands
 
@@ -896,16 +896,16 @@ Calibration:  none yet — formula baseline (components calibrate at ≥3 sample
 | Phase | Skill invoked |
 |-------|--------------|
 | Readiness check (plan) | `bmad-sprint-planning intent=readiness` (legacy `bmad-check-implementation-readiness`) (optional; presence-gated, CODE/MIXED stories only) |
-| Story prep / elaboration | `bmad-create-story` — **one batched call per sprint**, not one per story |
-| Development | `bmad-dev-story` |
-| Fix loop | `bmad-dev-story` |
+| Story prep / elaboration | legacy `bmad-create-story` when installed, else this package's in-package agent — **one batched call per sprint**, not one per story |
+| Development | legacy `bmad-dev-story` when installed, else this package's in-package agent |
+| Fix loop | legacy `bmad-dev-story` when installed, else this package's in-package agent |
 | Code review | `bmad-code-review` |
 | Retrospective (sprint + epic) | `bmad-retrospective` |
-| Clean release + adversarial (sprint) | `bmad-review-adversarial-general` — **one call carrying both scopes** where the phase matrix runs both (CODE/MIXED). CONFIG runs `clean-release` alone, since the matrix skips adversarial there; DOCS runs neither |
+| Clean release + adversarial (sprint) | `bmad-review` (adversarial lens), tried first; legacy `bmad-review-adversarial-general` used only when `bmad-review` is absent — **one call carrying both scopes** where the phase matrix runs both (CODE/MIXED). CONFIG runs `clean-release` alone, since the matrix skips adversarial there; DOCS runs neither |
 | Architecture gate (epic) | `l3io-arch-review` Mode B **alone**; `bmad-agent-architect` and superpowers escalate in parallel only on a BLOCKER or MAJOR |
 | Architectural drift (sprint + epic) | `l3io-arch-review` Mode B (optional) |
 | Red-team review (sprint + epic) | `l3io-sec-redteam` (optional) |
-| UX review (sprint) | `bmad-ux-review` (optional) |
+| UX review (sprint) | legacy `bmad-ux-review`, preferred when installed; `bmad-ux`'s opt-in Reviewer Gate used only when it is absent (optional) |
 | Issue triage | Inline — no skill invoked |
 
 ### Declared-vs-invoked gaps
@@ -915,7 +915,7 @@ Dependency declarations and actual invocations do not currently agree in both di
 | Skill | Declared | Invoked |
 |---|---|---|
 | `bmad-qa-generate-e2e-tests` | Required in `marketplace.json`, CLAUDE.md, README, getting-started, and `l3io-pm-execute/module.yaml` | **Never** — the dev loop is develop → code review → fix → done |
-| `bmad-create-story` | **Absent** from `l3io-pm-execute/module.yaml` | Yes — sprint step-02 story prep, and plan step-03 elaboration |
+| legacy `bmad-create-story` | **Absent** from `l3io-pm-execute/module.yaml` | Yes — sprint step-02 story prep, and plan step-03 elaboration (when installed; else the in-package agent) |
 | `bmad-sprint-planning intent=readiness` (legacy `bmad-check-implementation-readiness`) | Optional in `l3io-pm-plan/module.yaml` only | Yes — plan step-02 readiness check |
 
 The `tests/` directories in the artifact layout are real but are not written by a QA phase. Treat the QA dependency as aspirational until a step actually calls it.

@@ -30,19 +30,27 @@ l3io-pm-execute  (normal mode — epic orchestrator)
     |   piece is done. Sprints stay sequential; stories within a sprint are sequential too.
     |
     |-- spawns --> [prep]    step-02-story-prep            (once per sprint)
-    |                  \-- spawns --> bmad-create-story    (one batched enrichment call)
+    |                  \-- spawns --> story enricher
+    |                                     (legacy bmad-create-story if installed, else
+    |                                      in-package agent; one batched call per sprint)
     |
     |-- spawns --> [story]   step-03-dev-loop              (ONE PER STORY)
-    |                  |-- spawns --> bmad-dev-story       (dev, then each fix iteration)
+    |                  |-- spawns --> implementer
+    |                  |        (legacy bmad-dev-story if installed, else in-package
+    |                  |         agent; dev, then each fix iteration)
     |                  \-- spawns --> bmad-code-review     (review, cap 3 fix iterations)
     |
     \-- spawns --> [closure] step-04-sprint-closure        (once per sprint)
                        |-- spawns --> bmad-retrospective
-                       |-- spawns --> bmad-review-adversarial-general
-                       |                  (clean-release + adversarial in ONE call
-                       |                   where the phase matrix runs both)
+                       |-- spawns --> bmad-review
+                       |                  (adversarial lens; clean-release + adversarial in
+                       |                   ONE call where the phase matrix runs both; the
+                       |                   legacy bmad-review-adversarial-general is used only
+                       |                   when bmad-review is absent)
                        |-- spawns --> l3io-sec-redteam       (if installed)
-                       |-- spawns --> bmad-ux-review         (if installed)
+                       |-- spawns --> UX reviewer
+                       |                  (legacy bmad-ux-review if installed, else bmad-ux's
+                       |                   Reviewer Gate; skip if neither is present)
                        \-- spawns --> l3io-arch-review Mode B (drift audit, if installed)
 
 l3io-pm-help            (read-only — recommends the next action)

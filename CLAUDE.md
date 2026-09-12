@@ -229,23 +229,13 @@ Each dependency site resolves between two names in a deliberately chosen order �
 positive evidence about the install. No site requires a fixed minimum BMad version.
 
 Required, from the official `bmm` module: `bmad-code-review`, `bmad-qa-generate-e2e-tests`,
-`bmad-retrospective`, `bmad-review` (adversarial lens, tried first; the legacy
-`bmad-review-adversarial-general` is used only when `bmad-review` is absent — a disjoint pair,
-so the order is immaterial in practice), `bmad-sprint-planning` (readiness gate, invoked with
-`intent=readiness`) — but here the legacy `bmad-check-implementation-readiness` is preferred
-**when installed**: its presence is itself evidence that `intent=readiness` may not be
-understood on that install, so `bmad-sprint-planning` is used only when the legacy skill is
-absent.
+`bmad-retrospective`, `bmad-review` (adversarial lens, tried first; the legacy `bmad-review-adversarial-general` is used only when `bmad-review` is absent — a disjoint pair, so the order is immaterial in practice), `bmad-sprint-planning` (readiness gate, invoked with `intent=readiness`) — but here the legacy `bmad-check-implementation-readiness` is preferred **when installed**: its presence is itself evidence that `intent=readiness` may not be understood on that install, so `bmad-sprint-planning` is used only when the legacy `bmad-check-implementation-readiness` is absent.
 
 Story enrichment and implementation: the legacy `bmad-create-story` / `bmad-dev-story` skills
 are preferred when installed; when either is absent, this package runs its own in-package
 agent in its place, so no shim flag is ever needed.
 
-Optional — UX review: the legacy `bmad-ux-review` is preferred when installed, because it is
-purpose-built for review; `bmad-ux`'s opt-in Reviewer Gate is used only when `bmad-ux-review`
-is absent. UX review phases skip gracefully when neither is present. (`bmad-testarch-atdd` was
-previously listed here, but no step file ever invoked it; its gating machinery has been
-removed.)
+Optional — UX review: the legacy `bmad-ux-review` is preferred when installed, because it is purpose-built for review; `bmad-ux`'s opt-in Reviewer Gate is used only when the legacy `bmad-ux-review` is absent. UX review phases skip gracefully when neither is present. (`bmad-testarch-atdd` was previously listed here, but no step file ever invoked it; its gating machinery has been removed.)
 
 Optional intra-package: `l3io-arch-review` (this package's `l3io-arch` module) — enables the
 epic architecture gate and drives the story technical-AC gate's checklist, and can wire the
