@@ -41,7 +41,7 @@ Key settings (with defaults):
 | *(no argument)* | Project health check — runs all checks and, after one confirmation, executes the flagged actions in priority order. |
 | `check` / `status` | Same scan as the health check, but reports the findings table and exits without changing anything. |
 | `stats` | Plan-aware progress dashboard — renders the phase → epic → sprint → story hierarchy with per-status dwell times and stuck-item flags, then appends backlog size by severity, last closed sprint/epic, and calibration file state. Delegates the state walk to `pm-status.py report` rather than duplicating it; falls back to counts only when `pm-status.py` is not installed yet. Archived epics count toward phase denominators but are listed only with `--all`. See [l3io-pm reference § Progress Reporting](l3io-pm-reference.md#progress-reporting). |
-| `backlog` | Lists the consolidated `backlog:` list grouped by severity. |
+| `backlog` | Lists the consolidated `backlog:` list grouped by severity. Items carry a `kind` — `defect` (the default, and assumed when the field is absent) plus `spec-change` and `spec-proposal`, which spec sync files and `triage`'s spec pass resolves. |
 
 ### One-time migrations (run in this order)
 
@@ -60,7 +60,7 @@ Key settings (with defaults):
 | `normalize` | Convenience — runs `reconcile-status` then `sort-status` in one confirmed pass. |
 | `reconcile-status` | Fixes placement/structure drift: misplaced epics, nested per-epic `backlog:` arrays (flatten to the top-level list), stale non-`backlog` items, empty epic shells. |
 | `sort-status` | Read-only. Validates zero-padded naming (`epic-{nnn}/`, `sprint-{nn}/`, `E{nnn}-S{nn}-{nnn}.yaml`) in the sharded state tree and reports misnamed entries. Performs no reordering and applies no fixes — ordering itself cannot drift under the sharded layout, since each node is its own file and zero-padded names already make directory-listing order the correct order. |
-| `triage` | Audits the backlog and resolves findings that are already fixed — confirms every write, including when the health check runs it. |
+| `triage` | Audits the backlog and resolves findings that are already fixed — confirms every write, including when the health check runs it. Also carries the **spec pass**: every open `spec-change` and `spec-proposal` item is shown with its commit diff or proposal file and confirmed, rejected, or skipped one at a time. Rejecting reverts the spec edit, resolves the item `wontfix`, and refiles the drift as a code fix at its original severity; skipping leaves it open for Check 18 to flag once a later commit builds on it. |
 | `layout-cleanup` | Reorganizes flat artifact files into the `epic-XX/sprint-YY` folder hierarchy, reconciles references, verifies state. |
 | `redrive` | Rebuilds the `scope` and `fix` calibration components from the story nodes on disk — repairs samples poisoned by a fixed defect that once stored `fix_iterations` as a string and misclassified them as `backout` instead of `exact`. Backs up the calibration file first (only if no backup already exists); `closure`, `orchestration`, and `token_mix` are untouched. Safe to run repeatedly. |
 
