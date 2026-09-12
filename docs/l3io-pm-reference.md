@@ -72,6 +72,9 @@ Scalars override; arrays append. The root key is `[workflow]` for all four PM sk
 | `activation_steps_prepend` | `[]` | Extra steps to run before the skill's own activation |
 | `activation_steps_append` | `[]` | Extra steps to run after activation |
 | `persistent_facts` | `["file:{project-root}/project-context.md", "file:{project-root}/docs/project-context.md"]` | Files always loaded into skill context |
+| `max_fix_iterations` | `3` | Fix-loop cap for CODE and MIXED work. Each iteration is a turn multiplier inside an already-long session — see Fix loop below |
+| `max_fix_iterations_non_code` | `3` | Fix-loop cap for DOCS and CONFIG work. Currently inert: it equals `max_fix_iterations`, and every phase containing a fix loop is already skipped for those work types |
+| `max_turns_per_story` | `120` | Soft cap on the turns one story agent may take (every PM skill except `l3io-pm-help`). Self-monitored, not mechanically enforced |
 
 **`l3io-pm-execute`:**
 
