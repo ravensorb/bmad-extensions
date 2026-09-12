@@ -42,6 +42,7 @@ Key settings (with defaults):
 | `check` / `status` | Same scan as the health check, but reports the findings table and exits without changing anything. |
 | `stats` | Plan-aware progress dashboard — renders the phase → epic → sprint → story hierarchy with per-status dwell times and stuck-item flags, then appends backlog size by severity, last closed sprint/epic, and calibration file state. Delegates the state walk to `pm-status.py report` rather than duplicating it; falls back to counts only when `pm-status.py` is not installed yet. Archived epics count toward phase denominators but are listed only with `--all`. See [l3io-pm reference § Progress Reporting](l3io-pm-reference.md#progress-reporting). |
 | `backlog` | Lists the consolidated `backlog:` list grouped by severity. Items carry a `kind` — `defect` (the default, and assumed when the field is absent) plus `spec-change` and `spec-proposal`, which spec sync files and `triage`'s spec pass resolves. |
+| `check-deps` | Verifies every BMad skill this package dispatches resolves in this project, reports deprecated shims still in use, and names optional dependencies whose phases will self-skip. Read-only. |
 
 ### One-time migrations (run in this order)
 

@@ -17,6 +17,7 @@ Modes (pass as argument to skip directly to that mode):
 - **`check` / `status`:** Read-only health check — same diagnostic scan as the default but prints the findings table and exits without prompting to make changes.
 - **`stats`:** Plan-aware progress dashboard — phase → epic → sprint → story hierarchy with per-status dwell times and stuck-item flags (via `pm-status.py report`), plus backlog size by severity, last closed sprint/epic, and calibration state. Scope it by asking — "what's active", "what's queued", "everything" — which maps to `--status`; counting always covers every epic regardless. No files changed.
 - **`backlog`:** Lists all items in the `backlog:` list of `{pm_state_root}/issues.yaml` in a readable table grouped by severity. No files changed.
+- **`check-deps`:** Verifies every BMad skill this package dispatches resolves in this project, reports deprecated shims still in use, and names optional dependencies whose phases will self-skip. No files changed.
 
 **One-time migrations (run in this order)**
 - **`migrate-schema`:** *(legacy-only)* Upgrades an existing legacy flat `sprint-status.yaml` to the current field schema — adds missing fields with zero/empty defaults, never overwrites existing values.
@@ -53,8 +54,8 @@ Modes (pass as argument to skip directly to that mode):
 
 **Load exactly one mode file.** Every mode below lives in its own file under `steps/`, and
 only the one the argument selects is ever loaded. That is the point of the layout: this skill
-carries nineteen procedures and a run needs one, so inlining them all charged every
-invocation for eighteen it would not execute. Read this file, match the keyword, load that
+carries twenty procedures and a run needs one, so inlining them all charged every
+invocation for nineteen it would not execute. Read this file, match the keyword, load that
 one file, and follow it.
 
 **Recognized keywords** — if the user's argument exactly matches any of these, load that
@@ -66,6 +67,7 @@ file and follow it:
 | `check` or `status` | `steps/health-check.md` | read-only — scan only, no changes |
 | `stats` | `steps/stats.md` | read-only — plan-aware progress dashboard |
 | `backlog` | `steps/backlog.md` | read-only — list consolidated backlog items |
+| `check-deps` | `steps/check-deps.md` | read-only — verify BMad skill dependencies resolve |
 | `normalize` | `steps/normalize.md` | reconcile-status then sort-status in one confirmed pass |
 | `layout-cleanup` | `steps/layout-cleanup.md` | layout reorganization only |
 | `migrate-schema` | `steps/schema-migration.md` | legacy-only bridge |
@@ -104,6 +106,7 @@ Diagnostic (read-only)
   check / status     Read-only health check — report findings, no changes
   stats              Plan-aware progress dashboard — phase/epic/sprint/story + backlog
   backlog            List issues.yaml backlog items grouped by severity
+  check-deps         Verify BMad skill dependencies resolve in this project
 
 One-time migrations (run in this order)
   migrate-schema     (legacy-only) Add missing fields to a legacy flat sprint-status.yaml
