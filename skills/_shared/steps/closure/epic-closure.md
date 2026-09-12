@@ -263,8 +263,10 @@ Commit them as sprint closure does (`steps/sprint/step-04-sprint-closure.md` §9
 git -C {project-root} rm -r --cached --quiet --ignore-unmatch -- '{implementation_artifacts}/state/*.lock'
 git add {implementation_artifacts}/state/ \
         {implementation_artifacts}/epic-{epic_nnn}/ \
-        {implementation_artifacts}/spec/ \
         {planning_artifacts}/
+# The spec index exists only once spec alignment has run; `git add` aborts the
+# whole command on a pathspec that matches nothing, so stage it separately.
+[ -d {implementation_artifacts}/spec ] && git add {implementation_artifacts}/spec/
 git status --short
 git commit -s -m "chore({epic_key}): close epic"
 ```

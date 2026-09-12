@@ -208,8 +208,10 @@ lock files are never committed; `pm-status.py` keeps `*.lock` in `state/.gitigno
 git -C {project-root} rm -r --cached --quiet --ignore-unmatch -- '{implementation_artifacts}/state/*.lock'
 git add {implementation_artifacts}/state/ \
         {implementation_artifacts}/epic-{epic_num}/ \
-        {implementation_artifacts}/spec/ \
         {planning_artifacts}/
+# The spec index exists only once spec alignment has run; `git add` aborts the
+# whole command on a pathspec that matches nothing, so stage it separately.
+[ -d {implementation_artifacts}/spec ] && git add {implementation_artifacts}/spec/
 git status --short
 ```
 

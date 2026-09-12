@@ -8850,7 +8850,6 @@ class TestLockFilesIgnored(IssueBase):
         rel = [os.path.relpath(p, self.d) for p in locks + decoys]
         planning = os.path.join(self.d, "planning")
         for p in (os.path.join(self.arts, "epic-001", "stories", f"{self.STORY}.md"),
-                  os.path.join(self.arts, "spec", "spec-index.md"),
                   os.path.join(planning, "plan.md")):              # the git add's other paths
             os.makedirs(os.path.dirname(p))
             open(p, "w").close()
@@ -8881,6 +8880,71 @@ class TestLockFilesIgnored(IssueBase):
                 for p in locks:
                     self.assertTrue(os.path.exists(p), f"{p} must stay on disk")
                 self.git("commit", "-q", "-m", "checkpoint")   # as step-04 commits the removal
+
+    def test_checkpoint_git_add_survives_missing_spec_directory(self):
+        """`git add` aborts its ENTIRE invocation — staging nothing, not even paths that do
+        exist — the moment one of its pathspecs matches nothing (verified: `git add a/ b/`
+        with only `a/` present exits 128 and stages neither). step-04's spec/ path exists only
+        once spec alignment has run, so the checkpoint must stage it as a separate,
+        conditional `git add`, never inside the unconditional one. This replays the whole
+        block — untrack, main add, and the conditional spec add — verbatim from the step file
+        against a repo where `spec/` is absent, and again where it is present."""
+        import subprocess
+        with open(self.STEP04, encoding="utf-8") as fh:
+            lines = fh.read().splitlines()
+        add = next(i for i, ln in enumerate(lines)
+                   if ln.startswith("git add {implementation_artifacts}/state/"))
+        spec_line = next(i for i in range(add, len(lines))
+                          if lines[i].startswith("[ -d {implementation_artifacts}/spec ]"))
+        # Include the line right after (step-04's own `git status --short`) so the block's own
+        # exit code is the real checkpoint's — not the conditional spec-add's, which is 1 by
+        # shell convention whenever its `[ -d ... ]` test is false (the skip itself, not a
+        # failure).
+        self.assertEqual(lines[spec_line + 1], "git status --short",
+                          "expected step-04's git status --short right after the spec add")
+        block = "\n".join(lines[lines.index(self.UNTRACK):spec_line + 2])
+        self.assertIn("git add {implementation_artifacts}/spec/", block,
+                       "the conditional spec add must be part of the replayed block")
+
+        self.init_repo()
+        planning = os.path.join(self.d, "planning")
+        for p in (os.path.join(self.root, "issues.yaml"),
+                  os.path.join(self.arts, "epic-001", "stories", f"{self.STORY}.md"),
+                  os.path.join(planning, "plan.md")):
+            os.makedirs(os.path.dirname(p), exist_ok=True)
+            open(p, "w").close()
+
+        script = (block.replace("{project-root}", self.d)
+                       .replace("{implementation_artifacts}", self.arts)
+                       .replace("{epic_num}", "001")
+                       .replace("{planning_artifacts}", planning))
+        self.assertNotIn("{", script, f"unbound placeholder in the checkpoint block: {script}")
+
+        with self.subTest(spec_directory="absent"):
+            self.assertFalse(os.path.isdir(os.path.join(self.arts, "spec")),
+                              "premise: spec/ does not exist yet")
+            result = subprocess.run(["bash", "-c", script], cwd=self.d,
+                                     capture_output=True, text=True)
+            self.assertEqual(result.returncode, 0,
+                              f"checkpoint must succeed with spec/ absent: {result.stderr}")
+            staged = self.git("diff", "--cached", "--name-only").stdout.split()
+            self.assertIn("impl/state/issues.yaml", staged,
+                           "state/ must stage even though spec/ was never dispatched")
+            self.assertIn("planning/plan.md", staged)
+            self.assertFalse(any(p.startswith("impl/spec/") for p in staged))
+            self.git("commit", "-q", "-m", "checkpoint with spec/ absent")
+
+        with self.subTest(spec_directory="present"):
+            spec_file = os.path.join(self.arts, "spec", "spec-index.md")
+            os.makedirs(os.path.dirname(spec_file))
+            open(spec_file, "w").close()
+            result = subprocess.run(["bash", "-c", script], cwd=self.d,
+                                     capture_output=True, text=True)
+            self.assertEqual(result.returncode, 0,
+                              f"checkpoint must still succeed with spec/ present: {result.stderr}")
+            staged = self.git("diff", "--cached", "--name-only").stdout.split()
+            self.assertIn("impl/spec/spec-index.md", staged,
+                           "the conditional add must stage spec/ once it exists")
 
 
 class TestIssueKinds(IssueBase):
