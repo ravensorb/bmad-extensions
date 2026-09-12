@@ -40,7 +40,7 @@ Spawn `bmad-retrospective` (or inline if not installed):
 ## 2–3. Clean release review and adversarial analysis
 
 These are two phases with independent gating, run by **one agent** whenever both are in
-scope. They are the same reviewer (`bmad-review-adversarial-general`) over the same changed
+scope. They are the same reviewer (`{adversarial_reviewer}`) over the same changed
 files, and a reviewer's cost is dominated by reading the project — inviting it twice paid
 that read twice for one pass's worth of context.
 
@@ -64,7 +64,24 @@ spend measures at roughly **3.4% of a story's tokens**; unscoped it is a multipl
 under review. If a reviewer says it lacks context, name the additional section — do not widen
 it to the repository.
 
-Invoke `bmad-review-adversarial-general` with **the sprint's diff** and the scopes that
+**Resolve the reviewer.** `bmad-review-adversarial-general` merged into `bmad-review` at 6.12.0,
+where its behavior is the `adversarial` lens.
+
+```bash
+ls {project-root}/.claude/skills/bmad-review/SKILL.md 2>/dev/null \
+  || ls {project-root}/.claude/commands/bmad-review.md 2>/dev/null \
+  || ls ~/.claude/skills/bmad-review/SKILL.md 2>/dev/null \
+  || ls ~/.claude/commands/bmad-review.md 2>/dev/null
+```
+
+A path printed → `{adversarial_reviewer}` = `bmad-review`, invoked as
+`skill:bmad-review lenses=adversarial`, with the clean-release checklist passed as
+`also_consider` (a documented `bmad-review` input). Nothing printed → probe
+the legacy `bmad-review-adversarial-general` the same four ways and invoke it with both scopes exactly as
+before. Neither present → skip the phase and say so in the phase output, so a skipped review is
+never mistaken for a passed one.
+
+Invoke `{adversarial_reviewer}` with **the sprint's diff** and the scopes that
 survived that check:
 
 - scope `clean-release` — dead code, commented-out code, debug artifacts, TODO markers,
@@ -118,12 +135,18 @@ CRITICAL/HIGH findings: block until resolved. LOW: defer to issues file.
 
 ## 5. UX review (skip if in skip_phases)
 
-If `bmad-ux-review` is installed and sprint has UI-facing stories:
+If a UX reviewer is installed and the sprint has UI-facing stories:
 ```bash
-ls {project-root}/.claude/commands/bmad-ux-review.md 2>/dev/null \
-  || ls ~/.claude/commands/bmad-ux-review.md 2>/dev/null \
-  || echo "absent"
+for n in bmad-ux-review bmad-ux; do
+  ls {project-root}/.claude/skills/$n/SKILL.md 2>/dev/null \
+    || ls {project-root}/.claude/commands/$n.md 2>/dev/null \
+    || ls ~/.claude/skills/$n/SKILL.md 2>/dev/null \
+    || ls ~/.claude/commands/$n.md 2>/dev/null
+done | head -1
 ```
+Bind `{ux_reviewer}` to whichever resolved — the legacy `bmad-ux-review` preferred because it is
+built for review, `bmad-ux` used via its **Reviewer Gate** (opt-in, lens-selectable) when it is all that
+exists. Empty result → skip the phase.
 If present: invoke with story files that have UX acceptance criteria.
 HIGH: fix. LOW/MEDIUM: defer. Output path: `{sprint_root}/closure/ux-review.md`.
 
