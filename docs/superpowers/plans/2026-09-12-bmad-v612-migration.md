@@ -1311,10 +1311,12 @@ uv run -q --with 'ruamel.yaml>=0.18' python3 skills/l3io-util-doctor/scripts/bma
 ```
 Expected: **exit 3** against this repo's real BMad **6.11.0**, and that is the correct result — not a
 failure of the migration. Measured directly: this checkout is a **core-only** install. `bmm` is not
-installed (`modules: core, l3io-pm, l3io-sec, l3io-util`), so five required skills *and their
+installed (`modules: core, l3io-pm, l3io-sec, l3io-util`), so four required skills *and their
 fallbacks* are genuinely absent: `bmad-code-review`, `bmad-retrospective`,
-`bmad-qa-generate-e2e-tests`, `bmad-sprint-planning`, `bmad-architecture`. The script is reporting
-this machine truthfully.
+`bmad-qa-generate-e2e-tests`, `bmad-sprint-planning`. The script is reporting
+this machine truthfully. (`bmad-architecture` was the fifth until the final fix wave
+reclassified it `optional` — nothing dispatches it; see spec §7.1 — so it now appears as an
+absent optional instead, and the count is four. The exit code is unchanged at 3.)
 
 Two further things to confirm in the JSON, both of which an earlier draft of this step predicted
 wrongly:

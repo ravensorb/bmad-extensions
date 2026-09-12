@@ -157,6 +157,16 @@ ls {project-root}/.claude/skills/<name>/SKILL.md 2>/dev/null \
 
 Applies to `steps/execute/step-04-arch-gate.md:34,35` and `steps/closure/sprint-closure.md:123`.
 
+**Not guarded at CI — stated plainly, because it is not.** The mechanical guard in §7 covers
+dependency **names**, not probe **paths**. `check:docs` check 17 will pass a step file that
+reverts to a single `.claude/commands/<name>.md` probe, reintroducing exactly the silent
+self-skip §1.2 describes: no CI check examines the shape above, and none should be assumed to.
+It is verified only at **runtime**, against a real install, by `/l3io-util-doctor check-deps`
+(§7.3) — `bmad-deps.py` resolves every declared name through all four locations and names each
+absent optional one, so a self-skipped gate is not mistaken for a passed one. A CI check for
+probe shape is **deferred**, not implied: it needs its own tests and its own proof that it can
+fail, which is a task of its own rather than a line in a fix wave.
+
 ### 5.1 The canonical resolver
 
 Every name-tolerant site (§4.1) uses this one shape — preferred name, then fallback, across both
@@ -264,17 +274,27 @@ first run. The full set, from the dry run cross-checked against the 29 skills a 
 install provides:
 
 - `required` (referenced and present): `bmad-code-review`, `bmad-retrospective`,
-  `bmad-qa-generate-e2e-tests`, `bmad-review`, `bmad-sprint-planning`, `bmad-architecture`
+  `bmad-qa-generate-e2e-tests`, `bmad-review`, `bmad-sprint-planning`
 - `optional` (referenced, present, every use self-skips when absent): `bmad-agent-architect`,
-  `bmad-ux`, `bmad-help`, `bmad-customize`, `bmad-brainstorming`, `bmad-forge-idea`,
-  `bmad-create-epics-and-stories`
+  `bmad-architecture`, `bmad-ux`, `bmad-help`, `bmad-customize`, `bmad-brainstorming`,
+  `bmad-forge-idea`, `bmad-create-epics-and-stories`
 - `removed`: `bmad-create-story`, `bmad-dev-story`, `bmad-review-adversarial-general`,
   `bmad-ux-review`, `bmad-check-implementation-readiness`, `bmad-architect`
 - `not-a-skill`: `bmad-output`, `bmad-defer`, `bmad-l3io-extensions`
 
+`bmad-architecture` was `required` in the first draft of this list and that was wrong on this
+section's own definition of the word: **nothing dispatches it.** Its only four references are
+`bmad-customize` overlay *documentation* (`skills/l3io-arch-review/module.yaml:10,18`,
+`SKILL.md:87`, `assets/customize-architect.md:12`) — "referenced, present, every use self-skips
+when absent", verbatim. It landed in `required` only because check 17 needed some declaration
+for the stale `bmad-architect` token those docs used to carry, which is an argument for
+declaring it, never for requiring it. Reclassified `optional` in the final fix wave.
+
 Fields: `name` (required); `status` one of `required` | `optional` | `removed` | `not-a-skill`;
 `module` required when status is `required`/`optional`; `replaced_by` and `removed_in` required
-when status is `removed`; `reason` required when status is `not-a-skill`; `invoked_as` optional;
+when status is `removed`; `reason` required when status is `not-a-skill`, and allowed on any
+entry as an explanatory note — JSON has no comments, so this is where a "why is this declared
+at all" answer goes; `invoked_as` optional;
 `fallback` optional — the pre-6.12 name this entry resolves to when the preferred name is absent,
 which is what makes §4.1's tolerance declared data rather than scattered prose.
 

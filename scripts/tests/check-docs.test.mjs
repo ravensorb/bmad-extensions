@@ -511,13 +511,34 @@ test("check 17: a removed skill on a line saying legacy is allowed", (t) => {
   assert.match(r.stdout, /x-legacy\.md:1: names removed skill 'bmad-ux-review' as history/);
 });
 
-test("check 17: an explanatory word four lines away does NOT excuse a dispatch", (t) => {
+// The two cases below look alike and prove different things; both are needed.
+//
+// This one plants "removed", which is NOT one of check 17's three evidence arms. It therefore
+// fails wherever it sits, and that is all it shows: that a plausible-sounding explanatory word
+// is not an arm. It does NOT test the same-line rule — widening the `legacy` arm to test the
+// whole joined file leaves this case failing exactly as before, i.e. green.
+test("check 17: 'removed' is not an evidence arm, so it never excuses a dispatch", (t) => {
   const root = fixture(t);
   write(root, "skills/l3io-pm-execute/steps/x-window.md",
         "This skill was removed upstream.\n\n\n\nSpawn `bmad-dev-story` subagent.\n");
   const r = run(root);
   assert.equal(r.status, 1, "check 1's ±4-line window would have allowed this; check 17 must not");
   assert.match(r.stderr, /dispatches removed skill/);
+});
+
+// This one carries a REAL arm (`legacy`) four lines from the dispatch, so it is the case that
+// actually discriminates line-scoped evidence from file-scoped evidence: it fails at HEAD
+// (correct — the dispatch line itself carries nothing) and passes the moment the arm is widened
+// from `.test(line)` to `.test(lines.join("\n"))`. Verified by mutation, both directions.
+// Line 1 is allowed on its own merits — it names the removed skill AND says `legacy`, on one
+// line — which is precisely why the failure must come from line 5 and nowhere else.
+test("check 17: the word `legacy` four lines away does NOT excuse a dispatch", (t) => {
+  const root = fixture(t);
+  write(root, "skills/l3io-pm-execute/steps/x-window-legacy.md",
+        "The bmad-dev-story skill is legacy.\n\n\n\nSpawn `bmad-dev-story` subagent.\n");
+  const r = run(root);
+  assert.equal(r.status, 1, "evidence must be on the dispatch line; a whole-file test would pass this");
+  assert.match(r.stderr, /x-window-legacy\.md:5: dispatches removed skill 'bmad-dev-story'/);
 });
 
 test("check 17: a leading underscore yields no token (_bmad-output, _bmad-frobnicate)", (t) => {

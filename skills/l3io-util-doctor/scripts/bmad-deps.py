@@ -26,7 +26,8 @@ Usage
   bmad-deps.py verify --project-root R [--inventory PATH] [--format {text,json}]
 
 Exit 0 when every required skill resolves (optional ones only warn), 2 on a usage error or an
-unparseable inventory -- bad JSON, a non-object top level, a non-object entry, or a `status`
+unparseable inventory -- bad JSON, a non-object top level, an absent, empty or non-list
+`skills`, a non-object entry, or a `status`
 outside STATUSES -- 3 when a required skill resolves nowhere, 4 when the inventory or the BMad
 manifest cannot be read. Exit 4 covers a manifest that is missing or unreadable, but not one
 that is merely contentless: a manifest parsing to no `installation` key is a successful read
@@ -97,7 +98,7 @@ def read_manifest(project_root: str):
     return inst.get("version"), bool(inst.get("installShims", False)), mods
 
 
-def check_inventory(inv, source: str) -> str | None:
+def check_inventory(inv) -> str | None:
     """Return a complaint about the inventory's shape, or None when it is usable.
 
     This lives here, not only in check-docs.mjs: that check validates the *shipped* inventory,
@@ -109,12 +110,23 @@ def check_inventory(inv, source: str) -> str | None:
     a false green in exactly the class this script exists to prevent. A non-object top level
     or entry is fatal for the same reason read_manifest skips non-map modules -- an unchecked
     .get() would surface as exit 1, the one code this contract does not define.
+
+    An absent or empty `skills` is fatal too, and the read is `.get("skills", [])` rather than
+    `.get("skills") or []` for one reason: `or []` substituted the empty list *before* the
+    isinstance guard below could see the bad value, so every falsy non-list -- {}, "", 0 -- and
+    a missing key alike sailed through to exit 0, verifying nothing and printing only the
+    version line. An inventory that declares no skills is not a usable inventory; a verifier
+    that "passes" against one is the false green this whole script exists to prevent.
     """
     if not isinstance(inv, dict):
         return f"top level is {type(inv).__name__}, expected an object"
-    entries = inv.get("skills") or []
+    if "skills" not in inv:
+        return "no 'skills' key — an inventory declaring no skills verifies nothing"
+    entries = inv["skills"]
     if not isinstance(entries, list):
         return f"'skills' is {type(entries).__name__}, expected a list"
+    if not entries:
+        return "'skills' is empty — an inventory declaring no skills verifies nothing"
     for i, e in enumerate(entries):
         if not isinstance(e, dict):
             return f"skills[{i}] is {type(e).__name__}, expected an object"
@@ -137,7 +149,7 @@ def verify(args: argparse.Namespace) -> int:
     except json.JSONDecodeError as exc:
         print(f"cannot parse inventory {args.inventory}: {exc}", file=sys.stderr)
         return 2
-    complaint = check_inventory(inv, args.inventory)
+    complaint = check_inventory(inv)
     if complaint:
         print(f"cannot parse inventory {args.inventory}: {complaint}", file=sys.stderr)
         return 2
@@ -149,7 +161,7 @@ def verify(args: argparse.Namespace) -> int:
     version, shims, modules = man
 
     resolved, missing, shims_in_use, warnings = [], [], [], []
-    for e in inv.get("skills") or []:  # shape already validated by check_inventory
+    for e in inv["skills"]:  # a non-empty list of dicts; validated by check_inventory
         status = e.get("status")
         name = e.get("name")
         if status == "not-a-skill":

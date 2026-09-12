@@ -251,6 +251,35 @@ class TestInventoryShape(Base):
         self.assertEqual(code, 2)
         self.assertIn("skills[0]", self.err)
 
+    # The three cases below were all silent passes under `inv.get("skills") or []`: the empty
+    # list was substituted BEFORE the isinstance guard could see the bad value, so a missing
+    # key and every falsy non-list alike exited 0 having verified nothing, printing only the
+    # version/modules line. An inventory declaring no skills is not a usable inventory.
+    def test_missing_skills_key_exits_2(self):
+        inv = self._raw_inv(json.dumps({"verified_against": "6.12.0"}))
+        root = self._tree(["a-one"])
+        code, out = self.run_cli(["verify", "--project-root", root, "--inventory", inv])
+        self.assertEqual(code, 2)
+        self.assertIn("no 'skills' key", self.err)
+        self.assertEqual(out, "")   # and it must not report a clean run on the way out
+
+    def test_empty_skills_list_exits_2(self):
+        inv = self._inv([])
+        root = self._tree(["a-one"])
+        code, out = self.run_cli(["verify", "--project-root", root, "--inventory", inv])
+        self.assertEqual(code, 2)
+        self.assertIn("empty", self.err)
+        self.assertEqual(out, "")
+
+    def test_falsy_non_list_skills_exits_2(self):
+        # "" is falsy and not a list: the shape that made the isinstance guard unreachable.
+        inv = self._raw_inv(json.dumps({"skills": ""}))
+        root = self._tree(["a-one"])
+        code, out = self.run_cli(["verify", "--project-root", root, "--inventory", inv])
+        self.assertEqual(code, 2)
+        self.assertIn("'skills' is str", self.err)
+        self.assertEqual(out, "")
+
 
 class TestJson(Base):
     def test_json_format_shape(self):

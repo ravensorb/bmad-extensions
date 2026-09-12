@@ -895,7 +895,7 @@ Calibration:  none yet — formula baseline (components calibrate at ≥3 sample
 
 | Phase | Skill invoked |
 |-------|--------------|
-| Readiness check (plan) | `bmad-sprint-planning intent=readiness` (legacy `bmad-check-implementation-readiness`) (optional; presence-gated, CODE/MIXED stories only) |
+| Readiness check (plan) | legacy `bmad-check-implementation-readiness`, **preferred when installed** — its presence is itself evidence of a pre-6.12 install whose `bmad-sprint-planning` may not understand `intent=readiness`; `bmad-sprint-planning intent=readiness` is used only when the legacy name is absent (optional; presence-gated, CODE/MIXED stories only) |
 | Story prep / elaboration | legacy `bmad-create-story` when installed, else this package's in-package agent — **one batched call per sprint**, not one per story |
 | Development | legacy `bmad-dev-story` when installed, else this package's in-package agent |
 | Fix loop | legacy `bmad-dev-story` when installed, else this package's in-package agent |
