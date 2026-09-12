@@ -12,6 +12,43 @@
 
 It ships as four installable BMad modules. Teams can install all four or only the ones they need.
 
+### What it adds
+
+BMad supplies the agent primitives — story creation, dev, code review, QA, retrospective. This
+package adds the layer above them:
+
+- **Orchestration** — dependency-aware phased planning across epics and sprints, so work runs
+  in an order that respects what blocks what, and in parallel only where that is provably safe.
+- **Closure discipline** — sprint and epic closure that will not sign off while any Critical,
+  High or Medium finding is unresolved. Low findings defer to a tracked backlog instead of
+  being quietly dropped.
+- **Estimates that learn** — every planning point and every closeout records an estimate *and*
+  an actual for five metrics, and later estimates calibrate from that history automatically.
+- **Spec alignment** — acceptance criteria carry pointers back to the spec sections they came
+  from, and accepted departures are written back to the spec rather than left to diverge.
+
+Short-lived subagents hand off through files on disk. That is a cost decision: a session's
+spend grows with the turns it accumulates, so many short agents beat one long one — see
+[Cost Model](#cost-model).
+
+### Where to start
+
+| You are a… | Start here |
+|---|---|
+| **Developer** running the work | [Getting started](docs/getting-started.md), then the [l3io-pm reference](docs/l3io-pm-reference.md) |
+| **Project manager** tracking it | [Checking progress](docs/getting-started.md#checking-progress) and the [estimation guide](docs/estimation-guide.md) |
+| **Architect** reviewing the model | [Architecture and execution model](docs/architecture.md) |
+| **Contributor** to this package | [CONTRIBUTING.md](CONTRIBUTING.md) — `skills/_shared/` holds the only editable copies of shared files |
+
+### Where it runs
+
+Skills are generated for **Claude Code** and **GitHub Copilot** (`--tools`, below). Token and
+cost actuals are captured per runtime — exactly under Claude, as available under Codex and
+Copilot, and `N/A` rather than a guess elsewhere; see the
+[estimation guide](docs/estimation-guide.md). `/l3io-util-doctor update-ai-rules` additionally
+maintains instruction files for Claude, Copilot, Gemini, Cursor and the generic `AGENTS.md`
+convention.
+
 **Owner:** Shawn Anderson (shawn@eye-catcher.com)
 
 **Support disclaimer:** LiquidLogicLabs does not provide default support, SLA, or managed services for this extension unless explicitly agreed in writing.
@@ -138,7 +175,13 @@ Runtime artifacts are organized with zero-padded epic/sprint folders:
 - closure outputs: `{implementation_artifacts}/epic-XX/sprint-YY/closure/`
 - tests: `{implementation_artifacts}/epic-XX/sprint-YY/tests/` and `{implementation_artifacts}/epic-XX/tests/`
 - planning artifacts: `{planning_artifacts}/epic-XX/` and `{planning_artifacts}/epic-XX/sprint-YY/`
-- sprint status (three-file split layout): `{implementation_artifacts}/sprint-status.yaml` (in-progress epics), `{implementation_artifacts}/sprint-status-backlog.yaml` (not-yet-started work + consolidated deferred-issue backlog), `{implementation_artifacts}/sprint-status-archived.yaml` (done epics)
+- state (sharded layout): `{implementation_artifacts}/state/{planned,active,archived}/epic-XX/` — one directory per epic, living in the folder named for its status, with one bare node per file (`epic.yaml`, `sprint-YY/sprint.yaml`, `sprint-YY/{story-key}.yaml`). Every status change is a `git mv` of the whole directory, so sprints and stories travel with their epic
+- deferred issues: `{implementation_artifacts}/state/issues.yaml` (open) and `issues-resolved.yaml` (closed, moved whole with a resolution)
+
+A flat `{implementation_artifacts}/sprint-status.yaml` — optionally split into
+`sprint-status{,-backlog,-archived}.yaml` — is the **legacy** layout. The PM skills do not read
+it; `/l3io-util-doctor migrate-state` migrates it to the sharded tree and preserves the
+original as `.legacy`.
 
 ## Dependencies
 
@@ -155,8 +198,9 @@ its own `module.yaml`, not by its position in the tree.
 
 ```
 skills/
-  _shared/               canonical shared sources — pm-status.py + tests/, status-files.md,
-                         metrics-contract.md, config-resolution.md, module-setup.md, steps/
+  _shared/               canonical shared sources — pm-status.py, spec-align.py,
+                         write-module-config.py, tests/, status-files.md, metrics-contract.md,
+                         calibration-model.md, config-resolution.md, module-setup.md, steps/
   l3io-pm-plan/          SKILL.md, customize.toml, references/, assets/, scripts/, steps/, module.yaml
   l3io-pm-execute/       SKILL.md, customize.toml, references/, assets/, scripts/, steps/, module.yaml
   l3io-pm-help/          SKILL.md, customize.toml, references/, assets/, scripts/, module.yaml
@@ -180,13 +224,27 @@ runs automatically on first use, or on demand via the module's `configure` actio
 
 ## Documentation
 
-- [Getting started](docs/getting-started.md)
-- [Upgrading](docs/upgrading.md)
+**Start here**
+
+- [Getting started](docs/getting-started.md) — prerequisites, install, first sprint and epic run
+- [Upgrading](docs/upgrading.md) — version-by-version notes, the migration sequence, backups and rollback
+
+**By role**
+
+- Project manager — [Estimation and actuals guide](docs/estimation-guide.md): how estimates are built, what gets recorded at closure, and how calibration learns from your own history
+- Architect — [Architecture and execution model](docs/architecture.md): the context boundary, the state contract, the pre-execution gates, and the measured cost model
+- Developer — [l3io-pm reference](docs/l3io-pm-reference.md): the full lifecycle, every `pm-status.py` and `spec-align.py` subcommand, and the state schema
+
+**Per module**
+
 - [l3io-pm reference](docs/l3io-pm-reference.md)
 - [l3io-sec reference](docs/l3io-sec-reference.md)
 - [l3io-util reference](docs/l3io-util-reference.md)
 - [l3io-arch reference](docs/l3io-arch-reference.md)
-- [Architecture and execution model](docs/architecture.md)
+
+**Internals**
+
+- [How modules are discovered](docs/bmad-module-yaml-discovery.md) — what `module.yaml` controls and how the installer finds skills
 - [Contributing](CONTRIBUTING.md)
 
 For BMad core guidance, see [BMad docs](https://docs.bmad-method.org/).
@@ -204,13 +262,25 @@ npm install
 Release commands:
 
 ```bash
-npm run release:patch    # bump patch, update changelog, create git tag
-npm run release:minor    # bump minor, update changelog, create git tag
-npm run release:major    # bump major, update changelog, create git tag
+npm run release          # bump the level the commits imply (feat -> minor, fix -> patch)
+npm run release:patch    # force patch, update changelog, create git tag
+npm run release:minor    # force minor
+npm run release:major    # force major
 npm run changelog        # regenerate changelog only
 ```
 
-The `postbump` hook auto-syncs the new version into `.claude-plugin/marketplace.json`.
+Prefer plain `npm run release`: it derives the level from the Conventional Commit types since
+the last tag, so a release carrying any `feat` becomes a minor rather than shipping features
+under a patch version. The `release:*` aliases force a level and should be used deliberately.
+
+Both hooks are configured in `.versionrc.cjs`, not in `package.json`:
+
+- **`prerelease`** is a hard gate — it refuses to release when payload copies have drifted from
+  `skills/_shared/`, when a `payload-manifest.json` hash is stale, when `check:docs` fails, or
+  when `pm-status.py`'s version markers disagree.
+- **`postbump`** re-syncs after the bump, because the new version string is embedded inside
+  payload files: it rewrites `.claude-plugin/marketplace.json`, every `module.yaml`, and
+  `pm-status.py`'s version marker, regenerates the manifests, then stages the result.
 
 See [CHANGELOG.md](CHANGELOG.md) for release history.
 

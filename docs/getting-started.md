@@ -2,13 +2,49 @@
 
 Installation and first-run guide for `bmad-l3io-extensions`.
 
+## What this adds to BMad
+
+BMad supplies the agent primitives — story creation, dev, code review, QA, retrospective. This
+package adds the layer above them:
+
+- **Orchestration** — dependency-aware phased planning across epics and sprints, so work runs
+  in an order that respects what blocks what, and in parallel only where that is safe.
+- **Closure discipline** — sprint and epic closure that refuses to sign off while any
+  Critical, High or Medium finding is unresolved. Low findings defer to a tracked backlog
+  rather than being forgotten.
+- **Estimates that learn** — every plan point and closeout records an estimate *and* an
+  actual, and future estimates calibrate from that history with no setup.
+- **Spec alignment** — acceptance criteria carry pointers back to the spec sections they came
+  from, and accepted departures are written back to the spec instead of silently diverging.
+
+Everything runs in short-lived subagents that hand off through files on disk. That is a cost
+decision, not an aesthetic one: a session's spend grows with the turns it accumulates, so many
+short agents beat one long one.
+
+## Where to start
+
+| You are a… | Start here |
+|---|---|
+| **Developer** running the work | This guide, then [First Sprint Run](#first-sprint-run) and the [l3io-pm reference](l3io-pm-reference.md) |
+| **Project manager** tracking it | [Checking Progress](#checking-progress), then the [estimation guide](estimation-guide.md) for how estimates, actuals and calibration work |
+| **Architect** reviewing the model | [Architecture and execution model](architecture.md) — the context boundary, the state contract, and the pre-execution gates |
+| **Contributor** to this package | [CONTRIBUTING.md](../CONTRIBUTING.md) — note that `skills/_shared/` holds the only editable copies of shared files |
+
 ## Prerequisites
 
-- **Claude Code** installed and working
+- **An agent IDE** — Claude Code or GitHub Copilot. Both are supported; pick one or both with
+  the `--tools` flag at [Install](#install).
 - **BMad** installed in the target repo (`npx bmad-method install` or equivalent)
+- **[uv](https://docs.astral.sh/uv/)** on your `PATH`. The Python helpers (`pm-status.py`,
+  `spec-align.py`) are invoked as `uv run`, which provisions their dependencies from an inline
+  PEP 723 header — there is nothing else to install, but without `uv` the first status write
+  fails.
 - Required BMad skills present: `bmad-create-story`, `bmad-dev-story`, `bmad-code-review`, `bmad-qa-generate-e2e-tests`, `bmad-retrospective`, `bmad-review-adversarial-general`
 - Optional: `bmad-ux-review` (UX review phases are skipped gracefully when absent)
-- **WebSearch permission** granted in Claude Code if you plan to use `l3io-sec` (required for live cloud/platform best practices research)
+- **WebSearch permission** granted in your IDE if you plan to use `l3io-sec` (required for live cloud/platform best practices research)
+
+Node.js is **not** needed to use the skills — only to develop this package itself, where
+`package.json` requires Node 22 or newer.
 
 ## Module Selection
 
@@ -35,9 +71,25 @@ npx bmad-method install \
   --yes
 ```
 
-Interactive path: `npx bmad-method install` -> Community modules -> `bmad-l3io-extensions`.
+`--tools` selects which agent surfaces are generated: `claude-code` (`.claude/commands/*`),
+`github-copilot` (`.github/agents/*.agent.md` plus `.github/copilot-instructions.md`), or both
+as a comma-separated list with no spaces.
+
+Interactive path: `npx bmad-method install` -> Community modules -> `bmad-l3io-extensions`
+(the installer prompts for which IDEs to target).
 
 This installs all eight skills and registers the four modules in `.claude-plugin/marketplace.json`.
+
+### Verify the install
+
+```
+/l3io-util-doctor
+```
+
+Run it once, before anything else. With no argument it self-installs the status helper, scans
+the project, and prints a findings table — so a clean report confirms both that the skills
+resolved and that your project state is readable. If the command is not found, the installer
+did not generate a surface for your IDE: re-run the install with the right `--tools` value.
 
 ## First-Run Configuration
 
