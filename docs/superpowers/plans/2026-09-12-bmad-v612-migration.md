@@ -1309,7 +1309,31 @@ Expected: exit 0, every required skill resolves, **no shim in use**.
 uv run -q --with 'ruamel.yaml>=0.18' python3 skills/l3io-util-doctor/scripts/bmad-deps.py \
   verify --project-root "$PWD" --format json
 ```
-Expected: exit 0 against this repo's real BMad **6.11.0**. `bmad-review` shows `resolved_as: bmad-review-adversarial-general` and `bmad-sprint-planning` shows `resolved_as: bmad-check-implementation-readiness` — proving a working install still resolves to the names it has.
+Expected: **exit 3** against this repo's real BMad **6.11.0**, and that is the correct result — not a
+failure of the migration. Measured directly: this checkout is a **core-only** install. `bmm` is not
+installed (`modules: core, l3io-pm, l3io-sec, l3io-util`), so five required skills *and their
+fallbacks* are genuinely absent: `bmad-code-review`, `bmad-retrospective`,
+`bmad-qa-generate-e2e-tests`, `bmad-sprint-planning`, `bmad-architecture`. The script is reporting
+this machine truthfully.
+
+Two further things to confirm in the JSON, both of which an earlier draft of this step predicted
+wrongly:
+
+- `bmad-review` resolves as the **preferred** name, not via its fallback — it is a *core* skill and
+  is present at `.claude/skills/bmad-review/`. `resolved_as` must equal `bmad-review`.
+- `shims_installed` is `false`, read from a manifest that has **no `installShims` key at all** (6.11.0
+  predates it). This is the live proof that the key is treated as absent-means-false rather than
+  assumed present — a script that assumed it would crash on exactly the older install this design
+  protects.
+- `shims_in_use` contains `bmad-review-adversarial-general`, since that legacy skill is on disk here.
+
+**The backward-compatibility guarantee is not proven by this run**, because this machine has no
+`bmm` to fall back within. It is proven machine-independently by
+`test_pre_612_only_tree_resolves_every_site_via_fallback` in
+`skills/l3io-util-doctor/scripts/tests/test-bmad-deps.py`, which builds a tree holding **only**
+pre-6.12 names and asserts every site resolves via `fallback`. Confirm that test is present and
+passing; it is the executable form of the design spec's second acceptance criterion, and a stronger
+proof than any single machine's state.
 
 - [ ] **Step 6: Confirm nothing was pushed and no version moved**
 
