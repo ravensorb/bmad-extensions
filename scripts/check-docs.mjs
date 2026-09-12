@@ -1211,12 +1211,19 @@ function checkBmadDependencyInventory() {
         }
         if (e.status !== "removed") continue;
         const line = lines[i];
-        // Three arms. (c) is load-bearing: the tolerance design REQUIRES step files to probe
-        // for the pre-6.12 names, so a rule forbidding the name would forbid the fix. A probe
-        // line cannot dispatch anything. (b) must be token-bounded — "bmad-ux-review".includes
-        // ("bmad-ux") is true, which would let the guard pass its own worst case.
-        const isProbe = line.includes("ls ") && line.includes(".claude/");
-        const replacedByToken = new RegExp(`(?<![\\w-])${e.replaced_by.split(" ")[0]}(?![\\w-])`);
+        // Three arms, and BOTH pattern arms must be token-bounded, not substring tests:
+        // (c) is load-bearing — the tolerance design REQUIRES step files to probe for the
+        // pre-6.12 names, so a rule forbidding the name would forbid the fix, and a probe line
+        // cannot dispatch anything. But `ls` has to be the command and the .claude/ path has to
+        // be its argument: a bare line.includes("ls ") is satisfied by "tools ", "details " or
+        // "controls ", so a genuine dispatch mentioning .claude/ anywhere would be excused.
+        // (b) has the same shape of hole — "bmad-ux-review".includes("bmad-ux") is true, which
+        // would let the guard wave through its own worst case — and replaced_by is interpolated
+        // into a RegExp, so it is escaped: a metacharacter in a future value must fail this
+        // check cleanly rather than throw out of it.
+        const isProbe = /(?:^|[^\w-])ls\s+\S*\.claude\//.test(line);
+        const escaped = e.replaced_by.split(" ")[0].replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+        const replacedByToken = new RegExp(`(?<![\\w-])${escaped}(?![\\w-])`);
         const historical = isProbe || replacedByToken.test(line) ||
           /\blegacy\b|\bhistorical\b/i.test(line);
         if (historical) {

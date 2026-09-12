@@ -530,6 +530,18 @@ test("check 17: an existence probe naming a removed skill is allowed", (t) => {
   assert.equal(r.status, 0, "a probe line cannot dispatch anything; it must pass");
 });
 
+// The probe arm has the same substring hole the replaced_by arm was hardened against: a bare
+// line.includes("ls ") is satisfied by "tools ", "details " or "controls ". Case 15 passes under
+// both the weak and the strong predicate, so without this test a revert would be silent.
+test("check 17: a word ending in 'ls' does not make a dispatch line a probe", (t) => {
+  const root = fixture(t);
+  write(root, "skills/l3io-pm-execute/steps/x-tools.md",
+        "Check the tools installed under `.claude/skills/` before spawning `bmad-dev-story`.\n");
+  const r = run(root);
+  assert.equal(r.status, 1, "'tools ' plus '.claude/' is not an `ls` probe");
+  assert.match(r.stderr, /dispatches removed skill 'bmad-dev-story'/);
+});
+
 // Case 16 — the token-boundary hole. bmad-ux-review's replaced_by is bmad-ux, which is a
 // SUBSTRING of it, so a naive includes() check would let the guard pass its own worst case.
 test("check 17: replaced_by must match as a token, not a substring", (t) => {
