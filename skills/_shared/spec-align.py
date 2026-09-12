@@ -1263,7 +1263,8 @@ def cmd_commit(ctx, a):
     if item["type"] == "adr-link":
         wsec = next((s for s in work if s.anchor == target), None)
         body = read_text(ctx.abs(rel)).splitlines()[wsec.start - 1:wsec.end] if wsec else []
-        link_re = re.compile(r"\]\([^)]*" + re.escape(os.path.basename(item["adr"])) + r"\)")
+        link_re = re.compile(r"\[[^\]]*\]\((?:[^)]*/)?"
+                             + re.escape(os.path.basename(item["adr"])) + r"\)")
         if not any(link_re.search(line) for line in body):
             raise SAError(2, f"the edit does not link {item['adr']} from #{target} "
                              f"(a markdown link to it, not a mention of its filename)")
@@ -1283,7 +1284,7 @@ def cmd_commit(ctx, a):
         # commit (e.g. a stuck index.lock) must not strand the rewrites: undo them here, not
         # via `git restore`/`git checkout`, which would also discard unrelated uncommitted
         # edits already sitting in those story files.
-        for s, old, new in rewritten:
+        for s, old, new in reversed(rewritten):
             rewrite_pointer(s, rel, new, old)
         raise
     fields = {"commit": sha}

@@ -908,6 +908,28 @@ class TestCommit(SyncBase):
         self.assertIn(f"Spec: {ARCH_REL}#order-api", story)
         self.assertNotIn(f"Spec: {ARCH_REL}#orders-api", story)
 
+    def test_chained_pointer_renames_are_rolled_back_in_reverse(self):
+        # Two --rename-anchor pairs chaining through the same story in one call: the story
+        # is rewritten twice in a row (order-api -> orders-api -> orders-api-v2). Undoing in
+        # forward order tries the *older* substitution first, against a file that has already
+        # moved past it -- a silent no-op -- and leaves the story at the intermediate anchor
+        # instead of its true HEAD anchor. Undoing in reverse must land it back at #order-api.
+        self.edit("## Order API\n\nPOST /orders accepts a body.\n",
+                  "## Orders API V2\n\nPOST /orders accepts a body.\n\n### Orders API\n\n"
+                  "See above.\n")
+        lock = self.path(".git/index.lock")
+        with open(lock, "w"):
+            pass
+        self.addCleanup(lambda: os.path.exists(lock) and os.remove(lock))
+        r = self.commit("--rename-anchor", "order-api=orders-api",
+                        "--rename-anchor", "orders-api=orders-api-v2")
+        self.assertEqual(r.returncode, 2)
+        self.assertIn("stayed locked", r.stderr)
+        story_rel = f"{IMPL}/epic-003/sprint-01/stories/E003-S01-001.md"
+        story = self.read(story_rel)
+        self.assertIn(f"Spec: {ARCH_REL}#order-api", story)
+        self.assertNotIn(f"Spec: {ARCH_REL}#orders-api", story)
+
     def _adr(self):
         self.write("docs/adr/0001-order-api.md",
                    adr(1, "order-api", departs=f"{ARCH_REL}#order-api"))
