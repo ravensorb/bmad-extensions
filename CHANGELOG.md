@@ -2,6 +2,158 @@
 
 All notable changes to this project will be documented in this file. See [commit-and-tag-version](https://github.com/absolute-version/commit-and-tag-version) for commit guidelines.
 
+## [2.5.0](https://github.com/ravensorb/bmad-extensions/compare/2.4.13...2.5.0) (2026-09-12)
+
+
+### Features
+
+* **infra:** check-docs covers the spec-align surface (check 4) and adds checks 13, 14 ([72848d0](https://github.com/ravensorb/bmad-extensions/commit/72848d01ae7d98b3a47ae5cb15120d4baf4db9cd))
+* **l3io-pm:** add sprint closure commit checkpoint ([55d4ff7](https://github.com/ravensorb/bmad-extensions/commit/55d4ff711e373564d129537661a3f87eccabfc7c))
+* **l3io-pm:** adr-reserve scans docs/adr and the old ADR home before allocating ([eb14c71](https://github.com/ravensorb/bmad-extensions/commit/eb14c713e6ee99551f3f9b0ddcedc820d7b7ebed))
+* **l3io-pm:** audit-issues reports backlog integrity findings 1a-1j ([3e55ee6](https://github.com/ravensorb/bmad-extensions/commit/3e55ee6aaaeb1fd24adb9360dce4d3024c398c23))
+* **l3io-pm:** backlog item kind and ref for spec-change and spec-proposal items ([28bce1e](https://github.com/ravensorb/bmad-extensions/commit/28bce1e10e924f3bca21a495a827531fbbf14ee5))
+* **l3io-pm:** dedupe appends against resolved items; flag recurrences ([6a6c3d6](https://github.com/ravensorb/bmad-extensions/commit/6a6c3d653a392fa7540662c97eb47fb7862eab66))
+* **l3io-pm:** drift dispositions, epic spec sync, and the epic commit checkpoint ([4d1777c](https://github.com/ravensorb/bmad-extensions/commit/4d1777c351fbcc4d3f940249c5a2ceaeee45b47f))
+* **l3io-pm:** list-issues reads resolved items, --all snapshot, origin_archived ([7c626f5](https://github.com/ravensorb/bmad-extensions/commit/7c626f59877a435072ff6f969033b5add4042c85))
+* **l3io-pm:** pm-plan offers backlog-to-story intake before readiness ([9d3e8c2](https://github.com/ravensorb/bmad-extensions/commit/9d3e8c2536852de576d80e8bca75b9cfb3436218))
+* **l3io-pm:** promote-issue turns BL items into an estimated story ([256566f](https://github.com/ravensorb/bmad-extensions/commit/256566f5be09f9a2b5495a417ff8089fe2d5c09e))
+* **l3io-pm:** repair-issue applies structural fixes gated on audit findings ([8c1e868](https://github.com/ravensorb/bmad-extensions/commit/8c1e868934f462acbffd2b3e227b9d024cd7fc4a))
+* **l3io-pm:** resolve-issue moves BL items to issues-resolved.yaml ([543891b](https://github.com/ravensorb/bmad-extensions/commit/543891b0bacb9be2e6e9ba69c7cb03fa0ea0c3fe))
+* **l3io-pm:** spec inputs to the arch gate; ADRs to docs/adr; spec_alignment switch ([88fa76d](https://github.com/ravensorb/bmad-extensions/commit/88fa76ddcde2d986833fca225673df07952fc2c3))
+* **l3io-pm:** spec-align adrs and check-links ([d0d93af](https://github.com/ravensorb/bmad-extensions/commit/d0d93aff5a458cdb3a9727794bc4b9d6e357c12e))
+* **l3io-pm:** spec-align check-pointers and sections (story provenance) ([86232b1](https://github.com/ravensorb/bmad-extensions/commit/86232b10a500a50ad9f8ae479d278b193a7bb634))
+* **l3io-pm:** spec-align commit with scope and anchor guards ([359bec5](https://github.com/ravensorb/bmad-extensions/commit/359bec50ffeed6922021f7709416cb3dddddfbe6))
+* **l3io-pm:** spec-align disposition and check-dispositions ([63865f0](https://github.com/ravensorb/bmad-extensions/commit/63865f07cce3fb52512df5b6488849a0b2ba0841))
+* **l3io-pm:** spec-align reject and check-stale ([a766292](https://github.com/ravensorb/bmad-extensions/commit/a766292847eee9f3fcbcedc5f6c60f0d32b6bfff))
+* **l3io-pm:** spec-align spec-sync lease ([3e489e9](https://github.com/ravensorb/bmad-extensions/commit/3e489e900f84eca778be3a8f64cada9d3f672a35))
+* **l3io-pm:** spec-align sync-plan, --defer and propose ([1f54adb](https://github.com/ravensorb/bmad-extensions/commit/1f54adb1ac7dc98fa9c61a69f418b70475fb0b0b))
+* **l3io-pm:** spec-align.py with the spec index (build) ([1f55adf](https://github.com/ravensorb/bmad-extensions/commit/1f55adf621e579d14557a6f699d717d0d0664eec))
+* **l3io-pm:** story done resolves its backlog items; set-field refuses status ([1bb95c8](https://github.com/ravensorb/bmad-extensions/commit/1bb95c81d4f9273283843e6ce484fb50bea64382))
+* **l3io-pm:** story prep requires spec provenance pointers ([0635edc](https://github.com/ravensorb/bmad-extensions/commit/0635edc19799ed4a730e3e18d4e7d5c7d2793c3d))
+* **l3io-pm:** story-doc-init owns the story document skeleton ([6531101](https://github.com/ravensorb/bmad-extensions/commit/65311013c6b83c9d9286314edaac8b098b37e8c4))
+* **l3io-pm:** update-issue re-severities an open BL item ([2943a39](https://github.com/ravensorb/bmad-extensions/commit/2943a39aad5b5ad00bef0628746acfab0fcc2a23))
+* **l3io-util:** audit-backlog.py proposes resolutions for open BL items ([a7460f5](https://github.com/ravensorb/bmad-extensions/commit/a7460f505523147914d31d6468047727447c334f))
+* **l3io-util:** doctor migrate-adrs mode and spec-alignment health Checks 15-19 ([3749149](https://github.com/ravensorb/bmad-extensions/commit/3749149b9f710d2b573d37239c40b71c67e4f114))
+* **l3io-util:** spec-align migrate-adrs (old epic ADR home -> docs/adr) ([6272713](https://github.com/ravensorb/bmad-extensions/commit/6272713a9782289a6bdb6e9025026e4480becd4c))
+* **l3io-util:** triage mode audits the backlog and resolves what is fixed ([f66e8b6](https://github.com/ravensorb/bmad-extensions/commit/f66e8b61b6e69dbf10f425e1641b7b82248ea760))
+* **l3io-util:** triage spec pass; spec items skip the mechanical audit; ADR allocation in arch-review ([3975573](https://github.com/ravensorb/bmad-extensions/commit/39755736c5fb1d414e41cbaf48ceb027afdc1a37))
+
+
+### Fixes
+
+* **infra:** check 14 exemption must qualify the path, not just share the line ([34fe60d](https://github.com/ravensorb/bmad-extensions/commit/34fe60d4ffbc9e1ec206190aec530589e1879be8))
+* **infra:** correct the doctor mode count and enforce it with check 15 ([4845b39](https://github.com/ravensorb/bmad-extensions/commit/4845b394436395f132ad84267c72d84d8d38411f))
+* **l3io-pm:** apply resolved-first, single_open and the 1j claim gate in audit and repair ([ddb5f96](https://github.com/ravensorb/bmad-extensions/commit/ddb5f96d2d3ee25125e39557914d213cce7a7e42))
+* **l3io-pm:** check-links refuses an unparseable --epic ([44fab3c](https://github.com/ravensorb/bmad-extensions/commit/44fab3ca874de66ab6e2182eb892ed6d6960e84d))
+* **l3io-pm:** close final-review minors M1, M5, M7 and pin lock-hold identity ([b5a23ec](https://github.com/ravensorb/bmad-extensions/commit/b5a23ec80f6e047f050b32e32dc1150dd7876bd6))
+* **l3io-pm:** compare a lock holder's session_id exactly in promote ([83784a8](https://github.com/ravensorb/bmad-extensions/commit/83784a8dbd125eca4edd80cb9617c1a9483cb839))
+* **l3io-pm:** compute_story_estimate mutates the node only after pricing succeeds ([0dbb9b5](https://github.com/ravensorb/bmad-extensions/commit/0dbb9b59f39fb23418acdccc00f653b12aadb612))
+* **l3io-pm:** deterministic lock-wait tests; enforce epic-lock order ([c9445ea](https://github.com/ravensorb/bmad-extensions/commit/c9445eab6094c89e6ad3d8cfe7627c7446cd3694))
+* **l3io-pm:** done hook normalises resolves inside its catch-all ([e51e59a](https://github.com/ravensorb/bmad-extensions/commit/e51e59a5b18a806938b5b08559622d2a40e54eaa))
+* **l3io-pm:** every backlog producer records a pointer; closure promotes via update-issue ([c1bd0cb](https://github.com/ravensorb/bmad-extensions/commit/c1bd0cbecbbecc890bef2b82c93e4bae5ac2c85f))
+* **l3io-pm:** every epic.yaml write holds epic_node_lock ([2097ebf](https://github.com/ravensorb/bmad-extensions/commit/2097ebf4966a914481f23d80c99664244665b4b4))
+* **l3io-pm:** final-review minors — spec ID format, empty --spec-paths, dimension names, docstring check, recovery test ([ef06cb3](https://github.com/ravensorb/bmad-extensions/commit/ef06cb3dff737be2c9d53cb82629f6c94eb452b4))
+* **l3io-pm:** item field order, audit docstring, and the 1k test plant ([0cb212c](https://github.com/ravensorb/bmad-extensions/commit/0cb212c4569df794c54d83d02d2eb5e8046e18cc))
+* **l3io-pm:** keep pm-status lock files out of git via state/.gitignore ([06e1abf](https://github.com/ravensorb/bmad-extensions/commit/06e1abf8a3e8f881f785bd8f9c97cfdc6000f26e))
+* **l3io-pm:** list-issues --all takes no lock when no issue file exists ([0c32bd9](https://github.com/ravensorb/bmad-extensions/commit/0c32bd9870b5654d45733e60cf9480ca87301915))
+* **l3io-pm:** make a same-severity update a no-op and tag link's event ([488b997](https://github.com/ravensorb/bmad-extensions/commit/488b997356ecfb64c57506b0f37079100df923a8))
+* **l3io-pm:** make the reject recovery command runnable and parse git file lists by line ([2716879](https://github.com/ravensorb/bmad-extensions/commit/2716879467c0e24eb128321f415ca7e5154031c2))
+* **l3io-pm:** match git's single-CR strip and BOM handling in the lock-rule check ([a9bdf65](https://github.com/ravensorb/bmad-extensions/commit/a9bdf652f2cf927c092a4e5e9bdd00a5d6c88100))
+* **l3io-pm:** never reuse a BL key -- per-epic next high-water allocator ([da440ee](https://github.com/ravensorb/bmad-extensions/commit/da440ee0540254f19f2a516cf041566dbfa554ef))
+* **l3io-pm:** pm-sync docs state pull's completed-only done rule ([c2ff8fb](https://github.com/ravensorb/bmad-extensions/commit/c2ff8fb8df0300f069ed4308ed2d9a1bc0589d8a))
+* **l3io-pm:** pm-sync pull marks done only for issues closed as completed ([38ed575](https://github.com/ravensorb/bmad-extensions/commit/38ed575cbe159ec0fa23f8631df7059fb89d37e5))
+* **l3io-pm:** promote refuses a foreign lock it cannot evaluate ([1028198](https://github.com/ravensorb/bmad-extensions/commit/10281980bf501c6bd7942fa5c8dfa4aeb6b5f2f2))
+* **l3io-pm:** promote-issue validates items under issues_lock before writing; strict resume ([3a27846](https://github.com/ravensorb/bmad-extensions/commit/3a27846c70aa51d1af378022e3e5d2b0991b373b))
+* **l3io-pm:** read .gitignore the way git does, read before writing, and stay in the state root ([54a0e26](https://github.com/ravensorb/bmad-extensions/commit/54a0e26af0f671b73408edd2475cddd1870e5f2c))
+* **l3io-pm:** refuse a story node that is not a mapping or not valid UTF-8 ([f3c0005](https://github.com/ravensorb/bmad-extensions/commit/f3c00054d9e8f622cced09f7ca94833ede696cf8))
+* **l3io-pm:** refuse an ADR link into a non-architecture spec (ADR-0004) ([765701c](https://github.com/ravensorb/bmad-extensions/commit/765701c734f1701152a014c9bbf09784f7af332c))
+* **l3io-pm:** refuse an unreadable story node instead of a traceback ([abf2ee2](https://github.com/ravensorb/bmad-extensions/commit/abf2ee2695960903b980e110af2af2a26a3a5078))
+* **l3io-pm:** refuse cross-epic resume and treat archived undone claims as dead ([f704eb3](https://github.com/ravensorb/bmad-extensions/commit/f704eb3663b88719791444c98ba987c7595d8c1a))
+* **l3io-pm:** refuse set-field on a parent path of a derived field ([33af4cd](https://github.com/ravensorb/bmad-extensions/commit/33af4cdf5c81f00528a66479ae6ad9fd66a9e018))
+* **l3io-pm:** refuse set-field writes to any sub-path of a derived field ([31fbd66](https://github.com/ravensorb/bmad-extensions/commit/31fbd668ee6ace7b7d2d8196369db9b4ca0dde06))
+* **l3io-pm:** report next: aliases as 1e and bound reseed to the key space ([6053365](https://github.com/ravensorb/bmad-extensions/commit/6053365cde2f09e937383c357cf33548cbbacd13))
+* **l3io-pm:** require a real ADR link and roll back pointer rewrites on a failed commit ([50ed875](https://github.com/ravensorb/bmad-extensions/commit/50ed875aecae8f11cd674e5be6dd6ea4041de3d6))
+* **l3io-pm:** roll back chained pointer renames in reverse and tighten the ADR link check ([6e036da](https://github.com/ravensorb/bmad-extensions/commit/6e036daeaa17acbf8f72d0f1c84c26e47c31190f))
+* **l3io-pm:** share check-lock's verdict with promote, and tighten issue-verb outputs ([8daaf32](https://github.com/ravensorb/bmad-extensions/commit/8daaf32f41560545ef06e3b0ec6c08b0ca0a6132))
+* **l3io-pm:** stage the spec index only when it exists ([7a62f31](https://github.com/ravensorb/bmad-extensions/commit/7a62f31e4dc5f83b7f25e40bc2116bad57961472))
+* **l3io-pm:** story-doc-init creates atomically and never clobbers ([dd19365](https://github.com/ravensorb/bmad-extensions/commit/dd1936583a019e07a625822206a7250016c76236))
+* **l3io-pm:** update-issue refuses a resolved key even with a stale open copy ([7619f71](https://github.com/ravensorb/bmad-extensions/commit/7619f71684a2259f95689948b9d00ade0405303e))
+* **l3io-pm:** use ruamel.yaml in test_calibration_show_warns_on_mixed_models ([ec8c3f1](https://github.com/ravensorb/bmad-extensions/commit/ec8c3f10232ffeb36ba04c81a0d8db10b1630eed))
+* **l3io-util:** audit-backlog matches code-marker paths containing spaces ([0b461bb](https://github.com/ravensorb/bmad-extensions/commit/0b461bb4220df5dc0c54db596f26911da470686d))
+* **l3io-util:** check every path the migration writes and report touched paths on a failed commit ([e5c21c9](https://github.com/ravensorb/bmad-extensions/commit/e5c21c9605ebf450679dcd29b6fe969bba61f162))
+* **l3io-util:** doctor housekeeping fixes -- mass-missing guard, Check 13 gating, SKILL.md orphan ([ef64603](https://github.com/ravensorb/bmad-extensions/commit/ef64603cd3bf02092ce6fe2a1b5f59ef245dd6de))
+* **l3io-util:** key health Check 17 on the ADR homes, not the spec index ([1ad7584](https://github.com/ravensorb/bmad-extensions/commit/1ad758478b6781cd9bd8b924a555b8d762112957))
+* **l3io-util:** refuse a dirty migration, report uncommitted rewrites, cover collisions ([9264e0f](https://github.com/ravensorb/bmad-extensions/commit/9264e0f7c5374b935e6f678957ee54716560d84e))
+
+
+### Refactoring
+
+* **l3io-pm:** drop allocator helpers superseded by IssueStore ([dbf98f8](https://github.com/ravensorb/bmad-extensions/commit/dbf98f863b0c754cb03b8b155a300edb1c2b9043))
+* **l3io-pm:** non-exiting estimate cores behind the estimate CLI ([0305ee9](https://github.com/ravensorb/bmad-extensions/commit/0305ee938d85dcc10005717f983c5ff563486ddc))
+
+
+### Documentation
+
+* add issue lifecycle and backlog intake design spec ([c2b1588](https://github.com/ravensorb/bmad-extensions/commit/c2b1588e3518be60716e75f46f43e890a4645d41))
+* add issue lifecycle implementation plan ([473bace](https://github.com/ravensorb/bmad-extensions/commit/473bace22e0a6350c4028fd7cf853aeaef48b50b))
+* add skills-and-sequence, troubleshooting, glossary and limits ([df966a9](https://github.com/ravensorb/bmad-extensions/commit/df966a9bd8513f5d458e67a5e38981f7aa3f2add))
+* **adr:** ADR-0004 spec edit authority, ADR-0005 one ADR home ([a0d462d](https://github.com/ravensorb/bmad-extensions/commit/a0d462d0c25236e3ce6deffc891dbac3d49f14fd))
+* append post-review amendments to the issue-lifecycle spec ([d53ea2e](https://github.com/ravensorb/bmad-extensions/commit/d53ea2ea36f34e26b2e9af011e3153b743b914ec))
+* approve issue lifecycle spec; accept ADR-0002 and ADR-0003 ([83a3f7e](https://github.com/ravensorb/bmad-extensions/commit/83a3f7ec4e8d0ef3ad01c85471a4eac280193125))
+* complete the PM config table and README's doctor surface ([b048e84](https://github.com/ravensorb/bmad-extensions/commit/b048e84d72eb3f9faf1e6dbd7f4057839420a58a))
+* correct the test-suite paragraph for the third shared suite ([28c75e8](https://github.com/ravensorb/bmad-extensions/commit/28c75e829f4343b744e0327b4e62f6fb98d313f7))
+* describe the backlog lifecycle, both issue files, and check 11 ([d00ad69](https://github.com/ravensorb/bmad-extensions/commit/d00ad69676ae2d7cca3b1aa953ea0fe2764c0806))
+* document spec_alignment/spec_paths and arch-review's ADR numbering ([3b2c65e](https://github.com/ravensorb/bmad-extensions/commit/3b2c65e6e974c3697e5736fc6a4e0e76c394f211))
+* document the triage spec pass and backlog item kinds ([f596b58](https://github.com/ravensorb/bmad-extensions/commit/f596b58f958c3531708815a209bf39e2d1aaa7cf))
+* give contributors the repo's invariants, and warn that split-status is not enough ([974ed5e](https://github.com/ravensorb/bmad-extensions/commit/974ed5eaf0e15bb661c3c4f36122fe202ff0fc8e))
+* **l3io-pm:** audit-issues covers 1a-1k in the reference tables ([998d02d](https://github.com/ravensorb/bmad-extensions/commit/998d02d9a8adc15dcf5fd5e593c217a5616e40ec))
+* **l3io-pm:** audit-issues docstrings state the Ruling 9 lock rule ([266f00f](https://github.com/ravensorb/bmad-extensions/commit/266f00f4431d72c7cf432f941ca2e043c38bbbc8))
+* **l3io-pm:** close final-review doc findings I1-I3, 5a, M2-M4, M9 ([8866608](https://github.com/ravensorb/bmad-extensions/commit/88666085a225a7cd78f61723110124acb5a72561))
+* **l3io-pm:** correct audit-scope and recovery wording after the fix-wave re-review ([f7488bb](https://github.com/ravensorb/bmad-extensions/commit/f7488bb5eea6b56537e72d650e290ce43f602058))
+* **l3io-pm:** describe the final-review fixes — dead claims, 1j gate, lock span, outputs ([4c0c43c](https://github.com/ravensorb/bmad-extensions/commit/4c0c43c832380a9828d04f253fae4157a925eefa))
+* **l3io-pm:** document intake's exit-1 path and batches A/D1's user-visible changes ([bf3b705](https://github.com/ravensorb/bmad-extensions/commit/bf3b70537eff84aec3527b7bf668fc8f4fd9f957))
+* **l3io-pm:** document spec alignment, spec-align.py and the one ADR home ([8f9b11b](https://github.com/ravensorb/bmad-extensions/commit/8f9b11b7d29649e1a3be44e049741e8162f9f10b))
+* **l3io-pm:** document the Help and Sync skills and the severity vocabularies ([121108b](https://github.com/ravensorb/bmad-extensions/commit/121108bd8b5cd327faa39a440aac60ee96d8c739))
+* **l3io-pm:** note set-actual --cost's refusal-before-lock ordering (batch D1 fix round 1) ([9539767](https://github.com/ravensorb/bmad-extensions/commit/9539767248b356a8eaf5e37a8c328eb0b96b0b6d))
+* **l3io-pm:** scope _ensure_lock_ignore's docstring to state roots ([40cdb45](https://github.com/ravensorb/bmad-extensions/commit/40cdb45de3a34654391929544605449f4c7e5ceb))
+* **l3io-pm:** spec-alignment design — spec index, provenance, drift sync, one ADR home ([c2dd5e0](https://github.com/ravensorb/bmad-extensions/commit/c2dd5e0c9682cfa5bc95bc564b05f2193ff59baf))
+* **l3io-pm:** spec-alignment implementation plan (20 tasks) ([5ab9f86](https://github.com/ravensorb/bmad-extensions/commit/5ab9f8669149af2eabd50ada84cb5ce7e30c7bf3))
+* **l3io-pm:** state that a bare --file outside a state root skips the lock ignore ([c526040](https://github.com/ravensorb/bmad-extensions/commit/c526040459d5e9f6a149de21f8c86ddab52690d6))
+* **l3io-pm:** state the resolved-match severity rule unambiguously ([6b83663](https://github.com/ravensorb/bmad-extensions/commit/6b83663902af8c3e31e3ec76afad77a4b4c2333a))
+* **l3io-pm:** the first lock inside the state root writes the ignore rule ([0f818bd](https://github.com/ravensorb/bmad-extensions/commit/0f818bdfee151b27f820614ca78cbe9562400c83))
+* **l3io-pm:** the per-epic arch dir holds the gate review, not ADRs ([a5a9432](https://github.com/ravensorb/bmad-extensions/commit/a5a9432c8741aa4652fedcc900c509f113630e48))
+* **l3io-pm:** untrack committed lock files at the checkpoint and in doctor ([ed6d4a8](https://github.com/ravensorb/bmad-extensions/commit/ed6d4a8ce4d1804dc48c46a3a6695946bc073f6c))
+* **l3io-util:** file migrate-adrs as a one-time migration in both lists ([bfe7fe9](https://github.com/ravensorb/bmad-extensions/commit/bfe7fe915aec685abcb8be199695ff93a1b9240f))
+* **l3io-util:** say what health-check scans may write, and close Check 14's gaps ([a28a5d2](https://github.com/ravensorb/bmad-extensions/commit/a28a5d2e04f6092de0df666bab112cda76edb60b))
+* lead with why, route by audience, and correct the front door ([684ebc7](https://github.com/ravensorb/bmad-extensions/commit/684ebc7ff59169da14ff7dcb07f78241695afa0a))
+* revise issue lifecycle spec after arch and edge-case reviews ([2e945eb](https://github.com/ravensorb/bmad-extensions/commit/2e945ebf66759e95dac8fc2003f8df1d25a188c3))
+* state append-issue's dedupe rule unambiguously ([fb70832](https://github.com/ravensorb/bmad-extensions/commit/fb7083206262e17f5a9b51aaded7a793442704fe))
+
+
+### Maintenance
+
+* apply the MIT licence and declare it in package.json ([0f2d931](https://github.com/ravensorb/bmad-extensions/commit/0f2d93163492ecdfa6ba3a6a158c7ae84ea1b80f))
+* merge origin/main into local history ([2f4b793](https://github.com/ravensorb/bmad-extensions/commit/2f4b793a84a76d0710ffa142ae2f299dd8f980f1))
+
+
+### Testing
+
+* **infra:** exact guard restore, root-safe read-only test, scoped class docstring ([2b2144b](https://github.com/ravensorb/bmad-extensions/commit/2b2144bea94a162a53bfc2ebd9388dee147301f9))
+* **infra:** extend the temp-dir guard to child processes; run step-04's git add in 7b ([0671f9f](https://github.com/ravensorb/bmad-extensions/commit/0671f9f614aa634099113c5a52b972d4c4b78e16))
+* **infra:** stop the Python suites leaking temp dirs, and fail the run on a leak ([0d5a9df](https://github.com/ravensorb/bmad-extensions/commit/0d5a9df411a015f7fb9e4fddd90dd7c948fbd96d))
+* **l3io-pm:** close issue-lifecycle coverage gaps; deterministic lock-scope tests ([6274add](https://github.com/ravensorb/bmad-extensions/commit/6274add490a92480c4ee115f50f8032a05d57e45))
+* **l3io-pm:** cover the spec-issue duplicate retry and the bad-epic refusal ([21399d8](https://github.com/ravensorb/bmad-extensions/commit/21399d884ceef3e3d8aed8e60866f52b2a0f68e5))
+* **l3io-pm:** prove promote writes a story node and its estimate in one save ([2ecda7f](https://github.com/ravensorb/bmad-extensions/commit/2ecda7f2166e4f9dc14cbdbc2f4c20c76877c3ee))
+* **l3io-pm:** silence the suites' stderr noise at its sources ([bb2cb1b](https://github.com/ravensorb/bmad-extensions/commit/bb2cb1b4c8e3e759f687cad31b00f0b8c68a6702))
+
+
+### CI/CD
+
+* check 11 finds append-issue invocations without tracking fences ([55cd0fe](https://github.com/ravensorb/bmad-extensions/commit/55cd0fea4f46574aef14153939618350bfd018a8))
+* check 11 joins continued lines before matching invocations ([f9c2afd](https://github.com/ravensorb/bmad-extensions/commit/f9c2afda5d7f0c36520c4d4fed880b56aa425c39))
+* check 11 requires a pointer on every backlog producer; node:test; Node 24 ([b741a9a](https://github.com/ravensorb/bmad-extensions/commit/b741a9a54f5f239edab48ec04198d0c53252cfbc))
+* check:docs check 12 enforces ADR-0001's pm-status.py size limit ([91e4b03](https://github.com/ravensorb/bmad-extensions/commit/91e4b03de4d35e55305f70e0956cdf3965a01df9))
+
 ## [2.4.13](https://github.com/ravensorb/bmad-extensions/compare/2.4.12...2.4.13) (2026-09-01)
 
 
