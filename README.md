@@ -93,8 +93,29 @@ custom modules and nothing else, so without it you get the four `l3io` modules a
 BMad skills they dispatch to — `bmad-code-review`, `bmad-retrospective`,
 `bmad-qa-generate-e2e-tests` and `bmad-sprint-planning` live in the official `bmm` module, not
 in `core`. The failure shows up late: planning works, then the first phase
-that dispatches one of them has nothing to invoke. Add other official modules to the same flag
-if you use them (`--modules bmm,tea`).
+that dispatches one of them has nothing to invoke.
+
+Add any other official modules to the same comma-separated flag (`--modules bmm,tea`). The full
+set BMad offers:
+
+| `--modules` code | Module | What it adds |
+|---|---|---|
+| *(implicit)* | **BMad Core Module** | Shared utilities across modules. Always installed — never passed in `--modules`. |
+| `bmm` | **BMad Method** | Agile AI-driven development. **Required by this package** — every BMad skill the `l3io` modules dispatch to lives here. |
+| `bmb` | **BMad Builder** | Skill, workflow, and agent builder |
+| `cis` | **BMad Creative Intelligence Suite** | Creative thinking partners |
+| `tea` | **BMad Test Architect** | Enterprise testing add-on for `bmm` |
+| `gds` | **BMad Game Dev Studio** | Ideate, design, and build games |
+| `bmad-loop` | **BMad Loop** | Builds, verifies, and retros a whole epic unattended. One post-install step: run the `bmad-loop-setup` skill, or its automation stays dormant. |
+
+Two further modules are registered but **deprecated**, so the installer hides them unless they
+are already installed: `automator` (replaced by `bmad-loop`) and `wds` — Whiteport Design Studio,
+whose capabilities are folding into `bmm`; existing installs are kept as they are.
+
+Module names and descriptions above are BMad's own, read from `bmad-modules.yaml` in
+`bmad-method@6.12.0`. That registry belongs to BMad, not to this package, so **no check in this
+repo verifies this table** — it can go stale when BMad adds or retires a module. For the live
+set, run `npx bmad-method install` and read the module picker.
 
 BMad ≥6.12.0 installs skills to `.claude/skills/<name>/SKILL.md`; older installs used
 `.claude/commands/<name>.md`. No `--shims` flag is needed for either — this package resolves

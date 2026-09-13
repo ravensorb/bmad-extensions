@@ -39,7 +39,9 @@ a `BLOCKED:` message, see [Troubleshooting](troubleshooting.md); unfamiliar term
 
 - **An agent IDE** — Claude Code or GitHub Copilot. Both are supported; pick one or both with
   the `--tools` flag at [Install](#install).
-- **BMad** installed in the target repo (`npx bmad-method install` or equivalent)
+- **BMad** installed in the target repo (`npx bmad-method install` or equivalent), including the
+  `bmm` module. For every official module BMad offers — which are optional, and which is
+  required here — see the module table in the [README](../README.md).
 - **[uv](https://docs.astral.sh/uv/)** on your `PATH`. The Python helpers (`pm-status.py`,
   `spec-align.py`) are invoked as `uv run`, which provisions their dependencies from an inline
   PEP 723 header — there is nothing else to install, but without `uv` the first status write
