@@ -2,6 +2,18 @@
 
 All notable changes to this project will be documented in this file. See [commit-and-tag-version](https://github.com/absolute-version/commit-and-tag-version) for commit guidelines.
 
+## [2.5.2](https://github.com/ravensorb/bmad-extensions/compare/2.5.1...2.5.2) (2026-09-17)
+
+
+### Fixes
+
+* **l3io-pm,l3io-util,l3io-arch:** always invoke pm-status.py via uv run ([2b50f47](https://github.com/ravensorb/bmad-extensions/commit/2b50f475f85b38ffad1023cbffb5034401b1888d))
+
+
+### Documentation
+
+* list every official BMad module next to the --modules flag ([8a2c774](https://github.com/ravensorb/bmad-extensions/commit/8a2c774490de3dd70ef641480c71772d45ecdceb))
+
 ## [2.5.1](https://github.com/ravensorb/bmad-extensions/compare/2.5.0...2.5.1) (2026-09-12)
 
 
