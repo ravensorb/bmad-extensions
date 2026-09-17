@@ -21,8 +21,9 @@ deterministic operation:
   * `verify` is a hard read-back gate the orchestrator can branch on (exit code).
 
 BMad standardizes on `uv run`; the PEP-723 header above lets `uv` provision
-ruamel.yaml automatically. A plain `python3 pm-status.py ...` also works wherever
-ruamel.yaml is already importable.
+ruamel.yaml automatically. Always invoke via `uv run pm-status.py ...` — running
+under `python3` directly bypasses the provisioning and fails with
+ModuleNotFoundError anywhere ruamel.yaml is not already installed globally.
 
 Subcommands
 -----------

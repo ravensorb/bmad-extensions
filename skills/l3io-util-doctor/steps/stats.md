@@ -30,7 +30,7 @@ Do not walk the tree by hand. `pm-status.py` is the only component that resolves
 a path, and a second walk here would drift from it the next time the layout changes. Run:
 
 ```bash
-python3 {project-root}/_bmad/scripts/pm-status.py report \
+uv run {project-root}/_bmad/scripts/pm-status.py report \
   --state-root {pm_state_root} \
   --plan {planning_artifacts}/plan-output-meta.yaml \
   --format json
@@ -87,7 +87,7 @@ Print the hierarchy first. Re-run `report` in `tree` form rather than re-renderi
 hand — hand-rendering it would drift from the tool's own view:
 
 ```bash
-python3 {project-root}/_bmad/scripts/pm-status.py report \
+uv run {project-root}/_bmad/scripts/pm-status.py report \
   --state-root {pm_state_root} \
   --plan {planning_artifacts}/plan-output-meta.yaml \
   --format tree

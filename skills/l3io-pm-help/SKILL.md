@@ -63,7 +63,7 @@ comparison target from `module.yaml` means there is no hardcoded minimum version
 of date as this skill is released forward:
 
 ```bash
-INSTALLED=$(python3 {project-root}/_bmad/scripts/pm-status.py --version 2>/dev/null | awk '{print $2}')
+INSTALLED=$(uv run {project-root}/_bmad/scripts/pm-status.py --version 2>/dev/null | awk '{print $2}')
 EXPECTED=$(grep -m1 '^module_version:' {skill-root}/module.yaml | awk '{print $2}')
 echo "installed=${INSTALLED:-none} expected=$EXPECTED"
 ```
