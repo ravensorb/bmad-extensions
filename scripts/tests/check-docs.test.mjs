@@ -612,6 +612,37 @@ test("check 17: replaced_by must match as a token, not a substring", (t) => {
   assert.match(r.stderr, /dispatches removed skill 'bmad-ux-review'/);
 });
 
+const INVENTORY = path.join("skills", "l3io-util-doctor", "assets", "bmad-dependencies.json");
+
+function setStatus(root, name, patch) {
+  const p = path.join(root, INVENTORY);
+  const inv = JSON.parse(fs.readFileSync(p, "utf8"));
+  const e = inv.skills.find((x) => x.name === name);
+  assert.ok(e, `${name} must exist in the inventory fixture`);
+  Object.assign(e, patch);
+  fs.writeFileSync(p, JSON.stringify(inv, null, 2));
+  return p;
+}
+
+test("check 17 accepts a deprecated entry carrying deprecated_in and replaced_by", (t) => {
+  const root = fixture(t);
+  setStatus(root, "bmad-create-story",
+    { status: "deprecated", deprecated_in: "6.12.0", replaced_by: "bmad-build",
+      removed_in: undefined });
+  const r = run(root);
+  assert.equal(r.status, 0, r.stderr);
+});
+
+test("check 17 rejects a deprecated entry missing deprecated_in", (t) => {
+  const root = fixture(t);
+  setStatus(root, "bmad-create-story",
+    { status: "deprecated", replaced_by: "bmad-build", deprecated_in: undefined,
+      removed_in: undefined });
+  const r = run(root);
+  assert.equal(r.status, 1);
+  assert.match(r.stderr, /is deprecated but lacks replaced_by\/deprecated_in/);
+});
+
 // ---- check 18 (pep723-invocation) ----
 
 test("check 18: a PEP-723 helper invoked with python3 is caught", (t) => {

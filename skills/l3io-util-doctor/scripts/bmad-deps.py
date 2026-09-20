@@ -57,7 +57,7 @@ DEFAULT_INVENTORY = pathlib.Path(__file__).resolve().parent.parent / "assets" / 
 
 # The only statuses this script knows how to act on. Anything else is a broken inventory, not
 # a skill to be treated leniently -- see check_inventory().
-STATUSES = ("required", "optional", "removed", "not-a-skill")
+STATUSES = ("required", "optional", "deprecated", "removed", "not-a-skill")
 
 
 def resolve(name: str, project_root: str) -> str | None:

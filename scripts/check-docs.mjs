@@ -1170,7 +1170,7 @@ function checkModuleYamlAgreement() {
 // ---------------------------------------------------------------------------
 const DEP_INVENTORY = "skills/l3io-util-doctor/assets/bmad-dependencies.json";
 const BMAD_TOKEN_RE = /(?<![\w-])bmad-[a-z0-9-]+/g;
-const DEP_STATUSES = ["required", "optional", "removed", "not-a-skill"];
+const DEP_STATUSES = ["required", "optional", "deprecated", "removed", "not-a-skill"];
 
 function checkBmadDependencyInventory() {
   if (!exists(DEP_INVENTORY)) {
@@ -1193,6 +1193,8 @@ function checkBmadDependencyInventory() {
       failures.push(`${DEP_INVENTORY}: '${e.name}' has unknown status '${e.status}'`);
     } else if ((e.status === "required" || e.status === "optional") && !e.module) {
       failures.push(`${DEP_INVENTORY}: '${e.name}' is ${e.status} but names no module`);
+    } else if (e.status === "deprecated" && !(e.replaced_by && e.deprecated_in)) {
+      failures.push(`${DEP_INVENTORY}: '${e.name}' is deprecated but lacks replaced_by/deprecated_in`);
     } else if (e.status === "removed" && !(e.replaced_by && e.removed_in)) {
       failures.push(`${DEP_INVENTORY}: '${e.name}' is removed but lacks replaced_by/removed_in`);
     } else if (e.status === "not-a-skill" && !e.reason) {
