@@ -442,10 +442,10 @@ test("check 17: an undeclared bmad-* token is caught", (t) => {
 test("check 17: a step file dispatching a removed skill fails", (t) => {
   const root = fixture(t);
   write(root, "skills/l3io-pm-execute/steps/x.md",
-        "Spawn `bmad-dev-story` subagent with the story path.\n");
+        "Spawn `bmad-architect` subagent with the story path.\n");
   const r = run(root);
   assert.equal(r.status, 1, r.stdout);
-  assert.match(r.stderr, /dispatches removed skill 'bmad-dev-story'/);
+  assert.match(r.stderr, /dispatches removed skill 'bmad-architect'/);
 });
 
 test("check 17: a module.yaml naming an undeclared skill is caught", (t) => {
@@ -495,11 +495,11 @@ test("check 17: the real tree passes", (t) => {
 test("check 17: a removed skill named beside its replacement is allowed", (t) => {
   const root = fixture(t);
   write(root, "skills/l3io-pm-execute/steps/x-mapped.md",
-        "Migrated: `bmad-review-adversarial-general` is now `bmad-review`.\n");
+        "Migrated: `bmad-architect` is now `bmad-architecture`.\n");
   const r = run(root, ["-v"]);
   assert.equal(r.status, 0, r.stderr + r.stdout);
   assert.match(r.stdout,
-               /x-mapped\.md:1: names removed skill 'bmad-review-adversarial-general' as history/);
+               /x-mapped\.md:1: names removed skill 'bmad-architect' as history/);
 });
 
 test("check 17: a removed skill on a line saying legacy is allowed", (t) => {
@@ -520,7 +520,7 @@ test("check 17: a removed skill on a line saying legacy is allowed", (t) => {
 test("check 17: 'removed' is not an evidence arm, so it never excuses a dispatch", (t) => {
   const root = fixture(t);
   write(root, "skills/l3io-pm-execute/steps/x-window.md",
-        "This skill was removed upstream.\n\n\n\nSpawn `bmad-dev-story` subagent.\n");
+        "This skill was removed upstream.\n\n\n\nSpawn `bmad-architect` subagent.\n");
   const r = run(root);
   assert.equal(r.status, 1, "check 1's ±4-line window would have allowed this; check 17 must not");
   assert.match(r.stderr, /dispatches removed skill/);
@@ -535,10 +535,10 @@ test("check 17: 'removed' is not an evidence arm, so it never excuses a dispatch
 test("check 17: the word `legacy` four lines away does NOT excuse a dispatch", (t) => {
   const root = fixture(t);
   write(root, "skills/l3io-pm-execute/steps/x-window-legacy.md",
-        "The bmad-dev-story skill is legacy.\n\n\n\nSpawn `bmad-dev-story` subagent.\n");
+        "The bmad-architect skill is legacy.\n\n\n\nSpawn `bmad-architect` subagent.\n");
   const r = run(root);
   assert.equal(r.status, 1, "evidence must be on the dispatch line; a whole-file test would pass this");
-  assert.match(r.stderr, /x-window-legacy\.md:5: dispatches removed skill 'bmad-dev-story'/);
+  assert.match(r.stderr, /x-window-legacy\.md:5: dispatches removed skill 'bmad-architect'/);
 });
 
 test("check 17: a leading underscore yields no token (_bmad-output, _bmad-frobnicate)", (t) => {
@@ -584,7 +584,7 @@ test("check 17: a fallback naming an undeclared skill is caught", (t) => {
 test("check 17: an existence probe naming a removed skill is allowed", (t) => {
   const root = fixture(t);
   write(root, "skills/l3io-pm-execute/steps/x-probe.md",
-        "```bash\nls {project-root}/.claude/skills/bmad-dev-story/SKILL.md 2>/dev/null\n```\n");
+        "```bash\nls {project-root}/.claude/skills/bmad-architect/SKILL.md 2>/dev/null\n```\n");
   const r = run(root);
   assert.equal(r.status, 0, "a probe line cannot dispatch anything; it must pass");
 });
@@ -595,10 +595,10 @@ test("check 17: an existence probe naming a removed skill is allowed", (t) => {
 test("check 17: a word ending in 'ls' does not make a dispatch line a probe", (t) => {
   const root = fixture(t);
   write(root, "skills/l3io-pm-execute/steps/x-tools.md",
-        "Check the tools installed under `.claude/skills/` before spawning `bmad-dev-story`.\n");
+        "Check the tools installed under `.claude/skills/` before spawning `bmad-architect`.\n");
   const r = run(root);
   assert.equal(r.status, 1, "'tools ' plus '.claude/' is not an `ls` probe");
-  assert.match(r.stderr, /dispatches removed skill 'bmad-dev-story'/);
+  assert.match(r.stderr, /dispatches removed skill 'bmad-architect'/);
 });
 
 // Case 16 — the token-boundary hole. bmad-ux-review's replaced_by is bmad-ux, which is a

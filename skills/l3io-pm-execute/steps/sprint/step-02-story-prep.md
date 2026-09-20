@@ -95,7 +95,10 @@ sprint goes from five cold reads to one. If `{thin_story_keys}` exceeds 8, split
 of at most 8 — past that a single agent's attention per story starts to thin, which is the
 thing being bought here.
 
-**Resolve the enricher.** Same shape as the dev loop's implementer.
+**Resolve the enricher.** Same shape as the dev loop's implementer: BMad 6.12.0 still **ships**
+`bmad-create-story`, deprecated to a shim with its full body retained — it is frozen, not gone.
+Where it is installed it is still what runs; where it is absent the prompt below is the whole
+instruction anyway.
 
 ```bash
 ls {project-root}/.claude/skills/bmad-create-story/SKILL.md 2>/dev/null \

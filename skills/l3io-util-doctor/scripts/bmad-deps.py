@@ -41,7 +41,15 @@ and the run proceeds, reporting `BMad None`.
                     or the fallback when the preferred one was absent
   missing_required  required entries resolving nowhere; non-empty is what makes the exit 3
   optional_absent   optional entries resolving nowhere -- a warning, the exit stays 0
-  shims_in_use      [{name, path, replaced_by}] -- removed entries still present on disk
+  shims_in_use      [{name, path, replaced_by}] -- removed OR deprecated entries still present
+                    on disk. A deprecated entry that resolves belongs here, not in `resolved`:
+                    the field's own contract is "still present on disk", and a deprecated-but-
+                    shipping skill fits that more precisely than a removed one does -- a removed
+                    skill on disk is a leftover, a deprecated one is genuinely a shim in use.
+  deprecated_absent [{name, replaced_by}] -- deprecated entries resolving nowhere. Reported
+                    separately from `optional_absent` on purpose: a deprecated entry is not
+                    optional, so "absent (optional -- its phase self-skips)" would be false for
+                    it. This bucket is informational only and never affects the exit code.
 """
 from __future__ import annotations
 
@@ -160,17 +168,25 @@ def verify(args: argparse.Namespace) -> int:
         return 4
     version, shims, modules = man
 
-    resolved, missing, shims_in_use, warnings = [], [], [], []
+    resolved, missing, shims_in_use, warnings, deprecated_absent = [], [], [], [], []
     for e in inv["skills"]:  # a non-empty list of dicts; validated by check_inventory
         status = e.get("status")
         name = e.get("name")
         if status == "not-a-skill":
             continue
-        if status == "removed":
+        if status in ("removed", "deprecated"):
+            # Both statuses mean "still on disk, frozen, not to be treated as required or
+            # optional" -- they differ only in whether BMad itself still ships the file. A
+            # deprecated entry must not fall through to the required/optional branch below:
+            # that would file a non-resolving deprecated skill as "optional -- self-skips",
+            # which is false, and a resolving one as ordinary `resolved`, which buries the
+            # exact signal `shims_in_use` exists to surface.
             hit = resolve(name, args.project_root)
             if hit:
                 shims_in_use.append({"name": name, "path": hit,
                                      "replaced_by": e.get("replaced_by")})
+            elif status == "deprecated":
+                deprecated_absent.append({"name": name, "replaced_by": e.get("replaced_by")})
             continue
         hit, used = resolve(name, args.project_root), name
         if hit is None and e.get("fallback"):
@@ -184,7 +200,8 @@ def verify(args: argparse.Namespace) -> int:
         print(json.dumps({"bmad_version": version, "shims_installed": shims,
                           "modules": modules, "resolved": resolved,
                           "missing_required": missing, "optional_absent": warnings,
-                          "shims_in_use": shims_in_use}, indent=2))
+                          "shims_in_use": shims_in_use,
+                          "deprecated_absent": deprecated_absent}, indent=2))
     else:
         print(f"BMad {version} — modules: {', '.join(str(m) for m in modules)}")
         for r in resolved:
@@ -194,6 +211,9 @@ def verify(args: argparse.Namespace) -> int:
             print(f"  absent   {n} (optional — its phase self-skips)")
         for s in shims_in_use:
             print(f"  shim     {s['name']} is a deprecated shim; {s['replaced_by']} replaces it")
+        for d in deprecated_absent:
+            print(f"  gone     {d['name']} is deprecated and not installed here; "
+                  f"{d['replaced_by']} is its replacement")
         for n in missing:
             print(f"  MISSING  {n} (required)")
         if missing:

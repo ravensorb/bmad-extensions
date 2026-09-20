@@ -70,8 +70,10 @@ overwrite-on-duplicate-identity behavior is intentional in `pm-status.py` (a ret
 agent on the same node reuses the identity on purpose) — the burden it places on this step is
 simply: never skip the close.
 
-**Resolve the implementer.** The legacy `bmad-dev-story` skill is gone from BMad ≥6.12.0; where it is installed
-it is still what runs, and where it is absent the prompt below is the whole instruction anyway.
+**Resolve the implementer.** BMad 6.12.0 still **ships** `bmad-dev-story`, deprecated to a shim
+(`metadata: lifecycle: shim`) with its full body retained — it is frozen, not gone. Where it is
+installed it is still what runs; where it is absent the prompt below is the whole instruction
+anyway. Phase 3 replaces this probe with a `bmad-build` overlay.
 
 ```bash
 ls {project-root}/.claude/skills/bmad-dev-story/SKILL.md 2>/dev/null \

@@ -293,7 +293,8 @@ class TestJson(Base):
         self.assertEqual(code, 0, self.err)
         data = json.loads(out)
         self.assertEqual(set(data), {"bmad_version", "shims_installed", "modules", "resolved",
-                                     "missing_required", "optional_absent", "shims_in_use"})
+                                     "missing_required", "optional_absent", "shims_in_use",
+                                     "deprecated_absent"})
         self.assertEqual(data["bmad_version"], "6.12.0")
         self.assertEqual(data["modules"], ["core", "bmm"])
         self.assertEqual([r["name"] for r in data["resolved"]], ["a-one"])
@@ -379,6 +380,67 @@ class TestShims(Base):
         self.assertIn("shim     a-old", out)
         self.assertIn("a-one replaces it", out)
         self.assertNotIn("MISSING", out)
+
+    def test_deprecated_skill_on_disk_is_reported_as_shim_in_use(self):
+        # Ruling (task-2-shims): a deprecated entry that resolves must land in shims_in_use,
+        # exactly like a removed one, not fall through to the required/optional branch and be
+        # reported as ordinary `resolved`.
+        inv = self._inv([{"name": "a-one", "status": "required"},
+                         {"name": "a-shim", "status": "deprecated", "deprecated_in": "6.12.0",
+                          "replaced_by": "a-one"}])
+        root = self._tree(["a-one", "a-shim"])
+        code, out = self.run_cli(["verify", "--project-root", root, "--inventory", inv,
+                                  "--format", "json"])
+        self.assertEqual(code, 0, self.err)
+        data = json.loads(out)
+        self.assertEqual([s["name"] for s in data["shims_in_use"]], ["a-shim"])
+        self.assertEqual(data["shims_in_use"][0]["replaced_by"], "a-one")
+        self.assertEqual(data["deprecated_absent"], [])
+        self.assertNotIn("a-shim", [r["name"] for r in data["resolved"]])
+        # text form too
+        code, out = self.run_cli(["verify", "--project-root", root, "--inventory", inv])
+        self.assertEqual(code, 0, self.err)
+        self.assertIn("shim     a-shim", out)
+        self.assertIn("a-one replaces it", out)
+
+    def test_deprecated_skill_absent_is_not_reported_as_optional(self):
+        # Ruling (task-2-shims), second half: a non-resolving deprecated entry must not be
+        # mislabelled "optional -- its phase self-skips" (false: the skill did not self-skip,
+        # it is simply not installed on this project). It gets its own bucket instead.
+        inv = self._inv([{"name": "a-one", "status": "required"},
+                         {"name": "a-shim", "status": "deprecated", "deprecated_in": "6.12.0",
+                          "replaced_by": "a-one"}])
+        root = self._tree(["a-one"])
+        code, out = self.run_cli(["verify", "--project-root", root, "--inventory", inv,
+                                  "--format", "json"])
+        self.assertEqual(code, 0, self.err)
+        data = json.loads(out)
+        self.assertEqual(data["shims_in_use"], [])
+        self.assertEqual(data["optional_absent"], [])
+        self.assertEqual(data["deprecated_absent"], [{"name": "a-shim", "replaced_by": "a-one"}])
+        code, out = self.run_cli(["verify", "--project-root", root, "--inventory", inv])
+        self.assertEqual(code, 0, self.err)
+        self.assertNotIn("self-skips", out)
+        self.assertIn("gone     a-shim", out)
+
+    def test_reencoded_shim_entries_still_appear_in_shims_in_use(self):
+        # The exact regression the ruling names: bmad-create-story, bmad-dev-story and
+        # bmad-review-adversarial-general were re-encoded from removed to deprecated. If
+        # verify() fell through to the required/optional branch for `deprecated`, this list
+        # would silently become empty while check-deps still exited 0.
+        deprecated_names = [e["name"] for e in self.real_inventory()
+                            if e.get("status") == "deprecated"]
+        self.assertEqual(set(deprecated_names),
+                         {"bmad-create-story", "bmad-dev-story",
+                          "bmad-review-adversarial-general"})
+        # Also install every required skill (by its preferred name) so this case isolates the
+        # shim bucket rather than tripping missing_required for unrelated reasons.
+        root = self._tree(deprecated_names + self.required_preferred())
+        code, out = self.run_cli(["verify", "--project-root", root, "--format", "json"])
+        self.assertEqual(code, 0, self.err)
+        data = json.loads(out)
+        self.assertEqual(set(s["name"] for s in data["shims_in_use"]), set(deprecated_names))
+        self.assertEqual(data["deprecated_absent"], [])
 
 
 if __name__ == "__main__":
