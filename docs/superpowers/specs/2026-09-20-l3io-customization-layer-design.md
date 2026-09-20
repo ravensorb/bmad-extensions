@@ -67,11 +67,20 @@ with parallel review layers, `compile-epic-context.md` and `sync-sprint-status.m
 
 ### 1.4 One artifact tree, two incompatible writers
 
-`modules.l3io-pm.implementation_artifacts` is **absent** (`_bmad/custom/config.toml` is empty),
-so l3io runs on its default `{output_folder}/implementation-artifacts` — which coincides
+`modules.l3io-pm.implementation_artifacts` is **absent**, and that is **by design, not drift**.
+`skills/_shared/module-setup.md` and `references/config-resolution.md` §5 both record it:
+*"None of the l3io modules declare required settings, so a correct install has no section at
+all — treating its absence as a first-run made every invocation detour into setup."* No l3io
+`module.yaml` declares a `variables:` block, so setup runs and correctly writes nothing.
+
+The consequence is still real: l3io falls back to its documented default
+`{output_folder}/implementation-artifacts` (`config-resolution.md:65`), which coincides
 exactly with `modules.bmm.implementation_artifacts`. Two systems write one directory in two
 layouts: `bmad-build` writes flat `sprint-status.yaml`, l3io writes sharded
-`state/{planned,active,archived}/epic-NNN/`. The coincidence is load-bearing and undocumented.
+`state/{planned,active,archived}/epic-NNN/`. The default is documented; what is undocumented is that it **collides with bmm's configured
+value**. The fix is therefore not to declare a config variable — that would give setup
+something to collect and make absence meaningful again, re-creating the detour the recorded
+decision removed — but to **detect the collision** where it does damage.
 
 **Mitigating:** the collision is conditional. `step-03-implement.md:27` gates the write on
 `sprint-status.yaml` already existing, so in a migrated project `bmad-build` self-skips. The
@@ -165,7 +174,7 @@ Applied here, that is a **mixed** answer:
 
 | Module | Skills *after* §4.6 | Shape | Registration |
 |---|---|---|---|
-| `l3io-pm` | 4 (execute, plan, help, sync) | multi-skill + `l3io-pm-setup` | detect-and-prompt |
+| `l3io-pm` | 4 (execute, plan, help, sync) | multi-skill + `l3io-pm-setup` | once-per-session pointer |
 | `l3io-util` | **1** (doctor) | standalone | auto on first run |
 | `l3io-sec` | 1 (redteam) | standalone | auto on first run |
 | `l3io-arch` | 1 (review) | standalone | auto on first run |
@@ -176,12 +185,23 @@ so it qualifies as standalone and needs **no setup skill**. Only `l3io-pm` is mu
 step** — a materially better install experience than the four-setup-skill shape first
 considered, and a direct consequence of doing the reorganization in the same change.
 
-**Detect-and-prompt** is the agreed handling of the multi-skill install experience: operational
-skills keep a config-presence check that, when config is missing, *names the setup skill to
-run* rather than silently auto-registering. This is not an undocumented auto-trigger — it is the
-existing check ending in a pointer. The published docs do not state whether setup skills
-auto-run; only the installed scaffolder reference (`create-module.md:224`) says "run the setup
-skill". The gap is under-documented, not settled, and detect-and-prompt is safe either way.
+**A once-per-session pointer** is the agreed handling of the multi-skill install experience.
+
+A naive config-presence check would be wrong here: `[modules.l3io-pm]` is absent in a *correct*
+install (§1.4), so checking it on every activation would print a pointer on every invocation of
+all four PM skills — exactly the detour `config-resolution.md` §5 removed. The pointer is
+therefore emitted **at most once per session**, keyed on the `{session_id}` the PM skills
+already bind, and it never runs setup.
+
+The mechanism follows the existing `set-lock` / `check-lock` / `clear-lock` trio: a new
+`pm-status.py notice --state-root S --session-id SESS --key setup-pointer` subcommand, flock
+guarded, recording in `state/.notices.yaml` (gitignored, like the lock files). Exit 0 means
+"not yet shown this session — show it and record"; exit 1 means "already shown". State writes
+go through `pm-status.py` and nowhere else, so this stays consistent with the existing contract.
+
+The published docs do not state whether setup skills auto-run; only the installed scaffolder
+reference (`create-module.md:224`) says "run the setup skill". A bounded, silent-by-default
+pointer is safe under either reading.
 
 ### 3.3 Known gap
 
@@ -250,7 +270,10 @@ A 1.5 KB deprecated forwarder since 2.1.0, still consuming skill-listing budget.
    reporting any entry whose declared status contradicts the manifest. The hand-kept list
    becomes an annotation over a derived set.
 5. Extend `check:docs` check 17 to fail when a directive *prefers* a name marked `deprecated`.
-6. Write `[modules.l3io-pm].implementation_artifacts` explicitly at setup.
+6. **Detect the layout collision** rather than configuring around it: `l3io-util-doctor`'s
+   health check reports a project holding both a flat `sprint-status.yaml` and a sharded
+   `state/` tree, and proposes `migrate-state`. No config variable is declared — see §1.4 for
+   why declaring one would reverse a recorded decision.
 
 **Gate:** all four `npm run check:*` pass; `bmad-deps.py verify` reports zero contradictions.
 
@@ -280,8 +303,10 @@ A 1.5 KB deprecated forwarder since 2.1.0, still consuming skill-listing budget.
 3. Add `scripts/merge-help-csv.py` — targets `_bmad/_config/bmad-help.csv`. Same placement rule.
 4. Create **`l3io-pm-setup`** — the only setup skill. `l3io-util-doctor`, `l3io-sec-redteam` and
    `l3io-arch-review` stay standalone and self-registering (§3.2).
-5. The four `l3io-pm` operational skills keep a config-presence check ending in
-   detect-and-prompt (§3.2). The three standalone skills keep today's auto-registration.
+5. The four `l3io-pm` operational skills emit a **once-per-session** pointer to
+   `/l3io-pm-setup` via the new `pm-status.py notice` subcommand (§3.2) — never a
+   per-invocation check. The three standalone skills keep today's auto-registration
+   unchanged.
 6. Narrow the `sync-shared-scripts.mjs` scope: `assets/module-setup.md` and the merge scripts
    currently sync into **all 8** skills, but are now needed in only the **4** module homes
    (`l3io-pm-setup`, `l3io-util-doctor`, `l3io-sec-redteam`, `l3io-arch-review`). This removes
@@ -344,7 +369,8 @@ right. Resolve with the maintainers before Phase 3; Phases 1–2 do not depend o
 1. May a module's setup skill author `_bmad/custom/<skill>.toml`? (§6)
 2. Is bmb's module contract intended for modules integrating with *core* skills, given the
    YAML/TOML split? (§2)
-3. Should `modules.l3io-pm.implementation_artifacts` deliberately equal `modules.bmm`'s, or
-   deliberately differ? Phase 1 makes it explicit; the value is a separate call.
+3. Should l3io and bmm deliberately share one artifact tree, or deliberately separate? Phase 1
+   only makes the collision *detectable*; choosing a value is a separate call, and taking it
+   would mean declaring a config variable, which §1.4 argues against.
 4. Do the lens exports (§4.1) belong in `bmad-review`'s `lenses`, `bmad-build`'s `review_layers`,
    or both? They are different registries with different merge keys.
