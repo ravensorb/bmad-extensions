@@ -320,7 +320,8 @@ A 1.5 KB deprecated forwarder since 2.1.0, still consuming skill-listing budget.
 9. Retire `l3io-util-cleanup` (§4.6); `docs/upgrading.md` records the mapping.
 10. Scaffold the overlay owner (§4.4) — capability shell and contract only; overlay content is
     Phase 3.
-11. Promote the artifact contract to a named reference with an owner (§4.5).
+11. Correct CLAUDE.md's false pointer to the artifact schema (§4.5). The contract already
+    has one home; only the pointer is wrong.
 
 **Gate:** `validate-module.py` returns `status: pass` for all four modules; a clean install in a
 throwaway project registers `l3io-util`, `l3io-sec` and `l3io-arch` with no manual step and
