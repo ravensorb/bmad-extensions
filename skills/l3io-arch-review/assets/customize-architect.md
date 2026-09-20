@@ -18,7 +18,7 @@ instruction block equivalent to the following.
 > using the l3io-arch ADR template. Produce at least a C4 context + one flow diagram (Mermaid
 > preferred). Ensure the docs skeleton covers architectural / developer / operational axes.
 
-## Overlay for the story enricher — legacy `bmad-create-story` (technical acceptance criteria)
+## Overlay for the story enricher — legacy `bmad-create-story` (technical acceptance criteria) <!-- l3io-deprecation-exempt: phase-3 — replaced by a bmad-build overlay; see docs/superpowers/specs/2026-09-20-l3io-customization-layer-design.md §5 Phase 3 -->
 
 > When drafting a story's acceptance criteria, additionally load
 > `l3io-arch-review/references/standards-core.md` (plus the overlay(s) matching the story's

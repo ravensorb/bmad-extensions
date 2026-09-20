@@ -1173,9 +1173,20 @@ const BMAD_TOKEN_RE = /(?<![\w-])bmad-[a-z0-9-]+/g;
 const DEP_STATUSES = ["required", "optional", "deprecated", "removed", "not-a-skill"];
 
 // A line that BINDS a name as the chosen agent, as opposed to merely probing for it.
-// Anchored on the binding verbs the step files actually use, so a probe or a prose
-// mention cannot trip it.
+// Three independent signals, each observed on its own — a line needs only one to count as a
+// preference:
+//   (1) PREFERENCE_RE   — the binding verbs the step files actually use (bind/prefer/spawn/
+//       invoke/dispatch).
+//   (2) BINDING_ASSIGNMENT_RE — a `{placeholder}` = value assignment (`` `{enrich_agent}` = the
+//       legacy `bmad-create-story` ``), which carries no binding verb at all.
+//   (3) HEADING_RE      — a Markdown heading naming the deprecated skill, which scopes an
+//       entire section to it (`## Overlay for the story enricher — legacy `bmad-create-story``).
+// This is NOT exhaustive: a sentence that names a deprecated skill as the thing in use without
+// any verb, assignment, or heading (e.g. a plain declarative "the enricher is `bmad-create-
+// story`" with no `=`) still escapes all three and is not observed by this check.
 const PREFERENCE_RE = /\b(?:bind|prefer(?:red|s)?|spawn|invoke|dispatch)\b/i;
+const BINDING_ASSIGNMENT_RE = /`\{[\w-]+\}`\s*=/;
+const HEADING_RE = /^#{1,6}\s/;
 
 function checkBmadDependencyInventory() {
   if (!exists(DEP_INVENTORY)) {
@@ -1238,7 +1249,9 @@ function checkBmadDependencyInventory() {
           // Named `l3io-deprecation-exempt`, not `bmad-*` — a `bmad-*`-prefixed marker would
           // itself match BMAD_TOKEN_RE below and fail as an undeclared name.
           const exempt = /l3io-deprecation-exempt:\s*phase-3/.test(line);
-          if (!isProbe && !exempt && PREFERENCE_RE.test(line)) {
+          const isPreference = PREFERENCE_RE.test(line) || BINDING_ASSIGNMENT_RE.test(line) ||
+            HEADING_RE.test(line);
+          if (!isProbe && !exempt && isPreference) {
             failures.push(`${rel}:${i + 1}: prefers deprecated skill '${name}' — replaced by ` +
               `'${e.replaced_by}' in ${e.deprecated_in}. Preferring a frozen skill is how this ` +
               `package stopped running its own replacement.\n` +

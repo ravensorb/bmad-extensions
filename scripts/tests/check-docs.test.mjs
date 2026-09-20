@@ -666,6 +666,38 @@ test("check 17 still allows a bare existence probe of a deprecated skill", (t) =
   assert.equal(r.status, 0, r.stderr);
 });
 
+// Scope attack: both tests above phrase the binding with a verb (bind/spawn/...). A binding
+// phrased as a bare `{placeholder}` = assignment carries none of those verbs and would escape
+// PREFERENCE_RE alone — this is exactly how `steps/plan/step-03-story-elaboration.md:66` stayed
+// invisible to fix-round-1's implementation. Planted in a different skill (l3io-pm-plan) than
+// the verb-phrased tests above, so this also proves the check isn't scoped to one skill's files.
+test("check 17 scope attack: an assignment-style binding with no verb is still caught", (t) => {
+  const root = fixture(t);
+  setStatus(root, "bmad-dev-story",
+    { status: "deprecated", deprecated_in: "6.12.0", replaced_by: "bmad-build",
+      removed_in: undefined });
+  write(root, "skills/l3io-pm-plan/steps/assignment-attack.md",
+    "A path printed → `{dev_agent}` = the legacy `bmad-dev-story`. Nothing printed →\n");
+  const r = run(root);
+  assert.equal(r.status, 1, r.stdout);
+  assert.match(r.stderr, /prefers deprecated skill 'bmad-dev-story'/);
+});
+
+// Scope attack: a Markdown heading naming a deprecated skill carries neither a binding verb
+// nor a `=` assignment, but still scopes an entire section to that skill — the real-tree case
+// was `l3io-arch-review/assets/customize-architect.md:21`.
+test("check 17 scope attack: a heading naming a deprecated skill is still caught", (t) => {
+  const root = fixture(t);
+  setStatus(root, "bmad-dev-story",
+    { status: "deprecated", deprecated_in: "6.12.0", replaced_by: "bmad-build",
+      removed_in: undefined });
+  write(root, "skills/l3io-arch-review/assets/heading-attack.md",
+    "## Overlay for the implementer — legacy `bmad-dev-story`\n");
+  const r = run(root);
+  assert.equal(r.status, 1, r.stdout);
+  assert.match(r.stderr, /prefers deprecated skill 'bmad-dev-story'/);
+});
+
 // ---- check 18 (pep723-invocation) ----
 
 test("check 18: a PEP-723 helper invoked with python3 is caught", (t) => {
