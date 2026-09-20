@@ -64,35 +64,39 @@ class TestLayoutCollision(unittest.TestCase):
             Path(d, "state").mkdir()
         r = subprocess.run(["uv", "run", str(SCRIPT), "--artifacts", d],
                             capture_output=True, text=True)
-        return r.returncode, r.stdout
+        return r.returncode, r.stdout, d
 
     def test_both_layouts_is_a_collision(self):
-        code, out = self.detect(flat=True, sharded=True)
+        code, out, d = self.detect(flat=True, sharded=True)
         self.assertEqual(code, 1)
-        self.assertIn("layout-collision", out)
+        # Assert the documented message shape verbatim -- both real paths present, not just
+        # the "layout-collision" label -- so a mutation that drops the paths (leaving the
+        # label intact) is caught rather than surviving on a substring match.
+        expected = f"layout-collision: both {Path(d, 'sprint-status.yaml')} and {Path(d, 'state')}/ exist\n"
+        self.assertEqual(out, expected)
 
     def test_post_migrate_legacy_rename_is_clean(self):
         # The load-bearing case: migrate-state renames the flat file to .legacy. If this
         # still reported a collision, the finding would never clear after the documented fix
         # and would become permanent noise.
-        code, out = self.detect(legacy=True, sharded=True)
+        code, out, _ = self.detect(legacy=True, sharded=True)
         self.assertEqual(code, 0)
-        self.assertNotIn("layout-collision", out)
+        self.assertEqual(out, "")
 
     def test_sharded_only_is_clean(self):
-        code, out = self.detect(sharded=True)
+        code, out, _ = self.detect(sharded=True)
         self.assertEqual(code, 0)
-        self.assertNotIn("layout-collision", out)
+        self.assertEqual(out, "")
 
     def test_flat_only_is_not_a_collision(self):
-        code, out = self.detect(flat=True)
+        code, out, _ = self.detect(flat=True)
         self.assertEqual(code, 0)
-        self.assertNotIn("layout-collision", out)
+        self.assertEqual(out, "")
 
     def test_neither_present_is_clean(self):
-        code, out = self.detect()
+        code, out, _ = self.detect()
         self.assertEqual(code, 0)
-        self.assertNotIn("layout-collision", out)
+        self.assertEqual(out, "")
 
 
 if __name__ == "__main__":
