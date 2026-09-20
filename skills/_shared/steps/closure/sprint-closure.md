@@ -77,8 +77,8 @@ ls {project-root}/.claude/skills/bmad-review/SKILL.md 2>/dev/null \
 A path printed → `{adversarial_reviewer}` = `bmad-review`, invoked as
 `skill:bmad-review lenses=adversarial`, with the clean-release checklist passed as
 `also_consider` (a documented `bmad-review` input). Nothing printed → probe
-the legacy `bmad-review-adversarial-general` the same four ways and invoke it with both scopes exactly as
-before. Neither present → skip the phase and say so in the phase output, so a skipped review is
+the legacy `bmad-review-adversarial-general` the same four ways and invoke it with both scopes exactly as before. <!-- l3io-deprecation-exempt: phase-3 — fallback only when bmad-review is absent; the whole preference-probe is retired in Phase 3, see docs/superpowers/specs/2026-09-20-l3io-customization-layer-design.md §5 Phase 3 -->
+Neither present → skip the phase and say so in the phase output, so a skipped review is
 never mistaken for a passed one.
 
 Invoke `{adversarial_reviewer}` with **the sprint's diff** and the scopes that

@@ -1172,6 +1172,11 @@ const DEP_INVENTORY = "skills/l3io-util-doctor/assets/bmad-dependencies.json";
 const BMAD_TOKEN_RE = /(?<![\w-])bmad-[a-z0-9-]+/g;
 const DEP_STATUSES = ["required", "optional", "deprecated", "removed", "not-a-skill"];
 
+// A line that BINDS a name as the chosen agent, as opposed to merely probing for it.
+// Anchored on the binding verbs the step files actually use, so a probe or a prose
+// mention cannot trip it.
+const PREFERENCE_RE = /\b(?:bind|prefer(?:red|s)?|spawn|invoke|dispatch)\b/i;
+
 function checkBmadDependencyInventory() {
   if (!exists(DEP_INVENTORY)) {
     failures.push(`${DEP_INVENTORY}: missing — it is the one place every bmad-* name is declared`);
@@ -1225,6 +1230,20 @@ function checkBmadDependencyInventory() {
         if (!e) {
           failures.push(`${rel}:${i + 1}: names '${name}', not declared in ${DEP_INVENTORY}\n` +
             `      context: ${lines[i].trim().slice(0, 110)}`);
+          continue;
+        }
+        if (e.status === "deprecated") {
+          const line = lines[i];
+          const isProbe = /(?:^|[^\w-])ls\s+\S*\.claude\//.test(line);
+          // Named `l3io-deprecation-exempt`, not `bmad-*` — a `bmad-*`-prefixed marker would
+          // itself match BMAD_TOKEN_RE below and fail as an undeclared name.
+          const exempt = /l3io-deprecation-exempt:\s*phase-3/.test(line);
+          if (!isProbe && !exempt && PREFERENCE_RE.test(line)) {
+            failures.push(`${rel}:${i + 1}: prefers deprecated skill '${name}' — replaced by ` +
+              `'${e.replaced_by}' in ${e.deprecated_in}. Preferring a frozen skill is how this ` +
+              `package stopped running its own replacement.\n` +
+              `      context: ${line.trim().slice(0, 110)}`);
+          }
           continue;
         }
         if (e.status !== "removed") continue;

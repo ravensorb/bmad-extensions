@@ -82,8 +82,8 @@ ls {project-root}/.claude/skills/bmad-dev-story/SKILL.md 2>/dev/null \
   || ls ~/.claude/commands/bmad-dev-story.md 2>/dev/null
 ```
 
-If a path printed, bind `{dev_agent}` = the legacy `bmad-dev-story` and spawn that skill. If
-nothing printed, bind `{dev_agent}` = `l3io-dev-implement` and spawn a **general subagent** — no skill
+If a path printed, bind `{dev_agent}` = the legacy `bmad-dev-story` and spawn that skill. <!-- l3io-deprecation-exempt: phase-3 — replaced by a bmad-build overlay; see docs/superpowers/specs/2026-09-20-l3io-customization-layer-design.md §5 Phase 3 -->
+If nothing printed, bind `{dev_agent}` = `l3io-dev-implement` and spawn a **general subagent** — no skill
 invocation — with the identical inputs. `{dev_agent}` is the `--agent` label on every dispatch
 bracket in this step, so a working install keeps its existing `usage --agent` history.
 

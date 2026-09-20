@@ -643,6 +643,29 @@ test("check 17 rejects a deprecated entry missing deprecated_in", (t) => {
   assert.match(r.stderr, /is deprecated but lacks replaced_by\/deprecated_in/);
 });
 
+test("check 17 fails when a directive prefers a deprecated skill", (t) => {
+  const root = fixture(t);
+  setStatus(root, "bmad-dev-story",
+    { status: "deprecated", deprecated_in: "6.12.0", replaced_by: "bmad-build",
+      removed_in: undefined });
+  write(root, "skills/l3io-pm-execute/steps/scope-attack.md",
+    "bind `{dev_agent}` = the legacy `bmad-dev-story` and spawn that skill\n");
+  const r = run(root);
+  assert.equal(r.status, 1);
+  assert.match(r.stderr, /prefers deprecated skill 'bmad-dev-story'/);
+});
+
+test("check 17 still allows a bare existence probe of a deprecated skill", (t) => {
+  const root = fixture(t);
+  setStatus(root, "bmad-dev-story",
+    { status: "deprecated", deprecated_in: "6.12.0", replaced_by: "bmad-build",
+      removed_in: undefined });
+  write(root, "skills/l3io-pm-execute/steps/probe-only.md",
+    "ls {project-root}/.claude/skills/bmad-dev-story/SKILL.md 2>/dev/null\n");
+  const r = run(root);
+  assert.equal(r.status, 0, r.stderr);
+});
+
 // ---- check 18 (pep723-invocation) ----
 
 test("check 18: a PEP-723 helper invoked with python3 is caught", (t) => {

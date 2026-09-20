@@ -107,8 +107,8 @@ ls {project-root}/.claude/skills/bmad-create-story/SKILL.md 2>/dev/null \
   || ls ~/.claude/commands/bmad-create-story.md 2>/dev/null
 ```
 
-A path printed → `{enrich_agent}` = the legacy `bmad-create-story`. Nothing printed →
-`{enrich_agent}` = `l3io-story-enrich`, dispatched as a general subagent. The instruction below is unchanged either
+If a path printed, bind `{enrich_agent}` = the legacy `bmad-create-story` and spawn that skill. <!-- l3io-deprecation-exempt: phase-3 — replaced by a bmad-build overlay; see docs/superpowers/specs/2026-09-20-l3io-customization-layer-design.md §5 Phase 3 -->
+If nothing printed, bind `{enrich_agent}` = `l3io-story-enrich` and dispatch it as a general subagent. The instruction below is unchanged either
 way, including the batching rule: **one spawn for the whole sprint, not one per story.**
 
 Bracket the spawn with `dispatch --event open` / `--event close`, same
