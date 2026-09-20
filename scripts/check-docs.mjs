@@ -45,6 +45,9 @@
 //  19. docs-check-count  the numbered checks in this header agree in count with the check
 //                    functions invoked below, and CLAUDE.md / scripts/CLAUDE.md's stated
 //                    check count agrees with both
+//  20. derived-counts  the skill count, module count, and l3io-pm skill count claimed in
+//                    prose match what skills/ actually has, derived from the directory and
+//                    each skill's module.yaml `code:` field — never typed
 //
 // Usage:
 //   node scripts/check-docs.mjs        # report and exit nonzero on any failure (CI)
@@ -1353,6 +1356,88 @@ function checkDocsCheckCount() {
 }
 
 // ---------------------------------------------------------------------------
+// 20. The skill count, module count, and l3io-pm skill count claimed in prose match what
+// skills/ actually has.
+//
+// Modelled on check 15 (doctor-mode-count): derive the counts from the source of truth --
+// the skills/ directory and each skill's own module.yaml -- never type them, and require an
+// unmatched claim sentence to fail rather than silently stop being checked.
+//
+// module.yaml lives at the skill root today and a later task relocates it under assets/;
+// codeOf() reads both locations so this check survives that move instead of counting zero
+// modules afterward.
+//
+// Caught in practice: "seventeen checks" drifted because nothing compared it to anything
+// (check 19 closed that gap); every other hand-written count here -- eight skills, four
+// modules, four l3io-pm skills -- was exposed to the same failure mode and had not yet
+// drifted only because no task had changed the numbers yet.
+// ---------------------------------------------------------------------------
+function derivedCounts() {
+  const dirs = fs.readdirSync(path.join(repoRoot, "skills"), { withFileTypes: true })
+    .filter((e) => e.isDirectory() && e.name.startsWith("l3io-"))
+    .map((e) => e.name);
+  // module.yaml lives at the skill root today and moves to assets/ in a later task -- read
+  // BOTH so this check survives that relocation instead of silently counting zero afterwards.
+  const codeOf = (skill) => {
+    for (const rel of [`skills/${skill}/module.yaml`, `skills/${skill}/assets/module.yaml`]) {
+      if (!exists(rel)) continue;
+      const m = read(rel).match(/^code:\s*(\S+)/m);
+      if (m) return m[1];
+    }
+    return null;
+  };
+  const codes = dirs.map(codeOf).filter(Boolean);
+  return {
+    skills: dirs.length,
+    modules: new Set(codes).size,
+    pmSkills: codes.filter((c) => c === "l3io-pm").length,
+  };
+}
+
+// Claim sentences read from the live docs. `Eight` is capitalised at the start of its
+// sentence, so the number word is matched case-insensitively.
+const COUNT_CLAIMS = [
+  ["docs/skills-and-sequence.md", /([A-Za-z-]+) skills across ([a-z-]+) modules/, ["skills", "modules"]],
+  ["docs/getting-started.md",     /New to the ([a-z-]+) skills\?/,                ["skills"]],
+  ["docs/getting-started.md",     /You can install all ([a-z-]+) modules/,        ["modules"]],
+  ["docs/getting-started.md",     /All ([a-z-]+) modules are installed/,          ["modules"]],
+  ["docs/getting-started.md",     /installs all ([a-z-]+) skills and registers the ([a-z-]+) modules/, ["skills", "modules"]],
+  ["docs/l3io-pm-reference.md",   /([a-z-]+) skills that cover the delivery lifecycle/, ["pmSkills"]],
+  ["docs/l3io-pm-reference.md",   /All ([a-z-]+) modules read the artifact paths/, ["modules"]],
+  ["CLAUDE.md",                   /package with ([a-z-]+) modules:/,              ["modules"]],
+];
+
+const COUNT_FIELD_NOUN = { skills: "skill", modules: "module", pmSkills: "skill" };
+
+function checkDerivedCounts() {
+  const counts = derivedCounts();
+  let checked = 0;
+  for (const [file, re, fields] of COUNT_CLAIMS) {
+    const text = read(file).replace(/\s+/g, " ");
+    const m = text.match(re);
+    if (!m) {
+      failures.push(`${file}: the claim was not found — has the sentence been reworded? ` +
+        `check 20 must be updated with it`);
+      continue;
+    }
+    fields.forEach((field, i) => {
+      checked += 1;
+      const word = m[i + 1];
+      const got = NUMBER_WORDS.indexOf(word.toLowerCase());
+      const expect = counts[field];
+      if (got !== expect) {
+        failures.push(`${file}: says "${word}" ${COUNT_FIELD_NOUN[field]}(s), ` +
+          `but the package has ${expect} — derived from skills/ and each skill's module.yaml`);
+      }
+    });
+  }
+  if (verbose) {
+    console.log(`  derived-counts: ${counts.skills} skill(s), ${counts.modules} module(s), ` +
+      `${counts.pmSkills} l3io-pm skill(s), ${checked} claim(s) checked`);
+  }
+}
+
+// ---------------------------------------------------------------------------
 
 checkSkillNames();
 checkGatingTables();
@@ -1373,6 +1458,7 @@ checkModuleYamlAgreement();
 checkBmadDependencyInventory();
 checkPep723Invocation();
 checkDocsCheckCount();
+checkDerivedCounts();
 
 for (const note of notes) if (verbose) console.log(`  note: ${note}`);
 

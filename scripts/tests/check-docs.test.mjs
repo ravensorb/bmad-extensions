@@ -743,3 +743,44 @@ test("check 19: an invocation added without a header entry trips the derivations
   assert.equal(r.status, 1);
   assert.match(r.stderr, /check count derivations disagree/);
 });
+
+// ---- check 20 (derived-counts) ----
+
+test("check 20: a stale total-skill count is caught", (t) => {
+  const root = fixture(t);
+  const p = path.join(root, "docs", "getting-started.md");
+  const before = fs.readFileSync(p, "utf8");
+  fs.writeFileSync(p, before.replace("New to the eight skills?", "New to the nine skills?"));
+  const r = run(root);
+  assert.equal(r.status, 1);
+  assert.match(r.stderr, /says "nine" skill\(s\), but the package has 8/);
+});
+
+test("check 20: a stale module count is caught", (t) => {
+  const root = fixture(t);
+  const p = path.join(root, "CLAUDE.md");
+  const before = fs.readFileSync(p, "utf8");
+  fs.writeFileSync(p, before.replace("package with four modules:", "package with five modules:"));
+  const r = run(root);
+  assert.equal(r.status, 1);
+  assert.match(r.stderr, /says "five" module\(s\), but the package has 4/);
+});
+
+test("check 20: scope attack — adding a skill directory must break the count claims", (t) => {
+  const root = fixture(t);
+  write(root, "skills/l3io-newthing/SKILL.md", "---\nname: l3io-newthing\ndescription: d\n---\n");
+  const r = run(root);
+  assert.equal(r.status, 1);
+  assert.match(r.stderr, /skill\(s\), but the package has 9/);
+});
+
+test("check 20: a reworded claim sentence fails loudly rather than passing", (t) => {
+  const root = fixture(t);
+  const p = path.join(root, "docs", "l3io-pm-reference.md");
+  const before = fs.readFileSync(p, "utf8");
+  fs.writeFileSync(p, before.replace(/four skills that cover the delivery lifecycle/,
+    "several skills covering the lifecycle"));
+  const r = run(root);
+  assert.equal(r.status, 1);
+  assert.match(r.stderr, /claim was not found — has the sentence been reworded/);
+});
