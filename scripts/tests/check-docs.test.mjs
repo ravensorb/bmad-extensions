@@ -611,3 +611,42 @@ test("check 17: replaced_by must match as a token, not a substring", (t) => {
   assert.equal(r.status, 1, "bmad-ux-review contains 'bmad-ux'; substring matching would pass this");
   assert.match(r.stderr, /dispatches removed skill 'bmad-ux-review'/);
 });
+
+// ---- check 18 (pep723-invocation) ----
+
+test("check 18: a PEP-723 helper invoked with python3 is caught", (t) => {
+  const root = fixture(t);
+  write(root, "skills/l3io-pm-execute/steps/bad-invocation.md",
+    "```bash\npython3 {pm_status} set-status --state-root x\n```\n");
+  const r = run(root);
+  assert.equal(r.status, 1);
+  assert.match(r.stderr, /invokes a PEP-723 script with python3/);
+});
+
+test("check 18: uv run of the same helper passes", (t) => {
+  const root = fixture(t);
+  write(root, "skills/l3io-pm-execute/steps/good-invocation.md",
+    "```bash\nuv run {pm_status} set-status --state-root x\n```\n");
+  const r = run(root);
+  assert.equal(r.status, 0, r.stderr);
+});
+
+test("check 18: the documented python3 fallback line is allowed", (t) => {
+  const root = fixture(t);
+  write(root, "skills/l3io-pm-execute/steps/fallback.md",
+    "If `uv` is unavailable, use `python3` instead.\n");
+  const r = run(root);
+  assert.equal(r.status, 0, r.stderr);
+});
+
+// The word-boundary case from the design table: "--use-python3" must not be mistaken for the
+// `python3` invocation token, and a script path invoked correctly with `uv run` must not trip
+// the check just because it also ends in `.py`.
+test("check 18: word boundary holds and an unrelated uv run line passes", (t) => {
+  const root = fixture(t);
+  write(root, "skills/l3io-pm-execute/steps/decoys.md",
+    "The option --use-python3 {pm_status} is not real.\n\n" +
+    "```bash\nuv run scripts/check.py --flag\n```\n");
+  const r = run(root);
+  assert.equal(r.status, 0, r.stderr);
+});

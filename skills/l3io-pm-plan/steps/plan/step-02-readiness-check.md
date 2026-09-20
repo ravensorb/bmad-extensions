@@ -59,7 +59,7 @@ Read all stories from:
 - All epics under `{pm_state_root}/planned/` with `status: backlog`
 
 For each epic, list its sprint directories and each sprint's story `.yaml` files (excluding
-`sprint.yaml`) to enumerate stories — or use `python3 {pm_status} show --state-root {pm_state_root} --epic {epic_key}` for a quick status roll-up.
+`sprint.yaml`) to enumerate stories — or use `uv run {pm_status} show --state-root {pm_state_root} --epic {epic_key}` for a quick status roll-up.
 
 For each story, record: `key`, `classification`, `status`, `estimate` (present/absent),
 `depends_on`, and whether it is assigned to a sprint.

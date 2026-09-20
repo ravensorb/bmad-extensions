@@ -209,7 +209,7 @@ If `{active_epic_keys}` is non-empty AND this skill is `l3io-pm-execute` or `l3i
 run for each epic key in scope:
 
 ```bash
-python3 {pm_status} verify --state-root {pm_state_root} --epic {epic_key} --scope epic
+uv run {pm_status} verify --state-root {pm_state_root} --epic {epic_key} --scope epic
 ```
 
 A FAIL result means the epic's files are corrupted. Halt with:

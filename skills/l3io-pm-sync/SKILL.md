@@ -14,7 +14,7 @@ Communicate all responses in `{communication_language}`.
 
 ## On Activation
 
-Run: `python3 {project-root}/_bmad/scripts/resolve_customization.py --skill {skill-root} --key workflow`
+Run: `uv run {project-root}/_bmad/scripts/resolve_customization.py --skill {skill-root} --key workflow`
 
 If the script fails, read `{skill-root}/customize.toml` directly.
 

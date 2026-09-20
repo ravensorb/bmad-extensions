@@ -27,7 +27,7 @@ output stays legible. Say that once, at first phase start.
 Bind `{progress_cmd}` to:
 
 ```bash
-python3 {pm_status} report \
+uv run {pm_status} report \
   --state-root {pm_state_root} \
   --plan {planning_artifacts}/plan-output-meta.yaml \
   --format tree
@@ -45,7 +45,7 @@ For each phase in `{execution_phases}`:
 first phase of the run only, also print:
 
 ```
-Live view during this run: python3 {pm_status} report --state-root {pm_state_root} \
+Live view during this run: uv run {pm_status} report --state-root {pm_state_root} \
   --plan {planning_artifacts}/plan-output-meta.yaml --watch 15
 ```
 
@@ -75,7 +75,7 @@ reported, and therefore the first time the whole phase can be shown coherently.
 `move-epic`:
 
 ```bash
-python3 {pm_status} show --state-root {pm_state_root} --epic {epic_key}
+uv run {pm_status} show --state-root {pm_state_root} --epic {epic_key}
 ```
 
 If `status=done`, skip this epic entirely — do not move it, do not lock it, do not run
@@ -96,7 +96,7 @@ the plan being current.
 Then promote:
 
 ```bash
-python3 {pm_status} move-epic --state-root {pm_state_root} --epic {epic_key} --to active
+uv run {pm_status} move-epic --state-root {pm_state_root} --epic {epic_key} --to active
 ```
 
 `move-epic` moves the epic's whole directory (epic.yaml, every sprint.yaml, every story file)
@@ -107,7 +107,7 @@ move is a no-op, so this call is safe once the `done` case above has been exclud
 ## 3. Claim ownership lock
 
 ```bash
-python3 {pm_status} set-lock \
+uv run {pm_status} set-lock \
   --state-root {pm_state_root} \
   --epic {epic_key} \
   --session-id {session_id} \
@@ -126,7 +126,7 @@ Reuse the roll-up already read in §2 — it lists each sprint under this epic w
 `status`, so there is no need to run `show` a second time:
 
 ```bash
-python3 {pm_status} show --state-root {pm_state_root} --epic {epic_key}
+uv run {pm_status} show --state-root {pm_state_root} --epic {epic_key}
 ```
 
 Find all sprints where `status != done` (sprint directories live at
@@ -219,7 +219,7 @@ its own `actual` rather than the parent's `orchestration`
 Compute `{story_keys}` = keys of all stories in this sprint with `status != done`.
 
 ```bash
-python3 {pm_status} dispatch --state-root {pm_state_root} --event open \
+uv run {pm_status} dispatch --state-root {pm_state_root} --event open \
   --agent l3io-pm-prep --epic {epic_key} --sprint {sprint_num} --session-id {session_id}
 ```
 
@@ -296,7 +296,7 @@ Resolve `{story_model}` from `{story_classification}`:
 - anything else (absent, unknown) → `{model}` (safe fallback — never blocks dispatch)
 
 ```bash
-python3 {pm_status} dispatch --state-root {pm_state_root} --event open \
+uv run {pm_status} dispatch --state-root {pm_state_root} --event open \
   --agent l3io-pm-story --epic {epic_key} --sprint {sprint_num} --story {story_key} \
   --session-id {session_id}
 ```
@@ -364,7 +364,7 @@ Close the bracket, then branch:
 ### 5c. Close the sprint
 
 ```bash
-python3 {pm_status} dispatch --state-root {pm_state_root} --event open \
+uv run {pm_status} dispatch --state-root {pm_state_root} --event open \
   --agent l3io-pm-closure --epic {epic_key} --sprint {sprint_num} --session-id {session_id}
 ```
 
@@ -414,7 +414,7 @@ come from the `--sprint` form, so collect them sprint by sprint. For each sprint
 run yet — bind `{n}` to that sprint's number and run:
 
 ```bash
-python3 {pm_status} show --state-root {pm_state_root} --epic {epic_key} --sprint {n}
+uv run {pm_status} show --state-root {pm_state_root} --epic {epic_key} --sprint {n}
 ```
 
 It prints one `{story_key} {status}` line per story in that sprint. Keep the keys whose status
@@ -446,7 +446,7 @@ Calibration active: {active_components}
 Bind `{active_components}` from:
 
 ```bash
-python3 {pm_status} calibration show --state-root {pm_state_root}
+uv run {pm_status} calibration show --state-root {pm_state_root}
 ```
 
 It prints a `COMPONENT / BUCKET / SAMPLES / RATIO` table; a component is active where RATIO is

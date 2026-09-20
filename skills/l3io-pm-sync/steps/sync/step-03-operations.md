@@ -14,7 +14,7 @@ state, checking auth) is performed by **you**, the agent, using GitHub MCP tools
    `{platform_owner}`/`{platform_repo}`, `{auth_method}`).
 2. Verify `_bmad/sync-state.yaml` is readable:
    ```bash
-   python3 {skill-root}/scripts/sync-state.py {project-root} list
+   uv run {skill-root}/scripts/sync-state.py {project-root} list
    ```
    An empty `[]` with no file on disk is a normal first run — `sync-state.py` creates the
    file lazily on the first `upsert` (during `push`). There is no separate "init" command;
@@ -33,7 +33,7 @@ state, checking auth) is performed by **you**, the agent, using GitHub MCP tools
 
 1. Run the drift report:
    ```bash
-   python3 {skill-root}/scripts/drift-report.py {project-root}
+   uv run {skill-root}/scripts/drift-report.py {project-root}
    ```
    Parse its three buckets: `unmapped_local`, `changed_local`, `missing_local`.
 
@@ -47,14 +47,14 @@ state, checking auth) is performed by **you**, the agent, using GitHub MCP tools
    - Record the mapping — build a JSON object with at least `bmad_key`, `bmad_type`,
      `bmad_path`, `remote_id` (the new issue number), `remote_url`, then:
      ```bash
-     echo '<json>' | python3 {skill-root}/scripts/sync-state.py {project-root} upsert -
+     echo '<json>' | uv run {skill-root}/scripts/sync-state.py {project-root} upsert -
      ```
      `upsert` reads `-` from stdin, `@<file>` from a file, or a literal JSON string
      (prefer stdin/file to avoid shell-quoting problems). The only required field is
      `bmad_key`.
    - Stamp the hash so this entry drops out of `unmapped_local` next run:
      ```bash
-     python3 {skill-root}/scripts/sync-state.py {project-root} update-hash {bmad_key} {current_hash}
+     uv run {skill-root}/scripts/sync-state.py {project-root} update-hash {bmad_key} {current_hash}
      ```
      `{current_hash}` is the `current_hash` field the drift report gave this entry.
 
@@ -63,7 +63,7 @@ state, checking auth) is performed by **you**, the agent, using GitHub MCP tools
      GitHub MCP tools, else `gh issue edit {remote_id} --repo {platform_owner}/{platform_repo} ...`.
    - Then:
      ```bash
-     python3 {skill-root}/scripts/sync-state.py {project-root} update-hash {bmad_key} {current_hash}
+     uv run {skill-root}/scripts/sync-state.py {project-root} update-hash {bmad_key} {current_hash}
      ```
 
 4. For each entry in `missing_local` (mapped, but the local file is gone): **do not** touch
@@ -78,7 +78,7 @@ state, checking auth) is performed by **you**, the agent, using GitHub MCP tools
 
 1. Enumerate mappings:
    ```bash
-   python3 {skill-root}/scripts/sync-state.py {project-root} list
+   uv run {skill-root}/scripts/sync-state.py {project-root} list
    ```
 2. For each mapping with `bmad_type` = `story`, **you** fetch the issue's current state and
    its close reason (`state_reason` in the GitHub MCP tools) — GitHub MCP tools, else:
@@ -88,7 +88,7 @@ state, checking auth) is performed by **you**, the agent, using GitHub MCP tools
 3. Where the issue is `CLOSED` **and its `stateReason` is `COMPLETED`**, update the story through `pm-status.py` — never write
    state YAML directly:
    ```bash
-   python3 {pm_status} set-status --state-root {pm_state_root} --story {bmad_key} --status done
+   uv run {pm_status} set-status --state-root {pm_state_root} --story {bmad_key} --status done
    ```
    Skip stories already `done` locally (idempotent — no need to re-write).
 
@@ -113,7 +113,7 @@ land before pull re-reads issue state.
 
 1. Run the same drift report as push:
    ```bash
-   python3 {skill-root}/scripts/drift-report.py {project-root}
+   uv run {skill-root}/scripts/drift-report.py {project-root}
    ```
 2. Present all three buckets readably, without mutating anything:
    - `unmapped_local` — entities never pushed (would be created by `push`)
@@ -121,7 +121,7 @@ land before pull re-reads issue state.
      updated by `push`)
    - `missing_local` — mapped entities whose local file is gone (report by `bmad_key` and
      `remote_url`; nothing removes these automatically — a confirmed-intentional deletion can
-     be cleared manually with `python3 {skill-root}/scripts/sync-state.py {project-root} remove {bmad_key}`)
+     be cleared manually with `uv run {skill-root}/scripts/sync-state.py {project-root} remove {bmad_key}`)
 
 ## Output
 

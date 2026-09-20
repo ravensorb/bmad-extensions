@@ -14,7 +14,7 @@ gives a `DOCS`/`CONFIG` story its `Files in scope` block.
 ## 2. Technical AC gate
 
 ```bash
-python3 {pm_status} show --state-root {pm_state_root} --epic {epic_key}
+uv run {pm_status} show --state-root {pm_state_root} --epic {epic_key}
 ```
 
 Read `{pm_state_root}/{active|planned|archived}/epic-{epic_nnn}/epic.yaml` (wherever
@@ -83,7 +83,7 @@ Make sure every story in `{thin_story_keys}` has a document before the spawn. `s
 creates a missing one from its state node and never touches an existing one:
 
 ```bash
-python3 {pm_status} story-doc-init --state-root {pm_state_root} \
+uv run {pm_status} story-doc-init --state-root {pm_state_root} \
   --artifacts-root {implementation_artifacts} --story {story_key}
 ```
 
@@ -240,7 +240,7 @@ looks up the cold-start base band (or the calibrated per-metric scope ratio once
 what `estimate-story` actually applies. See `references/metrics-contract.md` §6.
 
 ```bash
-python3 {pm_status} estimate-story \
+uv run {pm_status} estimate-story \
   --state-root {pm_state_root} \
   --story {story_key} \
   --classification {simple|standard|complex} \
@@ -257,7 +257,7 @@ python3 {pm_status} estimate-story \
 For each story in `{story_keys}` with `status: backlog`:
 
 ```bash
-python3 {pm_status} set-status \
+uv run {pm_status} set-status \
   --state-root {pm_state_root} \
   --story {story_key} \
   --status ready-for-dev
@@ -267,7 +267,7 @@ Keep the story document in step with the state — the state YAML is what the ma
 this file is what a reviewer opens, and they have not agreed until now:
 
 ```bash
-python3 {pm_status} sync-story-doc --artifacts-root {implementation_artifacts} \
+uv run {pm_status} sync-story-doc --artifacts-root {implementation_artifacts} \
   --story {story_key} --status ready-for-dev
 ```
 

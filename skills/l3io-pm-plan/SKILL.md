@@ -15,7 +15,7 @@ Communicate all responses in `{communication_language}`.
 
 ## On Activation
 
-Run: `python3 {project-root}/_bmad/scripts/resolve_customization.py --skill {skill-root} --key workflow`
+Run: `uv run {project-root}/_bmad/scripts/resolve_customization.py --skill {skill-root} --key workflow`
 
 If the script fails, resolve the `workflow` block by reading `{skill-root}/customize.toml`, then `{project-root}/_bmad/custom/l3io-pm-plan.toml` (team), then `{project-root}/_bmad/custom/l3io-pm-plan.user.toml` (personal) in order. Scalars override, arrays append.
 

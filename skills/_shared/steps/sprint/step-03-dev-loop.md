@@ -14,7 +14,7 @@ key it does hold, in order, and then end — never look for more work.
 Before starting a story, check that each of its `depends_on` entries is `status: done`:
 
 ```bash
-python3 {pm_status} show --state-root {pm_state_root} --epic {epic_key} --sprint {sprint_num}
+uv run {pm_status} show --state-root {pm_state_root} --epic {epic_key} --sprint {sprint_num}
 ```
 
 lists every story in this sprint with its status.
@@ -35,7 +35,7 @@ than working around.
 
 Mark story in-progress:
 ```bash
-python3 {pm_status} set-status \
+uv run {pm_status} set-status \
   --state-root {pm_state_root} \
   --story {story_key} \
   --status in-progress
@@ -45,7 +45,7 @@ Keep the story document in step with the state — the state YAML is what the ma
 this file is what a reviewer opens, and they have not agreed until now:
 
 ```bash
-python3 {pm_status} sync-story-doc --artifacts-root {implementation_artifacts} \
+uv run {pm_status} sync-story-doc --artifacts-root {implementation_artifacts} \
   --story {story_key} --status in-progress
 ```
 
@@ -86,7 +86,7 @@ invocation — with the identical inputs. `{dev_agent}` is the `--agent` label o
 bracket in this step, so a working install keeps its existing `usage --agent` history.
 
 ```bash
-python3 {pm_status} dispatch --state-root {pm_state_root} --event open \
+uv run {pm_status} dispatch --state-root {pm_state_root} --event open \
   --agent {dev_agent} --epic {epic_key} --sprint {sprint_num} --story {story_key} \
   --session-id {session_id}
 ```
@@ -133,7 +133,7 @@ Spawn `{dev_agent}` with (a general subagent when `{dev_agent}` is `l3io-dev-imp
 - `{agent_contract}` (verbatim — see `steps/shared/step-00-digest.md`)
 
 ```bash
-python3 {pm_status} dispatch --state-root {pm_state_root} --event close \
+uv run {pm_status} dispatch --state-root {pm_state_root} --event close \
   --agent {dev_agent} --epic {epic_key} --sprint {sprint_num} --story {story_key} \
   --session-id {session_id}
 ```
@@ -147,7 +147,7 @@ fix iterations attempted. Not a `tests_passing` boolean — §4 records the comm
 Skip if `{work_type}` is DOCS or CONFIG.
 
 ```bash
-python3 {pm_status} dispatch --state-root {pm_state_root} --event open \
+uv run {pm_status} dispatch --state-root {pm_state_root} --event open \
   --agent bmad-code-review --epic {epic_key} --sprint {sprint_num} --story {story_key} \
   --session-id {session_id}
 ```
@@ -199,7 +199,7 @@ Two additional passes, both reported into the same findings file:
 Report what is real — never pad to reach a count.
 
 ```bash
-python3 {pm_status} dispatch --state-root {pm_state_root} --event close \
+uv run {pm_status} dispatch --state-root {pm_state_root} --event close \
   --agent bmad-code-review --epic {epic_key} --sprint {sprint_num} --story {story_key} \
   --session-id {session_id}
 ```
@@ -215,7 +215,7 @@ re-dispatch with its own open/close pair — same agent name and story identity 
 `{dev_agent}` call, so a hang here is flagged the same way:
 
 ```bash
-python3 {pm_status} dispatch --state-root {pm_state_root} --event open \
+uv run {pm_status} dispatch --state-root {pm_state_root} --event open \
   --agent {dev_agent} --epic {epic_key} --sprint {sprint_num} --story {story_key} \
   --session-id {session_id}
 ```
@@ -227,7 +227,7 @@ applies, and a fix round starts from a narrower position than the original: the 
 already named the files and the sections.
 
 ```bash
-python3 {pm_status} dispatch --state-root {pm_state_root} --event close \
+uv run {pm_status} dispatch --state-root {pm_state_root} --event close \
   --agent {dev_agent} --epic {epic_key} --sprint {sprint_num} --story {story_key} \
   --session-id {session_id}
 ```
@@ -240,7 +240,7 @@ Increment fix counter.
 unresolved findings to the issues file:
 
 ```bash
-python3 {pm_status} set-status \
+uv run {pm_status} set-status \
   --state-root {pm_state_root} \
   --story {story_key} \
   --status review
@@ -255,7 +255,7 @@ sprint actually read. Take `--severity` from the finding itself (you have alread
 severities you were acting on) and `--title` from its one-line summary:
 
 ```bash
-python3 {pm_status} append-issue \
+uv run {pm_status} append-issue \
   --file {pm_issues_file} \
   --epic {epic_nnn} \
   --sprint {sprint_num} \
@@ -273,7 +273,7 @@ Keep the story document in step with the state — the state YAML is what the ma
 this file is what a reviewer opens, and they have not agreed until now:
 
 ```bash
-python3 {pm_status} sync-story-doc --artifacts-root {implementation_artifacts} \
+uv run {pm_status} sync-story-doc --artifacts-root {implementation_artifacts} \
   --story {story_key} --status review
 ```
 
@@ -293,7 +293,7 @@ FAILED: story {story_key} — {N} critical/high findings unresolved after {max_f
 **If LOW findings:** defer to issues file (do not re-develop). `--key` is omitted here too —
 see the note above:
 ```bash
-python3 {pm_status} append-issue \
+uv run {pm_status} append-issue \
   --file {pm_issues_file} \
   --epic {epic_nnn} \
   --sprint {sprint_num} \
@@ -316,13 +316,13 @@ unreachable, neither `fix` cohort ever fills, and the fix factor is frozen at th
 cold-start prior forever — silently. See `references/metrics-contract.md` §8.
 
 ```bash
-python3 {pm_status} set-field \
+uv run {pm_status} set-field \
   --state-root {pm_state_root} \
   --story {story_key} \
   --field completion_evidence.fix_iterations \
   --value {fix_iterations}
 
-python3 {pm_status} set-field \
+uv run {pm_status} set-field \
   --state-root {pm_state_root} \
   --story {story_key} \
   --field completion_evidence.files_changed \
@@ -333,7 +333,7 @@ python3 {pm_status} set-field \
 required, record the command and its real exit code:
 
 ```bash
-python3 {pm_status} add-test-run --state-root {pm_state_root} --story {story_key} \
+uv run {pm_status} add-test-run --state-root {pm_state_root} --story {story_key} \
   --command "npm test" --exit-code 0
 ```
 
@@ -396,7 +396,7 @@ session transcript's `usage` fields (in thousands) and pass `--model`; `set-actu
 tokens are not observable:
 
 ```bash
-python3 {pm_status} set-actual \
+uv run {pm_status} set-actual \
   --state-root {pm_state_root} \
   --node story \
   --story {story_key} \
@@ -425,7 +425,7 @@ recorded nothing.
 
 Mark story done:
 ```bash
-python3 {pm_status} set-status \
+uv run {pm_status} set-status \
   --state-root {pm_state_root} \
   --story {story_key} \
   --status done
@@ -435,7 +435,7 @@ Keep the story document in step with the state — the state YAML is what the ma
 this file is what a reviewer opens, and they have not agreed until now:
 
 ```bash
-python3 {pm_status} sync-story-doc --artifacts-root {implementation_artifacts} \
+uv run {pm_status} sync-story-doc --artifacts-root {implementation_artifacts} \
   --story {story_key} --status done
 ```
 

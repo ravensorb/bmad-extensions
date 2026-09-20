@@ -29,7 +29,7 @@ BLOCKED: unrecognized scope argument.
 For each key in `{scope_epic_keys}` (skip if `all`):
 
 ```bash
-python3 {pm_status} verify --state-root {pm_state_root} --scope epic --epic {epic_key}
+uv run {pm_status} verify --state-root {pm_state_root} --scope epic --epic {epic_key}
 ```
 
 `verify --scope epic` resolves the key across `planned/`, `active/`, and `archived/` — no need
@@ -43,7 +43,7 @@ BLOCKED: {epic_key} not found under {pm_state_root} — check key and re-run.
 For each scoped epic key:
 
 ```bash
-python3 {pm_status} check-lock \
+uv run {pm_status} check-lock \
   --state-root {pm_state_root} \
   --epic {epic_key} \
   --session-id {session_id}

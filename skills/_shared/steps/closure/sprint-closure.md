@@ -205,7 +205,7 @@ Bind `{phase_report}` from the phase that raised the finding:
 | `arch-drift` | `{sprint_root}/closure/arch-drift-review.md` |
 
 ```bash
-python3 {pm_status} append-issue \
+uv run {pm_status} append-issue \
   --file {pm_issues_file} \
   --epic {epic_nnn} \
   --sprint {sprint_num} \

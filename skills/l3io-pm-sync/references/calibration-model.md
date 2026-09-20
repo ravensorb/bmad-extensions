@@ -384,7 +384,7 @@ transparently the first time any project touches its calibration file after upgr
 also exposed directly:
 
 ```bash
-python3 {pm_status} calibration migrate-metrics --state-root {pm_state_root} [--format {text,json}]
+uv run {pm_status} calibration migrate-metrics --state-root {pm_state_root} [--format {text,json}]
 ```
 
 **Never runs from a read-only command.** `calibration show`, `estimate-story`, and

@@ -81,7 +81,7 @@ on them, exactly as sprint closure §6 does:
   A `check-dispositions` exit 2 blocks closure.
 - MINOR: append each to the issues file:
   ```bash
-  python3 {pm_status} append-issue --file {pm_issues_file} \
+  uv run {pm_status} append-issue --file {pm_issues_file} \
     --epic {epic_nnn} --sprint "" \
     --title "{finding_text}" \
     --source "epic-arch-review ({finding_id})" \
@@ -187,7 +187,7 @@ arch reviewer's BLOCKER/MAJOR/MINOR:
 - MEDIUM: fix in place, or record an accepted ADR that justifies leaving it.
 - LOW: append each to the issues file:
   ```bash
-  python3 {pm_status} append-issue --file {pm_issues_file} \
+  uv run {pm_status} append-issue --file {pm_issues_file} \
     --epic {epic_nnn} --sprint "" \
     --title "{finding_text}" \
     --source "epic-redteam ({finding_id})" \
@@ -204,7 +204,7 @@ Review for any that should be promoted to Medium/High given the full epic contex
 For any promoted item, change its severity in place — never remove and re-append it:
 
 ```bash
-python3 {pm_status} update-issue --state-root {pm_state_root} --key {BL key} \
+uv run {pm_status} update-issue --state-root {pm_state_root} --key {BL key} \
   --severity {Medium|High|Critical} --note "{why, given the full epic}" --cause cli
 ```
 
@@ -239,12 +239,12 @@ Epic closure runs once per epic, after all of its sprints have finished, so it i
 with sibling sprints for stdout — render unconditionally:
 
 ```bash
-python3 {pm_status} report \
+uv run {pm_status} report \
   --state-root {pm_state_root} \
   --plan {planning_artifacts}/plan-output-meta.yaml \
   --format tree
 
-python3 {pm_status} report \
+uv run {pm_status} report \
   --state-root {pm_state_root} \
   --plan {planning_artifacts}/plan-output-meta.yaml \
   --format md --out {implementation_artifacts}/progress-report.md

@@ -149,7 +149,7 @@ Set `{blocking_finding_count}` = the number of consolidated blocking findings fr
 and hand each agent the number it must use:
 
 ```bash
-python3 {pm_status} adr-reserve --state-root {pm_state_root} --epic {epic_key} \
+uv run {pm_status} adr-reserve --state-root {pm_state_root} --epic {epic_key} \
   --slug arch-gate --count {blocking_finding_count} --adr-dir {project-root}/docs/adr
 ```
 
@@ -187,7 +187,7 @@ BLOCKED: arch gate — {N} blocking findings unresolved after ADR resolution.
 
 For each MINOR finding, append to issues file:
 ```bash
-python3 {pm_status} append-issue \
+uv run {pm_status} append-issue \
   --file {pm_issues_file} \
   --epic {epic_nnn} \
   --sprint "" \

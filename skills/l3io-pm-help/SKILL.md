@@ -9,7 +9,7 @@ Communicate all responses in `{communication_language}`.
 
 ## On Activation
 
-Run: `python3 {project-root}/_bmad/scripts/resolve_customization.py --skill {skill-root} --key workflow`
+Run: `uv run {project-root}/_bmad/scripts/resolve_customization.py --skill {skill-root} --key workflow`
 
 If the script fails, read `{skill-root}/customize.toml` directly.
 
@@ -63,7 +63,7 @@ comparison target from `module.yaml` means there is no hardcoded minimum version
 of date as this skill is released forward:
 
 ```bash
-INSTALLED=$(python3 {project-root}/_bmad/scripts/pm-status.py --version 2>/dev/null | awk '{print $2}')
+INSTALLED=$(uv run {project-root}/_bmad/scripts/pm-status.py --version 2>/dev/null | awk '{print $2}')
 EXPECTED=$(grep -m1 '^module_version:' {skill-root}/module.yaml | awk '{print $2}')
 echo "installed=${INSTALLED:-none} expected=$EXPECTED"
 ```
@@ -176,14 +176,14 @@ now fire safely.
 ```bash
 ls -d {pm_state_root}/active/epic-*/ 2>/dev/null || echo "(none)"
 ls -d {pm_state_root}/planned/epic-*/ 2>/dev/null || echo "(none)"
-python3 {pm_status} list-issues --state-root {pm_state_root} --all --format json 2>/dev/null \
+uv run {pm_status} list-issues --state-root {pm_state_root} --all --format json 2>/dev/null \
   || cat {pm_issues_file} 2>/dev/null || echo "(absent)"
 cat {planning_artifacts}/plan-output-meta.yaml 2>/dev/null || echo "(absent)"
 ```
 
 For each active/planned epic directory found, read its `epic.yaml` directly (key, title,
 status, `_lock`, `depends_on`). If `{pm_status_present}` is `present`, you may instead use
-`python3 {pm_status} show --state-root {pm_state_root} --epic {key}` for a computed roll-up
+`uv run {pm_status} show --state-root {pm_state_root} --epic {key}` for a computed roll-up
 including sprint/story counts. If it is `absent`, use the direct read only.
 
 Also surface one read-only health fact — state that is gitignored will never be committed,
@@ -243,7 +243,7 @@ present, or on a verified genuine first run. Apply the first matching rule:
 | No plan-output-meta.yaml | `Run /l3io-pm-plan to validate readiness and build the execution plan.` |
 | plan readiness = red | `Run /l3io-pm-plan to resolve readiness gaps (readiness: red).` |
 | plan readiness = amber | `Run /l3io-pm-plan to address readiness warnings (readiness: amber), or /l3io-pm-execute to proceed.` |
-| Any epic has stale lock | `Epic {key} has a stale lock (claimed {N}m ago). Run: python3 {pm_status} clear-lock --state-root {pm_state_root} --epic {key}` |
+| Any epic has stale lock | `Epic {key} has a stale lock (claimed {N}m ago). Run: uv run {pm_status} clear-lock --state-root {pm_state_root} --epic {key}` |
 | Active epic, no BLOCKED sprint | `Run /l3io-pm-execute {key} to continue the in-progress epic.` |
 | No active epics, plan exists, planned epics available | `Run /l3io-pm-execute to start execution (plan is green).` |
 | All epics done (active + planned = 0) | `All work complete. Run /l3io-pm-sync to push closure to GitHub/ADO.` |
@@ -283,7 +283,7 @@ across the versions this matters for — but print this first, then continue:
 **Otherwise** run:
 
 ```bash
-python3 {pm_status} report \
+uv run {pm_status} report \
   --state-root {pm_state_root} \
   --plan {planning_artifacts}/plan-output-meta.yaml \
   --format tree
@@ -311,7 +311,7 @@ Then add one line pointing at the live view, because that is what answers "what 
 right now" during a long run:
 
 ```
-For a live view during a run: python3 {pm_status} report --state-root {pm_state_root} \
+For a live view during a run: uv run {pm_status} report --state-root {pm_state_root} \
   --plan {planning_artifacts}/plan-output-meta.yaml --watch 15
 ```
 

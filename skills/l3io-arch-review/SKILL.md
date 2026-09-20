@@ -75,7 +75,7 @@ recommend, and **record an ADR** (`assets/adr-template.md`) at
 `{project-root}/docs/adr/NNNN-slug.md`, the one ADR home. When
 `{project-root}/_bmad/scripts/pm-status.py` exists, take the number from the l3io-pm
 register:
-`python3 {project-root}/_bmad/scripts/pm-status.py adr-reserve --state-root {implementation_artifacts}/state --epic n/a --slug {slug} --adr-dir {project-root}/docs/adr`
+`uv run {project-root}/_bmad/scripts/pm-status.py adr-reserve --state-root {implementation_artifacts}/state --epic n/a --slug {slug} --adr-dir {project-root}/docs/adr`
 prints it. Without l3io-pm there is no register, so use the highest number in `docs/adr/`
 plus one. That is safe only for a single writer, which is the only case without the
 register, and `adr-reserve` skips those numbers later. Fill `Epic:` (`n/a` outside an epic)

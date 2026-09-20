@@ -16,7 +16,7 @@ issue are both left exactly as they are. Re-list them here for visibility in the
 report. If the user confirms a deletion was intentional, the mapping can be cleared with:
 
 ```bash
-python3 {skill-root}/scripts/sync-state.py {project-root} remove {bmad_key}
+uv run {skill-root}/scripts/sync-state.py {project-root} remove {bmad_key}
 ```
 
 Only run `remove` on explicit user confirmation — never automatically, since it is

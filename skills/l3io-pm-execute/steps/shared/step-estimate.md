@@ -50,7 +50,7 @@ source), applies the calibrated per-metric scope ratio and the classification's 
 (cold-start priors when either is not yet active), and writes the estimate block.
 
 ```bash
-python3 {pm_status} estimate-story \
+uv run {pm_status} estimate-story \
   --state-root {pm_state_root} \
   --story {story_key} \
   --classification {simple|standard|complex} \
@@ -84,11 +84,11 @@ estimates:
 
 ```bash
 # each sprint in scope
-python3 {pm_status} estimate-rollup --state-root {pm_state_root} --epic {epic_key} --sprint {sprint_key} \
+uv run {pm_status} estimate-rollup --state-root {pm_state_root} --epic {epic_key} --sprint {sprint_key} \
   --model {model} [--token-rates '{token_rates_json}']
 
 # each epic in scope, after all its sprints are rolled up
-python3 {pm_status} estimate-rollup --state-root {pm_state_root} --epic {epic_key} \
+uv run {pm_status} estimate-rollup --state-root {pm_state_root} --epic {epic_key} \
   --model {model} [--token-rates '{token_rates_json}']
 ```
 

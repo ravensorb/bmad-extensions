@@ -38,6 +38,10 @@
 //  17. bmad-dependency-inventory  every bmad-* name a runtime directive under skills/ uses is
 //                    declared in skills/l3io-util-doctor/assets/bmad-dependencies.json, and no
 //                    directive dispatches a removed one without same-line historical evidence
+//  18. pep723-invocation  no runtime directive under skills/ invokes a PEP-723 script
+//                    ({pm_status}, {spec_align}, or a *.py path) with python3, which bypasses
+//                    the header's declared deps in favor of whatever sits in the ambient
+//                    interpreter
 //
 // Usage:
 //   node scripts/check-docs.mjs        # report and exit nonzero on any failure (CI)
@@ -1242,6 +1246,47 @@ function checkBmadDependencyInventory() {
 }
 
 // ---------------------------------------------------------------------------
+// 18. No runtime directive under skills/ invokes a PEP-723 script with python3.
+//
+// BMad's own convention is 100% `uv run` -- every core script carries a PEP-723 header and
+// python3 bypasses it, either failing outright (no ambient interpreter has the deps) or
+// silently running against whatever version happens to be ambient instead of what the header
+// declares. Matches `python3` immediately followed by a `{...}` helper token or a `*.py`
+// path, word-bounded on both sides so `--use-python3 {pm_status}` (an option name, not an
+// invocation) does not trip it.
+//
+// Tolerance: skills/_shared/steps/shared/step-00-activate.md documents "If `uv` is
+// unavailable, use `python3` instead" as an explicit fallback for self-install, and
+// skills/l3io-util-doctor/assets/migrate-state.md restates the same fallback twice, both
+// times prose-wrapped across two lines ("...above.) If `uv` is\nunavailable, use
+// `python3 {pm_status} ...` instead."). A rule that forbade the word `python3` outright
+// would forbid its own escape hatch, so a line naming `uv`+`unavailable` (checked against
+// the current line joined with the one before it, so a wrapped sentence still qualifies) or
+// the word `fallback` is exempted from this check.
+// ---------------------------------------------------------------------------
+const PY_INVOKE_RE = /(?<![\w-])python3\s+(?:"?\{(pm_status|spec_align)\}|\S*\.py)(?![\w-])/;
+const PY_FALLBACK_QUALIFIER = /\buv\b[^.]*\bunavailable\b|\bfallback\b/i;
+
+function checkPep723Invocation() {
+  const offenders = [];
+  for (const rel of walkMarkdown("skills")) {
+    const lines = read(rel).split("\n");
+    lines.forEach((line, i) => {
+      if (!PY_INVOKE_RE.test(line)) return;
+      const context = i > 0 ? `${lines[i - 1]} ${line}` : line;
+      if (PY_FALLBACK_QUALIFIER.test(context)) return;
+      offenders.push(`${rel}:${i + 1}: invokes a PEP-723 script with python3 ` +
+        `(use uv run instead): ${line.trim()}`);
+    });
+  }
+  if (offenders.length) {
+    failures.push(`runtime directives invoke a PEP-723 script with python3, bypassing its ` +
+      `header-declared deps:\n      ${offenders.join("\n      ")}`);
+  }
+  if (verbose) console.log(`  pep723-invocation: ${offenders.length} offending line(s)`);
+}
+
+// ---------------------------------------------------------------------------
 
 checkSkillNames();
 checkGatingTables();
@@ -1261,6 +1306,7 @@ checkAdrHome();
 checkDoctorModeCount();
 checkModuleYamlAgreement();
 checkBmadDependencyInventory();
+checkPep723Invocation();
 
 for (const note of notes) if (verbose) console.log(`  note: ${note}`);
 
