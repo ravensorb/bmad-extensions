@@ -479,8 +479,9 @@ uv run {pm_status} append-issue --file {pm_issues_file} \
 records.
 
 (`--epic`/`--sprint` take bare zero-padded numbers, no `E`/`S` prefix, e.g. `--epic 003
---sprint 01` — matching the same numbers used for the directory names above.) If `uv` is
-unavailable, use `python3 {pm_status} ...` instead.
+--sprint 01` — matching the same numbers used for the directory names above.)
+
+If `uv` is unavailable, use `python3 {pm_status} ...` instead.
 
 **Legacy per-epic source:** Copy `{project-root}/_bmad/state/sprint-status-issues.yaml` to
 `{pm_issues_file}` unchanged — its schema is already correct, no transformation needed.
@@ -594,9 +595,9 @@ What it cannot tell you: whether a story Stage B *should* have written is missin
 no manifest of expected stories on disk — the directory listing *is* the list — so a story
 dropped between the working epic list and the write simply looks like a sprint with fewer
 stories. E3 below is what catches that, by diffing state files against story artifacts.
-If `uv` is
-unavailable, use `python3 {pm_status} ...` instead. E2 passes only when every migrated
-epic's `verify` call exits 0.
+
+If `uv` is unavailable, use `python3 {pm_status} ...` instead. E2 passes only when every
+migrated epic's `verify` call exits 0.
 
 ### E3 — drift: state files vs story artifacts, per sprint
 

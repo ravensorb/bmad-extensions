@@ -42,6 +42,9 @@
 //                    ({pm_status}, {spec_align}, or a *.py path) with python3, which bypasses
 //                    the header's declared deps in favor of whatever sits in the ambient
 //                    interpreter
+//  19. docs-check-count  the numbered checks in this header agree in count with the check
+//                    functions invoked below, and CLAUDE.md / scripts/CLAUDE.md's stated
+//                    check count agrees with both
 //
 // Usage:
 //   node scripts/check-docs.mjs        # report and exit nonzero on any failure (CI)
@@ -372,6 +375,12 @@ function checkCliSurface() {
     );
   }
   if (verbose) console.log(`  cli-surface:    ${checked} subcommand claim(s) checked both ways`);
+
+  // Check 4 spans two scripts (pm-status.py above, spec-align.py below) implemented as two
+  // functions for readability, but it is ONE numbered check -- called from here rather than
+  // as its own top-level statement so check 19's derived count (one invocation per header
+  // entry) doesn't have to special-case it.
+  checkSpecAlignSurface();
 }
 
 // Subcommand names documented as real table-row entries: the first cell of a markdown
@@ -1257,12 +1266,14 @@ function checkBmadDependencyInventory() {
 //
 // Tolerance: skills/_shared/steps/shared/step-00-activate.md documents "If `uv` is
 // unavailable, use `python3` instead" as an explicit fallback for self-install, and
-// skills/l3io-util-doctor/assets/migrate-state.md restates the same fallback twice, both
-// times prose-wrapped across two lines ("...above.) If `uv` is\nunavailable, use
-// `python3 {pm_status} ...` instead."). A rule that forbade the word `python3` outright
-// would forbid its own escape hatch, so a line naming `uv`+`unavailable` (checked against
-// the current line joined with the one before it, so a wrapped sentence still qualifies) or
-// the word `fallback` is exempted from this check.
+// skills/l3io-util-doctor/assets/migrate-state.md and bootstrap-state.md restate the same
+// fallback. A rule that forbade the word `python3` outright would forbid its own escape
+// hatch, so a line naming `uv`+`unavailable` or the word `fallback`, ON THE SAME LINE as the
+// invocation, is exempted from this check. Two of migrate-state.md's fallback sentences used
+// to wrap "If `uv` is" onto the line above the invocation, which this same-line-only
+// tolerance cannot see across; they were rewrapped onto one line each rather than widening
+// the tolerance to look across lines, which would have been broader than the one problem it
+// needed to solve.
 // ---------------------------------------------------------------------------
 const PY_INVOKE_RE = /(?<![\w-])python3\s+(?:"?\{(pm_status|spec_align)\}|\S*\.py)(?![\w-])/;
 const PY_FALLBACK_QUALIFIER = /\buv\b[^.]*\bunavailable\b|\bfallback\b/i;
@@ -1270,11 +1281,9 @@ const PY_FALLBACK_QUALIFIER = /\buv\b[^.]*\bunavailable\b|\bfallback\b/i;
 function checkPep723Invocation() {
   const offenders = [];
   for (const rel of walkMarkdown("skills")) {
-    const lines = read(rel).split("\n");
-    lines.forEach((line, i) => {
+    read(rel).split("\n").forEach((line, i) => {
       if (!PY_INVOKE_RE.test(line)) return;
-      const context = i > 0 ? `${lines[i - 1]} ${line}` : line;
-      if (PY_FALLBACK_QUALIFIER.test(context)) return;
+      if (PY_FALLBACK_QUALIFIER.test(line)) return;
       offenders.push(`${rel}:${i + 1}: invokes a PEP-723 script with python3 ` +
         `(use uv run instead): ${line.trim()}`);
     });
@@ -1287,12 +1296,68 @@ function checkPep723Invocation() {
 }
 
 // ---------------------------------------------------------------------------
+// 19. The check count claimed in prose matches what this file actually runs.
+//
+// Modelled on check 15 (doctor-mode-count): derive the count two ways from the source of
+// truth -- never type it -- and require the derivations agree before trusting either one to
+// validate the prose. Reuses NUMBER_WORDS (defined above, for check 15).
+//
+// Derivation A: the numbered entries in this file's own header comment block (the "N. name"
+// lines above "Usage:"). Derivation B: the check-function invocations at the bottom of the
+// file. These are meant to agree one-for-one; the one check whose surface spans two scripts
+// (pm-status.py and spec-align.py, check 4) is implemented as two functions, but the second
+// (checkSpecAlignSurface) is called FROM checkCliSurface rather than as its own top-level
+// statement, precisely so it does not inflate derivation B against derivation A's single "4."
+// entry. A future check added to one list and not the other is caught here as a disagreement,
+// not as a silently-wrong prose count three files downstream.
+//
+// Caught in practice: this exact scenario. CLAUDE.md and scripts/CLAUDE.md both said
+// "check:docs runs seventeen checks" after an eighteenth check (pep723-invocation) was added
+// and invoked, and nothing compared the prose to the file that would have disproved it.
+// ---------------------------------------------------------------------------
+const SELF_FILE = "scripts/check-docs.mjs";
+
+function checkDocsCheckCount() {
+  const src = read(SELF_FILE);
+  const usageAt = src.indexOf("// Usage:");
+  const header = usageAt < 0 ? src : src.slice(0, usageAt);
+  const headerCount = [...header.matchAll(/^\/\/\s+(\d+)\.\s/gm)].length;
+  const invoked = [...src.matchAll(/^check[A-Za-z0-9]+\(\);$/gm)].length;
+
+  if (headerCount !== invoked) {
+    failures.push(`${SELF_FILE}: check count derivations disagree — ${headerCount} numbered ` +
+      `header entr${headerCount === 1 ? "y" : "ies"}, ${invoked} check function invocation(s) ` +
+      `at the bottom of the file; a check was added to one and not the other`);
+    return;
+  }
+  const n = headerCount;
+  const flat = (s) => s.replace(/\s+/g, " ");
+  const claims = [
+    ["CLAUDE.md", /`check:docs` runs ([a-z-]+) checks/, flat(read("CLAUDE.md"))],
+    ["scripts/CLAUDE.md", /numbers its ([a-z-]+) checks there/, flat(read("scripts/CLAUDE.md"))],
+  ];
+  for (const [file, re, text] of claims) {
+    const m = text.match(re);
+    if (!m) {
+      failures.push(`${file}: the check-count claim was not found — has the sentence been ` +
+        `reworded? check 19 must be updated with it`);
+      continue;
+    }
+    const got = NUMBER_WORDS.indexOf(m[1].toLowerCase());
+    if (got !== n) {
+      failures.push(`${file}: says "${m[1]}" checks, but ${SELF_FILE} runs ${n} (numbered ` +
+        `header entries and invocations both agree on ${n})`);
+    }
+  }
+  if (verbose) console.log(`  docs-check-count: ${n} check(s), ${claims.length} claim site(s)`);
+}
+
+// ---------------------------------------------------------------------------
 
 checkSkillNames();
 checkGatingTables();
 checkSectionRefs();
 checkCliSurface();
-checkSpecAlignSurface();
 checkConfigValues();
 checkStatusValues();
 checkMetricList();
@@ -1307,6 +1372,7 @@ checkDoctorModeCount();
 checkModuleYamlAgreement();
 checkBmadDependencyInventory();
 checkPep723Invocation();
+checkDocsCheckCount();
 
 for (const note of notes) if (verbose) console.log(`  note: ${note}`);
 

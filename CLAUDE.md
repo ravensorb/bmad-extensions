@@ -64,7 +64,7 @@ verify that skill alone. **Never hand-edit a manifest, and regenerate it wheneve
 changes** — `npm run sync:scripts` does not do it for you. The manifest contract, the sync/verify
 commands and the release gates live in `scripts/CLAUDE.md`.
 
-`check:docs` runs seventeen checks asserting facts that have each drifted in this repo's history.
+`check:docs` runs nineteen checks asserting facts that have each drifted in this repo's history.
 They are numbered and described in `scripts/check-docs.mjs`'s own header — read them there rather
 than restating them here. Two things that header does not tell you:
 

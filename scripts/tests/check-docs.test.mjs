@@ -650,3 +650,96 @@ test("check 18: word boundary holds and an unrelated uv run line passes", (t) =>
   const r = run(root);
   assert.equal(r.status, 0, r.stderr);
 });
+
+// The fallback test above never exercises the qualifier branch: PY_INVOKE_RE never matches
+// "python3` instead." at all (a backtick, not whitespace, follows `python3`), so that test
+// passing proves nothing about the tolerance itself. This one plants a line where PY_INVOKE_RE
+// DOES match a real invocation, with the uv/unavailable qualifier on the same line, so the
+// exemption branch must actually fire for the line to pass.
+test("check 18: a same-line uv-unavailable qualifier exempts a real invocation", (t) => {
+  const root = fixture(t);
+  write(root, "skills/l3io-pm-execute/steps/same-line-fallback.md",
+    "If `uv` is unavailable, run `python3 {pm_status} verify --state-root x` instead.\n");
+  const r = run(root);
+  assert.equal(r.status, 0, r.stderr);
+});
+
+// Scope attack: every other check-18 test above plants under skills/l3io-pm-execute/steps/.
+// This one plants under a different skill AND a different subdirectory (assets/, not steps/)
+// to prove walkMarkdown("skills") actually reaches there rather than the check having been
+// implicitly scoped to steps/ files by every test happening to live in one.
+test("check 18 scope attack: a violation under a different skill's assets/ is caught", (t) => {
+  const root = fixture(t);
+  write(root, "skills/l3io-util-doctor/assets/scope-attack.md",
+    "```bash\npython3 {skill-root}/scripts/detect-platform.py {project-root}\n```\n");
+  const r = run(root);
+  assert.equal(r.status, 1);
+  assert.match(r.stderr, /scope-attack\.md:\d+: invokes a PEP-723 script with python3/);
+});
+
+// ---- check 19 (docs-check-count) ----
+//
+// Same derive-don't-type discipline as the check 15 tests above: the expected counts and
+// words are read back from the fixture's real files before mutation, never typed as literals.
+
+function realHeaderCount(root) {
+  const src = fs.readFileSync(path.join(root, "scripts", "check-docs.mjs"), "utf8");
+  const usageAt = src.indexOf("// Usage:");
+  const header = usageAt < 0 ? src : src.slice(0, usageAt);
+  return [...header.matchAll(/^\/\/\s+(\d+)\.\s/gm)].length;
+}
+
+function claudeCheckCountWord(root) {
+  const text = fs.readFileSync(path.join(root, "CLAUDE.md"), "utf8");
+  const m = text.match(/`check:docs` runs ([a-z-]+) checks/);
+  return m ? m[1] : null;
+}
+
+test("check 19: the correct count passes", (t) => {
+  const root = fixture(t);
+  const r = run(root);
+  assert.equal(r.status, 0, r.stderr + r.stdout);
+});
+
+test("check 19: a stated count one below the real one is caught in CLAUDE.md", (t) => {
+  const root = fixture(t);
+  const n = realHeaderCount(root);
+  const word = claudeCheckCountWord(root);
+  assert.equal(NUMBER_WORDS.indexOf(word), n,
+    "fixture's CLAUDE.md claim should match the real header count before this test mutates it");
+  const wrong = NUMBER_WORDS[n - 1];
+  const p = path.join(root, "CLAUDE.md");
+  fs.writeFileSync(p, fs.readFileSync(p, "utf8")
+    .replace(`\`check:docs\` runs ${word} checks`, `\`check:docs\` runs ${wrong} checks`));
+  const r = run(root);
+  assert.equal(r.status, 1);
+  assert.match(r.stderr, new RegExp(`CLAUDE\\.md: says "${wrong}" checks, but .* runs ${n}`));
+});
+
+test("check 19: a stated count one below the real one is caught in scripts/CLAUDE.md", (t) => {
+  const root = fixture(t);
+  const n = realHeaderCount(root);
+  const p = path.join(root, "scripts", "CLAUDE.md");
+  const text = fs.readFileSync(p, "utf8");
+  const m = text.match(/numbers its ([a-z-]+) checks there/);
+  assert.equal(NUMBER_WORDS.indexOf(m[1]), n,
+    "fixture's scripts/CLAUDE.md claim should match the real header count before mutation");
+  const wrong = NUMBER_WORDS[n - 1];
+  fs.writeFileSync(p, text.replace(`numbers its ${m[1]} checks there`,
+    `numbers its ${wrong} checks there`));
+  const r = run(root);
+  assert.equal(r.status, 1);
+  assert.match(r.stderr, new RegExp(`scripts/CLAUDE\\.md: says "${wrong}" checks, but .* runs ${n}`));
+});
+
+test("check 19: an invocation added without a header entry trips the derivations-disagree branch", (t) => {
+  const root = fixture(t);
+  const p = path.join(root, "scripts", "check-docs.mjs");
+  const text = fs.readFileSync(p, "utf8");
+  // Add a genuine extra top-level invocation of an existing check function, matching the
+  // exact "checkXxx();" shape derivation B scans for, without touching the header count.
+  fs.writeFileSync(p, text.replace("checkSkillNames();", "checkSkillNames();\ncheckSkillNames();"));
+  const r = run(root);
+  assert.equal(r.status, 1);
+  assert.match(r.stderr, /check count derivations disagree/);
+});
