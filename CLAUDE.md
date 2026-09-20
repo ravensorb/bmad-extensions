@@ -18,24 +18,6 @@ Module setup is **embedded** in each operational skill (`assets/module-setup.md`
 
 ## Skill Directory
 
-```
-skills/
-  _shared/                ← canonical shared files (pm-status.py, spec-align.py, status-files.md,
-  |                          metrics-contract.md, calibration-model.md, config-resolution.md,
-  |                          module-setup.md, write-module-config.py, steps/, tests/) —
-  |                          NEVER edit per-skill copies
-  l3io-pm-execute/        SKILL.md, customize.toml, scripts/, assets/, steps/, module.yaml
-  l3io-pm-plan/           SKILL.md, customize.toml, scripts/, assets/, steps/, module.yaml
-  l3io-pm-help/           SKILL.md, customize.toml, assets/, module.yaml
-  l3io-pm-sync/           SKILL.md, customize.toml, scripts/, assets/, module.yaml
-  l3io-sec-redteam/       SKILL.md, customize.toml, scripts/, assets/, references/, module.yaml
-  l3io-util-doctor/       SKILL.md (router), customize.toml, scripts/, assets/, steps/, references/, module.yaml
-  l3io-util-cleanup/      SKILL.md, customize.toml, module.yaml (deprecated forwarder → l3io-util-doctor; no payload)
-  l3io-arch-review/       SKILL.md, customize.toml, scripts/, assets/, references/, module.yaml
-.claude/commands/         symlinks → ../../skills/<skill>/SKILL.md
-.claude-plugin/           marketplace.json (required for installation)
-```
-
 | Skill | Purpose |
 |-------|---------|
 | `l3io-pm-execute` | Full epic + sprint lifecycle: elaboration → dev → code review → QA → fix loop, then sprint and epic closure reviews. Includes first-run module setup |
@@ -78,59 +60,32 @@ would rot on the next BMad release.
 
 Each skill also carries a **generated** `skills/<skill>/payload-manifest.json` — a SHA-256 per
 payload file, keyed relative to that skill's own root so a consumer who installed one skill can
-verify that skill alone. It is written by `scripts/write-payload-manifest.mjs`, whose scope is
-*imported* from `sync-shared-scripts.mjs` rather than re-listed. **Never hand-edit a manifest,
-and regenerate it whenever a payload file changes** — `npm run sync:scripts` does not do it for
-you. Generation alone gates nothing: the manifests were generated once, later commits edited a
-payload file, and HEAD shipped a manifest asserting a hash the file no longer had, which is
-worse than no checksum because it reads as a guarantee. `npm run check:manifest` is now the gate,
-in CI and in `prerelease`, and `postbump` regenerates after the payload re-sync (the bump rewrites
-version strings inside payload files, so every hash moves).
+verify that skill alone. **Never hand-edit a manifest, and regenerate it whenever a payload file
+changes** — `npm run sync:scripts` does not do it for you. The manifest contract, the sync/verify
+commands and the release gates live in `scripts/CLAUDE.md`.
 
-Sync commands:
+`check:docs` runs seventeen checks asserting facts that have each drifted in this repo's history.
+They are numbered and described in `scripts/check-docs.mjs`'s own header — read them there rather
+than restating them here. Two things that header does not tell you:
 
-```bash
-npm run sync:scripts    # regenerate payload copies from skills/_shared/ source
-npm run check:scripts   # verify payload copies match source (CI also runs this)
-npm run check:docs      # verify docs match the code they describe (CI + release gate)
-npm run check:manifest  # verify per-skill payload-manifest.json matches the payload (CI + release gate)
-node scripts/write-payload-manifest.mjs   # regenerate the manifests after editing a payload file
-```
-
-`check:docs` runs seventeen checks (numbered in the script's own header) asserting facts that have
-each drifted in this repo's history: (1) **skill-names** — every `l3io-*` skill named in a live
-doc resolves to a real `skills/` directory; (2) **gating-tables** — every mirrored phase table
-matches the authoritative matrix in `steps/shared/step-01-classify-work.md` §4 cell for cell; (3)
-**section-refs** — every `<file>.md §N` cross-reference resolves to a section bearing that number;
-(4) **cli-surface** — the documented `pm-status.py` and `spec-align.py` CLI surfaces agree with the real ones in both
-directions, a doc naming a subcommand the CLI lacks or a CLI subcommand missing from the
-reference; (5) **config-values** — values quoted inline in prose (the fix-loop caps) match what
-`customize.toml` ships, including that the four PM skills agree with each other; (6)
-**status-values** — `--status` filters named in skill phrase tables are real state folders; (7)
-**metric-list** — `metrics-contract.md` documents exactly the metrics in `METRIC_FIELDS`; (8)
-**digest-size** — the activation digest stays inside its byte budget; (9) **authoring-paths** — no
-runtime directive tells an agent to read `skills/_shared/` (not installed) instead of the
-installed `references/`/`assets/`/`steps/` path. (10) **cli-docstring** — `pm-status.py`'s own
-module docstring names every subcommand the parser defines; (11) **append-issue-pointer** — every
-`append-issue` invocation under `skills/` (any logical line — physical lines joined on a trailing
-`\` — fenced or not, where a `{pm_status}` or `pm-status.py` token is followed by `append-issue`
-and a flag) passes
-`--source` and `--description`, found by walking `skills/` rather than from a list (tested by `npm
-run test:scripts`, which plants violations in a new directory, after a stray fence, and split
-across continued lines); (12) **pm-status-size** — `skills/_shared/pm-status.py` stays within the
-size limit ADR-0001 sets (8,000 lines). (13) **spec-align-contract** — `spec-align.py`'s spec kinds match `layout-cleanup.md` heuristic 5 and its six `DIMENSIONS` match the enrichment prompt's `## Technical acceptance criteria` layout; (14) **adr-home** — no runtime directive under `skills/` names the old per-epic ADR home (`epic-*/arch/adr-*`), found by walking `skills/`. (15) **doctor-mode-count** — `l3io-util-doctor`'s stated mode count matches the modes it
-actually has, counted from its `steps/` directory and routing table; (16) **module-yaml-agreement** — sibling `module.yaml` files that share a `code:` agree on the module-level fields, since the installer picks one of them for the whole module and which one is not defined; (17) **bmad-dependency-inventory** — every `bmad-*` name a runtime directive under `skills/` uses is declared in `skills/l3io-util-doctor/assets/bmad-dependencies.json`, and no directive dispatches a name BMad removed unless the same line carries the evidence that the mention is historical (its replacement as a whole token, the word `legacy`/`historical`, or an `ls .claude/` existence probe), found by walking `skills/` markdown plus every `skills/*/module.yaml`. Check 17 guards dependency **names** only: **no `check:docs` check verifies probe *paths***. A step file that reverted to probing `.claude/commands/<name>.md` alone would pass every CI gate and then silently self-skip its phase on a 6.12 install — the failure mode §1.2 of `docs/superpowers/specs/2026-09-12-bmad-v612-migration-design.md` calls worse than a missing skill. Probe-path correctness is verified only at **runtime**, against a real install, by `/l3io-util-doctor check-deps`; a CI check for it is deferred, not implied. Check (1) deliberately allows a doc to name a removed
-skill when mapping it to its replacement or explaining the change — `docs/upgrading.md` must be
-able to say `/l3io-pm-epic-execute` → `/l3io-pm-execute`. Docs are allowed to quote values
-inline; they are not allowed to quote them wrongly.
+- Check 17 guards dependency **names** only: **no `check:docs` check verifies probe *paths***. A
+  step file that reverted to probing `.claude/commands/<name>.md` alone would pass every CI gate and
+  then silently self-skip its phase on a 6.12 install — the failure mode §1.2 of
+  `docs/superpowers/specs/2026-09-12-bmad-v612-migration-design.md` calls worse than a missing
+  skill. Probe-path correctness is verified only at **runtime**, against a real install, by
+  `/l3io-util-doctor check-deps`; a CI check for it is deferred, not implied.
+- Check 1 deliberately allows a doc to name a removed skill when mapping it to its replacement or
+  explaining the change — `docs/upgrading.md` must be able to say `/l3io-pm-epic-execute` →
+  `/l3io-pm-execute`. Docs are allowed to quote values inline; they are not allowed to quote them
+  wrongly.
 
 The `postbump` hook chains sync automatically, so every release keeps the payloads in sync.
 
 ## Commands
 
-The `postbump` hook auto-syncs the new version into `.claude-plugin/marketplace.json` and all `module.yaml` files — do not manually bump those files.
-
-> **Release gate**: a `prerelease` hook refuses to release when payload copies have drifted from `skills/_shared/` or a `payload-manifest.json` is stale (runs `sync-shared-scripts.mjs --check` and `write-payload-manifest.mjs --check` for every `release:*` alias, not just `release`). `postbump` now stages with `git add -A skills/` so newly added skill files are included rather than silently dropped.
+The `postbump` hook auto-syncs the new version into `.claude-plugin/marketplace.json` and all
+`module.yaml` files — do not manually bump those files. The release gates and the rest of the
+build tooling are documented in `scripts/CLAUDE.md`.
 
 ## Skill Authoring Conventions
 
