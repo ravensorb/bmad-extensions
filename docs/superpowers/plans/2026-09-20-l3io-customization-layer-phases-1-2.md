@@ -562,45 +562,48 @@ The inventory is a hand-kept list that drifted. `_bmad/_config/skill-manifest.cs
 
 ```python
     def test_removed_entry_that_still_ships_is_a_contradiction(self):
-        root = self.make_project(
-            manifest_rows=["bmad-dev-story,Dev Story,desc,bmm,path"],
-            inventory=[{"name": "bmad-dev-story", "status": "removed",
-                        "removed_in": "6.12.0", "replaced_by": "bmad-build"}],
-        )
-        code, out, _ = self.run_deps(root, "--format", "json")
+        root = self._tree(["bmad-dev-story"],
+                          manifest_rows=["bmad-dev-story,Dev Story,desc,bmm,path"])
+        self._inv([{"name": "bmad-dev-story", "status": "removed",
+                    "removed_in": "6.12.0", "replaced_by": "bmad-build"}])
+        code, out = self.run_cli(["verify", "--project-root", root, "--format", "json"])
         data = json.loads(out)
         self.assertEqual(code, 0)
         self.assertEqual(
             data["status_contradictions"],
-            [{"name": "bmad-dev-story", "declared": "removed", "manifest": "ships"}],
-        )
+            [{"name": "bmad-dev-story", "declared": "removed", "manifest": "ships"}])
 
     def test_contradiction_exits_5_under_strict(self):
-        root = self.make_project(
-            manifest_rows=["bmad-dev-story,Dev Story,desc,bmm,path"],
-            inventory=[{"name": "bmad-dev-story", "status": "removed",
-                        "removed_in": "6.12.0", "replaced_by": "bmad-build"}],
-        )
-        code, _, _ = self.run_deps(root, "--strict")
+        root = self._tree(["bmad-dev-story"],
+                          manifest_rows=["bmad-dev-story,Dev Story,desc,bmm,path"])
+        self._inv([{"name": "bmad-dev-story", "status": "removed",
+                    "removed_in": "6.12.0", "replaced_by": "bmad-build"}])
+        code, _ = self.run_cli(["verify", "--project-root", root, "--strict"])
         self.assertEqual(code, 5)
 
     def test_absent_manifest_reports_null_not_contradictions(self):
-        root = self.make_project(manifest_rows=None, inventory=[
-            {"name": "bmad-dev-story", "status": "removed",
-             "removed_in": "6.12.0", "replaced_by": "bmad-build"}])
-        code, out, _ = self.run_deps(root, "--format", "json")
+        root = self._tree(["bmad-dev-story"], manifest_rows=None)
+        self._inv([{"name": "bmad-dev-story", "status": "removed",
+                    "removed_in": "6.12.0", "replaced_by": "bmad-build"}])
+        code, out = self.run_cli(["verify", "--project-root", root, "--format", "json"])
         data = json.loads(out)
         self.assertEqual(code, 0)
         self.assertIsNone(data["shipped_skills"])
         self.assertEqual(data["status_contradictions"], [])
 ```
 
-`test-bmad-deps.py` drives the script through `subprocess` against a temp project tree (see
-its `setUpModule` and existing `test_v612_skills_layout_is_detected`). Extend whatever project
-builder it already defines to also write `_bmad/_config/skill-manifest.csv` with the header
-`canonicalId,name,description,module,path`, or omit the file when `manifest_rows is None`.
-**Read the file's existing helpers first and extend them** — the names used in the snippets
-above (`make_project`, `run_deps`) are illustrative, not guaranteed to be what is there.
+Adjust the exact `run_cli` / `_inv` call shapes to whatever those methods actually take — read
+them at `:72` and `:101` first. The point is to extend the existing harness, not add one.
+
+The real helpers in `test-bmad-deps.py` are `run_cli(self, args)` (`:72`),
+`_tree(self, names, layout="skills", version="6.12.0", shims=None)` (`:79`) which builds the
+temp project and already writes `manifest.yaml` with a version, `_inv(self, skills)` (`:101`)
+and `_raw_inv(self, text)` (`:105`).
+
+Extend `_tree` with a `manifest_rows=None` parameter writing
+`_bmad/_config/skill-manifest.csv` (header `canonicalId,name,description,module,path`), and
+omitting the file when `None`. It already owns the `_bmad/_config/` directory for
+`manifest.yaml`, so this is one more write in a method that is already the project builder.
 
 - [ ] **Step 2: Run the test to verify it fails**
 
@@ -1011,8 +1014,16 @@ git rm -f .claude/commands/l3io-util-cleanup.md 2>/dev/null || true
 ```
 
 Then edit `README.md`, `docs/getting-started.md`, `docs/l3io-util-reference.md`,
-`docs/skills-and-sequence.md`, `CLAUDE.md` and `.claude-plugin/marketplace.json` to drop the
-skill. **Do not touch** `CHANGELOG.md` or anything under `docs/superpowers/plans/` or
+`docs/skills-and-sequence.md` and `CLAUDE.md` to drop the skill.
+
+For `.claude-plugin/marketplace.json`, the file is keyed by **module**, and each module carries
+a `skills` array of paths — remove the entry from `l3io-util`'s array, not a top-level one:
+
+```bash
+jq '(.plugins[] | select(.name=="l3io-util") | .skills) |=
+    map(select(. != "./skills/l3io-util-cleanup"))' \
+  .claude-plugin/marketplace.json > /tmp/mp.$$ && mv /tmp/mp.$$ .claude-plugin/marketplace.json
+``` **Do not touch** `CHANGELOG.md` or anything under `docs/superpowers/plans/` or
 `docs/superpowers/specs/` — historical records.
 
 - [ ] **Step 3: Remove the now-stale NOTE in the sync script**
@@ -1336,7 +1347,7 @@ Claude-Session: https://claude.ai/code/session_014DuCKCCF5scofVSPGvvn97"
 
 ```python
     def test_replaces_only_this_modules_rows(self):
-        root = self.make_project(existing_help=[
+        root = self.make_project(existing_help=[   # local helper; new test file
             "skill,module,description",
             "bmad-help,core,Core help",
             "l3io-old,l3io-pm,Stale row",
@@ -1671,7 +1682,14 @@ distinct capability; check menu codes are unique.
 ln -s ../../skills/l3io-pm-setup/SKILL.md .claude/commands/l3io-pm-setup.md
 ```
 
-Add `l3io-pm-setup` to `.claude-plugin/marketplace.json` alongside the other skills.
+Add `l3io-pm-setup` to the **`l3io-pm` plugin's `skills` array** in
+`.claude-plugin/marketplace.json` — the file lists modules at the top level, each with its own
+skill paths:
+
+```bash
+jq '(.plugins[] | select(.name=="l3io-pm") | .skills) += ["./skills/l3io-pm-setup"]' \
+  .claude-plugin/marketplace.json > /tmp/mp.$$ && mv /tmp/mp.$$ .claude-plugin/marketplace.json
+```
 
 - [ ] **Step 5: Run BMad's validator**
 
@@ -1770,9 +1788,7 @@ class TestNotice(Base):
     def test_prunes_to_twenty_sessions(self):
         for i in range(25):
             self.notice(f"S{i}")
-        with open(os.path.join(self.d, ".notices.yaml"), encoding="utf-8") as fh:
-            data = pm.yaml_load_stream(fh) if hasattr(pm, "yaml_load_stream") else None
-        self.assertIsNotNone(data, "read the file with whatever loader pm-status.py uses")
+        data = pm._load(os.path.join(self.d, ".notices.yaml"))
         self.assertLessEqual(len(data["sessions"]), 20)
         self.assertIn("S24", data["sessions"])
         self.assertNotIn("S0", data["sessions"])
@@ -1800,31 +1816,44 @@ Model it on the existing `set-lock` / `check-lock` pair — same flock disciplin
 ```python
 NOTICES_FILENAME = ".notices.yaml"
 NOTICES_KEEP = 20
+_NOTICES_LOCK = {"depth": 0, "fh": None}
 
 
 def notices_path(state_root: str) -> str:
     return os.path.join(state_root, NOTICES_FILENAME)
 
 
+@contextlib.contextmanager
+def notices_lock(state_root: str):
+    """Hold an exclusive lock over a whole notices read-modify-write cycle.
+
+    Same reasoning as calibration_lock and adr_register_lock: load -> mutate -> save is
+    not atomic, and two parallel orchestrators in one session must not both decide the
+    notice has not been shown.
+    """
+    with _file_lock(notices_path(state_root) + ".lock", _NOTICES_LOCK, state_root):
+        yield
+
+
 def cmd_notice(args) -> int:
     """Record a one-per-session notice. 0 = emit it now, 1 = already emitted.
 
-    Absent/unparseable file means nothing has been emitted yet -- a notice is
-    advisory, so a damaged file must not block the caller's real work.
+    Absent or unparseable file means nothing has been emitted yet -- a notice is
+    advisory, so a damaged file must never block the caller's real work.
     """
     session = (args.session_id or "").strip()
     key = (args.key or "").strip()
     if not session or not key:
         sys.stderr.write("notice: --session-id and --key must be non-empty\n")
         return 2
-    path = notices_path(args.state_root)
     os.makedirs(args.state_root, exist_ok=True)
-    with file_lock(path + ".lock"):
+    path = notices_path(args.state_root)
+    with notices_lock(args.state_root):
         try:
-            data = yaml_load(path) or {}
+            data = _load(path) or {}
         except Exception:
             data = {}
-        sessions = data.get("sessions")
+        sessions = data.get("sessions") if isinstance(data, dict) else None
         if not isinstance(sessions, dict):
             sessions = {}
         emitted = sessions.get(session)
@@ -1837,13 +1866,18 @@ def cmd_notice(args) -> int:
         # Insertion order is emission order; keep the newest NOTICES_KEEP.
         for stale in list(sessions)[:-NOTICES_KEEP]:
             del sessions[stale]
-        yaml_dump({"sessions": sessions}, path)
+        _atomic_dump(_yaml(), {"sessions": sessions}, path)
     return 0
 ```
 
+**These are the real helpers** — `_file_lock`, `_load`, `_atomic_dump`, `_yaml`, and the
+`_XXX_LOCK = {"depth": 0, "fh": None}` module-level dict — copied from `calibration_lock`
+(`pm-status.py:1011`) and `adr_register_lock` (`:1027`), which solve the identical
+read-modify-write race on a single shared file under the state root. Do not invent new ones.
+
 Wire it into the parser with `--state-root` (required), `--session-id` (required),
-`--key` (required). Reuse whatever `file_lock` / `yaml_load` / `yaml_dump` helpers the file
-already defines — read them first rather than adding new ones.
+`--key` (required), and add `notice` to the subcommand list. Checks 4 (`cli-surface`) and 10
+(`cli-docstring`) fail if the docstring or the reference omits it — let them catch it.
 
 - [ ] **Step 4: Run the tests to verify they pass**
 
@@ -1858,14 +1892,25 @@ disagree in *either* direction. Add `notice` to the docstring **and** to
 `skills/_shared/references/` CLI documentation. These two checks are the mechanical guard —
 let them catch the omission rather than trusting memory.
 
-- [ ] **Step 6: Gitignore the notices file**
+- [ ] **Step 6: Keep the notices file out of git — the way this script already does it**
 
-```
-_bmad-output/**/state/.notices.yaml
-```
+**Do not add a pattern to this repository's `.gitignore`.** `{implementation_artifacts}` is
+consumer-configurable, so a hardcoded `_bmad-output/**` pattern here protects nothing in a
+consumer's repo — which is the only place the file is ever written.
 
-It churns per session and carries no durable state. The lock files are already ignored by the
-`*.lock` rule; this needs its own entry.
+`pm-status.py` already solves this: `_ensure_lock_ignore(state_root)` (`:350`) writes
+`{state_root}/.gitignore` carrying `*.lock`, and is called on every lock acquisition. Since
+`notices_lock` goes through `_file_lock`, the **lock** file is already covered. The data file
+is not.
+
+Extend that mechanism rather than adding a second one: generalise `_ensure_lock_ignore` to
+ensure both `*.lock` and `.notices.yaml`, reusing `_lock_rule_present`'s git-accurate parsing
+(split on `\n` only — never `str.splitlines()`, which also breaks on U+0085 — strip one
+trailing `\r`, then trailing spaces). Add a test asserting a consumer state root ends up
+ignoring both, and that an existing `!` negation is still honoured.
+
+`step-00-activate.md`'s `git check-ignore` gate must still pass: the patterns match files, never
+the state-root directory.
 
 - [ ] **Step 7: Write the directive in `config-resolution.md` §5**
 
