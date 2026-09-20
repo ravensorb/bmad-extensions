@@ -252,6 +252,169 @@ Claude-Session: https://claude.ai/code/session_014DuCKCCF5scofVSPGvvn97"
 
 ---
 
+### Task 0B: Derive the skill and module counts, not just the check count
+
+Task 0's fix round added check 19, which derives the *check* count. Every other hand-written
+count in the docs is still unguarded — and two of them go stale **inside this plan**:
+
+| Claim | Now | After Task 6 | After Task 9 | Guarded? |
+|---|---|---|---|---|
+| total skills | 8 | **7** | 8 | no |
+| `l3io-pm` skills | 4 | 4 | **5** | no |
+| modules | 4 | 4 | 4 | no |
+| doctor modes | 20 | 20 | 21 at T14 | **yes — check 15** |
+
+"twenty modes" has never gone stale because check 15 derives it. "seventeen checks" did go
+stale because nothing compared it to anything. This task closes the remaining gap **before**
+the tasks that invalidate the numbers run, so those tasks fail loudly instead of leaving prose
+wrong.
+
+**Files:**
+- Modify: `scripts/check-docs.mjs` — new check 20, `derived-counts`
+- Modify: `scripts/tests/check-docs.test.mjs`
+
+**Interfaces:**
+- Consumes: `NUMBER_WORDS` and the claim-table shape from `checkDoctorModeCount()` (check 15).
+- Produces: `check:docs` check **20**. Check 19 counts checks dynamically, so it absorbs this
+  automatically — confirm that rather than assuming it.
+
+- [ ] **Step 1: Write the failing tests**
+
+```javascript
+test("check 20: a stale total-skill count is caught", (t) => {
+  const root = fixture(t);
+  const p = path.join(root, "docs", "getting-started.md");
+  const before = fs.readFileSync(p, "utf8");
+  fs.writeFileSync(p, before.replace("New to the eight skills?", "New to the nine skills?"));
+  const r = run(root);
+  assert.equal(r.status, 1);
+  assert.match(r.stderr, /says "nine" skill\(s\), but the package has 8/);
+});
+
+test("check 20: a stale module count is caught", (t) => {
+  const root = fixture(t);
+  const p = path.join(root, "CLAUDE.md");
+  const before = fs.readFileSync(p, "utf8");
+  fs.writeFileSync(p, before.replace("package with four modules:", "package with five modules:"));
+  const r = run(root);
+  assert.equal(r.status, 1);
+  assert.match(r.stderr, /says "five" module\(s\), but the package has 4/);
+});
+
+test("check 20: scope attack — adding a skill directory must break the count claims", (t) => {
+  const root = fixture(t);
+  write(root, "skills/l3io-newthing/SKILL.md", "---\nname: l3io-newthing\ndescription: d\n---\n");
+  const r = run(root);
+  assert.equal(r.status, 1);
+  assert.match(r.stderr, /skill\(s\), but the package has 9/);
+});
+
+test("check 20: a reworded claim sentence fails loudly rather than passing", (t) => {
+  const root = fixture(t);
+  const p = path.join(root, "docs", "l3io-pm-reference.md");
+  const before = fs.readFileSync(p, "utf8");
+  fs.writeFileSync(p, before.replace(/four skills that cover the delivery lifecycle/,
+    "several skills covering the lifecycle"));
+  const r = run(root);
+  assert.equal(r.status, 1);
+  assert.match(r.stderr, /claim was not found — has the sentence been reworded/);
+});
+```
+
+The third test attacks the **scope** (does the derivation see a new skill directory it was
+never told about?); the fourth attacks the **claim table** (a reworded sentence must fail, not
+silently stop being checked — check 15 already behaves this way, and that behaviour is what
+makes an enumerated claim list safe).
+
+- [ ] **Step 2: Run to verify they fail**
+
+Run: `npm run test:scripts`
+Expected: FAIL — no check 20 exists.
+
+- [ ] **Step 3: Implement the derivations**
+
+```javascript
+function derivedCounts() {
+  const dirs = fs.readdirSync(path.join(repoRoot, "skills"), { withFileTypes: true })
+    .filter((e) => e.isDirectory() && e.name.startsWith("l3io-"))
+    .map((e) => e.name);
+  // module.yaml lives at the skill root today and moves to assets/ in Task 7 -- read BOTH so
+  // this check survives that relocation instead of silently counting zero afterwards.
+  const codeOf = (skill) => {
+    for (const rel of [`skills/${skill}/module.yaml`, `skills/${skill}/assets/module.yaml`]) {
+      if (!exists(rel)) continue;
+      const m = read(rel).match(/^code:\s*(\S+)/m);
+      if (m) return m[1];
+    }
+    return null;
+  };
+  const codes = dirs.map(codeOf).filter(Boolean);
+  return {
+    skills: dirs.length,
+    modules: new Set(codes).size,
+    pmSkills: codes.filter((c) => c === "l3io-pm").length,
+  };
+}
+```
+
+- [ ] **Step 4: Implement the claim table**
+
+Claim sentences read from the live docs — use these regexes verbatim. Note `Eight` is
+capitalised at the start of its sentence, so match the number word case-insensitively:
+
+```javascript
+const COUNT_CLAIMS = [
+  ["docs/skills-and-sequence.md", /([A-Za-z-]+) skills across ([a-z-]+) modules/, ["skills", "modules"]],
+  ["docs/getting-started.md",     /New to the ([a-z-]+) skills\?/,                ["skills"]],
+  ["docs/getting-started.md",     /You can install all ([a-z-]+) modules/,        ["modules"]],
+  ["docs/getting-started.md",     /All ([a-z-]+) modules are installed/,          ["modules"]],
+  ["docs/getting-started.md",     /installs all ([a-z-]+) skills and registers the ([a-z-]+) modules/, ["skills", "modules"]],
+  ["docs/l3io-pm-reference.md",   /([a-z-]+) skills that cover the delivery lifecycle/, ["pmSkills"]],
+  ["docs/l3io-pm-reference.md",   /All ([a-z-]+) modules read the artifact paths/, ["modules"]],
+  ["CLAUDE.md",                   /package with ([a-z-]+) modules:/,              ["modules"]],
+];
+```
+
+A claim whose regex does not match must **fail** with "the claim was not found — has the
+sentence been reworded? check 20 must be updated with it", exactly as check 15 does. Silently
+skipping an unmatched claim is how an enumerated list rots.
+
+Deliberately **not** claimed: `skills-and-sequence.md:6` "Two of the four modules mostly run
+*inside*" — the "Two" there is a judgement about usage, not a derivable count. Match only its
+`four modules`.
+
+- [ ] **Step 5: Run the tests to verify they pass**
+
+Run: `npm run test:scripts`
+Expected: PASS.
+
+- [ ] **Step 6: Verify against the live tree**
+
+```bash
+npm run check:docs -- -v 2>&1 | grep -E 'derived-counts|docs-check-count'
+```
+Expected: both report, and `check:docs` exits 0 — today's counts (8 skills, 4 modules, 4
+l3io-pm skills) match every claim.
+
+- [ ] **Step 7: Commit**
+
+Stage `scripts/check-docs.mjs` and `scripts/tests/check-docs.test.mjs` by explicit path, then
+commit with sign-off:
+
+```
+feat(infra): derive the skill and module counts too
+
+check 19 derives the check count; every other count in the docs was
+still hand-written. Two go stale inside this plan: total skills (8 -> 7
+at Task 6, back to 8 at Task 9) and l3io-pm's skills (4 -> 5 at Task 9).
+
+Adding the guard BEFORE those tasks means they fail loudly instead of
+leaving the prose wrong -- the difference between how "twenty modes"
+has stayed correct and how "seventeen checks" did not.
+```
+
+---
+
 ### Task 1: Teach the inventory a `deprecated` status
 
 A skill BMad still ships but has frozen is neither `required` nor `removed`. Today it is forced into `removed`, which is false and which suppresses the preference check in Task 3.
