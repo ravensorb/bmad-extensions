@@ -76,8 +76,14 @@ class Base(unittest.TestCase):
         self.err = proc.stderr
         return proc.returncode, proc.stdout
 
-    def _tree(self, names, layout="skills", version="6.12.0", shims=None):
-        """Build a project root whose .claude/<layout>/ contains `names`."""
+    def _tree(self, names, layout="skills", version="6.12.0", shims=None, manifest_rows=None):
+        """Build a project root whose .claude/<layout>/ contains `names`.
+
+        `manifest_rows` is a list of data-row strings (no header) for
+        `_bmad/_config/skill-manifest.csv`; the header `canonicalId,name,description,module,path`
+        is always written when rows are given. `None` (the default) omits the file entirely, so
+        a fixture that never mentions the manifest models a project without it.
+        """
         root = tempfile.mkdtemp()
         self.addCleanup(shutil.rmtree, root, True)
         for n in names:
@@ -96,6 +102,10 @@ class Base(unittest.TestCase):
             text += f"  installShims: {'true' if shims else 'false'}\n"
         text += "modules:\n  - name: core\n  - name: bmm\nides:\n  - claude-code\n"
         pathlib.Path(mf, "manifest.yaml").write_text(text, encoding="utf-8")
+        if manifest_rows is not None:
+            csv_text = "canonicalId,name,description,module,path\n"
+            csv_text += "".join(f"{row}\n" for row in manifest_rows)
+            pathlib.Path(mf, "skill-manifest.csv").write_text(csv_text, encoding="utf-8")
         return root
 
     def _inv(self, skills):
@@ -294,7 +304,8 @@ class TestJson(Base):
         data = json.loads(out)
         self.assertEqual(set(data), {"bmad_version", "shims_installed", "modules", "resolved",
                                      "missing_required", "optional_absent", "shims_in_use",
-                                     "deprecated_absent"})
+                                     "deprecated_absent", "shipped_skills",
+                                     "status_contradictions"})
         self.assertEqual(data["bmad_version"], "6.12.0")
         self.assertEqual(data["modules"], ["core", "bmm"])
         self.assertEqual([r["name"] for r in data["resolved"]], ["a-one"])
@@ -441,6 +452,102 @@ class TestShims(Base):
         data = json.loads(out)
         self.assertEqual(set(s["name"] for s in data["shims_in_use"]), set(deprecated_names))
         self.assertEqual(data["deprecated_absent"], [])
+
+
+class TestContradictions(Base):
+    """status_contradictions: the inventory is an annotation over a set derived from BMad's own
+    skill-manifest.csv, not the set itself. These cases attack both contradiction directions and
+    the unknown-manifest case, since a check that reports "no contradictions" because it could
+    not read the manifest would be a false green of the exact kind this feature exists to catch.
+    """
+
+    def test_removed_entry_that_still_ships_is_a_contradiction(self):
+        root = self._tree(["bmad-dev-story"],
+                          manifest_rows=["bmad-dev-story,Dev Story,desc,bmm,path"])
+        inv = self._inv([{"name": "bmad-dev-story", "status": "removed",
+                          "removed_in": "6.12.0", "replaced_by": "bmad-build"}])
+        code, out = self.run_cli(["verify", "--project-root", root, "--inventory", inv,
+                                  "--format", "json"])
+        data = json.loads(out)
+        self.assertEqual(code, 0, self.err)
+        self.assertEqual(
+            data["status_contradictions"],
+            [{"name": "bmad-dev-story", "declared": "removed", "manifest": "ships"}])
+
+    def test_contradiction_exits_5_under_strict(self):
+        root = self._tree(["bmad-dev-story"],
+                          manifest_rows=["bmad-dev-story,Dev Story,desc,bmm,path"])
+        inv = self._inv([{"name": "bmad-dev-story", "status": "removed",
+                          "removed_in": "6.12.0", "replaced_by": "bmad-build"}])
+        code, _ = self.run_cli(["verify", "--project-root", root, "--inventory", inv,
+                                "--strict"])
+        self.assertEqual(code, 5)
+
+    def test_no_contradiction_does_not_exit_5_under_strict(self):
+        # --strict must not change the exit code when status_contradictions is empty -- it is a
+        # gate on the finding, not an unconditional stricter mode.
+        root = self._tree(["a-one"], manifest_rows=["a-one,A One,desc,bmm,path"])
+        inv = self._inv([{"name": "a-one", "status": "required"}])
+        code, _ = self.run_cli(["verify", "--project-root", root, "--inventory", inv,
+                                "--strict"])
+        self.assertEqual(code, 0, self.err)
+
+    def test_required_entry_absent_from_manifest_is_a_contradiction(self):
+        # The other direction: the inventory claims BMad ships it, but the manifest disagrees.
+        root = self._tree(["a-one"], manifest_rows=["b-two,B Two,desc,bmm,path"])
+        inv = self._inv([{"name": "a-one", "status": "required"}])
+        code, out = self.run_cli(["verify", "--project-root", root, "--inventory", inv,
+                                  "--format", "json"])
+        data = json.loads(out)
+        self.assertEqual(code, 0, self.err)
+        self.assertEqual(
+            data["status_contradictions"],
+            [{"name": "a-one", "declared": "required", "manifest": "absent"}])
+        # text form names the contradiction too
+        code, out = self.run_cli(["verify", "--project-root", root, "--inventory", inv])
+        self.assertEqual(code, 0, self.err)
+        self.assertIn("CONTRADICTION", out)
+        self.assertIn("a-one", out)
+
+    def test_absent_manifest_reports_null_not_contradictions(self):
+        root = self._tree(["bmad-dev-story"], manifest_rows=None)
+        inv = self._inv([{"name": "bmad-dev-story", "status": "removed",
+                          "removed_in": "6.12.0", "replaced_by": "bmad-build"}])
+        code, out = self.run_cli(["verify", "--project-root", root, "--inventory", inv,
+                                  "--format", "json"])
+        data = json.loads(out)
+        self.assertEqual(code, 0, self.err)
+        self.assertIsNone(data["shipped_skills"])
+        self.assertEqual(data["status_contradictions"], [])
+
+    def test_shipped_skills_reported_when_manifest_present(self):
+        root = self._tree(["a-one"],
+                          manifest_rows=["a-one,A One,desc,bmm,path",
+                                         "b-two,B Two,desc,bmm,path"])
+        inv = self._inv([{"name": "a-one", "status": "required"}])
+        code, out = self.run_cli(["verify", "--project-root", root, "--inventory", inv,
+                                  "--format", "json"])
+        data = json.loads(out)
+        self.assertEqual(code, 0, self.err)
+        self.assertEqual(data["shipped_skills"], ["a-one", "b-two"])
+
+    def test_not_a_skill_and_deprecated_are_never_contradictions(self):
+        # not-a-skill is skipped outright regardless of manifest membership; deprecated is a
+        # shipped status, so it must NOT be reported absent when the manifest agrees it ships,
+        # and must be silently fine when it does not ship either -- deprecated means "BMad may
+        # or may not still ship this", so absence is not a contradiction... except the spec's
+        # SHIPPED_STATUSES treats deprecated as "should be in the manifest". Model that: a
+        # deprecated entry the manifest still ships is not a contradiction.
+        root = self._tree(["a-not", "a-dep"],
+                          manifest_rows=["a-dep,A Dep,desc,bmm,path"])
+        inv = self._inv([{"name": "a-not", "status": "not-a-skill", "reason": "x"},
+                         {"name": "a-dep", "status": "deprecated", "deprecated_in": "6.12.0",
+                          "replaced_by": "a-one"}])
+        code, out = self.run_cli(["verify", "--project-root", root, "--inventory", inv,
+                                  "--format", "json"])
+        data = json.loads(out)
+        self.assertEqual(code, 0, self.err)
+        self.assertEqual(data["status_contradictions"], [])
 
 
 if __name__ == "__main__":

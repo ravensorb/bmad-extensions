@@ -29,9 +29,10 @@ Exit 0 when every required skill resolves (optional ones only warn), 2 on a usag
 unparseable inventory -- bad JSON, a non-object top level, an absent, empty or non-list
 `skills`, a non-object entry, or a `status`
 outside STATUSES -- 3 when a required skill resolves nowhere, 4 when the inventory or the BMad
-manifest cannot be read. Exit 4 covers a manifest that is missing or unreadable, but not one
-that is merely contentless: a manifest parsing to no `installation` key is a successful read
-and the run proceeds, reporting `BMad None`.
+manifest cannot be read, 5 when `--strict` is passed and `status_contradictions` is non-empty.
+Exit 4 covers a manifest that is missing or unreadable, but not one that is merely contentless:
+a manifest parsing to no `installation` key is a successful read and the run proceeds, reporting
+`BMad None`.
 
 `--format json` emits nothing on the exit-2 and exit-4 paths; otherwise one object:
   bmad_version      installation.version, or null when the manifest omits it
@@ -50,10 +51,26 @@ and the run proceeds, reporting `BMad None`.
                     separately from `optional_absent` on purpose: a deprecated entry is not
                     optional, so "absent (optional -- its phase self-skips)" would be false for
                     it. This bucket is informational only and never affects the exit code.
+  shipped_skills    sorted canonical ids from _bmad/_config/skill-manifest.csv column 1, or null
+                    when that file is absent or unreadable -- the inventory is then unverifiable
+                    against BMad's own declaration, which is reported as unknown, not agreement.
+  status_contradictions
+                    [{name, declared, manifest}] where `manifest` is "ships" (a `removed` entry
+                    the manifest still ships) or "absent" (a `required`/`optional`/`deprecated`
+                    entry -- i.e. one this inventory says should be in the manifest -- that the
+                    manifest does not list). Always [] when shipped_skills is null. This is the
+                    inventory-as-annotation check: the derived set is the manifest, and the
+                    inventory's hand-kept statuses are claims about it that can be wrong.
+
+Note: CI cannot run --strict. _bmad/ is gitignored, so the manifest is absent there and
+load_shipped_skills() returns None. Contradiction detection is a runtime check, run
+by /l3io-util-doctor check-deps against a real install -- the same division of labour
+as the probe-path check.
 """
 from __future__ import annotations
 
 import argparse
+import csv
 import json
 import os
 import pathlib
@@ -104,6 +121,48 @@ def read_manifest(project_root: str):
     inst = data.get("installation") or {}
     mods = [m.get("name") for m in (data.get("modules") or []) if isinstance(m, dict)]
     return inst.get("version"), bool(inst.get("installShims", False)), mods
+
+
+def load_shipped_skills(project_root: str) -> set[str] | None:
+    """Canonical skill ids BMad declares it ships, from its own manifest.
+
+    Returns None when the manifest is absent or unreadable -- the inventory is then
+    unverifiable, which is reported as unknown rather than as agreement.
+    """
+    path = pathlib.Path(project_root) / "_bmad" / "_config" / "skill-manifest.csv"
+    try:
+        with path.open(encoding="utf-8", newline="") as fh:
+            rows = csv.reader(fh)
+            header = next(rows, None)
+            if not header or header[0].strip() != "canonicalId":
+                return None
+            return {r[0].strip() for r in rows if r and r[0].strip()}
+    except (OSError, csv.Error):
+        return None
+
+
+# Statuses that claim a skill belongs in BMad's manifest -- "removed" makes the opposite claim
+# and is checked separately in find_contradictions().
+SHIPPED_STATUSES = {"required", "optional", "deprecated"}
+
+
+def find_contradictions(entries, shipped: set[str] | None) -> list[dict]:
+    """Inventory claims that BMad's own manifest disagrees with. Empty when shipped is None --
+    an absent manifest makes the inventory unverifiable, not agreeable-with."""
+    if shipped is None:
+        return []
+    out = []
+    for e in entries:
+        status = e.get("status")
+        name = e.get("name")
+        if status == "not-a-skill" or not name:
+            continue
+        in_manifest = name in shipped
+        if status == "removed" and in_manifest:
+            out.append({"name": name, "declared": status, "manifest": "ships"})
+        elif status in SHIPPED_STATUSES and not in_manifest:
+            out.append({"name": name, "declared": status, "manifest": "absent"})
+    return out
 
 
 def check_inventory(inv) -> str | None:
@@ -196,12 +255,18 @@ def verify(args: argparse.Namespace) -> int:
             continue
         resolved.append({"name": name, "status": status, "resolved_as": used, "path": hit})
 
+    shipped = load_shipped_skills(args.project_root)
+    contradictions = find_contradictions(inv["skills"], shipped)
+    shipped_skills = sorted(shipped) if shipped is not None else None
+
     if args.format == "json":
         print(json.dumps({"bmad_version": version, "shims_installed": shims,
                           "modules": modules, "resolved": resolved,
                           "missing_required": missing, "optional_absent": warnings,
                           "shims_in_use": shims_in_use,
-                          "deprecated_absent": deprecated_absent}, indent=2))
+                          "deprecated_absent": deprecated_absent,
+                          "shipped_skills": shipped_skills,
+                          "status_contradictions": contradictions}, indent=2))
     else:
         print(f"BMad {version} — modules: {', '.join(str(m) for m in modules)}")
         for r in resolved:
@@ -214,6 +279,13 @@ def verify(args: argparse.Namespace) -> int:
         for d in deprecated_absent:
             print(f"  gone     {d['name']} is deprecated and not installed here; "
                   f"{d['replaced_by']} is its replacement")
+        for c in contradictions:
+            if c["manifest"] == "ships":
+                print(f"  CONTRADICTION  {c['name']} is declared {c['declared']} but BMad's "
+                      f"manifest still ships it")
+            else:
+                print(f"  CONTRADICTION  {c['name']} is declared {c['declared']} but BMad's "
+                      f"manifest does not list it")
         for n in missing:
             print(f"  MISSING  {n} (required)")
         if missing:
@@ -223,7 +295,11 @@ def verify(args: argparse.Namespace) -> int:
             print(f"\n{len(missing)} required skill(s) resolve nowhere. Install them, or run "
                   f"`npx bmad-method install --modules bmm` to refresh.", file=sys.stderr)
 
-    return 3 if missing else 0
+    if missing:
+        return 3
+    if args.strict and contradictions:
+        return 5
+    return 0
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -233,6 +309,8 @@ def main(argv: list[str] | None = None) -> int:
     v.add_argument("--project-root", required=True)
     v.add_argument("--inventory", default=str(DEFAULT_INVENTORY))
     v.add_argument("--format", choices=("text", "json"), default="text")
+    v.add_argument("--strict", action="store_true",
+                   help="exit 5 when status_contradictions is non-empty")
     v.set_defaults(fn=verify)
     args = ap.parse_args(argv)
     return args.fn(args)
