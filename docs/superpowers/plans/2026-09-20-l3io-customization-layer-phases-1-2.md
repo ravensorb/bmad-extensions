@@ -1166,7 +1166,16 @@ Claude-Session: https://claude.ai/code/session_014DuCKCCF5scofVSPGvvn97"
 
 ---
 
-**Phase 1 is complete and shippable here.** All gates green, `npm run smoke:install` passes, and no file has moved.
+**Phase 1 is complete and shippable here.** All gates green, no file has moved, and
+`npm run smoke:install` exits 0 with its module-contract assertion reported **PENDING**.
+
+*Corrected during execution.* This criterion originally read "`npm run smoke:install` passes",
+which the plan's own sequencing makes unreachable: that assertion depends on
+`assets/module.yaml` and a `*-setup` directory, which Tasks 7 and 9 create. Rather than accept
+a smoke test that always shows one failure — which trains people to ignore it, the same defect
+Task 5 was corrected for — the assertion is state-derived: it reports PENDING while no
+`skills/*/assets/module.yaml` exists, and becomes a real failing-if-broken assertion by itself
+once Phase 2 lands. No marker to remember to remove.
 
 ---
 
