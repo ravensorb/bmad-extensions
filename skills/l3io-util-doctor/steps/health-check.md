@@ -55,6 +55,31 @@ find {pm_state_root}/active {pm_state_root}/planned {pm_state_root}/archived \
   `l3io-pm-execute` since those skills read state YAML, not artifact `.md` files.
 - None found, or no artifact tree at all → ✓
 
+**Check 2d — Layout collision (flat file coexists with the sharded tree)**
+`bmad-build` writes the flat `sprint-status.yaml` under `{implementation_artifacts}` — but only
+when that file already exists (bmm's `step-03-implement.md:27`) — while this package's PM
+skills read and write the sharded `{pm_state_root}` tree under the same artifact root. Both
+default to the same root, so a project can end up with two writers on one root, neither seeing
+the other's changes. Check 2b already catches this as "more than one layout present" when it
+looks like an interrupted migration; this check calls out the same coexistence on its own
+terms — not a stalled migration, an ordinary collision `bmad-build` can reintroduce at any
+time as long as the flat file exists — with a decision a shell snippet in this file cannot be
+unit-tested for, so it lives in a script instead:
+
+```bash
+uv run {skill-root}/scripts/detect-layout.py --artifacts {implementation_artifacts}
+```
+
+- Exit 1 (prints `layout-collision: both <flat> and <sharded>/ exist`) → flag `migrate-state` ·
+  Priority: **High** · remedy:
+  > Both layouts are present. `bmad-build` writes `sprint-status.yaml` only when it already
+  > exists (`step-03-implement.md:27`), so deleting or migrating the flat file stops the second
+  > writer. Run `migrate-state` — it preserves the original as `sprint-status.yaml.legacy`,
+  > which is not matched by that existence gate.
+- Exit 0 → ✓ — includes a project where `migrate-state` already ran: the flat file is renamed
+  to `sprint-status.yaml.legacy`, which this check does not match, so the finding clears
+  instead of becoming permanent noise.
+
 **Check 3 — Status file schema**
 For each present status file, spot-check the first epic node and first sprint node for missing required fields (the full field list is in Schema Migration Mode Step M2). If any required field is absent, the full `migrate-schema` analysis is needed.
 - Gaps detected → flag `migrate-schema` · Priority: Medium (run before `split-status` if both are needed)
@@ -289,6 +314,7 @@ Check                           Status                         Action
 Status file naming              ⚠ sprint-status-active.yaml    rename-active
 Status file layout              ✓ Split layout in use          —
 Artifact-only stories           ⚠ 2 story artifact(s), no state bootstrap-state
+Layout collision (flat+sharded) ⚠ Both layouts present          migrate-state
 Status file schema              ✓ All fields current           —
 Status placement & backlog      ⚠ 1 misplaced epic, 3 nested  reconcile-status
 Artifact layout                 ⚠ 3 flat file(s) detected     layout-cleanup

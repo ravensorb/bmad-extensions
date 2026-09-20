@@ -14,7 +14,7 @@ Migration and housekeeping utilities for BMad artifacts.
 Modes (pass as argument to skip directly to that mode):
 
 **Diagnostic (read-only)**
-- **`check` / `status`:** Read-only health check — same diagnostic scan as the default but prints the findings table and exits without prompting to make changes.
+- **`check` / `status`:** Read-only health check — same diagnostic scan as the default but prints the findings table and exits without prompting to make changes. Findings include `layout-collision` (severity High, remedy `migrate-state`) — a project holding both `bmad-build`'s flat `sprint-status.yaml` and this package's sharded `state/` tree at once, so both writers touch the same artifact root without seeing each other.
 - **`stats`:** Plan-aware progress dashboard — phase → epic → sprint → story hierarchy with per-status dwell times and stuck-item flags (via `pm-status.py report`), plus backlog size by severity, last closed sprint/epic, and calibration state. Scope it by asking — "what's active", "what's queued", "everything" — which maps to `--status`; counting always covers every epic regardless. No files changed.
 - **`backlog`:** Lists all items in the `backlog:` list of `{pm_state_root}/issues.yaml` in a readable table grouped by severity. No files changed.
 - **`check-deps`:** Verifies every BMad skill this package dispatches resolves in this project, reports deprecated shims still in use, and names optional dependencies whose phases will self-skip. No files changed.

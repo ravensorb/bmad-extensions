@@ -42,3 +42,5 @@ jobs:
       run: uv run -q --with 'ruamel.yaml>=0.18' python3 skills/l3io-util-doctor/scripts/tests/test-audit-backlog.py
     - name: bmad-deps.py unit tests
       run: uv run -q --with 'ruamel.yaml>=0.18' python3 skills/l3io-util-doctor/scripts/tests/test-bmad-deps.py
+    - name: detect-layout.py unit tests
+      run: uv run skills/l3io-util-doctor/scripts/tests/test-detect-layout.py
