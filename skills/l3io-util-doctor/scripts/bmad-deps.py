@@ -61,6 +61,14 @@ a manifest parsing to no `installation` key is a successful read and the run pro
                     manifest does not list). Always [] when shipped_skills is null. This is the
                     inventory-as-annotation check: the derived set is the manifest, and the
                     inventory's hand-kept statuses are claims about it that can be wrong.
+  baseline_drift    [{field, expected, found}] -- `field` is "core_version" or "bmb_version";
+                    non-empty when the installed manifest disagrees with
+                    assets/bmad-baseline.json, the pinned pair every claim in this package's
+                    docs was read against (ADR-0006). This is a WARNING, never a failure: BMad
+                    moving on is normal; being unaware of it is the defect this field exists to
+                    surface. It never changes the exit code, including under --strict. Empty
+                    when the baseline file itself cannot be read (nothing to compare against,
+                    not agreement).
 
 Note: CI cannot run --strict. _bmad/ is gitignored, so the manifest is absent there and
 load_shipped_skills() returns None. Contradiction detection is a runtime check, run
@@ -79,6 +87,7 @@ import sys
 from ruamel.yaml import YAML
 
 DEFAULT_INVENTORY = pathlib.Path(__file__).resolve().parent.parent / "assets" / "bmad-dependencies.json"
+DEFAULT_BASELINE = pathlib.Path(__file__).resolve().parent.parent / "assets" / "bmad-baseline.json"
 
 # The only statuses this script knows how to act on. Anything else is a broken inventory, not
 # a skill to be treated leniently -- see check_inventory().
@@ -104,11 +113,13 @@ def resolve(name: str, project_root: str) -> str | None:
 
 
 def read_manifest(project_root: str):
-    """(version, shims_installed, [module names]) or None when unreadable.
+    """(version, shims_installed, [module names], {module name: module version}) or None when
+    unreadable.
 
     `installShims` exists only from 6.12.0 on, so it is read as absent-means-false: a
     KeyError here would crash on precisely the older install this script exists to protect.
-    `modules` is a list of maps; a bare-string entry is skipped rather than fatal.
+    `modules` is a list of maps; a bare-string entry is skipped rather than fatal, and
+    contributes no entry to the version map either.
     """
     mf = os.path.join(project_root, "_bmad", "_config", "manifest.yaml")
     if not os.path.exists(mf):
@@ -119,8 +130,37 @@ def read_manifest(project_root: str):
     except Exception:
         return None
     inst = data.get("installation") or {}
-    mods = [m.get("name") for m in (data.get("modules") or []) if isinstance(m, dict)]
-    return inst.get("version"), bool(inst.get("installShims", False)), mods
+    raw_modules = [m for m in (data.get("modules") or []) if isinstance(m, dict)]
+    mods = [m.get("name") for m in raw_modules]
+    module_versions = {m.get("name"): m.get("version") for m in raw_modules}
+    return inst.get("version"), bool(inst.get("installShims", False)), mods, module_versions
+
+
+def load_baseline(path) -> dict | None:
+    """The pinned {core_version, bmb_version, ...} baseline, or None when it cannot be read.
+
+    A missing or unparseable baseline means "nothing to compare against" -- reported as no
+    drift, never as agreement, exactly like load_shipped_skills()'s None convention.
+    """
+    try:
+        with open(path, encoding="utf-8") as fh:
+            data = json.load(fh)
+    except (OSError, json.JSONDecodeError):
+        return None
+    return data if isinstance(data, dict) else None
+
+
+def compute_baseline_drift(core_version, bmb_version, baseline: dict | None) -> list[dict]:
+    """[{field, expected, found}] for each of core_version/bmb_version that disagrees with the
+    pinned baseline. A WARNING signal only -- callers must never fail on a non-empty result."""
+    if baseline is None:
+        return []
+    drift = []
+    for field, found in (("core_version", core_version), ("bmb_version", bmb_version)):
+        expected = baseline.get(field)
+        if expected is not None and found != expected:
+            drift.append({"field": field, "expected": expected, "found": found})
+    return drift
 
 
 def load_shipped_skills(project_root: str) -> set[str] | None:
@@ -225,7 +265,7 @@ def verify(args: argparse.Namespace) -> int:
         print(f"cannot read {args.project_root}/_bmad/_config/manifest.yaml — is BMad installed?",
               file=sys.stderr)
         return 4
-    version, shims, modules = man
+    version, shims, modules, module_versions = man
 
     resolved, missing, shims_in_use, warnings, deprecated_absent = [], [], [], [], []
     for e in inv["skills"]:  # a non-empty list of dicts; validated by check_inventory
@@ -259,6 +299,9 @@ def verify(args: argparse.Namespace) -> int:
     contradictions = find_contradictions(inv["skills"], shipped)
     shipped_skills = sorted(shipped) if shipped is not None else None
 
+    baseline = load_baseline(args.baseline)
+    baseline_drift = compute_baseline_drift(version, module_versions.get("bmb"), baseline)
+
     if args.format == "json":
         print(json.dumps({"bmad_version": version, "shims_installed": shims,
                           "modules": modules, "resolved": resolved,
@@ -266,7 +309,8 @@ def verify(args: argparse.Namespace) -> int:
                           "shims_in_use": shims_in_use,
                           "deprecated_absent": deprecated_absent,
                           "shipped_skills": shipped_skills,
-                          "status_contradictions": contradictions}, indent=2))
+                          "status_contradictions": contradictions,
+                          "baseline_drift": baseline_drift}, indent=2))
     else:
         print(f"BMad {version} — modules: {', '.join(str(m) for m in modules)}")
         for r in resolved:
@@ -286,6 +330,9 @@ def verify(args: argparse.Namespace) -> int:
             else:
                 print(f"  CONTRADICTION  {c['name']} is declared {c['declared']} but BMad's "
                       f"manifest does not list it")
+        for d in baseline_drift:
+            print(f"  BASELINE  {d['field']} drift: pinned {d['expected']!r}, "
+                  f"installed {d['found']!r} (warning only — see assets/bmad-baseline.json)")
         for n in missing:
             print(f"  MISSING  {n} (required)")
         if missing:
@@ -308,6 +355,9 @@ def main(argv: list[str] | None = None) -> int:
     v = sub.add_parser("verify", help="check the installed skills against the inventory")
     v.add_argument("--project-root", required=True)
     v.add_argument("--inventory", default=str(DEFAULT_INVENTORY))
+    v.add_argument("--baseline", default=str(DEFAULT_BASELINE),
+                   help="pinned {core_version, bmb_version, ...} to compare against "
+                        "(warning-only, never affects the exit code)")
     v.add_argument("--format", choices=("text", "json"), default="text")
     v.add_argument("--strict", action="store_true",
                    help="exit 5 when status_contradictions is non-empty")

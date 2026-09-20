@@ -12,6 +12,7 @@
     "check:version": "node scripts/check-pm-status-version.mjs",
     "check:manifest": "node scripts/write-payload-manifest.mjs --check",
     "test:scripts": "node --test scripts/tests/*.test.mjs",
+    "smoke:install": "bash scripts/smoke-install.sh",
     "postbump": "node scripts/sync-bmad-versions.mjs && node scripts/sync-shared-scripts.mjs && node scripts/write-payload-manifest.mjs && git add -u",
     "release": "commit-and-tag-version",
     "release:patch": "commit-and-tag-version --release-as patch",

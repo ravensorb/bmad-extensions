@@ -76,13 +76,17 @@ class Base(unittest.TestCase):
         self.err = proc.stderr
         return proc.returncode, proc.stdout
 
-    def _tree(self, names, layout="skills", version="6.12.0", shims=None, manifest_rows=None):
+    def _tree(self, names, layout="skills", version="6.12.0", shims=None, manifest_rows=None,
+              bmb_version=None):
         """Build a project root whose .claude/<layout>/ contains `names`.
 
         `manifest_rows` is a list of data-row strings (no header) for
         `_bmad/_config/skill-manifest.csv`; the header `canonicalId,name,description,module,path`
         is always written when rows are given. `None` (the default) omits the file entirely, so
         a fixture that never mentions the manifest models a project without it.
+
+        `bmb_version`, when given, adds a `bmb` module entry carrying that version -- the field
+        baseline_drift compares against assets/bmad-baseline.json's `bmb_version`.
         """
         root = tempfile.mkdtemp()
         self.addCleanup(shutil.rmtree, root, True)
@@ -100,13 +104,29 @@ class Base(unittest.TestCase):
         text = f"installation:\n  version: {version}\n"
         if shims is not None:  # omitted entirely for a pre-6.12 manifest, which has no such key
             text += f"  installShims: {'true' if shims else 'false'}\n"
-        text += "modules:\n  - name: core\n  - name: bmm\nides:\n  - claude-code\n"
+        text += "modules:\n  - name: core\n  - name: bmm\n"
+        if bmb_version is not None:
+            text += f"  - name: bmb\n    version: {bmb_version}\n"
+        text += "ides:\n  - claude-code\n"
         pathlib.Path(mf, "manifest.yaml").write_text(text, encoding="utf-8")
         if manifest_rows is not None:
             csv_text = "canonicalId,name,description,module,path\n"
             csv_text += "".join(f"{row}\n" for row in manifest_rows)
             pathlib.Path(mf, "skill-manifest.csv").write_text(csv_text, encoding="utf-8")
         return root
+
+    def _baseline(self, core_version=None, bmb_version=None):
+        """A throwaway baseline file with only the given fields set."""
+        data = {}
+        if core_version is not None:
+            data["core_version"] = core_version
+        if bmb_version is not None:
+            data["bmb_version"] = bmb_version
+        d = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, d, True)
+        p = os.path.join(d, "baseline.json")
+        pathlib.Path(p).write_text(json.dumps(data), encoding="utf-8")
+        return p
 
     def _inv(self, skills):
         """A throwaway inventory file holding exactly `skills`."""
@@ -305,7 +325,7 @@ class TestJson(Base):
         self.assertEqual(set(data), {"bmad_version", "shims_installed", "modules", "resolved",
                                      "missing_required", "optional_absent", "shims_in_use",
                                      "deprecated_absent", "shipped_skills",
-                                     "status_contradictions"})
+                                     "status_contradictions", "baseline_drift"})
         self.assertEqual(data["bmad_version"], "6.12.0")
         self.assertEqual(data["modules"], ["core", "bmm"])
         self.assertEqual([r["name"] for r in data["resolved"]], ["a-one"])
@@ -548,6 +568,105 @@ class TestContradictions(Base):
         data = json.loads(out)
         self.assertEqual(code, 0, self.err)
         self.assertEqual(data["status_contradictions"], [])
+
+
+class TestBaselineDrift(Base):
+    """baseline_drift: a WARNING signal comparing the installed manifest against the pinned
+    assets/bmad-baseline.json (ADR-0006). Must never affect the exit code, under --strict or
+    otherwise -- BMad moving on is normal; being unaware of it is the defect this exists to
+    surface."""
+
+    def test_matching_baseline_reports_no_drift(self):
+        inv = self._inv([{"name": "a-one", "status": "required"}])
+        root = self._tree(["a-one"], version="6.12.0", bmb_version="v2.2.2")
+        baseline = self._baseline(core_version="6.12.0", bmb_version="v2.2.2")
+        code, out = self.run_cli(["verify", "--project-root", root, "--inventory", inv,
+                                  "--baseline", baseline, "--format", "json"])
+        self.assertEqual(code, 0, self.err)
+        self.assertEqual(json.loads(out)["baseline_drift"], [])
+
+    def test_core_version_drift_is_reported_without_failing(self):
+        inv = self._inv([{"name": "a-one", "status": "required"}])
+        root = self._tree(["a-one"], version="6.13.0", bmb_version="v2.2.2")
+        baseline = self._baseline(core_version="6.12.0", bmb_version="v2.2.2")
+        code, out = self.run_cli(["verify", "--project-root", root, "--inventory", inv,
+                                  "--baseline", baseline, "--format", "json"])
+        self.assertEqual(code, 0, self.err)
+        self.assertEqual(json.loads(out)["baseline_drift"],
+                         [{"field": "core_version", "expected": "6.12.0", "found": "6.13.0"}])
+        # text form carries a BASELINE line naming both the pinned and installed values
+        code, out = self.run_cli(["verify", "--project-root", root, "--inventory", inv,
+                                  "--baseline", baseline])
+        self.assertEqual(code, 0, self.err)
+        self.assertIn("BASELINE", out)
+        self.assertIn("6.12.0", out)
+        self.assertIn("6.13.0", out)
+
+    def test_bmb_version_drift_is_reported_without_failing(self):
+        inv = self._inv([{"name": "a-one", "status": "required"}])
+        root = self._tree(["a-one"], version="6.12.0", bmb_version="v3.0.0")
+        baseline = self._baseline(core_version="6.12.0", bmb_version="v2.2.2")
+        code, out = self.run_cli(["verify", "--project-root", root, "--inventory", inv,
+                                  "--baseline", baseline, "--format", "json"])
+        self.assertEqual(code, 0, self.err)
+        self.assertEqual(json.loads(out)["baseline_drift"],
+                         [{"field": "bmb_version", "expected": "v2.2.2", "found": "v3.0.0"}])
+
+    def test_no_baseline_line_in_text_output_when_matching(self):
+        inv = self._inv([{"name": "a-one", "status": "required"}])
+        root = self._tree(["a-one"], version="6.12.0", bmb_version="v2.2.2")
+        baseline = self._baseline(core_version="6.12.0", bmb_version="v2.2.2")
+        code, out = self.run_cli(["verify", "--project-root", root, "--inventory", inv,
+                                  "--baseline", baseline])
+        self.assertEqual(code, 0, self.err)
+        self.assertNotIn("BASELINE", out)
+
+    def test_missing_baseline_file_yields_no_drift_not_a_crash(self):
+        # A missing baseline means "nothing to compare against", not agreement -- and never a
+        # crash, since the pinned file is packaging state, not something a caller controls.
+        inv = self._inv([{"name": "a-one", "status": "required"}])
+        root = self._tree(["a-one"], version="6.13.0", bmb_version="v3.0.0")
+        code, out = self.run_cli(["verify", "--project-root", root, "--inventory", inv,
+                                  "--baseline", os.path.join(root, "no-such-baseline.json"),
+                                  "--format", "json"])
+        self.assertEqual(code, 0, self.err)
+        self.assertEqual(json.loads(out)["baseline_drift"], [])
+
+    def test_drift_does_not_trigger_strict_exit(self):
+        # --strict gates status_contradictions only. Drift alone must never turn it into exit 5.
+        inv = self._inv([{"name": "a-one", "status": "required"}])
+        root = self._tree(["a-one"], version="6.13.0", bmb_version="v3.0.0",
+                          manifest_rows=["a-one,A One,desc,bmm,path"])
+        baseline = self._baseline(core_version="6.12.0", bmb_version="v2.2.2")
+        code, out = self.run_cli(["verify", "--project-root", root, "--inventory", inv,
+                                  "--baseline", baseline, "--strict", "--format", "json"])
+        self.assertEqual(code, 0, self.err)
+        data = json.loads(out)
+        self.assertTrue(data["baseline_drift"])
+        self.assertEqual(data["status_contradictions"], [])
+
+    def test_contradiction_still_exits_5_under_strict_alongside_drift(self):
+        # Drift and a real contradiction can co-occur; the contradiction must still be the one
+        # that decides the exit code, unaffected by drift being present too.
+        root = self._tree(["bmad-dev-story"], version="6.13.0", bmb_version="v3.0.0",
+                          manifest_rows=["bmad-dev-story,Dev Story,desc,bmm,path"])
+        inv = self._inv([{"name": "bmad-dev-story", "status": "removed",
+                          "removed_in": "6.12.0", "replaced_by": "bmad-build"}])
+        baseline = self._baseline(core_version="6.12.0", bmb_version="v2.2.2")
+        code, out = self.run_cli(["verify", "--project-root", root, "--inventory", inv,
+                                  "--baseline", baseline, "--strict", "--format", "json"])
+        self.assertEqual(code, 5)
+        data = json.loads(out)
+        self.assertTrue(data["baseline_drift"])
+        self.assertTrue(data["status_contradictions"])
+
+    def test_default_baseline_matches_this_repos_pinned_values(self):
+        # The shipped bmad-baseline.json must actually describe this repo's baseline pair --
+        # a stale default would make every real (non-fixture) run report phantom drift.
+        default_baseline = json.loads(
+            pathlib.Path(SKILL_ROOT, "assets", "bmad-baseline.json").read_text(encoding="utf-8"))
+        self.assertEqual(default_baseline["core_version"], "6.12.0")
+        self.assertEqual(default_baseline["bmb_version"], "v2.2.2")
 
 
 if __name__ == "__main__":
