@@ -30,6 +30,13 @@
   structure mechanically. If the installed BMad changes mid-implementation, stop and re-read
   the contract before continuing — do not assume the finding still holds.
 - ADR numbers come from `pm-status.py adr-reserve`, never hand-picked (ADR-0005).
+- **Use the existing test harnesses; do not add new ones.** `scripts/tests/check-docs.test.mjs`
+  provides `fixture(t)` (copies the whole repo to a temp dir), `run(root, args = [])` (returns
+  a `spawnSync` result — assert on `r.status` and **`r.stderr`**, since failures print to
+  stderr) and `write(root, rel, text, append = false)`. `skills/_shared/tests/test-pm-status.py`
+  provides `Base` with `self.d` (scratch dir) and `self.run_main(argv) -> (code, stdout)`,
+  in-process. Because `fixture()` copies the real tree, mjs tests **mutate the real inventory**
+  in the copy rather than writing a synthetic one.
 
 ---
 
@@ -55,28 +62,41 @@ A skill BMad still ships but has frozen is neither `required` nor `removed`. Tod
 Append to `scripts/tests/check-docs.test.mjs`:
 
 ```javascript
-test("check 17 accepts a deprecated entry carrying deprecated_in and replaced_by", async (t) => {
-  const root = await makeFixture(t);
-  writeInventory(root, [
-    { name: "bmad-create-story", status: "deprecated",
-      deprecated_in: "6.12.0", replaced_by: "bmad-build" },
-  ]);
-  const { code } = runCheckDocs(root);
-  assert.equal(code, 0);
+const INVENTORY = path.join("skills", "l3io-util-doctor", "assets", "bmad-dependencies.json");
+
+function setStatus(root, name, patch) {
+  const p = path.join(root, INVENTORY);
+  const inv = JSON.parse(fs.readFileSync(p, "utf8"));
+  const e = inv.skills.find((x) => x.name === name);
+  assert.ok(e, `${name} must exist in the inventory fixture`);
+  Object.assign(e, patch);
+  fs.writeFileSync(p, JSON.stringify(inv, null, 2));
+  return p;
+}
+
+test("check 17 accepts a deprecated entry carrying deprecated_in and replaced_by", (t) => {
+  const root = fixture(t);
+  setStatus(root, "bmad-create-story",
+    { status: "deprecated", deprecated_in: "6.12.0", replaced_by: "bmad-build",
+      removed_in: undefined });
+  const r = run(root);
+  assert.equal(r.status, 0, r.stderr);
 });
 
-test("check 17 rejects a deprecated entry missing deprecated_in", async (t) => {
-  const root = await makeFixture(t);
-  writeInventory(root, [
-    { name: "bmad-create-story", status: "deprecated", replaced_by: "bmad-build" },
-  ]);
-  const { code, out } = runCheckDocs(root);
-  assert.equal(code, 1);
-  assert.match(out, /is deprecated but lacks replaced_by\/deprecated_in/);
+test("check 17 rejects a deprecated entry missing deprecated_in", (t) => {
+  const root = fixture(t);
+  setStatus(root, "bmad-create-story",
+    { status: "deprecated", replaced_by: "bmad-build", deprecated_in: undefined,
+      removed_in: undefined });
+  const r = run(root);
+  assert.equal(r.status, 1);
+  assert.match(r.stderr, /is deprecated but lacks replaced_by\/deprecated_in/);
 });
 ```
 
-If `makeFixture`, `writeInventory` or `runCheckDocs` do not already exist in that file, read the existing tests first and reuse whatever fixture helpers they use — do not invent a second harness.
+`fixture()` copies the whole repo, so these mutate the real inventory in the copy. `setStatus`
+is a new local helper in this file — add it beside the existing ones, do not create a second
+harness.
 
 - [ ] **Step 2: Run the test to verify it fails**
 
@@ -238,31 +258,33 @@ Today check 17 excuses a removed-skill mention when the line carries an `ls .cla
 - [ ] **Step 1: Write the failing test**
 
 ```javascript
-test("check 17 fails when a directive prefers a deprecated skill", async (t) => {
-  const root = await makeFixture(t);
-  writeInventory(root, [
-    { name: "bmad-dev-story", status: "deprecated",
-      deprecated_in: "6.12.0", replaced_by: "bmad-build" },
-  ]);
-  writeSkillFile(root, "l3io-pm-execute/steps/x.md",
+test("check 17 fails when a directive prefers a deprecated skill", (t) => {
+  const root = fixture(t);
+  setStatus(root, "bmad-dev-story",
+    { status: "deprecated", deprecated_in: "6.12.0", replaced_by: "bmad-build",
+      removed_in: undefined });
+  write(root, "skills/l3io-pm-execute/steps/scope-attack.md",
     "bind `{dev_agent}` = the legacy `bmad-dev-story` and spawn that skill\n");
-  const { code, out } = runCheckDocs(root);
-  assert.equal(code, 1);
-  assert.match(out, /prefers deprecated skill 'bmad-dev-story'/);
+  const r = run(root);
+  assert.equal(r.status, 1);
+  assert.match(r.stderr, /prefers deprecated skill 'bmad-dev-story'/);
 });
 
-test("check 17 still allows a bare existence probe of a deprecated skill", async (t) => {
-  const root = await makeFixture(t);
-  writeInventory(root, [
-    { name: "bmad-dev-story", status: "deprecated",
-      deprecated_in: "6.12.0", replaced_by: "bmad-build" },
-  ]);
-  writeSkillFile(root, "l3io-pm-execute/steps/x.md",
+test("check 17 still allows a bare existence probe of a deprecated skill", (t) => {
+  const root = fixture(t);
+  setStatus(root, "bmad-dev-story",
+    { status: "deprecated", deprecated_in: "6.12.0", replaced_by: "bmad-build",
+      removed_in: undefined });
+  write(root, "skills/l3io-pm-execute/steps/probe-only.md",
     "ls {project-root}/.claude/skills/bmad-dev-story/SKILL.md 2>/dev/null\n");
-  const { code } = runCheckDocs(root);
-  assert.equal(code, 0);
+  const r = run(root);
+  assert.equal(r.status, 0, r.stderr);
 });
 ```
+
+The first test writes into a **new file in an existing skill**, following the suite's existing
+"scope attack" convention — it proves the check walks `skills/` rather than consulting a list
+of known files.
 
 - [ ] **Step 2: Run the test to verify it fails**
 
@@ -410,10 +432,12 @@ The inventory is a hand-kept list that drifted. `_bmad/_config/skill-manifest.cs
         self.assertEqual(data["status_contradictions"], [])
 ```
 
-Extend the existing `make_project` helper to accept `manifest_rows` (writing
-`_bmad/_config/skill-manifest.csv` with the header `canonicalId,name,description,module,path`,
-or omitting the file when `None`) and `inventory`. Reuse the file's existing helpers; do not
-add a second harness.
+`test-bmad-deps.py` drives the script through `subprocess` against a temp project tree (see
+its `setUpModule` and existing `test_v612_skills_layout_is_detected`). Extend whatever project
+builder it already defines to also write `_bmad/_config/skill-manifest.csv` with the header
+`canonicalId,name,description,module,path`, or omit the file when `manifest_rows is None`.
+**Read the file's existing helpers first and extend them** — the names used in the snippets
+above (`make_project`, `run_deps`) are illustrative, not guaranteed to be what is there.
 
 - [ ] **Step 2: Run the test to verify it fails**
 
@@ -861,45 +885,49 @@ Task 7 is what makes it pass.
 - [ ] **Step 1: Write the failing tests**
 
 ```javascript
-test("check:module rejects a module.yaml at a skill root", async (t) => {
-  const root = await makeModuleFixture(t);
-  await writeFile(root, "skills/l3io-pm-execute/module.yaml", "code: l3io-pm\n");
-  const { code, out } = runCheckModule(root);
-  assert.equal(code, 1);
-  assert.match(out, /module\.yaml at a skill root/);
+test("check:module rejects a module.yaml at a skill root", (t) => {
+  const root = fixture(t);
+  write(root, "skills/l3io-pm-execute/module.yaml", "code: l3io-pm\n");
+  const r = run(root);
+  assert.equal(r.status, 1);
+  assert.match(r.stderr, /module\.yaml at a skill root/);
 });
 
-test("check:module rejects two assets/module.yaml sharing one code", async (t) => {
-  const root = await makeModuleFixture(t);
-  await writeFile(root, "skills/a/assets/module.yaml", "code: dup\nname: A\ndescription: d\n");
-  await writeFile(root, "skills/b/assets/module.yaml", "code: dup\nname: B\ndescription: d\n");
-  const { code, out } = runCheckModule(root);
-  assert.equal(code, 1);
-  assert.match(out, /code 'dup' is declared by 2 module\.yaml files/);
+test("check:module rejects two assets/module.yaml sharing one code", (t) => {
+  const root = fixture(t);
+  write(root, "skills/a/assets/module.yaml", "code: dup\nname: A\ndescription: d\n");
+  write(root, "skills/b/assets/module.yaml", "code: dup\nname: B\ndescription: d\n");
+  const r = run(root);
+  assert.equal(r.status, 1);
+  assert.match(r.stderr, /code 'dup' is declared by 2 module\.yaml files/);
 });
 
-test("check:module rejects a module home missing a merge script", async (t) => {
-  const root = await makeModuleFixture(t);
-  await writeFile(root, "skills/solo/assets/module.yaml", "code: solo\nname: S\ndescription: d\n");
-  await writeFile(root, "skills/solo/assets/module-setup.md", "x\n");
-  await writeFile(root, "skills/solo/assets/module-help.csv", "skill,module,description\n");
-  await writeFile(root, "skills/solo/scripts/merge-config.py", "x\n");
+test("check:module rejects a module home missing a merge script", (t) => {
+  const root = fixture(t);
+  write(root, "skills/solo/assets/module.yaml", "code: solo\nname: S\ndescription: d\n");
+  write(root, "skills/solo/assets/module-setup.md", "x\n");
+  write(root, "skills/solo/assets/module-help.csv", "skill,module,description\n");
+  write(root, "skills/solo/scripts/merge-config.py", "x\n");
   // merge-help-csv.py deliberately absent
-  const { code, out } = runCheckModule(root);
-  assert.equal(code, 1);
-  assert.match(out, /missing scripts\/merge-help-csv\.py/);
+  const r = run(root);
+  assert.equal(r.status, 1);
+  assert.match(r.stderr, /missing scripts\/merge-help-csv\.py/);
 });
 
-test("check:module passes on a well-formed standalone module", async (t) => {
-  const root = await makeModuleFixture(t);
-  await writeModuleHome(root, "solo", "solo");
-  const { code } = runCheckModule(root);
-  assert.equal(code, 0);
+test("check:module passes on a well-formed standalone module", (t) => {
+  const root = fixture(t);
+  writeModuleHome(root, "solo", "solo");
+  const r = run(root);
+  assert.equal(r.status, 0, r.stderr);
 });
 ```
 
-Write `makeModuleFixture` to create an empty `skills/` tree in a temp dir, and
-`writeModuleHome(root, dir, code)` to lay down all five required files. **Plant the violation
+`check-module.test.mjs` is a new file, so define its helpers by copying the shape of
+`check-docs.test.mjs`: a `fixture(t)` that makes a temp dir with an **empty** `skills/` tree
+(not a repo copy — these tests build modules from nothing), a `run(root, args = [])` that
+spawns `check-module.mjs` with `CHECK_MODULE_ROOT=root`, and a `write(root, rel, text)`. Add
+`writeModuleHome(root, dir, code)` laying down all five required files. Assert on `r.status`
+and `r.stderr`, matching the sibling suite. **Plant the violation
 against the scope, not only the rule**: the second test proves the check finds a duplicate
 `code` it was never told to look for, because it derives codes by walking rather than from a
 list.
@@ -984,14 +1012,13 @@ BMad's validator reads `assets/module.yaml` — from the setup skill for multi-s
 - [ ] **Step 1: Write the failing test for the source-list change**
 
 ```javascript
-test("check 17 scans assets/module.yaml, not a skill-root module.yaml", async (t) => {
-  const root = await makeFixture(t);
-  writeInventory(root, []);
-  writeSkillFile(root, "l3io-pm-setup/assets/module.yaml",
-    "code: l3io-pm\nname: X\ndescription: uses bmad-nonexistent\n");
-  const { code, out } = runCheckDocs(root);
-  assert.equal(code, 1);
-  assert.match(out, /names 'bmad-nonexistent', not declared/);
+test("check 17 scans assets/module.yaml, not a skill-root module.yaml", (t) => {
+  const root = fixture(t);
+  write(root, "skills/l3io-pm-setup/assets/module.yaml",
+    "code: l3io-pm\nname: X\ndescription: mentions bmad-nonexistent\n");
+  const r = run(root);
+  assert.equal(r.status, 1);
+  assert.match(r.stderr, /names 'bmad-nonexistent', not declared/);
 });
 ```
 
@@ -1022,9 +1049,21 @@ done
   }
 ```
 
-- [ ] **Step 5: Delete check 16**
+- [ ] **Step 5: Delete check 16 — including its four tests**
 
-Remove `MODULE_SHARED_FIELDS`, the whole `checkModuleYamlAgreement()` function, its call, and
+`scripts/tests/check-docs.test.mjs` contains four tests whose names begin `check 16:`, one of
+them the scope-attack case. Deleting the function without them leaves four tests calling into
+nothing:
+
+```bash
+grep -n 'check 16:' scripts/tests/check-docs.test.mjs
+```
+
+Delete those four test blocks in the same commit. Task 6A's `check-module.test.mjs` carries
+the replacement coverage, including its own scope-attack case, so the protection moves rather
+than disappearing — confirm that before deleting, not after.
+
+Then remove `MODULE_SHARED_FIELDS`, the whole `checkModuleYamlAgreement()` function, its call, and
 its header-comment entry. Renumber the header list so `bmad-dependency-inventory` becomes 16,
 and update every `check:docs runs seventeen checks` / numbered reference in `CLAUDE.md`,
 `README.md` and `docs/` to sixteen.
@@ -1455,11 +1494,16 @@ session and never runs setup.
 - Modify: `skills/_shared/pm-status.py` — new `notice` subcommand
 - Modify: `skills/_shared/tests/test-pm-status.py`
 - Modify: `skills/_shared/config-resolution.md` §5
-- Modify: `skills/l3io-pm-execute/SKILL.md`, `l3io-pm-plan/SKILL.md`, `l3io-pm-help/SKILL.md`, `l3io-pm-sync/SKILL.md`
+- Modify: `skills/l3io-pm-execute/SKILL.md`, `skills/l3io-pm-plan/SKILL.md` — **these two only**
 - Modify: `.gitignore`
 
 **Interfaces:**
-- Consumes: the `{session_id}` the PM skills already bind at activation.
+- Consumes: `{session_id}`, which `steps/shared/step-00-activate.md:224` binds. That file says
+  **"Only an orchestrator generates one"**, and only `l3io-pm-execute` and `l3io-pm-plan` load
+  it. `l3io-pm-help` merely *references* it (`:109`, `:151`) and `l3io-pm-sync` does not touch
+  it, so **neither has a session identity and neither emits the pointer.** Scoping to the
+  orchestrators needs no new machinery and puts the pointer where a user is about to start
+  work rather than where they are reading status.
 - Produces: `pm-status.py notice --state-root S --session-id SESS --key KEY` — exit **0** =
   not yet emitted this session (and now recorded); exit **1** = already emitted; exit **2** =
   usage error. Records in `{state_root}/.notices.yaml` under flock, pruned to the 20 most
@@ -1468,37 +1512,48 @@ session and never runs setup.
 - [ ] **Step 1: Write the failing test**
 
 ```python
-    def test_notice_is_emitted_once_per_session(self):
-        root = self.make_state_root()
-        first = self.run_pm(["notice", "--state-root", root,
-                             "--session-id", "S1", "--key", "setup-pointer"])
-        self.assertEqual(first.returncode, 0)
-        second = self.run_pm(["notice", "--state-root", root,
-                              "--session-id", "S1", "--key", "setup-pointer"])
-        self.assertEqual(second.returncode, 1)
+class TestNotice(Base):
+    """Base gives us self.d (scratch dir) and self.run_main(argv) -> (code, stdout)."""
 
-    def test_notice_is_per_session_and_per_key(self):
-        root = self.make_state_root()
-        self.run_pm(["notice", "--state-root", root, "--session-id", "S1", "--key", "a"])
-        other_session = self.run_pm(["notice", "--state-root", root,
-                                     "--session-id", "S2", "--key", "a"])
-        other_key = self.run_pm(["notice", "--state-root", root,
-                                 "--session-id", "S1", "--key", "b"])
-        self.assertEqual(other_session.returncode, 0)
-        self.assertEqual(other_key.returncode, 0)
+    def notice(self, session, key="setup-pointer"):
+        return self.run_main(["notice", "--state-root", self.d,
+                              "--session-id", session, "--key", key])
 
-    def test_notice_prunes_to_twenty_sessions(self):
-        root = self.make_state_root()
+    def test_emitted_once_per_session(self):
+        code, out = self.notice("S1")
+        self.assertEqual(code, 0, out)
+        code, out = self.notice("S1")
+        self.assertEqual(code, 1, out)
+
+    def test_scoped_per_session_and_per_key(self):
+        self.notice("S1", "a")
+        self.assertEqual(self.notice("S2", "a")[0], 0)   # different session
+        self.assertEqual(self.notice("S1", "b")[0], 0)   # different key
+
+    def test_blank_session_or_key_is_a_usage_error(self):
+        self.assertEqual(self.run_main(
+            ["notice", "--state-root", self.d, "--session-id", "  ",
+             "--key", "setup-pointer"])[0], 2)
+
+    def test_prunes_to_twenty_sessions(self):
         for i in range(25):
-            self.run_pm(["notice", "--state-root", root,
-                         "--session-id", f"S{i}", "--key", "setup-pointer"])
-        data = yaml.safe_load(Path(root, ".notices.yaml").read_text())
+            self.notice(f"S{i}")
+        with open(os.path.join(self.d, ".notices.yaml"), encoding="utf-8") as fh:
+            data = pm.yaml_load_stream(fh) if hasattr(pm, "yaml_load_stream") else None
+        self.assertIsNotNone(data, "read the file with whatever loader pm-status.py uses")
         self.assertLessEqual(len(data["sessions"]), 20)
         self.assertIn("S24", data["sessions"])
         self.assertNotIn("S0", data["sessions"])
+
+    def test_damaged_file_does_not_block_the_caller(self):
+        with open(os.path.join(self.d, ".notices.yaml"), "w", encoding="utf-8") as fh:
+            fh.write("{ not: valid: yaml\n")
+        self.assertEqual(self.notice("S1")[0], 0)
 ```
 
-Reuse the file's existing `run_pm` / `make_state_root` helpers; do not add a second harness.
+`Base` and `run_main` already exist in this file (`test-pm-status.py:70`), and `pm` is the
+module imported at the top. In the pruning test, read the file with whatever YAML loader
+`pm-status.py` itself exposes rather than importing a second one.
 
 - [ ] **Step 2: Run to verify it fails**
 
@@ -1595,11 +1650,16 @@ It churns per session and carries no durable state. The lock files are already i
 > Exit 1 means it was already said this session — say nothing. Never halt on it: the module
 > works without settings, which is why none are declared.
 
-- [ ] **Step 8: Apply to the four SKILL.md files**
+- [ ] **Step 8: Apply to the two orchestrator SKILL.md files**
 
-Add the pointer after config resolution, before any state read. It is advisory and
-non-blocking: no skill changes behaviour based on the notice's exit code beyond whether it
-prints.
+`l3io-pm-execute` and `l3io-pm-plan` only. Add the pointer after config resolution and after
+`step-00-activate.md` has bound `{session_id}`, before any state read. It is advisory and
+non-blocking: nothing changes behaviour based on the exit code beyond whether it prints.
+
+**Do not add it to `l3io-pm-help` or `l3io-pm-sync`** — they have no `{session_id}`, so the
+guard could not bound anything and the pointer would fire on every invocation, which is the
+behaviour §5 removed. Say so in a one-line comment in each of those two files, so the next
+reader does not "fix" the inconsistency.
 
 - [ ] **Step 9: Sync, regenerate, verify**
 
