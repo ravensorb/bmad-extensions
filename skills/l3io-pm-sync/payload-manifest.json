@@ -2,7 +2,7 @@
   "version": "2.5.1",
   "generated_from": "skills/_shared/",
   "files": {
-    "references/config-resolution.md": "9501617b815e7ee26df2b779361ef643e2ffd77b4502775159b6e02a3df23898",
+    "references/config-resolution.md": "5abd871c7ec235445bab55d280e5c0c6fd1f64e6ab84dee2c9b5d7dc78254273",
     "steps/shared/step-00-activate.md": "a8337cb1a962ba1ed49390a15e4c21c7feb5d2cf7d74170efa0ccd10a1bec11f",
     "steps/shared/step-00-digest.md": "dc47a7a86dc1147f66a6f5c4b9a89f79f951d5c2ac221ad9efea0db80bd5a997",
     "steps/shared/step-01-classify-work.md": "dcd71a5e3780e24550d8c3ff98051b63f0c0a3fc75203cb1fec29f3ab9bd865f",

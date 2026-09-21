@@ -915,8 +915,8 @@ Dependency declarations and actual invocations do not currently agree in both di
 
 | Skill | Declared | Invoked |
 |---|---|---|
-| `bmad-qa-generate-e2e-tests` | Required in `marketplace.json`, CLAUDE.md, README, getting-started, and `l3io-pm-execute/module.yaml` | **Never** — the dev loop is develop → code review → fix → done |
-| legacy `bmad-create-story` | **Absent** from `l3io-pm-execute/module.yaml` | Yes — sprint step-02 story prep, and plan step-03 elaboration (when installed; else the in-package agent) |
-| `bmad-sprint-planning intent=readiness` (legacy `bmad-check-implementation-readiness`) | Optional in `l3io-pm-plan/module.yaml` only | Yes — plan step-02 readiness check |
+| `bmad-qa-generate-e2e-tests` | Required in `marketplace.json`, CLAUDE.md, README, getting-started, `l3io-pm-setup/assets/module.yaml`'s post-install notes, and `l3io-util-doctor/assets/bmad-dependencies.json` | **Never** — the dev loop is develop → code review → fix → done |
+| legacy `bmad-create-story` | **Absent** from `l3io-pm-setup/assets/module.yaml`'s post-install notes (it documents the in-package-agent fallback instead) | Yes — sprint step-02 story prep, and plan step-03 elaboration (when installed; else the in-package agent) |
+| `bmad-sprint-planning intent=readiness` (legacy `bmad-check-implementation-readiness`) | Declared in `l3io-util-doctor/assets/bmad-dependencies.json` (module.yaml's dependency declarations consolidated there and into `l3io-pm-setup/assets/module.yaml` when per-skill `module.yaml` files were removed) | Yes — plan step-02 readiness check |
 
 The `tests/` directories in the artifact layout are real but are not written by a QA phase. Treat the QA dependency as aspirational until a step actually calls it.

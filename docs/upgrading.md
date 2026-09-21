@@ -116,6 +116,14 @@ number of these at once, but the migrations must still run.
 `/l3io-util-cleanup` was a deprecated forwarder from 2.1.0 onward and is now removed.
 Use `/l3io-util-doctor` with the same arguments — every mode name is unchanged.
 
+**Module setup no longer routes through `l3io-pm-execute`, `l3io-pm-plan`, `l3io-pm-help`,
+or `l3io-pm-sync`.** Those four skills previously loaded `assets/module-setup.md` when you
+passed `setup`, `configure`, or `install`; they no longer carry that file at all — only the
+module's home skill, `l3io-pm-setup`, does. If a team script, alias, or habit invoked module
+setup through one of the other four skills, switch it to `/l3io-pm-setup`. `l3io-pm-sync`'s
+own `setup` mode (GitHub sync setup) is unaffected — it was always a different thing from
+module setup.
+
 ### → 2.1.1
 
 **`persistent_facts` no longer searches recursively.** The PM skills previously injected

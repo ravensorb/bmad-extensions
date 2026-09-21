@@ -20,7 +20,7 @@ BMad 6.10 keeps central config in four TOML files, merged in order (later wins):
 
 Layers 1–2 are **regenerated on every install** — never write to them. Layers 3–4 are
 never touched by the installer and are the only correct destination for settings a skill
-records (see `assets/module-setup.md`).
+records (see the module home's `assets/module-setup.md`, §5 below).
 
 There is **no `{project-root}/_bmad/config.yaml`**. Earlier versions of these skills read
 one; BMad has not created that file since the TOML migration, so the read always missed
@@ -164,7 +164,8 @@ Exit 1 from `notice` means this key was already recorded for this project — sa
 further, permanently, for that key. Exit 2 means something actually failed recording it (never
 conflated with exit 1); note it in passing but never halt on it — the module works without
 settings, which is why none are declared, and this check is never a trigger for setup itself —
-that stays gated on an explicit `setup`/`configure`/`install` argument, exactly as above.
+no argument to `l3io-pm-execute` or `l3io-pm-plan` loads module setup; `/l3io-pm-setup` is the
+module's setup entry point, exactly as above.
 
 **Wired into `l3io-pm-execute` and `l3io-pm-plan` only — a placement choice, not a technical
 constraint.** Nothing about `notice` requires an orchestrator, a session, or anything else

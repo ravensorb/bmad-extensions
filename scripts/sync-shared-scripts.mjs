@@ -126,11 +126,12 @@ const newUtilDoctorDirs = [
   path.join(repoRoot, "skills", "l3io-util-doctor"),
 ];
 
-// Every skill in the package — the four l3io modules' skills all resolve config and all
-// carry the same setup procedure. Derived from skills/ itself, never hand-enumerated: a
-// hand-kept list here drifted silently once already (l3io-pm-setup was absent from it and
-// so absent from the check:scripts comparison too, even though it needed the same three
-// files as every other skill). Same derivation scripts/check-docs.mjs's derivedCounts()
+// Every skill in the package — the four l3io modules' skills all resolve config, so all of
+// them carry config-resolution.md (allSkillFiles above); the setup procedure itself is a
+// module-home concern (moduleHomeFiles). Derived from skills/ itself, never hand-enumerated:
+// a hand-kept list here drifted silently once already (l3io-pm-setup was absent from it and
+// so absent from the check:scripts comparison too, even though it needed the same config
+// contract as every other skill). Same derivation scripts/check-docs.mjs's derivedCounts()
 // uses (withFileTypes + isDirectory()) — a skill directory is a *directory* under skills/
 // whose name starts with "l3io-" (_shared is excluded by the prefix). Fix round 1, F-8: an
 // earlier version used checkSkillNames()'s derivation instead, which reads plain
@@ -237,6 +238,47 @@ export const PAYLOAD_TARGETS = syncGroups.flatMap(({ files, dirs, skipMissing })
   ),
 );
 
+// Orphan detection: the drift check above compares synced copies against their sources, but
+// it walks syncGroups' own dirs -- it can never notice a copy sitting in a skill NO group
+// targets for that rel path. That is exactly the shape Task 11 exposed: narrowing
+// moduleHomeFiles to four module homes left module-setup.md and write-module-config.py
+// physically present in four other skills until something ran `git rm` on them by hand --
+// skip that step and every one of check:scripts/check:docs/check:manifest/check:version/
+// check:module stays green while eight dead files still ship.
+//
+// For every rel path any group delivers, the allowed set is the UNION of that group's `dirs`
+// across every group naming the same rel -- never a hand-kept list, so a group that legitimately
+// widens or narrows its own targets is picked up automatically. Any other real skill directory
+// under skills/ that happens to contain a file at that rel path is an orphan: bytes this script
+// does not own, but that still ship.
+function findOrphans() {
+  const allowedByRel = new Map(); // rel -> Set<absolute skill dir>
+  for (const { files, dirs } of syncGroups) {
+    for (const { rel } of files) {
+      if (!allowedByRel.has(rel)) allowedByRel.set(rel, new Set());
+      for (const dir of dirs) allowedByRel.get(rel).add(dir);
+    }
+  }
+
+  // Every real skill directory -- not just the ones a group already names, since an orphan
+  // is by definition a directory no group named for that rel path. Same derivation as
+  // allSkillDirs above (readdirSync + isDirectory + "l3io-" prefix; _shared is excluded by
+  // the prefix, matching every other scope-derivation in this file).
+  const everySkillDir = fs.readdirSync(path.join(repoRoot, "skills"), { withFileTypes: true })
+    .filter((e) => e.isDirectory() && e.name.startsWith("l3io-"))
+    .map((e) => path.join(repoRoot, "skills", e.name));
+
+  const orphans = [];
+  for (const [rel, allowedDirs] of allowedByRel) {
+    for (const skillDir of everySkillDir) {
+      if (allowedDirs.has(skillDir)) continue;
+      const candidate = path.join(skillDir, rel);
+      if (fs.existsSync(candidate)) orphans.push(path.relative(repoRoot, candidate));
+    }
+  }
+  return orphans.sort();
+}
+
 // Guard: importing this module (e.g. from write-payload-manifest.mjs) must not perform a
 // sync. The body below only runs when this file is executed directly as the entry point.
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
@@ -274,13 +316,28 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
     }
   }
 
+  const orphans = findOrphans();
+  for (const orphan of orphans) {
+    console.error(`ORPHAN: ${orphan} exists but no sync group targets this skill for this file`);
+  }
+
   if (check) {
-    if (drift > 0) {
-      console.error(`\n${drift} shared-script copy/copies out of sync — run: npm run sync:scripts`);
+    if (drift > 0 || orphans.length > 0) {
+      if (drift > 0) {
+        console.error(`\n${drift} shared-script copy/copies out of sync — run: npm run sync:scripts`);
+      }
+      if (orphans.length > 0) {
+        console.error(`\n${orphans.length} orphaned shared-script copy/copies found — delete them ` +
+          `(git rm) or, if the file legitimately belongs there now, add that skill to the owning ` +
+          `sync group in ${path.basename(import.meta.url)}.`);
+      }
       process.exit(1);
     }
-    console.log("Shared-script payload copies are in sync with skills/_shared/.");
+    console.log("Shared-script payload copies are in sync with skills/_shared/, with no orphans.");
   } else {
     console.log(`Shared-script sync complete (${written} file(s) written).`);
+    if (orphans.length > 0) {
+      console.log(`${orphans.length} orphaned copy/copies found — sync does not delete; remove them by hand.`);
+    }
   }
 }
