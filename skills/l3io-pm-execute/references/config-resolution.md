@@ -129,6 +129,26 @@ Load `assets/module-setup.md` only when:
 Never treat a missing config section as the trigger. That mistake is what made every
 invocation open with "No {module} section in config — loading module setup first."
 
+Once per session, at most, an **orchestrator** may mention that `/l3io-pm-setup` exists:
+
+```bash
+uv run {pm_status} notice --state-root {pm_state_root} \
+  --session-id {session_id} --key setup-pointer && \
+  echo "l3io-pm has no project settings. /l3io-pm-setup configures it if you want to."
+```
+
+Exit 1 means it was already said this session — say nothing. Never halt on it: the module
+works without settings, which is why none are declared.
+
+**Orchestrator-only, and it needs no new machinery to say so**: `l3io-pm-execute` and
+`l3io-pm-plan` are the only skills that load `steps/shared/step-00-activate.md` and bind a
+real `{session_id}` there — "Only an orchestrator generates one" (§7 of that file). `l3io-pm-help`
+never loads it at all, and while `l3io-pm-sync` does load it, it is not an orchestrator (it
+never dispatches a subagent) and no step of its own ever references `{session_id}` again, so
+that binding never becomes a real value there either way. Neither has a session id to key
+this notice on, so wiring either in would fire the pointer on every single invocation — the
+exact per-invocation detour this section exists to rule out. Do not "fix" that asymmetry.
+
 ## 6. Detecting whether another l3io module is installed
 
 Optional integrations (the epic architecture gate calling `l3io-arch-review`, sprint

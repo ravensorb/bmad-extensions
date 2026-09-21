@@ -207,10 +207,16 @@ Subcommands
   adr-reserve   --state-root S  --epic ID  --slug SLUG  [--count N]
                 (reserves N sequential ADR numbers under a lock, before dispatch;
                 prints one zero-padded number per line; see adr_register_path)
+  notice        --state-root S  --session-id SESS  --key KEY
+                (records a one-per-session advisory notice in {state-root}/.notices.yaml
+                under flock, pruned to the 20 most recent session ids; exit 0 = not yet
+                emitted this session for KEY (and now recorded), exit 1 = already emitted;
+                advisory only -- a damaged notices file never blocks the caller)
 
-Exit codes: 0 = success/verified, 2 = usage error, 3 = node not found,
-4 = verification failure (missing/invalid field), 5 = epic locked. Errors go
-to stderr; machine output (verify summaries) goes to stdout.
+Exit codes: 0 = success/verified, 1 = notice already emitted this session
+(notice only), 2 = usage error, 3 = node not found, 4 = verification failure
+(missing/invalid field), 5 = epic locked. Errors go to stderr; machine output
+(verify summaries) goes to stdout.
 """
 from __future__ import annotations
 
@@ -326,11 +332,16 @@ def _atomic_create(path: str, text: str) -> bool:
 # State roots whose .gitignore this process has already checked (_ensure_lock_ignore).
 _LOCK_IGNORE_CHECKED = set()
 _LOCK_IGNORE_LINE = "*.lock"
+NOTICES_FILENAME = ".notices.yaml"  # the one-per-session advisory ledger (cmd_notice below)
+NOTICES_KEEP = 20
+# Every filename pm-status.py writes at a state root that must never reach git: the
+# per-family lock sidecars (one glob covers all of them) and the notices ledger.
+_GITIGNORE_PATTERNS = (_LOCK_IGNORE_LINE, NOTICES_FILENAME)
 
 
-def _lock_rule_present(text: str) -> bool:
-    """True when git reads `text` (a .gitignore) as ignoring every `*.lock`: some line is
-    exactly `*.lock` and no LATER line is exactly `!*.lock`. Parsed as git parses it: split
+def _lock_rule_present(text: str, pattern: str = _LOCK_IGNORE_LINE) -> bool:
+    """True when git reads `text` (a .gitignore) as ignoring every `pattern`: some line is
+    exactly `pattern` and no LATER line is exactly `!pattern`. Parsed as git parses it: split
     on "\\n" only -- never str.splitlines(), which also breaks on U+0085 and other characters
     git keeps inside a line -- and strip exactly one trailing "\\r", then trailing spaces,
     since leading spaces are part of the pattern. The caller decodes with utf-8-sig, so a
@@ -340,34 +351,45 @@ def _lock_rule_present(text: str) -> bool:
     for raw in text.split("\n"):
         line = raw[:-1] if raw.endswith("\r") else raw
         line = line.rstrip(" ")
-        if line == _LOCK_IGNORE_LINE:
+        if line == pattern:
             present = True
-        elif line == "!" + _LOCK_IGNORE_LINE:
+        elif line == "!" + pattern:
             present = False
     return present
 
 
+def _missing_ignore_patterns(text: str):
+    """Which of `_GITIGNORE_PATTERNS` git does NOT currently read `text` as ignoring."""
+    return [p for p in _GITIGNORE_PATTERNS if not _lock_rule_present(text, p)]
+
+
 def _ensure_lock_ignore(state_root: str) -> None:
-    """Make `{state_root}/.gitignore` carry `*.lock`, so no lock file is ever committed.
+    """Make `{state_root}/.gitignore` carry every pattern in `_GITIGNORE_PATTERNS` --
+    `*.lock` and `.notices.yaml` -- so neither a lock file nor the notices ledger is ever
+    committed.
 
-    Every lock file this script creates is an empty flock target -- the four in the state
-    root and the per-node `.yaml.lock` sidecars below it -- and the sprint-closure
-    checkpoint stages the whole state tree. A `*.lock` pattern matches files only, never
-    the state-root directory, so step-00-activate's `git check-ignore` gate still passes.
+    Every lock file this script creates is an empty flock target -- the several families in
+    the state root and the per-node `.yaml.lock` sidecars below it -- and the sprint-closure
+    checkpoint stages the whole state tree; `.notices.yaml` is the one non-lock file this
+    script writes at the state root that is equally advisory and equally not for git. Neither
+    pattern matches the state-root directory itself, so step-00-activate's `git check-ignore`
+    gate still passes.
 
-    Called on EVERY lock acquisition inside a state root, not only when a lock file is first
-    created: a project whose lock files already exist gets the rule on its next lock. A bare
-    `append-issue --file` outside one (no status folders, no --state-root) is skipped, so it
-    never writes a .gitignore into a repo root (_file_lock). Memoized per process, so
-    each state root is checked at most once. Absent file -> created (no-clobber
-    _atomic_create) with one comment line and the rule. Present -> READ first, and only when
-    the rule is missing (as git reads it, _lock_rule_present) is it opened for append and
-    flocked, then re-checked under the flock so two processes cannot both append it; a
-    read-only .gitignore that already has the rule is never opened for writing. The line is
-    appended after a newline when the file lacks a trailing one; existing content is never
-    rewritten or reordered. Best-effort: this runs inside the lock path, so an OSError or an
-    undecodable file warns once on stderr and returns -- it never raises and never fails the
-    verb."""
+    Called on EVERY lock acquisition inside a state root, not only when a pattern's file is
+    first written: a project whose lock files already exist, or that adopts a newer
+    pm-status.py that adds a pattern, gets the missing rule(s) on its next lock. A bare
+    `append-issue --file` outside a state root (no status folders, no --state-root) is
+    skipped, so it never writes a .gitignore into a repo root (_file_lock). Memoized per
+    process, so each state root is checked at most once. Absent file -> created (no-clobber
+    _atomic_create) with one comment line and every pattern. Present -> READ first, and only
+    when at least one pattern is missing (as git reads it, _lock_rule_present) is it opened
+    for append and flocked, then re-checked under the flock so two processes cannot both
+    append it -- only the still-missing patterns are written, so an already-satisfied pattern
+    is never duplicated; a read-only .gitignore that already has every pattern is never opened
+    for writing. Missing lines are appended after a newline when the file lacks a trailing
+    one; existing content is never rewritten or reordered. Best-effort: this runs inside the
+    lock path, so an OSError or an undecodable file warns once on stderr and returns -- it
+    never raises and never fails the verb."""
     root = os.path.realpath(state_root or ".")
     if root in _LOCK_IGNORE_CHECKED:
         return
@@ -375,10 +397,11 @@ def _ensure_lock_ignore(state_root: str) -> None:
     path = os.path.join(root, ".gitignore")
     try:
         if not os.path.lexists(path) and _atomic_create(
-                path, f"# pm-status.py lock files -- never commit\n{_LOCK_IGNORE_LINE}\n"):
+                path, "# pm-status.py state files -- never commit\n" +
+                      "".join(f"{p}\n" for p in _GITIGNORE_PATTERNS)):
             return
         with open(path, "rb") as fh:                # read first: needs no write access
-            if _lock_rule_present(fh.read().decode("utf-8-sig")):
+            if not _missing_ignore_patterns(fh.read().decode("utf-8-sig")):
                 return
         try:
             import fcntl
@@ -390,17 +413,18 @@ def _ensure_lock_ignore(state_root: str) -> None:
             try:
                 fh.seek(0)
                 text = fh.read().decode("utf-8-sig")   # re-check under the flock; BOM skipped
-                if _lock_rule_present(text):
+                missing = _missing_ignore_patterns(text)
+                if not missing:
                     return
                 sep = "" if not text or text.endswith("\n") else "\n"
-                fh.write(f"{sep}{_LOCK_IGNORE_LINE}\n".encode("utf-8"))
+                fh.write((sep + "".join(f"{p}\n" for p in missing)).encode("utf-8"))
                 fh.flush()
             finally:
                 if fcntl is not None:
                     fcntl.flock(fh, fcntl.LOCK_UN)
     except (OSError, UnicodeDecodeError) as e:
-        sys.stderr.write(f"pm-status.py: warning -- could not add {_LOCK_IGNORE_LINE} to "
-                         f"{path}: {e}\n")
+        sys.stderr.write(f"pm-status.py: warning -- could not add "
+                         f"{', '.join(_GITIGNORE_PATTERNS)} to {path}: {e}\n")
 
 
 def _state_root_of_node(path: str):
@@ -1031,6 +1055,25 @@ def adr_register_lock(state_root: str):
     this is exactly the register two parallel adr-reserve calls must not race on.
     """
     with _file_lock(adr_register_path(state_root) + ".lock", _ADR_LOCK, state_root):
+        yield
+
+
+def notices_path(state_root: str) -> str:
+    return os.path.join(state_root, NOTICES_FILENAME)
+
+
+_NOTICES_LOCK = {"depth": 0, "fh": None}
+
+
+@contextlib.contextmanager
+def notices_lock(state_root: str):
+    """Hold an exclusive lock over a whole notices read-modify-write cycle.
+
+    Same reasoning as calibration_lock and adr_register_lock: load -> mutate -> save is
+    not atomic, and two parallel orchestrators in one session must not both decide the
+    notice has not been shown.
+    """
+    with _file_lock(notices_path(state_root) + ".lock", _NOTICES_LOCK, state_root):
         yield
 
 
@@ -2587,6 +2630,48 @@ def cmd_adr_reserve(args) -> int:
         reg["next"] = start + args.count
         _atomic_dump(yaml, reg, adr_register_path(args.state_root))
     sys.stdout.write("\n".join(f"{n:04d}" for n in numbers) + "\n")
+    return 0
+
+
+def cmd_notice(args) -> int:
+    """Record a one-per-session advisory notice. Exit 0 = emit it now (and record it),
+    exit 1 = already emitted this session for this key, exit 2 = usage error.
+
+    An absent or unparseable notices file means nothing has been emitted yet for any
+    session -- a notice is advisory only, so a damaged file must never block the caller's
+    real work; it is simply treated as empty and rewritten clean on this call.
+    """
+    session = (args.session_id or "").strip()
+    key = (args.key or "").strip()
+    if not session or not key:
+        sys.stderr.write("notice: --session-id and --key must be non-empty\n")
+        return 2
+    os.makedirs(args.state_root, exist_ok=True)
+    path = notices_path(args.state_root)
+    with notices_lock(args.state_root):
+        # _load returns (yaml_instance, data) -- data is None when the file is absent or
+        # fails to parse the way _load's caller expects. Reuse the returned YAML instance
+        # for the dump so round-trip settings (width, indent, quote style) match.
+        try:
+            y, data = _load(path)
+        except Exception:
+            y, data = _yaml(), None
+        sessions = data.get("sessions") if isinstance(data, dict) else None
+        if not isinstance(sessions, dict):
+            from ruamel.yaml.comments import CommentedMap
+            sessions = CommentedMap()
+        emitted = sessions.get(session)
+        if not isinstance(emitted, list):
+            emitted = []
+        if key in emitted:
+            return 1
+        emitted.append(key)
+        sessions[session] = emitted
+        # Insertion order is emission order (first-seen session first); keep only the
+        # newest NOTICES_KEEP sessions so the ledger never grows without bound.
+        for stale in list(sessions)[:-NOTICES_KEEP]:
+            del sessions[stale]
+        _atomic_dump(y, {"sessions": sessions}, path)
     return 0
 
 
@@ -6677,6 +6762,13 @@ def build_parser() -> argparse.ArgumentParser:
     ar.add_argument("--adr-dir", dest="adr_dir", default="",
                     help="the one ADR home to scan (default: <git top-level>/docs/adr)")
     ar.set_defaults(func=cmd_adr_reserve)
+
+    nt = sub.add_parser("notice",
+                        help="record a one-per-session advisory notice; exit 1 if already shown")
+    nt.add_argument("--state-root", required=True)
+    nt.add_argument("--session-id", dest="session_id", required=True)
+    nt.add_argument("--key", required=True)
+    nt.set_defaults(func=cmd_notice)
 
     p.add_argument("--version", action="version", version=f"pm-status.py {PM_STATUS_VERSION}")
     return p

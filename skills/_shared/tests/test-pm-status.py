@@ -240,6 +240,53 @@ class TestLockCommands(Base):
         self.assertIn("sess-abc", out)
 
 
+class TestNotice(Base):
+    """notice: a one-per-session advisory pointer, modeled on set-lock/check-lock's
+    --session-id discipline but with no TTL. Base gives us self.d (scratch dir) and
+    self.run_main(argv) -> (code, stdout)."""
+
+    def notice(self, session, key="setup-pointer"):
+        return self.run_main(["notice", "--state-root", self.d,
+                              "--session-id", session, "--key", key])
+
+    def test_emitted_once_per_session(self):
+        code, out = self.notice("S1")
+        self.assertEqual(code, 0, out)
+        code, out = self.notice("S1")
+        self.assertEqual(code, 1, out)
+
+    def test_scoped_per_session_and_per_key(self):
+        self.notice("S1", "a")
+        self.assertEqual(self.notice("S2", "a")[0], 0)   # different session
+        self.assertEqual(self.notice("S1", "b")[0], 0)   # different key
+
+    def test_blank_session_or_key_is_a_usage_error(self):
+        self.assertEqual(self.run_main(
+            ["notice", "--state-root", self.d, "--session-id", "  ",
+             "--key", "setup-pointer"])[0], 2)
+
+    def test_prunes_to_twenty_sessions(self):
+        for i in range(25):
+            self.notice(f"S{i}")
+        _, data = pm._load(os.path.join(self.d, ".notices.yaml"))   # returns (yaml, data)
+        self.assertLessEqual(len(data["sessions"]), 20)
+        self.assertIn("S24", data["sessions"])
+        self.assertNotIn("S0", data["sessions"])
+
+    def test_damaged_file_does_not_block_the_caller(self):
+        with open(os.path.join(self.d, ".notices.yaml"), "w", encoding="utf-8") as fh:
+            fh.write("{ not: valid: yaml\n")
+        self.assertEqual(self.notice("S1")[0], 0)
+
+    def test_different_session_id_is_not_suppressed(self):
+        """The other half of the once-per-session guarantee: a session id that was never
+        recorded must never be treated as already shown, however similar."""
+        self.assertEqual(self.notice("session-with-a-long-name")[0], 0)
+        self.assertEqual(self.notice("session-with-a-long-name-2")[0], 0)
+        self.assertEqual(self.notice("session-with-a-long-name")[0], 1)
+        self.assertEqual(self.notice("session-with-a-long-name-2")[0], 1)
+
+
 class TestSetLockMutualExclusion(Base):
     """set-lock must itself enforce mutual exclusion -- it used to unconditionally
     overwrite `_lock` with no read-compare-write, so two concurrent sessions claiming
@@ -8590,11 +8637,12 @@ class TestEventWriteFailure(IssueBase):
 
 
 class TestLockFilesIgnored(IssueBase):
-    """Lock files must never be committed. Every lock acquisition inside a state root ensures
-    {state_root}/.gitignore carries `*.lock` (a bare `append-issue --file` outside one is
-    skipped) -- on every acquisition, not only when a lock file is first created, so a
-    project whose lock files already exist is covered on its next lock. Best-effort: a
-    failure warns on stderr and never fails the verb."""
+    """Lock files, and the notices ledger, must never be committed. Every lock acquisition
+    inside a state root ensures {state_root}/.gitignore carries BOTH `*.lock` and
+    `.notices.yaml` (a bare `append-issue --file` outside one is skipped) -- on every
+    acquisition, not only when a pattern's file is first created, so a project whose lock
+    files already exist is covered on its next lock. Best-effort: a failure warns on stderr
+    and never fails the verb."""
 
     STORY = "E001-S01-001"
 
@@ -8626,13 +8674,17 @@ class TestLockFilesIgnored(IssueBase):
         code, _, err = self.append("A")
         self.assertEqual(code, 0, err)
         self.assertTrue(os.path.exists(self.issues + ".lock"), "premise: a lock was taken")
-        self.assertIn("*.lock", self.gi_lines())
+        lines = self.gi_lines()
+        self.assertIn("*.lock", lines)
+        self.assertIn(".notices.yaml", lines)
 
     def test_epic_lock_creates_gitignore(self):
         code, _, err = self.run_all(["set-lock", "--state-root", self.root, "--epic", "E001",
                                      "--session-id", "s1", "--ttl-minutes", "30"])
         self.assertEqual(code, 0, err)
-        self.assertIn("*.lock", self.gi_lines())
+        lines = self.gi_lines()
+        self.assertIn("*.lock", lines)
+        self.assertIn(".notices.yaml", lines)
 
     def test_second_lock_leaves_bytes_unchanged(self):
         self.append("A")
@@ -8648,24 +8700,37 @@ class TestLockFilesIgnored(IssueBase):
         with open(self.gi, "wb") as fh:
             fh.write(b"# team rules\nscratch/\n*.tmp")       # no trailing newline
         self.append("A")
-        self.assertEqual(self.gi_bytes(), b"# team rules\nscratch/\n*.tmp\n*.lock\n")
+        self.assertEqual(self.gi_bytes(),
+                         b"# team rules\nscratch/\n*.tmp\n*.lock\n.notices.yaml\n")
         pm._LOCK_IGNORE_CHECKED.clear()
         self.append("B")
-        self.assertEqual(self.gi_bytes(), b"# team rules\nscratch/\n*.tmp\n*.lock\n")
+        self.assertEqual(self.gi_bytes(),
+                         b"# team rules\nscratch/\n*.tmp\n*.lock\n.notices.yaml\n")
 
-    def test_existing_gitignore_with_the_line_is_untouched(self):
-        original = b"*.lock\n# local\nnotes/\n"
+    def test_existing_gitignore_with_both_lines_is_untouched(self):
+        original = b"*.lock\n.notices.yaml\n# local\nnotes/\n"
         with open(self.gi, "wb") as fh:
             fh.write(original)
         self.append("A")
         self.assertEqual(self.gi_bytes(), original)
 
+    def test_existing_gitignore_missing_one_pattern_gets_only_that_one_appended(self):
+        """A consumer already on an older pm-status.py has `*.lock` alone. Upgrading must
+        add the newly-required `.notices.yaml` without touching the line already there."""
+        original = b"*.lock\n# local\nnotes/\n"
+        with open(self.gi, "wb") as fh:
+            fh.write(original)
+        self.append("A")
+        self.assertEqual(self.gi_bytes(), b"*.lock\n# local\nnotes/\n.notices.yaml\n")
+
     def test_unwritable_target_warns_and_the_verb_still_succeeds(self):
         os.mkdir(self.gi)                         # a directory where the file should be
         code, _, err = self.append("A")
         self.assertEqual(code, 0, err)
-        self.assertIn(f"pm-status.py: warning -- could not add *.lock to {self.gi}: ", err)
-        self.assertEqual(err.count("could not add *.lock"), 1, err)
+        self.assertIn(
+            f"pm-status.py: warning -- could not add *.lock, .notices.yaml to {self.gi}: ",
+            err)
+        self.assertEqual(err.count("could not add"), 1, err)
         self.assertEqual(self.open_keys(), ["BL-E001-001"], "the verb's state must be written")
 
     def test_undecodable_gitignore_warns_and_is_left_alone(self):
@@ -8674,7 +8739,9 @@ class TestLockFilesIgnored(IssueBase):
             fh.write(original)
         code, _, err = self.append("A")
         self.assertEqual(code, 0, err)
-        self.assertIn(f"pm-status.py: warning -- could not add *.lock to {self.gi}: ", err)
+        self.assertIn(
+            f"pm-status.py: warning -- could not add *.lock, .notices.yaml to {self.gi}: ",
+            err)
         self.assertEqual(self.gi_bytes(), original)
         self.assertEqual(self.open_keys(), ["BL-E001-001"])
 
@@ -8683,7 +8750,9 @@ class TestLockFilesIgnored(IssueBase):
         code, _, err = self.add_test_run()
         self.assertEqual(code, 0, err)
         self.assertTrue(os.path.exists(story + ".lock"), "premise: the sidecar was taken")
-        self.assertIn("*.lock", self.gi_lines())
+        lines = self.gi_lines()
+        self.assertIn("*.lock", lines)
+        self.assertIn(".notices.yaml", lines)
         for d in (os.path.dirname(story), os.path.join(self.root, "active", "epic-001"),
                   os.path.join(self.root, "active")):
             self.assertFalse(os.path.exists(os.path.join(d, ".gitignore")),
@@ -8700,7 +8769,19 @@ class TestLockFilesIgnored(IssueBase):
     # -- "rule present" must mean what git means ---------------------------------------- #
     # git splits .gitignore on "\n" only, keeps leading spaces, drops trailing spaces (and a
     # trailing "\r"), and lets a later `!*.lock` undo the rule. Each case goes through a verb.
-    def assert_after_lock(self, before, after):
+    #
+    # `before`/`after` below describe the *.lock-only expectation, as they did before
+    # `.notices.yaml` existed. By default this helper pre-satisfies `.notices.yaml` in
+    # `before` (appending it, and to `after` at the same offset) so each case keeps
+    # exercising *.lock's parsing in isolation; the two-pattern append itself is covered
+    # separately below (test_both_patterns_appended_together_from_scratch etc). Every
+    # caller here only ever appends at the very end, so `after` always starts with `before`.
+    def assert_after_lock(self, before, after, notices_presatisfied=True):
+        assert after.startswith(before), "callers must only append, never rewrite, `before`"
+        delta = after[len(before):]
+        if notices_presatisfied:
+            before = before + b".notices.yaml\n"
+            after = before + delta
         with open(self.gi, "wb") as fh:
             fh.write(before)
         code, _, err = self.append("A")
@@ -8740,16 +8821,37 @@ class TestLockFilesIgnored(IssueBase):
     def test_a_narrower_negation_is_left_as_the_user_wrote_it(self):
         self.assert_after_lock(b"*.lock\n!keep.lock\n", b"*.lock\n!keep.lock\n")
 
+    def test_a_narrower_negation_on_notices_is_left_as_the_user_wrote_it(self):
+        """The mirror of the *.lock narrower-negation case, for the newer pattern: a
+        negation that does not match `.notices.yaml` exactly must not be treated as
+        undoing it, so the rule is still missing and gets (re-)appended."""
+        self.assert_after_lock(
+            b".notices.yaml\n!keep.notices.yaml\n",
+            b".notices.yaml\n!keep.notices.yaml\n*.lock\n",
+            notices_presatisfied=False)
+
+    def test_both_patterns_appended_together_from_scratch(self):
+        """A consumer state root with neither pattern yet ends up ignoring both, in one
+        append, in `_GITIGNORE_PATTERNS` order."""
+        self.assert_after_lock(b"# team rules\nnotes/\n",
+                               b"# team rules\nnotes/\n*.lock\n.notices.yaml\n",
+                               notices_presatisfied=False)
+
+    def test_a_later_full_negation_of_notices_undoes_it_too(self):
+        self.assert_after_lock(b".notices.yaml\n!.notices.yaml\n",
+                               b".notices.yaml\n!.notices.yaml\n*.lock\n.notices.yaml\n",
+                               notices_presatisfied=False)
+
     def test_read_only_gitignore_that_has_the_rule_does_not_warn(self):
         with open(self.gi, "wb") as fh:
-            fh.write(b"*.lock\n")
+            fh.write(b"*.lock\n.notices.yaml\n")
         os.chmod(self.gi, 0o444)
         if os.access(self.gi, os.W_OK):
             self.skipTest("chmod does not bind (running as root)")
         code, _, err = self.append("A")
         self.assertEqual(code, 0, err)
         self.assertNotIn("could not add", err)
-        self.assertEqual(self.gi_bytes(), b"*.lock\n")
+        self.assertEqual(self.gi_bytes(), b"*.lock\n.notices.yaml\n")
 
     # -- never outside a state root ------------------------------------------------------ #
     def append_file(self, path):

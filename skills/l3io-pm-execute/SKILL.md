@@ -32,6 +32,9 @@ module has no overrides, not that it needs setup.
 **Headless mode** — when `headless: true` is present in the injected context block, load
 step-00-activate for variable binding (pm_status path, state dirs), then the sprint steps.
 step-01-classify-work is skipped because `{work_type}` is already injected in the context block.
+No setup pointer here: this is a dispatched sprint subagent, not the entry a user is starting
+work from, and it inherits `{session_id}` from the orchestrator that dispatched it, which
+already had its own chance to print the pointer.
 
 ```
 {skill-root}/steps/shared/step-00-activate.md
@@ -44,6 +47,21 @@ step-01-classify-work is skipped because `{work_type}` is already injected in th
 
 ```
 {skill-root}/steps/shared/step-00-activate.md
+```
+
+Once `{session_id}` is bound and before reading any further state, apply the once-per-session
+setup pointer (`{skill-root}/references/config-resolution.md` §5) — this skill is one of the
+two orchestrators the pointer is scoped to:
+
+```bash
+uv run {pm_status} notice --state-root {pm_state_root} \
+  --session-id {session_id} --key setup-pointer && \
+  echo "l3io-pm has no project settings. /l3io-pm-setup configures it if you want to."
+```
+
+Exit 1 means it was already said this session — print nothing and continue. Never halt on it.
+
+```
 {skill-root}/steps/shared/step-01-classify-work.md
 {skill-root}/steps/execute/step-02-scope-resolve.md
 {skill-root}/steps/execute/step-03-load-plan.md

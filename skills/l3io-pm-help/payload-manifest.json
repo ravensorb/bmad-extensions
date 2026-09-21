@@ -3,7 +3,7 @@
   "generated_from": "skills/_shared/",
   "files": {
     "scripts/write-module-config.py": "fdc0e81cda51221599907b9023a096b0570e096b7d921fb0c1db2050afa7a80f",
-    "references/config-resolution.md": "db1ac9c41bb785c786663c1207f03b19451b399bb9577ef761216b5392182fd7",
+    "references/config-resolution.md": "04847d2fcfcb48d92b2c7c175c5b9046b62899ea837d473d826a71624ac01077",
     "assets/module-setup.md": "c4ffc5f603867c37c28446600f4a0ff62d30f92a121aac595523b9da75c3cc9a"
   }
 }

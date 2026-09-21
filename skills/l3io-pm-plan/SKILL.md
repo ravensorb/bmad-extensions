@@ -26,6 +26,21 @@ Load `{skill-root}/assets/module-setup.md` first **only** when the user passes `
 **All modes — load first:**
 ```
 {skill-root}/steps/shared/step-00-activate.md
+```
+
+Once `{session_id}` is bound and before reading any further state, apply the once-per-session
+setup pointer (`{skill-root}/references/config-resolution.md` §5) — this skill is one of the
+two orchestrators the pointer is scoped to:
+
+```bash
+uv run {pm_status} notice --state-root {pm_state_root} \
+  --session-id {session_id} --key setup-pointer && \
+  echo "l3io-pm has no project settings. /l3io-pm-setup configures it if you want to."
+```
+
+Exit 1 means it was already said this session — print nothing and continue. Never halt on it.
+
+```
 {skill-root}/steps/shared/step-01-classify-work.md
 ```
 
