@@ -19,7 +19,8 @@ import shutil
 import sys
 import tempfile
 import unittest
-from contextlib import redirect_stderr, redirect_stdout
+from contextlib import contextmanager, redirect_stderr, redirect_stdout
+from unittest import mock
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 SCRIPT = os.path.join(os.path.dirname(HERE), "pm-status.py")
@@ -398,78 +399,77 @@ class TestConcurrentNoticeSameKey(unittest.TestCase):
                          "no lost or duplicated entries under concurrency")
 
 
-class TestNoticeReadHappensAfterTheLock(unittest.TestCase):
+class TestNoticeReadHappensAfterTheLock(Base):
     """THE assertion that must hold: notice reads the ledger AFTER acquiring the lock, not
-    before. Unlike the smoke tests above -- whose detection is a continuous function of how
-    long the critical section happens to take, and will eventually stop discriminating as
-    that section gets cheaper (see TestConcurrentNoticeSameKey's docstring) -- this test's
-    outcome does not depend on N, on preseed size, or on which side of a narrowing window a
-    given run happens to land.
+    before. Were the read to happen first, two concurrent callers could both see "not yet
+    emitted" and both be told to emit -- the exact double-emit / lost-update bug
+    notices_lock exists to prevent, and the one the smoke tests above can only infer.
 
-    Method: hold `.notices.yaml.lock` (the exact path `notices_lock` takes) exclusively from
-    THIS process, then launch a real `notice` subprocess, wait a fixed, generous margin, then
-    -- while still holding the lock -- write the key into the ledger ourselves, exactly as a
-    concurrent writer would have. Only then release.
+    This asserts that ordering DIRECTLY and in-process, with no timing of any kind: wrap
+    `notices_lock` and `_load` so each records when it runs, drive the real CLI through
+    run_main, and compare the recorded sequence against the one correct order. Nothing here
+    depends on how long a subprocess takes to boot, on machine load, or on how wide the
+    critical section happens to be -- so unlike the smoke tests, there is no constant here
+    that can quietly stop discriminating on a faster or a busier machine.
 
-    That margin is doing real, necessary work, not padding: verified empirically (5 rounds
-    each way) that omitting it makes this test WRONGLY PASS a planted read-before-the-lock
-    mutation, every time, in this environment -- a subprocess's own startup (interpreter boot
-    plus importing ruamel.yaml) reliably takes longer than the few milliseconds this
-    process's own write takes, so an unsynchronized child read, if written naively with no
-    margin at all, loses the race to see the pre-write ledger before this process's write
-    lands, regardless of which side of the lock it was coded to happen on. The margin closes
-    that gap by construction, not by luck: `fcntl.flock(..., LOCK_EX)` blocks a CORRECT
-    implementation unconditionally for the margin's entire duration (it cannot progress past
-    acquiring a lock this process still holds, no matter how long that takes), while a BUGGY
-    implementation's unsynchronized read is free to run to completion well inside a margin
-    generously larger than any real interpreter-boot-to-that-line time. So the margin can only
-    ever help the buggy path reproduce, never the correct path leak -- it removes the
-    resulting ambiguity rather than betting on it, which is the actual property "no N, no
-    preseed" is claiming.
+    That is why this test is in-process at all. An earlier version held the lock and slept a
+    fixed margin while a real `notice` subprocess raced it. Measured, that margin carried
+    only 2.3-2.6x headroom over subprocess boot-to-ledger-read on an idle box (176-213 ms
+    boot vs a 0.5 s margin), and under ordinary CI CPU contention boot rose to a 1231 ms
+    median -- past the margin -- taking detection of a planted read-before-lock bug to 0/10
+    while the test still reported OK. A timing margin here can only ever fail toward FALSE
+    GREEN (flock blocks a correct implementation unconditionally, so it cannot false-red),
+    which is the dangerous direction. Polling /proc/locks for the child's blocked waiter is
+    the other exact answer and self-adapting, but Linux-only; this one is portable.
 
-    A correct implementation (read INSIDE the lock) can only read after we release, sees the
-    key already there, and exits 1. A read-before-acquiring implementation -- the exact
-    lost-update / double-emit bug the lock exists to prevent -- reads the pre-write ledger
-    during the margin and exits 0. Confirmed against both a read-before-the-lock mutation
-    (fails every round without the margin, fails every round -- correctly -- with it) and the
-    shipped code (passes every round either way).
+    The wrappers are this test's one liability -- they name internals -- so it is built to
+    FAIL LOUDLY rather than pass vacuously if those internals move:
+
+    - `mock.patch.object` raises AttributeError if `notices_lock` or `_load` is renamed
+      away, so a rename ERRORS this test rather than silently unhooking it.
+    - the assertion is on the EXACT sequence, never merely on the absence of a bad one. If a
+      wrapper stops firing (the lock inlined, the read routed through some other helper) the
+      recorded list comes back short or empty and the comparison fails. "No bad order was
+      observed" over an empty list is precisely the false green this test must not be able
+      to produce.
+    - every `_load` call is recorded, unfiltered by path, so an extra or unexpected read
+      breaks the comparison too instead of being folded into the expected one.
     """
 
-    MARGIN_SECONDS = 0.5   # generous: real interpreter boot + import is single-digit ms here
+    EXPECTED = ["lock-acquired", "read", "lock-released"]
 
-    def setUp(self):
-        self.d = tempfile.mkdtemp()
-        self.addCleanup(shutil.rmtree, self.d, True)
-        self.root = os.path.join(self.d, "state")
-        os.makedirs(self.root)
+    def test_the_ledger_read_is_recorded_between_lock_acquire_and_release(self):
+        events = []
+        real_lock, real_load = pm.notices_lock, pm._load
 
-    def test_notice_exits_already_emitted_for_a_key_written_while_it_waited(self):
-        import fcntl
-        import subprocess
-        import time
+        @contextmanager
+        def recording_lock(state_root):
+            with real_lock(state_root):          # the real flock, really taken
+                events.append("lock-acquired")
+                try:
+                    yield
+                finally:
+                    events.append("lock-released")
 
-        lock_path = os.path.join(self.root, ".notices.yaml.lock")
-        lock_fh = open(lock_path, "w")
-        fcntl.flock(lock_fh, fcntl.LOCK_EX)
-        try:
-            proc = subprocess.Popen(
-                [sys.executable, SCRIPT, "notice", "--state-root", self.root,
-                 "--key", "setup-pointer"],
-                stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-            # Give the child every chance to run as far as it possibly can -- a correct
-            # implementation is blocked on the lock we still hold regardless; a buggy one
-            # uses this margin to perform its unsynchronized read of the pre-write ledger.
-            time.sleep(self.MARGIN_SECONDS)
-            y = pm._yaml()
-            with open(os.path.join(self.root, ".notices.yaml"), "w", encoding="utf-8") as fh:
-                y.dump({"keys": ["setup-pointer"]}, fh)
-        finally:
-            fcntl.flock(lock_fh, fcntl.LOCK_UN)
-            lock_fh.close()
-        out, err = proc.communicate(timeout=30)
-        self.assertEqual(proc.returncode, 1,
-                         f"a correct implementation reads after the lock and must see the "
-                         f"key already recorded; stdout={out!r} stderr={err!r}")
+        def recording_load(path):
+            events.append("read")
+            return real_load(path)
+
+        with mock.patch.object(pm, "notices_lock", recording_lock), \
+                mock.patch.object(pm, "_load", recording_load):
+            code, out = self.run_main(
+                ["notice", "--state-root", self.d, "--key", "setup-pointer"])
+
+        # A first notice on a fresh state root must emit -- if it did not, the run under
+        # observation was not the read-decide-write path this test means to have watched.
+        self.assertEqual(code, 0, out)
+        self.assertEqual(
+            events, self.EXPECTED,
+            f"the ledger read must happen INSIDE the lock. Expected {self.EXPECTED}, got "
+            f"{events}. A 'read' before 'lock-acquired' is the double-emit bug itself; a "
+            f"missing or extra entry means a wrapper did not fire as expected and this "
+            f"test is no longer asserting the property -- check whether notices_lock or "
+            f"_load was renamed or bypassed in cmd_notice.")
 
 
 class TestSetLockMutualExclusion(Base):
