@@ -1260,10 +1260,32 @@ const PY_FALLBACK_QUALIFIER = /\buv\b[^.]*\bunavailable\b|\bfallback\b/i;
 // `uv run --with <extra-deps> python3 <script>.py` is uv choosing and managing the
 // interpreter itself (used where a script needs dependencies beyond its own PEP-723 header,
 // e.g. test-audit-backlog.py, test-bmad-deps.py, test-spec-align.py) -- the opposite of the
-// bare `python3 <script>.py` this check exists to catch, which bypasses uv entirely. Exempt
-// only when "uv run" appears on the same line BEFORE the matched python3 token, so uv is
-// what is actually invoking it.
-const UV_RUN_RE = /\buv run\b/;
+// bare `python3 <script>.py` this check exists to catch, which bypasses uv entirely.
+//
+// Fix round 1, F-1: an earlier version of this exemption only checked that "uv run" appeared
+// somewhere earlier ON THE LINE, which a real checker run proved wrong two ways: `uv run
+// python3 <script>.py` (uv invoking the *interpreter*, not the script -- uv only reads a
+// script's PEP-723 header when the script path is its own first argument, so this never
+// honours the header at all and is the original defect verbatim) and `uv run A.py &&
+// python3 B.py` (a second command on the same line, exempted only because an unrelated `uv
+// run` happened to precede it). Both are real, cheap edits a future agent would make to
+// silence this check without fixing anything.
+//
+// Fixed by splitting the line into individual shell commands on `&&`, `;` and `|`, and
+// requiring the exemption to hold of the SAME command that contains the python3 invocation:
+// that command must itself start with `uv run` (after stripping an optional YAML `run:` key)
+// and carry at least one `--with` flag -- the one shape every legitimate line in this repo
+// actually has (checks.yml's test-spec-align.py / test-audit-backlog.py / test-bmad-deps.py
+// steps). `uv run <script>.py` alone (no python3, no --with -- the normal PEP-723 form) never
+// matches PY_INVOKE_RE in the first place, so it is untouched by any of this.
+const COMMAND_SPLIT_RE = /&&|;|\|/;
+const RUN_KEY_PREFIX_RE = /^\s*run:\s*/;
+const UV_RUN_WITH_RE = /^uv run\b/;
+
+function isExemptPep723Command(command) {
+  const withoutRunKey = command.replace(RUN_KEY_PREFIX_RE, "").trimStart();
+  return UV_RUN_WITH_RE.test(withoutRunKey) && /--with\b/.test(command);
+}
 
 function* walkWorkflowFiles() {
   const abs = path.join(repoRoot, ".github", "workflows");
@@ -1279,11 +1301,12 @@ function checkPep723Invocation() {
   const offenders = [];
   for (const rel of [...walkMarkdown("skills"), ...walkWorkflowFiles()]) {
     read(rel).split("\n").forEach((line, i) => {
-      const m = PY_INVOKE_RE.exec(line);
-      if (!m) return;
+      if (!PY_INVOKE_RE.test(line)) return;
       if (PY_FALLBACK_QUALIFIER.test(line)) return;
-      const uvRun = UV_RUN_RE.exec(line);
-      if (uvRun && uvRun.index < m.index) return;
+      const offendingCommand = line
+        .split(COMMAND_SPLIT_RE)
+        .some((command) => PY_INVOKE_RE.test(command) && !isExemptPep723Command(command));
+      if (!offendingCommand) return;
       offenders.push(`${rel}:${i + 1}: invokes a PEP-723 script with python3 ` +
         `(use uv run instead): ${line.trim()}`);
     });

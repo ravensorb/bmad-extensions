@@ -748,6 +748,59 @@ test("check 17: uv run managing its own python3 interpreter in a workflow is not
   assert.equal(r.status, 0, r.stderr);
 });
 
+// Fix round 1, F-1: the position-only exemption above ("uv run" appears anywhere earlier on
+// the line) was defeated by a real checker run planting these two exact strings, both of
+// which passed (exit 0) under the old logic. Both are real, cheap edits: `uv run python3
+// <script>.py` is uv invoking the *interpreter*, not the script, so the header is never read
+// -- the original defect, verbatim, wearing a `uv run` prefix. `uv run A.py && python3 B.py`
+// is a second command on the same line, exempted only because an unrelated `uv run` preceded
+// it. Both must now fail.
+test("check 17 F-1: `uv run python3 <script>.py` does not honour the header and must fail", (t) => {
+  const root = fixture(t);
+  write(root, ".github/workflows/checks.yml",
+    "    - name: fix-round-1 regression a\n" +
+    "      run: uv run python3 skills/_shared/tests/test-pm-status.py\n",
+    /* append */ true);
+  const r = run(root);
+  assert.equal(r.status, 1, r.stdout);
+  assert.match(r.stderr, /invokes a PEP-723 script with python3/);
+});
+
+test("check 17 F-1: a `python3` command chained after an unrelated `uv run` must fail", (t) => {
+  const root = fixture(t);
+  write(root, ".github/workflows/checks.yml",
+    "    - name: fix-round-1 regression b\n" +
+    "      run: uv run scripts/a.py && python3 skills/_shared/tests/test-pm-status.py\n",
+    /* append */ true);
+  const r = run(root);
+  assert.equal(r.status, 1, r.stdout);
+  assert.match(r.stderr, /invokes a PEP-723 script with python3/);
+});
+
+// The three real lines in .github/workflows/checks.yml that must keep passing: each is a
+// single command, starts with `uv run`, and carries a `--with` for a dependency beyond the
+// script's own PEP-723 header. Written out individually (rather than relying only on "an
+// unmodified copy passes") so the exemption's positive cases are pinned as explicitly as its
+// negative ones.
+for (const [label, line] of [
+  ["test-spec-align.py (multiple --with flags)",
+    "uv run -q --with 'markdown-it-py>=3' --with 'mdit-py-plugins>=0.4' --with 'ruamel.yaml>=0.18' " +
+    "--with 'unidiff>=0.7' --with 'tenacity>=8' python3 skills/_shared/tests/test-spec-align.py"],
+  ["test-audit-backlog.py",
+    "uv run -q --with 'ruamel.yaml>=0.18' python3 skills/l3io-util-doctor/scripts/tests/test-audit-backlog.py"],
+  ["test-bmad-deps.py",
+    "uv run -q --with 'ruamel.yaml>=0.18' python3 skills/l3io-util-doctor/scripts/tests/test-bmad-deps.py"],
+]) {
+  test(`check 17 F-1: real legitimate line (${label}) still passes`, (t) => {
+    const root = fixture(t);
+    write(root, ".github/workflows/checks.yml",
+      `    - name: legitimate ${label}\n      run: ${line}\n`,
+      /* append */ true);
+    const r = run(root);
+    assert.equal(r.status, 0, r.stderr);
+  });
+}
+
 // ---- check 18 (docs-check-count) ----
 //
 // Same derive-don't-type discipline as the check 15 tests above: the expected counts and
