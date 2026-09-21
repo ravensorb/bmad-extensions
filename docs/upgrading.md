@@ -160,8 +160,9 @@ Backward compatible at the time — no action required. `/l3io-util-cleanup` pri
 notice and forwarded. Update any scripts, aliases, or team docs that invoke the old name; it
 was deprecated and was removed in 3.0.0 (see above).
 
-**New: progress reporting.** `/l3io-pm-help progress` and `/l3io-util-doctor stats` render a
-plan-aware tree — which phase, epic, sprint, and stories are in flight. Nothing to migrate, but
+**New: progress reporting.** `/l3io-pm-help progress` (which forwards to
+`/l3io-util-doctor stats`) and `/l3io-util-doctor stats` itself render a plan-aware tree —
+which phase, epic, sprint, and stories are in flight. Nothing to migrate, but
 one thing to know: per-status dwell times display with a `~` prefix until
 `{implementation_artifacts}/state/events.jsonl` accumulates transitions. Before then they are
 derived from `updated_at` and are approximate. The log starts recording on your next

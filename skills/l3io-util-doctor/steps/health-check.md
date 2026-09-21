@@ -58,6 +58,12 @@ uv run {skill-root}/scripts/detect-layout.py --artifacts {implementation_artifac
     · Priority: Critical — an interrupted migration left state in two places; do not run any
     other action until this is resolved
 
+This Critical, multi-layout condition is duplicated (severity and outcome, not the
+flat-plus-sharded script check above) in `steps/stats.md` Step ST1, which BLOCKs rather than
+walking the tree when it fires — `stats` is a read-only single mode with no findings table to
+report into, so it has its own copy rather than loading this file. Keep both in sync if the
+condition or severity changes.
+
 **Check 2c — Artifact-only stories (no state YAML)**
 If `{pm_state_root}` exists (sharded layout is present) or the artifact tree has story `.md`
 files, scan for artifact-only stories — story `.md` files in

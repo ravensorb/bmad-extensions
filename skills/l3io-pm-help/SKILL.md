@@ -49,9 +49,14 @@ config and no state itself, so it has nothing for `steps/step-01-config.md` or
 `steps/step-02-detect-layout.md` to resolve in advance. This is a deliberate change from
 before this mode became a forwarder: it used to run both steps first because it read
 `{pm_state_root}` and `{pm_status}` directly and needed the layout gate to avoid
-recommending a fresh backlog over a legacy tree. `l3io-util-doctor stats` now owns that same
-layout check on its own state root (`steps/stats.md` Step ST1) — running it here too would
-duplicate the check and risk the two skills disagreeing on the legacy-layout message. If
+recommending a fresh backlog over a legacy tree. `l3io-util-doctor stats`'s own layout check
+(`steps/stats.md` Step ST1) reproduces the one branch that actually mattered here — it BLOCKs
+with no tree rendered when more than one state layout is present, the same condition and
+severity as this skill's own gate and as `l3io-util-doctor`'s health-check Check 2b — so
+running the gate here too would duplicate that specific check and risk the two skills
+disagreeing on the legacy-layout message. It is not a full copy of every branch
+`step-02-detect-layout.md` has: the orphan check for a possible first run (repointed
+`implementation_artifacts` hiding real state) has no counterpart in `stats.md` today. If
 `l3io-util-doctor` is not installed at all (so its own layout check never runs), the
 forwarder in `steps/mode-progress.md` says so and stops — see that file.
 

@@ -291,9 +291,9 @@ A full epic run is long. Three ways to see where it is, all read-only.
 /l3io-pm-help progress
 ```
 
-Renders the plan-aware tree — which phase, which epic, which sprint, and which stories are in
-flight, with how long each has sat in its current status and a `⚠ stuck` marker past the
-threshold (4h for a story in `review` or `in-progress`):
+Forwards to `/l3io-util-doctor stats`, which renders the plan-aware tree — which phase, which
+epic, which sprint, and which stories are in flight, with how long each has sat in its current
+status and a `⚠ stuck` marker past the threshold (4h for a story in `review` or `in-progress`):
 
 ```
 PLAN plan-2026-08-17-v2.yaml   readiness=green

@@ -8,7 +8,11 @@ calibration, and last-closed sections that `report` does not cover. No files are
 
 **Step ST1 — Load config and detect layout**
 
-Load config (same as layout cleanup). Run the same three-way count Check 2b uses:
+Load config (same as layout cleanup). Run the same three-way count Check 2b uses (Check 2b in
+`steps/health-check.md` is the source of the multi-layout condition and its Critical severity
+below — this makes a third copy of layout detection, alongside Check 2b and `l3io-pm-help`'s
+own `steps/step-02-detect-layout.md`; keep the multi-layout branch in sync with Check 2b's
+condition and severity if either changes):
 
 ```bash
 SHARDED=$([ -d "{pm_state_root}" ] && echo 1 || echo 0)
@@ -16,7 +20,20 @@ LEGACY_EPIC=$([ -d "{project-root}/_bmad/state" ] && echo 1 || echo 0)
 LEGACY_FLAT=$([ -f "{implementation_artifacts}/sprint-status.yaml" ] && echo 1 || echo 0)
 ```
 
-- **Sharded present** → walk it (Step ST2). This is the normal path.
+Apply the first matching rule:
+
+- **More than one of the three is 1** → an earlier migration did not finish, and the sharded
+  tree this dashboard would otherwise walk cannot be trusted as the sole source of truth while
+  a legacy layout also exists — the same condition Check 2b flags Critical. A confidently
+  rendered tree over ambiguous state is worse than a refusal, so **BLOCK**. Print and exit —
+  do not proceed to Step ST2:
+  ```
+  BLOCKED: multiple state layouts detected (sharded=$SHARDED legacy-per-epic=$LEGACY_EPIC
+  legacy-flat=$LEGACY_FLAT). An earlier migration did not finish. Run
+  /l3io-util-doctor migrate-state first, then re-run /l3io-util-doctor stats.
+  ```
+- **Sharded present, and it is the only layout present** → walk it (Step ST2). This is the
+  normal path.
 - **Sharded absent, a legacy layout present** → the dashboard cannot read it. Print and exit:
   ```
   State is still on a legacy layout ({legacy per-epic | legacy flat}) — stats reads the
