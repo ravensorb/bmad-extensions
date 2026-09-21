@@ -51,51 +51,6 @@ test("an unmodified copy passes", (t) => {
   assert.equal(r.status, 0, r.stderr + r.stdout);
 });
 
-// ---- check 16 (module-yaml-agreement) ----
-
-test("check 16: siblings sharing a code disagreeing on description is caught", (t) => {
-  const root = fixture(t);
-  const p = path.join(root, "skills", "l3io-pm-help", "module.yaml");
-  const before = fs.readFileSync(p, "utf8");
-  fs.writeFileSync(p, before.replace(/^description: .*$/m, 'description: "Something else."'));
-  const r = run(root);
-  assert.equal(r.status, 1, r.stdout);
-  assert.match(r.stderr, /sharing `code: l3io-pm` disagree on `description`/);
-});
-
-test("check 16: a divergent post-install-notes block scalar is caught", (t) => {
-  const root = fixture(t);
-  const p = path.join(root, "skills", "l3io-pm-sync", "module.yaml");
-  fs.appendFileSync(p, "\nextra-key: >\n  only on this sibling\n");
-  fs.writeFileSync(p, fs.readFileSync(p, "utf8")
-    .replace(/^post-install-notes: >$/m, "post-install-notes: >\n  A different first line."));
-  const r = run(root);
-  assert.equal(r.status, 1, r.stdout);
-  assert.match(r.stderr, /disagree on `post-install-notes`/);
-});
-
-test("check 16: a module with only one module.yaml is not compared", (t) => {
-  const root = fixture(t);
-  // l3io-arch and l3io-sec each have exactly one file; changing one must stay clean.
-  const p = path.join(root, "skills", "l3io-arch-review", "module.yaml");
-  const before = fs.readFileSync(p, "utf8");
-  fs.writeFileSync(p, before.replace(/^description: .*$/m, 'description: "Solo module, changed."'));
-  const r = run(root);
-  assert.equal(r.status, 0, r.stderr + r.stdout);
-});
-
-test("check 16: scope attack — a new skill joining a module must agree too", (t) => {
-  const root = fixture(t);
-  const dir = path.join(root, "skills", "l3io-pm-brandnew");
-  fs.mkdirSync(dir, { recursive: true });
-  fs.writeFileSync(path.join(dir, "module.yaml"),
-    'code: l3io-pm\nname: "Different Name"\ndescription: "New sibling."\n' +
-    "module_version: 0.0.1\ndefault_selected: true\n");
-  const r = run(root);
-  assert.equal(r.status, 1, r.stdout);
-  assert.match(r.stderr, /sharing `code: l3io-pm` disagree on/);
-});
-
 test("scope attack: a producer in a new file in a new directory is caught", (t) => {
   const root = fixture(t);
   write(root, "skills/_shared/steps/brand-new-dir/step-new.md", "# New\n\n" + UNPOINTED);
@@ -414,9 +369,9 @@ test("check 15: a steps file with no routing row trips the derivations-disagree 
     `mode count derivations disagree — ${n + 1} steps\\/ file\\(s\\), ${n} routing row\\(s\\), ${n} file\\(s\\) referenced`));
 });
 
-// ---- check 17 (bmad-dependency-inventory) ----
+// ---- check 16 (bmad-dependency-inventory) ----
 //
-// The check's scope is derived by walking skills/ markdown plus every skills/<dir>/module.yaml,
+// The check's scope is derived by walking skills/ markdown plus every skills/<dir>/assets/module.yaml,
 // so the planted violations below go into new files, a new skills/ directory, and a module.yaml,
 // not only into files the check's author happened to think of.
 
@@ -430,7 +385,7 @@ function editInventory(root, mutate) {
   write(root, DEP_INV, `${JSON.stringify(inv, null, 2)}\n`);
 }
 
-test("check 17: an undeclared bmad-* token is caught", (t) => {
+test("check 16: an undeclared bmad-* token is caught", (t) => {
   const root = fixture(t);
   write(root, "skills/l3io-pm-execute/steps/x-undeclared.md",
         "Spawn `bmad-frobnicate` with the story path.\n");
@@ -439,7 +394,7 @@ test("check 17: an undeclared bmad-* token is caught", (t) => {
   assert.match(r.stderr, /x-undeclared\.md:1: names 'bmad-frobnicate', not declared in/);
 });
 
-test("check 17: a step file dispatching a removed skill fails", (t) => {
+test("check 16: a step file dispatching a removed skill fails", (t) => {
   const root = fixture(t);
   write(root, "skills/l3io-pm-execute/steps/x.md",
         "Spawn `bmad-architect` subagent with the story path.\n");
@@ -448,17 +403,15 @@ test("check 17: a step file dispatching a removed skill fails", (t) => {
   assert.match(r.stderr, /dispatches removed skill 'bmad-architect'/);
 });
 
-test("check 17: a module.yaml naming an undeclared skill is caught", (t) => {
+test("check 16: a module.yaml naming an undeclared skill is caught", (t) => {
   const root = fixture(t);
-  // Appended as a comment so check 16 (module-yaml-agreement) sees no new field and stays green:
-  // this must fail on check 17 alone.
-  write(root, "skills/l3io-arch-review/module.yaml", "\n# also requires bmad-frobnicate\n", true);
+  write(root, "skills/l3io-arch-review/assets/module.yaml", "\n# also requires bmad-frobnicate\n", true);
   const r = run(root);
   assert.equal(r.status, 1, r.stdout);
-  assert.match(r.stderr, /l3io-arch-review\/module\.yaml:\d+: names 'bmad-frobnicate', not declared in/);
+  assert.match(r.stderr, /l3io-arch-review\/assets\/module\.yaml:\d+: names 'bmad-frobnicate', not declared in/);
 });
 
-test("check 17: an entry missing a status-required field is caught", (t) => {
+test("check 16: an entry missing a status-required field is caught", (t) => {
   const root = fixture(t);
   editInventory(root, (inv) => {
     delete inv.skills.find((e) => e.name === "bmad-code-review").module;
@@ -468,7 +421,7 @@ test("check 17: an entry missing a status-required field is caught", (t) => {
   assert.match(r.stderr, /'bmad-code-review' is required but names no module/);
 });
 
-test("check 17: a duplicate inventory entry is caught", (t) => {
+test("check 16: a duplicate inventory entry is caught", (t) => {
   const root = fixture(t);
   editInventory(root, (inv) => {
     inv.skills.push({ name: "bmad-help", status: "optional", module: "bmm" });
@@ -478,7 +431,7 @@ test("check 17: a duplicate inventory entry is caught", (t) => {
   assert.match(r.stderr, /duplicate entry 'bmad-help'/);
 });
 
-test("check 17 scope attack: a brand-new skills/<dir>/ with a new step file is caught", (t) => {
+test("check 16 scope attack: a brand-new skills/<dir>/ with a new step file is caught", (t) => {
   const root = fixture(t);
   write(root, "skills/l3io-pm-brandnew-gate/steps/step-new.md",
         "Dispatch `bmad-frobnicate` for the gate review.\n");
@@ -487,12 +440,12 @@ test("check 17 scope attack: a brand-new skills/<dir>/ with a new step file is c
   assert.match(r.stderr, /l3io-pm-brandnew-gate\/steps\/step-new\.md:1: names 'bmad-frobnicate'/);
 });
 
-test("check 17: the real tree passes", (t) => {
+test("check 16: the real tree passes", (t) => {
   const r = run(fixture(t));
   assert.equal(r.status, 0, r.stderr + r.stdout);
 });
 
-test("check 17: a removed skill named beside its replacement is allowed", (t) => {
+test("check 16: a removed skill named beside its replacement is allowed", (t) => {
   const root = fixture(t);
   write(root, "skills/l3io-pm-execute/steps/x-mapped.md",
         "Migrated: `bmad-architect` is now `bmad-architecture`.\n");
@@ -502,7 +455,7 @@ test("check 17: a removed skill named beside its replacement is allowed", (t) =>
                /x-mapped\.md:1: names removed skill 'bmad-architect' as history/);
 });
 
-test("check 17: a removed skill on a line saying legacy is allowed", (t) => {
+test("check 16: a removed skill on a line saying legacy is allowed", (t) => {
   const root = fixture(t);
   write(root, "skills/l3io-pm-execute/steps/x-legacy.md",
         "The `bmad-ux-review` name is legacy.\n");
@@ -513,16 +466,16 @@ test("check 17: a removed skill on a line saying legacy is allowed", (t) => {
 
 // The two cases below look alike and prove different things; both are needed.
 //
-// This one plants "removed", which is NOT one of check 17's three evidence arms. It therefore
+// This one plants "removed", which is NOT one of check 16's three evidence arms. It therefore
 // fails wherever it sits, and that is all it shows: that a plausible-sounding explanatory word
 // is not an arm. It does NOT test the same-line rule — widening the `legacy` arm to test the
 // whole joined file leaves this case failing exactly as before, i.e. green.
-test("check 17: 'removed' is not an evidence arm, so it never excuses a dispatch", (t) => {
+test("check 16: 'removed' is not an evidence arm, so it never excuses a dispatch", (t) => {
   const root = fixture(t);
   write(root, "skills/l3io-pm-execute/steps/x-window.md",
         "This skill was removed upstream.\n\n\n\nSpawn `bmad-architect` subagent.\n");
   const r = run(root);
-  assert.equal(r.status, 1, "check 1's ±4-line window would have allowed this; check 17 must not");
+  assert.equal(r.status, 1, "check 1's ±4-line window would have allowed this; check 16 must not");
   assert.match(r.stderr, /dispatches removed skill/);
 });
 
@@ -532,7 +485,7 @@ test("check 17: 'removed' is not an evidence arm, so it never excuses a dispatch
 // from `.test(line)` to `.test(lines.join("\n"))`. Verified by mutation, both directions.
 // Line 1 is allowed on its own merits — it names the removed skill AND says `legacy`, on one
 // line — which is precisely why the failure must come from line 5 and nowhere else.
-test("check 17: the word `legacy` four lines away does NOT excuse a dispatch", (t) => {
+test("check 16: the word `legacy` four lines away does NOT excuse a dispatch", (t) => {
   const root = fixture(t);
   write(root, "skills/l3io-pm-execute/steps/x-window-legacy.md",
         "The bmad-architect skill is legacy.\n\n\n\nSpawn `bmad-architect` subagent.\n");
@@ -541,7 +494,7 @@ test("check 17: the word `legacy` four lines away does NOT excuse a dispatch", (
   assert.match(r.stderr, /x-window-legacy\.md:5: dispatches removed skill 'bmad-architect'/);
 });
 
-test("check 17: a leading underscore yields no token (_bmad-output, _bmad-frobnicate)", (t) => {
+test("check 16: a leading underscore yields no token (_bmad-output, _bmad-frobnicate)", (t) => {
   const root = fixture(t);
   // _bmad-output is declared not-a-skill, so on its own it would pass either way; the second
   // path is undeclared and fails the moment the lookbehind is dropped from BMAD_TOKEN_RE.
@@ -551,7 +504,7 @@ test("check 17: a leading underscore yields no token (_bmad-output, _bmad-frobni
   assert.equal(r.status, 0, r.stderr + r.stdout);
 });
 
-test("check 17: not-a-skill tokens are skipped via their status", (t) => {
+test("check 16: not-a-skill tokens are skipped via their status", (t) => {
   const root = fixture(t);
   write(root, "skills/l3io-pm-execute/steps/x-not-a-skill.md",
         "The `bmad-defer:` marker in a `bmad-l3io-extensions` checkout.\n");
@@ -559,7 +512,7 @@ test("check 17: not-a-skill tokens are skipped via their status", (t) => {
   assert.equal(r.status, 0, r.stderr + r.stdout);
 });
 
-test("check 17: a not-a-skill entry without a reason is caught", (t) => {
+test("check 16: a not-a-skill entry without a reason is caught", (t) => {
   const root = fixture(t);
   editInventory(root, (inv) => {
     delete inv.skills.find((e) => e.name === "bmad-defer").reason;
@@ -569,7 +522,7 @@ test("check 17: a not-a-skill entry without a reason is caught", (t) => {
   assert.match(r.stderr, /'bmad-defer' is not-a-skill but gives no reason/);
 });
 
-test("check 17: a fallback naming an undeclared skill is caught", (t) => {
+test("check 16: a fallback naming an undeclared skill is caught", (t) => {
   const root = fixture(t);
   editInventory(root, (inv) => {
     inv.skills.find((e) => e.name === "bmad-ux").fallback = "bmad-nonexistent";
@@ -581,7 +534,7 @@ test("check 17: a fallback naming an undeclared skill is caught", (t) => {
 
 // Case 15 — the probe arm. Without this the check rejects the resolution blocks that
 // implement tolerance, i.e. it would forbid the fix it exists to protect.
-test("check 17: an existence probe naming a removed skill is allowed", (t) => {
+test("check 16: an existence probe naming a removed skill is allowed", (t) => {
   const root = fixture(t);
   write(root, "skills/l3io-pm-execute/steps/x-probe.md",
         "```bash\nls {project-root}/.claude/skills/bmad-architect/SKILL.md 2>/dev/null\n```\n");
@@ -592,7 +545,7 @@ test("check 17: an existence probe naming a removed skill is allowed", (t) => {
 // The probe arm has the same substring hole the replaced_by arm was hardened against: a bare
 // line.includes("ls ") is satisfied by "tools ", "details " or "controls ". Case 15 passes under
 // both the weak and the strong predicate, so without this test a revert would be silent.
-test("check 17: a word ending in 'ls' does not make a dispatch line a probe", (t) => {
+test("check 16: a word ending in 'ls' does not make a dispatch line a probe", (t) => {
   const root = fixture(t);
   write(root, "skills/l3io-pm-execute/steps/x-tools.md",
         "Check the tools installed under `.claude/skills/` before spawning `bmad-architect`.\n");
@@ -603,7 +556,7 @@ test("check 17: a word ending in 'ls' does not make a dispatch line a probe", (t
 
 // Case 16 — the token-boundary hole. bmad-ux-review's replaced_by is bmad-ux, which is a
 // SUBSTRING of it, so a naive includes() check would let the guard pass its own worst case.
-test("check 17: replaced_by must match as a token, not a substring", (t) => {
+test("check 16: replaced_by must match as a token, not a substring", (t) => {
   const root = fixture(t);
   write(root, "skills/l3io-pm-execute/steps/x-substring.md",
         "Invoke `bmad-ux-review` with the story files.\n");
@@ -624,7 +577,7 @@ function setStatus(root, name, patch) {
   return p;
 }
 
-test("check 17 accepts a deprecated entry carrying deprecated_in and replaced_by", (t) => {
+test("check 16 accepts a deprecated entry carrying deprecated_in and replaced_by", (t) => {
   const root = fixture(t);
   setStatus(root, "bmad-create-story",
     { status: "deprecated", deprecated_in: "6.12.0", replaced_by: "bmad-build",
@@ -633,7 +586,7 @@ test("check 17 accepts a deprecated entry carrying deprecated_in and replaced_by
   assert.equal(r.status, 0, r.stderr);
 });
 
-test("check 17 rejects a deprecated entry missing deprecated_in", (t) => {
+test("check 16 rejects a deprecated entry missing deprecated_in", (t) => {
   const root = fixture(t);
   setStatus(root, "bmad-create-story",
     { status: "deprecated", replaced_by: "bmad-build", deprecated_in: undefined,
@@ -643,7 +596,7 @@ test("check 17 rejects a deprecated entry missing deprecated_in", (t) => {
   assert.match(r.stderr, /is deprecated but lacks replaced_by\/deprecated_in/);
 });
 
-test("check 17 fails when a directive prefers a deprecated skill", (t) => {
+test("check 16 fails when a directive prefers a deprecated skill", (t) => {
   const root = fixture(t);
   setStatus(root, "bmad-dev-story",
     { status: "deprecated", deprecated_in: "6.12.0", replaced_by: "bmad-build",
@@ -655,7 +608,7 @@ test("check 17 fails when a directive prefers a deprecated skill", (t) => {
   assert.match(r.stderr, /prefers deprecated skill 'bmad-dev-story'/);
 });
 
-test("check 17 still allows a bare existence probe of a deprecated skill", (t) => {
+test("check 16 still allows a bare existence probe of a deprecated skill", (t) => {
   const root = fixture(t);
   setStatus(root, "bmad-dev-story",
     { status: "deprecated", deprecated_in: "6.12.0", replaced_by: "bmad-build",
@@ -671,7 +624,7 @@ test("check 17 still allows a bare existence probe of a deprecated skill", (t) =
 // PREFERENCE_RE alone — this is exactly how `steps/plan/step-03-story-elaboration.md:66` stayed
 // invisible to fix-round-1's implementation. Planted in a different skill (l3io-pm-plan) than
 // the verb-phrased tests above, so this also proves the check isn't scoped to one skill's files.
-test("check 17 scope attack: an assignment-style binding with no verb is still caught", (t) => {
+test("check 16 scope attack: an assignment-style binding with no verb is still caught", (t) => {
   const root = fixture(t);
   setStatus(root, "bmad-dev-story",
     { status: "deprecated", deprecated_in: "6.12.0", replaced_by: "bmad-build",
@@ -686,7 +639,7 @@ test("check 17 scope attack: an assignment-style binding with no verb is still c
 // Scope attack: a Markdown heading naming a deprecated skill carries neither a binding verb
 // nor a `=` assignment, but still scopes an entire section to that skill — the real-tree case
 // was `l3io-arch-review/assets/customize-architect.md:21`.
-test("check 17 scope attack: a heading naming a deprecated skill is still caught", (t) => {
+test("check 16 scope attack: a heading naming a deprecated skill is still caught", (t) => {
   const root = fixture(t);
   setStatus(root, "bmad-dev-story",
     { status: "deprecated", deprecated_in: "6.12.0", replaced_by: "bmad-build",
@@ -698,9 +651,9 @@ test("check 17 scope attack: a heading naming a deprecated skill is still caught
   assert.match(r.stderr, /prefers deprecated skill 'bmad-dev-story'/);
 });
 
-// ---- check 18 (pep723-invocation) ----
+// ---- check 17 (pep723-invocation) ----
 
-test("check 18: a PEP-723 helper invoked with python3 is caught", (t) => {
+test("check 17: a PEP-723 helper invoked with python3 is caught", (t) => {
   const root = fixture(t);
   write(root, "skills/l3io-pm-execute/steps/bad-invocation.md",
     "```bash\npython3 {pm_status} set-status --state-root x\n```\n");
@@ -709,7 +662,7 @@ test("check 18: a PEP-723 helper invoked with python3 is caught", (t) => {
   assert.match(r.stderr, /invokes a PEP-723 script with python3/);
 });
 
-test("check 18: uv run of the same helper passes", (t) => {
+test("check 17: uv run of the same helper passes", (t) => {
   const root = fixture(t);
   write(root, "skills/l3io-pm-execute/steps/good-invocation.md",
     "```bash\nuv run {pm_status} set-status --state-root x\n```\n");
@@ -717,7 +670,7 @@ test("check 18: uv run of the same helper passes", (t) => {
   assert.equal(r.status, 0, r.stderr);
 });
 
-test("check 18: the documented python3 fallback line is allowed", (t) => {
+test("check 17: the documented python3 fallback line is allowed", (t) => {
   const root = fixture(t);
   write(root, "skills/l3io-pm-execute/steps/fallback.md",
     "If `uv` is unavailable, use `python3` instead.\n");
@@ -728,7 +681,7 @@ test("check 18: the documented python3 fallback line is allowed", (t) => {
 // The word-boundary case from the design table: "--use-python3" must not be mistaken for the
 // `python3` invocation token, and a script path invoked correctly with `uv run` must not trip
 // the check just because it also ends in `.py`.
-test("check 18: word boundary holds and an unrelated uv run line passes", (t) => {
+test("check 17: word boundary holds and an unrelated uv run line passes", (t) => {
   const root = fixture(t);
   write(root, "skills/l3io-pm-execute/steps/decoys.md",
     "The option --use-python3 {pm_status} is not real.\n\n" +
@@ -742,7 +695,7 @@ test("check 18: word boundary holds and an unrelated uv run line passes", (t) =>
 // passing proves nothing about the tolerance itself. This one plants a line where PY_INVOKE_RE
 // DOES match a real invocation, with the uv/unavailable qualifier on the same line, so the
 // exemption branch must actually fire for the line to pass.
-test("check 18: a same-line uv-unavailable qualifier exempts a real invocation", (t) => {
+test("check 17: a same-line uv-unavailable qualifier exempts a real invocation", (t) => {
   const root = fixture(t);
   write(root, "skills/l3io-pm-execute/steps/same-line-fallback.md",
     "If `uv` is unavailable, run `python3 {pm_status} verify --state-root x` instead.\n");
@@ -754,7 +707,7 @@ test("check 18: a same-line uv-unavailable qualifier exempts a real invocation",
 // This one plants under a different skill AND a different subdirectory (assets/, not steps/)
 // to prove walkMarkdown("skills") actually reaches there rather than the check having been
 // implicitly scoped to steps/ files by every test happening to live in one.
-test("check 18 scope attack: a violation under a different skill's assets/ is caught", (t) => {
+test("check 17 scope attack: a violation under a different skill's assets/ is caught", (t) => {
   const root = fixture(t);
   write(root, "skills/l3io-util-doctor/assets/scope-attack.md",
     "```bash\npython3 {skill-root}/scripts/detect-platform.py {project-root}\n```\n");
@@ -763,7 +716,7 @@ test("check 18 scope attack: a violation under a different skill's assets/ is ca
   assert.match(r.stderr, /scope-attack\.md:\d+: invokes a PEP-723 script with python3/);
 });
 
-// ---- check 19 (docs-check-count) ----
+// ---- check 18 (docs-check-count) ----
 //
 // Same derive-don't-type discipline as the check 15 tests above: the expected counts and
 // words are read back from the fixture's real files before mutation, never typed as literals.
@@ -781,13 +734,13 @@ function claudeCheckCountWord(root) {
   return m ? m[1] : null;
 }
 
-test("check 19: the correct count passes", (t) => {
+test("check 18: the correct count passes", (t) => {
   const root = fixture(t);
   const r = run(root);
   assert.equal(r.status, 0, r.stderr + r.stdout);
 });
 
-test("check 19: a stated count one below the real one is caught in CLAUDE.md", (t) => {
+test("check 18: a stated count one below the real one is caught in CLAUDE.md", (t) => {
   const root = fixture(t);
   const n = realHeaderCount(root);
   const word = claudeCheckCountWord(root);
@@ -802,7 +755,7 @@ test("check 19: a stated count one below the real one is caught in CLAUDE.md", (
   assert.match(r.stderr, new RegExp(`CLAUDE\\.md: says "${wrong}" checks, but .* runs ${n}`));
 });
 
-test("check 19: a stated count one below the real one is caught in scripts/CLAUDE.md", (t) => {
+test("check 18: a stated count one below the real one is caught in scripts/CLAUDE.md", (t) => {
   const root = fixture(t);
   const n = realHeaderCount(root);
   const p = path.join(root, "scripts", "CLAUDE.md");
@@ -818,7 +771,7 @@ test("check 19: a stated count one below the real one is caught in scripts/CLAUD
   assert.match(r.stderr, new RegExp(`scripts/CLAUDE\\.md: says "${wrong}" checks, but .* runs ${n}`));
 });
 
-test("check 19: an invocation added without a header entry trips the derivations-disagree branch", (t) => {
+test("check 18: an invocation added without a header entry trips the derivations-disagree branch", (t) => {
   const root = fixture(t);
   const p = path.join(root, "scripts", "check-docs.mjs");
   const text = fs.readFileSync(p, "utf8");
@@ -830,9 +783,9 @@ test("check 19: an invocation added without a header entry trips the derivations
   assert.match(r.stderr, /check count derivations disagree/);
 });
 
-// ---- check 20 (derived-counts) ----
+// ---- check 19 (derived-counts) ----
 
-test("check 20: a stale total-skill count is caught", (t) => {
+test("check 19: a stale total-skill count is caught", (t) => {
   const root = fixture(t);
   const p = path.join(root, "docs", "getting-started.md");
   const before = fs.readFileSync(p, "utf8");
@@ -842,7 +795,7 @@ test("check 20: a stale total-skill count is caught", (t) => {
   assert.match(r.stderr, /says "nine" skill\(s\), but the package has 7/);
 });
 
-test("check 20: a stale module count is caught", (t) => {
+test("check 19: a stale module count is caught", (t) => {
   const root = fixture(t);
   const p = path.join(root, "CLAUDE.md");
   const before = fs.readFileSync(p, "utf8");
@@ -852,7 +805,7 @@ test("check 20: a stale module count is caught", (t) => {
   assert.match(r.stderr, /says "five" module\(s\), but the package has 4/);
 });
 
-test("check 20: scope attack — adding a skill directory must break the count claims", (t) => {
+test("check 19: scope attack — adding a skill directory must break the count claims", (t) => {
   const root = fixture(t);
   write(root, "skills/l3io-newthing/SKILL.md", "---\nname: l3io-newthing\ndescription: d\n---\n");
   const r = run(root);
@@ -860,7 +813,7 @@ test("check 20: scope attack — adding a skill directory must break the count c
   assert.match(r.stderr, /skill\(s\), but the package has 8/);
 });
 
-test("check 20: a reworded claim sentence fails loudly rather than passing", (t) => {
+test("check 19: a reworded claim sentence fails loudly rather than passing", (t) => {
   const root = fixture(t);
   const p = path.join(root, "docs", "l3io-pm-reference.md");
   const before = fs.readFileSync(p, "utf8");

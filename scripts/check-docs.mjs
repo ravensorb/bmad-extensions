@@ -33,19 +33,17 @@
 //                    its six DIMENSIONS match the enrichment prompt's layout block
 //  14. adr-home      no runtime directive names the old per-epic ADR home (epic-*/arch/adr-*)
 //  15. doctor-mode-count  the doctor's stated mode count equals the modes it actually has
-//  16. module-yaml-agreement  sibling module.yaml files sharing a `code:` agree on the
-//                    module-level fields, since the installer picks one of them arbitrarily
-//  17. bmad-dependency-inventory  every bmad-* name a runtime directive under skills/ uses is
+//  16. bmad-dependency-inventory  every bmad-* name a runtime directive under skills/ uses is
 //                    declared in skills/l3io-util-doctor/assets/bmad-dependencies.json, and no
 //                    directive dispatches a removed one without same-line historical evidence
-//  18. pep723-invocation  no runtime directive under skills/ invokes a PEP-723 script
+//  17. pep723-invocation  no runtime directive under skills/ invokes a PEP-723 script
 //                    ({pm_status}, {spec_align}, or a *.py path) with python3, which bypasses
 //                    the header's declared deps in favor of whatever sits in the ambient
 //                    interpreter
-//  19. docs-check-count  the numbered checks in this header agree in count with the check
+//  18. docs-check-count  the numbered checks in this header agree in count with the check
 //                    functions invoked below, and CLAUDE.md / scripts/CLAUDE.md's stated
 //                    check count agrees with both
-//  20. derived-counts  the skill count, module count, and l3io-pm skill count claimed in
+//  19. derived-counts  the skill count, module count, and l3io-pm skill count claimed in
 //                    prose match what skills/ actually has, derived from the directory and
 //                    each skill's module.yaml `code:` field — never typed
 //
@@ -381,7 +379,7 @@ function checkCliSurface() {
 
   // Check 4 spans two scripts (pm-status.py above, spec-align.py below) implemented as two
   // functions for readability, but it is ONE numbered check -- called from here rather than
-  // as its own top-level statement so check 19's derived count (one invocation per header
+  // as its own top-level statement so check 18's derived count (one invocation per header
   // entry) doesn't have to special-case it.
   checkSpecAlignSurface();
 }
@@ -1084,76 +1082,7 @@ function checkDoctorModeCount() {
 }
 
 // ---------------------------------------------------------------------------
-// 16. Sibling module.yaml files that share a `code:` agree on the module-level fields.
-//
-// The installer's resolver matches ONE module.yaml per module code, so when several skills of
-// the same module each carry one, whichever it enumerates first supplies the module's identity.
-// Which one that is, is not something this repo controls.
-//
-// Caught in practice: all four l3io-pm files declared `code: l3io-pm` with four DIFFERENT
-// descriptions -- three of them describing a single skill rather than the module -- and three
-// different post-install-notes, each listing only that one skill's requirements. A consumer's
-// post-install message therefore named a fraction of the real prerequisites, chosen by
-// directory order. module_version cannot drift (postbump stamps every file), but these
-// hand-authored fields could and did.
-//
-// Scope is derived by reading every skills/<dir>/module.yaml, never a list.
-// ---------------------------------------------------------------------------
-const MODULE_SHARED_FIELDS = ["name", "description", "module_greeting", "post-install-notes",
-  "default_selected", "module_version"];
-
-function checkModuleYamlAgreement() {
-  const skillsDir = path.join(repoRoot, "skills");
-  const byCode = new Map();
-  for (const entry of fs.readdirSync(skillsDir, { withFileTypes: true })) {
-    if (!entry.isDirectory()) continue;
-    const rel = `skills/${entry.name}/module.yaml`;
-    if (!exists(rel)) continue;
-    const text = read(rel);
-    // Block scalars (`key: >`) continue over indented lines; capture the whole value.
-    const fields = {};
-    const lines = text.split("\n");
-    for (let i = 0; i < lines.length; i += 1) {
-      const m = lines[i].match(/^([A-Za-z][A-Za-z0-9_-]*):\s*(.*)$/);
-      if (!m) continue;
-      let value = m[2].trim();
-      if (value === ">" || value === "|" || value === ">-" || value === "|-") {
-        const body = [];
-        for (let j = i + 1; j < lines.length && /^\s+\S/.test(lines[j]); j += 1) body.push(lines[j].trim());
-        value = body.join(" ");
-      }
-      fields[m[1]] = value.replace(/\s+/g, " ");
-    }
-    if (!fields.code) continue;
-    if (!byCode.has(fields.code)) byCode.set(fields.code, []);
-    byCode.get(fields.code).push({ rel, fields });
-  }
-  let shared = 0;
-  for (const [code, files] of byCode) {
-    if (files.length < 2) continue;
-    shared += 1;
-    for (const field of MODULE_SHARED_FIELDS) {
-      const seen = new Map();
-      for (const f of files) seen.set(f.fields[field] ?? "(absent)", f.rel);
-      if (seen.size > 1) {
-        const detail = [...seen.entries()]
-          .map(([v, rel]) => `        ${rel}: ${v.length > 90 ? `${v.slice(0, 90)}…` : v}`)
-          .join("\n");
-        failures.push(`module.yaml files sharing \`code: ${code}\` disagree on \`${field}\` ` +
-          `(${seen.size} values across ${files.length} files). The installer picks one of them ` +
-          `for the whole module, and which one is not defined:\n${detail}\n      ` +
-          `Make the module-level fields identical across every skill of the module.`);
-      }
-    }
-  }
-  if (verbose) {
-    console.log(`  module-yaml-agreement: ${byCode.size} module code(s), ${shared} shared by ` +
-      `multiple skills, ${MODULE_SHARED_FIELDS.length} field(s) each`);
-  }
-}
-
-// ---------------------------------------------------------------------------
-// 17. Every bmad-* name a runtime directive uses is declared in one inventory.
+// 16. Every bmad-* name a runtime directive uses is declared in one inventory.
 //
 // Three BMad releases renamed or removed skills this package dispatches and nothing noticed:
 // bmad-create-story and bmad-dev-story became shims, bmad-review-adversarial-general merged
@@ -1166,7 +1095,8 @@ function checkModuleYamlAgreement() {
 // window excused l3io-util-doctor/SKILL.md:84 because an unrelated routing row nearby said
 // "remove migration backup files". An accidental pass is how a guard starts crying wolf.
 //
-// Scope is derived by walking skills/ markdown and every skills/<dir>/module.yaml, never a list.
+// Scope is derived by walking skills/ markdown and every skills/<dir>/assets/module.yaml, never
+// a list.
 // ---------------------------------------------------------------------------
 const DEP_INVENTORY = "skills/l3io-util-doctor/assets/bmad-dependencies.json";
 const BMAD_TOKEN_RE = /(?<![\w-])bmad-[a-z0-9-]+/g;
@@ -1226,7 +1156,7 @@ function checkBmadDependencyInventory() {
   const sources = [...walkMarkdown("skills")];
   for (const entry of fs.readdirSync(path.join(repoRoot, "skills"), { withFileTypes: true })) {
     if (!entry.isDirectory()) continue;
-    const rel = `skills/${entry.name}/module.yaml`;
+    const rel = `skills/${entry.name}/assets/module.yaml`;
     if (exists(rel)) sources.push(rel);
   }
 
@@ -1292,7 +1222,7 @@ function checkBmadDependencyInventory() {
 }
 
 // ---------------------------------------------------------------------------
-// 18. No runtime directive under skills/ invokes a PEP-723 script with python3.
+// 17. No runtime directive under skills/ invokes a PEP-723 script with python3.
 //
 // BMad's own convention is 100% `uv run` -- every core script carries a PEP-723 header and
 // python3 bypasses it, either failing outright (no ambient interpreter has the deps) or
@@ -1333,7 +1263,7 @@ function checkPep723Invocation() {
 }
 
 // ---------------------------------------------------------------------------
-// 19. The check count claimed in prose matches what this file actually runs.
+// 18. The check count claimed in prose matches what this file actually runs.
 //
 // Modelled on check 15 (doctor-mode-count): derive the count two ways from the source of
 // truth -- never type it -- and require the derivations agree before trusting either one to
@@ -1390,19 +1320,25 @@ function checkDocsCheckCount() {
 }
 
 // ---------------------------------------------------------------------------
-// 20. The skill count, module count, and l3io-pm skill count claimed in prose match what
+// 19. The skill count, module count, and l3io-pm skill count claimed in prose match what
 // skills/ actually has.
 //
 // Modelled on check 15 (doctor-mode-count): derive the counts from the source of truth --
 // the skills/ directory and each skill's own module.yaml -- never type them, and require an
 // unmatched claim sentence to fail rather than silently stop being checked.
 //
-// module.yaml lives at the skill root today and a later task relocates it under assets/;
-// codeOf() reads both locations so this check survives that move instead of counting zero
-// modules afterward.
+// module.yaml now lives at each module's home (assets/module.yaml -- a dedicated *-setup skill
+// for a multi-skill module, or the skill itself for a standalone one); codeOf() also reads the
+// skill-root location so a not-yet-migrated module still counts. A module's home can exist
+// before it is a full skill -- l3io-pm-setup carries assets/module.yaml from the day this
+// relocation lands, but its SKILL.md does not arrive until a later task -- so "skills" counts
+// only directories that carry a SKILL.md, while "modules" is derived from every module.yaml
+// regardless. "pmSkills" then excludes the module's own home directory from its delivery
+// skills, per check-module.mjs's convention that a home shared across multiple skills is a
+// dedicated *-setup skill, never one of the module's own skills.
 //
 // Caught in practice: "seventeen checks" drifted because nothing compared it to anything
-// (check 19 closed that gap); every other hand-written count here -- eight skills, four
+// (check 18 closed that gap); every other hand-written count here -- eight skills, four
 // modules, four l3io-pm skills -- was exposed to the same failure mode and had not yet
 // drifted only because no task had changed the numbers yet.
 // ---------------------------------------------------------------------------
@@ -1410,21 +1346,33 @@ function derivedCounts() {
   const dirs = fs.readdirSync(path.join(repoRoot, "skills"), { withFileTypes: true })
     .filter((e) => e.isDirectory() && e.name.startsWith("l3io-"))
     .map((e) => e.name);
-  // module.yaml lives at the skill root today and moves to assets/ in a later task -- read
-  // BOTH so this check survives that relocation instead of silently counting zero afterwards.
+  // assets/module.yaml is the target module home; a skill-root module.yaml is a not-yet-
+  // migrated module. Read both so this check survives a partial migration instead of silently
+  // counting zero modules.
   const codeOf = (skill) => {
-    for (const rel of [`skills/${skill}/module.yaml`, `skills/${skill}/assets/module.yaml`]) {
+    for (const rel of [`skills/${skill}/assets/module.yaml`, `skills/${skill}/module.yaml`]) {
       if (!exists(rel)) continue;
       const m = read(rel).match(/^code:\s*(\S+)/m);
       if (m) return m[1];
     }
     return null;
   };
-  const codes = dirs.map(codeOf).filter(Boolean);
+  const homeOfCode = new Map();
+  for (const dir of dirs) {
+    const code = codeOf(dir);
+    if (code) homeOfCode.set(code, dir);
+  }
+  // A directory is a real, installable skill only once it carries a SKILL.md -- a module home
+  // created ahead of its SKILL.md (l3io-pm-setup, until a later task fills it in) is
+  // infrastructure, not yet a skill.
+  const skillDirs = dirs.filter((dir) => exists(`skills/${dir}/SKILL.md`));
+  const pmHome = homeOfCode.get("l3io-pm");
+  const pmSkills = skillDirs.filter((dir) =>
+    (dir === "l3io-pm" || dir.startsWith("l3io-pm-")) && dir !== pmHome).length;
   return {
-    skills: dirs.length,
-    modules: new Set(codes).size,
-    pmSkills: codes.filter((c) => c === "l3io-pm").length,
+    skills: skillDirs.length,
+    modules: homeOfCode.size,
+    pmSkills,
   };
 }
 
@@ -1488,7 +1436,6 @@ checkPmStatusSize();
 checkSpecAlignContract();
 checkAdrHome();
 checkDoctorModeCount();
-checkModuleYamlAgreement();
 checkBmadDependencyInventory();
 checkPep723Invocation();
 checkDocsCheckCount();

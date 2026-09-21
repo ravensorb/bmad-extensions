@@ -46,21 +46,28 @@ const pmStatusPath = path.join(repoRoot, "skills", "_shared", "pm-status.py");
   }
 }
 
-// Update module_version in all skills/*/module.yaml files
+// Update module_version in every module's assets/module.yaml (the module home). A skill-root
+// module.yaml is legacy/not-yet-migrated (see check:module); it is still updated if found so a
+// project mid-migration does not silently stop getting version bumps.
 const skillsDir = path.join(repoRoot, "skills");
 let moduleYamlCount = 0;
 for (const skillName of fs.readdirSync(skillsDir)) {
-  const moduleYamlPath = path.join(skillsDir, skillName, "module.yaml");
-  if (!fs.existsSync(moduleYamlPath)) continue;
-  const content = fs.readFileSync(moduleYamlPath, "utf8");
-  const updated = content.replace(
-    /^module_version:\s*.+$/m,
-    `module_version: ${releaseVersion}`
-  );
-  if (updated !== content) {
-    fs.writeFileSync(moduleYamlPath, updated, "utf8");
-    console.log(`Synced module_version in skills/${skillName}/module.yaml to ${releaseVersion}`);
-    moduleYamlCount++;
+  for (const rel of [
+    path.join("assets", "module.yaml"),
+    "module.yaml",
+  ]) {
+    const moduleYamlPath = path.join(skillsDir, skillName, rel);
+    if (!fs.existsSync(moduleYamlPath)) continue;
+    const content = fs.readFileSync(moduleYamlPath, "utf8");
+    const updated = content.replace(
+      /^module_version:\s*.+$/m,
+      `module_version: ${releaseVersion}`
+    );
+    if (updated !== content) {
+      fs.writeFileSync(moduleYamlPath, updated, "utf8");
+      console.log(`Synced module_version in skills/${skillName}/${rel} to ${releaseVersion}`);
+      moduleYamlCount++;
+    }
   }
 }
 if (moduleYamlCount === 0) {
