@@ -128,11 +128,16 @@ const newUtilDoctorDirs = [
 // carry the same setup procedure. Derived from skills/ itself, never hand-enumerated: a
 // hand-kept list here drifted silently once already (l3io-pm-setup was absent from it and
 // so absent from the check:scripts comparison too, even though it needed the same three
-// files as every other skill). Same derivation scripts/check-docs.mjs's checkSkillNames()
-// uses — a skill directory is anything under skills/ whose name starts with "l3io-"
-// (_shared is excluded by the prefix).
-const allSkillDirs = fs.readdirSync(path.join(repoRoot, "skills"))
-  .filter((d) => d.startsWith("l3io-"))
+// files as every other skill). Same derivation scripts/check-docs.mjs's derivedCounts()
+// uses (withFileTypes + isDirectory()) — a skill directory is a *directory* under skills/
+// whose name starts with "l3io-" (_shared is excluded by the prefix). Fix round 1, F-8: an
+// earlier version used checkSkillNames()'s derivation instead, which reads plain
+// fs.readdirSync() with no isDirectory() filter — harmless while every "l3io-*" entry under
+// skills/ happens to be a directory, but a stray file (e.g. a dropped "l3io-notes.md") would
+// have been treated as a skill directory and handed to fs.mkdirSync/fs.copyFileSync below.
+const allSkillDirs = fs.readdirSync(path.join(repoRoot, "skills"), { withFileTypes: true })
+  .filter((e) => e.isDirectory() && e.name.startsWith("l3io-"))
+  .map((e) => e.name)
   .sort()
   .map((name) => path.join(repoRoot, "skills", name));
 
