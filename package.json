@@ -9,6 +9,7 @@
     "sync:scripts": "node scripts/sync-shared-scripts.mjs",
     "check:scripts": "node scripts/sync-shared-scripts.mjs --check",
     "check:docs": "node scripts/check-docs.mjs",
+    "check:module": "node scripts/check-module.mjs",
     "check:version": "node scripts/check-pm-status-version.mjs",
     "check:manifest": "node scripts/write-payload-manifest.mjs --check",
     "test:scripts": "node --test scripts/tests/*.test.mjs",
