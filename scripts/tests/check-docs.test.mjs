@@ -1164,3 +1164,49 @@ test("check 20: the real tree passes", (t) => {
   const r = run(root);
   assert.equal(r.status, 0, r.stderr);
 });
+
+// ---- check 21 (skill-frontmatter) ----
+//
+// Task 11A fix round 1, H-1: BMad's installer silently drops a skill whose SKILL.md
+// frontmatter fails a strict YAML parse, or whose `name:` disagrees with its directory name.
+// l3io-pm-sync/SKILL.md's unquoted "Modes: setup, push, ..." did exactly this (H-2) and no
+// other check here would have caught it. These tests plant the same class of break in a
+// DIFFERENT skill than the one that broke in production, so the guard is proven general
+// rather than special-cased to the one file that happened to fail first.
+
+test("check 21: an unquoted colon in a description breaks the YAML parse and is caught", (t) => {
+  const root = fixture(t);
+  const p = path.join(root, "skills", "l3io-pm-help", "SKILL.md");
+  const before = fs.readFileSync(p, "utf8");
+  const after = before.replace(
+    /^description:.*$/m,
+    "description: Read project state. Modes: progress, help.",
+  );
+  assert.notEqual(before, after, "fixture SKILL.md did not contain the expected description line");
+  fs.writeFileSync(p, after);
+  const r = run(root);
+  assert.equal(r.status, 1);
+  assert.match(r.stderr, /skills\/l3io-pm-help\/SKILL\.md: frontmatter fails a strict YAML parse/);
+});
+
+test("check 21: a frontmatter name that disagrees with the directory name is caught", (t) => {
+  const root = fixture(t);
+  const p = path.join(root, "skills", "l3io-pm-plan", "SKILL.md");
+  const before = fs.readFileSync(p, "utf8");
+  const after = before.replace(/^name: l3io-pm-plan$/m, "name: l3io-pm-plan-renamed");
+  assert.notEqual(before, after, "fixture SKILL.md did not contain the expected name line");
+  fs.writeFileSync(p, after);
+  const r = run(root);
+  assert.equal(r.status, 1);
+  assert.match(
+    r.stderr,
+    /skills\/l3io-pm-plan\/SKILL\.md: frontmatter 'name: l3io-pm-plan-renamed' does not match its directory name 'l3io-pm-plan'/,
+  );
+});
+
+test("check 21: the real tree's SKILL.md frontmatter all strict-parse and match their directory names", (t) => {
+  const root = fixture(t);
+  const r = run(root, ["-v"]);
+  assert.equal(r.status, 0, r.stderr);
+  assert.match(r.stdout, /skill-frontmatter: \d+ SKILL\.md file\(s\) strict-parsed/);
+});

@@ -17,8 +17,18 @@ cd "$work"
 # this package's inventory declares bmad-create-story/bmad-dev-story/bmad-review-adversarial-
 # general "deprecated" (still on disk, as shims) -- true only when shims are installed, and
 # BMad's installer omits them by default.
-npx --yes bmad-method install --yes --directory "$work" --modules bmm,bmb --tools claude-code \
-  --shims < /dev/null
+#
+# --custom-source "$pkg" is what makes this a REAL install of THIS package, not a bare-BMad
+# install with this package's skill directories `cp -r`'d in afterward. Task 11A fix round 1,
+# M-1: a hand-copy loop can only ever prove the layout it just built -- it never exercises
+# `ManifestGenerator.parseSkillMd()`, the exact code path that silently drops a skill whose
+# SKILL.md frontmatter fails a strict YAML parse or whose `name:` disagrees with its directory
+# name (H-1/H-2). `--custom-source` runs that real code path: `custom-module-manager.js` reads
+# `.claude-plugin/marketplace.json`, `plugin-resolver.js` resolves each plugin's skill set from
+# it, and only skills that clear `parseSkillMd()` reach `skill-manifest.csv` and
+# `.claude/skills/`. That is the mechanism the checks below now measure, not simulate.
+npx --yes bmad-method install --yes --directory "$work" --custom-source "$pkg" \
+  --modules bmm,bmb --tools claude-code --shims < /dev/null
 
 fail=0
 pending=0
@@ -29,33 +39,21 @@ echo "== baseline =="
 check "core version matches the pinned baseline" \
   "grep -q \"version: $(jq -r .core_version "$pkg/skills/l3io-util-doctor/assets/bmad-baseline.json")\" _bmad/_config/manifest.yaml"
 
+echo "== plugin skill delivery (marketplace.json) =="
+# Task 11A fix round 1, M-1: the definitive empirical guard is that every skill
+# .claude-plugin/marketplace.json declares actually landed in .claude/skills/ after a REAL
+# install -- derived from the manifest's own `plugins[].skills` arrays, never a hand-kept
+# list (per ruling-task9-validator-scope.md's prescription and the global rule against
+# hand-enumerating scope that a source of truth already states). This is also the check that
+# would have caught H-2: a skill whose SKILL.md frontmatter fails BMad's strict parse is
+# declared here but does not land, and the loop below reports exactly that skill by name.
+declared_skills=$(jq -r '.plugins[].skills[]' "$pkg/.claude-plugin/marketplace.json" | xargs -n1 basename)
+for name in $declared_skills; do
+  check "marketplace.json-declared skill '$name' landed in .claude/skills/" \
+    "test -d '.claude/skills/$name'"
+done
+
 echo "== module contract =="
-# l3io-pm-setup is Phase 2's module home for l3io-pm (plan Task 9); it does not exist yet at
-# this point in the plan, so this copies whatever module homes are on disk today and leaves
-# the rest to the state-derived check below instead of aborting the whole script on a missing
-# directory.
-for m in l3io-pm-setup l3io-util-doctor l3io-sec-redteam l3io-arch-review; do
-  if [ -d "$pkg/skills/$m" ]; then
-    cp -r "$pkg/skills/$m" ".claude/skills/$m"
-  else
-    echo "  note: skills/$m does not exist yet (created in a later phase task) -- skipping copy"
-  fi
-done
-# The l3io-pm module's OTHER operational skills, copied alongside its home for the same
-# reason a real plugin install would put them there: .claude-plugin/marketplace.json declares
-# l3io-pm as one plugin covering all five of execute/plan/help/sync/setup, installed flat under
-# .claude/skills/<name>/ as siblings of one another (never nested under the module home). Task
-# 11A's Step 2 self-install depends on exactly this shape -- pm-execute/pm-plan/pm-sync read
-# l3io-pm-setup's payload copy as `{skill-root}/../l3io-pm-setup/scripts/pm-status.py` -- so the
-# claim only means something proven against a real install that actually has all five skills
-# laid out this way, not just the module home copied in isolation.
-for m in l3io-pm-execute l3io-pm-plan l3io-pm-help l3io-pm-sync; do
-  if [ -d "$pkg/skills/$m" ]; then
-    cp -r "$pkg/skills/$m" ".claude/skills/$m"
-  else
-    echo "  note: skills/$m does not exist yet -- skipping copy"
-  fi
-done
 # State-derived, not hardcoded: whether the module contract has landed is read from the
 # package's own tree (any skills/*/assets/module.yaml), the thing Phase 2 Task 7 creates by
 # relocating module.yaml under assets/ -- never from a hand-kept "skip until Task 9" marker
@@ -83,11 +81,13 @@ fi
 echo "== pm-status.py sibling path (Task 11A) =="
 # Task 11A cut pm-status.py from four payload copies to two: pm-execute/pm-plan/pm-sync no
 # longer carry their own, they read l3io-pm-setup's copy as a sibling
-# ({skill-root}/../l3io-pm-setup/scripts/pm-status.py, step-00-activate.md Section 2). That
-# claim is only trustworthy proven against a REAL install, not by reasoning about the
-# marketplace manifest -- this is that proof, and it is why this section copied l3io-pm's
-# other four skills above instead of just its module home.
-if [ -d "$pkg/skills/l3io-pm-setup" ] && [ -d "$pkg/skills/l3io-pm-execute" ]; then
+# ({skill-root}/../l3io-pm-setup/scripts/pm-status.py, step-00-activate.md Section 2). This is
+# checked against the tree the REAL install above produced under .claude/skills/ -- not a
+# hand-copied stand-in (Task 11A fix round 1, M-1): if the installer had dropped
+# l3io-pm-setup (as it silently did for l3io-pm-sync before H-2's fix), the "declared skill
+# landed" loop above would already have failed by name, and the `test -d` guard below would
+# also correctly find it absent rather than asserting a layout this script built itself.
+if [ -d ".claude/skills/l3io-pm-setup" ] && [ -d ".claude/skills/l3io-pm-execute" ]; then
   sibling=".claude/skills/l3io-pm-execute/../l3io-pm-setup/scripts/pm-status.py"
 
   check "the sibling path resolves from a real install" \

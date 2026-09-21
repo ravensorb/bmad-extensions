@@ -131,7 +131,7 @@ test("check:module passes when only one skill in a module carries pm-status.py",
   assert.equal(r.status, 0, r.stderr);
 });
 
-// ---- check 6 (csv-skill-exists) ----
+// ---- check 7 (csv-skill-exists) ----
 //
 // Fix round 1, F-4: three real module-help.csv files each carried a phantom row for a
 // "*-setup" skill that never existed and, by design, never will (three of the four modules

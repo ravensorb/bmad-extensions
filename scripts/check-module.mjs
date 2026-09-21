@@ -31,6 +31,17 @@
 // Scope for all seven is derived by walking `skills/` -- never from a hand-kept list of module
 // codes or skill names -- so a code nobody told this script about is still found and checked.
 //
+// Numbering here is prose, not mechanically cross-checked the way check-docs.mjs's own check 18
+// (docs-check-count) verifies ITS header against ITS invocation list (Task 11A fix round 1,
+// L-1 asked whether that could extend to this file). It cannot port directly: check 18 compares
+// a header-numbered-entry COUNT to an invoked-function COUNT, and here `checkModuleHomes()`
+// alone implements two numbered entries (4 home-payload, 5 home-placement), so a naive count
+// comparison would permanently read 7 header entries against 6 function calls even when
+// correctly numbered -- a broken guard is worse than an honest "not mechanically checked" note
+// (repo CLAUDE.md §3). Splitting `checkModuleHomes()` into two functions would make the port
+// exact, if this numbering drifts again in practice; not done here since it was not observed to
+// have drifted a second time.
+//
 // Usage:
 //   node scripts/check-module.mjs        # report and exit nonzero on any failure (CI)
 //   node scripts/check-module.mjs -v     # also print what passed
@@ -224,7 +235,7 @@ function parseCsvRows(text) {
 }
 
 // ---------------------------------------------------------------------------
-// Task 11A: at most one `scripts/pm-status.py` per distinct module code. `pm-status.py`
+// 6. pm-status-singleton: at most one `scripts/pm-status.py` per distinct module code. `pm-status.py`
 // used to ship four times -- three of them inside the l3io-pm module, self-installing
 // identical bytes to the identical destination -- until this task cut it to one payload copy
 // per module that self-installs it. Membership in a module is derived the same way check 5
@@ -246,7 +257,7 @@ function checkPmStatusSingleton(byCode, skills) {
 }
 
 // ---------------------------------------------------------------------------
-// 6. Every module-help.csv row's `skill` column names a real directory under skills/. The
+// 7. Every module-help.csv row's `skill` column names a real directory under skills/. The
 // valid skill set is `listSkillDirs()` -- the same filesystem derivation every check above
 // uses -- never a hand-list, so a skill directory added or removed is picked up automatically.
 function checkCsvSkillsExist(skills) {

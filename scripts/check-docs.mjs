@@ -49,12 +49,18 @@
 //  20. shared-files-table  every skills/_shared/* source a sync group in
 //                    sync-shared-scripts.mjs references has a row in CLAUDE.md's Shared
 //                    Files table, and every table row names a source that actually exists
+//  21. skill-frontmatter  every skills/*/SKILL.md frontmatter strict-YAML-parses and its
+//                    `name:` equals the directory name -- what BMad's installer requires
+//                    before a skill reaches skill-manifest.csv and .claude/skills/ at all;
+//                    a skill that fails either test is dropped from a real install with no
+//                    warning (Task 11A fix round 1, H-1/H-2)
 //
 // Usage:
 //   node scripts/check-docs.mjs        # report and exit nonzero on any failure (CI)
 //   node scripts/check-docs.mjs -v     # also print what passed
 import fs from "node:fs";
 import path from "node:path";
+import { execFileSync } from "node:child_process";
 
 // CHECK_DOCS_ROOT points the checker at another tree -- scripts/tests/check-docs.test.mjs
 // runs it against a temp copy with a planted violation.
@@ -1622,6 +1628,116 @@ function checkSharedFilesTable() {
 }
 
 // ---------------------------------------------------------------------------
+// 21. Every skills/*/SKILL.md frontmatter strict-YAML-parses, and its `name:` field equals
+// the directory name.
+//
+// Why this matters, mechanically: BMad's installer (`ManifestGenerator.parseSkillMd()`) only
+// surfaces a skill into `.claude/skills/<name>/` and `skill-manifest.csv` when its SKILL.md
+// frontmatter strict-YAML-parses AND its `name:` equals the directory name. A skill that fails
+// either test is dropped from a real install with NO warning -- not an error, not a log line,
+// just absent. Task 11A fix round 1 found this live: `l3io-pm-sync/SKILL.md`'s unquoted
+// `Modes: setup, push, ...` in its description broke the YAML parse, and a real install
+// silently shipped seven of the module's eight skills. No other gate here would have caught
+// it, because none of them YAML-parses a SKILL.md frontmatter -- Claude Code's own parser is
+// more lenient than BMad's installer, so the defect was invisible in this repo's own
+// dogfooding.
+//
+// Parsing: never hand-rolled (global rule 1 -- this repo's own history with a hand-written
+// YAML parser is the cautionary tale the rule cites). This repo carries no npm dependencies
+// and CI runs no `npm install` before these checks (only `node scripts/check-docs.mjs`), so
+// the strict parse shells out to `uv run --with 'ruamel.yaml>=0.18' python3 -c ...` -- uv is
+// already a hard requirement of every PEP-723 script this package ships, and
+// `astral-sh/setup-uv` already runs first in the CI workflow. If a later decision adds
+// `npm ci` to this workflow, swapping this for a Node YAML library (e.g. `js-yaml`) is a
+// trivial follow-up at that point -- not a reason to hand-roll one now.
+//
+// Every SKILL.md is read and parsed in one `uv run` invocation (not one per skill) so this
+// check costs one subprocess spawn, not eight.
+// ---------------------------------------------------------------------------
+const SKILL_FRONTMATTER_PARSER = `
+import sys, json
+from ruamel.yaml import YAML
+yaml = YAML(typ="safe")
+items = json.load(sys.stdin)
+out = []
+for item in items:
+    text = open(item["path"], "r", encoding="utf-8").read()
+    result = {"name": item["name"]}
+    if not text.startswith("---\\n"):
+        result["error"] = "SKILL.md does not start with a --- frontmatter fence"
+        out.append(result)
+        continue
+    end = text.find("\\n---", 4)
+    if end == -1:
+        result["error"] = "SKILL.md frontmatter has no closing --- fence"
+        out.append(result)
+        continue
+    fm = text[4:end]
+    try:
+        data = yaml.load(fm)
+    except Exception as e:
+        result["error"] = str(e).split("\\n")[0]
+        out.append(result)
+        continue
+    if not isinstance(data, dict) or "name" not in data:
+        result["error"] = "frontmatter parsed but has no 'name' key"
+        out.append(result)
+        continue
+    result["frontmatter_name"] = data["name"]
+    out.append(result)
+print(json.dumps(out))
+`;
+
+function checkSkillFrontmatter() {
+  const skills = fs.readdirSync(path.join(repoRoot, "skills"), { withFileTypes: true })
+    .filter((e) => e.isDirectory() && e.name !== "_shared")
+    .map((e) => e.name)
+    .filter((name) => exists(path.join("skills", name, "SKILL.md")))
+    .sort();
+
+  if (skills.length === 0) return;
+
+  const payload = skills.map((name) => ({
+    name,
+    path: path.join(repoRoot, "skills", name, "SKILL.md"),
+  }));
+
+  let stdout;
+  try {
+    stdout = execFileSync(
+      "uv",
+      ["run", "--with", "ruamel.yaml>=0.18", "python3", "-c", SKILL_FRONTMATTER_PARSER],
+      { input: JSON.stringify(payload), encoding: "utf8", cwd: repoRoot },
+    );
+  } catch (e) {
+    failures.push(`skill-frontmatter: could not run the strict YAML parser via 'uv run' (${e.message}) ` +
+      `-- uv is required for this check, the same as it is for every pm-status.py caller`);
+    return;
+  }
+
+  let results;
+  try {
+    results = JSON.parse(stdout.trim());
+  } catch (e) {
+    failures.push(`skill-frontmatter: could not parse the YAML-parser subprocess output as JSON (${e.message})`);
+    return;
+  }
+
+  for (const r of results) {
+    if (r.error) {
+      failures.push(`skills/${r.name}/SKILL.md: frontmatter fails a strict YAML parse (${r.error}) -- ` +
+        `BMad's installer drops a skill like this from a real install with no warning`);
+      continue;
+    }
+    if (r.frontmatter_name !== r.name) {
+      failures.push(`skills/${r.name}/SKILL.md: frontmatter 'name: ${r.frontmatter_name}' does not match ` +
+        `its directory name '${r.name}' -- BMad's installer requires them to be equal`);
+    }
+  }
+  if (verbose) console.log(`  skill-frontmatter: ${results.length} SKILL.md file(s) strict-parsed`);
+}
+
+// ---------------------------------------------------------------------------
 
 checkSkillNames();
 checkGatingTables();
@@ -1643,6 +1759,7 @@ checkPep723Invocation();
 checkDocsCheckCount();
 checkDerivedCounts();
 checkSharedFilesTable();
+checkSkillFrontmatter();
 
 for (const note of notes) if (verbose) console.log(`  note: ${note}`);
 

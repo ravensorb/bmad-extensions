@@ -78,16 +78,25 @@ Extract and bind from the resolved JSON:
 `l3io-pm-setup/scripts/pm-status.py` — the module's home — not here in this skill's own
 `scripts/`. That is a module-home read, not the cross-skill path read `l3io-pm-help/SKILL.md`
 says it avoids for its own, unrelated staleness question: `.claude-plugin/marketplace.json`
-installs the whole
-`l3io-pm` plugin — all five of its skills, including `l3io-pm-setup` — as one unit, so this
-skill and `l3io-pm-setup` are always installed together. `/l3io-pm-setup` itself stays
-**optional**: nothing here requires the setup skill to ever have been *run*, only installed
-beside this one, which the plugin manifest guarantees.
+declares the whole `l3io-pm` plugin — all five of its skills, including `l3io-pm-setup` — as
+one unit, and BMad's installer resolves and copies that unit as siblings under
+`.claude/skills/`. `/l3io-pm-setup` itself stays **optional**: nothing here requires the setup
+skill to ever have been *run*, only installed beside this one.
 
-First confirm the sibling payload is actually on disk. The manifest guarantees it for a normal
-plugin install, but someone can still hand-copy a single skill directory out of it (or ship a
-partial checkout), and that failure must name the missing piece rather than fail silently or
-opaquely inside `uv run`:
+**That co-installation is conditional, not absolute — say so plainly.** BMad's installer only
+carries a skill into `.claude/skills/` and `_bmad/_config/skill-manifest.csv` when its
+`SKILL.md` frontmatter strict-YAML-parses and its `name:` equals its directory name; a skill
+that fails either test is silently dropped from the plugin, with no install-time warning. This
+happened for real: `l3io-pm-sync/SKILL.md`'s unquoted `Modes: …` line broke the parse and a
+real install shipped only four of `l3io-pm`'s five skills until it was quoted (Task 11A fix
+round 1; `check:docs`'s `skill-frontmatter` check now guards this mechanically going forward,
+but a project on an older, unpatched copy of this package could still hit it).
+
+First confirm the sibling payload is actually on disk — the manifest states the intent, but
+only this on-disk check states the fact, whether the cause is the installer dropping the
+skill or someone hand-copying a single skill directory out of the plugin (or shipping a
+partial checkout). Either way the failure must name the missing piece rather than fail
+silently or opaquely inside `uv run`:
 
 ```bash
 test -f {skill-root}/../l3io-pm-setup/scripts/pm-status.py
@@ -96,8 +105,11 @@ test -f {skill-root}/../l3io-pm-setup/scripts/pm-status.py
 If absent, halt:
 ```
 BLOCKED: l3io-pm-setup/scripts/pm-status.py is missing beside this skill.
-This skill ships as part of the l3io-pm plugin, which always includes l3io-pm-setup.
-Reinstall the l3io-pm plugin so all five of its skills land together.
+Check {project-root}/_bmad/_config/skill-manifest.csv for an l3io-pm-setup row: if it is
+missing, the installer rejected that skill (a SKILL.md frontmatter or naming defect) and
+reinstalling the l3io-pm plugin will reproduce the same result until that is fixed upstream.
+If the row IS present, a skill directory was likely hand-copied or the checkout is partial —
+reinstalling the l3io-pm plugin resolves that case.
 ```
 
 Self-install compares the installed copy's **bytes** against this one and reinstalls on any
