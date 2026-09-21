@@ -104,6 +104,40 @@ test("check:module passes when a multi-skill module's home is a *-setup skill", 
   assert.equal(r.status, 0, r.stderr);
 });
 
+// ---- check 6 (csv-skill-exists) ----
+//
+// Fix round 1, F-4: three real module-help.csv files each carried a phantom row for a
+// "*-setup" skill that never existed and, by design, never will (three of the four modules
+// are standalone). validate-module.py (BMad-installed, gitignored, can't run in CI) calls
+// this an "orphan-entry" finding; check:module had no repo-side equivalent because check 4
+// only asserts the CSV file exists, never parses it. These tests exercise the new check
+// against the real CSV format (quoted, comma-bearing description fields), not the
+// writeModuleHome() helper's minimal 3-column stand-in.
+test("check:module rejects a module-help.csv row naming a skill that does not exist", (t) => {
+  const root = fixture(t);
+  writeModuleHome(root, "solo", "solo");
+  write(root, "skills/solo/assets/module-help.csv",
+    "module,skill,display-name,menu-code,description,action,args,phase,preceded-by,followed-by,required,output-location,outputs\n" +
+    'Solo,solo,Solo,SOL,"Real skill, real row.",run,,anytime,,,false,,report\n' +
+    'Solo,solo-setup,Setup,SST,"Phantom row for a skill that was never built.",configure,,anytime,,,false,,config\n');
+  const r = run(root);
+  assert.equal(r.status, 1);
+  assert.match(r.stderr, /row names skill 'solo-setup', which is not a directory under skills\//);
+});
+
+test("check:module passes a module-help.csv whose rows all name real skills", (t) => {
+  const root = fixture(t);
+  writeModuleHome(root, "multi-setup", "multi");
+  write(root, "skills/multi-a/SKILL.md", "# a\n");
+  write(root, "skills/multi-b/SKILL.md", "# b\n");
+  write(root, "skills/multi-setup/assets/module-help.csv",
+    "module,skill,display-name,menu-code,description,action,args,phase,preceded-by,followed-by,required,output-location,outputs\n" +
+    'Multi,multi-a,A,MA,"Does A, and does it well.",run,,anytime,,,false,,report\n' +
+    'Multi,multi-b,B,MB,"Does B.",run,,anytime,,,false,,report\n');
+  const r = run(root);
+  assert.equal(r.status, 0, r.stderr);
+});
+
 // ---- real repository integration ----
 //
 // Everything above exercises the checker against synthetic fixtures. This is the one test
@@ -111,9 +145,16 @@ test("check:module passes when a multi-skill module's home is a *-setup skill", 
 // checker (CHECK_MODULE_ROOT) is what CI runs -- not an extracted function. The baseline
 // count is derived HERE, with its own readdirSync over the copy, never by importing or
 // reusing check-docs.mjs's derivedCounts(): two derivations from the same function would
-// agree by construction and test nothing. A +/-1 tolerance lets the package gain or lose one
-// module home without this test needing an edit for every such change, while still catching
-// a checker that suddenly reports zero or a wildly wrong count.
+// agree by construction and test nothing.
+//
+// Fix round 1, F-7: a prior version compared the module-home count to a hand-typed literal
+// (`const baseline = 4`) with a +/-1 tolerance -- exactly the hand-enumeration class this
+// plan exists to remove, and loose enough that a module home silently disappearing (4->3)
+// would still pass. Compared instead against .claude-plugin/marketplace.json's own `plugins`
+// array length: a second, genuinely independent fact about the package (what the installer
+// registers) that must agree with the first (what skills/ actually contains) by construction
+// -- no module should ever exist as one without the other -- so the comparison is exact, not
+// approximate, and needs no maintenance as modules are added or removed.
 function fixtureFromRepo(t) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "check-module-real-"));
   fs.cpSync(REPO, dir, {
@@ -132,10 +173,16 @@ test("the real repository passes check:module with the expected module-home shap
     .filter((e) => e.isDirectory())
     .map((e) => e.name)
     .filter((name) => fs.existsSync(path.join(skillsDir, name, "assets", "module.yaml")));
-  const baseline = 4; // l3io-pm, l3io-util, l3io-sec, l3io-arch, as of this test's authoring
-  assert.ok(
-    Math.abs(moduleHomes.length - baseline) <= 1,
-    `expected ${baseline} +/-1 module home(s), found ${moduleHomes.length}: ${moduleHomes.join(", ")}`,
+
+  const marketplace = JSON.parse(
+    fs.readFileSync(path.join(root, ".claude-plugin", "marketplace.json"), "utf8"),
+  );
+  const declaredPluginCount = marketplace.plugins.length;
+  assert.equal(
+    moduleHomes.length,
+    declaredPluginCount,
+    `found ${moduleHomes.length} module home(s) under skills/ (${moduleHomes.join(", ")}) ` +
+      `but .claude-plugin/marketplace.json declares ${declaredPluginCount} plugin(s)`,
   );
 
   const r = run(root);

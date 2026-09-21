@@ -9,7 +9,7 @@
 // repo alone, so CI can catch a regression even though the real validator never runs here.
 //
 // Deliberately narrow, and deliberately RED against today's layout -- see the commit that
-// introduced this file. The five assertions:
+// introduced this file. The six assertions:
 //
 //   1. no-root-module-yaml   no `module.yaml` sits at any skill root any more
 //   2. required-fields       every `skills/*/assets/module.yaml` has non-empty code/name/description
@@ -17,8 +17,16 @@
 //   4. home-payload          each module home carries module-setup.md, module-help.csv, and
 //                            both merge-*.py scripts
 //   5. home-placement        a module home is a dedicated `*-setup` skill, or the module's only skill
+//   6. csv-skill-exists      every module-help.csv row's `skill` column names a real directory
+//                            under skills/ -- BMad's validate-module.py calls the opposite an
+//                            "orphan-entry" finding, but it lives under a gitignored,
+//                            BMad-installed path CI can never run; this is the repo-side
+//                            substitute. Found three real phantom rows (fix round 1, F-4):
+//                            l3io-{util,sec,arch}-setup, written for setup skills that never
+//                            existed and, by design, never will (three of the four modules
+//                            are standalone).
 //
-// Scope for all five is derived by walking `skills/` -- never from a hand-kept list of module
+// Scope for all six is derived by walking `skills/` -- never from a hand-kept list of module
 // codes or skill names -- so a code nobody told this script about is still found and checked.
 //
 // Usage:
@@ -170,6 +178,72 @@ function checkModuleHomes(byCode, skills) {
   }
 }
 
+// Minimal, tolerant CSV row splitter for module-help.csv, in the same spirit as
+// parseModuleYaml() above: this repo has no npm dependency and CI never runs `npm install`
+// before these checks (only `node scripts/check-module.mjs` -- see .github/workflows/checks.yml),
+// so a real CSV library is not reachable here without also wiring up a package install step.
+// Scoped exactly to what these files actually contain -- one row per line, no embedded
+// newlines inside a quoted field -- rather than a general RFC4180 parser: handles a quoted
+// field containing commas and a doubled `""` as an escaped quote (the one feature these files
+// use, e.g. `"Validate readiness, elaborate stories, ..."`), nothing else.
+function splitCsvLine(line) {
+  const fields = [];
+  let field = "";
+  let inQuotes = false;
+  for (let i = 0; i < line.length; i += 1) {
+    const c = line[i];
+    if (inQuotes) {
+      if (c === '"' && line[i + 1] === '"') { field += '"'; i += 1; }
+      else if (c === '"') { inQuotes = false; }
+      else { field += c; }
+    } else if (c === '"') {
+      inQuotes = true;
+    } else if (c === ",") {
+      fields.push(field);
+      field = "";
+    } else {
+      field += c;
+    }
+  }
+  fields.push(field);
+  return fields;
+}
+
+function parseCsvRows(text) {
+  const lines = text.split("\n").filter((l) => l.trim() !== "");
+  if (lines.length === 0) return [];
+  const header = splitCsvLine(lines[0]);
+  return lines.slice(1).map((line) => {
+    const values = splitCsvLine(line);
+    const row = {};
+    header.forEach((h, i) => { row[h] = values[i] ?? ""; });
+    return row;
+  });
+}
+
+// ---------------------------------------------------------------------------
+// 6. Every module-help.csv row's `skill` column names a real directory under skills/. The
+// valid skill set is `listSkillDirs()` -- the same filesystem derivation every check above
+// uses -- never a hand-list, so a skill directory added or removed is picked up automatically.
+function checkCsvSkillsExist(skills) {
+  const knownSkills = new Set(skills);
+  for (const skill of skills) {
+    const rel = `skills/${skill}/assets/module-help.csv`;
+    if (!exists(rel)) continue; // check 4 already reports a module home missing this file
+    const rows = parseCsvRows(read(rel));
+    for (const row of rows) {
+      const csvSkill = (row.skill || "").trim();
+      if (!csvSkill) continue;
+      if (!knownSkills.has(csvSkill)) {
+        failures.push(
+          `${rel}: row names skill '${csvSkill}', which is not a directory under skills/ -- ` +
+          `an orphan capability entry.`
+        );
+      }
+    }
+  }
+}
+
 // ---------------------------------------------------------------------------
 const skills = listSkillDirs();
 checkNoRootModuleYaml(skills);
@@ -177,6 +251,7 @@ checkRequiredFields(skills);
 const byCode = collectModuleYamlByCode(skills);
 checkOneHomePerCode(byCode);
 checkModuleHomes(byCode, skills);
+checkCsvSkillsExist(skills);
 
 if (verbose) {
   console.log(`  skills: ${skills.length}, module codes discovered: ${byCode.size}`);
