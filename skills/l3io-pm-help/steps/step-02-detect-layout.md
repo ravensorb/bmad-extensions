@@ -1,6 +1,6 @@
 ### 2. Detect state layout — before reading anything, and before any recommendation
 
-**This section gates every rule in section 4.** l3io-pm-help is the command an upgrading user
+**This section gates every rule in section 5.** l3io-pm-help is the command an upgrading user
 is most likely to run first, and its state probes only understand the sharded layout: against
 a legacy tree every probe returns "(none)", which looks identical to an empty new project.
 Recommending "create your project backlog" there would author a fresh backlog on top of live
@@ -69,6 +69,6 @@ BLOCKED: state found at <printed-path> but implementation_artifacts resolves to
 starting a blank project over existing state.
 ```
 
-If both print nothing → genuine first run. Continue to section 3; rule 1 in section 4 may
+If both print nothing → genuine first run. Continue to section 3; rule 1 in section 5 may
 now fire safely.
 

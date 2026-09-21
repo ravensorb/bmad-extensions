@@ -118,5 +118,6 @@ To run a specific unstarted plan, update the pointer:
 Then run /l3io-pm-execute.
 ```
 
-Fill in the values from the chosen snapshot. If `{pm_status_present}` is `absent`, prepend
-the same pm-status.py warning used in section 5 of the main flow.
+Fill in the values from the chosen snapshot. If `{pm_status_present}` is `absent`, prepend:
+`pm-status.py is missing at {project-root}/_bmad/scripts/pm-status.py. Run /l3io-util-doctor
+first to install it — this report read epic.yaml directly instead.`
