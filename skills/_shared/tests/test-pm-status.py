@@ -241,42 +241,41 @@ class TestLockCommands(Base):
 
 
 class TestNotice(Base):
-    """notice: a one-per-session advisory pointer, modeled on set-lock/check-lock's
-    --session-id discipline but with no TTL. Base gives us self.d (scratch dir) and
-    self.run_main(argv) -> (code, stdout)."""
+    """notice: a one-time-ever advisory pointer, keyed on --key alone. Base gives us self.d
+    (scratch dir) and self.run_main(argv) -> (code, stdout).
 
-    def notice(self, session, key="setup-pointer"):
-        return self.run_main(["notice", "--state-root", self.d,
-                              "--session-id", session, "--key", key])
+    No session dimension: `{session_id}` (step-00-activate.md) is bound fresh per skill
+    invocation and no caller of `notice` is ever a dispatched subagent that could inherit
+    one from a parent, so no two `notice` calls ever share one -- a per-session key would
+    never repeat, firing on every invocation instead of once. The guarantee is therefore
+    "once per project, until whatever the key represents is no longer true" (here: until
+    `modules.l3io-pm` is configured), not "once per session".
+    """
 
-    def test_emitted_once_per_session(self):
-        code, out = self.notice("S1")
+    def notice(self, key="setup-pointer"):
+        return self.run_main(["notice", "--state-root", self.d, "--key", key])
+
+    def test_emitted_once_ever(self):
+        code, out = self.notice()
         self.assertEqual(code, 0, out)
-        code, out = self.notice("S1")
+        code, out = self.notice()
         self.assertEqual(code, 1, out)
+        # And it stays suppressed -- this is not a one-shot-then-forgotten guard.
+        self.assertEqual(self.notice()[0], 1)
 
-    def test_scoped_per_session_and_per_key(self):
-        self.notice("S1", "a")
-        self.assertEqual(self.notice("S2", "a")[0], 0)   # different session
-        self.assertEqual(self.notice("S1", "b")[0], 0)   # different key
+    def test_scoped_per_key(self):
+        self.notice("a")
+        self.assertEqual(self.notice("a")[0], 1)   # same key, second call: suppressed
+        self.assertEqual(self.notice("b")[0], 0)   # different key: independent
 
-    def test_blank_session_or_key_is_a_usage_error(self):
+    def test_blank_key_is_a_usage_error(self):
         self.assertEqual(self.run_main(
-            ["notice", "--state-root", self.d, "--session-id", "  ",
-             "--key", "setup-pointer"])[0], 2)
-
-    def test_prunes_to_twenty_sessions(self):
-        for i in range(25):
-            self.notice(f"S{i}")
-        _, data = pm._load(os.path.join(self.d, ".notices.yaml"))   # returns (yaml, data)
-        self.assertLessEqual(len(data["sessions"]), 20)
-        self.assertIn("S24", data["sessions"])
-        self.assertNotIn("S0", data["sessions"])
+            ["notice", "--state-root", self.d, "--key", "  "])[0], 2)
 
     def test_damaged_file_does_not_block_the_caller(self):
         with open(os.path.join(self.d, ".notices.yaml"), "w", encoding="utf-8") as fh:
             fh.write("{ not: valid: yaml\n")
-        self.assertEqual(self.notice("S1")[0], 0)
+        self.assertEqual(self.notice()[0], 0)
 
     def test_write_failure_is_reported_distinctly_not_as_already_emitted(self):
         """A bad READ is tolerated (test_damaged_file_does_not_block_the_caller above), but
@@ -284,35 +283,27 @@ class TestNotice(Base):
         and not silent success (0) -- a caller told 1 says nothing further, so a masked
         crash there would silently and permanently suppress the pointer."""
         os.mkdir(os.path.join(self.d, ".notices.yaml"))   # a directory where the file goes
-        code, out = self.notice("S1")
+        code, out = self.notice()
         self.assertEqual(code, 2, out)
         os.rmdir(os.path.join(self.d, ".notices.yaml"))
-        # Once the obstruction is gone, the same session+key is still genuinely unrecorded --
-        # the earlier failure must not have left a stale lock or a false "emitted" record.
-        self.assertEqual(self.notice("S1")[0], 0)
-
-    def test_different_session_id_is_not_suppressed(self):
-        """The other half of the once-per-session guarantee: a session id that was never
-        recorded must never be treated as already shown, however similar."""
-        self.assertEqual(self.notice("session-with-a-long-name")[0], 0)
-        self.assertEqual(self.notice("session-with-a-long-name-2")[0], 0)
-        self.assertEqual(self.notice("session-with-a-long-name")[0], 1)
-        self.assertEqual(self.notice("session-with-a-long-name-2")[0], 1)
+        # Once the obstruction is gone, the key is still genuinely unrecorded -- the earlier
+        # failure must not have left a stale lock or a false "emitted" record.
+        self.assertEqual(self.notice()[0], 0)
 
 
-class TestConcurrentNotice(unittest.TestCase):
+class TestConcurrentNoticeDistinctKeys(unittest.TestCase):
     """notice's load->check->append->save must run under ONE lock (notices_lock),
     mirroring TestConcurrentSampling/TestConcurrentAdrReservation below. Locking only the
-    write would let two parallel calls each read the same pre-write `sessions` mapping and
-    save their own key into it -- a lost update, silently dropping whichever key's writer
-    read first, the same collision class every sibling lock family below exists to close.
+    write would let two parallel calls each read the same pre-write `keys` list and save
+    their own key into it -- a lost update, silently dropping whichever key's writer read
+    first, the same collision class every sibling lock family below exists to close.
 
-    One shared --session-id, N distinct --key values: unlike a same-key repeat (which only
-    races on the FIRST write, before the file even exists -- too narrow a window to hit
-    reliably by process-launch jitter alone, confirmed empirically), N distinct keys keep
-    every process racing to read-modify-save the SAME growing `sessions[session_id]` list for
-    the whole run, exactly the shape TestConcurrentSampling and TestConcurrentAdrReservation
-    already use to make their races land reliably.
+    N distinct --key values racing together: every process reads and rewrites the SAME
+    growing `keys` list for the whole run, exactly the shape TestConcurrentSampling and
+    TestConcurrentAdrReservation already use to make their races land reliably. This test
+    pins the lost-update property; TestConcurrentNoticeSameKey below pins the OTHER property
+    that matters under the key-only scope -- exclusivity on a single repeated key -- which
+    needs a pre-populated ledger to race reliably (see its docstring).
 
     Real subprocesses, not threads: `_file_lock`'s reentrancy counter (`_NOTICES_LOCK`) is
     per-process state, so threads sharing one process would pass this test vacuously even
@@ -330,8 +321,7 @@ class TestConcurrentNotice(unittest.TestCase):
     def test_concurrent_notices_for_distinct_keys_lose_none(self):
         import subprocess
         procs = [subprocess.Popen(
-            [sys.executable, SCRIPT, "notice", "--state-root", self.root,
-             "--session-id", "S1", "--key", f"key-{i}"],
+            [sys.executable, SCRIPT, "notice", "--state-root", self.root, "--key", f"key-{i}"],
             stdout=subprocess.PIPE, stderr=subprocess.PIPE)
             for i in range(self.N)]
         codes = []
@@ -341,10 +331,59 @@ class TestConcurrentNotice(unittest.TestCase):
         self.assertEqual(codes, [0] * self.N,
                          f"every distinct key is new, so every caller must exit 0; got {codes}")
         _, data = pm._load(os.path.join(self.root, ".notices.yaml"))
-        recorded = set(data["sessions"]["S1"]) if data else set()
+        recorded = set(data["keys"]) if data else set()
         expected = {f"key-{i}" for i in range(self.N)}
         self.assertEqual(recorded, expected,
                          f"lost update(s) under concurrency: missing {expected - recorded}")
+
+
+class TestConcurrentNoticeSameKey(unittest.TestCase):
+    """Exclusivity on a single repeated key is now THE property that matters under the
+    key-only scope: two concurrent callers (e.g. l3io-pm-execute and l3io-pm-plan invoked
+    around the same time in an unconfigured project) both racing on the SAME key must never
+    both be told "emit it" -- exactly one may print the pointer.
+
+    An EMPTY ledger's critical section is too short-lived for process-launch jitter alone to
+    ever overlap it -- confirmed empirically: a same-key race against an empty ledger never
+    reproduced a double exit-0, even at N=250. Pre-seeding the ledger with many prior keys
+    widens the window enough (real ruamel parse + dump work over a bigger file) for the race
+    to land reliably; confirmed empirically against THIS flat `{keys: [...]}` shape: a
+    40-entry preseed was not enough (still 0 collisions at N=16), but a 500-entry preseed at
+    N=16 broke 8/8 with the lock removed and passed 8/8 with it present, zero flakes either
+    way.
+    """
+
+    N = 16
+    PRESEED = 500
+
+    def setUp(self):
+        self.d = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, self.d, True)
+        self.root = os.path.join(self.d, "state")
+        os.makedirs(self.root)
+        y = pm._yaml()
+        with open(os.path.join(self.root, ".notices.yaml"), "w", encoding="utf-8") as fh:
+            y.dump({"keys": [f"prior-key-{i}" for i in range(self.PRESEED)]}, fh)
+
+    def test_concurrent_notices_for_one_key_fire_exactly_once(self):
+        import subprocess
+        procs = [subprocess.Popen(
+            [sys.executable, SCRIPT, "notice", "--state-root", self.root,
+             "--key", "setup-pointer"],
+            stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+            for _ in range(self.N)]
+        codes = []
+        for p in procs:
+            p.communicate(timeout=120)
+            codes.append(p.returncode)
+        self.assertEqual(codes.count(0), 1,
+                         f"exactly one concurrent caller must be told to emit; got {codes}")
+        self.assertEqual(codes.count(1), self.N - 1,
+                         f"every other caller must see 'already emitted'; got {codes}")
+        _, data = pm._load(os.path.join(self.root, ".notices.yaml"))
+        self.assertIn("setup-pointer", data["keys"])
+        self.assertEqual(len(data["keys"]), self.PRESEED + 1,
+                         "no lost or duplicated entries under concurrency")
 
 
 class TestSetLockMutualExclusion(Base):

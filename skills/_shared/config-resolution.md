@@ -129,36 +129,47 @@ Load `assets/module-setup.md` only when:
 Never treat a missing config section as the trigger. That mistake is what made every
 invocation open with "No {module} section in config — loading module setup first."
 
-Once per session, at most, an **orchestrator** may mention that `/l3io-pm-setup` exists — and
-only when there is something to mention. `{l3io_pm_section_absent}` (bound in
-`step-00-activate.md` §1, from the JSON already resolved above — this is **not** a second
-config resolve) gates it: a project that has already configured `modules.l3io-pm` gets no
-pointer at all, because "configure it if you want to" would be false the moment it printed —
-the person just did.
+At most once ever, per project — not per session — an **orchestrator** may mention that
+`/l3io-pm-setup` exists, and only when there is something to mention. There is no notion of
+"session" that outlives one skill invocation: `{session_id}` (`step-00-activate.md` §7) is
+bound fresh per invocation and no caller of `notice` is ever a dispatched subagent that could
+inherit one from a parent, so a per-session key would never repeat — it would fire on every
+single invocation, exactly the nagging this mechanism exists to prevent. (An earlier version
+of this section keyed the notice on `{session_id}` for this reason; that was wrong, and is
+recorded as a corrected mistake in `docs/superpowers/specs/2026-09-20-l3io-customization-layer-design.md`
+§3.2 rather than silently fixed here.) The notice is keyed on **the notice key alone**, so once
+a key fires for a project, it never fires again for that project — correct, because the
+condition it reports (`modules.l3io-pm` absent) is itself a valid permanent state (§5 above),
+not a transient one to keep re-flagging.
+
+`{l3io_pm_section_absent}` (bound in `step-00-activate.md` §1, from the JSON already resolved
+above — this is **not** a second config resolve) gates it: a project that has already
+configured `modules.l3io-pm` gets no pointer at all, because "configure it if you want to"
+would be false the moment it printed — the person just did.
 
 ```bash
 if [ "{l3io_pm_section_absent}" = "true" ]; then
-  uv run {pm_status} notice --state-root {pm_state_root} \
-    --session-id {session_id} --key setup-pointer && \
+  uv run {pm_status} notice --state-root {pm_state_root} --key setup-pointer && \
     echo "l3io-pm currently has no project-level configuration. /l3io-pm-setup configures it if you want to."
 fi
 ```
 
-Exit 1 from `notice` means it was already said this session — say nothing further, and this is
-the ordinary case on every invocation after the first. Exit 2 means something actually failed
-recording it (never conflated with exit 1); note it in passing but never halt on it — the
-module works without settings, which is why none are declared, and this check is never a
-trigger for setup itself — that stays gated on an explicit `setup`/`configure`/`install`
-argument, exactly as above.
+Exit 1 from `notice` means this key was already recorded for this project — say nothing
+further, permanently, for that key. Exit 2 means something actually failed recording it (never
+conflated with exit 1); note it in passing but never halt on it — the module works without
+settings, which is why none are declared, and this check is never a trigger for setup itself —
+that stays gated on an explicit `setup`/`configure`/`install` argument, exactly as above.
 
-**Orchestrator-only, and it needs no new machinery to say so**: `l3io-pm-execute` and
-`l3io-pm-plan` are the only skills that dispatch subagents — "Only an orchestrator generates
-one" (§7 of `steps/shared/step-00-activate.md`) is written for them. `l3io-pm-help` never
-loads that file at all. `l3io-pm-sync` does load it, but it never dispatches a subagent and no
-step of its own ever references `{session_id}` again afterward — whatever that file leaves
-`{session_id}` holding there, nothing downstream in `l3io-pm-sync` reads it. Wiring the pointer
-into either skill would fire it on every single invocation regardless — the exact per-invocation
-detour this section exists to rule out. Do not "fix" that asymmetry.
+**Wired into `l3io-pm-execute` and `l3io-pm-plan` only — a placement choice, not a technical
+constraint.** Nothing about `notice` requires an orchestrator, a session, or anything else
+either of those two skills alone would have: the mechanism above works identically wherever
+it is called. The restriction is about *where a user should learn this*, not what the
+mechanism can support — `l3io-pm-execute`/`l3io-pm-plan` are where someone is about to run PM
+work and would act on the pointer; `l3io-pm-help` is where someone reads status, and
+`l3io-pm-sync` is GitHub sync, neither the moment to introduce a setup step. Do not add it to
+either on the theory that the once-per-project mechanism would now support it — it would, and
+that is exactly why this is a placement decision worth stating rather than a limitation to
+"fix".
 
 ## 6. Detecting whether another l3io module is installed
 

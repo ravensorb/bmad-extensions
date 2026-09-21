@@ -207,18 +207,20 @@ Subcommands
   adr-reserve   --state-root S  --epic ID  --slug SLUG  [--count N]
                 (reserves N sequential ADR numbers under a lock, before dispatch;
                 prints one zero-padded number per line; see adr_register_path)
-  notice        --state-root S  --session-id SESS  --key KEY
-                (records a one-per-session advisory notice in {state-root}/.notices.yaml
-                under flock, pruned to the 20 most recent session ids; exit 0 = not yet
-                emitted this session for KEY (and now recorded), exit 1 = already emitted,
-                exit 2 = usage error OR an unexpected recording failure (never conflated
-                with exit 1); advisory only -- a damaged notices file never blocks the
-                caller, but a failed write is reported, not silently treated as success)
+  notice        --state-root S  --key KEY
+                (records a one-time-ever advisory notice in {state-root}/.notices.yaml
+                under flock, keyed on KEY alone -- there is no session concept that
+                outlives one skill invocation, so this is scoped to the project, not a
+                session; exit 0 = not yet emitted for KEY (and now recorded), exit 1 =
+                already emitted, exit 2 = usage error OR an unexpected recording failure
+                (never conflated with exit 1); advisory only -- a damaged notices file
+                never blocks the caller, but a failed write is reported, not silently
+                treated as success)
 
-Exit codes: 0 = success/verified, 1 = notice already emitted this session
-(notice only), 2 = usage error, 3 = node not found, 4 = verification failure
-(missing/invalid field), 5 = epic locked. Errors go to stderr; machine output
-(verify summaries) goes to stdout.
+Exit codes: 0 = success/verified, 1 = notice already emitted for this key
+(notice only), 2 = usage error or, for notice only, an unexpected recording failure,
+3 = node not found, 4 = verification failure (missing/invalid field), 5 = epic locked.
+Errors go to stderr; machine output (verify summaries) goes to stdout.
 """
 from __future__ import annotations
 
@@ -334,8 +336,9 @@ def _atomic_create(path: str, text: str) -> bool:
 # State roots whose .gitignore this process has already checked (_ensure_lock_ignore).
 _LOCK_IGNORE_CHECKED = set()
 _LOCK_IGNORE_LINE = "*.lock"
-NOTICES_FILENAME = ".notices.yaml"  # the one-per-session advisory ledger (cmd_notice below)
-NOTICES_KEEP = 20
+NOTICES_FILENAME = ".notices.yaml"  # the one-time-ever advisory ledger, keyed on --key
+                                     # alone (cmd_notice below) -- no pruning: a project's
+                                     # set of distinct notice keys stays small by construction
 # Every filename pm-status.py writes at a state root that must never reach git: the
 # per-family lock sidecars (one glob covers all of them) and the notices ledger.
 _GITIGNORE_PATTERNS = (_LOCK_IGNORE_LINE, NOTICES_FILENAME)
@@ -1072,8 +1075,9 @@ def notices_lock(state_root: str):
     """Hold an exclusive lock over a whole notices read-modify-write cycle.
 
     Same reasoning as calibration_lock and adr_register_lock: load -> mutate -> save is
-    not atomic, and two parallel orchestrators in one session must not both decide the
-    notice has not been shown.
+    not atomic, and two concurrent callers -- e.g. `l3io-pm-execute` and `l3io-pm-plan`
+    invoked around the same time in one project -- must not both decide the same key has
+    not been shown yet and each write their own "now recorded" copy, silently dropping one.
     """
     with _file_lock(notices_path(state_root) + ".lock", _NOTICES_LOCK, state_root):
         yield
@@ -2636,27 +2640,35 @@ def cmd_adr_reserve(args) -> int:
 
 
 def cmd_notice(args) -> int:
-    """Record a one-per-session advisory notice. Exit 0 = emit it now (and record it),
-    exit 1 = already emitted this session for this key, exit 2 = usage error OR an
-    unexpected failure while recording (lock/I/O). 2 is deliberately overloaded with
-    "usage error" rather than given a new number of its own: a caller that treats any
-    nonzero exit as "do not print the pointer" already handles it correctly either way,
-    and the one distinction that matters -- 1 means "already said, all is well" -- stays
-    unambiguous. A crash must never surface as 1: a caller told "already emitted" says
-    nothing further and moves on, so a masked crash would silently and permanently
-    suppress the pointer with nothing to show for it.
+    """Record a one-time-ever advisory notice for this project. Exit 0 = emit it now (and
+    record it), exit 1 = already emitted for this key, exit 2 = usage error OR an unexpected
+    failure while recording (lock/I/O). 2 is deliberately overloaded with "usage error"
+    rather than given a new number of its own: a caller that treats any nonzero exit as "do
+    not print the pointer" already handles it correctly either way, and the one distinction
+    that matters -- 1 means "already said, all is well" -- stays unambiguous. A crash must
+    never surface as 1: a caller told "already emitted" says nothing further and moves on,
+    so a masked crash would silently and permanently suppress the pointer with nothing to
+    show for it.
 
-    An absent or unparseable notices file means nothing has been emitted yet for any
-    session -- a notice is advisory only, so a damaged file must never block the caller's
-    real work; it is simply treated as empty and rewritten clean on this call. That
-    tolerance covers a bad READ only: a failure while actually recording (the lock, or the
-    write itself) is a real failure and is reported as one, not folded into "already
-    emitted" or silently swallowed as success.
+    Scope is the KEY ALONE, not a session: there is no notion of "session" that outlives one
+    skill invocation (`{session_id}` in `step-00-activate.md` is bound fresh per invocation
+    and no caller of `notice` is ever a dispatched subagent that could inherit one), so a
+    per-session key would never repeat and this would fire every single invocation -- exactly
+    the nagging it exists to prevent. A key is recorded at most once, ever, per project: once
+    a key has fired, it never fires again for that `--state-root`, which is correct for an
+    advisory whose content is static ("this exists, configure it if you want") and whose
+    trigger condition (`modules.l3io-pm` being absent) is itself a valid permanent state, not
+    a transient one to keep re-flagging.
+
+    An absent or unparseable notices file means nothing has been emitted yet -- a notice is
+    advisory only, so a damaged file must never block the caller's real work; it is simply
+    treated as empty and rewritten clean on this call. That tolerance covers a bad READ only:
+    a failure while actually recording (the lock, or the write itself) is a real failure and
+    is reported as one, not folded into "already emitted" or silently swallowed as success.
     """
-    session = (args.session_id or "").strip()
     key = (args.key or "").strip()
-    if not session or not key:
-        sys.stderr.write("notice: --session-id and --key must be non-empty\n")
+    if not key:
+        sys.stderr.write("notice: --key must be non-empty\n")
         return 2
     path = notices_path(args.state_root)
     try:
@@ -2670,22 +2682,13 @@ def cmd_notice(args) -> int:
                 y, data = _load(path)
             except Exception:
                 y, data = _yaml(), None
-            sessions = data.get("sessions") if isinstance(data, dict) else None
-            if not isinstance(sessions, dict):
-                from ruamel.yaml.comments import CommentedMap
-                sessions = CommentedMap()
-            emitted = sessions.get(session)
-            if not isinstance(emitted, list):
-                emitted = []
-            if key in emitted:
+            keys = data.get("keys") if isinstance(data, dict) else None
+            if not isinstance(keys, list):
+                keys = []
+            if key in keys:
                 return 1
-            emitted.append(key)
-            sessions[session] = emitted
-            # Insertion order is emission order (first-seen session first); keep only the
-            # newest NOTICES_KEEP sessions so the ledger never grows without bound.
-            for stale in list(sessions)[:-NOTICES_KEEP]:
-                del sessions[stale]
-            _atomic_dump(y, {"sessions": sessions}, path)
+            keys.append(key)
+            _atomic_dump(y, {"keys": keys}, path)
     except Exception as e:
         sys.stderr.write(f"notice: could not record the notice at {path}: {e}\n")
         return 2
@@ -6781,9 +6784,8 @@ def build_parser() -> argparse.ArgumentParser:
     ar.set_defaults(func=cmd_adr_reserve)
 
     nt = sub.add_parser("notice",
-                        help="record a one-per-session advisory notice; exit 1 if already shown")
+                        help="record a one-time-ever advisory notice; exit 1 if already shown")
     nt.add_argument("--state-root", required=True)
-    nt.add_argument("--session-id", dest="session_id", required=True)
     nt.add_argument("--key", required=True)
     nt.set_defaults(func=cmd_notice)
 

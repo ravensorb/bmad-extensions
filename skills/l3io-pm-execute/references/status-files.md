@@ -506,10 +506,12 @@ sharding gives each epic its own directory, and nothing below the epic level nee
   (deleting a flock file is racy) — do not delete one while a run may be active.
 - `issues.yaml.lock`, `pm-calibration.yaml.lock`, `adr-register.yaml.lock` — the sidecars for
   the three shared-append targets below, likewise created empty and never deleted.
-- `.notices.yaml.lock` — the sidecar for `.notices.yaml` (`notices_lock`), the one-per-session
-  advisory ledger `pm-status.py notice` reads/writes for the `l3io-pm-execute`/`l3io-pm-plan`
-  setup-pointer (`config-resolution.md` §5). Same shape as the three above: whole
-  read-modify-write cycle under one lock, likewise created empty and never deleted.
+- `.notices.yaml.lock` — the sidecar for `.notices.yaml` (`notices_lock`), the one-time-ever
+  advisory ledger `pm-status.py notice` reads/writes, keyed on `--key` alone (not a session —
+  there is no cross-invocation session identifier available), for the
+  `l3io-pm-execute`/`l3io-pm-plan` setup-pointer (`config-resolution.md` §5). Same shape as
+  the three above: whole read-modify-write cycle under one lock, likewise created empty and
+  never deleted.
 - `spec-sync.lock` — the spec-edit lease written by `spec-align.py lease` (JSON: `owner`,
   `acquired_at`, `expires_at`), not an empty flock target: an epic closure's spec sync holds it
   across an agent's turns. It is a `*.lock`, so the same ignore rule keeps it out of git.

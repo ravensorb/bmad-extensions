@@ -38,12 +38,11 @@ Parse the invocation argument to determine mode:
 
 Bind `{sync_mode}` = parsed mode.
 
-This skill loads `step-00-activate.md` for config/state binding, but it never dispatches a
-subagent, and no step of its own ever references `{session_id}` again after that file — do not
-add the once-per-session `/l3io-pm-setup` pointer (`config-resolution.md` §5) here regardless
-of what value `{session_id}` ends up holding: that pointer is scoped to the orchestrators
-(`l3io-pm-execute`, `l3io-pm-plan`) only, and wiring it in here as well would print it on every
-invocation — the exact behaviour that section rules out.
+Do not add the once-per-project `/l3io-pm-setup` pointer (`config-resolution.md` §5) here:
+`notice` is keyed on the notice key alone, not on a session, so nothing here technically
+prevents wiring it in — this is a placement choice, not a guard this skill fails. The pointer
+belongs where a user is about to run PM work and could act on it; this skill only syncs to
+GitHub. It is wired into `l3io-pm-execute`/`l3io-pm-plan` only.
 
 Load and execute in order:
 

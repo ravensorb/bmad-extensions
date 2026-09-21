@@ -17,11 +17,10 @@ Load `{skill-root}/assets/module-setup.md` first **only** when the user passes `
 `configure`, or `install`. An absent `modules.l3io-pm` section means the module has no
 overrides, not that it needs setup.
 
-This skill never loads `step-00-activate.md` and so never binds a `{session_id}` — do not add
-the once-per-session `/l3io-pm-setup` pointer (`config-resolution.md` §5) here: with no session
-id to key it on, the guard could not bound anything and it would print on every invocation,
-the exact behaviour that section rules out. That pointer is scoped to the orchestrators
-(`l3io-pm-execute`, `l3io-pm-plan`) only.
+Do not add the once-per-project `/l3io-pm-setup` pointer (`config-resolution.md` §5) here:
+nothing about it technically requires this to be skipped — it is a placement choice, not a
+guard this skill fails. The pointer belongs where a user is about to run PM work and could act
+on it; this skill only reads status. It is wired into `l3io-pm-execute`/`l3io-pm-plan` only.
 
 **Recognized argument — `progress`:** run section 1 (config) and section 2 (layout
 detection) exactly as written, then jump to [Progress Mode](#progress-mode) and skip

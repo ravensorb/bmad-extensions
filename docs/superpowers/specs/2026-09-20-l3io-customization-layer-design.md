@@ -174,10 +174,13 @@ Applied here, that is a **mixed** answer:
 
 | Module | Skills *after* §4.6 | Shape | Registration |
 |---|---|---|---|
-| `l3io-pm` | 4 (execute, plan, help, sync) | multi-skill + `l3io-pm-setup` | once-per-session pointer |
+| `l3io-pm` | 4 (execute, plan, help, sync) | multi-skill + `l3io-pm-setup` | once-per-session pointer¹ |
 | `l3io-util` | **1** (doctor) | standalone | auto on first run |
 | `l3io-sec` | 1 (redteam) | standalone | auto on first run |
 | `l3io-arch` | 1 (review) | standalone | auto on first run |
+
+¹ Corrected below — shipped as a once-**per-project** pointer, not once-per-session; see the
+"Correction (2026-09-21)" note after the mechanism description.
 
 Note the interaction: retiring `l3io-util-cleanup` (§4.6) drops `l3io-util` to a single skill,
 so it qualifies as standalone and needs **no setup skill**. Only `l3io-pm` is multi-skill.
@@ -198,6 +201,29 @@ The mechanism follows the existing `set-lock` / `check-lock` / `clear-lock` trio
 guarded, recording in `state/.notices.yaml` (gitignored, like the lock files). Exit 0 means
 "not yet shown this session — show it and record"; exit 1 means "already shown". State writes
 go through `pm-status.py` and nowhere else, so this stays consistent with the existing contract.
+
+**Correction (2026-09-21), found during Task 10 implementation review.** The paragraph above
+is wrong: there is no session concept that outlives one skill invocation to key on.
+`step-00-activate.md` binds `{session_id}` fresh at the start of every invocation and "must
+remain constant for the lifetime of this skill invocation" — a session *is* one invocation.
+The only other caller `notice` could have shared a session with is a dispatched sprint
+subagent, and `l3io-pm-execute`'s headless mode explicitly does not call `notice`. So no two
+`notice` calls were ever going to share a session id, `exit 1` was unreachable by construction,
+and an unconfigured project would have seen the pointer on **every** execute/plan invocation —
+exactly the nagging this mechanism exists to prevent. `.notices.yaml`, its lock, and any
+per-session pruning would have done no observable work.
+
+**What shipped instead: keyed on the notice key alone, "once per project, ever."**
+`pm-status.py notice --state-root S --key KEY` — no `--session-id`. Exit 0 means "not yet
+emitted for this key anywhere in this project's history — show it and record it now"; exit 1
+means "already emitted for this key, permanently." There is no pruning: a project's set of
+distinct notice keys stays small by construction, so nothing needs bounding. This is correct
+for the setup pointer specifically because the condition it reports — `modules.l3io-pm` absent
+— is itself a valid **permanent** state (§1.4) until someone configures the project, not a
+transient one that would ever need re-flagging. A working session-scoped concept was
+considered and rejected: there is no cross-invocation session identifier available in this
+execution model, and inventing one (a time window, a pid file, a terminal id) would be new
+machinery built to satisfy a phrase in this spec rather than an actual need.
 
 The published docs do not state whether setup skills auto-run; only the installed scaffolder
 reference (`create-module.md:224`) says "run the setup skill". A bounded, silent-by-default
