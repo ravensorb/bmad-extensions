@@ -21,10 +21,13 @@ would otherwise hit with no clue why:
 `pm-status.py is missing at {project-root}/_bmad/scripts/pm-status.py. Run /l3io-util-doctor
 first to install it — this report read epic.yaml directly instead.`
 
-Two of the strings above are also inlined elsewhere so those paths do not need to load this
-file: the stale-lock recommendation (row above) in `steps/mode-progress.md`, and this
-`pm_status_present` warning in `steps/mode-list-plan.md`. Keep all copies in sync if either
-changes.
+One of the strings above is also inlined elsewhere so that path does not need to load this
+file: this `pm_status_present` warning in `steps/mode-list-plan.md`. Keep both copies in
+sync if it changes. (The stale-lock recommendation used to be inlined a second time, in
+`steps/mode-progress.md` — that mode now forwards to `/l3io-util-doctor stats` instead of
+reading state itself, so its own copy of the stale-lock row is gone; the remedy lives on in
+`skills/l3io-util-doctor/steps/stats.md`, a cross-skill duplication with no mechanical guard,
+noted there.)
 
 Output the recommendation as a clear, one-paragraph response with the exact command to run.
 

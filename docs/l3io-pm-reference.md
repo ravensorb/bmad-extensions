@@ -8,7 +8,7 @@ Full reference for the PM orchestration module — four skills that cover the de
 |-------|------|
 | `l3io-pm-plan` | Validates readiness, elaborates thin stories, estimates, builds the dependency graph, and writes a phased execution plan |
 | `l3io-pm-execute` | Runs the plan — full, single epic, or single sprint. Includes the pre-execution architecture gate, the per-story dev loop, and sprint/epic closure |
-| `l3io-pm-help` | Reads project state and recommends the exact next l3io-pm action. `progress` renders the plan-aware progress tree |
+| `l3io-pm-help` | Reads project state and recommends the exact next l3io-pm action. `progress` forwards to `/l3io-util-doctor stats` for the plan-aware progress tree |
 | `l3io-pm-sync` | Bidirectional sync between l3io-pm state and GitHub Issues — `setup`, `push`, `pull`, `sync`, `status` |
 
 `l3io-pm-execute` is **one skill in two modes**, not two skills. In normal mode it orchestrates epics; for each sprint it dispatches a *headless* subagent invocation of itself. There is no separate sprint-execute or epic-execute skill.
@@ -326,21 +326,24 @@ execute.
 | Invocation | What it does |
 |---|---|
 | *(none)* | Health snapshot plus a next-action recommendation |
-| `progress` | Plan-aware progress tree, delegated to `pm-status.py report`. See [Progress Reporting](#progress-reporting) |
+| `progress` | Forwards to `/l3io-util-doctor stats` for the plan-aware progress tree. See [Progress Reporting](#progress-reporting) |
 | `list plan` | Enumerates every plan snapshot, classifies each as unstarted / in progress / complete against current state, and prints the YAML to repoint `plan-output-meta.yaml` |
 
 `setup`, `configure`, and `install` are not recognized arguments — module setup is not routed
 through this skill. `/l3io-pm-setup` is the module's setup entry point.
 
-`progress` and `list plan` still run config resolution and the layout gate first, then skip the
-recommendation sections. The gate therefore applies to every mode: a legacy tree short-circuits
-all three to the same migration recommendation, because the progress report and the epic status
-probes only understand the sharded layout.
+`list plan` still runs config resolution and the layout gate first, then skips the
+recommendation sections; a legacy tree short-circuits it to the migration recommendation,
+because the epic status probes only understand the sharded layout. `progress` runs neither
+step — it is a pure forwarder to `/l3io-util-doctor stats`, which owns the equivalent layout
+check on its own state root instead of duplicating it here.
 
 ### The layout gate
 
-Before any recommendation, in every mode, it **counts** rather than stops at the first hit —
-sharded `state/`, a legacy per-epic `_bmad/state/`, and a legacy flat `sprint-status.yaml`:
+Before any recommendation, in every mode that still reads state directly here (the default
+flow and `list plan` — `progress` no longer does, see above), it **counts** rather than stops
+at the first hit — sharded `state/`, a legacy per-epic `_bmad/state/`, and a legacy flat
+`sprint-status.yaml`:
 
 | Layouts found | Outcome |
 |---|---|
@@ -357,10 +360,11 @@ first-run recommendation become reachable.
 
 ### Presence, and no staleness check
 
-**Presence** is a file-exists test on the installed `pm-status.py`. When absent, every
-`pm-status.py` call becomes conditional: the state read falls back to parsing each
-`epic.yaml` directly, and `progress` refuses outright, because dwell times and phase roll-ups
-cannot be derived from `epic.yaml`.
+**Presence** is a file-exists test on the installed `pm-status.py`, checked by every mode that
+reads state directly here — the default recommendation flow and `list plan`. When absent, the
+state read falls back to parsing each `epic.yaml` directly. `progress` no longer performs this
+check itself: it forwards to `/l3io-util-doctor stats`, which self-installs `pm-status.py` at
+its own activation and handles absence there instead.
 
 l3io-pm-help does **not** check staleness. `module.yaml` lives only at the module's home
 (`l3io-pm-setup/assets/module.yaml`), not at this skill's own root, and reading a sibling
