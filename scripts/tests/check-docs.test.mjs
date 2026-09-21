@@ -836,10 +836,10 @@ test("check 20: a stale total-skill count is caught", (t) => {
   const root = fixture(t);
   const p = path.join(root, "docs", "getting-started.md");
   const before = fs.readFileSync(p, "utf8");
-  fs.writeFileSync(p, before.replace("New to the eight skills?", "New to the nine skills?"));
+  fs.writeFileSync(p, before.replace("New to the seven skills?", "New to the nine skills?"));
   const r = run(root);
   assert.equal(r.status, 1);
-  assert.match(r.stderr, /says "nine" skill\(s\), but the package has 8/);
+  assert.match(r.stderr, /says "nine" skill\(s\), but the package has 7/);
 });
 
 test("check 20: a stale module count is caught", (t) => {
@@ -857,7 +857,7 @@ test("check 20: scope attack — adding a skill directory must break the count c
   write(root, "skills/l3io-newthing/SKILL.md", "---\nname: l3io-newthing\ndescription: d\n---\n");
   const r = run(root);
   assert.equal(r.status, 1);
-  assert.match(r.stderr, /skill\(s\), but the package has 9/);
+  assert.match(r.stderr, /skill\(s\), but the package has 8/);
 });
 
 test("check 20: a reworded claim sentence fails loudly rather than passing", (t) => {

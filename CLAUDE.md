@@ -25,7 +25,7 @@ Module setup is **embedded** in each operational skill (`assets/module-setup.md`
 | `l3io-pm-help` | Reads project state and recommends the exact next l3io-pm action |
 | `l3io-pm-sync` | Bidirectional sync between l3io-pm state and GitHub Issues — setup, push, pull, sync, and status modes |
 | `l3io-sec-redteam` | Red team security analysis — five threat lenses + AI poisoning cross-cut, live cloud/platform best practices research |
-| `l3io-util-doctor` | Project state diagnostics and housekeeping — default is a health check that reports findings and proposes an ordered fix plan; `stats` is the plan-aware progress dashboard; plus `triage`, `migrate-adrs`, `migrate-state`, `split-status`, `harvest-debt`, `sort-status`, `update-ai-rules`, `clean-legacy`, `redrive`. Renamed from `l3io-util-cleanup` in 2.1.0, which survives as a deprecated forwarder (backward compatible — the old command forwards) |
+| `l3io-util-doctor` | Project state diagnostics and housekeeping — default is a health check that reports findings and proposes an ordered fix plan; `stats` is the plan-aware progress dashboard; plus `triage`, `migrate-adrs`, `migrate-state`, `split-status`, `harvest-debt`, `sort-status`, `update-ai-rules`, `clean-legacy`, `redrive`. Renamed from `l3io-util-cleanup` in 2.1.0; the deprecated forwarder was removed in 3.0.0 (see `docs/upgrading.md`) |
 | `l3io-arch-review` | Engineering-standards architecture guardrails and review — three modes: design guardrails (new project), architectural review (audit), decision support + ADR recording |
 
 ## Shared Files
@@ -40,9 +40,9 @@ Files in `skills/_shared/` are the canonical sources for content shared across P
 | `skills/_shared/metrics-contract.md` | `references/metrics-contract.md` | pm-execute, pm-plan, pm-sync |
 | `skills/_shared/calibration-model.md` | `references/calibration-model.md` | pm-execute, pm-plan, pm-sync |
 | `skills/_shared/steps/**` | `steps/**` | pm-execute, pm-plan, pm-sync |
-| `skills/_shared/config-resolution.md` | `references/config-resolution.md` | **all 8 skills** |
-| `skills/_shared/module-setup.md` | `assets/module-setup.md` | **all 8 skills** |
-| `skills/_shared/write-module-config.py` | `scripts/write-module-config.py` | **all 8 skills** |
+| `skills/_shared/config-resolution.md` | `references/config-resolution.md` | **all 7 skills** |
+| `skills/_shared/module-setup.md` | `assets/module-setup.md` | **all 7 skills** |
+| `skills/_shared/write-module-config.py` | `scripts/write-module-config.py` | **all 7 skills** |
 
 **Test suites are never shipped as payload.** `skills/_shared/tests/test-pm-status.py`,
 `skills/_shared/tests/test-write-module-config.py` and `skills/_shared/tests/test-spec-align.py` stay in `skills/_shared/tests/` only — CI

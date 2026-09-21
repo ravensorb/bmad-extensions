@@ -107,6 +107,13 @@ files, never the directory.
 Find your starting version and read forward. `npx bmad-method install` upgrades across any
 number of these at once, but the migrations must still run.
 
+### → 3.0.0
+
+**`l3io-util-cleanup` removed.**
+
+`/l3io-util-cleanup` was a deprecated forwarder from 2.1.0 onward and is now removed.
+Use `/l3io-util-doctor` with the same arguments — every mode name is unchanged.
+
 ### → 2.1.1
 
 **`persistent_facts` no longer searches recursively.** The PM skills previously injected
@@ -139,9 +146,9 @@ cuts token use substantially with no change to which phases run.
 **`l3io-util-cleanup` was renamed to `l3io-util-doctor`.** "Cleanup" described about three of
 its sixteen modes, while the default behavior is a diagnose-report-repair health check.
 
-Backward compatible — no action required. `/l3io-util-cleanup` still works: it prints a rename
-notice and forwards. Update any scripts, aliases, or team docs that invoke the old name; it is
-deprecated and will be removed in a future major release.
+Backward compatible at the time — no action required. `/l3io-util-cleanup` printed a rename
+notice and forwarded. Update any scripts, aliases, or team docs that invoke the old name; it
+was deprecated and was removed in 3.0.0 (see above).
 
 **New: progress reporting.** `/l3io-pm-help progress` and `/l3io-util-doctor stats` render a
 plan-aware tree — which phase, epic, sprint, and stories are in flight. Nothing to migrate, but
@@ -228,5 +235,5 @@ It dry-runs first and confirms before deleting.
 
 | Deprecated | Since | Replacement | Removal |
 |---|---|---|---|
-| `/l3io-util-cleanup` | 2.1.0 | `/l3io-util-doctor` | a future major release |
+| `/l3io-util-cleanup` | 2.1.0 | `/l3io-util-doctor` | 3.0.0 |
 | `migrate-schema`, `split-status`, `reconcile-status` | — | legacy-only bridging modes; no longer reachable once `migrate-state` has run | when 1.x migration support is dropped |

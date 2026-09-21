@@ -59,7 +59,7 @@ convention.
 |--------|--------|-------------|
 | **l3io-pm** | `l3io-pm-plan`, `l3io-pm-execute`, `l3io-pm-help`, `l3io-pm-sync` | Sprint and epic execution orchestration — dependency-aware phased planning, full lifecycle from story preparation through closure reviews, plan-aware progress reporting, and GitHub Issues sync |
 | **l3io-sec** | `l3io-sec-redteam` | Adversarial security analysis through five threat lenses with AI poisoning cross-cut and live cloud/platform best practices research |
-| **l3io-util** | `l3io-util-doctor` | Project state diagnostics & housekeeping — health check that reports findings and proposes an ordered fix plan (default); `stats` renders the plan-aware progress dashboard; migrate a legacy state layout to the sharded state tree; reorganize legacy flat artifacts into the standard epic/sprint folder structure; harvest `bmad-defer:` deferred-shortcut code markers into the backlog. *(Renamed from `l3io-util-cleanup` in 2.1.0 — the old command still works and forwards, but is deprecated.)* |
+| **l3io-util** | `l3io-util-doctor` | Project state diagnostics & housekeeping — health check that reports findings and proposes an ordered fix plan (default); `stats` renders the plan-aware progress dashboard; migrate a legacy state layout to the sharded state tree; reorganize legacy flat artifacts into the standard epic/sprint folder structure; harvest `bmad-defer:` deferred-shortcut code markers into the backlog. *(Renamed from `l3io-util-cleanup` in 2.1.0; the deprecated forwarder was removed in 3.0.0 — see `docs/upgrading.md`.)* |
 | **l3io-arch** | `l3io-arch-review` | Engineering-standards architecture guardrails and review — applies universal best practices (separation of concerns, reuse, design-by-contract, testability, dependency/GA policy, unified correlated logging, documentation with diagrams) plus per-stack overlays (Python, Node.js, .NET, GitHub Actions) at new-project design time, during an architectural review, or when recording an architecture/technology decision (ADR) |
 
 ## Quick Start
@@ -256,7 +256,6 @@ skills/
   l3io-pm-sync/          SKILL.md, customize.toml, references/, assets/, scripts/, steps/, module.yaml
   l3io-sec-redteam/      SKILL.md, customize.toml, references/, assets/, scripts/, module.yaml
   l3io-util-doctor/      SKILL.md, customize.toml, references/, assets/, scripts/, steps/, module.yaml
-  l3io-util-cleanup/     SKILL.md, customize.toml, module.yaml  (deprecated forwarder → l3io-util-doctor)
   l3io-arch-review/      SKILL.md, customize.toml, references/, assets/, scripts/, module.yaml
 .claude/commands/        symlinks → ../../skills/<skill>/SKILL.md
 .claude-plugin/          marketplace.json (required for installation)

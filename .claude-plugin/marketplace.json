@@ -56,8 +56,7 @@
         "email": "shawn@eye-catcher.com"
       },
       "skills": [
-        "./skills/l3io-util-doctor",
-        "./skills/l3io-util-cleanup"
+        "./skills/l3io-util-doctor"
       ]
     },
     {

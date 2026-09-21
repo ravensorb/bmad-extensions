@@ -2,7 +2,7 @@
 
 Why each skill exists, when you reach for it, and the orders that make sense.
 
-Eight skills across four modules is a lot of surface. The thing to understand first is that
+Seven skills across four modules is a lot of surface. The thing to understand first is that
 **you invoke very few of them directly.** Two of the four modules mostly run *inside* the
 execution engine, on your behalf, at points where their judgement is needed.
 
@@ -17,7 +17,6 @@ execution engine, on your behalf, at points where their judgement is needed.
 | `l3io-sec-redteam` | "What would an adversary do with this?" | **Automatic** at closure; directly for ad-hoc reviews |
 | `l3io-pm-help` | "What should I do next? Where is everything?" | Any time you are unsure. Read-only |
 | `l3io-pm-sync` | "Keep GitHub Issues in step with this state" | Opt-in, when your team lives in Issues |
-| `l3io-util-cleanup` | — | Deprecated. Forwards to `l3io-util-doctor` |
 
 ## Why each one exists
 
