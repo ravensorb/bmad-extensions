@@ -1,6 +1,10 @@
-#!/usr/bin/env python3
+#!/usr/bin/env -S uv run --quiet --script
+# /// script
+# requires-python = ">=3.11"
+# dependencies = ["ruamel.yaml>=0.18"]
+# ///
 """
-Tests for pm-status.py — run with: python3 test-pm-status.py  (or `uv run`).
+Tests for pm-status.py — run with: uv run test-pm-status.py
 Exercises the sharded split-directory layout resolution, key-based node addressing
 (set-status/set-actual/set-estimate/set-field/verify), epic directory moves
 (move-epic/archive-epic), the unconverted --file-based commands (locks,

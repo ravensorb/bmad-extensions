@@ -716,6 +716,38 @@ test("check 17 scope attack: a violation under a different skill's assets/ is ca
   assert.match(r.stderr, /scope-attack\.md:\d+: invokes a PEP-723 script with python3/);
 });
 
+// Scope attack: the scan set was widened to .github/workflows/** because a real CI step
+// once installed a dependency into the runner's ambient interpreter and invoked a PEP-723
+// script (test-pm-status.py) with plain `python3`, while every sibling step in the same
+// workflow used `uv run` -- and nothing caught it because this check only ever walked
+// skills/. This plants the same shape of violation directly in the workflow file to prove
+// the widened scope actually reaches it, not just skills/.
+test("check 17 scope attack: a bare python3 invocation in .github/workflows/ is caught", (t) => {
+  const root = fixture(t);
+  write(root, ".github/workflows/checks.yml",
+    "    - name: bad step\n      run: python3 skills/_shared/tests/test-pm-status.py\n",
+    /* append */ true);
+  const r = run(root);
+  assert.equal(r.status, 1);
+  assert.match(r.stderr, /\.github\/workflows\/checks\.yml:\d+: invokes a PEP-723 script with python3/);
+});
+
+// A `uv run --with <extra-deps> python3 <script>.py` invocation is uv choosing and managing
+// the interpreter itself (used by test-audit-backlog.py, test-bmad-deps.py, and
+// test-spec-align.py's real CI steps, which need dependencies beyond their own header) --
+// the opposite of the bare python3 this check exists to catch. Confirms the widened scope
+// does not turn every real, already-passing `uv run ... python3 ...` CI line into a false
+// positive.
+test("check 17: uv run managing its own python3 interpreter in a workflow is not a violation", (t) => {
+  const root = fixture(t);
+  write(root, ".github/workflows/checks.yml",
+    "    - name: extra-deps step\n" +
+    "      run: uv run -q --with 'ruamel.yaml>=0.18' python3 skills/_shared/tests/test-pm-status.py\n",
+    /* append */ true);
+  const r = run(root);
+  assert.equal(r.status, 0, r.stderr);
+});
+
 // ---- check 18 (docs-check-count) ----
 //
 // Same derive-don't-type discipline as the check 15 tests above: the expected counts and
@@ -785,14 +817,30 @@ test("check 18: an invocation added without a header entry trips the derivations
 
 // ---- check 19 (derived-counts) ----
 
+// The real skill count, derived from the fixture's own skills/ tree (never a literal), so
+// this test does not need editing every time a skill is added or removed — exactly the
+// discipline check 19 itself enforces on the docs.
+function realSkillCount(root) {
+  return fs.readdirSync(path.join(root, "skills"), { withFileTypes: true })
+    .filter((e) => e.isDirectory() && e.name.startsWith("l3io-"))
+    .filter((e) => fs.existsSync(path.join(root, "skills", e.name, "SKILL.md")))
+    .length;
+}
+
 test("check 19: a stale total-skill count is caught", (t) => {
   const root = fixture(t);
+  const n = realSkillCount(root);
+  const word = NUMBER_WORDS[n];
   const p = path.join(root, "docs", "getting-started.md");
   const before = fs.readFileSync(p, "utf8");
-  fs.writeFileSync(p, before.replace("New to the seven skills?", "New to the nine skills?"));
+  const m = before.match(/New to the ([a-z-]+) skills\?/);
+  assert.equal(NUMBER_WORDS.indexOf(m[1]), n,
+    "fixture's getting-started.md claim should match the real skill count before mutation");
+  const wrong = NUMBER_WORDS[n + 1];
+  fs.writeFileSync(p, before.replace(`New to the ${word} skills?`, `New to the ${wrong} skills?`));
   const r = run(root);
   assert.equal(r.status, 1);
-  assert.match(r.stderr, /says "nine" skill\(s\), but the package has 7/);
+  assert.match(r.stderr, new RegExp(`says "${wrong}" skill\\(s\\), but the package has ${n}`));
 });
 
 test("check 19: a stale module count is caught", (t) => {
@@ -807,10 +855,11 @@ test("check 19: a stale module count is caught", (t) => {
 
 test("check 19: scope attack — adding a skill directory must break the count claims", (t) => {
   const root = fixture(t);
+  const n = realSkillCount(root);
   write(root, "skills/l3io-newthing/SKILL.md", "---\nname: l3io-newthing\ndescription: d\n---\n");
   const r = run(root);
   assert.equal(r.status, 1);
-  assert.match(r.stderr, /skill\(s\), but the package has 8/);
+  assert.match(r.stderr, new RegExp(`skill\\(s\\), but the package has ${n + 1}`));
 });
 
 test("check 19: a reworded claim sentence fails loudly rather than passing", (t) => {

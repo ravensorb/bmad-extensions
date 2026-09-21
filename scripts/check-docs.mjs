@@ -36,10 +36,10 @@
 //  16. bmad-dependency-inventory  every bmad-* name a runtime directive under skills/ uses is
 //                    declared in skills/l3io-util-doctor/assets/bmad-dependencies.json, and no
 //                    directive dispatches a removed one without same-line historical evidence
-//  17. pep723-invocation  no runtime directive under skills/ invokes a PEP-723 script
-//                    ({pm_status}, {spec_align}, or a *.py path) with python3, which bypasses
-//                    the header's declared deps in favor of whatever sits in the ambient
-//                    interpreter
+//  17. pep723-invocation  no runtime directive under skills/, and no CI step under
+//                    .github/workflows/, invokes a PEP-723 script ({pm_status}, {spec_align},
+//                    or a *.py path) with python3, which bypasses the header's declared deps
+//                    in favor of whatever sits in the ambient interpreter
 //  18. docs-check-count  the numbered checks in this header agree in count with the check
 //                    functions invoked below, and CLAUDE.md / scripts/CLAUDE.md's stated
 //                    check count agrees with both
@@ -1225,7 +1225,8 @@ function checkBmadDependencyInventory() {
 }
 
 // ---------------------------------------------------------------------------
-// 17. No runtime directive under skills/ invokes a PEP-723 script with python3.
+// 17. No runtime directive under skills/, and no CI step under .github/workflows/, invokes a
+// PEP-723 script with python3.
 //
 // BMad's own convention is 100% `uv run` -- every core script carries a PEP-723 header and
 // python3 bypasses it, either failing outright (no ambient interpreter has the deps) or
@@ -1233,6 +1234,15 @@ function checkBmadDependencyInventory() {
 // declares. Matches `python3` immediately followed by a `{...}` helper token or a `*.py`
 // path, word-bounded on both sides so `--use-python3 {pm_status}` (an option name, not an
 // invocation) does not trip it.
+//
+// Scope was widened to include .github/workflows/**: a CI step once ran
+// `python3 -m pip install ... && python3 skills/_shared/tests/test-pm-status.py`, invoking a
+// PEP-723 script (test-pm-status.py) against an ambient interpreter it had just provisioned
+// by hand, while every sibling step in the same workflow used `uv run`. This scan only ever
+// walked skills/, so a CI YAML file was invisible to it even though CI is where these scripts
+// are actually invoked, and actually matter, most. See the l3io-customization-layer Task 9
+// ruling for the found instance. .github/workflows/ files are `.yml`, not `.md`, so they are
+// read directly here rather than through walkMarkdown (which filters to `.md`).
 //
 // Tolerance: skills/_shared/steps/shared/step-00-activate.md documents "If `uv` is
 // unavailable, use `python3` instead" as an explicit fallback for self-install, and
@@ -1247,13 +1257,33 @@ function checkBmadDependencyInventory() {
 // ---------------------------------------------------------------------------
 const PY_INVOKE_RE = /(?<![\w-])python3\s+(?:"?\{(pm_status|spec_align)\}|\S*\.py)(?![\w-])/;
 const PY_FALLBACK_QUALIFIER = /\buv\b[^.]*\bunavailable\b|\bfallback\b/i;
+// `uv run --with <extra-deps> python3 <script>.py` is uv choosing and managing the
+// interpreter itself (used where a script needs dependencies beyond its own PEP-723 header,
+// e.g. test-audit-backlog.py, test-bmad-deps.py, test-spec-align.py) -- the opposite of the
+// bare `python3 <script>.py` this check exists to catch, which bypasses uv entirely. Exempt
+// only when "uv run" appears on the same line BEFORE the matched python3 token, so uv is
+// what is actually invoking it.
+const UV_RUN_RE = /\buv run\b/;
+
+function* walkWorkflowFiles() {
+  const abs = path.join(repoRoot, ".github", "workflows");
+  if (!fs.existsSync(abs)) return;
+  for (const entry of fs.readdirSync(abs, { withFileTypes: true })) {
+    if (entry.isFile() && /\.ya?ml$/.test(entry.name)) {
+      yield path.join(".github", "workflows", entry.name);
+    }
+  }
+}
 
 function checkPep723Invocation() {
   const offenders = [];
-  for (const rel of walkMarkdown("skills")) {
+  for (const rel of [...walkMarkdown("skills"), ...walkWorkflowFiles()]) {
     read(rel).split("\n").forEach((line, i) => {
-      if (!PY_INVOKE_RE.test(line)) return;
+      const m = PY_INVOKE_RE.exec(line);
+      if (!m) return;
       if (PY_FALLBACK_QUALIFIER.test(line)) return;
+      const uvRun = UV_RUN_RE.exec(line);
+      if (uvRun && uvRun.index < m.index) return;
       offenders.push(`${rel}:${i + 1}: invokes a PEP-723 script with python3 ` +
         `(use uv run instead): ${line.trim()}`);
     });

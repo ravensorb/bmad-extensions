@@ -15,6 +15,7 @@ jobs:
     - uses: actions/setup-python@v5
       with:
         python-version: '3.11'
+    - uses: astral-sh/setup-uv@v5
     - name: Verify shared-script payload copies are in sync
       run: npm run check:scripts
     - name: Verify documentation matches the code it describes
@@ -25,11 +26,10 @@ jobs:
       run: npm run check:version
     - name: Verify per-skill payload manifests match the payload
       run: npm run check:manifest
+    - name: Verify module structure — one module.yaml per module, correctly homed
+      run: npm run check:module
     - name: pm-status.py unit tests
-      run: |
-        python3 -m pip install --quiet 'ruamel.yaml>=0.18'
-        python3 skills/_shared/tests/test-pm-status.py
-    - uses: astral-sh/setup-uv@v5
+      run: uv run skills/_shared/tests/test-pm-status.py
     - name: write-module-config.py unit tests
       run: uv run skills/_shared/tests/test-write-module-config.py
     - name: merge-help-csv.py unit tests
