@@ -801,6 +801,95 @@ for (const [label, line] of [
   });
 }
 
+// Fix round 2, N-1: `--with` was matched anywhere on the whole command, not anchored before
+// the python3 token, so F-1's own defect string still passed with a trailing, inert flag
+// appended -- nothing is provisioned; `--with-coverage` is a script argument sitting AFTER
+// python3, not a uv flag before it, and is not even a real uv flag name.
+test("check 17 N-1: `uv run python3 <script>.py --with-coverage` still does not honour the header", (t) => {
+  const root = fixture(t);
+  write(root, ".github/workflows/checks.yml",
+    "    - name: fix-round-2 regression n1a\n" +
+    "      run: uv run python3 skills/_shared/tests/test-pm-status.py --with-coverage\n",
+    /* append */ true);
+  const r = run(root);
+  assert.equal(r.status, 1, r.stdout);
+  assert.match(r.stderr, /invokes a PEP-723 script with python3/);
+});
+
+// A single `&` (background) was not in the split set, so a second command joined by `&`
+// inherited an unrelated `uv run --with` that precedes it on the same line.
+test("check 17 N-1: a `python3` command joined by a single `&` must fail", (t) => {
+  const root = fixture(t);
+  write(root, ".github/workflows/checks.yml",
+    "    - name: fix-round-2 regression n1c\n" +
+    "      run: uv run --with 'ruamel.yaml>=0.18' A.py & python3 skills/_shared/tests/test-pm-status.py\n",
+    /* append */ true);
+  const r = run(root);
+  assert.equal(r.status, 1, r.stdout);
+  assert.match(r.stderr, /invokes a PEP-723 script with python3/);
+});
+
+// `--with-editable` and `--with-requirements` are real uv flags (uv genuinely provisions an
+// environment for them), so a command using one, correctly positioned before the python3
+// token, must still be exempt -- the fix narrows the match to real flag tokens, it does not
+// remove the family.
+test("check 17 N-1: a real `--with-editable` flag before python3 still passes", (t) => {
+  const root = fixture(t);
+  write(root, ".github/workflows/checks.yml",
+    "    - name: fix-round-2 legitimate with-editable\n" +
+    "      run: uv run --with-editable . python3 skills/_shared/tests/test-pm-status.py\n",
+    /* append */ true);
+  const r = run(root);
+  assert.equal(r.status, 0, r.stderr);
+});
+
+// Fix round 2, N-2: the `uv run` anchor was too strict for two ordinary GitHub Actions
+// spellings of the exact line the exemption exists to admit, both exiting 1 (CI red)
+// although both do the right thing.
+test("check 17 N-2: the `- run:` step form (no separate `- name:`) still passes", (t) => {
+  const root = fixture(t);
+  write(root, ".github/workflows/checks.yml",
+    "    - run: uv run -q --with 'ruamel.yaml>=0.18' python3 skills/_shared/tests/test-pm-status.py\n",
+    /* append */ true);
+  const r = run(root);
+  assert.equal(r.status, 0, r.stderr);
+});
+
+test("check 17 N-2: a leading per-step environment-variable assignment still passes", (t) => {
+  const root = fixture(t);
+  write(root, ".github/workflows/checks.yml",
+    "    - name: fix-round-2 legitimate env prefix\n" +
+    "      run: UV_CACHE_DIR=/tmp uv run -q --with 'ruamel.yaml>=0.18' python3 skills/_shared/tests/test-pm-status.py\n",
+    /* append */ true);
+  const r = run(root);
+  assert.equal(r.status, 0, r.stderr);
+});
+
+// Fix round 2, N-3: PY_FALLBACK_QUALIFIER exempted the whole line when it contained the word
+// "fallback" or "uv ... unavailable" -- a tolerance meant for markdown prose describing an
+// escape hatch, not for an executable workflow `run:` line, where it was the cheapest
+// possible silencer for a bare python3 invocation. Now scoped to markdown only.
+test("check 17 N-3: a `# fallback` comment in a workflow run: line does not exempt it", (t) => {
+  const root = fixture(t);
+  write(root, ".github/workflows/checks.yml",
+    "    - name: fix-round-2 regression n3\n" +
+    "      run: python3 skills/_shared/tests/test-pm-status.py  # fallback until uv lands\n",
+    /* append */ true);
+  const r = run(root);
+  assert.equal(r.status, 1, r.stdout);
+  assert.match(r.stderr, /invokes a PEP-723 script with python3/);
+});
+
+// The same qualifier must still exempt real markdown prose describing the documented
+// `uv`-unavailable fallback -- confirms the N-3 scoping is by file type, not a removal.
+test("check 17 N-3: the documented python3 fallback in markdown prose still passes", (t) => {
+  const root = fixture(t);
+  write(root, "skills/l3io-pm-execute/steps/fallback-still-allowed.md",
+    "If `uv` is unavailable, use `python3 {pm_status} verify --state-root x` instead.\n");
+  const r = run(root);
+  assert.equal(r.status, 0, r.stderr);
+});
+
 // ---- check 18 (docs-check-count) ----
 //
 // Same derive-don't-type discipline as the check 15 tests above: the expected counts and

@@ -1254,6 +1254,15 @@ function checkBmadDependencyInventory() {
 // tolerance cannot see across; they were rewrapped onto one line each rather than widening
 // the tolerance to look across lines, which would have been broader than the one problem it
 // needed to solve.
+//
+// Fix round 2, N-3: this fallback tolerance applies to markdown prose only, never to
+// .github/workflows/**. A workflow `run:` line is executable, not prose describing an escape
+// hatch -- `run: python3 …test-pm-status.py  # fallback until uv lands` used to pass, which
+// was strictly cheaper than any of the bypasses N-1/N-2 below describe. Exactly three real
+// sites under skills/ rely on it (verified: every python3-invoking line under skills/ that
+// also matches this qualifier) -- bootstrap-state.md:266 and migrate-state.md:484,599, all
+// three restating step-00-activate.md's documented `uv`-unavailable fallback for
+// {pm_status}. All three keep passing under markdown-only scope.
 // ---------------------------------------------------------------------------
 const PY_INVOKE_RE = /(?<![\w-])python3\s+(?:"?\{(pm_status|spec_align)\}|\S*\.py)(?![\w-])/;
 const PY_FALLBACK_QUALIFIER = /\buv\b[^.]*\bunavailable\b|\bfallback\b/i;
@@ -1269,22 +1278,39 @@ const PY_FALLBACK_QUALIFIER = /\buv\b[^.]*\bunavailable\b|\bfallback\b/i;
 // honours the header at all and is the original defect verbatim) and `uv run A.py &&
 // python3 B.py` (a second command on the same line, exempted only because an unrelated `uv
 // run` happened to precede it). Both are real, cheap edits a future agent would make to
-// silence this check without fixing anything.
+// silence this check without fixing anything. Fixed by splitting the line into individual
+// shell commands and requiring the exemption to hold of the SAME command that contains the
+// python3 invocation.
 //
-// Fixed by splitting the line into individual shell commands on `&&`, `;` and `|`, and
-// requiring the exemption to hold of the SAME command that contains the python3 invocation:
-// that command must itself start with `uv run` (after stripping an optional YAML `run:` key)
-// and carry at least one `--with` flag -- the one shape every legitimate line in this repo
-// actually has (checks.yml's test-spec-align.py / test-audit-backlog.py / test-bmad-deps.py
-// steps). `uv run <script>.py` alone (no python3, no --with -- the normal PEP-723 form) never
-// matches PY_INVOKE_RE in the first place, so it is untouched by any of this.
-const COMMAND_SPLIT_RE = /&&|;|\|/;
-const RUN_KEY_PREFIX_RE = /^\s*run:\s*/;
-const UV_RUN_WITH_RE = /^uv run\b/;
+// Fix round 2, N-1: the `--with` predicate was unanchored -- tested against the WHOLE
+// command with no requirement that it precede the python3 token -- so `uv run python3
+// <script>.py --with-coverage` (F-1's exact defect string with a trailing, inert flag) still
+// passed: nothing is provisioned, the `--with-coverage` is a script argument sitting after
+// the python3 invocation, not a uv flag before it. Fixed by testing the with-flag only in the
+// command's prefix BEFORE the matched python3 token, and by matching only the complete flag
+// tokens uv actually has (`--with`, `--with-editable`, `--with-requirements`, each optionally
+// `=value`) rather than a bare `--with\b`, which `--with-coverage` (not a real uv flag) also
+// satisfied.
+//
+// Fix round 2, N-2: the `uv run` anchor was too strict for two ordinary spellings of the
+// exact line the exemption exists to admit -- a `- run:` step with no separate `- name:`,
+// and a per-step environment-variable prefix (`FOO=bar uv run …`) -- both exiting 1 although
+// both are legitimate. Fixed by stripping an optional leading `-` before the `run:` key, and
+// by stripping leading `VAR=value` assignments before requiring `uv run`.
+const COMMAND_SPLIT_RE = /&&|;|\||&/;
+const RUN_KEY_PREFIX_RE = /^\s*-?\s*run:\s*/;
+const ENV_ASSIGNMENT_PREFIX_RE = /^(?:[A-Za-z_][A-Za-z0-9_]*=\S+\s+)+/;
+const UV_RUN_RE = /^uv run\b/;
+const UV_WITH_FLAG_RE = /(?<![\w-])--with(?:-editable|-requirements)?(?:=\S+)?(?![\w-])/;
 
 function isExemptPep723Command(command) {
+  const match = PY_INVOKE_RE.exec(command);
+  if (!match) return true; // caller only calls this for a command that already matched
+  const beforeMatch = command.slice(0, match.index);
   const withoutRunKey = command.replace(RUN_KEY_PREFIX_RE, "").trimStart();
-  return UV_RUN_WITH_RE.test(withoutRunKey) && /--with\b/.test(command);
+  const withoutEnvPrefix = withoutRunKey.replace(ENV_ASSIGNMENT_PREFIX_RE, "");
+  if (!UV_RUN_RE.test(withoutEnvPrefix)) return false;
+  return UV_WITH_FLAG_RE.test(beforeMatch);
 }
 
 function* walkWorkflowFiles() {
@@ -1297,20 +1323,28 @@ function* walkWorkflowFiles() {
   }
 }
 
-function checkPep723Invocation() {
+function scanForPep723Invocation(rel, { allowFallbackQualifier }) {
   const offenders = [];
-  for (const rel of [...walkMarkdown("skills"), ...walkWorkflowFiles()]) {
-    read(rel).split("\n").forEach((line, i) => {
-      if (!PY_INVOKE_RE.test(line)) return;
-      if (PY_FALLBACK_QUALIFIER.test(line)) return;
-      const offendingCommand = line
-        .split(COMMAND_SPLIT_RE)
-        .some((command) => PY_INVOKE_RE.test(command) && !isExemptPep723Command(command));
-      if (!offendingCommand) return;
-      offenders.push(`${rel}:${i + 1}: invokes a PEP-723 script with python3 ` +
-        `(use uv run instead): ${line.trim()}`);
-    });
-  }
+  read(rel).split("\n").forEach((line, i) => {
+    if (!PY_INVOKE_RE.test(line)) return;
+    if (allowFallbackQualifier && PY_FALLBACK_QUALIFIER.test(line)) return;
+    const offendingCommand = line
+      .split(COMMAND_SPLIT_RE)
+      .some((command) => PY_INVOKE_RE.test(command) && !isExemptPep723Command(command));
+    if (!offendingCommand) return;
+    offenders.push(`${rel}:${i + 1}: invokes a PEP-723 script with python3 ` +
+      `(use uv run instead): ${line.trim()}`);
+  });
+  return offenders;
+}
+
+function checkPep723Invocation() {
+  const offenders = [
+    ...[...walkMarkdown("skills")].flatMap((rel) =>
+      scanForPep723Invocation(rel, { allowFallbackQualifier: true })),
+    ...[...walkWorkflowFiles()].flatMap((rel) =>
+      scanForPep723Invocation(rel, { allowFallbackQualifier: false })),
+  ];
   if (offenders.length) {
     failures.push(`runtime directives invoke a PEP-723 script with python3, bypassing its ` +
       `header-declared deps:\n      ${offenders.join("\n      ")}`);
