@@ -5,7 +5,7 @@
 // shape, but it lives under `_bmad/`, which is gitignored -- CI has no BMad install at all, so
 // it can never run there. Without a repo-side guard, the module restructuring this checker was
 // written ahead of could regress silently, exactly the way the bmad-dependency inventory did
-// before check:docs check 17 existed. This script asserts the same structural facts from the
+// before check:docs check 16 existed. This script asserts the same structural facts from the
 // repo alone, so CI can catch a regression even though the real validator never runs here.
 //
 // Deliberately narrow, and deliberately RED against today's layout -- see the commit that
@@ -53,10 +53,11 @@ function listSkillDirs() {
     .filter((name) => name !== "_shared");
 }
 
-// Tolerant module.yaml line-scanner, copied verbatim from check-docs.mjs's
-// checkModuleYamlAgreement() (check 16) ahead of Task 7 deleting that function, so this
-// checker keeps the same parsing behaviour rather than re-deriving it. Block scalars
-// (`key: >`) continue over indented lines; this captures the whole value.
+// Tolerant module.yaml line-scanner, copied verbatim from check-docs.mjs's former
+// checkModuleYamlAgreement() (was check 16, deleted by Task 7 once module.yaml relocation left
+// it with no siblings to compare), so this checker keeps the same parsing behaviour rather
+// than re-deriving it. Block scalars (`key: >`) continue over indented lines; this captures
+// the whole value.
 function parseModuleYaml(text) {
   const fields = {};
   const lines = text.split("\n");

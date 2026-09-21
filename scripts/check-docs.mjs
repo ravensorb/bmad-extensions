@@ -1307,7 +1307,7 @@ function checkDocsCheckCount() {
     const m = text.match(re);
     if (!m) {
       failures.push(`${file}: the check-count claim was not found — has the sentence been ` +
-        `reworded? check 19 must be updated with it`);
+        `reworded? check 18 must be updated with it`);
       continue;
     }
     const got = NUMBER_WORDS.indexOf(m[1].toLowerCase());
@@ -1399,7 +1399,7 @@ function checkDerivedCounts() {
     const m = text.match(re);
     if (!m) {
       failures.push(`${file}: the claim was not found — has the sentence been reworded? ` +
-        `check 20 must be updated with it`);
+        `check 19 must be updated with it`);
       continue;
     }
     fields.forEach((field, i) => {

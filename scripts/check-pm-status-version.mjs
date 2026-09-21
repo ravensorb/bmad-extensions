@@ -1,13 +1,14 @@
 #!/usr/bin/env node
-// pm-status.py's version must equal the package release version, in both places it is written.
+// pm-status.py's version, and every module's module_version, must equal the package release
+// version.
 //
-// Why this exists: self-install places one runtime copy per project and reports the version
-// it finds. That number used to be maintained by hand, on its own release line, and a
-// hand-maintained invariant drifts. It did, twice -- ten commits changed the script under
-// 2.3.0, and after the bump to 2.4.0 another changed it again under 2.4.0. Projects that
-// installed at either moment kept a stale copy while self-install reported a clean skip,
-// because both copies agreed on the number they printed. One sat 920 lines behind, missing
-// a Critical fix.
+// Why pm-status.py's part exists: self-install places one runtime copy per project and
+// reports the version it finds. That number used to be maintained by hand, on its own release
+// line, and a hand-maintained invariant drifts. It did, twice -- ten commits changed the
+// script under 2.3.0, and after the bump to 2.4.0 another changed it again under 2.4.0.
+// Projects that installed at either moment kept a stale copy while self-install reported a
+// clean skip, because both copies agreed on the number they printed. One sat 920 lines
+// behind, missing a Critical fix.
 //
 // Two changes retired that failure. self-install now compares content, so a stale copy heals
 // itself. And the script's version is no longer its own: postbump writes it from
@@ -21,22 +22,40 @@
 // last released version -- so it is checkable on any commit, which the previous tag-diff
 // heuristic was not.
 //
+// Why the module_version part exists: Task 7 relocated module.yaml under assets/ and, in the
+// same change, retired check:docs check 16 (module-yaml-agreement) -- the only place that used
+// to READ module_version. sync-bmad-versions.mjs's postbump loop is now the field's only
+// consumer; nothing verifies it wrote correctly. A writer with no reader can drift silently:
+// the loop could stop finding files (it did, briefly, mid-relocation, until fixed to look
+// under assets/) and log a success-shaped line ("No module.yaml files needed version update")
+// forever. Scope is derived by walking skills/ for every module home
+// (assets/module.yaml, or a not-yet-migrated skill-root module.yaml) -- never a hand-kept
+// list of module codes.
+//
 // Usage: node scripts/check-pm-status-version.mjs [-v]
 import fs from "node:fs";
+import path from "node:path";
 
-const PM = "skills/_shared/pm-status.py";
-const PKG = "package.json";
+// CHECK_VERSION_ROOT points the checker at another tree -- scripts/tests/check-pm-status-version.test.mjs
+// runs it against fixtures built from an empty skills/ tree.
+const repoRoot = process.env.CHECK_VERSION_ROOT ? path.resolve(process.env.CHECK_VERSION_ROOT) : process.cwd();
 const verbose = process.argv.includes("-v");
 const failures = [];
 
-if (!fs.existsSync(PM)) {
+const read = (p) => fs.readFileSync(path.join(repoRoot, p), "utf8");
+const exists = (p) => fs.existsSync(path.join(repoRoot, p));
+
+const PM = "skills/_shared/pm-status.py";
+const PKG = "package.json";
+
+if (!exists(PM)) {
   console.error(`✗ ${PM} not found`);
   process.exit(1);
 }
-const text = fs.readFileSync(PM, "utf8");
+const text = read(PM);
 const marker = (text.match(/^#\s*pm-status-version:\s*([0-9.]+)/m) || [])[1];
 const konst = (text.match(/^PM_STATUS_VERSION\s*=\s*"([0-9.]+)"/m) || [])[1];
-const pkg = JSON.parse(fs.readFileSync(PKG, "utf8")).version;
+const pkg = JSON.parse(read(PKG)).version;
 
 if (!marker) failures.push(`${PM}: no "# pm-status-version:" marker found`);
 if (!konst) failures.push(`${PM}: no PM_STATUS_VERSION constant found`);
@@ -62,10 +81,49 @@ if (marker && konst && marker === konst && marker !== pkg) {
   );
 }
 
+// Every module home's module_version must equal package.json's version. A module home is
+// assets/module.yaml (the target location) or, for a not-yet-migrated module, a skill-root
+// module.yaml -- read both so this survives a partial migration instead of silently checking
+// zero modules.
+const moduleHomes = [];
+if (exists("skills")) {
+  for (const entry of fs.readdirSync(path.join(repoRoot, "skills"), { withFileTypes: true })) {
+    if (!entry.isDirectory() || entry.name === "_shared") continue;
+    for (const rel of [`skills/${entry.name}/assets/module.yaml`, `skills/${entry.name}/module.yaml`]) {
+      if (exists(rel)) { moduleHomes.push(rel); break; }
+    }
+  }
+}
+
+let moduleChecked = 0;
+for (const rel of moduleHomes) {
+  const m = read(rel).match(/^module_version:\s*(\S+)/m);
+  if (!m) {
+    failures.push(`${rel}: no "module_version:" field found`);
+    continue;
+  }
+  moduleChecked += 1;
+  if (m[1] !== pkg) {
+    failures.push(
+      `${rel}: module_version is ${m[1]} but ${PKG} says ${pkg}\n` +
+        `      postbump writes every module home's module_version from package.json (see\n` +
+        `      sync-bmad-versions.mjs); a mismatch means a release did not complete or the\n` +
+        `      file was hand-edited. Do not hand-edit module_version: run a release, or\n` +
+        `      "node scripts/sync-bmad-versions.mjs" to bring it back in line.`,
+    );
+  }
+}
+
 if (failures.length) {
-  console.error(`\n${failures.length} pm-status.py version problem(s):\n`);
+  console.error(`\n${failures.length} version problem(s):\n`);
   for (const f of failures) console.error(`  ✗ ${f}\n`);
   process.exit(1);
 }
-if (verbose) console.log(`  pm-status-version: ${marker} == PM_STATUS_VERSION == ${PKG}`);
-console.log(`pm-status.py version check passed: ${marker} in all three places.`);
+if (verbose) {
+  console.log(`  pm-status-version: ${marker} == PM_STATUS_VERSION == ${PKG}`);
+  console.log(`  module-version: ${moduleChecked} module home(s) at ${pkg}`);
+}
+console.log(
+  `pm-status.py version check passed: ${marker} in all three places; ` +
+    `${moduleChecked} module home(s) at ${pkg}.`,
+);

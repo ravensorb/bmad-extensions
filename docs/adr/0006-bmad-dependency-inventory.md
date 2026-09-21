@@ -27,7 +27,7 @@ by hand and looking.
 
 ## Consequences
 Dependency truth is one file instead of prose in six `module.yaml` files and a dozen step
-files. `check:docs` check 17 asserts the step files agree with it where no BMad install
+files. `check:docs` check 16 asserts the step files agree with it where no BMad install
 exists; `bmad-deps.py` asserts a real install agrees with it. A future rename fails CI or
 surfaces in `/l3io-util-doctor check-deps` instead of silently disabling a gate.
 

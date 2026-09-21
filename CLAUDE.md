@@ -68,7 +68,7 @@ commands and the release gates live in `scripts/CLAUDE.md`.
 They are numbered and described in `scripts/check-docs.mjs`'s own header — read them there rather
 than restating them here. Two things that header does not tell you:
 
-- Check 17 guards dependency **names** only: **no `check:docs` check verifies probe *paths***. A
+- Check 16 guards dependency **names** only: **no `check:docs` check verifies probe *paths***. A
   step file that reverted to probing `.claude/commands/<name>.md` alone would pass every CI gate and
   then silently self-skip its phase on a 6.12 install — the failure mode §1.2 of
   `docs/superpowers/specs/2026-09-12-bmad-v612-migration-design.md` calls worse than a missing

@@ -267,7 +267,7 @@ class TestInventoryShape(Base):
         self.assertNotIn("self-skips", out)       # ...and never reports it as optional
 
     def test_top_level_array_inventory_exits_2(self):
-        # The one malformed shape that slips past both this script's JSON parse and check 17.
+        # The one malformed shape that slips past both this script's JSON parse and check 16.
         inv = self._raw_inv('[{"name": "a-one", "status": "required"}]')
         root = self._tree(["a-one"])
         code, _ = self.run_cli(["verify", "--project-root", root, "--inventory", inv])

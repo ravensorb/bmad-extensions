@@ -703,7 +703,7 @@ test("check 17: a same-line uv-unavailable qualifier exempts a real invocation",
   assert.equal(r.status, 0, r.stderr);
 });
 
-// Scope attack: every other check-18 test above plants under skills/l3io-pm-execute/steps/.
+// Scope attack: every other check-17 test above plants under skills/l3io-pm-execute/steps/.
 // This one plants under a different skill AND a different subdirectory (assets/, not steps/)
 // to prove walkMarkdown("skills") actually reaches there rather than the check having been
 // implicitly scoped to steps/ files by every test happening to live in one.

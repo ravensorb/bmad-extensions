@@ -60,19 +60,29 @@ Then check whether `{pm_status}` is actually on disk and bind `{pm_status_presen
 **Staleness check** — when present, compare its version against this skill's own
 `module_version` (`{skill-root}/module.yaml`, which moves with every release). Deriving the
 comparison target from `module.yaml` means there is no hardcoded minimum version to drift out
-of date as this skill is released forward:
+of date as this skill is released forward. **`module.yaml` may not exist at `{skill-root}` for
+this skill** (it lives at the l3io-pm module's actual home, not necessarily here — a
+consolidation this skill's own setup-dispatch has not caught up to yet); when that's true, do
+not guess the comparison away as "fresh" — treat it as stale and say so, never silently print
+`no`:
 
 ```bash
 INSTALLED=$(uv run {project-root}/_bmad/scripts/pm-status.py --version 2>/dev/null | awk '{print $2}')
-EXPECTED=$(grep -m1 '^module_version:' {skill-root}/module.yaml | awk '{print $2}')
-echo "installed=${INSTALLED:-none} expected=$EXPECTED"
+if [ -f {skill-root}/module.yaml ]; then
+  EXPECTED=$(grep -m1 '^module_version:' {skill-root}/module.yaml | awk '{print $2}')
+else
+  EXPECTED=""
+fi
+echo "installed=${INSTALLED:-none} expected=${EXPECTED:-unknown}"
 ```
 
-Bind `{pm_status_stale}` = `yes` when `$INSTALLED` is empty (older copies predate
-`--version`, or the read failed — never treat an unreadable version as current) or sorts
-older than `$EXPECTED`:
-`[ -z "$INSTALLED" ] || [ "$(printf '%s\n%s\n' "$EXPECTED" "$INSTALLED" | sort -V | head -1)" != "$EXPECTED" ]`.
-Otherwise `no`.
+Bind `{pm_status_stale}` = `yes` when `$EXPECTED` is empty (the comparison target could not be
+read — asserting freshness with no target to compare against is the exact false-green this
+package's checks exist to remove), when `$INSTALLED` is empty (older copies predate
+`--version`, or the read failed — never treat an unreadable version as current), or when
+`$INSTALLED` sorts older than `$EXPECTED`:
+`[ -z "$EXPECTED" ] || [ -z "$INSTALLED" ] || [ "$(printf '%s\n%s\n' "$EXPECTED" "$INSTALLED" | sort -V | head -1)" != "$EXPECTED" ]`.
+Otherwise `no`. Bind `{expected}` (used in the report text below) to `${EXPECTED:-unknown}`.
 
 **Never invoke `{pm_status}` when it is absent.** On a fresh install nothing has
 self-installed it yet, so every `{pm_status}` call below is conditional: when
