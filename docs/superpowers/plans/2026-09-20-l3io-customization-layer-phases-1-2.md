@@ -1802,6 +1802,104 @@ Claude-Session: https://claude.ai/code/session_014DuCKCCF5scofVSPGvvn97"
 
 ---
 
+### Task 8A: Guard the Shared Files table against the sync groups
+
+*Added during execution.* `CLAUDE.md`'s **Shared Files** table documents the canonical-source →
+per-skill-destination mapping, and **nothing mechanical reads it**. It has now drifted in three
+consecutive tasks, and Tasks 11 and 11A both change sync groups again — so by Task 16 it would
+be a hand-reconciliation of four tasks' worth of drift. That is the manual reconciliation this
+plan exists to eliminate, and it is the failure CLAUDE.md's own "Enforce rules mechanically"
+section documents: a rule that lives only in prose gets violated invisibly.
+
+**Files:**
+- Modify: `scripts/check-docs.mjs` — new check 20, `shared-files-table`
+- Modify: `scripts/tests/check-docs.test.mjs`
+- Modify: `CLAUDE.md` — add the rows currently missing
+
+**Interfaces:**
+- Consumes: `sync-shared-scripts.mjs`'s sync groups, read as the source of truth.
+- Produces: `check:docs` check **20**. Check 18 (`docs-check-count`) derives the count
+  dynamically and will absorb it, but its two prose claim sites go "nineteen" → "twenty" —
+  the check will tell you if you miss them.
+
+**Scope, stated honestly.** This check compares the **file set** in both directions: every
+`skills/_shared/*` source named by a sync group has a table row, and every table row names a
+real `_shared` source. It does **not** verify the destination column — that each row's stated
+per-skill destination matches the group's actual targets. Say so in the check's header comment.
+A guard that overstates its reach is worse than none, and the destination column remains
+hand-maintained until someone derives it too.
+
+- [ ] **Step 1: Write the failing tests**
+
+```javascript
+test("check 20: a _shared file in a sync group with no table row is caught", (t) => {
+  const root = fixture(t);
+  write(root, "skills/_shared/brand-new-thing.md", "x\n");
+  const p = path.join(root, "scripts", "sync-shared-scripts.mjs");
+  const before = fs.readFileSync(p, "utf8");
+  fs.writeFileSync(p, before.replace(
+    'const moduleHomeFiles = [',
+    'const moduleHomeFiles = [\n  { src: path.join(sharedDir, "brand-new-thing.md"), rel: path.join("assets", "brand-new-thing.md") },'));
+  const r = run(root);
+  assert.equal(r.status, 1);
+  assert.match(r.stderr, /brand-new-thing\.md is synced but has no row/);
+});
+
+test("check 20: a table row naming a nonexistent _shared source is caught", (t) => {
+  const root = fixture(t);
+  const p = path.join(root, "CLAUDE.md");
+  const before = fs.readFileSync(p, "utf8");
+  fs.writeFileSync(p, before.replace(
+    "| `skills/_shared/pm-status.py` |",
+    "| `skills/_shared/ghost.py` | `scripts/ghost.py` | nobody |\n| `skills/_shared/pm-status.py` |"));
+  const r = run(root);
+  assert.equal(r.status, 1);
+  assert.match(r.stderr, /ghost\.py.*no such file/);
+});
+
+test("check 20: the real tree passes", (t) => {
+  const root = fixture(t);
+  const r = run(root);
+  assert.equal(r.status, 0, r.stderr);
+});
+```
+
+The third test is the one that fails first — the table is stale today, so it fails until Step 3
+adds the missing rows. That is the point: the check proves the table was wrong before it proves
+it is right.
+
+- [ ] **Step 2: Run to verify they fail**
+
+Run: `npm run test:scripts`
+Expected: FAIL — no check 20.
+
+- [ ] **Step 3: Implement, then fix the table**
+
+Parse the sync sources out of `sync-shared-scripts.mjs` by reading the file and matching
+`path.join(sharedDir, "…")` occurrences — the same tolerant-text approach the other checks use,
+rather than importing the module (importing would run its side effects). Parse the table rows
+out of `CLAUDE.md` by matching lines beginning `` | `skills/_shared/ ``.
+
+Then add the missing rows to `CLAUDE.md` — at minimum `merge-config.py` and `merge-help-csv.py`
+from Task 8 — until the real tree passes.
+
+- [ ] **Step 4: Verify**
+
+```bash
+npm run test:scripts
+npm run check:docs -- -v 2>&1 | grep -E 'shared-files-table|docs-check-count'
+```
+Expected: both pass; `docs-check-count` reports 20 checks and its two prose sites now say
+"twenty".
+
+- [ ] **Step 5: Commit**
+
+Stage `scripts/check-docs.mjs`, `scripts/tests/check-docs.test.mjs` and `CLAUDE.md` by explicit
+path, sign off, and say in the message that the table drifted three times in three tasks before
+anything checked it.
+
+---
+
 ### Task 9: Create `l3io-pm-setup`, the one setup skill
 
 Only `l3io-pm` is multi-skill. `l3io-util`, `l3io-sec` and `l3io-arch` are standalone after Task 6 and self-register as they do today.
