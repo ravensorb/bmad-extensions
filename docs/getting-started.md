@@ -30,7 +30,7 @@ short agents beat one long one.
 | **Architect** reviewing the model | [Architecture and execution model](architecture.md) — the context boundary, the state contract, and the pre-execution gates |
 | **Contributor** to this package | [CONTRIBUTING.md](../CONTRIBUTING.md) — note that `skills/_shared/` holds the only editable copies of shared files |
 
-New to the seven skills? [Skills and sequence](skills-and-sequence.md) explains why each one
+New to the eight skills? [Skills and sequence](skills-and-sequence.md) explains why each one
 exists and which of them run automatically rather than being invoked. When something stops with
 a `BLOCKED:` message, see [Troubleshooting](troubleshooting.md); unfamiliar terms are in the
 [Glossary](glossary.md).
@@ -103,7 +103,7 @@ this package probes both layouts and both name generations and resolves whicheve
 Interactive path: `npx bmad-method install` -> Community modules -> `bmad-l3io-extensions`
 (the installer prompts for which IDEs to target).
 
-This installs all seven skills and registers the four modules in `.claude-plugin/marketplace.json`.
+This installs all eight skills and registers the four modules in `.claude-plugin/marketplace.json`.
 
 ### Verify the install
 

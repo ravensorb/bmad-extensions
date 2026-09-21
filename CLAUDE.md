@@ -14,7 +14,7 @@ only when its keyword selects it. Add a mode as a file plus a table row — neve
 modes were inlined once and `SKILL.md` reached 96,980 B, so every invocation paid for fifteen
 procedures it would not run.
 
-Module setup is **embedded** in each operational skill (`assets/module-setup.md` + config `scripts/`); there are no standalone `*-setup/` skill directories. Setup runs on first use or via the module's `configure` action.
+Module setup lives at each module's **home**: a dedicated `l3io-pm-setup` skill for `l3io-pm` (the package's only multi-skill module), and the skill itself for the three single-skill modules (`l3io-util`, `l3io-sec`, `l3io-arch`), each of which self-registers. Setup never runs implicitly — only on an explicit `setup`, `configure`, or `install` request. An absent `[modules.<code>]` config section is normal, not a first-run trigger; see `references/config-resolution.md` §5.
 
 ## Skill Directory
 
@@ -27,6 +27,7 @@ Module setup is **embedded** in each operational skill (`assets/module-setup.md`
 | `l3io-sec-redteam` | Red team security analysis — five threat lenses + AI poisoning cross-cut, live cloud/platform best practices research |
 | `l3io-util-doctor` | Project state diagnostics and housekeeping — default is a health check that reports findings and proposes an ordered fix plan; `stats` is the plan-aware progress dashboard; plus `triage`, `migrate-adrs`, `migrate-state`, `split-status`, `harvest-debt`, `sort-status`, `update-ai-rules`, `clean-legacy`, `redrive`. Renamed from `l3io-util-cleanup` in 2.1.0; the deprecated forwarder was removed in 3.0.0 (see `docs/upgrading.md`) |
 | `l3io-arch-review` | Engineering-standards architecture guardrails and review — three modes: design guardrails (new project), architectural review (audit), decision support + ADR recording |
+| `l3io-pm-setup` | Records `l3io-pm`'s project-level settings and registers its capabilities for the help system — the module's dedicated setup skill, run only on an explicit `setup`/`configure`/`install` request |
 
 ## Shared Files
 
@@ -40,9 +41,9 @@ Files in `skills/_shared/` are the canonical sources for content shared across P
 | `skills/_shared/metrics-contract.md` | `references/metrics-contract.md` | pm-execute, pm-plan, pm-sync |
 | `skills/_shared/calibration-model.md` | `references/calibration-model.md` | pm-execute, pm-plan, pm-sync |
 | `skills/_shared/steps/**` | `steps/**` | pm-execute, pm-plan, pm-sync |
-| `skills/_shared/config-resolution.md` | `references/config-resolution.md` | **all 7 skills** |
-| `skills/_shared/module-setup.md` | `assets/module-setup.md` | **all 7 skills** |
-| `skills/_shared/write-module-config.py` | `scripts/write-module-config.py` | **all 7 skills** |
+| `skills/_shared/config-resolution.md` | `references/config-resolution.md` | **all 8 skills** |
+| `skills/_shared/module-setup.md` | `assets/module-setup.md` | **all 8 skills** |
+| `skills/_shared/write-module-config.py` | `scripts/write-module-config.py` | **all 8 skills** |
 | `skills/_shared/merge-config.py` | `scripts/merge-config.py` | each module's HOME only: `l3io-pm-setup`, `l3io-util-doctor`, `l3io-sec-redteam`, `l3io-arch-review` |
 | `skills/_shared/merge-help-csv.py` | `scripts/merge-help-csv.py` | each module's HOME only: `l3io-pm-setup`, `l3io-util-doctor`, `l3io-sec-redteam`, `l3io-arch-review` |
 
