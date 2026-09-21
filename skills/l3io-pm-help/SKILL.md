@@ -13,8 +13,8 @@ Run: `uv run {project-root}/_bmad/scripts/resolve_customization.py --skill {skil
 
 If the script fails, read `{skill-root}/customize.toml` directly.
 
-Load `{skill-root}/assets/module-setup.md` first **only** when the user passes `setup`,
-`configure`, or `install`. An absent `modules.l3io-pm` section means the module has no
+`setup`, `configure`, and `install` are not recognized arguments here — `/l3io-pm-setup` is
+the module's setup entry point. An absent `modules.l3io-pm` section means the module has no
 overrides, not that it needs setup.
 
 Do not add the once-per-project `/l3io-pm-setup` pointer (`config-resolution.md` §5) here:
@@ -62,55 +62,24 @@ Then check whether `{pm_status}` is actually on disk and bind `{pm_status_presen
 [ -f {project-root}/_bmad/scripts/pm-status.py ] && echo present || echo absent
 ```
 
-**Staleness check** — when present, compare its version against this skill's own
-`module_version` (`{skill-root}/module.yaml`, which moves with every release). Deriving the
-comparison target from `module.yaml` means there is no hardcoded minimum version to drift out
-of date as this skill is released forward. **`module.yaml` may not exist at `{skill-root}` for
-this skill** (it lives at the l3io-pm module's actual home, not necessarily here — a
-consolidation this skill's own setup-dispatch has not caught up to yet); when that's true, do
-not guess the comparison away as "fresh" — treat it as stale and say so, never silently print
-`no`:
-
-```bash
-INSTALLED=$(uv run {project-root}/_bmad/scripts/pm-status.py --version 2>/dev/null | awk '{print $2}')
-if [ -f {skill-root}/module.yaml ]; then
-  EXPECTED=$(grep -m1 '^module_version:' {skill-root}/module.yaml | awk '{print $2}')
-else
-  EXPECTED=""
-fi
-echo "installed=${INSTALLED:-none} expected=${EXPECTED:-unknown}"
-```
-
-Bind `{pm_status_stale}` = `yes` when `$EXPECTED` is empty (the comparison target could not be
-read — asserting freshness with no target to compare against is the exact false-green this
-package's checks exist to remove), when `$INSTALLED` is empty (older copies predate
-`--version`, or the read failed — never treat an unreadable version as current), or when
-`$INSTALLED` sorts older than `$EXPECTED`:
-`[ -z "$EXPECTED" ] || [ -z "$INSTALLED" ] || [ "$(printf '%s\n%s\n' "$EXPECTED" "$INSTALLED" | sort -V | head -1)" != "$EXPECTED" ]`.
-Otherwise `no`. Bind `{expected}` (used in the report text below) to `${EXPECTED:-unknown}`.
+**No staleness check.** This skill has no `module.yaml` of its own to compare against — that
+file lives only at each module's home (`skills/l3io-pm-setup/assets/module.yaml`), and reading
+a sibling skill's path from here would be the cross-skill path read this package avoids
+elsewhere. Presence is the only signal l3io-pm-help can honestly report; it does not guess at
+version freshness.
 
 **Never invoke `{pm_status}` when it is absent.** On a fresh install nothing has
 self-installed it yet, so every `{pm_status}` call below is conditional: when
 `{pm_status_present}` is `absent`, read each `epic.yaml` directly instead (it is plain YAML).
-**A stale copy is different — usable but suspect:** `{pm_status}` calls below stay
-conditional on presence only, not staleness, so keep using it as normal; the difference is
-that section 5's recommendation calls this out prominently, because a subcommand the
-installed copy lacks fails as an opaque argparse error rather than a clear one.
 
-Note in the report, whichever applies:
+Note in the report, when absent:
 
 ```
 pm-status.py not installed yet — reading epic.yaml files directly. Run /l3io-util-doctor to
 install it (l3io-pm-help only reads; it does not self-install).
 ```
 
-```
-⚠️  pm-status.py at {project-root}/_bmad/scripts/pm-status.py is stale (installed
-{installed}, this skill ships {expected}). Run /l3io-util-doctor to refresh it — some
-subcommands newer skills rely on may be missing until then.
-```
-
-Neither is a hard blocker: everything l3io-pm-help needs can still be read.
+Not a hard blocker: everything l3io-pm-help needs can still be read.
 
 ### 2. Detect state layout — before reading anything, and before any recommendation
 
@@ -263,13 +232,11 @@ present, or on a verified genuine first run. Apply the first matching rule:
 | No active epics, plan exists, planned epics available | `Run /l3io-pm-execute to start execution (plan is green).` |
 | All epics done (active + planned = 0) | `All work complete. Run /l3io-pm-sync to push closure to GitHub/ADO.` |
 
-**One more follow-up, checked after the table above:** if `{pm_status_present}` is `absent`
-or `{pm_status_stale}` is `yes`, prepend it to the recommendation — this takes priority
-because it explains a failure the user would otherwise hit with no clue why:
-`pm-status.py is {missing | stale (installed {installed}, expected {expected})} at
-{project-root}/_bmad/scripts/pm-status.py. Run /l3io-util-doctor first to install or refresh
-it — {this report read epic.yaml directly instead | the command above may need a subcommand
-the installed copy lacks}.`
+**One more follow-up, checked after the table above:** if `{pm_status_present}` is `absent`,
+prepend it to the recommendation — this takes priority because it explains a failure the user
+would otherwise hit with no clue why:
+`pm-status.py is missing at {project-root}/_bmad/scripts/pm-status.py. Run /l3io-util-doctor
+first to install it — this report read epic.yaml directly instead.`
 
 Output the recommendation as a clear, one-paragraph response with the exact command to run.
 
@@ -285,14 +252,6 @@ that cannot be read off `epic.yaml`:
 ```
 pm-status.py is not installed. Run /l3io-util-doctor to install it, then re-run
 /l3io-pm-help progress.
-```
-
-**When `{pm_status_stale}` is `yes`:** do not stop — `report`'s output shape has been stable
-across the versions this matters for — but print this first, then continue:
-
-```
-⚠️  pm-status.py at {project-root}/_bmad/scripts/pm-status.py is stale (installed
-{installed}, this skill ships {expected}). Run /l3io-util-doctor to refresh it.
 ```
 
 **Otherwise** run:
@@ -459,6 +418,5 @@ To run a specific unstarted plan, update the pointer:
 Then run /l3io-pm-execute.
 ```
 
-Fill in the values from the chosen snapshot. If `{pm_status_present}` is `absent` or
-`{pm_status_stale}` is `yes`, prepend the same pm-status.py warning used in section 5 of the
-main flow.
+Fill in the values from the chosen snapshot. If `{pm_status_present}` is `absent`, prepend
+the same pm-status.py warning used in section 5 of the main flow.

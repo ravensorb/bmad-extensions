@@ -14,12 +14,13 @@
 //   l3io-util-doctor (health Checks 15-19, triage's spec pass, migrate-adrs); shared because
 //   it has two consumers (ADR-0001), run from each skill's own copy, never self-installed
 //   status-files.md / metrics-contract.md → references/ in PM skills
-//   write-module-config.py → scripts/, config-resolution.md → references/,
-//   module-setup.md → assets/ in EVERY l3io skill
-//   merge-config.py / merge-help-csv.py → scripts/ in each module's HOME only (the
-//   *-setup skill for a multi-skill module, the skill itself for a standalone one) — the
-//   two scripts BMad's module validator requires by name; see their own docstrings for why
-//   they are not the scaffolder's versions.
+//   config-resolution.md → references/ in EVERY l3io skill -- every skill resolves config
+//   merge-config.py / merge-help-csv.py / write-module-config.py / module-setup.md →
+//   scripts/ and assets/ in each module's HOME only (the *-setup skill for a multi-skill
+//   module, the skill itself for a standalone one) -- only the module home performs setup.
+//   merge-config.py / merge-help-csv.py are the two scripts BMad's module validator
+//   requires by name; see their own docstrings for why they are not the scaffolder's
+//   versions.
 //
 // Not shared, deliberately: resolve_config.py, resolve_customization.py and memlog.py are
 // installed by BMad core at {project-root}/_bmad/scripts/ and are never bundled by a skill.
@@ -65,18 +66,17 @@ const specAlignFiles = [
   { src: path.join(sharedDir, "spec-align.py"), rel: path.join("scripts", "spec-align.py") },
 ];
 
-// Files every l3io skill ships, regardless of module: the config contract, the setup
-// procedure that points at it, and the script that setup runs.
+// Files every l3io skill ships, regardless of module: the config contract every skill
+// resolves. Setup itself -- module-setup.md and the script that writes its config -- is a
+// module-home concern; see moduleHomeFiles below.
 const allSkillFiles = [
-  { src: path.join(sharedDir, "write-module-config.py"), rel: path.join("scripts", "write-module-config.py") },
   { src: path.join(sharedDir, "config-resolution.md"), rel: path.join("references", "config-resolution.md") },
-  { src: path.join(sharedDir, "module-setup.md"), rel: path.join("assets", "module-setup.md") },
 ];
 
-// The two merge scripts BMad's validator requires, and module-setup.md, belong in each
-// module's HOME -- the setup skill for multi-skill modules, the skill itself for
-// standalone ones. Syncing them into every operational skill would ship four copies of a
-// procedure only one of them runs.
+// The two merge scripts BMad's validator requires, module-setup.md, and the config writer
+// setup runs, belong in each module's HOME -- the setup skill for multi-skill modules, the
+// skill itself for standalone ones. Syncing them into every operational skill would ship
+// four copies of a procedure only one of them runs.
 const moduleHomeDirs = [
   "l3io-pm-setup", "l3io-util-doctor", "l3io-sec-redteam", "l3io-arch-review",
 ].map((name) => path.join(repoRoot, "skills", name));
@@ -84,6 +84,8 @@ const moduleHomeDirs = [
 const moduleHomeFiles = [
   { src: path.join(sharedDir, "merge-config.py"), rel: path.join("scripts", "merge-config.py") },
   { src: path.join(sharedDir, "merge-help-csv.py"), rel: path.join("scripts", "merge-help-csv.py") },
+  { src: path.join(sharedDir, "write-module-config.py"), rel: path.join("scripts", "write-module-config.py") },
+  { src: path.join(sharedDir, "module-setup.md"), rel: path.join("assets", "module-setup.md") },
 ];
 
 const pmRefFiles = [

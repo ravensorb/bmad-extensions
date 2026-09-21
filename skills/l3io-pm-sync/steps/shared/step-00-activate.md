@@ -22,8 +22,8 @@ yourself and do not continue.
 
 `modules.l3io-pm` being absent is **not** a first-run and **not** an error — it means the
 module has no project-level overrides, which is the normal state. Bind the defaults below
-and continue. Load `{skill-root}/assets/module-setup.md` only when the user explicitly
-passes `setup`, `configure`, or `install`.
+and continue. This skill never loads module setup, regardless of argument —
+`/l3io-pm-setup` is the module's setup entry point.
 
 Bind `{l3io_pm_section_absent}` = `true` when `modules.l3io-pm` is absent from the resolved
 JSON, else `false`. This reuses the same resolved JSON already read above — it is not a second
@@ -31,8 +31,8 @@ resolve. It exists solely for the once-per-project setup-pointer check in `l3io-
 `l3io-pm-plan` (`config-resolution.md` §5) — not once per session: there is no cross-invocation
 session identifier available, so a session-keyed check would fire on every invocation instead.
 The pointer's only useful message is "you have not configured this," so it must say nothing
-once a section exists. This flag is never a trigger for setup itself — that stays gated on an
-explicit `setup`/`configure`/`install` argument only.
+once a section exists. This flag is never a trigger for setup itself — no argument to this
+skill triggers module setup; `/l3io-pm-setup` is the module's setup entry point.
 
 Extract and bind from the resolved JSON:
 - `{communication_language}` — `core.communication_language` (default `English`)

@@ -41,9 +41,9 @@ Files in `skills/_shared/` are the canonical sources for content shared across P
 | `skills/_shared/metrics-contract.md` | `references/metrics-contract.md` | pm-execute, pm-plan, pm-sync |
 | `skills/_shared/calibration-model.md` | `references/calibration-model.md` | pm-execute, pm-plan, pm-sync |
 | `skills/_shared/steps/**` | `steps/**` | pm-execute, pm-plan, pm-sync |
-| `skills/_shared/config-resolution.md` | `references/config-resolution.md` | **all 8 skills** |
-| `skills/_shared/module-setup.md` | `assets/module-setup.md` | **all 8 skills** |
-| `skills/_shared/write-module-config.py` | `scripts/write-module-config.py` | **all 8 skills** |
+| `skills/_shared/config-resolution.md` | `references/config-resolution.md` | **all 8 skills** — every skill resolves config |
+| `skills/_shared/module-setup.md` | `assets/module-setup.md` | each module's HOME only: `l3io-pm-setup`, `l3io-util-doctor`, `l3io-sec-redteam`, `l3io-arch-review` |
+| `skills/_shared/write-module-config.py` | `scripts/write-module-config.py` | each module's HOME only: `l3io-pm-setup`, `l3io-util-doctor`, `l3io-sec-redteam`, `l3io-arch-review` |
 | `skills/_shared/merge-config.py` | `scripts/merge-config.py` | each module's HOME only: `l3io-pm-setup`, `l3io-util-doctor`, `l3io-sec-redteam`, `l3io-arch-review` |
 | `skills/_shared/merge-help-csv.py` | `scripts/merge-help-csv.py` | each module's HOME only: `l3io-pm-setup`, `l3io-util-doctor`, `l3io-sec-redteam`, `l3io-arch-review` |
 

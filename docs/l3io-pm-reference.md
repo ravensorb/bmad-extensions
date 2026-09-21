@@ -21,9 +21,10 @@ Skills resolve config at activation through BMad core's resolver:
 uv run --python 3.11 {project-root}/_bmad/scripts/resolve_config.py --project-root {project-root}
 ```
 
-The full contract is each skill's `references/config-resolution.md`. Module setup runs only
-when you pass `setup`, `configure`, or `install` — an absent `modules.l3io-pm` section just
-means you have no overrides, which is the normal state.
+The full contract is each skill's `references/config-resolution.md`. Module setup is not
+routed through any of these four skills — `/l3io-pm-setup` is the module's setup entry point.
+An absent `modules.l3io-pm` section just means you have no overrides, which is the normal
+state.
 
 ### Config files
 
@@ -327,7 +328,9 @@ execute.
 | *(none)* | Health snapshot plus a next-action recommendation |
 | `progress` | Plan-aware progress tree, delegated to `pm-status.py report`. See [Progress Reporting](#progress-reporting) |
 | `list plan` | Enumerates every plan snapshot, classifies each as unstarted / in progress / complete against current state, and prints the YAML to repoint `plan-output-meta.yaml` |
-| `setup` / `configure` / `install` | Loads `assets/module-setup.md` — the only module-setup trigger |
+
+`setup`, `configure`, and `install` are not recognized arguments — module setup is not routed
+through this skill. `/l3io-pm-setup` is the module's setup entry point.
 
 `progress` and `list plan` still run config resolution and the layout gate first, then skip the
 recommendation sections. The gate therefore applies to every mode: a legacy tree short-circuits
@@ -352,21 +355,17 @@ sharded `state/`, a legacy per-epic `_bmad/state/`, and a legacy flat `sprint-st
 `BLOCKED`, not an invitation to start fresh. Only when both probes come back empty does the
 first-run recommendation become reachable.
 
-### Presence versus staleness
+### Presence, and no staleness check
 
-Two independent checks on the installed `pm-status.py`, treated differently:
+**Presence** is a file-exists test on the installed `pm-status.py`. When absent, every
+`pm-status.py` call becomes conditional: the state read falls back to parsing each
+`epic.yaml` directly, and `progress` refuses outright, because dwell times and phase roll-ups
+cannot be derived from `epic.yaml`.
 
-- **Presence** is a file-exists test. When absent, every `pm-status.py` call becomes
-  conditional: the state read falls back to parsing each `epic.yaml` directly, and `progress`
-  refuses outright, because dwell times and phase roll-ups cannot be derived from `epic.yaml`.
-- **Staleness** compares the installed copy's `--version` against this skill's own
-  `module.yaml` — derived, so there is no hardcoded minimum to drift. An unreadable or
-  pre-`--version` copy counts as stale rather than current.
-
-The distinction is behavioural: presence gates *whether* the helper is called; staleness does
-not. A stale copy is used exactly like a current one, and the only effect is a warning
-**prepended** to whatever recommendation was already chosen — because a subcommand the installed
-copy lacks fails as an opaque argparse error rather than a clear one.
+l3io-pm-help does **not** check staleness. `module.yaml` lives only at the module's home
+(`l3io-pm-setup/assets/module.yaml`), not at this skill's own root, and reading a sibling
+skill's path from here would be the cross-skill path read this package avoids elsewhere. So
+presence is the only signal this skill reports; it never guesses at version freshness.
 
 ### What it reads, and never writes
 
@@ -395,9 +394,10 @@ touch the network.
 | `pull` | Reads mapped issue state and marks stories `done` whose issue closed as completed |
 | `sync` | `push` in full, then `pull` in full — never interleaved, so creations land before the re-read |
 
-Note that `setup` here selects the sync-setup mode, **not** shared module setup; only
-`configure` and `install` load `assets/module-setup.md`. This is the one PM skill where `setup`
-means something else.
+Note that `setup` here selects the sync-setup mode, **not** shared module setup — this is the
+one PM skill where `setup` means something else. `configure` and `install` are not recognized
+arguments here either: module setup is not routed through this skill; `/l3io-pm-setup` is the
+module's setup entry point.
 
 ### Platform detection and auth
 

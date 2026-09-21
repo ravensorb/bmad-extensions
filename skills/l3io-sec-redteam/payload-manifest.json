@@ -2,10 +2,10 @@
   "version": "2.5.1",
   "generated_from": "skills/_shared/",
   "files": {
-    "scripts/write-module-config.py": "fdc0e81cda51221599907b9023a096b0570e096b7d921fb0c1db2050afa7a80f",
-    "references/config-resolution.md": "4ba82462f0cf1ecfcfdf36dc299fcddf274e09e7ecb3e05c665f9b82ea8911af",
-    "assets/module-setup.md": "c4ffc5f603867c37c28446600f4a0ff62d30f92a121aac595523b9da75c3cc9a",
+    "references/config-resolution.md": "9501617b815e7ee26df2b779361ef643e2ffd77b4502775159b6e02a3df23898",
     "scripts/merge-config.py": "22f51eed631c64134d352c236917e0a98ec5b5fe5d0810394f4615905c6ef7dc",
-    "scripts/merge-help-csv.py": "44cae89d74a247395cc851970e28b65605e958efa04b632209f9bd5ecbc70d69"
+    "scripts/merge-help-csv.py": "44cae89d74a247395cc851970e28b65605e958efa04b632209f9bd5ecbc70d69",
+    "scripts/write-module-config.py": "fdc0e81cda51221599907b9023a096b0570e096b7d921fb0c1db2050afa7a80f",
+    "assets/module-setup.md": "c4ffc5f603867c37c28446600f4a0ff62d30f92a121aac595523b9da75c3cc9a"
   }
 }

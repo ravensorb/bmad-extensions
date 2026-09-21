@@ -120,7 +120,9 @@ the base.
 is the normal state — none of the l3io modules declare required settings, so a correct
 install produces no section at all. Bind the defaults from §3 and carry on.
 
-Load `assets/module-setup.md` only when:
+**This applies to a module's home only** — the skill carrying `assets/module.yaml`
+(`l3io-pm-setup`, `l3io-util-doctor`, `l3io-sec-redteam`, `l3io-arch-review`). There, load
+`assets/module-setup.md` only when:
 
 - the user explicitly passes `setup`, `configure`, or `install`; or
 - a skill-specific first-run artifact is genuinely absent (for `l3io-sec-redteam`, the
@@ -128,6 +130,10 @@ Load `assets/module-setup.md` only when:
 
 Never treat a missing config section as the trigger. That mistake is what made every
 invocation open with "No {module} section in config — loading module setup first."
+
+The four `l3io-pm` operational skills — `l3io-pm-execute`, `l3io-pm-plan`, `l3io-pm-help`,
+`l3io-pm-sync` — do not carry `assets/module-setup.md` and never load it, regardless of
+argument: `/l3io-pm-setup` is the module's setup entry point for all of them.
 
 At most once ever, per project — not per session — an **orchestrator** may mention that
 `/l3io-pm-setup` exists, and only when there is something to mention. There is no notion of
