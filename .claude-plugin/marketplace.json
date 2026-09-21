@@ -30,7 +30,8 @@
         "./skills/l3io-pm-execute",
         "./skills/l3io-pm-plan",
         "./skills/l3io-pm-help",
-        "./skills/l3io-pm-sync"
+        "./skills/l3io-pm-sync",
+        "./skills/l3io-pm-setup"
       ]
     },
     {

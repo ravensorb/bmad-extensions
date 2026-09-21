@@ -125,16 +125,16 @@ const newUtilDoctorDirs = [
 ];
 
 // Every skill in the package — the four l3io modules' skills all resolve config and all
-// carry the same setup procedure.
-const allSkillDirs = [
-  "l3io-arch-review",
-  "l3io-pm-execute",
-  "l3io-pm-help",
-  "l3io-pm-plan",
-  "l3io-pm-sync",
-  "l3io-sec-redteam",
-  "l3io-util-doctor",
-].map((name) => path.join(repoRoot, "skills", name));
+// carry the same setup procedure. Derived from skills/ itself, never hand-enumerated: a
+// hand-kept list here drifted silently once already (l3io-pm-setup was absent from it and
+// so absent from the check:scripts comparison too, even though it needed the same three
+// files as every other skill). Same derivation scripts/check-docs.mjs's checkSkillNames()
+// uses — a skill directory is anything under skills/ whose name starts with "l3io-"
+// (_shared is excluded by the prefix).
+const allSkillDirs = fs.readdirSync(path.join(repoRoot, "skills"))
+  .filter((d) => d.startsWith("l3io-"))
+  .sort()
+  .map((name) => path.join(repoRoot, "skills", name));
 
 // Shared step files: source path → relative dest path within each skill's steps/ dir
 const sharedStepFiles = [
