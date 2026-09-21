@@ -3,9 +3,9 @@
   "generated_from": "skills/_shared/",
   "files": {
     "scripts/write-module-config.py": "fdc0e81cda51221599907b9023a096b0570e096b7d921fb0c1db2050afa7a80f",
-    "references/config-resolution.md": "04847d2fcfcb48d92b2c7c175c5b9046b62899ea837d473d826a71624ac01077",
+    "references/config-resolution.md": "8901187fa64b65b83453dcc48713935de53a43067f41a0fe90c7c16ad64989fb",
     "assets/module-setup.md": "c4ffc5f603867c37c28446600f4a0ff62d30f92a121aac595523b9da75c3cc9a",
-    "scripts/pm-status.py": "0d148afbbe820130ae21475c00052ed9f79fd7f5d8ffc7d1a9d7157ebe8d3e23",
+    "scripts/pm-status.py": "37c8c78787a3aeb26336a9eb440cb5a5a84fbf8d43448f8eeb1afee611efea71",
     "scripts/spec-align.py": "54e660827d75571f4757d74375cf5a48591bf39167359cc6def06aa82792ab9e",
     "scripts/merge-config.py": "22f51eed631c64134d352c236917e0a98ec5b5fe5d0810394f4615905c6ef7dc",
     "scripts/merge-help-csv.py": "44cae89d74a247395cc851970e28b65605e958efa04b632209f9bd5ecbc70d69"

@@ -30,15 +30,22 @@ Load `{skill-root}/assets/module-setup.md` first **only** when the user passes `
 
 Once `{session_id}` is bound and before reading any further state, apply the once-per-session
 setup pointer (`{skill-root}/references/config-resolution.md` §5) — this skill is one of the
-two orchestrators the pointer is scoped to:
+two orchestrators the pointer is scoped to. It fires only when `{l3io_pm_section_absent}`
+(bound in step-00-activate §1, from config already resolved there) is `true` — a configured
+project gets no pointer at all:
 
 ```bash
-uv run {pm_status} notice --state-root {pm_state_root} \
-  --session-id {session_id} --key setup-pointer && \
-  echo "l3io-pm has no project settings. /l3io-pm-setup configures it if you want to."
+if [ "{l3io_pm_section_absent}" = "true" ]; then
+  uv run {pm_status} notice --state-root {pm_state_root} \
+    --session-id {session_id} --key setup-pointer && \
+    echo "l3io-pm currently has no project-level configuration. /l3io-pm-setup configures it if you want to."
+fi
 ```
 
-Exit 1 means it was already said this session — print nothing and continue. Never halt on it.
+Exit 1 from `notice` means it was already said this session — print nothing and
+continue; this is the ordinary case after the first invocation. Exit 2 means recording
+it actually failed (never conflated with exit 1). Never halt on any branch, and never
+treat this as a setup trigger.
 
 ```
 {skill-root}/steps/shared/step-01-classify-work.md

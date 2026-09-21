@@ -38,12 +38,12 @@ Parse the invocation argument to determine mode:
 
 Bind `{sync_mode}` = parsed mode.
 
-This skill loads `step-00-activate.md` for config/state binding but is not an orchestrator (it
-never dispatches a subagent), so §7's "only an orchestrator generates one" leaves its
-`{session_id}` unbound in practice — do not add the once-per-session `/l3io-pm-setup` pointer
-(`config-resolution.md` §5) here: with no real session id to key it on, the guard could not
-bound anything and it would print on every invocation, the exact behaviour that section rules
-out. That pointer is scoped to the orchestrators (`l3io-pm-execute`, `l3io-pm-plan`) only.
+This skill loads `step-00-activate.md` for config/state binding, but it never dispatches a
+subagent, and no step of its own ever references `{session_id}` again after that file — do not
+add the once-per-session `/l3io-pm-setup` pointer (`config-resolution.md` §5) here regardless
+of what value `{session_id}` ends up holding: that pointer is scoped to the orchestrators
+(`l3io-pm-execute`, `l3io-pm-plan`) only, and wiring it in here as well would print it on every
+invocation — the exact behaviour that section rules out.
 
 Load and execute in order:
 

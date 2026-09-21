@@ -506,6 +506,10 @@ sharding gives each epic its own directory, and nothing below the epic level nee
   (deleting a flock file is racy) — do not delete one while a run may be active.
 - `issues.yaml.lock`, `pm-calibration.yaml.lock`, `adr-register.yaml.lock` — the sidecars for
   the three shared-append targets below, likewise created empty and never deleted.
+- `.notices.yaml.lock` — the sidecar for `.notices.yaml` (`notices_lock`), the one-per-session
+  advisory ledger `pm-status.py notice` reads/writes for the `l3io-pm-execute`/`l3io-pm-plan`
+  setup-pointer (`config-resolution.md` §5). Same shape as the three above: whole
+  read-modify-write cycle under one lock, likewise created empty and never deleted.
 - `spec-sync.lock` — the spec-edit lease written by `spec-align.py lease` (JSON: `owner`,
   `acquired_at`, `expires_at`), not an empty flock target: an epic closure's spec sync holds it
   across an agent's turns. It is a `*.lock`, so the same ignore rule keeps it out of git.
@@ -515,13 +519,14 @@ sharding gives each epic its own directory, and nothing below the epic level nee
   empty. For an epic node this sidecar is redundant with `epic_node_lock` (a different file,
   so it cannot self-deadlock against it).
 
-**None of these is ever committed.** `pm-status.py` keeps `*.lock` in `{state_root}/.gitignore`.
-Every lock acquisition inside a state root checks that file, at most once per process per state
-root. A bare `append-issue --file` outside one (no status folders, no `--state-root`) is
-skipped, so it never writes a `.gitignore` into a repo root. If the file
-is absent it is created with the line; if it lacks the line, the line is appended, and the lines
-already there are never rewritten or reordered. The check is best-effort: a failure warns on
-stderr and never fails the verb. `*.lock` matches files only, so the activation gate's
+**None of these is ever committed.** `pm-status.py` keeps both `*.lock` and `.notices.yaml`
+in `{state_root}/.gitignore` — the same `_ensure_lock_ignore` mechanism covers both patterns,
+not two separate ones. Every lock acquisition inside a state root checks that file, at most
+once per process per state root. A bare `append-issue --file` outside one (no status folders,
+no `--state-root`) is skipped, so it never writes a `.gitignore` into a repo root. Any pattern
+absent from the file is appended (patterns already present are left alone, never rewritten or
+reordered); an absent file is created with both. The check is best-effort: a failure warns on
+stderr and never fails the verb. Neither pattern matches a directory, so the activation gate's
 `git check-ignore` on the state-root directory (`steps/shared/step-00-activate.md`) still
 passes. Lock files a project committed before this rule existed are untracked, and left on
 disk, by the sprint-closure checkpoint (`steps/sprint/step-04-sprint-closure.md` §9) and by

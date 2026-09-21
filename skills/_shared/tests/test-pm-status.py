@@ -278,6 +278,19 @@ class TestNotice(Base):
             fh.write("{ not: valid: yaml\n")
         self.assertEqual(self.notice("S1")[0], 0)
 
+    def test_write_failure_is_reported_distinctly_not_as_already_emitted(self):
+        """A bad READ is tolerated (test_damaged_file_does_not_block_the_caller above), but
+        a failure actually recording the notice is a real failure, not "already said" (1)
+        and not silent success (0) -- a caller told 1 says nothing further, so a masked
+        crash there would silently and permanently suppress the pointer."""
+        os.mkdir(os.path.join(self.d, ".notices.yaml"))   # a directory where the file goes
+        code, out = self.notice("S1")
+        self.assertEqual(code, 2, out)
+        os.rmdir(os.path.join(self.d, ".notices.yaml"))
+        # Once the obstruction is gone, the same session+key is still genuinely unrecorded --
+        # the earlier failure must not have left a stale lock or a false "emitted" record.
+        self.assertEqual(self.notice("S1")[0], 0)
+
     def test_different_session_id_is_not_suppressed(self):
         """The other half of the once-per-session guarantee: a session id that was never
         recorded must never be treated as already shown, however similar."""
@@ -285,6 +298,53 @@ class TestNotice(Base):
         self.assertEqual(self.notice("session-with-a-long-name-2")[0], 0)
         self.assertEqual(self.notice("session-with-a-long-name")[0], 1)
         self.assertEqual(self.notice("session-with-a-long-name-2")[0], 1)
+
+
+class TestConcurrentNotice(unittest.TestCase):
+    """notice's load->check->append->save must run under ONE lock (notices_lock),
+    mirroring TestConcurrentSampling/TestConcurrentAdrReservation below. Locking only the
+    write would let two parallel calls each read the same pre-write `sessions` mapping and
+    save their own key into it -- a lost update, silently dropping whichever key's writer
+    read first, the same collision class every sibling lock family below exists to close.
+
+    One shared --session-id, N distinct --key values: unlike a same-key repeat (which only
+    races on the FIRST write, before the file even exists -- too narrow a window to hit
+    reliably by process-launch jitter alone, confirmed empirically), N distinct keys keep
+    every process racing to read-modify-save the SAME growing `sessions[session_id]` list for
+    the whole run, exactly the shape TestConcurrentSampling and TestConcurrentAdrReservation
+    already use to make their races land reliably.
+
+    Real subprocesses, not threads: `_file_lock`'s reentrancy counter (`_NOTICES_LOCK`) is
+    per-process state, so threads sharing one process would pass this test vacuously even
+    with the lock removed.
+    """
+
+    N = 24
+
+    def setUp(self):
+        self.d = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, self.d, True)
+        self.root = os.path.join(self.d, "state")
+        os.makedirs(self.root)
+
+    def test_concurrent_notices_for_distinct_keys_lose_none(self):
+        import subprocess
+        procs = [subprocess.Popen(
+            [sys.executable, SCRIPT, "notice", "--state-root", self.root,
+             "--session-id", "S1", "--key", f"key-{i}"],
+            stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+            for i in range(self.N)]
+        codes = []
+        for p in procs:
+            _, err = p.communicate(timeout=120)
+            codes.append(p.returncode)
+        self.assertEqual(codes, [0] * self.N,
+                         f"every distinct key is new, so every caller must exit 0; got {codes}")
+        _, data = pm._load(os.path.join(self.root, ".notices.yaml"))
+        recorded = set(data["sessions"]["S1"]) if data else set()
+        expected = {f"key-{i}" for i in range(self.N)}
+        self.assertEqual(recorded, expected,
+                         f"lost update(s) under concurrency: missing {expected - recorded}")
 
 
 class TestSetLockMutualExclusion(Base):

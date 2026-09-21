@@ -25,6 +25,13 @@ module has no project-level overrides, which is the normal state. Bind the defau
 and continue. Load `{skill-root}/assets/module-setup.md` only when the user explicitly
 passes `setup`, `configure`, or `install`.
 
+Bind `{l3io_pm_section_absent}` = `true` when `modules.l3io-pm` is absent from the resolved
+JSON, else `false`. This reuses the same resolved JSON already read above — it is not a second
+resolve. It exists solely for the once-per-session setup-pointer check in `l3io-pm-execute` and
+`l3io-pm-plan` (`config-resolution.md` §5): the pointer's only useful message is "you have not
+configured this," so it must say nothing once a section exists. This flag is never a trigger
+for setup itself — that stays gated on an explicit `setup`/`configure`/`install` argument only.
+
 Extract and bind from the resolved JSON:
 - `{communication_language}` — `core.communication_language` (default `English`)
 - `{output_folder}` — `core.output_folder` (default `{project-root}/_bmad-output`)

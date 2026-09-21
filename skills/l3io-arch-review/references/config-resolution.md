@@ -129,25 +129,36 @@ Load `assets/module-setup.md` only when:
 Never treat a missing config section as the trigger. That mistake is what made every
 invocation open with "No {module} section in config — loading module setup first."
 
-Once per session, at most, an **orchestrator** may mention that `/l3io-pm-setup` exists:
+Once per session, at most, an **orchestrator** may mention that `/l3io-pm-setup` exists — and
+only when there is something to mention. `{l3io_pm_section_absent}` (bound in
+`step-00-activate.md` §1, from the JSON already resolved above — this is **not** a second
+config resolve) gates it: a project that has already configured `modules.l3io-pm` gets no
+pointer at all, because "configure it if you want to" would be false the moment it printed —
+the person just did.
 
 ```bash
-uv run {pm_status} notice --state-root {pm_state_root} \
-  --session-id {session_id} --key setup-pointer && \
-  echo "l3io-pm has no project settings. /l3io-pm-setup configures it if you want to."
+if [ "{l3io_pm_section_absent}" = "true" ]; then
+  uv run {pm_status} notice --state-root {pm_state_root} \
+    --session-id {session_id} --key setup-pointer && \
+    echo "l3io-pm currently has no project-level configuration. /l3io-pm-setup configures it if you want to."
+fi
 ```
 
-Exit 1 means it was already said this session — say nothing. Never halt on it: the module
-works without settings, which is why none are declared.
+Exit 1 from `notice` means it was already said this session — say nothing further, and this is
+the ordinary case on every invocation after the first. Exit 2 means something actually failed
+recording it (never conflated with exit 1); note it in passing but never halt on it — the
+module works without settings, which is why none are declared, and this check is never a
+trigger for setup itself — that stays gated on an explicit `setup`/`configure`/`install`
+argument, exactly as above.
 
 **Orchestrator-only, and it needs no new machinery to say so**: `l3io-pm-execute` and
-`l3io-pm-plan` are the only skills that load `steps/shared/step-00-activate.md` and bind a
-real `{session_id}` there — "Only an orchestrator generates one" (§7 of that file). `l3io-pm-help`
-never loads it at all, and while `l3io-pm-sync` does load it, it is not an orchestrator (it
-never dispatches a subagent) and no step of its own ever references `{session_id}` again, so
-that binding never becomes a real value there either way. Neither has a session id to key
-this notice on, so wiring either in would fire the pointer on every single invocation — the
-exact per-invocation detour this section exists to rule out. Do not "fix" that asymmetry.
+`l3io-pm-plan` are the only skills that dispatch subagents — "Only an orchestrator generates
+one" (§7 of `steps/shared/step-00-activate.md`) is written for them. `l3io-pm-help` never
+loads that file at all. `l3io-pm-sync` does load it, but it never dispatches a subagent and no
+step of its own ever references `{session_id}` again afterward — whatever that file leaves
+`{session_id}` holding there, nothing downstream in `l3io-pm-sync` reads it. Wiring the pointer
+into either skill would fire it on every single invocation regardless — the exact per-invocation
+detour this section exists to rule out. Do not "fix" that asymmetry.
 
 ## 6. Detecting whether another l3io module is installed
 

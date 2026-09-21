@@ -3,17 +3,17 @@
   "generated_from": "skills/_shared/",
   "files": {
     "scripts/write-module-config.py": "fdc0e81cda51221599907b9023a096b0570e096b7d921fb0c1db2050afa7a80f",
-    "references/config-resolution.md": "04847d2fcfcb48d92b2c7c175c5b9046b62899ea837d473d826a71624ac01077",
+    "references/config-resolution.md": "8901187fa64b65b83453dcc48713935de53a43067f41a0fe90c7c16ad64989fb",
     "assets/module-setup.md": "c4ffc5f603867c37c28446600f4a0ff62d30f92a121aac595523b9da75c3cc9a",
-    "steps/shared/step-00-activate.md": "dcafae2966c7d91f7f515db5de10e0743cb2e5b13cf2c8defa41b5815f9a0f72",
+    "steps/shared/step-00-activate.md": "e342888341869a5501a543f5783fbabba75c77fa2a27305fda2d1fdf2e1fe611",
     "steps/shared/step-00-digest.md": "dc47a7a86dc1147f66a6f5c4b9a89f79f951d5c2ac221ad9efea0db80bd5a997",
     "steps/shared/step-01-classify-work.md": "dcd71a5e3780e24550d8c3ff98051b63f0c0a3fc75203cb1fec29f3ab9bd865f",
     "steps/shared/step-estimate.md": "27bc6b9848ddd070843c7a2c9a555e33d4b80993026b54dbd367b86b3c680bbb",
     "steps/sync/step-02-detect-platform.md": "5109dbf309c6449715ecaeeefd459e57c04f6ef2ba43603de7154966c1a2451a",
     "steps/sync/step-03-operations.md": "454bf2155f2d2c35d28b625a31cb629913f119522507117eba5b86e47daafcbd",
     "steps/sync/step-04-resolve.md": "c979c0bf6303e6e73263fe4371dd40119cd5e5f17d7273c780b8773e1c95c71d",
-    "scripts/pm-status.py": "0d148afbbe820130ae21475c00052ed9f79fd7f5d8ffc7d1a9d7157ebe8d3e23",
-    "references/status-files.md": "395a418d5407a19de24d6bbc11beef17abcf79366e4d69c2af14abec6ebe78bc",
+    "scripts/pm-status.py": "37c8c78787a3aeb26336a9eb440cb5a5a84fbf8d43448f8eeb1afee611efea71",
+    "references/status-files.md": "32dc1e4b6815e65c6d51aebf8d6af1430a22f0a7328573a3932f3e3d5daeec02",
     "references/metrics-contract.md": "0c4d6fcde236c0e6acdd9ae9064c08853f9c4fd0931ff7a95635ad53a889f63f",
     "references/calibration-model.md": "b6f6652658047e72f89532d20d74d57b7c18314d471163f87ae48bbfb932b0a1"
   }

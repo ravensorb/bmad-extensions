@@ -210,8 +210,10 @@ Subcommands
   notice        --state-root S  --session-id SESS  --key KEY
                 (records a one-per-session advisory notice in {state-root}/.notices.yaml
                 under flock, pruned to the 20 most recent session ids; exit 0 = not yet
-                emitted this session for KEY (and now recorded), exit 1 = already emitted;
-                advisory only -- a damaged notices file never blocks the caller)
+                emitted this session for KEY (and now recorded), exit 1 = already emitted,
+                exit 2 = usage error OR an unexpected recording failure (never conflated
+                with exit 1); advisory only -- a damaged notices file never blocks the
+                caller, but a failed write is reported, not silently treated as success)
 
 Exit codes: 0 = success/verified, 1 = notice already emitted this session
 (notice only), 2 = usage error, 3 = node not found, 4 = verification failure
@@ -2635,43 +2637,58 @@ def cmd_adr_reserve(args) -> int:
 
 def cmd_notice(args) -> int:
     """Record a one-per-session advisory notice. Exit 0 = emit it now (and record it),
-    exit 1 = already emitted this session for this key, exit 2 = usage error.
+    exit 1 = already emitted this session for this key, exit 2 = usage error OR an
+    unexpected failure while recording (lock/I/O). 2 is deliberately overloaded with
+    "usage error" rather than given a new number of its own: a caller that treats any
+    nonzero exit as "do not print the pointer" already handles it correctly either way,
+    and the one distinction that matters -- 1 means "already said, all is well" -- stays
+    unambiguous. A crash must never surface as 1: a caller told "already emitted" says
+    nothing further and moves on, so a masked crash would silently and permanently
+    suppress the pointer with nothing to show for it.
 
     An absent or unparseable notices file means nothing has been emitted yet for any
     session -- a notice is advisory only, so a damaged file must never block the caller's
-    real work; it is simply treated as empty and rewritten clean on this call.
+    real work; it is simply treated as empty and rewritten clean on this call. That
+    tolerance covers a bad READ only: a failure while actually recording (the lock, or the
+    write itself) is a real failure and is reported as one, not folded into "already
+    emitted" or silently swallowed as success.
     """
     session = (args.session_id or "").strip()
     key = (args.key or "").strip()
     if not session or not key:
         sys.stderr.write("notice: --session-id and --key must be non-empty\n")
         return 2
-    os.makedirs(args.state_root, exist_ok=True)
     path = notices_path(args.state_root)
-    with notices_lock(args.state_root):
-        # _load returns (yaml_instance, data) -- data is None when the file is absent or
-        # fails to parse the way _load's caller expects. Reuse the returned YAML instance
-        # for the dump so round-trip settings (width, indent, quote style) match.
-        try:
-            y, data = _load(path)
-        except Exception:
-            y, data = _yaml(), None
-        sessions = data.get("sessions") if isinstance(data, dict) else None
-        if not isinstance(sessions, dict):
-            from ruamel.yaml.comments import CommentedMap
-            sessions = CommentedMap()
-        emitted = sessions.get(session)
-        if not isinstance(emitted, list):
-            emitted = []
-        if key in emitted:
-            return 1
-        emitted.append(key)
-        sessions[session] = emitted
-        # Insertion order is emission order (first-seen session first); keep only the
-        # newest NOTICES_KEEP sessions so the ledger never grows without bound.
-        for stale in list(sessions)[:-NOTICES_KEEP]:
-            del sessions[stale]
-        _atomic_dump(y, {"sessions": sessions}, path)
+    try:
+        os.makedirs(args.state_root, exist_ok=True)
+        with notices_lock(args.state_root):
+            # _load returns (yaml_instance, data) -- data is None when the file is absent
+            # or fails to parse the way _load's caller expects. Reuse the returned YAML
+            # instance for the dump so round-trip settings (width, indent, quote style)
+            # match.
+            try:
+                y, data = _load(path)
+            except Exception:
+                y, data = _yaml(), None
+            sessions = data.get("sessions") if isinstance(data, dict) else None
+            if not isinstance(sessions, dict):
+                from ruamel.yaml.comments import CommentedMap
+                sessions = CommentedMap()
+            emitted = sessions.get(session)
+            if not isinstance(emitted, list):
+                emitted = []
+            if key in emitted:
+                return 1
+            emitted.append(key)
+            sessions[session] = emitted
+            # Insertion order is emission order (first-seen session first); keep only the
+            # newest NOTICES_KEEP sessions so the ledger never grows without bound.
+            for stale in list(sessions)[:-NOTICES_KEEP]:
+                del sessions[stale]
+            _atomic_dump(y, {"sessions": sessions}, path)
+    except Exception as e:
+        sys.stderr.write(f"notice: could not record the notice at {path}: {e}\n")
+        return 2
     return 0
 
 

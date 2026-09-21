@@ -86,21 +86,23 @@ it, or any manual `pm-status.py` write, against an epic another session is activ
 ## Lock files leave git
 
 `pm-status.py`'s lock files are empty flock targets: `epic-NNN.lock`, `issues.yaml.lock`,
-`pm-calibration.yaml.lock` and `adr-register.yaml.lock` in `{implementation_artifacts}/state/`,
-plus a `.yaml.lock` sidecar beside some node files. The sprint-closure checkpoint used to commit
-them. `pm-status.py` now keeps `*.lock` in `state/.gitignore`, so an existing project sees two
-things after upgrading. Both are expected:
+`pm-calibration.yaml.lock`, `adr-register.yaml.lock` and `.notices.yaml.lock` in
+`{implementation_artifacts}/state/`, plus a `.yaml.lock` sidecar beside some node files. The
+sprint-closure checkpoint used to commit them. `pm-status.py` now keeps both `*.lock` and the
+`.notices.yaml` advisory ledger (§ notice) in `state/.gitignore`, so an existing project sees
+two things after upgrading. Both are expected:
 
 - **A new `state/.gitignore`.** The first `pm-status.py` command that takes a lock inside the
   state root writes it,
   and the checkpoint commits it with the rest of `state/`. If a `.gitignore` is already there,
-  it keeps its lines and gains one `*.lock` line.
+  it keeps its lines and gains whichever of the `*.lock` and `.notices.yaml` lines it is
+  missing — an already-current file gains nothing.
 - **A commit that deletes the tracked `*.lock` files from git.** The next sprint-closure
   checkpoint untracks them. `/l3io-util-doctor`'s health check does the same (Check 14) and
   stages the removal for you to commit. The files stay on disk; only the index entries go.
 
-The activation gate that refuses a gitignored `state/` is unaffected, because `*.lock` matches
-files, never the directory.
+The activation gate that refuses a gitignored `state/` is unaffected, because neither `*.lock`
+nor `.notices.yaml` matches the directory itself.
 
 ## Version notes
 
