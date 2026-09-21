@@ -890,6 +890,52 @@ test("check 17 N-3: the documented python3 fallback in markdown prose still pass
   assert.equal(r.status, 0, r.stderr);
 });
 
+// Fix round 3, M-1: PY_INVOKE_RE required the .py path (or {pm_status}/{spec_align}) to be
+// python3's FIRST argument, so an interpreter flag or a minor-version suffix between
+// `python3` and the script path defeated the predicate entirely -- no exemption logic even
+// runs when the pattern never matches in the first place, making these cheaper than every
+// string the first three fix rounds closed.
+for (const [label, line] of [
+  ["a `-u` flag", "python3 -u skills/_shared/tests/test-pm-status.py"],
+  ["a `-X utf8` flag (flag + its own separate argument)",
+    "python3 -X utf8 skills/_shared/tests/test-pm-status.py"],
+  ["a `python3.12` minor-version suffix", "python3.12 skills/_shared/tests/test-pm-status.py"],
+]) {
+  test(`check 17 M-1: python3 with ${label} still does not honour the header`, (t) => {
+    const root = fixture(t);
+    write(root, ".github/workflows/checks.yml",
+      `    - name: fix-round-3 regression\n      run: ${line}\n`,
+      /* append */ true);
+    const r = run(root);
+    assert.equal(r.status, 1, r.stdout);
+    assert.match(r.stderr, /invokes a PEP-723 script with python3/);
+  });
+}
+
+// Positive control: a provisioned line using an interpreter flag must still pass -- the
+// widening happens INSIDE the match, before the python3 token the exemption's beforeMatch
+// looks at, so it must not defeat the exemption.
+test("check 17 M-1: a provisioned `uv run --with ... python3 -u <script>.py` still passes", (t) => {
+  const root = fixture(t);
+  write(root, ".github/workflows/checks.yml",
+    "    - name: fix-round-3 legitimate\n" +
+    "      run: uv run --with 'ruamel.yaml>=0.18' python3 -u skills/_shared/tests/test-pm-status.py\n",
+    /* append */ true);
+  const r = run(root);
+  assert.equal(r.status, 0, r.stderr);
+});
+
+// Negative control: mentioning python3 with no .py/{helper} argument at all must still not
+// match -- confirms the widening did not turn PY_INVOKE_RE into a bare "python3" scan.
+test("check 17 M-1: python3 with no script argument does not trip the check", (t) => {
+  const root = fixture(t);
+  write(root, ".github/workflows/checks.yml",
+    "    - name: fix-round-3 no-op\n      run: python3 --version\n",
+    /* append */ true);
+  const r = run(root);
+  assert.equal(r.status, 0, r.stderr);
+});
+
 // ---- check 18 (docs-check-count) ----
 //
 // Same derive-don't-type discipline as the check 15 tests above: the expected counts and

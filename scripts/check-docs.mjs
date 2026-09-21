@@ -1263,8 +1263,35 @@ function checkBmadDependencyInventory() {
 // also matches this qualifier) -- bootstrap-state.md:266 and migrate-state.md:484,599, all
 // three restating step-00-activate.md's documented `uv`-unavailable fallback for
 // {pm_status}. All three keep passing under markdown-only scope.
+//
+// Fix round 3, M-1: PY_INVOKE_RE required the `.py` path (or `{pm_status}`/`{spec_align}`) to
+// be python3's FIRST argument, so `python3 -u <script>.py`, `python3 -X utf8 <script>.py` and
+// `python3.12 <script>.py` all exited 0 -- cheaper than every string the first three fix
+// rounds closed, because no exemption logic even runs when the predicate itself never
+// matches. Widened to allow an optional minor-version suffix (`python3.NN`) and any run of
+// intervening tokens (interpreter flags, and a flag's own separate argument like `-X`'s
+// `utf8`) between `python3` and the target, found via a non-greedy token skip rather than a
+// fixed flag list, so it generalizes to any current or future python3 flag without a second
+// widening. This is INSIDE the match, before the `python3` token the exemption's `beforeMatch`
+// looks at, so a provisioned line (`uv run --with 'x' python3 -u <script>.py`) is unaffected.
+//
+// Known gaps (not caught by this check, listed rather than left to look complete):
+//   - command substitution: `uv run --with 'x' echo "$(python3 <script>.py)"` -- the `uv run`
+//     anchor is defeated because the real invocation is inside a substituted subshell.
+//   - shell variable indirection (`PY=python3; $PY <script>.py`) and wrapper commands
+//     (`timeout`/`env`/`sudo` in front of `python3`).
+//   - a `& uv run --with 'x' <script>.py` sequence where the `&` sits INSIDE a quoted string
+//     (round 2's command-split is quote-unaware) -- and the mirror false-red, a `--with`
+//     value that itself contains an unquoted `&`.
+//   - `uv  run` (two spaces) and other non-single-space token separators.
+//   - `if`/`case` shell blocks and multi-line `run: |` bodies where the invocation and its
+//     `uv run` prefix are wrapped across lines this line-at-a-time scan cannot join.
+// These are a YAML-plus-shell-lexer problem, not a regex-anchoring one; widening the regex
+// further to close them was declined rather than attempted a fifth time. See the
+// l3io-customization-layer Task 9 fix-round-3 ruling for the pending design decision on
+// whether to rebuild this check on a real parser instead.
 // ---------------------------------------------------------------------------
-const PY_INVOKE_RE = /(?<![\w-])python3\s+(?:"?\{(pm_status|spec_align)\}|\S*\.py)(?![\w-])/;
+const PY_INVOKE_RE = /(?<![\w-])python3(?:\.\d+)?\s+(?:\S+\s+)*?(?:"?\{(pm_status|spec_align)\}|\S*\.py)(?![\w-])/;
 const PY_FALLBACK_QUALIFIER = /\buv\b[^.]*\bunavailable\b|\bfallback\b/i;
 // `uv run --with <extra-deps> python3 <script>.py` is uv choosing and managing the
 // interpreter itself (used where a script needs dependencies beyond its own PEP-723 header,
