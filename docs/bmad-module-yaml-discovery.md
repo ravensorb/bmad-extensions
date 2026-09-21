@@ -51,16 +51,28 @@ one whose parsed `code:` (or `name:`) equals the requested module name:
 | `src/<dir>/module.yaml` (one level) | **yes → `src/l3io-pm/module.yaml`** |
 | `<*-setup>/assets/module.yaml` (repo root) | no |
 | `src/skills/<*-setup>/assets/module.yaml` | no |
-| `skills/<*-setup>/assets/module.yaml` | no |
+| `skills/<*-setup>/assets/module.yaml` | no at the time this note was taken; **now `skills/l3io-pm-setup/assets/module.yaml`** — see the update below the table |
 | `module.yaml` (repo root) | no |
 
 **Critical detail — depth:** the `src/<dir>/` scan is exactly **one level** deep.
 Our per-skill copies at `src/l3io-pm/l3io-pm-sprint-execute/module.yaml` (and the
 identical copy carried by each sibling skill) are **two levels** under `src/` and are
-therefore **never discovered**. The `<*-setup>/assets/module.yaml` convention only works
-when a setup skill sits at the repo root, `src/skills/`, or `skills/` — none of which
-match this repo, and standalone setup skills were folded into the operational skills, so
-there is no `*-setup` directory to match anyway.
+therefore **never discovered**. At the time this note was taken, the
+`<*-setup>/assets/module.yaml` convention did not match this repo at all — there was no
+`*-setup` directory anywhere in the tree.
+
+**Update, l3io-customization-layer restructuring (2026-09):** that is no longer true for
+`l3io-pm`. It is now the package's only multi-skill module and has a dedicated
+`l3io-pm-setup` skill, so `skills/l3io-pm-setup/assets/module.yaml` is a real file at
+exactly the `skills/<*-setup>/assets/module.yaml` path this table lists. The three
+standalone modules (`l3io-util`, `l3io-sec`, `l3io-arch`) are unaffected: each one's
+`module.yaml` sits at `skills/<its-own-skill-name>/assets/module.yaml`, and none of those
+skill directory names end in `-setup`, so none of them match any pattern in the table
+above. Whether the `skills/<*-setup>/assets/module.yaml` match now actually silences the
+"could not locate module.yaml" warning for `l3io-pm` on a current install has not been
+re-verified against BMad's installer source (this note's mechanism was validated against
+v6.10.x; see the top-of-file banner) — this update only corrects the claim about what
+this repo's own tree contains.
 
 ### The fix that works for this repo's layout
 

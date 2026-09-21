@@ -20,7 +20,7 @@ Module setup lives at each module's **home**: a dedicated `l3io-pm-setup` skill 
 
 | Skill | Purpose |
 |-------|---------|
-| `l3io-pm-execute` | Full epic + sprint lifecycle: elaboration → dev → code review → QA → fix loop, then sprint and epic closure reviews. Includes first-run module setup |
+| `l3io-pm-execute` | Full epic + sprint lifecycle: elaboration → dev → code review → QA → fix loop, then sprint and epic closure reviews |
 | `l3io-pm-plan` | Cross-epic planning — validates readiness, elaborates stories, estimates, builds dependency graph, and produces a phased parallel-optimized execution plan |
 | `l3io-pm-help` | Reads project state and recommends the exact next l3io-pm action |
 | `l3io-pm-sync` | Bidirectional sync between l3io-pm state and GitHub Issues — setup, push, pull, sync, and status modes |
