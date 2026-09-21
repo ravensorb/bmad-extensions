@@ -213,17 +213,24 @@ and an unconfigured project would have seen the pointer on **every** execute/pla
 exactly the nagging this mechanism exists to prevent. `.notices.yaml`, its lock, and any
 per-session pruning would have done no observable work.
 
-**What shipped instead: keyed on the notice key alone, "once per project, ever."**
+**What shipped instead: keyed on the notice key alone, "once per working copy, ever."**
 `pm-status.py notice --state-root S --key KEY` — no `--session-id`. Exit 0 means "not yet
-emitted for this key anywhere in this project's history — show it and record it now"; exit 1
-means "already emitted for this key, permanently." There is no pruning: a project's set of
-distinct notice keys stays small by construction, so nothing needs bounding. This is correct
-for the setup pointer specifically because the condition it reports — `modules.l3io-pm` absent
-— is itself a valid **permanent** state (§1.4) until someone configures the project, not a
-transient one that would ever need re-flagging. A working session-scoped concept was
-considered and rejected: there is no cross-invocation session identifier available in this
-execution model, and inventing one (a time window, a pid file, a terminal id) would be new
-machinery built to satisfy a phrase in this spec rather than an actual need.
+emitted for this key in this ledger — show it and record it now"; exit 1 means "already
+emitted for this key, permanently, in this ledger." **The honest scope is once per working
+copy, not "anywhere in this project's history"**: `.notices.yaml` is gitignored
+(`_ensure_lock_ignore`) alongside the lock files, so it is never committed and never travels
+with the project — a fresh clone, a second worktree, or a CI checkout starts its own ledger
+and sees the pointer once more. That is arguably the right behaviour (a new checkout is
+usually a new person, or at least a new context, who should hear it once), but it is a claim
+about a working copy's local state, not the project's shared history. There is no pruning: a
+working copy's set of distinct notice keys stays small by construction, so nothing needs
+bounding. This is correct for the setup pointer specifically because the condition it reports
+— `modules.l3io-pm` absent — is itself a valid **permanent** state (§1.4) until someone
+configures the project, not a transient one that would ever need re-flagging. A working
+session-scoped concept was considered and rejected: there is no cross-invocation session
+identifier available in this execution model, and inventing one (a time window, a pid file, a
+terminal id) would be new machinery built to satisfy a phrase in this spec rather than an
+actual need.
 
 The published docs do not state whether setup skills auto-run; only the installed scaffolder
 reference (`create-module.md:224`) says "run the setup skill". A bounded, silent-by-default
@@ -329,10 +336,10 @@ A 1.5 KB deprecated forwarder since 2.1.0, still consuming skill-listing budget.
 3. Add `scripts/merge-help-csv.py` — targets `_bmad/_config/bmad-help.csv`. Same placement rule.
 4. Create **`l3io-pm-setup`** — the only setup skill. `l3io-util-doctor`, `l3io-sec-redteam` and
    `l3io-arch-review` stay standalone and self-registering (§3.2).
-5. The four `l3io-pm` operational skills emit a **once-per-session** pointer to
-   `/l3io-pm-setup` via the new `pm-status.py notice` subcommand (§3.2) — never a
-   per-invocation check. The three standalone skills keep today's auto-registration
-   unchanged.
+5. Two of the four `l3io-pm` operational skills (`l3io-pm-execute`, `l3io-pm-plan` — not
+   `l3io-pm-help`/`l3io-pm-sync`) emit a **once-per-project**¹ pointer to `/l3io-pm-setup` via
+   the new `pm-status.py notice` subcommand (§3.2) — never a per-invocation check. The three
+   standalone skills keep today's auto-registration unchanged.
 6. Narrow the `sync-shared-scripts.mjs` scope: `assets/module-setup.md` and the merge scripts
    currently sync into **all 8** skills, but are now needed in only the **4** module homes
    (`l3io-pm-setup`, `l3io-util-doctor`, `l3io-sec-redteam`, `l3io-arch-review`). This removes

@@ -292,11 +292,15 @@ class TestNotice(Base):
 
 
 class TestConcurrentNoticeDistinctKeys(unittest.TestCase):
-    """notice's load->check->append->save must run under ONE lock (notices_lock),
-    mirroring TestConcurrentSampling/TestConcurrentAdrReservation below. Locking only the
-    write would let two parallel calls each read the same pre-write `keys` list and save
-    their own key into it -- a lost update, silently dropping whichever key's writer read
-    first, the same collision class every sibling lock family below exists to close.
+    """SMOKE coverage for the lost-update property (kept alongside the deterministic
+    TestNoticeReadHappensAfterTheLock below, which is the assertion that must hold -- this
+    test costs little and a real regression here would still be worth seeing fail).
+
+    notice's load->check->append->save must run under ONE lock (notices_lock), mirroring
+    TestConcurrentSampling/TestConcurrentAdrReservation below. Locking only the write would
+    let two parallel calls each read the same pre-write `keys` list and save their own key
+    into it -- a lost update, silently dropping whichever key's writer read first, the same
+    collision class every sibling lock family below exists to close.
 
     N distinct --key values racing together: every process reads and rewrites the SAME
     growing `keys` list for the whole run, exactly the shape TestConcurrentSampling and
@@ -338,19 +342,27 @@ class TestConcurrentNoticeDistinctKeys(unittest.TestCase):
 
 
 class TestConcurrentNoticeSameKey(unittest.TestCase):
-    """Exclusivity on a single repeated key is now THE property that matters under the
-    key-only scope: two concurrent callers (e.g. l3io-pm-execute and l3io-pm-plan invoked
-    around the same time in an unconfigured project) both racing on the SAME key must never
-    both be told "emit it" -- exactly one may print the pointer.
+    """SMOKE coverage, kept alongside the deterministic TestNoticeReadHappensAfterTheLock
+    below (the assertion that must hold). This test is real -- every failure it produces is a
+    genuine double-emit -- but it INFERS the lock from a timing window wide enough to lose a
+    race, rather than asserting the lock's ordering directly. That makes it a tuned constant,
+    not a fixed property: re-review measured a smooth, continuous detection-rate curve against
+    PRESEED (0/10, 1/10, 5/10, 6/10, 8/10, 8/10 at 0/40/100/250/500/1000), not a cliff, so
+    whatever value ships here will eventually sit wherever 40 sits today if the critical
+    section this preseed exists to lengthen ever gets cheaper (faster ruamel, a faster box, a
+    cheaper loader) -- at which point this test keeps reporting OK while checking nothing.
+    Exclusivity on a single repeated key is still a real property worth this smoke coverage:
+    two concurrent callers (e.g. l3io-pm-execute and l3io-pm-plan invoked around the same time
+    in an unconfigured project) racing on the SAME key must never both be told "emit it".
 
     An EMPTY ledger's critical section is too short-lived for process-launch jitter alone to
     ever overlap it -- confirmed empirically: a same-key race against an empty ledger never
     reproduced a double exit-0, even at N=250. Pre-seeding the ledger with many prior keys
     widens the window enough (real ruamel parse + dump work over a bigger file) for the race
     to land reliably; confirmed empirically against THIS flat `{keys: [...]}` shape: a
-    40-entry preseed was not enough (still 0 collisions at N=16), but a 500-entry preseed at
-    N=16 broke 8/8 with the lock removed and passed 8/8 with it present, zero flakes either
-    way.
+    500-entry preseed at N=16 detects the lock's removal in the large majority of rounds
+    (measured 8/10 by re-review, 8/8 in an earlier smaller sample here) with zero false
+    positives against the shipped, locked code in every round either measurement ran.
     """
 
     N = 16
@@ -384,6 +396,80 @@ class TestConcurrentNoticeSameKey(unittest.TestCase):
         self.assertIn("setup-pointer", data["keys"])
         self.assertEqual(len(data["keys"]), self.PRESEED + 1,
                          "no lost or duplicated entries under concurrency")
+
+
+class TestNoticeReadHappensAfterTheLock(unittest.TestCase):
+    """THE assertion that must hold: notice reads the ledger AFTER acquiring the lock, not
+    before. Unlike the smoke tests above -- whose detection is a continuous function of how
+    long the critical section happens to take, and will eventually stop discriminating as
+    that section gets cheaper (see TestConcurrentNoticeSameKey's docstring) -- this test's
+    outcome does not depend on N, on preseed size, or on which side of a narrowing window a
+    given run happens to land.
+
+    Method: hold `.notices.yaml.lock` (the exact path `notices_lock` takes) exclusively from
+    THIS process, then launch a real `notice` subprocess, wait a fixed, generous margin, then
+    -- while still holding the lock -- write the key into the ledger ourselves, exactly as a
+    concurrent writer would have. Only then release.
+
+    That margin is doing real, necessary work, not padding: verified empirically (5 rounds
+    each way) that omitting it makes this test WRONGLY PASS a planted read-before-the-lock
+    mutation, every time, in this environment -- a subprocess's own startup (interpreter boot
+    plus importing ruamel.yaml) reliably takes longer than the few milliseconds this
+    process's own write takes, so an unsynchronized child read, if written naively with no
+    margin at all, loses the race to see the pre-write ledger before this process's write
+    lands, regardless of which side of the lock it was coded to happen on. The margin closes
+    that gap by construction, not by luck: `fcntl.flock(..., LOCK_EX)` blocks a CORRECT
+    implementation unconditionally for the margin's entire duration (it cannot progress past
+    acquiring a lock this process still holds, no matter how long that takes), while a BUGGY
+    implementation's unsynchronized read is free to run to completion well inside a margin
+    generously larger than any real interpreter-boot-to-that-line time. So the margin can only
+    ever help the buggy path reproduce, never the correct path leak -- it removes the
+    resulting ambiguity rather than betting on it, which is the actual property "no N, no
+    preseed" is claiming.
+
+    A correct implementation (read INSIDE the lock) can only read after we release, sees the
+    key already there, and exits 1. A read-before-acquiring implementation -- the exact
+    lost-update / double-emit bug the lock exists to prevent -- reads the pre-write ledger
+    during the margin and exits 0. Confirmed against both a read-before-the-lock mutation
+    (fails every round without the margin, fails every round -- correctly -- with it) and the
+    shipped code (passes every round either way).
+    """
+
+    MARGIN_SECONDS = 0.5   # generous: real interpreter boot + import is single-digit ms here
+
+    def setUp(self):
+        self.d = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, self.d, True)
+        self.root = os.path.join(self.d, "state")
+        os.makedirs(self.root)
+
+    def test_notice_exits_already_emitted_for_a_key_written_while_it_waited(self):
+        import fcntl
+        import subprocess
+        import time
+
+        lock_path = os.path.join(self.root, ".notices.yaml.lock")
+        lock_fh = open(lock_path, "w")
+        fcntl.flock(lock_fh, fcntl.LOCK_EX)
+        try:
+            proc = subprocess.Popen(
+                [sys.executable, SCRIPT, "notice", "--state-root", self.root,
+                 "--key", "setup-pointer"],
+                stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+            # Give the child every chance to run as far as it possibly can -- a correct
+            # implementation is blocked on the lock we still hold regardless; a buggy one
+            # uses this margin to perform its unsynchronized read of the pre-write ledger.
+            time.sleep(self.MARGIN_SECONDS)
+            y = pm._yaml()
+            with open(os.path.join(self.root, ".notices.yaml"), "w", encoding="utf-8") as fh:
+                y.dump({"keys": ["setup-pointer"]}, fh)
+        finally:
+            fcntl.flock(lock_fh, fcntl.LOCK_UN)
+            lock_fh.close()
+        out, err = proc.communicate(timeout=30)
+        self.assertEqual(proc.returncode, 1,
+                         f"a correct implementation reads after the lock and must see the "
+                         f"key already recorded; stdout={out!r} stderr={err!r}")
 
 
 class TestSetLockMutualExclusion(Base):

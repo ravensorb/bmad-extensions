@@ -27,10 +27,12 @@ passes `setup`, `configure`, or `install`.
 
 Bind `{l3io_pm_section_absent}` = `true` when `modules.l3io-pm` is absent from the resolved
 JSON, else `false`. This reuses the same resolved JSON already read above — it is not a second
-resolve. It exists solely for the once-per-session setup-pointer check in `l3io-pm-execute` and
-`l3io-pm-plan` (`config-resolution.md` §5): the pointer's only useful message is "you have not
-configured this," so it must say nothing once a section exists. This flag is never a trigger
-for setup itself — that stays gated on an explicit `setup`/`configure`/`install` argument only.
+resolve. It exists solely for the once-per-project setup-pointer check in `l3io-pm-execute` and
+`l3io-pm-plan` (`config-resolution.md` §5) — not once per session: there is no cross-invocation
+session identifier available, so a session-keyed check would fire on every invocation instead.
+The pointer's only useful message is "you have not configured this," so it must say nothing
+once a section exists. This flag is never a trigger for setup itself — that stays gated on an
+explicit `setup`/`configure`/`install` argument only.
 
 Extract and bind from the resolved JSON:
 - `{communication_language}` — `core.communication_language` (default `English`)
