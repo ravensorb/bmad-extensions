@@ -52,7 +52,9 @@ Two follow-ups, only when the output warrants them:
 - If the output contains `⚠ STALE LOCK`, append this recommendation for each affected epic:
   `Epic {key} has a stale lock (claimed {N}m ago). Run: uv run {pm_status} clear-lock
   --state-root {pm_state_root} --epic {key}`. Do not re-derive stale-lock state yourself — the
-  report already computed it from `_lock.ttl_minutes`.
+  report already computed it from `_lock.ttl_minutes`. (Duplicated from the stale-lock row in
+  `steps/step-05-recommend.md`, inlined here so this mode does not need to load that file —
+  keep both copies in sync if the remedy changes.)
 - If the output ends with the `~ dwell times are approximate` note, add: `Dwell times sharpen
   once state/events.jsonl accumulates transitions — it starts recording on the next
   /l3io-pm-execute run.`

@@ -120,4 +120,6 @@ Then run /l3io-pm-execute.
 
 Fill in the values from the chosen snapshot. If `{pm_status_present}` is `absent`, prepend:
 `pm-status.py is missing at {project-root}/_bmad/scripts/pm-status.py. Run /l3io-util-doctor
-first to install it — this report read epic.yaml directly instead.`
+first to install it — this report read epic.yaml directly instead.` (Duplicated from the
+`pm_status_present` follow-up in `steps/step-05-recommend.md`, inlined here so this mode does
+not need to load that file — keep both copies in sync if the wording changes.)

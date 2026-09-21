@@ -21,5 +21,10 @@ would otherwise hit with no clue why:
 `pm-status.py is missing at {project-root}/_bmad/scripts/pm-status.py. Run /l3io-util-doctor
 first to install it — this report read epic.yaml directly instead.`
 
+Two of the strings above are also inlined elsewhere so those paths do not need to load this
+file: the stale-lock recommendation (row above) in `steps/mode-progress.md`, and this
+`pm_status_present` warning in `steps/mode-list-plan.md`. Keep all copies in sync if either
+changes.
+
 Output the recommendation as a clear, one-paragraph response with the exact command to run.
 
