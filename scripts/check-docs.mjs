@@ -46,6 +46,9 @@
 //  19. derived-counts  the skill count, module count, and l3io-pm skill count claimed in
 //                    prose match what skills/ actually has, derived from the directory and
 //                    each skill's module.yaml `code:` field — never typed
+//  20. shared-files-table  every skills/_shared/* source a sync group in
+//                    sync-shared-scripts.mjs references has a row in CLAUDE.md's Shared
+//                    Files table, and every table row names a source that actually exists
 //
 // Usage:
 //   node scripts/check-docs.mjs        # report and exit nonzero on any failure (CI)
@@ -1420,6 +1423,74 @@ function checkDerivedCounts() {
 }
 
 // ---------------------------------------------------------------------------
+// 20. Every skills/_shared/* source a sync group in sync-shared-scripts.mjs references has a
+// row in CLAUDE.md's Shared Files table, and every table row names a source that actually
+// exists under skills/_shared/.
+//
+// Scope, stated honestly: this compares the FILE SET in both directions only. It does not
+// verify the destination column -- that a row's stated per-skill destination matches the
+// sync group's actual targets -- so a row that lists the right source but the wrong
+// destination skills still passes. The destination column stays hand-maintained until
+// someone derives it too. A guard that overstates its reach is worse than none.
+//
+// Sources are parsed out of sync-shared-scripts.mjs's own text (tolerant-text, like the
+// other checks) rather than imported -- importing would run the sync as a side effect. Table
+// rows are parsed out of CLAUDE.md by matching lines starting "| `skills/_shared/". A row may
+// name an exact file or a `skills/_shared/<dir>/**` wildcard covering every file the sync
+// script pulls from that directory (used for the shared step files: one row for ~19 files).
+//
+// Caught in practice: the table drifted in three consecutive tasks; most recently Task 8
+// added merge-config.py and merge-help-csv.py to a new sync group with no table row, and
+// nothing compared the table to the sync groups it claims to describe.
+// ---------------------------------------------------------------------------
+const SYNC_SCRIPT = "scripts/sync-shared-scripts.mjs";
+
+function sharedSourcesFromSyncScript() {
+  const text = read(SYNC_SCRIPT);
+  const rels = new Set();
+  for (const m of text.matchAll(/path\.join\(sharedDir,\s*([^)]+)\)/g)) {
+    const parts = [...m[1].matchAll(/"([^"]+)"/g)].map((p) => p[1]);
+    if (parts.length) rels.add(parts.join("/"));
+  }
+  return rels;
+}
+
+function checkSharedFilesTable() {
+  const rels = sharedSourcesFromSyncScript();
+  if (rels.size === 0) {
+    failures.push(`${SYNC_SCRIPT}: no path.join(sharedDir, ...) source found — has the sync ` +
+      `script been rewritten? check 20 must be updated with it`);
+    return;
+  }
+
+  const rows = [...read("CLAUDE.md").matchAll(/^\|\s*`skills\/_shared\/([^`]+)`\s*\|/gm)]
+    .map((m) => m[1]);
+  const wildcardDirs = rows.filter((r) => r.endsWith("/**")).map((r) => r.slice(0, -3));
+  const exactRows = new Set(rows.filter((r) => !r.endsWith("/**")));
+
+  // Direction 1: every synced source has a row.
+  for (const rel of [...rels].sort()) {
+    if (exactRows.has(rel)) continue;
+    if (wildcardDirs.some((dir) => rel === dir || rel.startsWith(`${dir}/`))) continue;
+    failures.push(`CLAUDE.md: skills/_shared/${rel} is synced but has no row in the Shared ` +
+      `Files table (${SYNC_SCRIPT} references it) — add a row, or widen a \`**\` row to cover it`);
+  }
+
+  // Direction 2: every row names a real source.
+  for (const row of rows) {
+    const rel = row.endsWith("/**") ? row.slice(0, -3) : row;
+    if (!exists(path.join("skills", "_shared", rel))) {
+      failures.push(`CLAUDE.md: the Shared Files table names \`skills/_shared/${row}\`, but ` +
+        `no such file or directory exists under skills/_shared/`);
+    }
+  }
+
+  if (verbose) {
+    console.log(`  shared-files-table: ${rels.size} synced source(s), ${rows.length} table row(s)`);
+  }
+}
+
+// ---------------------------------------------------------------------------
 
 checkSkillNames();
 checkGatingTables();
@@ -1440,6 +1511,7 @@ checkBmadDependencyInventory();
 checkPep723Invocation();
 checkDocsCheckCount();
 checkDerivedCounts();
+checkSharedFilesTable();
 
 for (const note of notes) if (verbose) console.log(`  note: ${note}`);
 

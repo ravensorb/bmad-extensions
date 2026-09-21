@@ -43,6 +43,8 @@ Files in `skills/_shared/` are the canonical sources for content shared across P
 | `skills/_shared/config-resolution.md` | `references/config-resolution.md` | **all 7 skills** |
 | `skills/_shared/module-setup.md` | `assets/module-setup.md` | **all 7 skills** |
 | `skills/_shared/write-module-config.py` | `scripts/write-module-config.py` | **all 7 skills** |
+| `skills/_shared/merge-config.py` | `scripts/merge-config.py` | each module's HOME only: `l3io-pm-setup`, `l3io-util-doctor`, `l3io-sec-redteam`, `l3io-arch-review` |
+| `skills/_shared/merge-help-csv.py` | `scripts/merge-help-csv.py` | each module's HOME only: `l3io-pm-setup`, `l3io-util-doctor`, `l3io-sec-redteam`, `l3io-arch-review` |
 
 **Test suites are never shipped as payload.** `skills/_shared/tests/test-pm-status.py`,
 `skills/_shared/tests/test-write-module-config.py` and `skills/_shared/tests/test-spec-align.py` stay in `skills/_shared/tests/` only — CI
@@ -64,7 +66,7 @@ verify that skill alone. **Never hand-edit a manifest, and regenerate it wheneve
 changes** — `npm run sync:scripts` does not do it for you. The manifest contract, the sync/verify
 commands and the release gates live in `scripts/CLAUDE.md`.
 
-`check:docs` runs nineteen checks asserting facts that have each drifted in this repo's history.
+`check:docs` runs twenty checks asserting facts that have each drifted in this repo's history.
 They are numbered and described in `scripts/check-docs.mjs`'s own header — read them there rather
 than restating them here. Two things that header does not tell you:
 

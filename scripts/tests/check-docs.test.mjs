@@ -823,3 +823,36 @@ test("check 19: a reworded claim sentence fails loudly rather than passing", (t)
   assert.equal(r.status, 1);
   assert.match(r.stderr, /claim was not found — has the sentence been reworded/);
 });
+
+// ---- check 20 (shared-files-table) ----
+
+test("check 20: a _shared file in a sync group with no table row is caught", (t) => {
+  const root = fixture(t);
+  write(root, "skills/_shared/brand-new-thing.md", "x\n");
+  const p = path.join(root, "scripts", "sync-shared-scripts.mjs");
+  const before = fs.readFileSync(p, "utf8");
+  fs.writeFileSync(p, before.replace(
+    'const moduleHomeFiles = [',
+    'const moduleHomeFiles = [\n  { src: path.join(sharedDir, "brand-new-thing.md"), rel: path.join("assets", "brand-new-thing.md") },'));
+  const r = run(root);
+  assert.equal(r.status, 1);
+  assert.match(r.stderr, /brand-new-thing\.md is synced but has no row/);
+});
+
+test("check 20: a table row naming a nonexistent _shared source is caught", (t) => {
+  const root = fixture(t);
+  const p = path.join(root, "CLAUDE.md");
+  const before = fs.readFileSync(p, "utf8");
+  fs.writeFileSync(p, before.replace(
+    "| `skills/_shared/pm-status.py` |",
+    "| `skills/_shared/ghost.py` | `scripts/ghost.py` | nobody |\n| `skills/_shared/pm-status.py` |"));
+  const r = run(root);
+  assert.equal(r.status, 1);
+  assert.match(r.stderr, /ghost\.py.*no such file/);
+});
+
+test("check 20: the real tree passes", (t) => {
+  const root = fixture(t);
+  const r = run(root);
+  assert.equal(r.status, 0, r.stderr);
+});

@@ -7,7 +7,7 @@ script, never hand-edit a manifest, never move `pm-status.py`'s version backward
 root `CLAUDE.md`. This file carries the mechanics behind them.
 
 Each checker's own header comment is the authoritative description of what it asserts;
-`scripts/check-docs.mjs` numbers its nineteen checks there.
+`scripts/check-docs.mjs` numbers its twenty checks there.
 
 ## Payload manifests
 
