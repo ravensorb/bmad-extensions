@@ -9,7 +9,7 @@
 // repo alone, so CI can catch a regression even though the real validator never runs here.
 //
 // Deliberately narrow, and deliberately RED against today's layout -- see the commit that
-// introduced this file. The six assertions:
+// introduced this file. The seven assertions:
 //
 //   1. no-root-module-yaml   no `module.yaml` sits at any skill root any more
 //   2. required-fields       every `skills/*/assets/module.yaml` has non-empty code/name/description
@@ -17,7 +17,9 @@
 //   4. home-payload          each module home carries module-setup.md, module-help.csv, and
 //                            both merge-*.py scripts
 //   5. home-placement        a module home is a dedicated `*-setup` skill, or the module's only skill
-//   6. csv-skill-exists      every module-help.csv row's `skill` column names a real directory
+//   6. pm-status-singleton   at most one `scripts/pm-status.py` payload copy per module code --
+//                            Task 11A cut this from three copies inside l3io-pm to one
+//   7. csv-skill-exists      every module-help.csv row's `skill` column names a real directory
 //                            under skills/ -- BMad's validate-module.py calls the opposite an
 //                            "orphan-entry" finding, but it lives under a gitignored,
 //                            BMad-installed path CI can never run; this is the repo-side
@@ -26,7 +28,7 @@
 //                            existed and, by design, never will (three of the four modules
 //                            are standalone).
 //
-// Scope for all six is derived by walking `skills/` -- never from a hand-kept list of module
+// Scope for all seven is derived by walking `skills/` -- never from a hand-kept list of module
 // codes or skill names -- so a code nobody told this script about is still found and checked.
 //
 // Usage:
@@ -222,6 +224,28 @@ function parseCsvRows(text) {
 }
 
 // ---------------------------------------------------------------------------
+// Task 11A: at most one `scripts/pm-status.py` per distinct module code. `pm-status.py`
+// used to ship four times -- three of them inside the l3io-pm module, self-installing
+// identical bytes to the identical destination -- until this task cut it to one payload copy
+// per module that self-installs it. Membership in a module is derived the same way check 5
+// (home-placement) derives it: a skill directory named exactly the code, or prefixed
+// `{code}-`, belongs to that module -- never a hand-kept list of skill names, so a renamed or
+// added skill is picked up automatically.
+function checkPmStatusSingleton(byCode, skills) {
+  for (const code of byCode.keys()) {
+    const siblings = skills.filter((s) => s === code || s.startsWith(`${code}-`));
+    const carriers = siblings.filter((s) => exists(`skills/${s}/scripts/pm-status.py`));
+    if (carriers.length > 1) {
+      const files = carriers.map((s) => `skills/${s}/scripts/pm-status.py`).join(", ");
+      failures.push(
+        `pm-status.py appears ${carriers.length} times for module '${code}': ${files} -- ` +
+        `one runtime copy per project (ADR-0001) needs only one payload copy per module.`
+      );
+    }
+  }
+}
+
+// ---------------------------------------------------------------------------
 // 6. Every module-help.csv row's `skill` column names a real directory under skills/. The
 // valid skill set is `listSkillDirs()` -- the same filesystem derivation every check above
 // uses -- never a hand-list, so a skill directory added or removed is picked up automatically.
@@ -251,6 +275,7 @@ checkRequiredFields(skills);
 const byCode = collectModuleYamlByCode(skills);
 checkOneHomePerCode(byCode);
 checkModuleHomes(byCode, skills);
+checkPmStatusSingleton(byCode, skills);
 checkCsvSkillsExist(skills);
 
 if (verbose) {

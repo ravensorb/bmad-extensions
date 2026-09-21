@@ -41,6 +41,21 @@ for m in l3io-pm-setup l3io-util-doctor l3io-sec-redteam l3io-arch-review; do
     echo "  note: skills/$m does not exist yet (created in a later phase task) -- skipping copy"
   fi
 done
+# The l3io-pm module's OTHER operational skills, copied alongside its home for the same
+# reason a real plugin install would put them there: .claude-plugin/marketplace.json declares
+# l3io-pm as one plugin covering all five of execute/plan/help/sync/setup, installed flat under
+# .claude/skills/<name>/ as siblings of one another (never nested under the module home). Task
+# 11A's Step 2 self-install depends on exactly this shape -- pm-execute/pm-plan/pm-sync read
+# l3io-pm-setup's payload copy as `{skill-root}/../l3io-pm-setup/scripts/pm-status.py` -- so the
+# claim only means something proven against a real install that actually has all five skills
+# laid out this way, not just the module home copied in isolation.
+for m in l3io-pm-execute l3io-pm-plan l3io-pm-help l3io-pm-sync; do
+  if [ -d "$pkg/skills/$m" ]; then
+    cp -r "$pkg/skills/$m" ".claude/skills/$m"
+  else
+    echo "  note: skills/$m does not exist yet -- skipping copy"
+  fi
+done
 # State-derived, not hardcoded: whether the module contract has landed is read from the
 # package's own tree (any skills/*/assets/module.yaml), the thing Phase 2 Task 7 creates by
 # relocating module.yaml under assets/ -- never from a hand-kept "skip until Task 9" marker
@@ -63,6 +78,50 @@ if ls "$pkg"/skills/*/assets/module.yaml >/dev/null 2>&1; then
 else
   pending_check "validate-module.py passes for the package" \
     "no skills/*/assets/module.yaml yet (Phase 2 Task 7 creates it); this check activates automatically once it lands"
+fi
+
+echo "== pm-status.py sibling path (Task 11A) =="
+# Task 11A cut pm-status.py from four payload copies to two: pm-execute/pm-plan/pm-sync no
+# longer carry their own, they read l3io-pm-setup's copy as a sibling
+# ({skill-root}/../l3io-pm-setup/scripts/pm-status.py, step-00-activate.md Section 2). That
+# claim is only trustworthy proven against a REAL install, not by reasoning about the
+# marketplace manifest -- this is that proof, and it is why this section copied l3io-pm's
+# other four skills above instead of just its module home.
+if [ -d "$pkg/skills/l3io-pm-setup" ] && [ -d "$pkg/skills/l3io-pm-execute" ]; then
+  sibling=".claude/skills/l3io-pm-execute/../l3io-pm-setup/scripts/pm-status.py"
+
+  check "the sibling path resolves from a real install" \
+    "test -f '$sibling'"
+  check "the installed copy is runnable via its own shebang (not just present)" \
+    "uv run '$sibling' --help >/dev/null 2>&1"
+  check "self-install from the sibling path produces a runnable installed copy" \
+    "rm -rf _bmad-smoke-dest && mkdir -p _bmad-smoke-dest && \
+     uv run '$sibling' self-install --dest \"\$PWD/_bmad-smoke-dest/pm-status.py\" >/dev/null && \
+     uv run \"\$PWD/_bmad-smoke-dest/pm-status.py\" --help >/dev/null"
+
+  # Requirement 2: a missing sibling must fail loudly and name l3io-pm-setup, never skip
+  # silently -- simulate exactly the hand-copy-one-skill-directory failure mode by hiding the
+  # module home and re-running the same guard command step-00-activate.md Section 2
+  # documents (`test -f {skill-root}/../l3io-pm-setup/scripts/pm-status.py`).
+  mv ".claude/skills/l3io-pm-setup" ".claude/skills/l3io-pm-setup.hidden"
+  check "a hand-copied single skill directory makes the sibling guard fail (not silently skip)" \
+    "! test -f '$sibling'"
+  check "step-00-activate.md's BLOCKED message names l3io-pm-setup by name" \
+    "grep -q 'l3io-pm-setup/scripts/pm-status.py is missing beside this skill' \
+       '$pkg/skills/l3io-pm-execute/steps/shared/step-00-activate.md'"
+  mv ".claude/skills/l3io-pm-setup.hidden" ".claude/skills/l3io-pm-setup"
+
+  # Requirement 3: l3io-pm-help's existing "only reads, does not self-install" precedent must
+  # stay true -- it must not have gained a sibling self-install invocation of its own. It is
+  # allowed (and expected) to keep saying, in prose, that it does not self-install; what must
+  # never appear is an actual `pm-status.py self-install` command.
+  check "l3io-pm-help still says it does not self-install pm-status.py" \
+    "grep -q 'does not self-install' '$pkg/skills/l3io-pm-help/SKILL.md'"
+  check "l3io-pm-help carries no self-install invocation of its own" \
+    "! grep -q 'pm-status\.py self-install' '$pkg/skills/l3io-pm-help/SKILL.md'"
+else
+  pending_check "pm-status.py sibling path (Task 11A)" \
+    "skills/l3io-pm-setup or skills/l3io-pm-execute not present in this checkout"
 fi
 
 echo "== install experience =="

@@ -6,10 +6,18 @@
 // GENERATED — never hand-edit them.
 //
 // Shared files:
-//   pm-status.py → scripts/ in the PM execution skills (pm-execute, pm-plan, pm-sync), which
-//   also self-install it to {project-root}/_bmad/scripts/
-//   pm-status.py (no tests) → scripts/ in any OTHER skill that invokes {pm_status} and
-//   must be able to self-install/heal it — currently l3io-util-doctor only
+//   pm-status.py → scripts/ in exactly ONE skill per module that self-installs it to
+//   {project-root}/_bmad/scripts/pm-status.py: `l3io-pm-setup` for the l3io-pm module, and
+//   `l3io-util-doctor` for the (standalone) l3io-util module. Task 11A cut this from four
+//   payload copies to two — pm-execute, pm-plan, and pm-sync used to each carry their own
+//   copy and self-install identical bytes to the identical destination; now they read
+//   `{skill-root}/../l3io-pm-setup/scripts/pm-status.py` at activation
+//   (`steps/shared/step-00-activate.md` §2) instead, because `.claude-plugin/marketplace.json`
+//   installs the whole `l3io-pm` plugin — all five of its skills — as one unit, so
+//   `l3io-pm-setup` is guaranteed to land beside them. `/l3io-pm-setup` itself stays optional:
+//   nothing about that read requires the setup skill to ever have been *run*, only installed.
+//   check:module (`checkPmStatusSingleton`) guards against a second copy reappearing inside
+//   one module.
 //   spec-align.py → scripts/ in l3io-pm-execute (arch gate, story prep, closures) and
 //   l3io-util-doctor (health Checks 15-19, triage's spec pass, migrate-adrs); shared because
 //   it has two consumers (ADR-0001), run from each skill's own copy, never self-installed
@@ -96,11 +104,13 @@ const pmRefFiles = [
   { src: path.join(sharedDir, "calibration-model.md"), rel: path.join("references", "calibration-model.md") },
 ];
 
-// The real rule for who ships pm-status.py: any skill that invokes {pm_status} needs a copy
-// to self-install/heal it from — not "execution skills only". l3io-util-doctor invokes
-// {pm_status} in eight files and is the documented post-upgrade entry point, but shipped no
-// copy and had no self-install; that gap let its installed script go stale silently. See
-// newUtilDoctorDirs below.
+// The rule for who SHIPS a pm-status.py payload copy (Task 11A, superseding the note this
+// replaced): exactly one skill per module -- the module's home, since a home is guaranteed to
+// be co-installed with every operational skill in that module. A skill that merely INVOKES
+// {pm_status} does not need its own copy; it can read a sibling module-home's copy instead
+// (pm-execute/pm-plan/pm-sync do, from l3io-pm-setup). l3io-util-doctor is its own,
+// standalone module with no sibling *-setup to read from, so it remains a shipper too --
+// see newUtilDoctorDirs below.
 // Legacy slots kept for backward compat shape; new skills use newPmPlanDirs / newPmExecuteDirs groups below.
 const pmScriptDirs = [];
 
@@ -119,9 +129,17 @@ const newPmSyncDirs = [
   path.join(repoRoot, "skills", "l3io-pm-sync"),
 ];
 
-// Skills that invoke {pm_status} but are not PM execution skills: they need pm-status.py to
-// self-install/heal from, but not its test suite. Currently: l3io-util-doctor, the documented
-// post-upgrade entry point (see docs/upgrading.md).
+// l3io-pm's module home: the ONE l3io-pm skill that carries pm-status.py (Task 11A). Guaranteed
+// to be installed alongside pm-execute/pm-plan/pm-sync because the marketplace manifest
+// installs the whole l3io-pm plugin as one unit — see the sync-groups comment above.
+const newPmSetupDirs = [
+  path.join(repoRoot, "skills", "l3io-pm-setup"),
+];
+
+// Skills that invoke {pm_status} but are not part of the l3io-pm module: they need
+// pm-status.py to self-install/heal from, but not its test suite. Currently: l3io-util-doctor,
+// the documented post-upgrade entry point (see docs/upgrading.md), a different, standalone
+// module with no sibling *-setup skill to read from.
 const newUtilDoctorDirs = [
   path.join(repoRoot, "skills", "l3io-util-doctor"),
 ];
@@ -206,10 +224,10 @@ const syncGroups = [
   { files: planStepFiles, dirs: newPmPlanDirs, skipMissing: true },
   { files: executeStepFiles, dirs: newPmExecuteDirs, skipMissing: true },
   { files: syncStepFiles, dirs: newPmSyncDirs, skipMissing: true },
-  // pm-status.py into new skills that ship it (plan + execute)
-  { files: pmScriptFiles, dirs: [...newPmPlanDirs, ...newPmExecuteDirs], skipMissing: true },
-  // pm-status.py and status-files.md into l3io-pm-sync
-  { files: pmScriptFiles, dirs: newPmSyncDirs, skipMissing: true },
+  // pm-status.py into l3io-pm's module home ONLY (Task 11A) -- pm-execute/pm-plan/pm-sync
+  // read it from there at activation (`{skill-root}/../l3io-pm-setup/scripts/pm-status.py`,
+  // step-00-activate.md §2) instead of each carrying its own copy.
+  { files: pmScriptFiles, dirs: newPmSetupDirs, skipMissing: true },
   // status-files.md into new PM skills (plan + execute)
   { files: pmRefFiles, dirs: [...newPmPlanDirs, ...newPmExecuteDirs], skipMissing: true },
   { files: pmRefFiles, dirs: newPmSyncDirs, skipMissing: true },

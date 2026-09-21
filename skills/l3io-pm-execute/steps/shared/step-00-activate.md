@@ -74,6 +74,32 @@ Extract and bind from the resolved JSON:
 
 ## 2. Install pm-status.py
 
+`pm-status.py` ships once per module, not once per skill. For `l3io-pm` it lives at
+`l3io-pm-setup/scripts/pm-status.py` — the module's home — not here in this skill's own
+`scripts/`. That is a module-home read, not the cross-skill path read `l3io-pm-help/SKILL.md`
+says it avoids for its own, unrelated staleness question: `.claude-plugin/marketplace.json`
+installs the whole
+`l3io-pm` plugin — all five of its skills, including `l3io-pm-setup` — as one unit, so this
+skill and `l3io-pm-setup` are always installed together. `/l3io-pm-setup` itself stays
+**optional**: nothing here requires the setup skill to ever have been *run*, only installed
+beside this one, which the plugin manifest guarantees.
+
+First confirm the sibling payload is actually on disk. The manifest guarantees it for a normal
+plugin install, but someone can still hand-copy a single skill directory out of it (or ship a
+partial checkout), and that failure must name the missing piece rather than fail silently or
+opaquely inside `uv run`:
+
+```bash
+test -f {skill-root}/../l3io-pm-setup/scripts/pm-status.py
+```
+
+If absent, halt:
+```
+BLOCKED: l3io-pm-setup/scripts/pm-status.py is missing beside this skill.
+This skill ships as part of the l3io-pm plugin, which always includes l3io-pm-setup.
+Reinstall the l3io-pm plugin so all five of its skills land together.
+```
+
 Self-install compares the installed copy's **bytes** against this one and reinstalls on any
 difference, so a project pinned to a stale copy heals itself on the next run. It skips only a
 byte-identical copy, and refuses to overwrite a strictly newer one. Pass `--force` to
@@ -88,7 +114,7 @@ command needs a current `{pm_status}` to succeed — which this section guarante
 which layout branch section 3 takes.
 
 ```bash
-uv run {skill-root}/scripts/pm-status.py self-install \
+uv run {skill-root}/../l3io-pm-setup/scripts/pm-status.py self-install \
   --dest {project-root}/_bmad/scripts/pm-status.py
 ```
 

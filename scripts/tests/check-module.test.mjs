@@ -104,6 +104,33 @@ test("check:module passes when a multi-skill module's home is a *-setup skill", 
   assert.equal(r.status, 0, r.stderr);
 });
 
+// ---- pm-status.py singleton per module ----
+//
+// Task 11A: pm-status.py used to ship four times (execute/plan/sync/util-doctor), three of
+// them in one module self-installing identical bytes to the identical destination. The end
+// state is one payload copy per module that self-installs it -- l3io-pm-setup for l3io-pm,
+// l3io-util-doctor for l3io-util. This guards the invariant mechanically so a future sync-group
+// edit can't silently reintroduce a second copy inside one module.
+test("check:module rejects a second pm-status.py payload within one module", (t) => {
+  const root = fixture(t);
+  writeModuleHome(root, "l3io-pm-setup", "l3io-pm");
+  write(root, "skills/l3io-pm-setup/scripts/pm-status.py", "# x\n");
+  write(root, "skills/l3io-pm-execute/scripts/pm-status.py", "# x\n");
+  const r = run(root);
+  assert.equal(r.status, 1);
+  assert.match(r.stderr, /pm-status\.py appears 2 times for module 'l3io-pm'/);
+});
+
+test("check:module passes when only one skill in a module carries pm-status.py", (t) => {
+  const root = fixture(t);
+  writeModuleHome(root, "l3io-pm-setup", "l3io-pm");
+  write(root, "skills/l3io-pm-setup/scripts/pm-status.py", "# x\n");
+  write(root, "skills/l3io-pm-execute/SKILL.md", "# execute\n");
+  write(root, "skills/l3io-pm-plan/SKILL.md", "# plan\n");
+  const r = run(root);
+  assert.equal(r.status, 0, r.stderr);
+});
+
 // ---- check 6 (csv-skill-exists) ----
 //
 // Fix round 1, F-4: three real module-help.csv files each carried a phantom row for a

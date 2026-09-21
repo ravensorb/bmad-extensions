@@ -3,7 +3,7 @@
   "generated_from": "skills/_shared/",
   "files": {
     "references/config-resolution.md": "5abd871c7ec235445bab55d280e5c0c6fd1f64e6ab84dee2c9b5d7dc78254273",
-    "steps/shared/step-00-activate.md": "a8337cb1a962ba1ed49390a15e4c21c7feb5d2cf7d74170efa0ccd10a1bec11f",
+    "steps/shared/step-00-activate.md": "a541787a66b0e17debe1a0457eb09f2915f7c59fb581790821c9faf0b642f29d",
     "steps/shared/step-00-digest.md": "dc47a7a86dc1147f66a6f5c4b9a89f79f951d5c2ac221ad9efea0db80bd5a997",
     "steps/shared/step-01-classify-work.md": "dcd71a5e3780e24550d8c3ff98051b63f0c0a3fc75203cb1fec29f3ab9bd865f",
     "steps/shared/step-estimate.md": "27bc6b9848ddd070843c7a2c9a555e33d4b80993026b54dbd367b86b3c680bbb",
@@ -13,7 +13,6 @@
     "steps/plan/step-04-load-state.md": "82458b69ba91e38d4b5df46df12d9c8582621dba2fa6320850ce72ad5eb66004",
     "steps/plan/step-05-dependency-graph.md": "431fefabcbd8295a756afd6523596dbfc6b579add43624a2409853b6fb585e26",
     "steps/plan/step-06-plan-output.md": "f28bc7f01f6a6d79dd165d9f056e535288eb473cf638090233c392a94fa595ff",
-    "scripts/pm-status.py": "33d10ada25ebabe3480008a8d5a536cd57312bd073ccc128b2400d7f491a0ac6",
     "references/status-files.md": "1d9e82709a5883bf6378476d3d51ddf00691a66f3e3c63a1c2a169fce104188d",
     "references/metrics-contract.md": "0c4d6fcde236c0e6acdd9ae9064c08853f9c4fd0931ff7a95635ad53a889f63f",
     "references/calibration-model.md": "b6f6652658047e72f89532d20d74d57b7c18314d471163f87ae48bbfb932b0a1"
