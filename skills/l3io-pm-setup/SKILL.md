@@ -58,7 +58,9 @@ This skill also ships `scripts/pm-status.py` (~327 KB). Nothing in this file or 
 refactor. `l3io-pm-setup` is `pm-status.py`'s one payload copy for the whole `l3io-pm` module
 (Task 11A): `l3io-pm-execute`, `l3io-pm-plan`, and `l3io-pm-sync` each self-install it from
 here, reading `{skill-root}/../l3io-pm-setup/scripts/pm-status.py` at their own activation
-(`steps/shared/step-00-activate.md` §2), because `.claude-plugin/marketplace.json` installs
-all five `l3io-pm` skills as one unit and this skill is guaranteed to sit beside them. Before
-removing this file as apparent dead weight, check those three skills' step-00-activate.md
-first — this is the one file across the whole package they depend on being here.
+(`steps/shared/step-00-activate.md` §2), because `.claude-plugin/marketplace.json` declares
+all five `l3io-pm` skills as one unit — provided the installer accepts each skill's SKILL.md
+frontmatter (see `step-00-activate.md` §2's own note on this; a rejected sibling is not this
+skill's failure to guard against, that guard already lives there). Before removing this file
+as apparent dead weight, check those three skills' step-00-activate.md first — this is the one
+file across the whole package they depend on being here.

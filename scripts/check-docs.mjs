@@ -1628,19 +1628,31 @@ function checkSharedFilesTable() {
 }
 
 // ---------------------------------------------------------------------------
-// 21. Every skills/*/SKILL.md frontmatter strict-YAML-parses, and its `name:` field equals
-// the directory name.
+// 21. Every skills/*/SKILL.md frontmatter strict-YAML-parses, its `name:` field equals the
+// directory name, and its `description:` is a present, non-empty string.
 //
 // Why this matters, mechanically: BMad's installer (`ManifestGenerator.parseSkillMd()`) only
 // surfaces a skill into `.claude/skills/<name>/` and `skill-manifest.csv` when its SKILL.md
-// frontmatter strict-YAML-parses AND its `name:` equals the directory name. A skill that fails
-// either test is dropped from a real install with NO warning -- not an error, not a log line,
-// just absent. Task 11A fix round 1 found this live: `l3io-pm-sync/SKILL.md`'s unquoted
-// `Modes: setup, push, ...` in its description broke the YAML parse, and a real install
-// silently shipped seven of the module's eight skills. No other gate here would have caught
-// it, because none of them YAML-parses a SKILL.md frontmatter -- Claude Code's own parser is
-// more lenient than BMad's installer, so the defect was invisible in this repo's own
-// dogfooding.
+// frontmatter strict-YAML-parses, `name:` equals the directory name, AND `description` is a
+// non-empty string. A skill that fails any of these is dropped from a real install with NO
+// warning -- not an error, not a log line, just absent. Task 11A fix round 1 found this live
+// via `name`: `l3io-pm-sync/SKILL.md`'s unquoted `Modes: setup, push, ...` in its description
+// broke the YAML parse, and a real install silently shipped seven of the module's eight
+// skills. Fix round 2's re-review found the same failure class reachable through the
+// NEIGHBOURING field: this check originally validated only `name`, so a missing, empty, null,
+// list-, mapping-, number-, or boolean-valued `description` passed here while BMad's installer
+// still drops the skill -- reproduced end to end (deleting `description:` from a real skill
+// left check:docs, check:module, and check:manifest all green while a real install dropped
+// it). Both fields are now checked in the same subprocess.
+//
+// What this does NOT check, stated rather than implied (a check that overstates its own
+// coverage is worse than one that says plainly what it covers -- CLAUDE.md §3): it walks one
+// level of `skills/` (matching this repo's shipped, flat layout); BMad's installer reads from
+// the *installed* tree and recurses into subdirectories, so a nested skill directory added
+// later would not be seen here. It is also STRICTER than BMad in one direction, not looser: a
+// trailing tab after a scalar is accepted by BMad's `yaml` package and rejected by `ruamel`
+// here -- a false positive that fails this check rather than shipping a broken install, so it
+// is left as is.
 //
 // Parsing: never hand-rolled (global rule 1 -- this repo's own history with a hand-written
 // YAML parser is the cautionary tale the rule cites). This repo carries no npm dependencies
@@ -1659,6 +1671,27 @@ import sys, json
 from ruamel.yaml import YAML
 yaml = YAML(typ="safe")
 items = json.load(sys.stdin)
+
+
+def describe_description(data):
+    if "description" not in data:
+        return "the 'description' key is missing"
+    desc = data["description"]
+    if isinstance(desc, str):
+        return None if desc != "" else "'description' is an empty string"
+    if desc is None:
+        return "'description' is null"
+    if isinstance(desc, bool):
+        return "'description' is a boolean, not a string"
+    if isinstance(desc, (int, float)):
+        return "'description' is a number, not a string"
+    if isinstance(desc, list):
+        return "'description' is a list, not a string"
+    if isinstance(desc, dict):
+        return "'description' is a mapping, not a string"
+    return "'description' is not a string (found " + type(desc).__name__ + ")"
+
+
 out = []
 for item in items:
     text = open(item["path"], "r", encoding="utf-8").read()
@@ -1684,9 +1717,21 @@ for item in items:
         out.append(result)
         continue
     result["frontmatter_name"] = data["name"]
+    desc_problem = describe_description(data)
+    if desc_problem:
+        result["description_problem"] = desc_problem
     out.append(result)
 print(json.dumps(out))
 `;
+
+// typeof-aware renderer for a frontmatter value inside a failure message. A plain template
+// literal stringifies a non-string value in a way that reads as a near-miss typo rather than a
+// type error -- an array joins with commas, `null`/`undefined` disappear -- so a string value
+// (the overwhelmingly common, correct case) renders unquoted as before, and everything else
+// renders as JSON so the message shows what was actually found. (Fix round 2, N-2.)
+function renderFrontmatterValue(value) {
+  return typeof value === "string" ? value : JSON.stringify(value);
+}
 
 function checkSkillFrontmatter() {
   const skills = fs.readdirSync(path.join(repoRoot, "skills"), { withFileTypes: true })
@@ -1730,8 +1775,12 @@ function checkSkillFrontmatter() {
       continue;
     }
     if (r.frontmatter_name !== r.name) {
-      failures.push(`skills/${r.name}/SKILL.md: frontmatter 'name: ${r.frontmatter_name}' does not match ` +
-        `its directory name '${r.name}' -- BMad's installer requires them to be equal`);
+      failures.push(`skills/${r.name}/SKILL.md: frontmatter 'name: ${renderFrontmatterValue(r.frontmatter_name)}' ` +
+        `does not match its directory name '${r.name}' -- BMad's installer requires them to be equal`);
+    }
+    if (r.description_problem) {
+      failures.push(`skills/${r.name}/SKILL.md: ${r.description_problem} -- BMad's installer requires ` +
+        `\`description\` to be a non-empty string and drops a skill like this from a real install with no warning`);
     }
   }
   if (verbose) console.log(`  skill-frontmatter: ${results.length} SKILL.md file(s) strict-parsed`);

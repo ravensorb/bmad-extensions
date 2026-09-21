@@ -48,6 +48,13 @@ echo "== plugin skill delivery (marketplace.json) =="
 # would have caught H-2: a skill whose SKILL.md frontmatter fails BMad's strict parse is
 # declared here but does not land, and the loop below reports exactly that skill by name.
 declared_skills=$(jq -r '.plugins[].skills[]' "$pkg/.claude-plugin/marketplace.json" | xargs -n1 basename)
+# Fix round 2, N-4: a guard whose input set can silently become empty (a marketplace.json
+# schema change, a jq path rename) is the exact shape this plan exists to remove -- an empty
+# $declared_skills would make the loop below run zero times and this whole section pass in
+# silence. Assert non-empty before trusting it.
+declared_count=$(printf '%s\n' "$declared_skills" | grep -c . || true)
+check "marketplace.json declares at least one skill (the derived set is not empty)" \
+  "[ '$declared_count' -gt 0 ]"
 for name in $declared_skills; do
   check "marketplace.json-declared skill '$name' landed in .claude/skills/" \
     "test -d '.claude/skills/$name'"

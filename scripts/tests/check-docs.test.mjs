@@ -1210,3 +1210,91 @@ test("check 21: the real tree's SKILL.md frontmatter all strict-parse and match 
   assert.equal(r.status, 0, r.stderr);
   assert.match(r.stdout, /skill-frontmatter: \d+ SKILL\.md file\(s\) strict-parsed/);
 });
+
+test("check 21: a frontmatter name rendered as a non-string type shows the actual type, not a stringified join", (t) => {
+  const root = fixture(t);
+  const p = path.join(root, "skills", "l3io-util-doctor", "SKILL.md");
+  const before = fs.readFileSync(p, "utf8");
+  const after = before.replace(/^name: l3io-util-doctor$/m, "name: [l3io-util-doctor, other]");
+  assert.notEqual(before, after, "fixture SKILL.md did not contain the expected name line");
+  fs.writeFileSync(p, after);
+  const r = run(root);
+  assert.equal(r.status, 1);
+  // Fix round 2, N-2: a template-literal join used to render this as the misleading
+  // "name: l3io-util-doctor,other" (looks like a near-miss typo). JSON.stringify shows the
+  // real shape -- a list -- instead.
+  assert.match(r.stderr, /frontmatter 'name: \["l3io-util-doctor","other"\]' does not match/);
+});
+
+// ---- check 21, `description` (Fix round 2, N-1) ----
+//
+// The re-review ran BMad 6.12.0's real ManifestGenerator.parseSkillMd() and found it drops a
+// skill whose `description` is anything other than a non-empty string -- a check that only
+// validated `name` (fix round 1's scope) passed all seven of these DROP shapes while a real
+// install silently shipped without the skill. Demonstrated end to end against l3io-arch-review
+// during the re-review (the skill the fix round 1 mutation tests never touched); these tests
+// plant the same seven shapes so the guard is proven for the class, not just the one instance
+// the reviewer happened to try.
+const DESCRIPTION_DROP_SHAPES = [
+  {
+    label: "description key absent entirely",
+    replace: (text) => text.replace(/^description:.*$\n/m, ""),
+    expect: /the 'description' key is missing/,
+  },
+  {
+    label: "description is an empty string",
+    replace: (text) => text.replace(/^description:.*$/m, 'description: ""'),
+    expect: /'description' is an empty string/,
+  },
+  {
+    label: "description is null",
+    replace: (text) => text.replace(/^description:.*$/m, "description: null"),
+    expect: /'description' is null/,
+  },
+  {
+    label: "description is a list",
+    replace: (text) => text.replace(/^description:.*$/m, "description: [a, b]"),
+    expect: /'description' is a list, not a string/,
+  },
+  {
+    label: "description is a mapping",
+    replace: (text) => text.replace(/^description:.*$/m, "description: {a: b}"),
+    expect: /'description' is a mapping, not a string/,
+  },
+  {
+    label: "description is a number",
+    replace: (text) => text.replace(/^description:.*$/m, "description: 42"),
+    expect: /'description' is a number, not a string/,
+  },
+  {
+    label: "description is a boolean",
+    replace: (text) => text.replace(/^description:.*$/m, "description: true"),
+    expect: /'description' is a boolean, not a string/,
+  },
+];
+
+for (const shape of DESCRIPTION_DROP_SHAPES) {
+  test(`check 21: ${shape.label} is caught (BMad drops the skill; this must too)`, (t) => {
+    const root = fixture(t);
+    const p = path.join(root, "skills", "l3io-arch-review", "SKILL.md");
+    const before = fs.readFileSync(p, "utf8");
+    const after = shape.replace(before);
+    assert.notEqual(before, after, "fixture SKILL.md did not contain the expected description line");
+    fs.writeFileSync(p, after);
+    const r = run(root);
+    assert.equal(r.status, 1);
+    assert.match(r.stderr, /skills\/l3io-arch-review\/SKILL\.md:/);
+    assert.match(r.stderr, shape.expect);
+  });
+}
+
+test("check 21: a valid non-empty string description does not trip the description check", (t) => {
+  const root = fixture(t);
+  const p = path.join(root, "skills", "l3io-arch-review", "SKILL.md");
+  const before = fs.readFileSync(p, "utf8");
+  const after = before.replace(/^description:.*$/m, 'description: "A perfectly ordinary description."');
+  assert.notEqual(before, after, "fixture SKILL.md did not contain the expected description line");
+  fs.writeFileSync(p, after);
+  const r = run(root);
+  assert.equal(r.status, 0, r.stderr);
+});
