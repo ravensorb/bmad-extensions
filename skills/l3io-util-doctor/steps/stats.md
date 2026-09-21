@@ -126,6 +126,26 @@ Layout:              Sharded state tree
 Placement anomalies no longer need their own line — they appear in the tree's `Anomalies` block,
 alongside stale locks and unreadable node files.
 
+**Three follow-ups on the tree output, only in this branch** (Step ST2 ran the report; the
+Step ST2b counts-only fallback below has no tree to check) **and only when the output
+warrants them:**
+
+- Always append a live-view pointer, because that is what answers "what is happening right
+  now" during a long run:
+  ```
+  For a live view during a run: uv run {pm_status} report --state-root {pm_state_root} \
+    --plan {planning_artifacts}/plan-output-meta.yaml --watch 15
+  ```
+- If the tree contains `⚠ STALE LOCK`, append this recommendation for each affected epic:
+  `Epic {key} has a stale lock (claimed {N}m ago). Run: uv run {pm_status} clear-lock
+  --state-root {pm_state_root} --epic {key}`. Do not re-derive stale-lock state yourself — the
+  report already computed it from `_lock.ttl_minutes`. (The same remedy also appears in
+  `l3io-pm-help`'s `steps/step-05-recommend.md` — a cross-skill duplication with no mechanical
+  guard between skills; keep both copies in sync by hand if the remedy changes.)
+- If the tree ends with the `~ dwell times are approximate` note, add: `Dwell times sharpen
+  once state/events.jsonl accumulates transitions — it starts recording on the next
+  /l3io-pm-execute run.`
+
 **When Step ST2b ran** (no `pm-status.py`), print the flat form instead, followed by the same
 appended block above:
 
