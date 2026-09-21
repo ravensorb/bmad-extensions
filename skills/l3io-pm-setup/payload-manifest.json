@@ -1,0 +1,8 @@
+{
+  "version": "2.5.1",
+  "generated_from": "skills/_shared/",
+  "files": {
+    "scripts/merge-config.py": "22f51eed631c64134d352c236917e0a98ec5b5fe5d0810394f4615905c6ef7dc",
+    "scripts/merge-help-csv.py": "44cae89d74a247395cc851970e28b65605e958efa04b632209f9bd5ecbc70d69"
+  }
+}

@@ -16,17 +16,22 @@
 //   status-files.md / metrics-contract.md → references/ in PM skills
 //   write-module-config.py → scripts/, config-resolution.md → references/,
 //   module-setup.md → assets/ in EVERY l3io skill
+//   merge-config.py / merge-help-csv.py → scripts/ in each module's HOME only (the
+//   *-setup skill for a multi-skill module, the skill itself for a standalone one) — the
+//   two scripts BMad's module validator requires by name; see their own docstrings for why
+//   they are not the scaffolder's versions.
 //
 // Not shared, deliberately: resolve_config.py, resolve_customization.py and memlog.py are
 // installed by BMad core at {project-root}/_bmad/scripts/ and are never bundled by a skill.
 // Vendoring them shipped a stale duplicate of a core script that nothing invoked.
 //
-// Also not shared, deliberately: test-pm-status.py and test-write-module-config.py. A
-// consumer never runs a skill's shipped tests, CI runs both suites straight from
-// skills/_shared/tests/ (.github/workflows/checks.yml), and shipping them into every
-// consumer's install was ~842 KB of dead payload — the same category this package removed
-// when it stopped vendoring BMad core scripts. Do not add a test file back to any of the
-// manifests below; if a script gets a test, the test's only home is skills/_shared/tests/.
+// Also not shared, deliberately: test-pm-status.py, test-write-module-config.py,
+// test-merge-help-csv.py and test-merge-config-wrapper.py. A consumer never runs a skill's
+// shipped tests, CI runs every suite straight from skills/_shared/tests/
+// (.github/workflows/checks.yml), and shipping them into every consumer's install was
+// ~842 KB of dead payload — the same category this package removed when it stopped
+// vendoring BMad core scripts. Do not add a test file back to any of the manifests below;
+// if a script gets a test, the test's only home is skills/_shared/tests/.
 //
 // Usage:
 //   node scripts/sync-shared-scripts.mjs           # write the per-skill payload copies
@@ -66,6 +71,19 @@ const allSkillFiles = [
   { src: path.join(sharedDir, "write-module-config.py"), rel: path.join("scripts", "write-module-config.py") },
   { src: path.join(sharedDir, "config-resolution.md"), rel: path.join("references", "config-resolution.md") },
   { src: path.join(sharedDir, "module-setup.md"), rel: path.join("assets", "module-setup.md") },
+];
+
+// The two merge scripts BMad's validator requires, and module-setup.md, belong in each
+// module's HOME -- the setup skill for multi-skill modules, the skill itself for
+// standalone ones. Syncing them into every operational skill would ship four copies of a
+// procedure only one of them runs.
+const moduleHomeDirs = [
+  "l3io-pm-setup", "l3io-util-doctor", "l3io-sec-redteam", "l3io-arch-review",
+].map((name) => path.join(repoRoot, "skills", name));
+
+const moduleHomeFiles = [
+  { src: path.join(sharedDir, "merge-config.py"), rel: path.join("scripts", "merge-config.py") },
+  { src: path.join(sharedDir, "merge-help-csv.py"), rel: path.join("scripts", "merge-help-csv.py") },
 ];
 
 const pmRefFiles = [
@@ -192,6 +210,8 @@ const syncGroups = [
   { files: pmStatusOnlyFiles, dirs: newUtilDoctorDirs },
   // spec-align.py into its two consumers
   { files: specAlignFiles, dirs: [...newPmExecuteDirs, ...newUtilDoctorDirs] },
+  // The two BMad-validator-required merge scripts, into each module's home only.
+  { files: moduleHomeFiles, dirs: moduleHomeDirs },
 ];
 
 // Every repo-relative path this script writes, derived from syncGroups itself so

@@ -32,6 +32,10 @@ jobs:
     - uses: astral-sh/setup-uv@v5
     - name: write-module-config.py unit tests
       run: uv run skills/_shared/tests/test-write-module-config.py
+    - name: merge-help-csv.py unit tests
+      run: uv run skills/_shared/tests/test-merge-help-csv.py
+    - name: merge-config.py wrapper unit tests
+      run: uv run skills/_shared/tests/test-merge-config-wrapper.py
     - name: drift-report.py unit tests
       run: uv run --with pyyaml skills/l3io-pm-sync/scripts/tests/test-drift-report.py
     - name: spec-align.py unit tests
