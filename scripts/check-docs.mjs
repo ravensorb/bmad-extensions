@@ -1275,7 +1275,24 @@ function checkBmadDependencyInventory() {
 // widening. This is INSIDE the match, before the `python3` token the exemption's `beforeMatch`
 // looks at, so a provisioned line (`uv run --with 'x' python3 -u <script>.py`) is unaffected.
 //
+// Fix round 4, R-1: round 3's token skip was `(?:\S+\s+)*?` -- ANY intervening tokens, not
+// just flags -- so ordinary English prose tripped the check, a false red on correct
+// documentation in a scan whose main corpus IS prose. `Install python3 and then edit
+// pyproject.py` and `run python3 later; the file build.py is generated` both matched: the
+// skip walked straight over `and then edit` / `later; the file` to reach a `.py` word
+// mentioned elsewhere in the same sentence. Constrained the skip to FLAG SHAPES -- each
+// intervening token is a `-`-prefixed flag, optionally followed by that flag's own separate
+// argument (`-X utf8`, `-W ignore::DeprecationWarning`, `-m pytest`). `--flag=value` is one
+// token and needs no special case; a trailing-optional-argument ambiguity (`-W ignore -u
+// <script>.py`) resolves by backtracking. Every M-1 case still matches -- verified against
+// the whole scanned corpus (138 files), where old and new agree line for line.
+//
 // Known gaps (not caught by this check, listed rather than left to look complete):
+//   - an intervening token that is not flag-shaped: a shell variable standing in for flags
+//     (`python3 $FLAGS <script>.py`) or a flag argument quoted around a space (`python3 -c
+//     "import x" <script>.py`). Round 3's unconstrained skip matched these incidentally, at
+//     the price of the prose false positives above; both are shell-lexer problems, and
+//     `$FLAGS` is the same shell-variable-indirection family already listed below.
 //   - command substitution: `uv run --with 'x' echo "$(python3 <script>.py)"` -- the `uv run`
 //     anchor is defeated because the real invocation is inside a substituted subshell.
 //   - shell variable indirection (`PY=python3; $PY <script>.py`) and wrapper commands
@@ -1291,7 +1308,7 @@ function checkBmadDependencyInventory() {
 // l3io-customization-layer Task 9 fix-round-3 ruling for the pending design decision on
 // whether to rebuild this check on a real parser instead.
 // ---------------------------------------------------------------------------
-const PY_INVOKE_RE = /(?<![\w-])python3(?:\.\d+)?\s+(?:\S+\s+)*?(?:"?\{(pm_status|spec_align)\}|\S*\.py)(?![\w-])/;
+const PY_INVOKE_RE = /(?<![\w-])python3(?:\.\d+)?(?:\s+-\S+(?:\s+\S+)?)*\s+(?:"?\{(pm_status|spec_align)\}|\S*\.py)(?![\w-])/;
 const PY_FALLBACK_QUALIFIER = /\buv\b[^.]*\bunavailable\b|\bfallback\b/i;
 // `uv run --with <extra-deps> python3 <script>.py` is uv choosing and managing the
 // interpreter itself (used where a script needs dependencies beyond its own PEP-723 header,

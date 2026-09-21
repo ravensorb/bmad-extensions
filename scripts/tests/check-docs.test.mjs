@@ -936,6 +936,77 @@ test("check 17 M-1: python3 with no script argument does not trip the check", (t
   assert.equal(r.status, 0, r.stderr);
 });
 
+// Fix round 4, R-1: M-1's token skip (`(?:\S+\s+)*?`) accepted ANY intervening tokens, not
+// just interpreter flags, so ordinary English prose that mentions `python3` and separately
+// mentions some `.py` file matched -- a false red on correct documentation, in a scan whose
+// main corpus is prose. Each line below is a realistic markdown sentence, planted in the
+// markdown corpus (not a workflow) where the fallback tolerance is also live, and none of
+// them carries a uv/unavailable or `fallback` qualifier: they must pass on the invocation
+// predicate alone, not on the exemption.
+for (const [label, line] of [
+  ["a semicolon-joined sentence", "prose: python3 is required; see setup.py for details"],
+  ["a plain `and then` sentence", "Install python3 and then edit pyproject.py"],
+  ["a flag with no script argument", "python3 --version"],
+  ["a sentence break before an unrelated uv run",
+    "You need python3. Run the suite with uv run foo.py"],
+  ["a later-in-the-sentence generated file",
+    "run python3 later; the file build.py is generated"],
+  // The five above are the reported repro set, and only the second of them actually turned
+  // CI red: the two semicolon-joined ones are masked by COMMAND_SPLIT_RE (which splits on
+  // `;`) and the other two never matched even the round-3 pattern, so on their own they are
+  // not mutation-discriminating. The four below are realistic prose with NO shell-split
+  // character anywhere on the line, so nothing but the invocation predicate itself can save
+  // them -- each one fails if PY_INVOKE_RE loses the flag-shape constraint.
+  ["a pip bootstrap sentence",
+    "Run python3 -m pip install -r requirements.txt before running build.py"],
+  ["a parenthetical version note", "python3 (3.11+) is needed to run a.py"],
+  ["a dashed aside", "We dropped python3 support - see migrate.py"],
+  ["a bare version number after the interpreter",
+    "install python3 3.12 then run a.py with uv"],
+]) {
+  test(`check 17 R-1: prose with ${label} is not a python3 invocation`, (t) => {
+    const root = fixture(t);
+    write(root, "skills/l3io-pm-execute/steps/round4-prose.md", `${line}\n`);
+    const r = run(root);
+    assert.equal(r.status, 0, r.stderr + r.stdout);
+  });
+}
+
+// Positive controls for the SAME change: constraining the skip to flag shapes must not lose
+// any real invocation. These are the shapes the flag constraint is most likely to drop --
+// an absolute interpreter path (no flags at all), two stacked flags where the first carries
+// its own argument and the second does not (only backtracking resolves that ambiguity), and
+// a flag run ending at a `{...}` helper token rather than a `.py` path.
+for (const [label, line] of [
+  ["an absolute interpreter path", "/usr/bin/python3 skills/_shared/tests/test-pm-status.py"],
+  ["`-X utf8 -u` (argful flag then argless flag)",
+    "python3 -X utf8 -u skills/_shared/tests/test-pm-status.py"],
+  ["`-m` with a module argument",
+    "python3 -m pytest skills/_shared/tests/test-pm-status.py"],
+]) {
+  test(`check 17 R-1: python3 with ${label} still does not honour the header`, (t) => {
+    const root = fixture(t);
+    write(root, ".github/workflows/checks.yml",
+      `    - name: fix-round-4 regression\n      run: ${line}\n`,
+      /* append */ true);
+    const r = run(root);
+    assert.equal(r.status, 1, r.stdout);
+    assert.match(r.stderr, /invokes a PEP-723 script with python3/);
+  });
+}
+
+// The `{...}` helper-token branch behind a flag run, in the markdown corpus where those
+// tokens actually appear. Guards the same branch as the workflow cases above against a
+// flag-shape constraint that only ever got exercised on `.py` paths.
+test("check 17 R-1: python3 with flags before a {spec_align} helper token is caught", (t) => {
+  const root = fixture(t);
+  write(root, "skills/l3io-pm-execute/steps/round4-helper.md",
+    "```bash\npython3 -X utf8 -u {spec_align} build\n```\n");
+  const r = run(root);
+  assert.equal(r.status, 1, r.stdout);
+  assert.match(r.stderr, /round4-helper\.md:\d+: invokes a PEP-723 script with python3/);
+});
+
 // ---- check 18 (docs-check-count) ----
 //
 // Same derive-don't-type discipline as the check 15 tests above: the expected counts and
