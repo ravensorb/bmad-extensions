@@ -1768,3 +1768,235 @@ test("check 21: a valid non-empty string description does not trip the descripti
   const r = run(root);
   assert.equal(r.status, 0, r.stderr);
 });
+
+// ---------------------------------------------------------------------------
+// Check 4, skills/ arm (pm-status-invocations).
+//
+// The arm exists because the commands agents actually run live in skills/**/*.md and were
+// checked by nothing: check 4's live-docs arm reads README/CLAUDE.md/docs only, and judges
+// subcommand NAMES, never flags. Task 12 inlined a `clear-lock --state-root ... --epic ...`
+// into l3io-pm-help, Task 13 put a second copy in l3io-util-doctor, and the two are
+// cross-linked in prose alone.
+//
+// Every plant below goes into a BRAND-NEW file in a BRAND-NEW directory, so each test attacks
+// the scope (is skills/ really walked?) as well as the rule.
+// ---------------------------------------------------------------------------
+const PLANT_FILE = path.join("skills", "l3io-util-doctor", "steps", "brand-new-invocation-dir",
+  "planted.md");
+
+function plantInvocation(root, command) {
+  write(root, PLANT_FILE, ["# Planted", "", "```bash", command, "```", ""].join("\n"));
+}
+
+test("check 4/skills: an invocation naming a subcommand the CLI does not have is caught", (t) => {
+  const root = fixture(t);
+  plantInvocation(root, "uv run {pm_status} progress --state-root {pm_state_root}");
+  const r = run(root);
+  assert.equal(r.status, 1, r.stdout);
+  assert.match(r.stderr, /planted\.md:\d+: invokes pm-status\.py subcommand 'progress'/);
+});
+
+test("check 4/skills: an invocation passing a flag the CLI never registers is caught", (t) => {
+  const root = fixture(t);
+  plantInvocation(root, "uv run {pm_status} clear-lock --state-root {pm_state_root} --ledger {f}");
+  const r = run(root);
+  assert.equal(r.status, 1, r.stdout);
+  assert.match(r.stderr, /planted\.md:\d+: invokes 'clear-lock --ledger'/);
+});
+
+test("check 4/skills: a flag on a `\\`-continued line is still seen", (t) => {
+  const root = fixture(t);
+  write(root, PLANT_FILE, [
+    "# Planted", "", "```bash",
+    "uv run {pm_status} clear-lock --state-root {pm_state_root} \\",
+    "  --no-such-flag {epic_key}",
+    "```", "",
+  ].join("\n"));
+  const r = run(root);
+  assert.equal(r.status, 1, r.stdout);
+  assert.match(r.stderr, /invokes 'clear-lock --no-such-flag'/);
+});
+
+test("check 4/skills: an invocation inside a markdown table cell is seen", (t) => {
+  const root = fixture(t);
+  write(root, PLANT_FILE, [
+    "# Planted", "",
+    "| When | Run |",
+    "|---|---|",
+    "| stale lock | `uv run {pm_status} clear-lock --state-root {r} --not-a-flag {e}` |",
+    "",
+  ].join("\n"));
+  const r = run(root);
+  assert.equal(r.status, 1, r.stdout);
+  assert.match(r.stderr, /invokes 'clear-lock --not-a-flag'/);
+});
+
+test("check 4/skills: a correct invocation does not fire", (t) => {
+  const root = fixture(t);
+  plantInvocation(root,
+    "uv run {pm_status} clear-lock --state-root {pm_state_root} --epic {epic_key}");
+  const r = run(root);
+  assert.equal(r.status, 0, r.stderr);
+});
+
+// The option union is read from add_argument(...) calls, which may register several spellings
+// in ONE call: `se.add_argument("--elapsed-hours", "--time-hours", dest="elapsed_hours")`.
+// A regex that captured only the first spelling missed three real flags (--time-hours,
+// --time-hours-low, --time-hours-high) -- measured against the parser object itself, built
+// under uv from build_parser(), before this check shipped. This pins the alias case, so that
+// simplification fails loudly instead of inventing three phantom violations.
+test("check 4/skills: a second spelling registered in the same add_argument() is accepted", (t) => {
+  const root = fixture(t);
+  const cli = fs.readFileSync(path.join(root, "skills", "_shared", "pm-status.py"), "utf8");
+  assert.match(cli, /add_argument\(\s*"--elapsed-hours",\s*"--time-hours"/,
+    "pm-status.py no longer registers --time-hours as an alias; this test needs a new one");
+  plantInvocation(root,
+    "uv run {pm_status} set-estimate --state-root {r} --story {s} --time-hours 2");
+  const r = run(root);
+  assert.equal(r.status, 0, r.stderr);
+});
+
+test("check 4/skills: prose naming pm-status.py outside a uv run command is not an invocation", (t) => {
+  const root = fixture(t);
+  write(root, PLANT_FILE, [
+    "# Planted", "", "```",
+    "BLOCKED: a status that makes every later pm-status.py write on that node fail.",
+    "```", "",
+  ].join("\n"));
+  const r = run(root);
+  assert.equal(r.status, 0, r.stderr);
+});
+
+// ---------------------------------------------------------------------------
+// Check 22 (readme-repo-layout).
+//
+// The block drifted three times in three consecutive tasks -- the l3io-pm-help row, the
+// l3io-pm-plan row claiming a deleted scripts/, and the l3io-pm-setup row omitting an
+// existing references/ -- and nothing read it, so all three survived six green gates.
+// ---------------------------------------------------------------------------
+
+// The expected row count is derived HERE, with its own readdirSync, rather than from the
+// checker's own derivation: two derivations from one function agree by construction and could
+// no longer catch a bug in it. A checker that silently examined zero rows would pass every
+// negative test below by never looking; this assertion is what rules that out.
+test("check 22: every l3io-* skill directory is matched against the block", (t) => {
+  const root = fixture(t);
+  const expected = fs.readdirSync(path.join(root, "skills"), { withFileTypes: true })
+    .filter((e) => e.isDirectory() && e.name.startsWith("l3io-")).length;
+  assert.ok(expected >= 8, `expected at least the 8 shipped skills, found ${expected}`);
+  const r = run(root, ["-v"]);
+  assert.equal(r.status, 0, r.stderr);
+  assert.match(r.stdout, new RegExp(`readme-repo-layout: ${expected} skill row\\(s\\)`));
+});
+
+test("check 22: a row claiming a directory that does not exist is caught", (t) => {
+  const root = fixture(t);
+  const p = path.join(root, "README.md");
+  const before = fs.readFileSync(p, "utf8");
+  const after = before.replace(/^(\s*l3io-pm-help\/\s+.*)$/m, "$1, assets/");
+  assert.notEqual(before, after, "README has no l3io-pm-help Repo Layout row to amend");
+  fs.writeFileSync(p, after);
+  const r = run(root);
+  assert.equal(r.status, 1, r.stdout);
+  assert.match(r.stderr,
+    /the skills\/l3io-pm-help\/ row lists assets\/, which does not exist on disk/);
+});
+
+test("check 22: a directory on disk that no row claims is caught", (t) => {
+  const root = fixture(t);
+  write(root, path.join("skills", "l3io-pm-help", "brand-new-dir", "file.md"), "# hi\n");
+  const r = run(root);
+  assert.equal(r.status, 1, r.stdout);
+  assert.match(r.stderr, /the skills\/l3io-pm-help\/ row does not list brand-new-dir\//);
+});
+
+// Scope attack: the skill set must come from disk, not from the block's own rows. A checker
+// that iterated the rows instead would generate one fewer case here and pass in silence --
+// the vacuous-green shape an earlier task paid for.
+test("check 22: scope attack — a brand-new skill directory with no row is caught", (t) => {
+  const root = fixture(t);
+  write(root, path.join("skills", "l3io-zzz-newskill", "references", "x.md"), "# x\n");
+  const r = run(root);
+  assert.equal(r.status, 1, r.stdout);
+  assert.match(r.stderr, /Repo Layout has no row for skills\/l3io-zzz-newskill\//);
+});
+
+test("check 22: a row naming a skill directory that does not exist is caught", (t) => {
+  const root = fixture(t);
+  const p = path.join(root, "README.md");
+  const before = fs.readFileSync(p, "utf8");
+  const after = before.replace(/^(\s*l3io-pm-help\/\s+.*)$/m,
+    "  l3io-pm-ghost/        SKILL.md, references/\n$1");
+  assert.notEqual(before, after, "README has no l3io-pm-help Repo Layout row to anchor on");
+  fs.writeFileSync(p, after);
+  const r = run(root);
+  assert.equal(r.status, 1, r.stdout);
+  assert.match(r.stderr, /lists 'l3io-pm-ghost\/', which is not a directory under skills\//);
+});
+
+test("check 22: a restructured Repo Layout section fails loudly rather than silently", (t) => {
+  const root = fixture(t);
+  const p = path.join(root, "README.md");
+  const before = fs.readFileSync(p, "utf8");
+  fs.writeFileSync(p, before.replace("## Repo Layout", "## How This Repo Is Laid Out"));
+  const r = run(root);
+  assert.equal(r.status, 1, r.stdout);
+  assert.match(r.stderr, /no fenced block found under "## Repo Layout"/);
+});
+
+// ---------------------------------------------------------------------------
+// Check 18's third claim site (CONTRIBUTING.md).
+// ---------------------------------------------------------------------------
+test("check 18: CONTRIBUTING.md's check count is read, and a wrong one fails", (t) => {
+  const root = fixture(t);
+  const p = path.join(root, "CONTRIBUTING.md");
+  const before = fs.readFileSync(p, "utf8");
+  const after = before.replace(/the code it describes — [a-z-]+ checks/,
+    "the code it describes — nine checks");
+  assert.notEqual(before, after, "CONTRIBUTING.md no longer states a check count in its table");
+  fs.writeFileSync(p, after);
+  const r = run(root);
+  assert.equal(r.status, 1, r.stdout);
+  assert.match(r.stderr, /CONTRIBUTING\.md: says "nine" checks/);
+});
+
+// A command soft-wrapped inside one `...` code span, which is how the second copy of the
+// duplicated clear-lock remedy is written in l3io-util-doctor/steps/stats.md. Without the
+// open-span join the flags sit on the line after the subcommand and are never judged -- so
+// one copy of the duplication would be checked and the other not, which is the failure this
+// arm exists to prevent. Verified on the real file: planting --epic-key on its second source
+// line is reported against stats.md:175.
+test("check 4/skills: flags soft-wrapped onto the next line inside one code span are seen", (t) => {
+  const root = fixture(t);
+  write(root, PLANT_FILE, [
+    "# Planted", "",
+    "- If a lock is stale, recommend: `Epic {key} is locked. Run: uv run {pm_status} clear-lock",
+    "  --state-root {r} --epic-key {key}`. Do not re-derive the lock state yourself.",
+    "",
+  ].join("\n"));
+  const r = run(root);
+  assert.equal(r.status, 1, r.stdout);
+  assert.match(r.stderr, /invokes 'clear-lock --epic-key'/);
+});
+
+// MAX_LINE_JOINS bounds the open-span join, and the observable difference is the reported
+// line number: a stray unclosed backtick in prose never closes, so without the cap every
+// following line -- to end of file -- folds into one logical line, and every violation below
+// it is reported at the stray backtick's line instead of its own. Here the violation is on
+// line 7 and the stray backtick on line 3.
+test("check 4/skills: a stray backtick does not swallow the lines below it", (t) => {
+  const root = fixture(t);
+  write(root, PLANT_FILE, [
+    "# Planted",                                                    // 1
+    "",                                                             // 2
+    "A stray ` backtick opens a span that never closes.",           // 3
+    "filler one",                                                   // 4
+    "filler two",                                                   // 5
+    "filler three",                                                 // 6
+    "uv run {pm_status} clear-lock --state-root {r} --epic-key {k}", // 7
+    "",
+  ].join("\n"));
+  const r = run(root);
+  assert.equal(r.status, 1, r.stdout);
+  assert.match(r.stderr, /planted\.md:7: invokes 'clear-lock --epic-key'/);
+});

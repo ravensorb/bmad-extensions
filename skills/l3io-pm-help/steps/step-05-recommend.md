@@ -26,8 +26,9 @@ file: this `pm_status_present` warning in `steps/mode-list-plan.md`. Keep both c
 sync if it changes. (The stale-lock recommendation used to be inlined a second time, in
 `steps/mode-progress.md` — that mode now forwards to `/l3io-util-doctor stats` instead of
 reading state itself, so its own copy of the stale-lock row is gone; the remedy lives on in
-`skills/l3io-util-doctor/steps/stats.md`, a cross-skill duplication with no mechanical guard,
-noted there.)
+`skills/l3io-util-doctor/steps/stats.md`, a cross-skill duplication noted there. `check:docs`
+check 4 validates each copy's subcommand and flags against the real CLI; it does not compare
+the copies to each other.)
 
 Output the recommendation as a clear, one-paragraph response with the exact command to run.
 

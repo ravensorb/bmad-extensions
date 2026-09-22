@@ -16,7 +16,9 @@
 //   1. skill-names   every l3io-* skill named in docs resolves to a real skills/ directory
 //   2. gating-tables every mirrored phase table matches the authoritative matrix, cell for cell
 //   3. section-refs  every "<file>.md §N" cross-reference resolves to a section bearing that number
-//   4. cli-surface   documented pm-status.py and spec-align.py subcommands and the real CLIs agree, both ways
+//   4. cli-surface   documented pm-status.py and spec-align.py subcommands and the real CLIs
+//                    agree, both ways -- across the live docs AND every runtime directive
+//                    under skills/, where an invocation's long flags are checked too
 //   5. config-values values quoted in prose match the defaults customize.toml ships
 //   6. status-values --status filters named in skill phrase tables are real state folders
 //   7. metric-list   metrics-contract.md documents exactly the metrics in METRIC_FIELDS
@@ -54,6 +56,10 @@
 //                    before a skill reaches skill-manifest.csv and .claude/skills/ at all;
 //                    a skill that fails either test is dropped from a real install with no
 //                    warning (Task 11A fix round 1, H-1/H-2)
+//  22. readme-repo-layout  README's "## Repo Layout" block lists, for every l3io-* skill, the
+//                    subdirectories that skill actually has -- both directions, with both
+//                    sides derived (the skill set from skills/, the claims from the block,
+//                    the real directories from disk)
 //
 // Usage:
 //   node scripts/check-docs.mjs        # report and exit nonzero on any failure (CI)
@@ -387,11 +393,158 @@ function checkCliSurface() {
   }
   if (verbose) console.log(`  cli-surface:    ${checked} subcommand claim(s) checked both ways`);
 
-  // Check 4 spans two scripts (pm-status.py above, spec-align.py below) implemented as two
-  // functions for readability, but it is ONE numbered check -- called from here rather than
-  // as its own top-level statement so check 18's derived count (one invocation per header
-  // entry) doesn't have to special-case it.
+  // Check 4 spans two scripts (pm-status.py above, spec-align.py below) and three scopes
+  // (live docs above, skills/ below), implemented as separate functions for readability, but
+  // it is ONE numbered check -- called from here rather than as its own top-level statement
+  // so check 18's derived count (one invocation per header entry) doesn't have to
+  // special-case them.
+  checkPmStatusInvocations();
   checkSpecAlignSurface();
+}
+
+// 4 (continued). Every pm-status.py invocation in a runtime directive under skills/.
+//
+// Why this exists. The forward arm above reads LIVE_DOCS (README, CLAUDE.md, docs/*.md) plus
+// two _shared files, and judges subcommand NAMES only -- never flags. So the commands agents
+// actually execute, which live in skills/**/*.md, were checked by nothing at all. Task 12
+// inlined `uv run {pm_status} clear-lock --state-root ... --epic ...` into
+// skills/l3io-pm-help/steps/mode-list-plan.md, Task 13 put a second copy in
+// skills/l3io-util-doctor/steps/stats.md, and the two are cross-linked in prose only: renaming
+// the subcommand or dropping a flag would leave both copies green and both runs broken.
+//
+// Scope, derived. allSkillDocs() walks skills/ for *.md -- the same set checks 9, 11 and 17
+// use -- so a directive added in a new file or a new skill is covered on arrival.
+//
+// What counts as an invocation. A logical line (physical lines joined on a trailing `\`) is
+// scanned for `uv run`; from each such anchor the fragment up to the next backtick (a markdown
+// code span closes there, and so does a table cell's `…` wrapper) is handed to mvdan-sh, the
+// same real shell parser check 17 uses. A command whose argv contains {pm_status} or a
+// pm-status.py path is judged: the token after it is the subcommand, and every later `--flag`
+// is a flag claim. Nothing is decided by regex over text.
+//
+// Anchoring on `uv run` is not a convenience -- it is the package's own rule. check 17 already
+// forbids reaching a PEP-723 script any other way, so an invocation that is not `uv run`-shaped
+// is a check 17 failure, not a gap here. It also makes prose unreachable by construction:
+// "later pm-status.py write on that node fail" (migrate-state.md, inside a fenced BLOCKED
+// message) is a sentence, not a command, and no stopword list is needed to say so.
+//
+// Flags are checked for EXISTENCE IN THE CLI, not for belonging to that subcommand. The
+// authoritative per-subcommand surface lives in argparse objects that only python can build,
+// and reaching it means one `uv run` subprocess per checker run -- multiplied by the 100+
+// fixture runs in scripts/tests/check-docs.test.mjs. So the rule here is the union of every
+// long option the CLI registers anywhere. Measured against the real thing before shipping:
+// building build_parser() under uv and unioning every subparser's option_strings yields 82
+// flags; PY_LONG_OPTION_RE yields those same 82 plus the top-level --version, with nothing
+// missing in either direction. What this does NOT catch: a real flag used with the wrong
+// subcommand (`set-status --scope story`). That is stated here rather than implied.
+//
+// Not detected, measured on this tree: 8 fragments (2 distinct synopsis lines x 4 synced
+// copies, metrics-contract.md:442 and :547) do not parse as shell, because a usage synopsis
+// writes alternation as `(--story KEY | --epic ID)`. They are skipped and counted; -v prints
+// the number. Making them failures would turn CI red on correct documentation.
+const PM_STATUS_TOKEN_RE = /^(?:.*\/)?(?:\{pm_status\}|pm-status\.py)$/;
+// All long option strings of one add_argument(...) call, including aliases: --elapsed-hours
+// and --time-hours are registered in one call, and matching only the first would have missed
+// three flags.
+const PY_LONG_OPTION_RE = /add_argument\(\s*((?:"--[a-z0-9-]+"\s*,\s*)*"--[a-z0-9-]+")/g;
+
+function pmStatusLongOptions() {
+  const flags = new Set(["--help"]); // argparse adds it to every parser; no add_argument call
+  for (const call of read(PM_STATUS).matchAll(PY_LONG_OPTION_RE)) {
+    for (const opt of call[1].matchAll(/"(--[a-z0-9-]+)"/g)) flags.add(opt[1]);
+  }
+  return flags;
+}
+
+// The logical lines of a markdown file, each paired with the 1-based number of the physical
+// line it started on. Two things continue a line:
+//   - a trailing `\`, which is a shell continuation (check 11 joins these too);
+//   - an unclosed `…` code span, which is a markdown SOFT WRAP. Without it the second copy of
+//     the duplicated clear-lock remedy escapes its own flag check:
+//     l3io-util-doctor/steps/stats.md writes the command across two source lines inside one
+//     span, so `--state-root`/`--epic` sit on the line after the subcommand. The l3io-pm-help
+//     copy is one table-cell line and was already covered -- checking one copy of a
+//     duplication and not the other is the failure this arm exists to prevent.
+// A ``` fence line has three backticks and is never treated as an open span, and the join is
+// capped so a stray backtick cannot swallow a file.
+const MAX_LINE_JOINS = 3;
+
+function logicalLines(text) {
+  const lines = text.split("\n");
+  const out = [];
+  const spanLeftOpen = (s) => !/^\s*```/.test(s) && ((s.match(/`/g) || []).length % 2 === 1);
+  for (let i = 0; i < lines.length; i++) {
+    let joined = lines[i];
+    let j = i;
+    for (let joins = 0; joins < MAX_LINE_JOINS && j + 1 < lines.length; joins += 1) {
+      const shellContinuation = /\\\s*$/.test(joined);
+      if (!shellContinuation && !spanLeftOpen(joined)) break;
+      if (shellContinuation) joined = joined.replace(/\\\s*$/, "");
+      j += 1;
+      joined += " " + lines[j];
+    }
+    out.push({ text: joined, line: i + 1 });
+    i = j;
+  }
+  return out;
+}
+
+function checkPmStatusInvocations() {
+  const real = cliSubcommands();
+  const flags = pmStatusLongOptions();
+  let checked = 0;
+  let unreadable = 0;
+  const offenders = [];
+
+  for (const rel of allSkillDocs()) {
+    for (const { text, line } of logicalLines(read(rel))) {
+      for (const anchor of text.matchAll(/\buv\s+run\b/g)) {
+        let fragment = text.slice(anchor.index);
+        const closingBacktick = fragment.indexOf("`");
+        if (closingBacktick >= 0) fragment = fragment.slice(0, closingBacktick);
+        if (!/\{pm_status\}|pm-status\.py/.test(fragment)) continue;
+
+        const commands = shellCommands(fragment);
+        if (commands === null) { unreadable += 1; continue; }
+        for (const { argv } of commands) {
+          const at = argv.findIndex((t) => typeof t === "string" && PM_STATUS_TOKEN_RE.test(t));
+          if (at < 0) continue;
+          const sub = argv[at + 1];
+          if (typeof sub !== "string" || !/^[a-z][a-z-]*$/.test(sub)) continue;
+          checked += 1;
+          if (!real.has(sub)) {
+            // Same tolerance the live-docs arm gives: a line that is describing the removal
+            // is allowed to name what was removed.
+            if (/remov|deprecat|no longer|replaced|used to/i.test(text)) {
+              notes.push(`${rel}:${line}: names absent subcommand '${sub}' while describing ` +
+                `its removal — allowed`);
+              continue;
+            }
+            offenders.push(`${rel}:${line}: invokes pm-status.py subcommand '${sub}', which ` +
+              `the CLI does not have\n      CLI has: ${[...real].sort().join(", ")}`);
+            continue;
+          }
+          for (const token of argv.slice(at + 2)) {
+            if (typeof token !== "string" || !token.startsWith("--")) continue;
+            const flag = token.split("=")[0];
+            if (flag === "--") continue;
+            if (flags.has(flag)) continue;
+            offenders.push(`${rel}:${line}: invokes '${sub} ${flag}', but pm-status.py ` +
+              `registers no such option anywhere in its CLI`);
+          }
+        }
+      }
+    }
+  }
+
+  if (offenders.length) {
+    failures.push(`runtime directives under skills/ invoke pm-status.py surface that does ` +
+      `not exist:\n      ${offenders.join("\n      ")}`);
+  }
+  if (verbose) {
+    console.log(`  pm-status-invocations: ${checked} invocation(s) in skills/ checked ` +
+      `(${unreadable} fragment(s) not readable as shell, skipped)`);
+  }
 }
 
 // Subcommand names documented as real table-row entries: the first cell of a markdown
@@ -1638,6 +1791,11 @@ function checkDocsCheckCount() {
   const claims = [
     ["CLAUDE.md", /`check:docs` runs ([a-z-]+) checks/, flat(read("CLAUDE.md"))],
     ["scripts/CLAUDE.md", /numbers its ([a-z-]+) checks there/, flat(read("scripts/CLAUDE.md"))],
+    // CONTRIBUTING.md's gate table stated the count too, and check 18 did not read it -- a
+    // third copy of the same number with no guard behind it, which is how the first one
+    // drifted. Added here rather than deleted from the doc: the number is useful where a
+    // contributor meets the gate.
+    ["CONTRIBUTING.md", /the code it describes — ([a-z-]+) checks/, flat(read("CONTRIBUTING.md"))],
   ];
   for (const [file, re, text] of claims) {
     const m = text.match(re);
@@ -1957,6 +2115,104 @@ function checkSkillFrontmatter() {
 }
 
 // ---------------------------------------------------------------------------
+// 22. README's Repo Layout block lists the directories each skill actually has.
+//
+// Caught in practice, three times in three consecutive tasks, all by a human reading: the
+// l3io-pm-help row went stale when that skill gained steps/; the l3io-pm-plan row kept
+// claiming a scripts/ directory deleted two commits earlier -- in a commit that edited the
+// very next line of the same block; and the l3io-pm-setup row omitted references/, which was
+// on disk the day the row was written. Nothing read this block, so every drift survived six
+// green gates and was found only when someone happened to look.
+//
+// Both sides are derived. The skill set comes from skills/ (so a new skill with no row fails
+// rather than being silently unlisted), the claims come from the fenced block itself, and the
+// truth comes from readdirSync. Nothing here is a hand-kept list.
+//
+// Scope, stated rather than implied. Only DIRECTORY claims are judged -- a token that is a
+// bare name followed by `/`. The block also names files (SKILL.md, customize.toml) and, in
+// parentheses, files inside assets/ (module.yaml, module-help.csv); those carry no trailing
+// slash and are not checked. Only `l3io-*` rows are judged: the `_shared/` row is a prose
+// description of shared sources, not a directory listing, and check 20 guards its contents
+// from the other direction.
+// ---------------------------------------------------------------------------
+const REPO_LAYOUT_DOC = "README.md";
+const REPO_LAYOUT_HEADING = "## Repo Layout";
+// A directory claim: a bare name followed by `/`, delimited on both sides. `scripts/tests/`
+// would not match, deliberately -- the block lists one level and a nested claim should fail
+// loudly here rather than be half-read.
+const LAYOUT_DIR_CLAIM_RE = /(?:^|[\s,(])([a-z][a-z0-9-]*)\/(?=[\s,)]|$)/g;
+
+// The first fenced block after the Repo Layout heading, or null.
+function repoLayoutBlock(text) {
+  const at = text.indexOf(REPO_LAYOUT_HEADING);
+  if (at < 0) return null;
+  const rest = text.slice(at);
+  const open = rest.indexOf("\n```");
+  if (open < 0) return null;
+  const bodyStart = rest.indexOf("\n", open + 1);
+  const close = rest.indexOf("\n```", bodyStart);
+  if (bodyStart < 0 || close < 0) return null;
+  return rest.slice(bodyStart + 1, close);
+}
+
+function checkReadmeRepoLayout() {
+  const skills = fs.readdirSync(path.join(repoRoot, "skills"), { withFileTypes: true })
+    .filter((e) => e.isDirectory() && e.name.startsWith("l3io-"))
+    .map((e) => e.name)
+    .sort();
+
+  const block = repoLayoutBlock(read(REPO_LAYOUT_DOC));
+  if (block === null) {
+    failures.push(`${REPO_LAYOUT_DOC}: no fenced block found under "${REPO_LAYOUT_HEADING}" — ` +
+      `has the section been restructured? check 22 must be updated with it`);
+    return;
+  }
+
+  const claims = new Map();
+  for (const line of block.split("\n")) {
+    const m = line.match(/^\s*(l3io-[a-z0-9-]+)\/\s+(.*)$/);
+    if (!m) continue;
+    const named = new Set();
+    for (const claim of m[2].matchAll(LAYOUT_DIR_CLAIM_RE)) named.add(claim[1]);
+    claims.set(m[1], named);
+  }
+
+  for (const [name] of claims) {
+    if (skills.includes(name)) continue;
+    failures.push(`${REPO_LAYOUT_DOC}: Repo Layout lists '${name}/', which is not a directory ` +
+      `under skills/`);
+  }
+
+  let checked = 0;
+  for (const skill of skills) {
+    const listed = claims.get(skill);
+    if (!listed) {
+      failures.push(`${REPO_LAYOUT_DOC}: Repo Layout has no row for skills/${skill}/ — every ` +
+        `skill directory needs one, or the block stops describing the tree`);
+      continue;
+    }
+    const onDisk = new Set(
+      fs.readdirSync(path.join(repoRoot, "skills", skill), { withFileTypes: true })
+        .filter((e) => e.isDirectory())
+        .map((e) => e.name),
+    );
+    checked += 1;
+    const missing = [...onDisk].filter((d) => !listed.has(d)).sort();
+    const phantom = [...listed].filter((d) => !onDisk.has(d)).sort();
+    if (missing.length) {
+      failures.push(`${REPO_LAYOUT_DOC}: the skills/${skill}/ row does not list ` +
+        `${missing.map((d) => `${d}/`).join(", ")}, which exist${missing.length === 1 ? "s" : ""} on disk`);
+    }
+    if (phantom.length) {
+      failures.push(`${REPO_LAYOUT_DOC}: the skills/${skill}/ row lists ` +
+        `${phantom.map((d) => `${d}/`).join(", ")}, which ` +
+        `${phantom.length === 1 ? "does" : "do"} not exist on disk`);
+    }
+  }
+  if (verbose) console.log(`  readme-repo-layout: ${checked} skill row(s) matched against disk`);
+}
+
+// ---------------------------------------------------------------------------
 
 checkSkillNames();
 checkGatingTables();
@@ -1979,6 +2235,7 @@ checkDocsCheckCount();
 checkDerivedCounts();
 checkSharedFilesTable();
 checkSkillFrontmatter();
+checkReadmeRepoLayout();
 
 for (const note of notes) if (verbose) console.log(`  note: ${note}`);
 

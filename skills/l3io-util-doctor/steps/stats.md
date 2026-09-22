@@ -175,8 +175,10 @@ warrants them:**
   `Epic {key} has a stale lock (claimed {N}m ago). Run: uv run {pm_status} clear-lock
   --state-root {pm_state_root} --epic {key}`. Do not re-derive stale-lock state yourself — the
   report already computed it from `_lock.ttl_minutes`. (The same remedy also appears in
-  `l3io-pm-help`'s `steps/step-05-recommend.md` — a cross-skill duplication with no mechanical
-  guard between skills; keep both copies in sync by hand if the remedy changes.)
+  `l3io-pm-help`'s `steps/step-05-recommend.md` — a cross-skill duplication. `check:docs`
+  check 4 validates each copy against the real CLI, so a renamed subcommand or a flag that
+  stops existing fails CI in both; what nothing checks is the two copies saying *different*
+  things, so keep them in sync by hand if the remedy changes.)
 - If the tree ends with the `~ dwell times are approximate` note, add: `Dwell times sharpen
   once state/events.jsonl accumulates transitions — it starts recording on the next
   /l3io-pm-execute run.`
