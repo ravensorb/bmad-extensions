@@ -9,6 +9,30 @@ root `CLAUDE.md`. This file carries the mechanics behind them.
 Each checker's own header comment is the authoritative description of what it asserts;
 `scripts/check-docs.mjs` numbers its twenty-one checks there.
 
+## Dependencies
+
+The checkers are **not** dependency-free, and have not been since
+`docs/adr/0007-ci-installs-npm-dependencies.md`. `.github/workflows/checks.yml` runs `npm ci`
+immediately after the toolchain setup steps and **before every gate**; a gate step added above
+that install fails on `ERR_MODULE_NOT_FOUND`. Locally, run `npm ci` (or `npm install`) once
+before `npm run check:*`.
+
+Everything the checkers parse, they parse with a library — never a hand-written reader
+(root `CLAUDE.md`, global rule 1, and this repo's own history with a hand-written YAML parser):
+
+| Where | Parses | With |
+|---|---|---|
+| `check-module.mjs` | `skills/*/assets/module.yaml` | `yaml` |
+| `check-module.mjs` | `skills/*/assets/module-help.csv` | `csv-parse` |
+| `check-docs.mjs` check 17 | `.github/workflows/*.yml` | `yaml` |
+| `check-docs.mjs` check 17 | each `run:` script, into argv | `mvdan-sh` |
+| `check-docs.mjs` check 21 | `skills/*/SKILL.md` frontmatter | `yaml` (the package BMad's installer uses) |
+
+These are **devDependencies**. Nothing here ships: payload scope is `skills/<skill>/` (derived
+from `PAYLOAD_TARGETS`), and `node_modules/` is gitignored, so `check:manifest` cannot see them.
+Nothing mechanically asserts that a gate script's imports are declared in `package.json` — that
+follow-up is named in the ADR and is not implemented.
+
 ## Payload manifests
 
 Each skill also carries a **generated** `skills/<skill>/payload-manifest.json` — a SHA-256 per

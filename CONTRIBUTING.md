@@ -47,15 +47,21 @@ that lives in its own skill and is edited in place.
 
 ### The gates
 
-All five must pass before you open a pull request. CI runs every one of them.
+All six must pass before you open a pull request. CI runs every one of them.
+
+**Run `npm ci` first.** The checkers have npm dependencies — they parse YAML, CSV and shell
+with libraries rather than hand-written readers (see
+`docs/adr/0007-ci-installs-npm-dependencies.md`), so a gate run without `node_modules/` fails
+on `ERR_MODULE_NOT_FOUND`. CI installs before any gate, and so should you.
 
 | Command | What it protects |
 |---|---|
 | `npm run check:scripts` | Per-skill payload copies match their `_shared/` source |
 | `npm run check:manifest` | Every `payload-manifest.json` hash matches the file it names |
-| `npm run check:docs` | Documentation matches the code it describes — fifteen checks, including that every documented CLI subcommand exists and every `<file>.md §N` cross-reference resolves |
+| `npm run check:docs` | Documentation matches the code it describes — twenty-one checks, including that every documented CLI subcommand exists and every `<file>.md §N` cross-reference resolves |
 | `npm run check:version` | `pm-status.py`'s version marker, its `PM_STATUS_VERSION`, and `package.json` agree |
-| `npm run test:scripts` | The `check-docs` self-tests |
+| `npm run check:module` | One `module.yaml` per module code, correctly homed, with its required payload |
+| `npm run test:scripts` | The `check-docs` and `check-module` self-tests |
 
 The Python suites are run by CI directly and are worth running locally when you touch them —
 see `.github/workflows/checks.yml` for the exact invocations. Note that the Python helpers run

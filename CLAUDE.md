@@ -67,6 +67,16 @@ verify that skill alone. **Never hand-edit a manifest, and regenerate it wheneve
 changes** — `npm run sync:scripts` does not do it for you. The manifest contract, the sync/verify
 commands and the release gates live in `scripts/CLAUDE.md`.
 
+**The check tooling has npm dependencies, and CI installs them.** `.github/workflows/checks.yml`
+runs `npm ci` before any gate — add a gate step and it goes *after* that install, or it fails on
+`ERR_MODULE_NOT_FOUND`. The checkers parse with libraries rather than hand-rolled readers
+(`yaml`, `csv-parse`, `mvdan-sh`); they are **devDependencies only** and nothing under
+`node_modules/` is payload, so `check:manifest` never sees them. The dependency-free convention
+that used to hold here was never a decision — it accreted, and its cost was four hand-written
+parsers. See `docs/adr/0007-ci-installs-npm-dependencies.md`. There is **no mechanical check**
+that a gate script's imports are declared in `package.json`; that follow-up is named in the ADR
+and is not implemented.
+
 `check:docs` runs twenty-one checks asserting facts that have each drifted in this repo's history.
 They are numbered and described in `scripts/check-docs.mjs`'s own header — read them there rather
 than restating them here. Two things that header does not tell you:

@@ -310,10 +310,11 @@ For BMad core guidance, see [BMad docs](https://docs.bmad-method.org/).
 
 This repo uses Conventional Commits with `commit-and-tag-version`.
 
-Install release tooling:
+Install the release tooling — and the check tooling's own dependencies, which every
+`npm run check:*` gate needs:
 
 ```bash
-npm install
+npm ci
 ```
 
 Release commands:
