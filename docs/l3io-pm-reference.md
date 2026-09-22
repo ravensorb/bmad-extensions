@@ -336,10 +336,10 @@ through this skill. `/l3io-pm-setup` is the module's setup entry point.
 recommendation sections; a legacy tree short-circuits it to the migration recommendation,
 because the epic status probes only understand the sharded layout. `progress` runs neither
 step — it is a pure forwarder to `/l3io-util-doctor stats`, whose own layout check
-(`steps/stats.md` Step ST1) reproduces the multi-layout `BLOCK`, at the same Critical
-severity `l3io-util-doctor`'s health-check Check 2b uses, instead of duplicating that one
-branch here. It does not reproduce every branch of this skill's gate — notably the orphan
-check for a repointed `implementation_artifacts` has no counterpart in `stats.md`.
+(`steps/stats.md` Step ST1) reproduces both branches of this skill's gate that mattered: the
+multi-layout `BLOCK` (matching the Critical severity `l3io-util-doctor`'s health-check
+Check 2b uses) and the repointed-`implementation_artifacts` orphan check (matching this
+skill's `step-02-detect-layout.md`) — instead of duplicating either check here.
 
 ### The layout gate
 

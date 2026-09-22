@@ -72,3 +72,7 @@ starting a blank project over existing state.
 If both print nothing → genuine first run. Continue to section 3; rule 1 in section 5 may
 now fire safely.
 
+This orphan check is duplicated in `l3io-util-doctor`'s `steps/stats.md` Step ST1 — a
+cross-skill duplication with no mechanical guard, needed because `progress` no longer loads
+this file and forwards to `stats` instead. Keep both in sync if the paths or wording change.
+

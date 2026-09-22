@@ -39,7 +39,25 @@ Apply the first matching rule:
   State is still on a legacy layout ({legacy per-epic | legacy flat}) — stats reads the
   sharded state tree at {pm_state_root}. Run /l3io-util-doctor migrate-state first.
   ```
-- **Nothing present** → print `No state found at {pm_state_root} — nothing to report.` and exit.
+- **Nothing present** → before concluding there is nothing to report, rule out an orphan
+  caused by `implementation_artifacts` having been repointed — an empty probe result here is
+  not proof there is no history. This is the same check `l3io-pm-help`'s own
+  `steps/step-02-detect-layout.md` runs (a cross-skill duplication with no mechanical guard;
+  keep both in sync if the paths or wording change):
+  ```bash
+  git -C {project-root} ls-files -- '*/state/active/epic-*/epic.yaml' 'state/active/epic-*/epic.yaml' 2>/dev/null | head -5
+  find {project-root} -maxdepth 5 -type d -name active -path '*/state/*' 2>/dev/null | head -5
+  ```
+  If either prints a path that is not under `{implementation_artifacts}/state`, a confidently
+  empty dashboard over existing state elsewhere is the same "wrong beats a refusal" failure as
+  the multi-layout case above, so **BLOCK**. Print and exit — do not print "nothing to report":
+  ```
+  BLOCKED: state found at <printed-path> but implementation_artifacts resolves to
+  {implementation_artifacts}. Did implementation_artifacts change? Refusing to show an empty
+  dashboard over existing state.
+  ```
+  If both print nothing → genuine first run. Print `No state found at {pm_state_root} —
+  nothing to report.` and exit.
 
 **Step ST2 — Compute the hierarchy**
 
