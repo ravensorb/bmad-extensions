@@ -7,6 +7,33 @@ set -euo pipefail
 
 work="${1:-$(mktemp -d)}"
 pkg="$(cd "$(dirname "$0")/.." && pwd)"
+
+# The workdir is validated explicitly, not left to `set -e` on the `cd` below.
+#
+# Three separate failure modes, all of which end with this script reporting on an install it
+# never made:
+#   - the directory does not exist. `set -e` does abort on that today (measured: EXIT=1 under
+#     bash and `npm run`), but it is one edit away from not doing so -- a `cd "$work" || true`,
+#     or this prologue moved into a function called from an `if`, disables `set -e` for it
+#     silently. A guard that states the requirement cannot be switched off that way.
+#   - the directory exists but is not writable. `cd` succeeds; the installer then fails deep
+#     inside npx with an error that does not name the workdir.
+#   - the path is RELATIVE. `cd` succeeds, but `$work` is used again AFTER the cd
+#     (`view_root="$work/.smoke-module-views"`), so a relative path silently resolves a second
+#     time against the new cwd and the module views are built in the wrong place.
+# Resolving to an absolute path and asserting the three properties up front removes all three.
+if [ ! -d "$work" ]; then
+  echo "smoke: FAIL -- workdir '$work' does not exist (create it first, or pass no argument to get a mktemp -d)" >&2
+  exit 2
+fi
+work="$(cd "$work" 2>/dev/null && pwd)" || {
+  echo "smoke: FAIL -- workdir '$1' exists but could not be entered (permissions?)" >&2
+  exit 2
+}
+if [ ! -w "$work" ]; then
+  echo "smoke: FAIL -- workdir '$work' is not writable" >&2
+  exit 2
+fi
 echo "smoke: workdir $work"
 cd "$work"
 
@@ -159,6 +186,46 @@ else
   pending_check "pm-status.py sibling path (Task 11A)" \
     "skills/l3io-pm-setup or skills/l3io-pm-execute not present in this checkout"
 fi
+
+echo "== config layer (the path every skill runs first) =="
+# M-1 from the whole-branch review, and the gap that let C-1 ship: this script asserted 22
+# things about an install whose _bmad/config.toml BMad's own resolver refused to parse, because
+# nothing here ever ran the resolver. The nearest assertion (the `modules.l3io-pm` grep below)
+# reads _bmad/custom/config.toml -- a DIFFERENT file from the generated _bmad/config.toml that
+# held the duplicate table. Every l3io skill and every BMad core skill resolves config through
+# resolve_config.py at activation, and references/config-resolution.md §4 tells a skill that
+# gets a failure to stop and report "BMad core is not installed" -- which would be false. So
+# the resolver itself is the assertion.
+check "resolve_config.py parses the installed config layer and exits 0" \
+  "uv run _bmad/scripts/resolve_config.py --project-root . >/dev/null 2>&1"
+
+# The direct guard on C-1's mechanism, independent of which keys any module happens to declare:
+# TOML forbids declaring the same table twice, and writeCentralConfig has no dedupe -- it emits
+# one [modules.<sectionKey>] per installed module, so two modules resolving to the same
+# module.yaml (and therefore the same `code`) produce a byte-invalid file.
+dup_count=$(grep -oE '^\[(modules|agents)\.[^]]+\]' _bmad/config.toml 2>/dev/null | sort | uniq -d | grep -c . || true)
+check "no [modules.*] or [agents.*] table is declared twice in _bmad/config.toml" \
+  "[ '$dup_count' -eq 0 ]"
+
+# Every install-time setting a module declares must land under THAT module's code. The pairs
+# come from scripts/module-config-keys.mjs, which derives them from each module's own
+# assets/module.yaml -- never a hand-kept list (CLAUDE.md rule 4). A module that declares no
+# install-time setting contributes no pair and is correctly not asserted about.
+resolved_json="$work/.smoke-resolved-config.json"
+uv run _bmad/scripts/resolve_config.py --project-root . > "$resolved_json" 2>/dev/null || echo '{}' > "$resolved_json"
+expected_pairs="$(node "$pkg/scripts/module-config-keys.mjs" --root "$pkg")"
+expected_count=$(printf '%s\n' "$expected_pairs" | grep -c . || true)
+# Same non-empty guard as the sections above (fix round 2, N-4): a derived set that silently
+# became empty would make the loop below run zero times and pass in silence.
+check "at least one module declares an install-time setting (the derived set is not empty)" \
+  "[ '$expected_count' -gt 0 ]"
+while read -r code key; do
+  [ -n "$code" ] || continue
+  check "resolved config carries modules.$code.$key (filed under its OWN module code)" \
+    "jq -e --arg c '$code' --arg k '$key' '.modules[\$c][\$k] != null' '$resolved_json' >/dev/null"
+done <<EOF
+$expected_pairs
+EOF
 
 echo "== install experience =="
 check "no modules.l3io-pm section exists (absence is correct)" \
