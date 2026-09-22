@@ -96,6 +96,20 @@ const moduleHomeFiles = [
   { src: path.join(sharedDir, "module-setup.md"), rel: path.join("assets", "module-setup.md") },
 ];
 
+// status-files.md ALONE, for a skill that needs the state-layout contract but not the metrics
+// or calibration ones. l3io-util-doctor is that skill: migrate-state, split-status,
+// layout-cleanup, health-check and stats all decide what a correct state tree looks like, and
+// six of its runtime directives -- SKILL.md:186 among them, calling it "the canonical
+// contract" -- told the reader to open `references/status-files.md` in a skill that did not
+// ship it. Shipping it is the fix rather than repointing, because a doctor install does not
+// imply a PM install: l3io-util is its own module, and a pointer at another module's file is
+// a pointer at nothing for anyone who installed only this one. Making it a sync target is
+// also what makes the fix stick -- `check:scripts` now fails if the copy goes missing or
+// stale, which no amount of prose would have done (repo CLAUDE.md §3).
+const stateContractOnly = [
+  { src: path.join(sharedDir, "status-files.md"), rel: path.join("references", "status-files.md") },
+];
+
 const pmRefFiles = [
   { src: path.join(sharedDir, "status-files.md"), rel: path.join("references", "status-files.md") },
   { src: path.join(sharedDir, "metrics-contract.md"), rel: path.join("references", "metrics-contract.md") },
@@ -234,6 +248,9 @@ const syncGroups = [
   // pm-status.py (no tests) into l3io-util-doctor — it invokes {pm_status} and self-installs
   // it at activation but is not a PM execution skill; see pmStatusOnlyFiles above.
   { files: pmStatusOnlyFiles, dirs: newUtilDoctorDirs },
+  // status-files.md (state layout only, no metrics/calibration) into l3io-util-doctor --
+  // see stateContractOnly above for why it ships rather than being repointed.
+  { files: stateContractOnly, dirs: newUtilDoctorDirs },
   // spec-align.py into its two consumers
   { files: specAlignFiles, dirs: [...newPmExecuteDirs, ...newUtilDoctorDirs] },
   // The two BMad-validator-required merge scripts, into each module's home only.

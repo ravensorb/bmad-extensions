@@ -4,6 +4,7 @@
   "files": {
     "references/config-resolution.md": "5abd871c7ec235445bab55d280e5c0c6fd1f64e6ab84dee2c9b5d7dc78254273",
     "scripts/pm-status.py": "33d10ada25ebabe3480008a8d5a536cd57312bd073ccc128b2400d7f491a0ac6",
+    "references/status-files.md": "1d9e82709a5883bf6378476d3d51ddf00691a66f3e3c63a1c2a169fce104188d",
     "scripts/spec-align.py": "54e660827d75571f4757d74375cf5a48591bf39167359cc6def06aa82792ab9e",
     "scripts/merge-config.py": "22f51eed631c64134d352c236917e0a98ec5b5fe5d0810394f4615905c6ef7dc",
     "scripts/merge-help-csv.py": "44cae89d74a247395cc851970e28b65605e958efa04b632209f9bd5ecbc70d69",
