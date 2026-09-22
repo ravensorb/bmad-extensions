@@ -42,11 +42,18 @@
 // exact, if this numbering drifts again in practice; not done here since it was not observed to
 // have drifted a second time.
 //
+// Parsing: `module.yaml` is read with the `yaml` package and `module-help.csv` with
+// `csv-parse`. Both used to be hand-written readers, kept that way only because CI ran no
+// `npm install`; it now runs `npm ci` before every gate, so run `npm ci` once before invoking
+// this locally. See docs/adr/0007-ci-installs-npm-dependencies.md.
+//
 // Usage:
 //   node scripts/check-module.mjs        # report and exit nonzero on any failure (CI)
 //   node scripts/check-module.mjs -v     # also print what passed
 import fs from "node:fs";
 import path from "node:path";
+import YAML from "yaml";
+import { parse as parseCsv } from "csv-parse/sync";
 
 // CHECK_MODULE_ROOT points the checker at another tree -- scripts/tests/check-module.test.mjs
 // runs it against fixtures built from an empty skills/ tree.
@@ -74,26 +81,37 @@ function listSkillDirs() {
     .filter((name) => name !== "_shared");
 }
 
-// Tolerant module.yaml line-scanner, copied verbatim from check-docs.mjs's former
-// checkModuleYamlAgreement() (was check 16, deleted by Task 7 once module.yaml relocation left
-// it with no siblings to compare), so this checker keeps the same parsing behaviour rather
-// than re-deriving it. Block scalars (`key: >`) continue over indented lines; this captures
-// the whole value.
-function parseModuleYaml(text) {
-  const fields = {};
-  const lines = text.split("\n");
-  for (let i = 0; i < lines.length; i += 1) {
-    const m = lines[i].match(/^([A-Za-z][A-Za-z0-9_-]*):\s*(.*)$/);
-    if (!m) continue;
-    let value = m[2].trim();
-    if (value === ">" || value === "|" || value === ">-" || value === "|-") {
-      const body = [];
-      for (let j = i + 1; j < lines.length && /^\s+\S/.test(lines[j]); j += 1) body.push(lines[j].trim());
-      value = body.join(" ");
-    }
-    fields[m[1]] = value.replace(/\s+/g, " ");
+// module.yaml is YAML, so it is read with a YAML parser (`yaml`), not a line-scanner.
+//
+// What was here before: a tolerant subset parser -- a per-line `key: value` regex plus a
+// hand-written block-scalar continuation rule -- carried over from check-docs.mjs's former
+// checkModuleYamlAgreement(). It was written under the belief that no library was reachable,
+// because CI ran no `npm install`; adding one `npm ci` step to .github/workflows/checks.yml
+// removed that constraint and this with it (global rule 1: never hand-roll what a maintained
+// library already does -- and this repo's own scar tissue is a hand-written YAML parser).
+//
+// The parse is now strict: a module.yaml that is not valid YAML is a failure here rather than
+// a file silently read as an empty field set. `fieldText()` below tolerates a non-string
+// value (a number, a date, a list) the way a checker must -- it reports the value rather than
+// throwing on it -- so a mistyped `code:` surfaces as the field problem it is.
+function parseModuleYaml(rel, text) {
+  try {
+    const doc = YAML.parse(text);
+    return doc && typeof doc === "object" && !Array.isArray(doc) ? doc : {};
+  } catch (e) {
+    failures.push(`${rel}: is not valid YAML (${String(e.message).split("\n")[0]})`);
+    return {};
   }
-  return fields;
+}
+
+// A module.yaml field as comparable text. A string is itself; anything else (a number, a
+// boolean, a list, a mapping, null) is rendered so a failure message shows what was actually
+// found rather than throwing or stringifying into something that reads like a typo.
+function fieldText(value) {
+  if (typeof value === "string") return value;
+  if (value === undefined || value === null) return "";
+  if (typeof value === "number" || typeof value === "boolean") return String(value);
+  return JSON.stringify(value);
 }
 
 // ---------------------------------------------------------------------------
@@ -123,8 +141,8 @@ function collectModuleYamlByCode(skills) {
       ["root", `skills/${skill}/module.yaml`],
     ]) {
       if (!exists(rel)) continue;
-      const fields = parseModuleYaml(read(rel));
-      const code = fields.code;
+      const fields = parseModuleYaml(rel, read(rel));
+      const code = fieldText(fields.code).trim();
       if (!code) continue;
       if (!byCode.has(code)) byCode.set(code, { assets: [], root: [] });
       byCode.get(code)[kind].push({ skill, rel, fields });
@@ -139,9 +157,9 @@ function checkRequiredFields(skills) {
   for (const skill of skills) {
     const rel = `skills/${skill}/assets/module.yaml`;
     if (!exists(rel)) continue;
-    const fields = parseModuleYaml(read(rel));
+    const fields = parseModuleYaml(rel, read(rel));
     for (const field of REQUIRED_MODULE_FIELDS) {
-      if (!fields[field] || fields[field].trim() === "") {
+      if (fieldText(fields[field]).trim() === "") {
         failures.push(`${rel}: missing or empty required field '${field}'`);
       }
     }
@@ -191,47 +209,33 @@ function checkModuleHomes(byCode, skills) {
   }
 }
 
-// Minimal, tolerant CSV row splitter for module-help.csv, in the same spirit as
-// parseModuleYaml() above: this repo has no npm dependency and CI never runs `npm install`
-// before these checks (only `node scripts/check-module.mjs` -- see .github/workflows/checks.yml),
-// so a real CSV library is not reachable here without also wiring up a package install step.
-// Scoped exactly to what these files actually contain -- one row per line, no embedded
-// newlines inside a quoted field -- rather than a general RFC4180 parser: handles a quoted
-// field containing commas and a doubled `""` as an escaped quote (the one feature these files
-// use, e.g. `"Validate readiness, elaborate stories, ..."`), nothing else.
-function splitCsvLine(line) {
-  const fields = [];
-  let field = "";
-  let inQuotes = false;
-  for (let i = 0; i < line.length; i += 1) {
-    const c = line[i];
-    if (inQuotes) {
-      if (c === '"' && line[i + 1] === '"') { field += '"'; i += 1; }
-      else if (c === '"') { inQuotes = false; }
-      else { field += c; }
-    } else if (c === '"') {
-      inQuotes = true;
-    } else if (c === ",") {
-      fields.push(field);
-      field = "";
-    } else {
-      field += c;
-    }
+// module-help.csv is CSV, so it is read with a CSV parser (`csv-parse`), not a hand-written
+// field splitter.
+//
+// What was here before: `splitCsvLine()`, a character loop that handled a quoted field with
+// embedded commas and a doubled `""` escape and nothing else -- written, like
+// parseModuleYaml() above, only because no npm dependency was believed reachable from CI.
+// That belief was never a decision; `npm ci` in .github/workflows/checks.yml removed it.
+// `csv-parse` additionally gets embedded newlines inside a quoted field, CRLF and a BOM
+// right, none of which the splitter did.
+//
+// `relax_column_count` keeps the splitter's tolerance of a ragged row: a row with too few
+// columns yields an empty string for the missing ones rather than aborting the whole file,
+// so check 7 still reports the rows it CAN read instead of going silent on the first
+// malformed one. A file that is not CSV at all is a failure here, not an empty row set.
+function parseCsvRows(rel, text) {
+  try {
+    return parseCsv(text, {
+      columns: true,
+      bom: true,
+      skip_empty_lines: true,
+      relax_column_count: true,
+      trim: false,
+    });
+  } catch (e) {
+    failures.push(`${rel}: is not valid CSV (${String(e.message).split("\n")[0]})`);
+    return [];
   }
-  fields.push(field);
-  return fields;
-}
-
-function parseCsvRows(text) {
-  const lines = text.split("\n").filter((l) => l.trim() !== "");
-  if (lines.length === 0) return [];
-  const header = splitCsvLine(lines[0]);
-  return lines.slice(1).map((line) => {
-    const values = splitCsvLine(line);
-    const row = {};
-    header.forEach((h, i) => { row[h] = values[i] ?? ""; });
-    return row;
-  });
 }
 
 // ---------------------------------------------------------------------------
@@ -265,9 +269,9 @@ function checkCsvSkillsExist(skills) {
   for (const skill of skills) {
     const rel = `skills/${skill}/assets/module-help.csv`;
     if (!exists(rel)) continue; // check 4 already reports a module home missing this file
-    const rows = parseCsvRows(read(rel));
+    const rows = parseCsvRows(rel, read(rel));
     for (const row of rows) {
-      const csvSkill = (row.skill || "").trim();
+      const csvSkill = fieldText(row.skill).trim();
       if (!csvSkill) continue;
       if (!knownSkills.has(csvSkill)) {
         failures.push(

@@ -165,6 +165,80 @@ test("check:module passes a module-help.csv whose rows all name real skills", (t
   assert.equal(r.status, 0, r.stderr);
 });
 
+// ---- parsers, not hand-written readers (Task 17) ----
+//
+// `parseModuleYaml()` was a per-line `key: value` regex plus a hand-written block-scalar
+// rule, and `splitCsvLine()` was a character loop; both existed only because CI ran no
+// `npm install`. They are now `yaml` and `csv-parse` (see
+// docs/adr/0007-ci-installs-npm-dependencies.md). These tests pin what that changes: both
+// parsers fail CLOSED on input they cannot read, and the CSV shape the splitter got WRONG
+// now parses correctly.
+
+// A quoted field spanning two physical lines is one field. The old splitter worked line by
+// line, so the continuation line became a row of its own, and check 7 read its first column
+// as a skill name -- a phantom "orphan capability entry" failure on a perfectly valid file.
+test("check:module reads a quoted CSV field that spans two lines as one field", (t) => {
+  const root = fixture(t);
+  writeModuleHome(root, "solo", "solo");
+  write(root, "skills/solo/assets/module-help.csv",
+    "skill,module,description\n" +
+    'solo,solo,"Validate readiness, elaborate stories,\nand build the dependency graph."\n');
+  const r = run(root);
+  assert.equal(r.status, 0, r.stderr);
+});
+
+// A CRLF file is not a file whose last column ends in a stray carriage return.
+test("check:module reads a CRLF module-help.csv without a trailing carriage return", (t) => {
+  const root = fixture(t);
+  writeModuleHome(root, "solo", "solo");
+  write(root, "skills/solo/assets/module-help.csv",
+    "module,description,skill\r\nsolo,a skill,solo\r\n");
+  const r = run(root);
+  assert.equal(r.status, 0, r.stderr);
+});
+
+// Fail closed: a module.yaml that is not YAML used to read as an empty field set, which check
+// 2 reported as three missing fields and check 3 never saw at all (no `code`). It is now
+// reported as what it is.
+test("check:module reports a module.yaml that is not valid YAML", (t) => {
+  const root = fixture(t);
+  writeModuleHome(root, "solo", "solo");
+  write(root, "skills/solo/assets/module.yaml",
+    "code: solo\nname: Broken: unquoted colon\ndescription: d\n");
+  const r = run(root);
+  assert.equal(r.status, 1, r.stdout);
+  assert.match(r.stderr, /skills\/solo\/assets\/module\.yaml: is not valid YAML/);
+});
+
+// Fail closed: a module-help.csv the parser cannot read is reported, never silently treated
+// as zero rows -- which would make check 7 pass over a file it never examined (CLAUDE.md §4).
+test("check:module reports a module-help.csv that is not valid CSV", (t) => {
+  const root = fixture(t);
+  writeModuleHome(root, "solo", "solo");
+  write(root, "skills/solo/assets/module-help.csv",
+    'skill,module,description\nsolo,solo,"unterminated quote\n');
+  const r = run(root);
+  assert.equal(r.status, 1, r.stdout);
+  assert.match(r.stderr, /skills\/solo\/assets\/module-help\.csv: is not valid CSV/);
+});
+
+// A quoted scalar is its unquoted value. The old reader kept the quote characters in the
+// field, so `name: "X"` was the five-character string `"X"` -- harmless for the emptiness
+// test it fed, and wrong for anything that ever compares the value.
+test("check:module reads a quoted module.yaml scalar as its unquoted value", (t) => {
+  const root = fixture(t);
+  writeModuleHome(root, "solo", "solo");
+  write(root, "skills/solo/assets/module.yaml",
+    'code: "solo"\nname: "LiquidLogicLabs Solo"\ndescription: "A solo module."\n');
+  write(root, "skills/solo-extra/assets/module.yaml",
+    "code: solo\nname: Duplicate\ndescription: d\n");
+  const r = run(root);
+  // The two files declare the SAME code once unquoted; if the quotes were kept, `"solo"` and
+  // `solo` would be different codes and check 3 would see one home each.
+  assert.equal(r.status, 1, r.stdout);
+  assert.match(r.stderr, /code 'solo' is declared by 2 module\.yaml files/);
+});
+
 // ---- real repository integration ----
 //
 // Everything above exercises the checker against synthetic fixtures. This is the one test
