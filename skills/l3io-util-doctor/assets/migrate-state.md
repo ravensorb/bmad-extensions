@@ -5,9 +5,8 @@ Communicate all responses in `{communication_language}`.
 Migrates l3io-pm state from either the legacy flat `sprint-status*.yaml` layout or the
 legacy per-epic `{project-root}/_bmad/state/` layout to the sharded layout —
 `{implementation_artifacts}/state/{planned,active,archived}/epic-{nnn}/[sprint-{nn}/]`,
-one bare-node YAML file per epic/sprint/story — described in the PM skills' canonical
-`references/status-files.md` (source: `skills/_shared/status-files.md`; this skill does not
-ship its own copy, but the layout it defines is the migration target here).
+one bare-node YAML file per epic/sprint/story — described in the canonical
+`references/status-files.md`, which this skill ships (source: `skills/_shared/status-files.md`).
 
 **This procedure moves the project's real state.** Stages A–E are entirely non-destructive
 — they only read the legacy sources and write the new sharded tree; nothing is removed.
@@ -183,7 +182,7 @@ normalization — every node lands on a status the sharded layout accepts".
 ### Node key conversion — necessary for the sharded layout, not present in the previous version of this file
 
 Legacy flat epic and sprint nodes use `id:` (a bare integer, e.g. `id: 3`). The sharded
-layout requires `key:` on every node (the PM skills' `references/status-files.md` §3),
+layout requires `key:` on every node (`references/status-files.md` §3),
 zero-padded — `'E{nnn}'` (3-digit) for epics, `'S{nn}'` (2-digit) for sprints. Convert, for
 every epic and sprint node in the working epic list (regardless of what the status
 normalization step will later do to it):

@@ -2186,12 +2186,36 @@ test("check 4 catches a bare {pm_status} invocation with no uv run", (t) => {
   assert.match(r.stderr, /triage\.md:\d+: invokes pm-status\.py subcommand 'totally-made-up'/);
 });
 
-// The false-positive half of that extension, and the reason it is gated on a long flag: the
-// {pm_status} binding really is used in prose, and a checker that cries wolf gets switched off.
-// These are the three prose shapes measured on this tree, none of which carries a flag.
-test("the bare-binding extension leaves flagless prose uses of {pm_status} alone", (t) => {
+// A FLAGLESS bare-binding invocation. Under the first version of this arm -- which judged a
+// bare-binding fragment only when it carried a long flag -- this escaped entirely, and two
+// real ones shipped that way (`{pm_status} usage` in the digest's routing table,
+// `{pm_status} show` in step-estimate.md §4), so renaming either subcommand would have left
+// them stale with every gate green.
+test("check 4 catches a FLAGLESS bare {pm_status} invocation", (t) => {
+  const root = fixture(t);
+  write(root, "skills/l3io-util-doctor/steps/triage.md",
+    "\n| `zz` | run `{pm_status} totally-made-up` once |\n", true);
+  const r = run(root);
+  assert.equal(r.status, 1, r.stdout);
+  assert.match(r.stderr, /triage\.md:\d+: invokes pm-status\.py subcommand 'totally-made-up'/);
+});
+
+// The false-positive half, and the reason the qualifier is CODE FORMATTING rather than the
+// presence of a long flag. The flag predicate held on this corpus only incidentally: every
+// prose use but two sits in a backtick span, and a span closes the fragment before a flag can
+// appear in it. The two exceptions are real and shipped -- assets/migrate-state.md:43 and :62
+// write an un-backticked {pm_status} inside a fenced BLOCKED message -- so an author adding a
+// flag to either sentence would have turned CI red with a message about a subcommand called
+// 'not'. Measured against the previous checker on exactly this fixture: it reported
+// "invokes pm-status.py subcommand 'not'". It must not now.
+test("prose naming {pm_status} outside code formatting is not an invocation, flag or no flag", (t) => {
   const root = fixture(t);
   write(root, "skills/l3io-util-doctor/steps/triage.md", [
+    "",
+    "```",
+    "BLOCKED: {pm_status} not found. Self-install did not complete --flock — check the path.",
+    "BLOCKED: {pm_status} is version {found}, but this needs {required} --state-root or newer.",
+    "```",
     "",
     "`{pm_status}` not found. Self-install at activation did not complete.",
     "`{pm_status}` is version {found}, but this migration requires {required} or newer.",

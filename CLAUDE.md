@@ -62,6 +62,15 @@ the 50 are inside the `status-files.md` copy this change added. A gate over the 
 would need those 50 triaged first, and an allowlist instead would be exactly the hand-kept
 scope §4 forbids.
 
+**The available narrower gate, recorded as a follow-up rather than built.** Scope it to
+*pointers inside a file that `sync-shared-scripts.mjs` ships, required to resolve in every
+skill that file's sync group delivers it to*. That derives entirely from `syncGroups` — no
+allowlist, no judgement about attribution — and on today's tree it would be red on **5 lines,
+not 50**: the onward pointers inside the `status-files.md` copy now shipped to
+`l3io-util-doctor`. It is not built here because the five would have to be resolved first, and
+resolving them means deciding what a doctor agent should read instead, which is a content
+question this round did not open.
+
 **Test suites are never shipped as payload.** `skills/_shared/tests/test-pm-status.py`,
 `skills/_shared/tests/test-write-module-config.py` and `skills/_shared/tests/test-spec-align.py` stay in `skills/_shared/tests/` only — CI
 runs all three straight from there (`.github/workflows/checks.yml`), no consumer skill invokes
@@ -121,10 +130,12 @@ Three things that header does not tell you:
 - Check 4's `skills/` arm judges an invocation's long flags against the **invoked subcommand's
   own** option set, not the union of everything the CLI registers, and it also guards
   `steps/shared/step-00-digest.md`'s CLI synopsis — a second copy of the `pm-status.py` surface
-  that every dispatched subagent loads on its own. What it still does not judge (the bare
-  `pm-status.py` path form with no `uv run`, short options, flag *values*, and parenthesised
-  spans inside the digest synopsis) is listed in that `KNOWN GAPS` block, not here, so there is
-  one place to keep true.
+  that every dispatched subagent loads on its own. A bare `{pm_status} …` invocation counts as
+  one when the binding is **code-formatted** — that qualifier, not "carries a long flag", is
+  what keeps the arm off ordinary prose, and `pmStatusAnchors()` records the two shipped
+  sentences that proved the flag version unsafe. What it still does not judge is listed in that
+  `KNOWN GAPS` block, not here, so there is one place to keep true; it covers false negatives
+  only, and says so.
 
 The `postbump` hook chains sync automatically, so every release keeps the payloads in sync.
 

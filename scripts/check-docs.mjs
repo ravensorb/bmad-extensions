@@ -76,9 +76,16 @@
 // review measured five escapes (M-2). Three are now closed and each has a mutation test:
 //
 //   CLOSED  a bare `{pm_status} …` invocation with no literal `uv run` — the anchor is now
-//           `uv run` OR the `{pm_status}` binding, the latter gated on the fragment carrying
-//           at least one long flag, which is what separates a command from the three prose
-//           uses of the binding measured on this tree. See pmStatusAnchors().
+//           `uv run` OR the `{pm_status}` binding, the latter qualified on the binding being
+//           inside a CLOSED BACKTICK SPAN. See pmStatusAnchors() for why code formatting and
+//           not "carries a long flag", which was the first attempt: that predicate held on
+//           this corpus only because a span closes the fragment before a flag can appear, and
+//           two shipped sentences (assets/migrate-state.md:43, :62) sit outside a span where
+//           one added flag would have turned CI red on correct prose.
+//   CLOSED  a FLAGLESS bare-binding invocation. Two ship today — `{pm_status} usage` in the
+//           digest's routing table and `{pm_status} show` in step-estimate.md §4 — and the
+//           long-flag predicate could not see either, so renaming `usage` or `show` would
+//           have left them stale with every gate green.
 //   CLOSED  a flag that exists somewhere in the CLI but not on the subcommand it is given to
 //           (`set-status --scope story`) — flags are now judged against the invoked
 //           subcommand's own option set. See pmStatusSubcommandOptions().
@@ -88,12 +95,33 @@
 //
 // What is STILL NOT CHECKED, stated so nobody has to discover it:
 //
+// This block lists FALSE NEGATIVES — invocations that are wrong and are not reported. It does
+// not list false positives, because there are none known: the two predicates that could
+// produce one (the `uv run` anchor and the code-formatting qualifier) are each pinned by a
+// test that plants prose and requires exit 0.
+//
 //   (a) The bare `pm-status.py` PATH form with no `uv run` in front of it. Unlike the
-//      `{pm_status}` binding, its prose occurrences DO carry long flags, so the discriminator
-//      that makes the binding safe does not transfer. check 17 forbids reaching a PEP-723
+//      `{pm_status}` binding, its prose occurrences DO carry long flags AND are not reliably
+//      code-formatted, so neither qualifier transfers. check 17 forbids reaching a PEP-723
 //      script by any route other than `uv run`, so this shape is a check 17 failure rather
 //      than a hole here — but it is a hole HERE, and check 17 only looks for a python
 //      interpreter, not for the absence of one.
+//   (a2) A bare-binding invocation that is NOT code-formatted — `{pm_status} set-status …`
+//      written as plain text, or inside a fenced block with no backticks around it and no
+//      `uv run`. This is the price of (a)'s qualifier, paid deliberately: the same shape in
+//      prose is what the qualifier exists to exclude, and no predicate separates them. Every
+//      real invocation in the tree today is either `uv run`-anchored or code-formatted.
+//   (a3) Long flags on `spec-align.py`. checkSpecAlignSurface() judges SUBCOMMAND NAMES only,
+//      in both directions; it never looks at a flag. `{spec_align} check-pointers --nope X`
+//      passes. The pm-status arm's per-subcommand extraction has no spec-align counterpart.
+//   (a4) Flags past the third soft-wrap inside ONE unclosed code span. MAX_SPAN_JOINS bounds
+//      that join (a stray backtick otherwise swallows to end of file); a `\`-continued
+//      command has no such cap and is read whole however deep it goes.
+//   (a5) In the LIVE-DOCS forward arm only: a hyphenated subcommand named in backticks whose
+//      prefix is not one of set-/estimate-/move-/archive-/append-/list-/check-/clear-/self-,
+//      unless the doc uses the explicit `pm-status.py <name>` form. `add-test-run` and
+//      `adr-reserve` in a doc are judged only through that explicit form. The skills/ arm
+//      does not share this limit — it reads argv, not prose.
 //   (b) Short options (`-s`), positional arguments, and required-argument presence. Only long
 //      options are extracted and only their membership is judged; `set-status --state-root`
 //      with no value, or `calibration` with no action, passes.
@@ -767,30 +795,61 @@ function logicalLines(text) {
   return out;
 }
 
-// Anchor positions in one logical line, in source order, each with whether the fragment that
-// starts there needs the prose discriminator below.
+// Anchor positions in one logical line, in source order.
 //
-// `uv run` anchors need nothing: check 17 forbids reaching a PEP-723 script any other way, so
-// a `uv run` fragment naming pm-status.py IS a command by construction.
+// `uv run` anchors need no qualification: check 17 forbids reaching a PEP-723 script any other
+// way, so a `uv run` fragment naming pm-status.py IS a command by construction.
 //
-// A BARE `{pm_status}` anchor is the M-2(1) extension. The binding appears in runtime
-// directives both as a command and, measured on this tree, in prose: `{pm_status} not found.
-// Self-install at activation did not complete`, `{pm_status} is version {found}, but this
-// migration requires…`, and bare `{pm_status} ...` placeholders. All three are sentences, and
-// none of them contains a long flag. So the discriminator is exactly that: a bare-binding
-// fragment is judged only when it carries at least one `--flag`. That is what makes
-// `{pm_status} totally-made-up --nope X` -- the shape the whole-branch review planted and
-// measured as escaping -- reachable, while leaving every prose occurrence alone. Verified by
-// running the extended arm over the whole tree: 0 new offenders, and the planted shape caught.
+// A BARE `{pm_status}` anchor is the extension that closes M-2(1). It is qualified on the
+// binding being INSIDE A CLOSED BACKTICK SPAN -- code formatting -- and on nothing else.
 //
-// The `pm-status.py` PATH form is deliberately NOT a bare anchor. Its prose occurrences do
-// carry flags ("a later pm-status.py write … --flock"), and it is the form check 17 already
-// governs. That remainder is in the Known gaps block in this file's header.
+// Why that qualifier and not the long-flag one it replaces. The first version of this arm
+// judged a bare-binding fragment only when it carried a `--flag`, on the measurement that no
+// prose use of the binding carries one. True, and true for the wrong reason: every prose
+// occurrence but two sits inside a backtick span, and a span CLOSES the fragment before any
+// flag could appear in it. The property was the corpus's, not the predicate's. The two
+// exceptions prove it -- `assets/migrate-state.md:43` and `:62` write an un-backticked
+// `{pm_status}` inside a fenced BLOCKED message, so an author adding a long flag to either
+// sentence (". . . then re-run with --flock") would have turned CI red on correct prose with
+// a message about a subcommand called `is` or `not`. A guard that cries wolf gets switched
+// off, and then it protects nothing.
+//
+// Code formatting is the property the corpus actually relies on, so this requires it
+// directly. Measured on this tree, it separates the two classes exactly:
+//   `{pm_status} usage`            in a span -> judged   (a real invocation; digest §routing)
+//   `{pm_status} show`             in a span -> judged   (a real invocation; step-estimate §4)
+//   `{pm_status}` not found...     span holds the binding ALONE, so the fragment ends there,
+//                                  no subcommand token follows, nothing is judged
+//   BLOCKED: {pm_status} is version{found}...  not in a span -> never anchored
+//
+// Dropping the flag gate is what makes a FLAGLESS bare invocation reachable at all: the two
+// real ones above shipped unchecked under the old predicate, so renaming `usage` or `show`
+// would have left them stale with every gate green.
+//
+// The `pm-status.py` PATH form is still deliberately NOT a bare anchor -- it is the form
+// check 17 already governs, and its prose uses are not reliably code-formatted. That
+// remainder is in the KNOWN GAPS block in this file's header.
 function pmStatusAnchors(text) {
   const anchors = [];
-  for (const m of text.matchAll(/\buv\s+run\b/g)) anchors.push({ at: m.index, bare: false });
+  const covered = []; // [start, end) already inside a `uv run` fragment
+  for (const m of text.matchAll(/\buv\s+run\b/g)) {
+    anchors.push({ at: m.index, bare: false });
+    const rest = text.slice(m.index);
+    const closes = rest.indexOf("`");
+    covered.push([m.index, closes >= 0 ? m.index + closes : text.length]);
+  }
+
+  // An occurrence is inside a closed backtick span when an odd number of backticks precede it
+  // on the logical line AND one follows it. The same parity test logicalLines() uses for a
+  // soft-wrapped span, applied at a point rather than at end of line.
+  const inClosedSpan = (at) => {
+    const before = (text.slice(0, at).match(/`/g) || []).length;
+    return before % 2 === 1 && text.indexOf("`", at) >= 0;
+  };
+
   for (const m of text.matchAll(/\{pm_status\}/g)) {
-    if (anchors.some((a) => !a.bare && a.at < m.index)) continue; // already inside a uv run run
+    if (covered.some(([start, end]) => m.index >= start && m.index < end)) continue;
+    if (!inClosedSpan(m.index)) continue;
     anchors.push({ at: m.index, bare: true });
   }
   return anchors.sort((a, b) => a.at - b.at);
@@ -815,8 +874,6 @@ function checkPmStatusInvocations() {
         const closingBacktick = fragment.indexOf("`");
         if (closingBacktick >= 0) fragment = fragment.slice(0, closingBacktick);
         if (!/\{pm_status\}|pm-status\.py/.test(fragment)) continue;
-        // The prose discriminator — see pmStatusAnchors().
-        if (anchor.bare && !/\s--[a-z0-9]/.test(fragment)) continue;
 
         const commands = shellCommands(fragment);
         if (commands === null) { unreadable += 1; continue; }
