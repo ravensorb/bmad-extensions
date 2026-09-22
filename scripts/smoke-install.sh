@@ -143,8 +143,18 @@ if [ -d ".claude/skills/l3io-pm-setup" ] && [ -d ".claude/skills/l3io-pm-execute
   # ADR-0008's "moving text unchanged can break it".
   check "l3io-pm-help still says it does not self-install pm-status.py" \
     "grep -rq 'does not self-install' '$pkg/skills/l3io-pm-help/'"
+  # Its negative twin, and it needs the same reach for the same reason: after Task 12's split
+  # the subject matter lives in steps/step-01-config.md, so a self-install invocation appended
+  # THERE satisfied a SKILL.md-only grep and left check:docs green too. Broadening the positive
+  # assertion above while leaving this one pinned to a file would have checked that the skill
+  # still says the right thing without checking that it still does the right thing.
+  # Both spellings, not just the literal path form. Every real self-install in this package
+  # runs from a payload copy (`uv run {skill-root}/scripts/pm-status.py self-install …`), so
+  # the path form is the one that occurs -- but a future author writing `{pm_status}
+  # self-install` would be making exactly the mistake this assertion exists to catch, and the
+  # old pattern could not see it. Verified by planting both spellings in steps/.
   check "l3io-pm-help carries no self-install invocation of its own" \
-    "! grep -q 'pm-status\.py self-install' '$pkg/skills/l3io-pm-help/SKILL.md'"
+    "! grep -rqE '(pm-status\.py|\{pm_status\}) self-install' '$pkg/skills/l3io-pm-help/'"
 else
   pending_check "pm-status.py sibling path (Task 11A)" \
     "skills/l3io-pm-setup or skills/l3io-pm-execute not present in this checkout"

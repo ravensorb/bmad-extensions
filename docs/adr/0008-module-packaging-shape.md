@@ -183,6 +183,13 @@ without it.
    assertion against an external source of truth. This ADR's own check 22 does the same: scope
    from `skills/`, expected row count re-derived independently inside the test.
 
+   The cleanest demonstration in this repo sits in check 22's own suite. Replace its scope
+   derivation with a hand-list of today's eight skills and the test asserting *"every `l3io-*`
+   skill directory is matched against the block"* **still passes** — the list happens to equal
+   the tree. Only the scope-attack test, which plants a ninth skill directory, goes red. A test
+   that measures the rule over the current scope cannot tell you the scope is derived; only one
+   that changes the scope can.
+
 6. **Verifying the fix is a separate act from verifying the diagnosis.** One brief proved an
    existing documentation pointer wrong and prescribed a replacement — which was also wrong, in
    the same sentence, in the same commit, while reporting the problem solved. The proof step

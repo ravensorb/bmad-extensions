@@ -2000,3 +2000,75 @@ test("check 4/skills: a stray backtick does not swallow the lines below it", (t)
   assert.equal(r.status, 1, r.stdout);
   assert.match(r.stderr, /planted\.md:7: invokes 'clear-lock --epic-key'/);
 });
+
+// Continuation DEPTH. A single shared join cap covered both continuation kinds and stopped at
+// three, so the checker read part of a `\`-continued command and judged it as if it were
+// whole: 68 pm-status invocations in this repo run deeper than that, and 154 long-flag tokens
+// were never judged (1019 of 1173 checked, measured with the checker's own -v counter). The
+// two kinds are now counted separately and only the span join is capped.
+//
+// This first test pins a fixed depth so the boundary holds whatever the tree does: four joins,
+// one past the old cap, with the bogus flag on the last line.
+test("check 4/skills: a flag one continuation past the old cap is seen", (t) => {
+  const root = fixture(t);
+  write(root, PLANT_FILE, [
+    "# Planted", "", "```bash",
+    "uv run {pm_status} set-actual --state-root {r} \\",
+    "  --node story --story {s} \\",
+    "  --elapsed-hours 1 \\",
+    "  --man-hours 2 \\",
+    "  --hitl-hours 3 --not-a-real-flag 4",
+    "```", "",
+  ].join("\n"));
+  const r = run(root);
+  assert.equal(r.status, 1, r.stdout);
+  assert.match(r.stderr, /invokes 'set-actual --not-a-real-flag'/);
+});
+
+// ...and this one attacks the depth the REAL corpus contains, rather than a depth the test
+// author chose. It finds the deepest `\`-continued run carrying a pm-status token anywhere in
+// the fixture, appends a bogus flag to that run's final line, and requires the checker to have
+// read that far. Any cap below the tree's own depth -- today or after the tree grows -- turns
+// this red, which a fixed-depth test alone cannot promise.
+test("check 4/skills: the deepest real continuation in the tree is read to its end", (t) => {
+  const root = fixture(t);
+
+  const mdFiles = [];
+  const walk = (dir) => {
+    for (const e of fs.readdirSync(dir, { withFileTypes: true })) {
+      const p = path.join(dir, e.name);
+      if (e.isDirectory()) walk(p);
+      else if (e.name.endsWith(".md")) mdFiles.push(p);
+    }
+  };
+  walk(path.join(root, "skills"));
+
+  let deepest = null;
+  for (const file of mdFiles) {
+    const lines = fs.readFileSync(file, "utf8").split("\n");
+    for (let i = 0; i < lines.length; i++) {
+      if (!/\\\s*$/.test(lines[i])) continue;
+      let j = i;
+      while (j < lines.length && /\\\s*$/.test(lines[j])) j += 1;
+      const block = lines.slice(i, j + 1).join(" ");
+      const joins = j - i;
+      if (/\{pm_status\}|pm-status\.py/.test(block) && (!deepest || joins > deepest.joins)) {
+        deepest = { file, last: j, joins };
+      }
+      i = j;
+    }
+  }
+
+  assert.ok(deepest, "no `\\`-continued pm-status invocation found in the fixture");
+  assert.ok(deepest.joins > 3,
+    `the deepest real continuation is only ${deepest.joins} join(s); this test needs one ` +
+    `deeper than the old shared cap of 3 to prove anything`);
+
+  const lines = fs.readFileSync(deepest.file, "utf8").split("\n");
+  lines[deepest.last] += " --not-a-real-flag X";
+  fs.writeFileSync(deepest.file, lines.join("\n"));
+
+  const r = run(root);
+  assert.equal(r.status, 1, r.stdout);
+  assert.match(r.stderr, /--not-a-real-flag', but pm-status\.py registers no such option/);
+});

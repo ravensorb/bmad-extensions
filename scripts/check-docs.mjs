@@ -433,9 +433,13 @@ function checkCliSurface() {
 // and reaching it means one `uv run` subprocess per checker run -- multiplied by the 100+
 // fixture runs in scripts/tests/check-docs.test.mjs. So the rule here is the union of every
 // long option the CLI registers anywhere. Measured against the real thing before shipping:
-// building build_parser() under uv and unioning every subparser's option_strings yields 82
-// flags; PY_LONG_OPTION_RE yields those same 82 plus the top-level --version, with nothing
-// missing in either direction. What this does NOT catch: a real flag used with the wrong
+// building build_parser() under uv and unioning every subparser's option_strings -- including
+// the --help argparse adds to each, plus the root parser's --version -- yields **84** flags,
+// and pmStatusLongOptions() yields exactly the same 84: set-identical, nothing missing in
+// either direction. (An earlier note here said "82 plus --version", which compared unlike
+// sets: it dropped --help from the argparse side while the checker seeds it. The conclusion
+// held; the number did not, and a measurement stated wrongly is worth no more than one not
+// taken.) What this does NOT catch: a real flag used with the wrong
 // subcommand (`set-status --scope story`). That is stated here rather than implied.
 //
 // Not detected, measured on this tree: 8 fragments (2 distinct synopsis lines x 4 synced
@@ -465,9 +469,23 @@ function pmStatusLongOptions() {
 //     span, so `--state-root`/`--epic` sit on the line after the subcommand. The l3io-pm-help
 //     copy is one table-cell line and was already covered -- checking one copy of a
 //     duplication and not the other is the failure this arm exists to prevent.
-// A ``` fence line has three backticks and is never treated as an open span, and the join is
-// capped so a stray backtick cannot swallow a file.
-const MAX_LINE_JOINS = 3;
+// The two are counted SEPARATELY and only the span join is capped. They are not the same kind
+// of thing, and one shared counter truncated real commands:
+//
+//   - A `\`-continued command is ONE command. The shell imposes no depth limit and neither
+//     does this, because a run only continues while EVERY line ends in `\` -- it is
+//     self-terminating by construction, and stopping early means reading part of a command and
+//     judging it as if it were whole. Measured on this tree the deepest real invocation is
+//     **14 joins** (`_shared/steps/sprint/step-04-sprint-closure.md:70`), 68 pm-status
+//     invocations run past 3, and a shared cap of 3 left 230 of 1441 long-flag tokens (16%,
+//     across 26 files) unjudged -- a bogus flag on line 79 of step-06-epic-closure.md's
+//     13-line `set-actual` kept the gate green. No number is stated here because there is no
+//     limit to state; deriving one from "the longest invocation today plus headroom" would be
+//     a hand-kept bound that silently truncates the first command to exceed it.
+//   - An unclosed `…` span has no such property: a stray backtick never closes, so without a
+//     cap it swallows to end of file. MAX_SPAN_JOINS bounds only that, and its observable
+//     effect is the reported line number (see the stray-backtick test).
+const MAX_SPAN_JOINS = 3;
 
 function logicalLines(text) {
   const lines = text.split("\n");
@@ -476,10 +494,16 @@ function logicalLines(text) {
   for (let i = 0; i < lines.length; i++) {
     let joined = lines[i];
     let j = i;
-    for (let joins = 0; joins < MAX_LINE_JOINS && j + 1 < lines.length; joins += 1) {
+    let spanJoins = 0;
+    while (j + 1 < lines.length) {
       const shellContinuation = /\\\s*$/.test(joined);
-      if (!shellContinuation && !spanLeftOpen(joined)) break;
-      if (shellContinuation) joined = joined.replace(/\\\s*$/, "");
+      if (shellContinuation) {
+        joined = joined.replace(/\\\s*$/, "");
+      } else if (spanLeftOpen(joined) && spanJoins < MAX_SPAN_JOINS) {
+        spanJoins += 1;
+      } else {
+        break;
+      }
       j += 1;
       joined += " " + lines[j];
     }
@@ -494,6 +518,10 @@ function checkPmStatusInvocations() {
   const flags = pmStatusLongOptions();
   let checked = 0;
   let unreadable = 0;
+  // Reported under -v because it is the number a depth regression moves, and nothing else
+  // would show it: an invocation truncated mid-command still counts as one `checked`
+  // invocation while its remaining flags go unjudged. A shared join cap of 3 hid 230 of these.
+  let flagsChecked = 0;
   const offenders = [];
 
   for (const rel of allSkillDocs()) {
@@ -528,6 +556,7 @@ function checkPmStatusInvocations() {
             if (typeof token !== "string" || !token.startsWith("--")) continue;
             const flag = token.split("=")[0];
             if (flag === "--") continue;
+            flagsChecked += 1;
             if (flags.has(flag)) continue;
             offenders.push(`${rel}:${line}: invokes '${sub} ${flag}', but pm-status.py ` +
               `registers no such option anywhere in its CLI`);
@@ -542,8 +571,8 @@ function checkPmStatusInvocations() {
       `not exist:\n      ${offenders.join("\n      ")}`);
   }
   if (verbose) {
-    console.log(`  pm-status-invocations: ${checked} invocation(s) in skills/ checked ` +
-      `(${unreadable} fragment(s) not readable as shell, skipped)`);
+    console.log(`  pm-status-invocations: ${checked} invocation(s) and ${flagsChecked} long ` +
+      `flag(s) in skills/ checked (${unreadable} fragment(s) not readable as shell, skipped)`);
   }
 }
 
