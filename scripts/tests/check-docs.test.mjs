@@ -1007,6 +1007,207 @@ test("check 17 R-1: python3 with flags before a {spec_align} helper token is cau
   assert.match(r.stderr, /round4-helper\.md:\d+: invokes a PEP-723 script with python3/);
 });
 
+// ---- check 17, rebuilt on real parsers (Task 17) ----
+//
+// The workflow half of check 17 no longer reads a YAML file line by line, and no longer
+// splits a command with /&&|;|\||&/. The file is parsed with `yaml`, each `run:` script is
+// parsed with `mvdan-sh`, and the rule is applied to the resulting argv. Every string below
+// was MEASURED against the previous checker earlier in this plan: the bypasses exited 0 and
+// should not have, the false reds exited 1 and should not have. None of them is reachable by
+// a better regex -- each needs a parser to know what is quoted, what is a substitution, what
+// is an assignment prefix and what is a wrapper command.
+const TASK17_BYPASSES = [
+  ["a quoted `&` inside an env-assignment prefix",
+    "NOTE='x & uv run --with y' python3 skills/_shared/tests/test-pm-status.py"],
+  ["a quoted `&&` inside an env-assignment prefix",
+    "NOTE='x && uv run --with y' python3 skills/_shared/tests/test-pm-status.py"],
+  ["a quoted `;` inside an env-assignment prefix",
+    "NOTE='x ; uv run --with y' python3 skills/_shared/tests/test-pm-status.py"],
+  ["a double-quoted `&&` inside an env-assignment prefix",
+    'NOTE="x && uv run --with y" python3 skills/_shared/tests/test-pm-status.py'],
+  ["a decoy `uv run --with` quoted as an echo argument",
+    "echo 'a & uv run --with y' python3 skills/_shared/tests/test-pm-status.py"],
+  ["a decoy `uv run --with` quoted as a grep pattern",
+    "grep -q 'x | uv run --with y' python3 skills/_shared/tests/test-pm-status.py"],
+  ["a `$( )` substitution under an otherwise-provisioned uv run",
+    "uv run --with 'x' echo \"$(python3 skills/_shared/tests/test-pm-status.py)\""],
+  ["a backtick substitution under an otherwise-provisioned uv run",
+    "uv run --with 'x' echo \"`python3 skills/_shared/tests/test-pm-status.py`\""],
+  ["a substitution beside a genuinely provisioned invocation",
+    "uv run --with 'x' python3 A.py --arg \"$(python3 skills/_shared/tests/test-pm-status.py)\""],
+  ["a shell variable standing in for the interpreter",
+    "PY=python3; $PY skills/_shared/tests/test-pm-status.py"],
+];
+
+for (const [label, line] of TASK17_BYPASSES) {
+  test(`check 17 Task 17: ${label} no longer bypasses the check`, (t) => {
+    const root = fixture(t);
+    write(root, ".github/workflows/checks.yml",
+      `    - name: task-17 bypass\n      run: ${line}\n`,
+      /* append */ true);
+    const r = run(root);
+    assert.equal(r.status, 1, r.stdout);
+    assert.match(r.stderr, /invokes a PEP-723 script with python3/);
+  });
+}
+
+// A literal `\n` inside a DOUBLE-QUOTED YAML scalar is a real newline once the document is
+// parsed, so it is two commands -- the first a legitimate `uv run`, the second a bare python3
+// invocation that the old line-at-a-time read could never see as separate.
+test("check 17 Task 17: a literal \\n inside a double-quoted run: scalar is two commands", (t) => {
+  const root = fixture(t);
+  write(root, ".github/workflows/checks.yml",
+    "    - name: task-17 escaped newline\n" +
+    '      run: "uv run A.py\\npython3 skills/_shared/tests/test-pm-status.py"\n',
+    /* append */ true);
+  const r = run(root);
+  assert.equal(r.status, 1, r.stdout);
+  assert.match(r.stderr, /invokes a PEP-723 script with python3/);
+});
+
+// The mirror set: correct, provisioned invocations the old checker reported RED. A guard that
+// cries wolf gets switched off, so these are pinned as explicitly as the bypasses above.
+const TASK17_FALSE_REDS = [
+  ["a `timeout` wrapper",
+    "timeout 600 uv run --with 'x' python3 skills/_shared/tests/test-pm-status.py"],
+  ["an `env VAR=value` wrapper",
+    "env FOO=1 uv run --with 'x' python3 skills/_shared/tests/test-pm-status.py"],
+  ["a `sudo` wrapper",
+    "sudo uv run --with 'x' python3 skills/_shared/tests/test-pm-status.py"],
+  ["a `nice -n 10` wrapper",
+    "nice -n 10 uv run --with 'x' python3 skills/_shared/tests/test-pm-status.py"],
+  ["an if/then shell block",
+    "if [ -f x ]; then uv run --with 'x' python3 skills/_shared/tests/test-pm-status.py; fi"],
+  ["two spaces between `uv` and `run`",
+    "uv  run --with 'x' python3 skills/_shared/tests/test-pm-status.py"],
+  ["a `|` inside a --with value",
+    "uv run --with 'a|b' python3 skills/_shared/tests/test-pm-status.py"],
+  ["an `&` inside a --with URL",
+    "uv run --with 'pkg @ https://host/x.whl?a=1&b=2' python3 skills/_shared/tests/test-pm-status.py"],
+];
+
+for (const [label, line] of TASK17_FALSE_REDS) {
+  test(`check 17 Task 17: ${label} is not a violation`, (t) => {
+    const root = fixture(t);
+    write(root, ".github/workflows/checks.yml",
+      `    - name: task-17 false red\n      run: ${line}\n`,
+      /* append */ true);
+    const r = run(root);
+    assert.equal(r.status, 0, r.stderr);
+  });
+}
+
+// The provisioning flag must sit BETWEEN `run` and the interpreter. A real `--with` spelled
+// AFTER the script is a script argument, not a uv flag, and provisions nothing.
+//
+// Found by mutation: replacing `argv.slice(2, pyIndex)` with `argv.slice(2)` -- dropping the
+// position requirement entirely -- left the whole suite green, because N-1's existing case
+// (`--with-coverage`) is rejected on the flag NAME and never exercised the position. This is
+// the case that does.
+test("check 17 Task 17: a real `--with` after the script does not provision anything", (t) => {
+  const root = fixture(t);
+  write(root, ".github/workflows/checks.yml",
+    "    - name: task-17 trailing with\n" +
+    "      run: uv run python3 skills/_shared/tests/test-pm-status.py --with 'ruamel.yaml>=0.18'\n",
+    /* append */ true);
+  const r = run(root);
+  assert.equal(r.status, 1, r.stdout);
+  assert.match(r.stderr, /invokes a PEP-723 script with python3/);
+});
+
+// The whole command inside a quoted YAML scalar: the old checker stripped the `run:` key
+// textually and was then left with a leading quote character, so its `^uv run` anchor could
+// never match. A YAML parser hands over the scalar's VALUE, with no quote to trip over.
+test("check 17 Task 17: a provisioned command inside a single-quoted YAML scalar passes", (t) => {
+  const root = fixture(t);
+  write(root, ".github/workflows/checks.yml",
+    "    - name: task-17 single-quoted scalar\n" +
+    `      run: 'uv run --with "x" python3 skills/_shared/tests/test-pm-status.py'\n`,
+    /* append */ true);
+  const r = run(root);
+  assert.equal(r.status, 0, r.stderr);
+});
+
+test("check 17 Task 17: a provisioned command inside a double-quoted YAML scalar passes", (t) => {
+  const root = fixture(t);
+  write(root, ".github/workflows/checks.yml",
+    "    - name: task-17 double-quoted scalar\n" +
+    `      run: "uv run --with 'x' python3 skills/_shared/tests/test-pm-status.py"\n`,
+    /* append */ true);
+  const r = run(root);
+  assert.equal(r.status, 0, r.stderr);
+});
+
+// A multi-line `run: |` block is one script, not a sequence of unrelated lines: the
+// provisioned command on its first line must not exempt the bare one on its second, and the
+// offence must be reported against the second line's own file position.
+test("check 17 Task 17: a block scalar is read as a script, with per-line attribution", (t) => {
+  const root = fixture(t);
+  const before = fs.readFileSync(path.join(root, ".github/workflows/checks.yml"), "utf8");
+  const offendingLine = before.split("\n").length + 3;
+  write(root, ".github/workflows/checks.yml",
+    "    - name: task-17 block scalar\n" +
+    "      run: |\n" +
+    "        uv run --with 'x' python3 skills/_shared/tests/test-pm-status.py\n" +
+    "        python3 skills/_shared/tests/test-write-module-config.py\n",
+    /* append */ true);
+  const r = run(root);
+  assert.equal(r.status, 1, r.stdout);
+  assert.match(r.stderr,
+    new RegExp(`checks\\.yml:${offendingLine}: invokes a PEP-723 script with python3`));
+});
+
+// Both new parsers fail CLOSED. A workflow file the YAML parser cannot read, or a `run:` body
+// the shell parser cannot read, is reported -- never skipped, which would silently shrink the
+// set this check examines (repo CLAUDE.md §4).
+test("check 17 Task 17: a workflow file that is not valid YAML is reported, not skipped", (t) => {
+  const root = fixture(t);
+  write(root, ".github/workflows/broken.yml", "jobs:\n  a: [unclosed\n");
+  const r = run(root);
+  assert.equal(r.status, 1, r.stdout);
+  assert.match(r.stderr, /broken\.yml:.*does not parse as YAML/);
+});
+
+test("check 17 Task 17: a run: body that is not valid shell is reported, not skipped", (t) => {
+  const root = fixture(t);
+  write(root, ".github/workflows/badshell.yml",
+    "name: bad\non: [push]\njobs:\n  a:\n    runs-on: ubuntu-latest\n" +
+    "    steps:\n    - run: 'if [ -f x ]; then'\n");
+  const r = run(root);
+  assert.equal(r.status, 1, r.stdout);
+  assert.match(r.stderr, /badshell\.yml:\d+: this run: script does not parse as shell/);
+});
+
+// Scope attack on the rebuild: the workflow set is still derived by listing
+// .github/workflows/, so a violation in a workflow file this repo does not have yet is still
+// found. Plants in a NEW file rather than appending to checks.yml, which every other
+// workflow test above uses.
+test("check 17 Task 17 scope attack: a violation in a new workflow file is caught", (t) => {
+  const root = fixture(t);
+  write(root, ".github/workflows/nightly.yml",
+    "name: nightly\non: [schedule]\njobs:\n  a:\n    runs-on: ubuntu-latest\n" +
+    "    steps:\n    - run: python3 skills/_shared/tests/test-pm-status.py\n");
+  const r = run(root);
+  assert.equal(r.status, 1, r.stdout);
+  assert.match(r.stderr, /nightly\.yml:\d+: invokes a PEP-723 script with python3/);
+});
+
+// The markdown half keeps PY_INVOKE_RE as its candidate finder precisely so it keeps reaching
+// decoration that is not shell at all. These two shapes are why: no shell parser accepts a
+// markdown table row, and a list bullet lexes with `-` as argv[0]. Both must stay caught.
+for (const [label, line] of [
+  ["a list bullet", "- python3 {pm_status} set-status --state-root x"],
+  ["a table cell", "| `python3 {pm_status} verify` | wrong |"],
+]) {
+  test(`check 17 Task 17: a directive decorated as ${label} is still caught in markdown`, (t) => {
+    const root = fixture(t);
+    write(root, "skills/l3io-pm-execute/steps/task17-decorated.md", `${line}\n`);
+    const r = run(root);
+    assert.equal(r.status, 1, r.stdout);
+    assert.match(r.stderr, /task17-decorated\.md:\d+: invokes a PEP-723 script with python3/);
+  });
+}
+
 // ---- check 18 (docs-check-count) ----
 //
 // Same derive-don't-type discipline as the check 15 tests above: the expected counts and

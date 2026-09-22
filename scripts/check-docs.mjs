@@ -60,7 +60,8 @@
 //   node scripts/check-docs.mjs -v     # also print what passed
 import fs from "node:fs";
 import path from "node:path";
-import { execFileSync } from "node:child_process";
+import YAML from "yaml";
+import sh from "mvdan-sh";
 
 // CHECK_DOCS_ROOT points the checker at another tree -- scripts/tests/check-docs.test.mjs
 // runs it against a temp copy with a planted violation.
@@ -1237,9 +1238,45 @@ function checkBmadDependencyInventory() {
 // BMad's own convention is 100% `uv run` -- every core script carries a PEP-723 header and
 // python3 bypasses it, either failing outright (no ambient interpreter has the deps) or
 // silently running against whatever version happens to be ambient instead of what the header
-// declares. Matches `python3` immediately followed by a `{...}` helper token or a `*.py`
-// path, word-bounded on both sides so `--use-python3 {pm_status}` (an option name, not an
-// invocation) does not trip it.
+// declares.
+//
+// HOW THIS IS DECIDED. A workflow file is parsed as YAML (`yaml`), every `run:` script it
+// carries is parsed as shell (`mvdan-sh`, the JS build of mvdan/sh -- the parser `shfmt` and
+// `shellcheck`-adjacent tooling use), and the rule is expressed over the resulting argv
+// arrays: a command that names a python3-ish interpreter and hands it a `.py` path (or a
+// `{pm_status}`/`{spec_align}` helper token) must be a `uv run` carrying a provisioning flag.
+// Nothing here splits a line on `&&`/`;`/`|` by regex, and nothing reads the YAML line by
+// line; quoting, escaping, `$( )` substitution, backslash continuations, heredocs, `if`/`then`
+// blocks, `VAR=value` prefixes and multi-line block scalars are all the parsers' problem, not
+// this file's.
+//
+// WHY IT WAS REBUILT. Four fix rounds hardened a regex predicate plus a `String.split(/&&|;|\||&/)`
+// standing in for a shell lexer, and each round's own review found the next hole. The split was
+// quote-unaware (`NOTE='x & uv run --with y' python3 S.py` exited 0), the exemption could not
+// see through `$( )` (`uv run --with x echo "$(python3 S.py)"` exited 0), and the line-at-a-time
+// read produced the mirror error on correct commands -- `timeout 600 uv run --with x python3
+// S.py`, an `if`-wrapped invocation, a quoted YAML scalar and `uv  run` with two spaces were all
+// red. None of those is a regex-anchoring problem; they are all "this needs a real parser",
+// which global rule 1 says to buy rather than write. The parsers cost one `npm ci` step in
+// .github/workflows/checks.yml. See docs/adr/0007-ci-installs-npm-dependencies.md.
+//
+// TWO CORPORA, TWO PREDICATES, ONE RULE. The shared rule is `pep723Offences()` below, and both
+// corpora apply it. They differ only in what makes a line a candidate, because they are not the
+// same kind of text:
+//
+//   .github/workflows/**  is executable. Every `run:` script is fed to the shell parser and the
+//     rule alone decides. A `run:` body that does not parse as shell is a FAILURE, not a skip --
+//     the fail-closed direction for a file CI actually executes. So is a workflow file that does
+//     not parse as YAML.
+//
+//   skills/**.md is prose that quotes shell, decorated with bullets, table pipes and backticks
+//     that are not shell at all. A candidate line is still found with PY_INVOKE_RE, exactly as
+//     before, because that regex reaches a `- python3 {pm_status} …` bullet or a `| `python3
+//     x.py` |` table cell that no shell parser will accept; the rule then decides whether the
+//     candidate is exempt. A candidate whose line does not parse as shell is NOT exempted --
+//     same fail-closed direction, and the same verdict the old textual exemption reached. Prose
+//     that is not a candidate is never parsed, so a sentence like `python3 (3.11+) is needed to
+//     run a.py` (not valid shell) is never even offered to the parser.
 //
 // Scope was widened to include .github/workflows/**: a CI step once ran
 // `python3 -m pip install ... && python3 skills/_shared/tests/test-pm-status.py`, invoking a
@@ -1247,120 +1284,189 @@ function checkBmadDependencyInventory() {
 // by hand, while every sibling step in the same workflow used `uv run`. This scan only ever
 // walked skills/, so a CI YAML file was invisible to it even though CI is where these scripts
 // are actually invoked, and actually matter, most. See the l3io-customization-layer Task 9
-// ruling for the found instance. .github/workflows/ files are `.yml`, not `.md`, so they are
-// read directly here rather than through walkMarkdown (which filters to `.md`).
+// ruling for the found instance.
 //
 // Tolerance: skills/_shared/steps/shared/step-00-activate.md documents "If `uv` is
 // unavailable, use `python3` instead" as an explicit fallback for self-install, and
 // skills/l3io-util-doctor/assets/migrate-state.md and bootstrap-state.md restate the same
 // fallback. A rule that forbade the word `python3` outright would forbid its own escape
 // hatch, so a line naming `uv`+`unavailable` or the word `fallback`, ON THE SAME LINE as the
-// invocation, is exempted from this check. Two of migrate-state.md's fallback sentences used
-// to wrap "If `uv` is" onto the line above the invocation, which this same-line-only
-// tolerance cannot see across; they were rewrapped onto one line each rather than widening
-// the tolerance to look across lines, which would have been broader than the one problem it
-// needed to solve.
+// invocation, is exempted from this check. PY_FALLBACK_QUALIFIER is MARKDOWN-ONLY and stays
+// that way (fix round 2, N-3): a workflow `run:` line is executable, not prose describing an
+// escape hatch, and `run: python3 …test-pm-status.py  # fallback until uv lands` used to pass
+// on it. Exactly three real sites under skills/ rely on the tolerance -- bootstrap-state.md:266
+// and migrate-state.md:484,599, all three restating step-00-activate.md's documented
+// `uv`-unavailable fallback for {pm_status}.
 //
-// Fix round 2, N-3: this fallback tolerance applies to markdown prose only, never to
-// .github/workflows/**. A workflow `run:` line is executable, not prose describing an escape
-// hatch -- `run: python3 …test-pm-status.py  # fallback until uv lands` used to pass, which
-// was strictly cheaper than any of the bypasses N-1/N-2 below describe. Exactly three real
-// sites under skills/ rely on it (verified: every python3-invoking line under skills/ that
-// also matches this qualifier) -- bootstrap-state.md:266 and migrate-state.md:484,599, all
-// three restating step-00-activate.md's documented `uv`-unavailable fallback for
-// {pm_status}. All three keep passing under markdown-only scope.
+// DELIBERATE OVER-APPROXIMATION, stated because it is visible in the output: the rule reads
+// "no command line hands a .py to python3 outside a provisioned uv run", and it does NOT
+// require the interpreter to be argv[0]. So `echo 'a & uv run --with y' python3 s.py` and
+// `grep -q 'x | uv run --with y' python3 s.py` are reported although the shell would run
+// `echo`/`grep` and never python3. Both were recorded bypasses of the old splitter, both are
+// pathological shapes in a `run:` step or a directive, and the fail-closed direction is the
+// right one for a guard -- narrowing to argv[0] would also drop the markdown reach that keeps
+// a `- python3 {pm_status} …` bullet and a `| `python3 x.py` |` table cell caught.
 //
-// Fix round 3, M-1: PY_INVOKE_RE required the `.py` path (or `{pm_status}`/`{spec_align}`) to
-// be python3's FIRST argument, so `python3 -u <script>.py`, `python3 -X utf8 <script>.py` and
-// `python3.12 <script>.py` all exited 0 -- cheaper than every string the first three fix
-// rounds closed, because no exemption logic even runs when the predicate itself never
-// matches. Widened to allow an optional minor-version suffix (`python3.NN`) and any run of
-// intervening tokens (interpreter flags, and a flag's own separate argument like `-X`'s
-// `utf8`) between `python3` and the target, found via a non-greedy token skip rather than a
-// fixed flag list, so it generalizes to any current or future python3 flag without a second
-// widening. This is INSIDE the match, before the `python3` token the exemption's `beforeMatch`
-// looks at, so a provisioned line (`uv run --with 'x' python3 -u <script>.py`) is unaffected.
-//
-// Fix round 4, R-1: round 3's token skip was `(?:\S+\s+)*?` -- ANY intervening tokens, not
-// just flags -- so ordinary English prose tripped the check, a false red on correct
-// documentation in a scan whose main corpus IS prose. `Install python3 and then edit
-// pyproject.py` and `run python3 later; the file build.py is generated` both matched: the
-// skip walked straight over `and then edit` / `later; the file` to reach a `.py` word
-// mentioned elsewhere in the same sentence. Constrained the skip to FLAG SHAPES -- each
-// intervening token is a `-`-prefixed flag, optionally followed by that flag's own separate
-// argument (`-X utf8`, `-W ignore::DeprecationWarning`, `-m pytest`). `--flag=value` is one
-// token and needs no special case; a trailing-optional-argument ambiguity (`-W ignore -u
-// <script>.py`) resolves by backtracking. Every M-1 case still matches -- verified against
-// the whole scanned corpus (138 files), where old and new agree line for line.
-//
-// Known gaps (not caught by this check, listed rather than left to look complete):
-//   - an intervening token that is not flag-shaped: a shell variable standing in for flags
-//     (`python3 $FLAGS <script>.py`) or a flag argument quoted around a space (`python3 -c
-//     "import x" <script>.py`). Round 3's unconstrained skip matched these incidentally, at
-//     the price of the prose false positives above; both are shell-lexer problems, and
-//     `$FLAGS` is the same shell-variable-indirection family already listed below.
-//   - command substitution: `uv run --with 'x' echo "$(python3 <script>.py)"` -- the `uv run`
-//     anchor is defeated because the real invocation is inside a substituted subshell.
-//   - shell variable indirection (`PY=python3; $PY <script>.py`) and wrapper commands
-//     (`timeout`/`env`/`sudo` in front of `python3`).
-//   - a `& uv run --with 'x' <script>.py` sequence where the `&` sits INSIDE a quoted string
-//     (round 2's command-split is quote-unaware) -- and the mirror false-red, a `--with`
-//     value that itself contains an unquoted `&`.
-//   - `uv  run` (two spaces) and other non-single-space token separators.
-//   - `if`/`case` shell blocks and multi-line `run: |` bodies where the invocation and its
-//     `uv run` prefix are wrapped across lines this line-at-a-time scan cannot join.
-// These are a YAML-plus-shell-lexer problem, not a regex-anchoring one; widening the regex
-// further to close them was declined rather than attempted a fifth time. See the
-// l3io-customization-layer Task 9 fix-round-3 ruling for the pending design decision on
-// whether to rebuild this check on a real parser instead.
+// Known gaps (listed rather than left to look complete):
+//   - a command whose argv[0] is not the interpreter and not `uv run` but that still reaches
+//     python3 indirectly -- `xargs python3 S.py`, `bash -c 'python3 S.py'`, `make test`. The
+//     rule sees the argv it is given; it does not follow a command into another program's
+//     argument conventions or into another file.
+//   - a variable whose value is not statically known: `PY=$(which python3); $PY S.py`, or one
+//     exported by an earlier `run:` step or by `env:` at job level. Literal in-script
+//     assignments (`PY=python3; $PY S.py`) ARE resolved.
+//   - `python3 -m <runner> <script>.py` is judged by the runner's FIRST non-flag argument, so
+//     `-m pytest S.py` is caught and `-m pip install … build.py` is correctly not; a runner
+//     that takes the script somewhere else in its argv is missed.
+//   - markdown candidacy still rests on PY_INVOKE_RE, so an invocation spelled in a way that
+//     regex does not match is not offered to the rule at all in the markdown corpus.
 // ---------------------------------------------------------------------------
 const PY_INVOKE_RE = /(?<![\w-])python3(?:\.\d+)?(?:\s+-\S+(?:\s+\S+)?)*\s+(?:"?\{(pm_status|spec_align)\}|\S*\.py)(?![\w-])/;
 const PY_FALLBACK_QUALIFIER = /\buv\b[^.]*\bunavailable\b|\bfallback\b/i;
-// `uv run --with <extra-deps> python3 <script>.py` is uv choosing and managing the
-// interpreter itself (used where a script needs dependencies beyond its own PEP-723 header,
-// e.g. test-audit-backlog.py, test-bmad-deps.py, test-spec-align.py) -- the opposite of the
-// bare `python3 <script>.py` this check exists to catch, which bypasses uv entirely.
-//
-// Fix round 1, F-1: an earlier version of this exemption only checked that "uv run" appeared
-// somewhere earlier ON THE LINE, which a real checker run proved wrong two ways: `uv run
-// python3 <script>.py` (uv invoking the *interpreter*, not the script -- uv only reads a
-// script's PEP-723 header when the script path is its own first argument, so this never
-// honours the header at all and is the original defect verbatim) and `uv run A.py &&
-// python3 B.py` (a second command on the same line, exempted only because an unrelated `uv
-// run` happened to precede it). Both are real, cheap edits a future agent would make to
-// silence this check without fixing anything. Fixed by splitting the line into individual
-// shell commands and requiring the exemption to hold of the SAME command that contains the
-// python3 invocation.
-//
-// Fix round 2, N-1: the `--with` predicate was unanchored -- tested against the WHOLE
-// command with no requirement that it precede the python3 token -- so `uv run python3
-// <script>.py --with-coverage` (F-1's exact defect string with a trailing, inert flag) still
-// passed: nothing is provisioned, the `--with-coverage` is a script argument sitting after
-// the python3 invocation, not a uv flag before it. Fixed by testing the with-flag only in the
-// command's prefix BEFORE the matched python3 token, and by matching only the complete flag
-// tokens uv actually has (`--with`, `--with-editable`, `--with-requirements`, each optionally
-// `=value`) rather than a bare `--with\b`, which `--with-coverage` (not a real uv flag) also
-// satisfied.
-//
-// Fix round 2, N-2: the `uv run` anchor was too strict for two ordinary spellings of the
-// exact line the exemption exists to admit -- a `- run:` step with no separate `- name:`,
-// and a per-step environment-variable prefix (`FOO=bar uv run …`) -- both exiting 1 although
-// both are legitimate. Fixed by stripping an optional leading `-` before the `run:` key, and
-// by stripping leading `VAR=value` assignments before requiring `uv run`.
-const COMMAND_SPLIT_RE = /&&|;|\||&/;
-const RUN_KEY_PREFIX_RE = /^\s*-?\s*run:\s*/;
-const ENV_ASSIGNMENT_PREFIX_RE = /^(?:[A-Za-z_][A-Za-z0-9_]*=\S+\s+)+/;
-const UV_RUN_RE = /^uv run\b/;
-const UV_WITH_FLAG_RE = /(?<![\w-])--with(?:-editable|-requirements)?(?:=\S+)?(?![\w-])/;
 
-function isExemptPep723Command(command) {
-  const match = PY_INVOKE_RE.exec(command);
-  if (!match) return true; // caller only calls this for a command that already matched
-  const beforeMatch = command.slice(0, match.index);
-  const withoutRunKey = command.replace(RUN_KEY_PREFIX_RE, "").trimStart();
-  const withoutEnvPrefix = withoutRunKey.replace(ENV_ASSIGNMENT_PREFIX_RE, "");
-  if (!UV_RUN_RE.test(withoutEnvPrefix)) return false;
-  return UV_WITH_FLAG_RE.test(beforeMatch);
+const { syntax } = sh;
+const shellParser = syntax.NewParser();
+
+// `python3`, `python3.12`, `/usr/bin/python3` -- the whole token, never a substring, so
+// `--use-python3` (an option name) and `python3.` (a sentence) are not interpreters.
+const PY_INTERPRETER_RE = /^(?:\S*\/)?python3(?:\.\d+)?$/;
+// The PEP-723 targets this check exists to protect: any `.py` path, plus the two helper
+// tokens the skills spell instead of a path.
+const PEP723_HELPER_RE = /^"?\{(?:pm_status|spec_align)\}"?$/;
+const isPep723Target = (t) => typeof t === "string" && (t.endsWith(".py") || PEP723_HELPER_RE.test(t));
+// CPython options that consume the NEXT argv entry. Taken from python3's own documented CLI
+// rather than guessed, so `-X utf8 script.py` finds `script.py` and `-c 'code' script.py`
+// correctly finds no executed script at all.
+const PY_VALUE_OPTS = new Set(["-c", "-m", "-Q", "-W", "-X", "--check-hash-based-pycs"]);
+// Commands that run another command: the invocation to judge is what follows them.
+const WRAPPER_COMMANDS = new Set(["env", "sudo", "doas", "nice", "ionice", "nohup", "stdbuf",
+  "time", "timeout", "command", "exec", "chrt", "setsid"]);
+// uv's real provisioning flags -- the ones that make uv build an environment of its own.
+// `--with-coverage` is not one of them; matching a bare `--with\b` used to accept it.
+const UV_PROVISION_FLAG_RE = /^--with(?:-editable|-requirements)?(?:=|$)/;
+
+// Flatten a parsed shell Word to the literal text the shell would produce, or null when part
+// of it is an expansion whose value is not statically known (a command substitution, an
+// arithmetic expansion, an unresolved parameter). Returning null rather than a partial string
+// keeps a half-known token from ever comparing equal to `uv`, `run` or an interpreter name.
+function wordLiteral(word, vars) {
+  let text = "";
+  let known = true;
+  const visit = (parts) => {
+    for (const part of parts || []) {
+      const kind = syntax.NodeType(part);
+      if (kind === "Lit") text += part.Value;
+      else if (kind === "SglQuoted") text += part.Value;
+      else if (kind === "DblQuoted") visit(part.Parts);
+      else if (kind === "ParamExp" && !part.Exp && part.Param && vars.has(part.Param.Value)) {
+        text += vars.get(part.Param.Value);
+      } else known = false;
+    }
+  };
+  visit(word.Parts);
+  return known ? text : null;
+}
+
+// Every simple command in a shell script, as argv arrays, in source order. Commands nested in
+// a `$( )` substitution, an `if`/`while` body or a function come out as their own entries --
+// that is what makes the substitution and shell-block cases work without a special case here.
+// A bare `NAME=value` command (assignments with no argv) sets a variable for the commands that
+// follow it instead of producing one. Returns null when the script is not valid shell.
+function shellCommands(script) {
+  let file;
+  try {
+    file = shellParser.Parse(script, "run");
+  } catch {
+    return null;
+  }
+  const vars = new Map();
+  const commands = [];
+  syntax.Walk(file, (node) => {
+    if (!node || syntax.NodeType(node) !== "CallExpr") return true;
+    const args = node.Args || [];
+    if (args.length === 0) {
+      for (const assign of node.Assigns || []) {
+        const name = assign.Name && assign.Name.Value;
+        const value = assign.Value ? wordLiteral(assign.Value, vars) : "";
+        if (name && value !== null) vars.set(name, value);
+      }
+      return true;
+    }
+    commands.push({ argv: args.map((w) => wordLiteral(w, vars)), line: node.Pos().Line() });
+    return true;
+  });
+  return commands;
+}
+
+// Drop a leading run of wrapper commands and the options they carry, so the invocation being
+// judged is the one that actually execs. `timeout 600 …`, `env FOO=1 …`, `nice -n 10 …` and
+// `sudo -E …` all reduce to what they wrap.
+function stripWrappers(argv) {
+  let i = 0;
+  while (i < argv.length && typeof argv[i] === "string" &&
+         WRAPPER_COMMANDS.has(argv[i].replace(/^.*\//, ""))) {
+    i += 1;
+    while (i < argv.length && typeof argv[i] === "string" &&
+           (/^-/.test(argv[i]) ||                            // an option
+            /^[A-Za-z_][A-Za-z0-9_]*=/.test(argv[i]) ||      // env's NAME=value
+            /^\d+(?:\.\d+)?[smhd]?$/.test(argv[i]))) {       // timeout's duration, nice's level
+      i += 1;
+    }
+  }
+  return argv.slice(i);
+}
+
+// Given argv that begins at a python3-ish interpreter, the PEP-723 target it executes, or null
+// when it executes none. Models python3's own option handling: `-X utf8 s.py` runs `s.py`,
+// `-c 'code' s.py` runs no script at all (s.py is just sys.argv[1]), and `-m runner s.py` runs
+// a module -- judged by the module's first non-option argument, which catches `-m pytest s.py`
+// without catching `-m pip install … build.py`.
+function pythonTarget(argv) {
+  let i = 1;
+  while (i < argv.length) {
+    const tok = argv[i];
+    if (typeof tok !== "string" || tok === "-" || !tok.startsWith("-")) break;
+    if (tok === "-c") return null;
+    if (tok === "-m") {
+      for (let j = i + 2; j < argv.length; j += 1) {
+        if (typeof argv[j] !== "string" || argv[j].startsWith("-")) continue;
+        return isPep723Target(argv[j]) ? argv[j] : null;
+      }
+      return null;
+    }
+    i += PY_VALUE_OPTS.has(tok) ? 2 : 1;
+  }
+  return isPep723Target(argv[i]) ? argv[i] : null;
+}
+
+// The rule, over one command's argv. Returns the offending target, or null.
+//
+// `uv run --with <deps> python3 <script>.py` is uv choosing and managing the interpreter
+// itself and is exempt; `uv run python3 <script>.py` is NOT, because uv only reads a script's
+// PEP-723 header when the script path is uv's own first argument -- without a provisioning
+// flag nothing is installed and the header is honoured by nobody. The flag must sit between
+// `run` and the interpreter: a `--with…` after the script is a script argument, not a uv flag.
+function commandOffence(rawArgv) {
+  const argv = stripWrappers(rawArgv);
+  const pyIndex = argv.findIndex((t) => typeof t === "string" && PY_INTERPRETER_RE.test(t));
+  if (pyIndex < 0) return null;
+  const target = pythonTarget(argv.slice(pyIndex));
+  if (!target) return null;
+  if (argv[0] === "uv" && argv[1] === "run" &&
+      argv.slice(2, pyIndex).some((t) => typeof t === "string" && UV_PROVISION_FLAG_RE.test(t))) {
+    return null;
+  }
+  return target;
+}
+
+// Every offending command in a shell script. null means the script is not valid shell -- the
+// caller decides what that means for its corpus.
+function pep723Offences(script) {
+  const commands = shellCommands(script);
+  if (commands === null) return null;
+  return commands
+    .map((c) => ({ line: c.line, target: commandOffence(c.argv) }))
+    .filter((c) => c.target !== null);
 }
 
 function* walkWorkflowFiles() {
@@ -1373,27 +1479,68 @@ function* walkWorkflowFiles() {
   }
 }
 
-function scanForPep723Invocation(rel, { allowFallbackQualifier }) {
+// Markdown: PY_INVOKE_RE picks the candidate line, the shared rule decides it.
+function scanMarkdownForPep723(rel) {
   const offenders = [];
   read(rel).split("\n").forEach((line, i) => {
     if (!PY_INVOKE_RE.test(line)) return;
-    if (allowFallbackQualifier && PY_FALLBACK_QUALIFIER.test(line)) return;
-    const offendingCommand = line
-      .split(COMMAND_SPLIT_RE)
-      .some((command) => PY_INVOKE_RE.test(command) && !isExemptPep723Command(command));
-    if (!offendingCommand) return;
+    if (PY_FALLBACK_QUALIFIER.test(line)) return;
+    const offences = pep723Offences(line);
+    if (offences !== null && offences.length === 0) return;
     offenders.push(`${rel}:${i + 1}: invokes a PEP-723 script with python3 ` +
       `(use uv run instead): ${line.trim()}`);
   });
   return offenders;
 }
 
+// Workflows: the YAML document supplies the `run:` scripts, the shared rule decides them.
+// Both parsers fail closed.
+function scanWorkflowForPep723(rel) {
+  const text = read(rel);
+  const offenders = [];
+  let doc;
+  try {
+    doc = YAML.parseDocument(text, { prettyErrors: true });
+  } catch (e) {
+    return [`${rel}: does not parse as YAML (${String(e.message).split("\n")[0]}) -- check 17 ` +
+      `cannot read its run: steps`];
+  }
+  if (doc.errors.length > 0) {
+    return [`${rel}: does not parse as YAML (${doc.errors[0].message.split("\n")[0]}) -- ` +
+      `check 17 cannot read its run: steps`];
+  }
+  const lineOfOffset = (offset) => text.slice(0, offset).split("\n").length;
+
+  YAML.visit(doc, {
+    Pair(_key, pair) {
+      if (!YAML.isScalar(pair.key) || pair.key.value !== "run") return;
+      if (!YAML.isScalar(pair.value) || typeof pair.value.value !== "string") return;
+      const script = pair.value.value;
+      const startLine = lineOfOffset(pair.value.range ? pair.value.range[0] : pair.key.range[0]);
+      // A block scalar's content begins on the line after its `|`/`>` indicator, so a command's
+      // in-script line number maps onto the file. Any other scalar occupies one starting line
+      // and may carry escapes, so the whole script is reported against that line.
+      const isBlock = typeof pair.value.type === "string" && pair.value.type.startsWith("BLOCK");
+      const offences = pep723Offences(script);
+      if (offences === null) {
+        offenders.push(`${rel}:${startLine}: this run: script does not parse as shell, so ` +
+          `check 17 cannot rule on it: ${script.split("\n")[0].trim()}`);
+        return;
+      }
+      for (const offence of offences) {
+        const line = isBlock ? startLine + offence.line : startLine;
+        offenders.push(`${rel}:${line}: invokes a PEP-723 script with python3 ` +
+          `(use uv run instead): ${offence.target}`);
+      }
+    },
+  });
+  return offenders;
+}
+
 function checkPep723Invocation() {
   const offenders = [
-    ...[...walkMarkdown("skills")].flatMap((rel) =>
-      scanForPep723Invocation(rel, { allowFallbackQualifier: true })),
-    ...[...walkWorkflowFiles()].flatMap((rel) =>
-      scanForPep723Invocation(rel, { allowFallbackQualifier: false })),
+    ...[...walkMarkdown("skills")].flatMap(scanMarkdownForPep723),
+    ...[...walkWorkflowFiles()].flatMap(scanWorkflowForPep723),
   ];
   if (offenders.length) {
     failures.push(`runtime directives invoke a PEP-723 script with python3, bypassing its ` +
@@ -1649,80 +1796,40 @@ function checkSharedFilesTable() {
 // coverage is worse than one that says plainly what it covers -- CLAUDE.md §3): it walks one
 // level of `skills/` (matching this repo's shipped, flat layout); BMad's installer reads from
 // the *installed* tree and recurses into subdirectories, so a nested skill directory added
-// later would not be seen here. It is also STRICTER than BMad in one direction, not looser: a
-// trailing tab after a scalar is accepted by BMad's `yaml` package and rejected by `ruamel`
-// here -- a false positive that fails this check rather than shipping a broken install, so it
-// is left as is.
+// later would not be seen here.
 //
 // Parsing: never hand-rolled (global rule 1 -- this repo's own history with a hand-written
-// YAML parser is the cautionary tale the rule cites). This repo carries no npm dependencies
-// and CI runs no `npm install` before these checks (only `node scripts/check-docs.mjs`), so
-// the strict parse shells out to `uv run --with 'ruamel.yaml>=0.18' python3 -c ...` -- uv is
-// already a hard requirement of every PEP-723 script this package ships, and
-// `astral-sh/setup-uv` already runs first in the CI workflow. If a later decision adds
-// `npm ci` to this workflow, swapping this for a Node YAML library (e.g. `js-yaml`) is a
-// trivial follow-up at that point -- not a reason to hand-roll one now.
+// YAML parser is the cautionary tale the rule cites). It used to shell out to
+// `uv run --with 'ruamel.yaml>=0.18' python3 -c …`, because no npm dependency was reachable
+// from CI. `npm ci` in .github/workflows/checks.yml removed that constraint, so the parse now
+// runs in process against the `yaml` package -- the SAME package BMad's own installer parses
+// frontmatter with, which makes this check agree with the thing it is predicting instead of
+// approximating it. The one known divergence the ruamel version carried (a trailing tab after
+// a scalar, rejected here and accepted by BMad) is gone with it.
 //
-// Every SKILL.md is read and parsed in one `uv run` invocation (not one per skill) so this
-// check costs one subprocess spawn, not eight.
+// Fail-closed, and what replaces the old `uv`-missing branch: the parser is now an `import` at
+// the top of this file, so an absent or broken `node_modules` does not degrade check 21 -- it
+// stops check-docs.mjs from starting at all, and CI's gate exits nonzero with
+// ERR_MODULE_NOT_FOUND. That is strictly stronger than the old branch, which failed only this
+// one check. What remains local is per-file: a SKILL.md that cannot be READ is reported as a
+// failure rather than skipped, so a permissions or encoding problem cannot quietly shrink the
+// set this check examines.
 // ---------------------------------------------------------------------------
-const SKILL_FRONTMATTER_PARSER = `
-import sys, json
-from ruamel.yaml import YAML
-yaml = YAML(typ="safe")
-items = json.load(sys.stdin)
 
-
-def describe_description(data):
-    if "description" not in data:
-        return "the 'description' key is missing"
-    desc = data["description"]
-    if isinstance(desc, str):
-        return None if desc != "" else "'description' is an empty string"
-    if desc is None:
-        return "'description' is null"
-    if isinstance(desc, bool):
-        return "'description' is a boolean, not a string"
-    if isinstance(desc, (int, float)):
-        return "'description' is a number, not a string"
-    if isinstance(desc, list):
-        return "'description' is a list, not a string"
-    if isinstance(desc, dict):
-        return "'description' is a mapping, not a string"
-    return "'description' is not a string (found " + type(desc).__name__ + ")"
-
-
-out = []
-for item in items:
-    text = open(item["path"], "r", encoding="utf-8").read()
-    result = {"name": item["name"]}
-    if not text.startswith("---\\n"):
-        result["error"] = "SKILL.md does not start with a --- frontmatter fence"
-        out.append(result)
-        continue
-    end = text.find("\\n---", 4)
-    if end == -1:
-        result["error"] = "SKILL.md frontmatter has no closing --- fence"
-        out.append(result)
-        continue
-    fm = text[4:end]
-    try:
-        data = yaml.load(fm)
-    except Exception as e:
-        result["error"] = str(e).split("\\n")[0]
-        out.append(result)
-        continue
-    if not isinstance(data, dict) or "name" not in data:
-        result["error"] = "frontmatter parsed but has no 'name' key"
-        out.append(result)
-        continue
-    result["frontmatter_name"] = data["name"]
-    desc_problem = describe_description(data)
-    if desc_problem:
-        result["description_problem"] = desc_problem
-    out.append(result)
-print(json.dumps(out))
-`;
+// Describe what is wrong with a frontmatter `description`, or null when it is a non-empty
+// string. Mirrors what BMad's installer requires; every non-string shape is named explicitly
+// so the failure message says what was actually found.
+function describeDescriptionProblem(data) {
+  if (!("description" in data)) return "the 'description' key is missing";
+  const desc = data.description;
+  if (typeof desc === "string") return desc === "" ? "'description' is an empty string" : null;
+  if (desc === null) return "'description' is null";
+  if (typeof desc === "boolean") return "'description' is a boolean, not a string";
+  if (typeof desc === "number") return "'description' is a number, not a string";
+  if (Array.isArray(desc)) return "'description' is a list, not a string";
+  if (typeof desc === "object") return "'description' is a mapping, not a string";
+  return `'description' is not a string (found ${typeof desc})`;
+}
 
 // typeof-aware renderer for a frontmatter value inside a failure message. A plain template
 // literal stringifies a non-string value in a way that reads as a near-miss typo rather than a
@@ -1740,50 +1847,59 @@ function checkSkillFrontmatter() {
     .filter((name) => exists(path.join("skills", name, "SKILL.md")))
     .sort();
 
-  if (skills.length === 0) return;
+  let parsed = 0;
+  for (const name of skills) {
+    const rel = `skills/${name}/SKILL.md`;
+    const fail = (msg) => failures.push(`${rel}: ${msg}`);
 
-  const payload = skills.map((name) => ({
-    name,
-    path: path.join(repoRoot, "skills", name, "SKILL.md"),
-  }));
+    let text;
+    try {
+      text = read(rel);
+    } catch (e) {
+      fail(`could not be read (${e.message}) -- check 21 cannot rule on it`);
+      continue;
+    }
 
-  let stdout;
-  try {
-    stdout = execFileSync(
-      "uv",
-      ["run", "--with", "ruamel.yaml>=0.18", "python3", "-c", SKILL_FRONTMATTER_PARSER],
-      { input: JSON.stringify(payload), encoding: "utf8", cwd: repoRoot },
-    );
-  } catch (e) {
-    failures.push(`skill-frontmatter: could not run the strict YAML parser via 'uv run' (${e.message}) ` +
-      `-- uv is required for this check, the same as it is for every pm-status.py caller`);
-    return;
-  }
+    if (!text.startsWith("---\n")) {
+      fail("frontmatter fails a strict YAML parse (SKILL.md does not start with a --- " +
+        "frontmatter fence) -- BMad's installer drops a skill like this from a real install " +
+        "with no warning");
+      continue;
+    }
+    const end = text.indexOf("\n---", 4);
+    if (end === -1) {
+      fail("frontmatter fails a strict YAML parse (SKILL.md frontmatter has no closing --- " +
+        "fence) -- BMad's installer drops a skill like this from a real install with no warning");
+      continue;
+    }
 
-  let results;
-  try {
-    results = JSON.parse(stdout.trim());
-  } catch (e) {
-    failures.push(`skill-frontmatter: could not parse the YAML-parser subprocess output as JSON (${e.message})`);
-    return;
-  }
-
-  for (const r of results) {
-    if (r.error) {
-      failures.push(`skills/${r.name}/SKILL.md: frontmatter fails a strict YAML parse (${r.error}) -- ` +
+    let data;
+    try {
+      data = YAML.parse(text.slice(4, end));
+    } catch (e) {
+      fail(`frontmatter fails a strict YAML parse (${String(e.message).split("\n")[0]}) -- ` +
         `BMad's installer drops a skill like this from a real install with no warning`);
       continue;
     }
-    if (r.frontmatter_name !== r.name) {
-      failures.push(`skills/${r.name}/SKILL.md: frontmatter 'name: ${renderFrontmatterValue(r.frontmatter_name)}' ` +
-        `does not match its directory name '${r.name}' -- BMad's installer requires them to be equal`);
+    parsed += 1;
+
+    if (data === null || typeof data !== "object" || Array.isArray(data) || !("name" in data)) {
+      fail("frontmatter fails a strict YAML parse (frontmatter parsed but has no 'name' key) " +
+        "-- BMad's installer drops a skill like this from a real install with no warning");
+      continue;
     }
-    if (r.description_problem) {
-      failures.push(`skills/${r.name}/SKILL.md: ${r.description_problem} -- BMad's installer requires ` +
-        `\`description\` to be a non-empty string and drops a skill like this from a real install with no warning`);
+
+    if (data.name !== name) {
+      fail(`frontmatter 'name: ${renderFrontmatterValue(data.name)}' does not match its ` +
+        `directory name '${name}' -- BMad's installer requires them to be equal`);
+    }
+    const problem = describeDescriptionProblem(data);
+    if (problem) {
+      fail(`${problem} -- BMad's installer requires \`description\` to be a non-empty string ` +
+        `and drops a skill like this from a real install with no warning`);
     }
   }
-  if (verbose) console.log(`  skill-frontmatter: ${results.length} SKILL.md file(s) strict-parsed`);
+  if (verbose) console.log(`  skill-frontmatter: ${parsed} SKILL.md file(s) strict-parsed`);
 }
 
 // ---------------------------------------------------------------------------
