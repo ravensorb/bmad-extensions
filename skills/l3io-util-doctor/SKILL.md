@@ -38,6 +38,16 @@ Modes (pass as argument to skip directly to that mode):
 - **`harvest-debt`:** Greps the whole source tree for `bmad-defer:` deferred-shortcut markers (the comment crumbs developers and dev subagents leave when they take an intentional simplification) and harvests them into the consolidated `backlog:` list so deferrals do not rot into "later means never." Language-generic — recognizes the comment syntax of every common language. Re-runnable: dedupes against already-harvested markers. Report-only by default; backlog merge is confirmed. Respects `harvest_exclude_dirs` in the `l3io-util` config section for additional exclusions beyond the built-in list.
 - **`update-ai-rules`:** Scans for AI system instruction files in the project (`CLAUDE.md`, `.github/copilot-instructions.md`, `GEMINI.md`, `AGENTS.md`, `.cursorrules`, and others) and rewrites any reference to a legacy state layout (flat `sprint-status*.yaml`, the three-file split, or `_bmad/state/`) to describe the current sharded state tree. For files that already exist: updates existing references. For the currently running AI system's file if it does not exist: creates it with a state layout section. Never creates files for other AI systems. Also auto-invoked after a successful `split-status` run. Safe to run repeatedly.
 
+**Customization**
+- **`overlay`:** Owner of the BMad customization layer — `list` (default) shows what is
+  customizable in this install and which overlays l3io ships; `diff` stages an overlay and
+  shows it against the currently resolved merge, printing the one placement command per file;
+  `verify` checks whether a placed overlay actually merged. **Never writes
+  `{project-root}/_bmad/custom/`** — that space is reserved for the end user; this mode only
+  stages files and hands over the command. Ships with no overlay content today —
+  `assets/overlays/` is empty until Phase 3 of
+  `docs/superpowers/specs/2026-09-20-l3io-customization-layer-design.md`.
+
 **Setup & housekeeping**
 - **`clean-legacy`:** Removes migration backup files and directories left behind by one-time migration commands — `.yaml.legacy` files, `.v1` calibration backups, the pre-migration `_bmad/state.legacy/` directory and `_bmad/pm-calibration.yaml.legacy` file, and the `_bmad/migration-backup/` directory `migrate-state` Stage F's default "move" option relocates everything into. Dry-run first; confirms before deleting. Safe to run once migrations have been verified.
 - **`rename-active`:** Renames `sprint-status-active.yaml` → `sprint-status.yaml`. Rarely needed directly — the health check detects and runs this automatically when the old naming is found.
@@ -54,8 +64,8 @@ Modes (pass as argument to skip directly to that mode):
 
 **Load exactly one mode file.** Every mode below lives in its own file under `steps/`, and
 only the one the argument selects is ever loaded. That is the point of the layout: this skill
-carries twenty procedures and a run needs one, so inlining them all charged every
-invocation for nineteen it would not execute. Read this file, match the keyword, load that
+carries twenty-one procedures and a run needs one, so inlining them all charged every
+invocation for twenty it would not execute. Read this file, match the keyword, load that
 one file, and follow it.
 
 **Recognized keywords** — if the user's argument exactly matches any of these, load that
@@ -81,6 +91,7 @@ file and follow it:
 | `rename-active` | `steps/rename-active.md` |  |
 | `rename-epic-dirs` | `steps/rename-epic-dirs.md` |  |
 | `update-ai-rules` | `steps/update-ai-rules.md` |  |
+| `overlay` | `steps/overlay.md` | list/diff/verify BMad customization overlays — never writes `_bmad/custom/` |
 | `clean-legacy` | `steps/clean-legacy.md` | remove migration backup files |
 | `migrate-state` | `steps/migrate-state.md` | makes a legacy project usable by the PM skills again |
 | `bootstrap-state` | `steps/bootstrap-state.md` | create state nodes from story .md artifacts (legacy `bmad-create-story` workflow) |
@@ -128,6 +139,10 @@ Ongoing maintenance (safe to repeat)
 Source & external sync
   harvest-debt       Sweep source for bmad-defer: markers and harvest into backlog
   update-ai-rules    Update AI instruction files to describe the sharded state tree
+
+Customization
+  overlay            List/diff/verify BMad customization overlays; stages files, never
+                     writes _bmad/custom/ (reserved for the end user)
 
 Setup & housekeeping
   setup              Register l3io-util module config for this project
