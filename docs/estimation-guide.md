@@ -52,11 +52,11 @@ Tokens are captured **exactly** from the session transcript. Use the `pm-status.
 
 ```bash
 # Read the token counts for a story's own dispatch window
-python3 {pm_status} usage \
+uv run {pm_status} usage \
   --state-root {pm_state_root} --story {story_key} --model {model}
 
 # For a sprint or an explicit time window
-python3 {pm_status} usage \
+uv run {pm_status} usage \
   --state-root {pm_state_root} --epic {epic_key} --sprint {sprint_num} --model {model}
 ```
 
@@ -104,12 +104,12 @@ Capture whatever the runtime exposes. If token information is not available or n
 
 ```bash
 # 1. Get the token counts from the session transcript
-python3 {pm_status} usage \
+uv run {pm_status} usage \
   --state-root {pm_state_root} --story E001-S01-003 --model {model}
 # Prints: --tokens-input 122 --tokens-output 41 --tokens-cache-write 244 --tokens-cache-read 405
 
 # 2. Write the actual (paste the --tokens-* flags from usage output)
-python3 {pm_status} set-actual \
+uv run {pm_status} set-actual \
   --state-root {pm_state_root} \
   --node story --story E001-S01-003 \
   --runtime claude \
@@ -118,9 +118,9 @@ python3 {pm_status} set-actual \
   --model {model}
 
 # 3. Set status and verify
-python3 {pm_status} set-status \
+uv run {pm_status} set-status \
   --state-root {pm_state_root} --story E001-S01-003 --status done
-python3 {pm_status} verify \
+uv run {pm_status} verify \
   --state-root {pm_state_root} --scope story --story E001-S01-003 --runtime claude
 ```
 
@@ -128,7 +128,7 @@ python3 {pm_status} verify \
 
 ```bash
 # Sum token_count events from rollout-*.jsonl, then:
-python3 {pm_status} set-actual \
+uv run {pm_status} set-actual \
   --state-root {pm_state_root} \
   --node story --story E001-S01-003 \
   --runtime codex \
@@ -137,7 +137,7 @@ python3 {pm_status} set-actual \
   --model gpt-5.6-terra
 
 # verify
-python3 {pm_status} verify \
+uv run {pm_status} verify \
   --state-root {pm_state_root} --scope story --story E001-S01-003 --runtime codex
 ```
 
@@ -147,7 +147,7 @@ Note: `--tokens-cache-write` is omitted — the CLI defaults it to `0`. Passing 
 
 ```bash
 # Sum prompt_tokens / completion_tokens from API responses in the dispatch window, then:
-python3 {pm_status} set-actual \
+uv run {pm_status} set-actual \
   --state-root {pm_state_root} \
   --node story --story E001-S01-003 \
   --runtime copilot \
@@ -155,7 +155,7 @@ python3 {pm_status} set-actual \
   --tokens-input 150 --tokens-output 50
 
 # verify (cost=N/A and scalar tokens_k are expected and valid here)
-python3 {pm_status} verify \
+uv run {pm_status} verify \
   --state-root {pm_state_root} --scope story --story E001-S01-003 --runtime copilot
 ```
 
@@ -164,14 +164,14 @@ Note: no `--model` flag — Copilot stores `cost: N/A` so no pricing is needed.
 ### Other (tokens not available)
 
 ```bash
-python3 {pm_status} set-actual \
+uv run {pm_status} set-actual \
   --state-root {pm_state_root} \
   --node story --story E001-S01-003 \
   --runtime other \
   --elapsed-hours 2.0 --man-hours 6 --hitl-hours 0.3 \
   --tokens-na
 
-python3 {pm_status} verify \
+uv run {pm_status} verify \
   --state-root {pm_state_root} --scope story --story E001-S01-003 --runtime other
 ```
 
@@ -180,7 +180,7 @@ python3 {pm_status} verify \
 The orchestrator's own coordination overhead (dispatching subagents, waiting on them) goes into a separate `--block orchestration` on the parent node. This applies to sprint and epic nodes only — not to stories.
 
 ```bash
-python3 {pm_status} set-actual \
+uv run {pm_status} set-actual \
   --state-root {pm_state_root} \
   --node sprint --epic E001 --sprint S01 \
   --block orchestration \
@@ -221,7 +221,7 @@ Cost is derived inside `set-actual`, `estimate-story`, and `estimate-rollup` fro
 The rate table (`TOKEN_RATES` in `pm-status.py`) holds per-class USD-per-million-token rates for Anthropic Claude models and OpenAI Codex/GPT models. To inspect what is in force for your project:
 
 ```bash
-python3 {pm_status} rates [--model MODEL] [--token-rates JSON]
+uv run {pm_status} rates [--model MODEL] [--token-rates JSON]
 ```
 
 If your project negotiates different rates, set `modules.l3io-pm.token_rates` in `_bmad/custom/config.toml` (see `references/config-resolution.md` §3). Pass `--model` on every `set-actual` call that carries token counts — the same token volume prices ~2× apart between a $3/M and a $10/M input tier.
@@ -276,7 +276,7 @@ Four components are learned, each per metric:
 The calibration file is committed and shared across parallel subagents; every write takes a file lock. To inspect current calibration state:
 
 ```bash
-python3 {pm_status} calibration show --state-root {pm_state_root}
+uv run {pm_status} calibration show --state-root {pm_state_root}
 ```
 
 **Full calibration model:** `references/calibration-model.md`

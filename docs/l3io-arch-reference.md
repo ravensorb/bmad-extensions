@@ -70,7 +70,7 @@ Identify the principle(s) in tension, weigh options against them, recommend, and
 **Numbering.** When `{project-root}/_bmad/scripts/pm-status.py` is present, take the number from the l3io-pm register rather than choosing one:
 
 ```bash
-python3 {project-root}/_bmad/scripts/pm-status.py adr-reserve \
+uv run {project-root}/_bmad/scripts/pm-status.py adr-reserve \
   --state-root {implementation_artifacts}/state --epic n/a --slug {slug} \
   --adr-dir {project-root}/docs/adr
 ```

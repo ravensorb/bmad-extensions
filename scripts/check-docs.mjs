@@ -41,10 +41,10 @@
 //  16. bmad-dependency-inventory  every bmad-* name a runtime directive under skills/ uses is
 //                    declared in skills/l3io-util-doctor/assets/bmad-dependencies.json, and no
 //                    directive dispatches a removed one without same-line historical evidence
-//  17. pep723-invocation  no runtime directive under skills/, and no CI step under
-//                    .github/workflows/, invokes a PEP-723 script ({pm_status}, {spec_align},
-//                    or a *.py path) with python3, which bypasses the header's declared deps
-//                    in favor of whatever sits in the ambient interpreter
+//  17. pep723-invocation  no live doc, no runtime directive under skills/, and no CI step
+//                    under .github/workflows/, invokes a PEP-723 script ({pm_status},
+//                    {spec_align}, or a *.py path) with python3, which bypasses the header's
+//                    declared deps in favor of whatever sits in the ambient interpreter
 //  18. docs-check-count  the numbered checks in this header agree in count with the check
 //                    functions invoked below, and CLAUDE.md / scripts/CLAUDE.md's stated
 //                    check count agrees with both
@@ -1771,8 +1771,8 @@ function checkBmadDependencyInventory() {
 }
 
 // ---------------------------------------------------------------------------
-// 17. No runtime directive under skills/, and no CI step under .github/workflows/, invokes a
-// PEP-723 script with python3.
+// 17. No live doc, no runtime directive under skills/, and no CI step under
+// .github/workflows/, invokes a PEP-723 script with python3.
 //
 // BMad's own convention is 100% `uv run` -- every core script carries a PEP-723 header and
 // python3 bypasses it, either failing outright (no ambient interpreter has the deps) or
@@ -1799,16 +1799,17 @@ function checkBmadDependencyInventory() {
 // which global rule 1 says to buy rather than write. The parsers cost one `npm ci` step in
 // .github/workflows/checks.yml. See docs/adr/0007-ci-installs-npm-dependencies.md.
 //
-// TWO CORPORA, TWO PREDICATES, ONE RULE. The shared rule is `pep723Offences()` below, and both
-// corpora apply it. They differ only in what makes a line a candidate, because they are not the
-// same kind of text:
+// THREE CORPORA, TWO PREDICATES, ONE RULE. The shared rule is `pep723Offences()` below, and
+// every corpus applies it. They differ only in what makes a line a candidate, because they are
+// not the same kind of text:
 //
 //   .github/workflows/**  is executable. Every `run:` script is fed to the shell parser and the
 //     rule alone decides. A `run:` body that does not parse as shell is a FAILURE, not a skip --
 //     the fail-closed direction for a file CI actually executes. So is a workflow file that does
 //     not parse as YAML.
 //
-//   skills/**.md is prose that quotes shell, decorated with bullets, table pipes and backticks
+//   LIVE_DOCS (README.md, CLAUDE.md, docs/**.md minus the historical records) and skills/**.md
+//     are both prose that quotes shell, decorated with bullets, table pipes and backticks
 //     that are not shell at all. A candidate line is still found with PY_INVOKE_RE, exactly as
 //     before, because that regex reaches a `- python3 {pm_status} …` bullet or a `| `python3
 //     x.py` |` table cell that no shell parser will accept; the rule then decides whether the
@@ -1817,7 +1818,17 @@ function checkBmadDependencyInventory() {
 //     that is not a candidate is never parsed, so a sentence like `python3 (3.11+) is needed to
 //     run a.py` (not valid shell) is never even offered to the parser.
 //
-// Scope was widened to include .github/workflows/**: a CI step once ran
+// Scope was widened a SECOND time to include LIVE_DOCS. The rule was enforced in the files
+// agents read and unenforced in the files people read: `docs/estimation-guide.md` carried
+// FIFTEEN bare `python3 {pm_status} ...` invocations of a script whose PEP-723 header declares
+// ruamel.yaml, `docs/l3io-arch-reference.md:73` a sixteenth, and `docs/l3io-sec-reference.md:38`
+// a seventeenth -- every one of them a command a human is meant to copy and paste, and every one
+// of them invisible to this check because allSkillDocs() walks skills/ and nothing walked docs/.
+// The corpus is LIVE_DOCS, the same derived set the live-doc checks use, so the historical
+// records under docs/superpowers/** stay out (rewriting them would falsify the record) and a
+// new file under docs/ is covered on arrival rather than on someone remembering.
+//
+// Scope was widened FIRST to include .github/workflows/**: a CI step once ran
 // `python3 -m pip install ... && python3 skills/_shared/tests/test-pm-status.py`, invoking a
 // PEP-723 script (test-pm-status.py) against an ambient interpreter it had just provisioned
 // by hand, while every sibling step in the same workflow used `uv run`. This scan only ever
@@ -2126,7 +2137,11 @@ function scanWorkflowForPep723(rel) {
 }
 
 function checkPep723Invocation() {
+  // LIVE_DOCS is listed first because it is the corpus this check was blind to longest, and
+  // the one whose offences a human copy-pastes. It is the same derived set every live-doc
+  // check uses, so a new file under docs/ is covered on arrival.
   const offenders = [
+    ...LIVE_DOCS.flatMap(scanMarkdownForPep723),
     ...[...walkMarkdown("skills")].flatMap(scanMarkdownForPep723),
     ...[...walkWorkflowFiles()].flatMap(scanWorkflowForPep723),
   ];

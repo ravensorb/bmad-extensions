@@ -716,6 +716,41 @@ test("check 17 scope attack: a violation under a different skill's assets/ is ca
   assert.match(r.stderr, /scope-attack\.md:\d+: invokes a PEP-723 script with python3/);
 });
 
+// Scope attack: the scan set was widened a second time to LIVE_DOCS. The rule was enforced in
+// the files agents read (skills/**) and unenforced in the files PEOPLE read: docs/
+// estimation-guide.md shipped fifteen bare `python3 {pm_status} ...` invocations of a script
+// whose PEP-723 header declares ruamel.yaml, and two more sat in the arch and sec reference
+// docs. These plant the same shape in a BRAND-NEW file under docs/ and in README.md, so the
+// widened corpus has to be derived (LIVE_DOCS) rather than a hand-kept list of the docs that
+// happened to be wrong on the day.
+test("check 17 scope attack: a violation in a new file under docs/ is caught", (t) => {
+  const root = fixture(t);
+  write(root, "docs/brand-new-guide.md",
+    "# New guide\n\n```bash\npython3 {pm_status} set-status --state-root x\n```\n");
+  const r = run(root);
+  assert.equal(r.status, 1);
+  assert.match(r.stderr, /brand-new-guide\.md:\d+: invokes a PEP-723 script with python3/);
+});
+
+test("check 17 scope attack: a violation in README.md is caught", (t) => {
+  const root = fixture(t);
+  write(root, "README.md", "\n```bash\npython3 {pm_status} verify --state-root x\n```\n", true);
+  const r = run(root);
+  assert.equal(r.status, 1);
+  assert.match(r.stderr, /README\.md:\d+: invokes a PEP-723 script with python3/);
+});
+
+// The other side of the same scope claim: docs/superpowers/** is a historical record and is
+// EXCLUDED on purpose -- rewriting a shipped design spec to match today would falsify it. A
+// violation planted there must NOT fail, or the exclusion is a comment rather than a fact.
+test("check 17: docs/superpowers/** is excluded, and a violation there does not fail", (t) => {
+  const root = fixture(t);
+  write(root, "docs/superpowers/specs/2020-01-01-historical.md",
+    "# Historical\n\n```bash\npython3 {pm_status} set-status --state-root x\n```\n");
+  const r = run(root);
+  assert.equal(r.status, 0, r.stderr + r.stdout);
+});
+
 // Scope attack: the scan set was widened to .github/workflows/** because a real CI step
 // once installed a dependency into the runner's ambient interpreter and invoked a PEP-723
 // script (test-pm-status.py) with plain `python3`, while every sibling step in the same

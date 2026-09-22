@@ -35,7 +35,7 @@ Behavior:
 Triggered when invoked interactively and no sanctum exists at `{project-root}/_bmad/memory/l3io-sec-redteam/`.
 
 Behavior:
-1. Run `python3 {skill-root}/scripts/init-sanctum.py {project-root} {skill-root}` to create the sanctum
+1. Run `uv run {skill-root}/scripts/init-sanctum.py {project-root} {skill-root}` to create the sanctum
 2. First run is signalled by a missing sanctum, not by config — the module works unconfigured
 3. Load `references/first-breath.md` — the agent comes to life for the first time
 
