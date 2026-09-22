@@ -24,7 +24,7 @@ Everything the checkers parse, they parse with a library — never a hand-writte
 |---|---|---|
 | `check-module.mjs` | `skills/*/assets/module.yaml` | `yaml` |
 | `check-module.mjs` | `skills/*/assets/module-help.csv` | `csv-parse` |
-| `check-docs.mjs` check 17 | `.github/workflows/*.yml` | `yaml` |
+| `check-docs.mjs` check 17 | `.github/workflows/*.yml` and `*.yaml` | `yaml` |
 | `check-docs.mjs` check 17 | each `run:` script, into argv | `mvdan-sh` |
 | `check-docs.mjs` check 21 | `skills/*/SKILL.md` frontmatter | `yaml` (the package BMad's installer uses) |
 

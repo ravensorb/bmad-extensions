@@ -1198,20 +1198,11 @@ test("check 17 Task 17 scope attack: a violation in a new workflow file is caugh
 });
 
 // The markdown half keeps PY_INVOKE_RE as its candidate finder precisely so it keeps reaching
-// decoration that is not shell at all. These two shapes are why: no shell parser accepts a
-// markdown table row, and a list bullet lexes with `-` as argv[0]. Both must stay caught.
-for (const [label, line] of [
-  ["a list bullet", "- python3 {pm_status} set-status --state-root x"],
-  ["a table cell", "| `python3 {pm_status} verify` | wrong |"],
-]) {
-  test(`check 17 Task 17: a directive decorated as ${label} is still caught in markdown`, (t) => {
-    const root = fixture(t);
-    write(root, "skills/l3io-pm-execute/steps/task17-decorated.md", `${line}\n`);
-    const r = run(root);
-    assert.equal(r.status, 1, r.stdout);
-    assert.match(r.stderr, /task17-decorated\.md:\d+: (invokes a PEP-723 script with python3|contains an unquoted python3-plus-script sequence)/);
-  });
-}
+// decoration that is not shell at all: no shell parser accepts a markdown table row, and a list
+// bullet lexes with `-` as argv[0]. Both must stay caught -- and each must keep its OWN failure
+// wording, which is pinned by the M-7 pair in the fix-round-2 block below. (These two shapes
+// were a single loop asserting "either wording", which left the direct/indirect split
+// invertible with the suite green.)
 
 // ---- check 17, python3's option arity is pinned, not just documented (fix round 1, M-2) ----
 //
@@ -1263,6 +1254,227 @@ test("check 17 M-2: after `-m`, python3's flag arity stops applying to the runne
   const r = run(root);
   assert.equal(r.status, 1, r.stdout);
   assert.match(r.stderr, /invokes a PEP-723 script with python3/);
+});
+
+// ---- check 17, what the third mutation sweep found unpinned (fix round 2) ----
+//
+// An 81-mutation sweep over every decision point in check 17 found 21 mutations that stayed
+// GREEN while changing a real verdict. None was a defect in the checker -- every one was a gap
+// in what this suite PINS. The tests below close the ones that guard a recorded historical
+// defect or a scope boundary. Each is written against a named mutation, and each was confirmed
+// to go RED under it.
+//
+// Source-derived, never hand-listed: the option and helper-token sets below are read back out
+// of scripts/check-docs.mjs. A hand-kept copy would drift from the table it mirrors in exactly
+// the way the table drifted from its tests (repo CLAUDE.md §4).
+
+function checkDocsSource() {
+  return fs.readFileSync(path.join(REPO, "scripts", "check-docs.mjs"), "utf8");
+}
+
+// Every option in PY_VALUE_OPTS, read from the literal itself.
+function pyValueOpts() {
+  const m = checkDocsSource().match(/const PY_VALUE_OPTS = new Set\(\[([\s\S]*?)\]\);/);
+  assert.ok(m, "PY_VALUE_OPTS literal not found in check-docs.mjs -- has it been renamed? " +
+    "This test derives its scope from that set and must fail rather than silently test nothing");
+  const opts = [...m[1].matchAll(/"([^"]+)"/g)].map((x) => x[1]);
+  assert.ok(opts.length > 0, "PY_VALUE_OPTS parsed as empty");
+  for (const o of opts) assert.match(o, /^-/, `PY_VALUE_OPTS entry '${o}' is not an option`);
+  return opts;
+}
+
+// An option that pythonTarget() handles with a branch of its own (`-c`, `-m` today) is not
+// decided by the arity table, so the "still finds the script behind it" case does not apply to
+// it. Derived by looking for that branch, not by naming the options.
+function hasOwnBranch(opt) {
+  return new RegExp(`if \\(tok === "${opt.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}"\\)`)
+    .test(checkDocsSource());
+}
+
+function workflowStep(root, label, body) {
+  write(root, ".github/workflows/checks.yml", `    - name: ${label}\n      run: ${body}\n`, true);
+}
+
+// ---- M-3: the provisioning flag's NAME, not just its position ----
+//
+// The existing N-1 test puts `--with-coverage` AFTER the script, so it is rejected on position
+// and the flag name is never consulted. Widening UV_PROVISION_FLAG_RE to a bare `^--with` is
+// therefore invisible -- and `--with-coverage` in front of the interpreter is the exact bypass
+// three earlier fix rounds were spent closing. uv has no such flag; nothing is provisioned.
+test("check 17 M-3: `--with-coverage` before the interpreter provisions nothing", (t) => {
+  const root = fixture(t);
+  workflowStep(root, "m-3 flag name",
+    "uv run --with-coverage python3 skills/_shared/tests/test-pm-status.py");
+  const r = run(root);
+  assert.equal(r.status, 1, r.stdout);
+  assert.match(r.stderr, /invokes a PEP-723 script with python3/);
+});
+
+test("check 17 M-3: a real `--with` in the same position still provisions", (t) => {
+  const root = fixture(t);
+  workflowStep(root, "m-3 control",
+    "uv run --with 'ruamel.yaml>=0.18' python3 skills/_shared/tests/test-pm-status.py");
+  const r = run(root);
+  assert.equal(r.status, 0, r.stderr);
+});
+
+// ---- M-4: every entry in PY_VALUE_OPTS, both directions ----
+//
+// `-c`, `-m` and `-X` were held by the M-2 tests; removing `-W`, `-Q` or
+// `--check-hash-based-pycs` from the set was GREEN, and each one hides a real invocation by
+// letting the option's own value be mistaken for the script.
+//
+// MEMBERSHIP FIRST, and this is the load-bearing part. The behaviour tests below TEMPLATE over
+// whatever PY_VALUE_OPTS contains, so a newly added option is exercised without being typed
+// here -- but that alone cannot catch an option being DELETED, because the deletion removes its
+// own test and the suite passes vacuously. (Measured: removing `-W` and re-running left the
+// templated tests green, having silently generated one fewer case.) So the set's membership is
+// asserted against python3's documented CLI, which is the external source of truth here -- it
+// belongs to CPython, not to this repo, and changes on CPython's release schedule rather than
+// ours. Adding an option to the model without adding it here is caught the same way.
+const CPYTHON_VALUE_TAKING_OPTIONS = ["--check-hash-based-pycs", "-W", "-X", "-Q", "-c", "-m"];
+
+test("check 17 M-4: PY_VALUE_OPTS matches python3's documented value-taking options", () => {
+  assert.deepEqual(
+    pyValueOpts().slice().sort(),
+    CPYTHON_VALUE_TAKING_OPTIONS.slice().sort(),
+    "PY_VALUE_OPTS and python3's value-taking options disagree. Removing one lets that " +
+    "option's own value be mistaken for the script, hiding a real invocation; adding one " +
+    "that python3 does not have swallows the script path after it. Update both, or neither.",
+  );
+});
+
+for (const opt of pyValueOpts()) {
+  // Direction 1, uniform across the whole set: the option CONSUMES the next token, so a `.py`
+  // sitting there is the option's argument and nothing is executed.
+  test(`check 17 M-4: \`${opt}\` consumes its value, so \`${opt} x.py\` executes no script`, (t) => {
+    const root = fixture(t);
+    workflowStep(root, `m-4 consumes ${opt}`, `python3 ${opt} value.py`);
+    const r = run(root);
+    assert.equal(r.status, 0, r.stderr);
+  });
+
+  // Direction 2, for the options the arity table actually decides: having consumed its value,
+  // the real script behind it is still found.
+  if (hasOwnBranch(opt)) continue;
+  test(`check 17 M-4: \`${opt} <value>\` does not hide the script behind it`, (t) => {
+    const root = fixture(t);
+    workflowStep(root, `m-4 finds past ${opt}`,
+      `python3 ${opt} someval skills/_shared/tests/test-pm-status.py`);
+    const r = run(root);
+    assert.equal(r.status, 1, r.stdout);
+    assert.match(r.stderr, /invokes a PEP-723 script with python3/);
+  });
+}
+
+// ---- M-5: quoting, at all three positions that matter ----
+//
+// Every pre-existing quoting test quotes a DECOY -- a fake `uv run --with` inside a string.
+// None quotes the interpreter, the provisioning flag, or the target, so deleting wordLiteral's
+// `DblQuoted` or `SglQuoted` arm was GREEN while silencing real invocations, including
+// `python3 "{pm_status}" verify`. These use block scalars where the shell quoting would
+// otherwise collide with YAML's own.
+for (const [label, quoted] of [
+  ["single-quoted interpreter", "'python3' skills/_shared/tests/test-pm-status.py"],
+  ["double-quoted interpreter", '"python3" skills/_shared/tests/test-pm-status.py'],
+  ["single-quoted target", "python3 'skills/_shared/tests/test-pm-status.py'"],
+  ["double-quoted target", 'python3 "skills/_shared/tests/test-pm-status.py"'],
+]) {
+  test(`check 17 M-5: a ${label} is still an invocation`, (t) => {
+    const root = fixture(t);
+    write(root, ".github/workflows/checks.yml",
+      `    - name: m-5 ${label}\n      run: |\n        ${quoted}\n`, /* append */ true);
+    const r = run(root);
+    assert.equal(r.status, 1, r.stdout);
+    assert.match(r.stderr, /invokes a PEP-723 script with python3/);
+  });
+}
+
+// The mirror: a quoted provisioning FLAG must still be recognised as one, or the exemption
+// collapses and every legitimate quoted line goes red.
+test("check 17 M-5: a quoted `--with` is still a provisioning flag", (t) => {
+  const root = fixture(t);
+  write(root, ".github/workflows/checks.yml",
+    "    - name: m-5 quoted flag\n      run: |\n" +
+    `        uv run "--with" 'ruamel.yaml>=0.18' python3 skills/_shared/tests/test-pm-status.py\n`,
+    /* append */ true);
+  const r = run(root);
+  assert.equal(r.status, 0, r.stderr);
+});
+
+// The helper tokens are the shape the skills actually write, and they are routinely quoted.
+// Derived from PEP723_HELPER_RE so a third token added later is tested without being typed here.
+function pep723HelperTokens() {
+  const m = checkDocsSource().match(/const PEP723_HELPER_RE = (\/\S+\/);/);
+  assert.ok(m, "PEP723_HELPER_RE literal not found -- this test derives its scope from it");
+  const alt = m[1].match(/\(\?:([^)]+)\)/);
+  assert.ok(alt, `PEP723_HELPER_RE has no alternation group: ${m[1]}`);
+  const tokens = alt[1].split("|");
+  assert.ok(tokens.length > 0, "PEP723_HELPER_RE alternation parsed as empty");
+  return tokens;
+}
+
+for (const token of pep723HelperTokens()) {
+  test(`check 17 M-5: a double-quoted {${token}} helper token is still an invocation`, (t) => {
+    const root = fixture(t);
+    write(root, "skills/l3io-pm-execute/steps/m5-quoted-helper.md",
+      "```bash\n" + `python3 "{${token}}" verify\n` + "```\n");
+    const r = run(root);
+    assert.equal(r.status, 1, r.stdout);
+    assert.match(r.stderr, /m5-quoted-helper\.md:\d+: invokes a PEP-723 script with python3/);
+  });
+}
+
+// ---- M-6: the workflow scope covers both spellings of the extension ----
+//
+// walkWorkflowFiles() matches /\.ya?ml$/, and the only scope-attack test planted a `.yml`
+// file -- so narrowing that pattern to /\.yml$/ was GREEN while a violation in
+// `.github/workflows/*.yaml` became invisible. The rule was proven; its REACH was not
+// (repo CLAUDE.md §4).
+for (const ext of ["yml", "yaml"]) {
+  test(`check 17 M-6 scope attack: a violation in a new .${ext} workflow is caught`, (t) => {
+    const root = fixture(t);
+    write(root, `.github/workflows/scheduled.${ext}`,
+      "name: scheduled\non: [schedule]\njobs:\n  a:\n    runs-on: ubuntu-latest\n" +
+      "    steps:\n    - run: python3 skills/_shared/tests/test-pm-status.py\n");
+    const r = run(root);
+    assert.equal(r.status, 1, r.stdout);
+    assert.match(r.stderr,
+      new RegExp(`scheduled\\.${ext}:\\d+: invokes a PEP-723 script with python3`));
+  });
+}
+
+// ---- M-7: each decoration shape asserts ITS OWN wording ----
+//
+// Fix round 1 split the failure message into a direct and an indirect form, and loosened these
+// two assertions to accept either -- which left the `direct` computation invertible with the
+// suite still green. That is the fix for one finding creating the next one, so they are split
+// and pinned exactly.
+//
+// A list bullet LEXES: argv[0] is `-`, python3 is an argv word of something else, so it takes
+// the indirect wording and says so honestly.
+test("check 17 M-7: a bullet-decorated directive is caught with the indirect wording", (t) => {
+  const root = fixture(t);
+  write(root, "skills/l3io-pm-execute/steps/m7-bullet.md",
+    "- python3 {pm_status} set-status --state-root x\n");
+  const r = run(root);
+  assert.equal(r.status, 1, r.stdout);
+  assert.match(r.stderr,
+    /m7-bullet\.md:\d+: contains an unquoted python3-plus-script sequence outside a provisioned/);
+  assert.doesNotMatch(r.stderr, /m7-bullet\.md:\d+: invokes a PEP-723 script/);
+});
+
+// A table row does NOT lex -- a leading `|` is a shell syntax error -- so there is no argv to
+// classify and the direct wording is the honest one: PY_INVOKE_RE matched a python3-plus-script
+// sequence and nothing exempted it.
+test("check 17 M-7: a table-cell directive is caught with the direct wording", (t) => {
+  const root = fixture(t);
+  write(root, "skills/l3io-pm-execute/steps/m7-table.md",
+    "| `python3 {pm_status} verify` | wrong |\n");
+  const r = run(root);
+  assert.equal(r.status, 1, r.stdout);
+  assert.match(r.stderr, /m7-table\.md:\d+: invokes a PEP-723 script with python3/);
+  assert.doesNotMatch(r.stderr, /m7-table\.md:\d+: contains an unquoted/);
 });
 
 // ---- check 18 (docs-check-count) ----

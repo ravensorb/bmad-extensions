@@ -1335,6 +1335,20 @@ function checkBmadDependencyInventory() {
 //     separate value reads as the first non-flag argument.
 //   - markdown candidacy still rests on PY_INVOKE_RE, so an invocation spelled in a way that
 //     regex does not match is not offered to the rule at all in the markdown corpus.
+//
+// WHAT THIS WAS TESTED AGAINST, so the claim above is a measurement and not a belief (same
+// discipline check 21's header follows). A mutation sweep over every decision point in this
+// section ran 81 mutations: 51 turned the suite RED, 8 were provably equivalent (no verdict
+// changed), and 21 stayed GREEN while changing a real verdict -- every one of those a gap in
+// what the suite PINNED, none a defect in the rule. Fix round 2 closed 7 of the 21: the
+// provisioning flag's NAME (`--with-coverage` in front of the interpreter), every entry of
+// PY_VALUE_OPTS in both directions, quoting at the interpreter/flag/target positions, the
+// `.yaml` half of the workflow scope, and the direct-versus-indirect wording of each markdown
+// decoration shape. The 14 left open are recorded in the fix-round-2 review and are knowingly
+// parked: they are message-only flips, `uv tool run`, `--use-python3`, `python3 -`, the
+// block-scalar line offset, and spliced-interpreter variable resolutions -- none changes a
+// verdict on any content this repo has. Re-derive by mutating any single decision below and
+// running `npm run test:scripts`.
 // ---------------------------------------------------------------------------
 const PY_INVOKE_RE = /(?<![\w-])python3(?:\.\d+)?(?:\s+-\S+(?:\s+\S+)?)*\s+(?:"?\{(pm_status|spec_align)\}|\S*\.py)(?![\w-])/;
 const PY_FALLBACK_QUALIFIER = /\buv\b[^.]*\bunavailable\b|\bfallback\b/i;

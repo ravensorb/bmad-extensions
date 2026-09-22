@@ -64,9 +64,11 @@ added carries it, so the next reader will meet the fact whether or not this ADR 
 node_modules/mvdan-sh  "deprecated": "See https://github.com/mvdan/sh/issues/1145"
 ```
 
-`mvdan-sh@0.10.1` is the GopherJS build of mvdan/sh, BSD-3-Clause, last published 2025-04. The
-named successor is **`sh-syntax`** — a WASM build of the *same* mvdan/sh parser, MIT, actively
-released (0.6.0, 2026-07).
+`mvdan-sh@0.10.1` is the GopherJS build of mvdan/sh, BSD-3-Clause. It was **published
+2022-05-08** — the registry's `time.modified` of 2025-04-10 is when the deprecation was
+recorded, not a release, and reading it as one understated the package's age by three years.
+The named successor is **`sh-syntax`** — a WASM build of the *same* mvdan/sh parser, MIT,
+actively released (0.6.0, 2026-07).
 
 **Why the successor was not taken:** `sh-syntax` is **async-only**. Its API returns promises
 because the WASM module must be instantiated before the first parse, and it exposes no
@@ -78,6 +80,11 @@ whose whole job is to be a reliable gate. Its AST is also shaped differently (a 
 rather than the Go node objects `syntax.Walk` yields), so the rule would be rewritten, not
 ported. That is a disproportionate change to buy a maintenance label on a devDependency that
 never ships and whose parse behaviour is frozen and correct.
+
+**The deprecation is this section's premise, not a revisit trigger.** None of the three triggers
+below has fired as of 2026-09-22: `check-docs.mjs` is still synchronous, all six gates pass on
+Node 24, and `npm audit` reports zero advisories. A deprecated package that still parses shell
+correctly on a supported runtime is a maintenance risk to *watch*, not a decision to reopen.
 
 **Revisit if** any of these becomes true:
 
@@ -112,6 +119,6 @@ newline splitter and a backslash-continuation joiner, which is what this ADR exi
   `^2.9.1` — same major), so it agrees with the thing it predicts rather than approximating it.
 - Revisit if: the install becomes a meaningful share of CI time, a dependency introduces a
   supply-chain review burden the maintainer does not want for build tooling, or any of the
-  three `mvdan-sh` triggers in the section above fires. That third one is the live one: the
-  library is deprecated **today**, and this ADR would be overstating its own coverage if it
-  listed only the triggers that have not happened yet.
+  three `mvdan-sh` triggers in the section above fires. **None of those three has fired yet.**
+  What is true today is the deprecation itself, which is why that section exists — but a
+  deprecation notice is a standing condition to watch, not an event that reopens the decision.
