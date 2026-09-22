@@ -26,6 +26,9 @@
   },
   "devDependencies": {
     "commit-and-tag-version": "latest",
-    "conventional-changelog-cli": "latest"
+    "conventional-changelog-cli": "latest",
+    "csv-parse": "^7.0.2",
+    "mvdan-sh": "^0.10.1",
+    "yaml": "^2.9.1"
   }
 }
