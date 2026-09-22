@@ -61,29 +61,42 @@ for name in $declared_skills; do
 done
 
 echo "== module contract =="
-# State-derived, not hardcoded: whether the module contract has landed is read from the
-# package's own tree (any skills/*/assets/module.yaml), the thing Phase 2 Task 7 creates by
-# relocating module.yaml under assets/ -- never from a hand-kept "skip until Task 9" marker
-# that someone has to remember to delete. Until that file exists anywhere in the package, the
-# check can only ever fail (module.yaml still lives at each skill's root, and there is no
-# *-setup/ directory for a multi-skill module either), so it reports PENDING and does not
-# count against the exit code. Once Task 7 (and Task 9's l3io-pm-setup) land, this branch
-# stops matching on its own and the same assertion below starts running for real, with no
-# edit needed here.
+# One validator run PER MODULE, against a view built from marketplace.json's own
+# plugins[].skills arrays -- never a hand-kept list. This replaces a single run against the
+# bare .claude/skills/ install root, which could not pass and was reported as a permanent
+# FAIL. Measured 2026-09-22 against a real install, which is where the reasons came from:
 #
-# Do not point the validator at the bare .claude/skills/ install root even once module.yaml
-# has landed: BMad's own bmad-bmb-setup directory lives there too, and find_setup_skill()
-# matches the first "*-setup" directory it sees -- so the whole flat tree (every bmm/core/bmb
-# skill plus the l3io ones just copied in) gets validated as if it were the bmb module,
-# producing dozens of unrelated "missing capability entry" findings. Confirmed by hand against
-# a real 6.12.0+bmb install.
-if ls "$pkg"/skills/*/assets/module.yaml >/dev/null 2>&1; then
-  check "validate-module.py passes for the package" \
-    "uv run .claude/skills/bmad-module-builder/scripts/validate-module.py .claude/skills 2>/dev/null | grep -q '\"status\": \"pass\"'"
-else
-  pending_check "validate-module.py passes for the package" \
-    "no skills/*/assets/module.yaml yet (Phase 2 Task 7 creates it); this check activates automatically once it lands"
-fi
+#   - validate-module.py assumes a module owns its own directory. In a real install nothing
+#     does: every skill lands flat in .claude/skills/ beside all of bmm/core/bmb, and
+#     _bmad/<code>/ holds only config.yaml and module-help.csv -- no skills at all.
+#   - Pointed at .claude/skills/, find_skill_folders() (validate-module.py:44) claims every
+#     sibling with a SKILL.md as part of whichever module it detected, so a real install
+#     produced `"status": "fail"` with a missing-entry finding for every bmm/core/bmb skill.
+#   - Pointed at skills/l3io-pm-setup alone, line 61's standalone test matches and the four
+#     sibling skills its module-help.csv declares become `orphan-entry` findings.
+#
+# So the module has to be assembled before it can be validated. That is the closing move
+# ruling-task9-validator-scope.md wrote up and left unimplemented; ADR-0008 Decision 7
+# records why it is needed. Verified both ways: the constructed l3io-pm view returns
+# `"status": "pass"` with zero findings, and the same run before assembly returns `fail`.
+view_root="$work/.smoke-module-views"
+rm -rf "$view_root"
+mkdir -p "$view_root"
+plugin_count=$(jq -r '.plugins | length' "$pkg/.claude-plugin/marketplace.json")
+# Same non-empty guard as the delivery section: a jq path rename would otherwise make this
+# whole section pass by running zero times.
+check "marketplace.json declares at least one plugin (the derived set is not empty)" \
+  "[ '$plugin_count' -gt 0 ]"
+for i in $(seq 0 $((plugin_count - 1))); do
+  plugin_name=$(jq -r ".plugins[$i].name" "$pkg/.claude-plugin/marketplace.json")
+  view="$view_root/$plugin_name"
+  mkdir -p "$view"
+  for skill in $(jq -r ".plugins[$i].skills[]" "$pkg/.claude-plugin/marketplace.json" | xargs -n1 basename); do
+    cp -r ".claude/skills/$skill" "$view/$skill"
+  done
+  check "validate-module.py passes for module '$plugin_name' (view built from marketplace.json)" \
+    "uv run .claude/skills/bmad-module-builder/scripts/validate-module.py '$view' 2>/dev/null | grep -q '\"status\": \"pass\"'"
+done
 
 echo "== pm-status.py sibling path (Task 11A) =="
 # Task 11A cut pm-status.py from four payload copies to two: pm-execute/pm-plan/pm-sync no
@@ -122,8 +135,14 @@ if [ -d ".claude/skills/l3io-pm-setup" ] && [ -d ".claude/skills/l3io-pm-execute
   # stay true -- it must not have gained a sibling self-install invocation of its own. It is
   # allowed (and expected) to keep saying, in prose, that it does not self-install; what must
   # never appear is an actual `pm-status.py self-install` command.
+  # Searched across the whole skill, not one named file. This assertion read SKILL.md alone
+  # and went FAIL the moment Task 12 split l3io-pm-help into a router plus steps/: the
+  # sentence moved to steps/step-01-config.md byte-for-byte unchanged, and a check that
+  # pinned its location broke on text that had not changed. Smoke is not a CI gate, so the
+  # failure sat unnoticed from that split until this task re-ran it. Same lesson as
+  # ADR-0008's "moving text unchanged can break it".
   check "l3io-pm-help still says it does not self-install pm-status.py" \
-    "grep -q 'does not self-install' '$pkg/skills/l3io-pm-help/SKILL.md'"
+    "grep -rq 'does not self-install' '$pkg/skills/l3io-pm-help/'"
   check "l3io-pm-help carries no self-install invocation of its own" \
     "! grep -q 'pm-status\.py self-install' '$pkg/skills/l3io-pm-help/SKILL.md'"
 else

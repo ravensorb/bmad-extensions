@@ -73,6 +73,10 @@ placing it would change.
 
 **Step OV6 — Print exactly one placement command per staged file**
 
+**Print this command for the user to run; never run it yourself.** Placing the file is the act
+this mode exists not to perform — `_bmad/custom/` is the user's space, and writing there is this
+mode's defining prohibition.
+
 ```
 cp {implementation_artifacts}/l3io/overlays/<skill>.toml {project-root}/_bmad/custom/<skill>.toml
 ```
