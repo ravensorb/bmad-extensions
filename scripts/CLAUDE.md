@@ -9,6 +9,16 @@ root `CLAUDE.md`. This file carries the mechanics behind them.
 Each checker's own header comment is the authoritative description of what it asserts;
 `scripts/check-docs.mjs` numbers its twenty-two checks there.
 
+**`module.yaml` lives in more than one place, on purpose.** BMad reads it with two different
+tools that disagree about where it is: `validate-module.py` reads `assets/module.yaml`, and
+`tools/installer/project-root.js` — the one that decides which `[modules.<code>]` a module's
+settings land under — reads a **skill-root** `module.yaml` for any skill whose directory name
+does not end in `-setup`. So a standalone module home carries both, byte-identical, and
+`skills/module.yaml` is a marker declaring no `code:`/`name:`/`agents:`. `check:module` rule 1
+enforces all of it; `docs/bmad-module-yaml-discovery.md` has the measured contract. Do not
+"tidy up" the duplicate — a branch that did exactly that shipped an install whose
+`_bmad/config.toml` BMad's own resolver refused to parse.
+
 ## Dependencies
 
 The checkers are **not** dependency-free, and have not been since
@@ -22,8 +32,9 @@ Everything the checkers parse, they parse with a library — never a hand-writte
 
 | Where | Parses | With |
 |---|---|---|
-| `check-module.mjs` | `skills/*/assets/module.yaml` | `yaml` |
+| `check-module.mjs` | `skills/module.yaml`, `skills/*/module.yaml`, `skills/*/assets/module.yaml` | `yaml` |
 | `check-module.mjs` | `skills/*/assets/module-help.csv` | `csv-parse` |
+| `module-config-keys.mjs` | `skills/*/assets/module.yaml` | `yaml` |
 | `check-docs.mjs` check 17 | `.github/workflows/*.yml` and `*.yaml` | `yaml` |
 | `check-docs.mjs` check 17 | each `run:` script, into argv | `mvdan-sh` |
 | `check-docs.mjs` check 21 | `skills/*/SKILL.md` frontmatter | `yaml` (the package BMad's installer uses) |

@@ -2,7 +2,9 @@
 
 ## Status
 
-Accepted — 2026-09-22.
+Accepted — 2026-09-22. **Amended 2026-09-22**, same day, after the whole-branch review found
+that a real install of the shape decided here does not work: see *The validator is not the
+installer* in Context and the correction to Decision 1.
 
 Number allocated by `pm-status.py adr-reserve --epic E000 --slug module-packaging-shape`, not
 chosen by hand. See *A reservation that lives only in prose is not a reservation*, below.
@@ -36,6 +38,31 @@ writes `_bmad/config.yaml` and `_bmad/config.user.yaml` instead, and on a succes
 **deletes** the legacy per-module `config.yaml` files it read from. Running the scaffolded
 script as written would produce a file core never reads, and remove files in the process.
 
+**The validator is not the installer — and this ADR originally read only the validator.**
+*(Added by the 2026-09-22 amendment. Everything above this paragraph was written from
+`validate-module.py` and `config_utils.py`; `tools/installer/project-root.js` ships in the same
+installed tree, decides where a module's settings are actually written, and was never opened.
+Measured against bmad-method 6.12.0 for this amendment:)*
+
+`project-root.js:102` `resolveInstalledModuleYaml()` is called per module name while the
+manifests are written (`manifest-generator.js:448`, `:552`). Its `searchRootAll()` (`:109`)
+recognises `assets/module.yaml` **only** under a directory whose name ends in `-setup`
+(`:134`). For any other skill the one location it looks at is the **skill root**,
+`skills/<skill>/module.yaml`. Relocating the three standalone modules' `module.yaml` under
+`assets/` therefore made them undiscoverable to the installer while leaving them perfectly
+valid to `validate-module.py` — measured on the URL-source consumer path, `l3io-sec`,
+`l3io-util` and `l3io-arch` each resolved to `NULL`.
+
+Worse, the local `--custom-source` branch (`:171`–`:181`) calls `searchRoot(localPath)`, which
+is `all[0]` (`:149`) with **no matching on the requested module**, and every plugin in a
+marketplace repo shares one `localPath` (`ui.js:1212`). All four modules resolved to the one
+remaining discoverable file, `skills/l3io-pm-setup/assets/module.yaml`, so
+`manifest-generator.js:552` used `l3io-pm` as the TOML section key for all of them and emitted
+`[modules.l3io-pm]` twice. `tomllib` rejects a table declared twice; `resolve_config.py` exited
+1; every l3io skill and every BMad core skill would have halted at activation and reported
+"BMad core is not installed". The full contract, both branches, and the fix are in
+`docs/bmad-module-yaml-discovery.md`.
+
 **One guard had become unfireable.** `check:docs` check 16 at the time — `module-yaml-agreement`
 — asserted that sibling `module.yaml` files sharing a `code:` agreed with one another. Once each
 module has exactly one `module.yaml`, at its home, there are no siblings left to disagree, and
@@ -49,7 +76,25 @@ the check could not fail for any tree the other checks permit.
    `assets/module-setup.md` for the whole module. `l3io-util`, `l3io-sec` and `l3io-arch` are
    single-skill modules and take the standalone shape — `l3io-util-doctor`,
    `l3io-sec-redteam` and `l3io-arch-review` are each their own module home and self-register.
-   One `module.yaml` per module code, always at that module's home, never at a skill root.
+   One `module.yaml` per module code, always at that module's home.
+
+   **Corrected 2026-09-22.** This decision originally ended "…never at a skill root", and
+   `check:module` rule 1 (`no-root-module-yaml`) enforced it. That was wrong, and it was wrong
+   in the one direction that matters: a skill root is exactly where
+   `project-root.js:searchRootAll` looks for a non-`*-setup` skill. The shape is now:
+
+   - `l3io-pm` (multi-skill): `skills/l3io-pm-setup/assets/module.yaml` — unchanged.
+   - the three standalone modules: `assets/module.yaml` **and** a byte-identical copy at the
+     skill root. `assets/` is what `validate-module.py` and `PluginResolver` strategy 3 read;
+     the skill root is what the installer's discovery reads. Both tools are satisfied.
+   - the repository: `skills/module.yaml`, declaring no `code:`, no `name:` and no `agents:`,
+     so that the local branch's unconditional `all[0]` resolves to a file that claims no module
+     and each module's answers fall back to its own code. `skills/module-help.csv` must never
+     exist beside it, or `PluginResolver` strategy 1 collapses all four plugins into one module.
+
+   `check:module` rule 1 now asserts all three, with the module homes derived from the tree.
+   `scripts/smoke-install.sh` proves the result on a real install: `resolve_config.py` exit 0,
+   one `[modules.<code>]` table per module, each under its own code.
 
 2. **Setup is never implicit.** An absent `[modules.<code>]` config section is a valid, permanent
    state — a module can be installed and unconfigured — so it is not a first-run trigger. Setup
@@ -206,3 +251,21 @@ without it.
    2's finding, and round 2's first attempt at that finding created its own vacuous test. A fix
    round is not a smaller kind of change; it is a change made under more time pressure and less
    review.
+
+9. **Conformance to one of a system's tools is not conformance to the system.** *(Added by the
+   2026-09-22 amendment — the finding that cost this ADR a same-day correction.)* This document
+   opens "The evidence below was read out of the installed BMad tree … not inferred from its
+   documentation", and then reasons entirely from `validate-module.py`.
+   `tools/installer/project-root.js` is in that same installed tree; it reads the same file; it
+   disagrees about where the file lives; and it, not the validator, decides whether the install
+   works. Nothing in the original text notices there are two tools. The result passed six gates
+   and `npm run smoke:install`'s 22 assertions, and produced an `_bmad/config.toml` that BMad's
+   own resolver refused to parse.
+
+   Two things generalise. **Name the tool a claim was measured against, in the claim.** "The
+   module shape is correct" is not checkable; "`validate-module.py` returns `pass`" is, and it
+   invites the next reader to ask what else reads this. And **a gate that installs for real must
+   exercise the path the product runs first.** `smoke:install` asserted 22 things about an
+   install whose config layer was unusable, because it never ran `resolve_config.py` — its
+   nearest assertion grepped a different file. One line would have turned this red at the phase
+   boundary. It is now in the script, and it fails against the pre-fix tree.

@@ -1,115 +1,191 @@
-# Reference: How BMad discovers `module.yaml` (and why the "could not locate module.yaml" warnings appear)
+# Reference: How BMad discovers `module.yaml`
 
-> Research note validated against BMad Method installer source (`bmad-code-org/BMAD-METHOD`,
-> v6.10.x): `tools/installer/project-root.js` and `tools/installer/core/manifest-generator.js`.
-> Fetched via `gh api` from `main` on 2026-07-05.
->
-> **Dated record — kept as written.** The discovery *mechanism* described here is still
-> current, but the example paths are not: this package used a nested
-> `src/<module>/<skill>/` tree and skill names like `l3io-pm-sprint-execute` and
-> `l3io-sec-agent-redteam` when the note was taken. Skills now live in a flat `skills/`
-> directory (see [Architecture](architecture.md)), and those three skills are now
-> `l3io-pm-execute`, `l3io-pm-plan`, and `l3io-sec-redteam`. Read the paths below as
-> historical illustration, not as current layout.
+> **Re-measured 2026-09-22 against the installed bmad-method **6.12.0** tree**
+> (`tools/installer/project-root.js`, `tools/installer/modules/plugin-resolver.js`,
+> `tools/installer/core/manifest-generator.js`, `tools/installer/ui.js`), by running that
+> code against this repository and against a real install. Everything below cites a file and
+> a line in that tree. The previous revision of this file was validated against v6.10.x, was
+> written from the mechanism alone, and reached a **false** conclusion — see
+> [What the earlier revision got wrong](#what-the-earlier-revision-got-wrong).
 
-## The warnings
+## There are TWO discovery mechanisms, not one
 
-During a consumer install / update ("Generating manifests" phase) BMad prints:
+This is the single most important fact in this document, and the one the branch that broke
+the install did not have. BMad finds a `module.yaml` twice, with two different code paths,
+two different contracts, and two different failure modes.
 
-```text
-[warn] collectAgentsFromModuleYaml: could not locate module.yaml for 'l3io-pm'.
-       Agents declared by this module will not be written to config.toml.
-[warn] writeCentralConfig: could not locate module.yaml for 'l3io-pm'.
-       Answers from this module will default to team scope — user-scoped keys
-       may mis-file into config.toml.
-```
+### 1. Install-time plugin resolution — `PluginResolver.resolve()`
 
-Both warnings come from the **same root cause**: the installer's `ManifestGenerator`
-could not find a `module.yaml` whose `code:` matches the module name. They are emitted
-by `collectAgentsFromModuleYaml()` and `writeCentralConfig()` in
-`tools/installer/core/manifest-generator.js`, both of which call the shared resolver
-`resolveInstalledModuleYaml(moduleName)` in `tools/installer/project-root.js`.
+`tools/installer/modules/plugin-resolver.js:29`. Per plugin, driven by the `skills` array in
+`.claude-plugin/marketplace.json`. Five strategies, first match wins:
 
-## Where the installer looks (the discovery contract)
+| # | Strategy | Requires |
+| --- | --- | --- |
+| 1 | `_tryRootModuleFiles` (`:72`) | `module.yaml` **and** `module-help.csv` at the **common parent** of the plugin's skills |
+| 2 | `_trySetupSkill` (`:106`) | a listed skill whose directory name ends in `-setup`, with `assets/module.yaml` **and** `assets/module-help.csv` |
+| 3 | `_trySingleStandalone` (`:146`) | exactly **one** listed skill, with `assets/module.yaml` **and** `assets/module-help.csv` |
+| 4 | `_tryMultipleStandalone` (`:183`) | **every** listed skill has both files — each becomes its own module |
+| 5 | `_synthesizeFallback` (`:229`) | nothing; code/name are invented from `marketplace.json` and SKILL.md frontmatter, **and every install-time setting the module declares is lost** |
 
-The resolver reads the module's **source** (not the installed `_bmad/<module>/` copy).
-For a custom module installed from a Git `repoUrl`, the source is the clone cached at:
+This is what decides the module's code, name, and which install-time questions get asked.
+It is per-plugin and it is correct. Measured against this repo:
 
 ```text
-~/.bmad/cache/custom-modules/<host>/<owner>/<repo>/
+plugin l3io-pm    -> code=l3io-pm    strategy=2  skills/l3io-pm-setup/assets/module.yaml
+plugin l3io-sec   -> code=l3io-sec   strategy=3  skills/l3io-sec-redteam/assets/module.yaml
+plugin l3io-util  -> code=l3io-util  strategy=3  skills/l3io-util-doctor/assets/module.yaml
+plugin l3io-arch  -> code=l3io-arch  strategy=3  skills/l3io-arch-review/assets/module.yaml
 ```
 
-For each cached repo root it runs `searchRootAll(root)`, which enumerates every
-`module.yaml` at these **exact** locations (relative to the repo root) and then matches
-one whose parsed `code:` (or `name:`) equals the requested module name:
+> **Strategy 1 is a trap for this repo.** Every plugin here lists skills directly under
+> `skills/`, so `_computeCommonParent` (`:278`) returns `skills/` for *all four* — including
+> the single-skill ones, where the common parent of one path is its `dirname`. If
+> `skills/module-help.csv` ever existed beside `skills/module.yaml`, strategy 1 would fire
+> first and resolve **all four plugins to one module**. `check:module` rule 1 forbids that
+> file for this reason.
 
-| Pattern (relative to repo root) | Matches our layout? |
-| --- | --- |
-| `skills/module.yaml` | no |
-| `src/module.yaml` | no |
-| `skills/<dir>/module.yaml` (one level) | no (`skills/` absent) |
-| `src/<dir>/module.yaml` (one level) | **yes → `src/l3io-pm/module.yaml`** |
-| `<*-setup>/assets/module.yaml` (repo root) | no |
-| `src/skills/<*-setup>/assets/module.yaml` | no |
-| `skills/<*-setup>/assets/module.yaml` | no at the time this note was taken; **now `skills/l3io-pm-setup/assets/module.yaml`** — see the update below the table |
-| `module.yaml` (repo root) | no |
+### 2. Config-writing resolution — `resolveInstalledModuleYaml()`
 
-**Critical detail — depth:** the `src/<dir>/` scan is exactly **one level** deep.
-Our per-skill copies at `src/l3io-pm/l3io-pm-sprint-execute/module.yaml` (and the
-identical copy carried by each sibling skill) are **two levels** under `src/` and are
-therefore **never discovered**. At the time this note was taken, the
-`<*-setup>/assets/module.yaml` convention did not match this repo at all — there was no
-`*-setup` directory anywhere in the tree.
+`tools/installer/project-root.js:102`. Called per **module name** by
+`collectAgentsFromModuleYaml` (`manifest-generator.js:448`) and `writeCentralConfig`
+(`manifest-generator.js:448`/`:552`) while the manifests are written. This is the one that
+decides **which `[modules.<code>]` section each module's answers are written under**, and
+which agents reach `[agents.*]`.
 
-**Update, l3io-customization-layer restructuring (2026-09):** that is no longer true for
-`l3io-pm`. It is now the package's only multi-skill module and has a dedicated
-`l3io-pm-setup` skill, so `skills/l3io-pm-setup/assets/module.yaml` is a real file at
-exactly the `skills/<*-setup>/assets/module.yaml` path this table lists. The three
-standalone modules (`l3io-util`, `l3io-sec`, `l3io-arch`) are unaffected: each one's
-`module.yaml` sits at `skills/<its-own-skill-name>/assets/module.yaml`, and none of those
-skill directory names end in `-setup`, so none of them match any pattern in the table
-above. Whether the `skills/<*-setup>/assets/module.yaml` match now actually silences the
-"could not locate module.yaml" warning for `l3io-pm` on a current install has not been
-re-verified against BMad's installer source (this note's mechanism was validated against
-v6.10.x; see the top-of-file banner) — this update only corrects the claim about what
-this repo's own tree contains.
+`searchRootAll(root)` (`:109`) collects candidates in this **fixed priority order**:
 
-### The fix that works for this repo's layout
+| # | Pattern (relative to the source root) | Source line |
+| --- | --- | --- |
+| 1 | `skills/module.yaml` | `:112` (`dir` loop, `direct`) |
+| 2 | `skills/<dir>/module.yaml` — one level | `:120` |
+| 3 | `src/module.yaml` | `:112` |
+| 4 | `src/<dir>/module.yaml` — one level | `:120` |
+| 5 | `<*-setup>/assets/module.yaml` at the root, under `src/skills/`, and under `skills/` | `:129`–`:137` |
+| 6 | `module.yaml` at the root | `:140` |
 
-A per-module `module.yaml` at `src/<module>/module.yaml` — i.e.:
+**The rule that broke this branch:** `assets/module.yaml` is recognised **only** under a
+directory whose name ends in `-setup` (`:134`). For any other skill directory the **only**
+location this resolver sees is `skills/<skill>/module.yaml` — the skill **root**.
+
+Then the caller picks one of two branches, and they do **not** behave the same:
+
+| Install source | Branch | Behaviour |
+| --- | --- | --- |
+| Git URL (`source: custom, repoUrl: …`) — the documented consumer path | `:190`–`:212`, the `~/.bmad/cache/custom-modules` walk | parses **every** candidate and matches `parsed.code === moduleName \|\| parsed.name === moduleName`. **Correct per module.** |
+| Local `--custom-source <dir>` — what `npm run smoke:install` uses | `:171`–`:181`, the `CustomModuleManager._resolutionCache` branch | calls `searchRoot(localPath)`, which is `all[0]` (`:149`) — **no matching on the requested module at all**. Every plugin in the repo shares one `localPath` (`ui.js:1212`, `sourceResult.rootDir`), so **all four modules resolve to the same first candidate.** |
+
+The URL branch was extended for multi-plugin repos ("Url-source repos can host multiple
+plugins (discovery mode), so we need all matches, not just the first", `:107`). The local
+branch was not. For a repository that hosts more than one module — which this one does —
+**the local branch cannot attribute per module, whatever the layout.**
+
+### What first-match-wins does downstream
+
+Two places consume the (wrong) file, and both write TOML without a dedupe:
+
+- `manifest-generator.js:552` — `sectionKey = codeByModuleName[moduleName] || moduleName`.
+  With every module resolving to one file, every module gets that file's `code:` as its TOML
+  section key. Two modules with install answers ⇒ `[modules.<code>]` **declared twice**.
+- `manifest-generator.js:610` — one `[agents.<code>]` block per collected agent, and agents
+  are collected once **per module** (`:480`, `module: moduleName`). An `agents:` array in
+  whichever file wins ⇒ `[agents.redteam]` emitted **four times**.
+
+TOML forbids both. `tomllib` refuses the file, `resolve_config.py` exits 1, and
+`references/config-resolution.md` §4 then tells every l3io skill *and* every BMad core skill
+to stop and report "BMad core is not installed" — which is false.
+
+## The contract this repository follows
+
+| Module shape | Where `module.yaml` must live | Why |
+| --- | --- | --- |
+| Multi-skill, with a `*-setup` skill (`l3io-pm`) | `skills/l3io-pm-setup/assets/module.yaml` | PluginResolver strategy 2 and `searchRootAll` pattern 5 both read exactly this path |
+| Standalone single-skill (`l3io-sec`, `l3io-util`, `l3io-arch`) | **both** `skills/<skill>/assets/module.yaml` **and** `skills/<skill>/module.yaml`, byte-identical | `assets/` is what PluginResolver strategy 3 and `validate-module.py` read; the **skill root** is the only place `searchRootAll` looks for a non-`*-setup` skill |
+| The repository itself | `skills/module.yaml`, declaring **no** `code:`, **no** `name:`, **no** `agents:` | it is `searchRootAll`'s first candidate, so it is what the local branch's `all[0]` returns for every module; with no `code:` the section key falls back to each module's own name (`manifest-generator.js:552`), and with no `agents:` no agent block is emitted more than once |
+
+`check:module` rule 1 enforces all three, deriving the module homes from the tree rather than
+from a list. The marker file `skills/module.yaml` documents its own mechanism inline.
+
+Measured on the **URL-source** path (the documented consumer path), before and after:
 
 ```text
-src/l3io-pm/module.yaml     (code: l3io-pm)
-src/l3io-sec/module.yaml    (code: l3io-sec)
-src/l3io-util/module.yaml   (code: l3io-util)
+before (assets/ only)                  after (skill-root copies added)
+  l3io-pm   -> l3io-pm-setup/assets/     l3io-pm   -> skills/l3io-pm-setup/assets/module.yaml
+  l3io-sec  -> NULL                      l3io-sec  -> skills/l3io-sec-redteam/module.yaml
+  l3io-util -> NULL                      l3io-util -> skills/l3io-util-doctor/module.yaml
+  l3io-arch -> NULL                      l3io-arch -> skills/l3io-arch-review/module.yaml
 ```
 
-This hits the supported `src/<dir>/module.yaml` (one-level) discovery path and its
-`code:` matches the module name. This is a first-class supported location in
-`searchRootAll` — no restructuring of the skills tree is required.
+Measured on the **local `--custom-source`** path, from a real install:
 
-## Two conditions must BOTH hold, or the warnings persist
+```text
+before                                  after
+  [modules.l3io-pm]                       [modules.l3io-sec]
+  research_cache_ttl_days = "30"          research_cache_ttl_days = "30"
+  [modules.l3io-pm]      <-- twice        [modules.l3io-arch]
+  preferred_diagram_format = "mermaid"    preferred_diagram_format = "mermaid"
+  resolve_config.py EXIT=1                resolve_config.py EXIT=0
+```
 
-1. **The file must be shipped on the branch/channel the consumer tracks.**
-   Consumers install with `source: custom`, `repoUrl: https://github.com/ravensorb/bmad-extensions`,
-   `channel: next`, `version: main` (see the consumer's `_bmad/_config/manifest.yaml`).
-   A `module.yaml` that exists only locally and is **untracked/uncommitted** never reaches
-   the consumer — the installer clones the published `main`, not your working tree.
+### Known limitation, stated rather than hidden
 
-2. **The consumer's clone cache must be refreshed.**
-   The resolver reads `~/.bmad/cache/custom-modules/<host>/<owner>/<repo>/`. A stale cache
-   (cloned before the file was added) still lacks it. A `quick-update`
-   (`--action quick-update`) re-fetches Git-sourced modules and re-runs manifest generation.
+On the local `--custom-source` path the `[agents.redteam]` block declared by
+`l3io-sec`'s `module.yaml` is **not** written, and the `[warn] could not locate module.yaml`
+lines do not appear (a file *is* located — the marker). That is the cost of the only
+arrangement that keeps the file parseable on that path: `searchRoot()` returns `all[0]`
+without consulting the module being asked about, so no layout can make it answer four
+different questions with four different files. On the **URL-source** path — how consumers
+actually install — each module resolves to its own `module.yaml` and the agent block is
+written normally. When BMad's local branch learns to match by code the way its URL branch
+already does, `skills/module.yaml` becomes inert rather than wrong: it matches no code.
+
+## What the earlier revision got wrong
+
+The previous revision recorded the `-setup`-only rule correctly, then wrote that the three
+standalone modules' `assets/module.yaml` "match no pattern in the table above" and called
+them **"unaffected"**. Both halves of that sentence are in the file; only the first is true.
+Matching no pattern is precisely *being* affected: it is `resolveInstalledModuleYaml`
+returning `NULL`, which is what the "could not locate module.yaml" warnings this document
+exists to explain actually are.
+
+Two lessons, both already in `CLAUDE.md` as general rules and both earned here:
+
+1. **Conformance to one BMad tool is not conformance to BMad.** `validate-module.py` and
+   `project-root.js` ship in the same tree, read the same file, and disagree about where it
+   lives. `ADR-0008` reasoned from the validator alone and produced a layout that validated
+   clean and did not install.
+2. **A hedge has to be attached to the claim it covers.** The previous revision's hedge
+   ("has not been re-verified against BMad's installer source") was attached to the
+   `l3io-pm` case it thought had *improved*, not to the three it declared unaffected.
+
+## Verifying a change here
+
+Two commands, both against a real install — never by reading the table above:
+
+```bash
+# 1. A real install, including the resolver assertion added for this defect.
+mkdir -p /tmp/l3io-smoke && bash scripts/smoke-install.sh /tmp/l3io-smoke
+
+# 2. Inside that install: exactly one table per module, each under its own code.
+grep -nE '^\[(modules|agents)\.' /tmp/l3io-smoke/_bmad/config.toml
+cd /tmp/l3io-smoke && uv run _bmad/scripts/resolve_config.py --project-root .
+```
+
+`BMAD_DEBUG_MANIFEST=true` on the install prints which `module.yaml` each module resolved to,
+straight from `collectAgentsFromModuleYaml`.
 
 ## `module.yaml` schema (fields the installer reads)
 
-- `code:` — **required**; must equal the module name the installer requests. This is the
-  match key and also the `[modules.<code>]` TOML section key.
-- `name:`, `description:`, `module_version:`, `default_selected:`, `module_greeting:` — module essence.
-- Config-prompt keys (any key with a `prompt:`/`default:`/`result:` block, optional
-  `scope: user`) — `writeCentralConfig` uses these to decide team vs. user scope. Missing
-  `module.yaml` is why user-scoped keys "mis-file into config.toml."
-- `agents:` — array of agent essence descriptors collected into `config.toml`. Each entry:
+- `code:` — **required** in a real module home; the match key on the URL path, and the
+  `[modules.<code>]` TOML section key. Deliberately **absent** from `skills/module.yaml`.
+- `name:`, `description:`, `module_version:`, `default_selected:`, `module_greeting:`,
+  `post-install-notes:` — module essence. `module_version` is stamped from `package.json` by
+  `scripts/sync-bmad-versions.mjs` at `postbump`, in the `assets/` copy **and** the skill-root
+  copy.
+- Install-time settings — any top-level key whose value is a mapping containing `prompt:`
+  (`manifest-generator.js`, `'prompt' in value`). `scope: user` files the answer into
+  `config.user.toml`; anything else, including `user_setting: true`, is team scope.
+  `scripts/module-config-keys.mjs` derives the full set from these files for the smoke test.
+- `agents:` — array of agent essence descriptors collected into `[agents.*]`. Each entry:
 
   ```yaml
   agents:
@@ -121,37 +197,13 @@ This hits the supported `src/<dir>/module.yaml` (one-level) discovery path and i
       team: <module-code>      # optional; defaults to the module code
   ```
 
-  `module` is always set to the owning module. If `agents:` is absent or not an array,
-  the module simply contributes no agents (no error) — but the "could not locate" warning
-  still fires unless the `module.yaml` itself is found. So even agent-less modules
-  (`l3io-pm`, `l3io-util`) need a discoverable `module.yaml` to silence the warning.
+  `module` is always set to the owning module.
 
-## Maintenance caveats
+## Consumer-side conditions that still apply
 
-- **Duplication / drift.** Under the historical `src/<module>/<skill>/` layout, the
-  installer-discovery copy and the per-skill copies were separate files that had to be kept
-  in sync, and they had drifted (all pinned at `module_version: 1.0.13` while `package.json`
-  climbed past `1.0.25`). There is no `src/` directory in this repo's current flat `skills/`
-  layout: `scripts/sync-bmad-versions.mjs` now stamps `module_version` across **every**
-  `skills/*/module.yaml` on each release (`postbump`), so this specific field no longer
-  drifts — but the other fields (`description`, `module_greeting`, `agents:`) are still
-  hand-authored per skill and must be edited in lockstep where a module's skills share them.
-- **`.github/agents/*.agent.md`** (e.g. `l3io-sec-agent-redteam.agent.md`) is the **GitHub
-  Copilot** custom-agent stub (the parallel to the Claude Code slash-command surface). In
-  this repo it is a **gitignored install-time artifact** (this repo dogfoods its own
-  modules) — the installer generates it on the *consumer* side from the module's `agents:`
-  block for whichever IDEs are enabled (Claude Code and/or GitHub Copilot), so it is
-  deliberately not committed here.
-
-## How to verify a fix landed
-
-On the consumer, after pushing to `main` and running a quick-update:
-
-```bash
-# 1. cache now contains the discoverable file
-find ~/.bmad/cache/custom-modules -path '*bmad-extensions/src/l3io-*/module.yaml'
-
-# 2. run the installer with manifest debug to see agents get collected
-BMAD_DEBUG_MANIFEST=true <bmad update command>
-#   → [DEBUG] collectAgentsFromModuleYaml: l3io-sec contributed 1 agents from …/src/l3io-sec/module.yaml
-```
+1. **The file must be on the branch the consumer tracks.** Consumers install with
+   `source: custom`, `repoUrl: https://github.com/ravensorb/bmad-extensions`. A `module.yaml`
+   that exists only in a working tree never reaches them.
+2. **The consumer's clone cache must be refreshed.** The URL path reads
+   `~/.bmad/cache/custom-modules/<host>/<owner>/<repo>/`. A cache cloned before the file was
+   added still lacks it; `--action quick-update` re-fetches and re-runs manifest generation.

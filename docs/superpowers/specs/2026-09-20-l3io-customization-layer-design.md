@@ -106,9 +106,20 @@ $ uv run validate-module.py skills/
 Standalone detection (`validate-module.py:61`) requires `SKILL.md` **and**
 `assets/module.yaml`; the package ships `module.yaml` at the skill root.
 
+> **Correction, 2026-09-22 (post-implementation).** The "wrong path" verdict in the first row
+> below is only half right, and the missing half broke a real install. `validate-module.py`
+> does require `assets/module.yaml` — but `tools/installer/project-root.js:134`, the code that
+> actually *discovers* a module at install time, recognises `assets/module.yaml` **only** under
+> a `*-setup` directory, and for every other skill reads the **skill root** copy this table
+> calls wrong. Moving the file rather than adding beside it made three of the four modules
+> undiscoverable and produced an `_bmad/config.toml` with a duplicate `[modules.l3io-pm]`
+> table that `resolve_config.py` refuses to parse. A standalone module home needs **both**
+> copies, byte-identical. See `docs/bmad-module-yaml-discovery.md` and ADR-0008's
+> 2026-09-22 amendment.
+
 | Documented requirement | Shipped | Status |
 |---|---|---|
-| `assets/module.yaml` | `module.yaml` at skill root | wrong path |
+| `assets/module.yaml` | `module.yaml` at skill root | wrong path *(see correction above: the skill-root copy is required too, not wrong)* |
 | `assets/module-setup.md` | present | ok |
 | `assets/module-help.csv` | present | ok |
 | `scripts/merge-config.py` *or* `merge_config.py` | `write-module-config.py` | wrong name |
