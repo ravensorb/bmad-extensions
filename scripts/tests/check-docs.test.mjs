@@ -2072,3 +2072,228 @@ test("check 4/skills: the deepest real continuation in the tree is read to its e
   assert.equal(r.status, 1, r.stdout);
   assert.match(r.stderr, /--not-a-real-flag', but pm-status\.py registers no such option/);
 });
+
+// ---------------------------------------------------------------------------
+// Check 4, the reach extensions (whole-branch review, M-2).
+//
+// Three gaps were measured as escaping every gate. Each is planted below in the shape the
+// review measured, run against the REAL checker, with the fixture otherwise byte-identical to
+// the repo.
+
+// The external anchor. pmStatusSubcommandOptions() extracts the per-subcommand option surface
+// from build_parser()'s SOURCE, because reaching argparse costs ~223 ms per checker run and
+// this suite runs the checker 100+ times. Deriving internally is only safe when the CONTENT is
+// anchored externally, so this asserts the extraction against the real argparse objects, in
+// both directions, for every subcommand. If build_parser() grows a shape the regex cannot
+// follow, this goes red -- rather than check 4 silently narrowing back to the union.
+test("the static per-subcommand option surface matches the real argparse, both ways", () => {
+  const dumper = path.join(REPO, "scripts", "tests", "dump-pm-status-parser.py");
+  const pmStatus = path.join(REPO, "skills", "_shared", "pm-status.py");
+  const real = spawnSync("uv", ["run", dumper, pmStatus], { cwd: REPO, encoding: "utf8" });
+  assert.equal(real.status, 0,
+    `could not run the real build_parser() (uv is required for this anchor): ${real.stderr}`);
+
+  const staticDump = spawnSync(process.execPath, [CHECK, "--dump-subcommand-options"],
+    { cwd: REPO, encoding: "utf8" });
+  assert.equal(staticDump.status, 0, staticDump.stderr);
+
+  const fromArgparse = JSON.parse(real.stdout);
+  const fromSource = JSON.parse(staticDump.stdout);
+
+  assert.ok(Object.keys(fromArgparse).length > 20,
+    `only ${Object.keys(fromArgparse).length} subcommand(s) found — the dump looks empty`);
+  assert.deepEqual(Object.keys(fromSource).sort(), Object.keys(fromArgparse).sort(),
+    "the set of subcommands differs between build_parser() and the source extraction");
+  for (const sub of Object.keys(fromArgparse)) {
+    assert.deepEqual(fromSource[sub], fromArgparse[sub],
+      `option set for '${sub}' differs between build_parser() and the source extraction`);
+  }
+});
+
+// M-2(2): the digest's CLI synopsis is a SECOND copy of the CLI surface, loaded standalone by
+// every dispatched subagent, and nothing verified it.
+const DIGEST_REL = "skills/_shared/steps/shared/step-00-digest.md";
+const DIGEST_ANCHOR_LINE = "clear-lock    --state-root S  --epic ID";
+
+function plantInDigest(root, rel, line) {
+  const p = path.join(root, rel);
+  const text = fs.readFileSync(p, "utf8");
+  assert.ok(text.includes(DIGEST_ANCHOR_LINE),
+    `${rel}: the synopsis entry this test plants beside is gone — re-anchor the test`);
+  fs.writeFileSync(p, text.replace(DIGEST_ANCHOR_LINE, `${DIGEST_ANCHOR_LINE}\n${line}`));
+}
+
+test("check 4 catches a fabricated subcommand in the subagent CLI synopsis", (t) => {
+  const root = fixture(t);
+  plantInDigest(root, DIGEST_REL, "totally-made-up --state-root S");
+  const r = run(root);
+  assert.equal(r.status, 1, r.stdout);
+  assert.match(r.stderr,
+    /step-00-digest\.md:\d+: the subagent CLI synopsis documents subcommand 'totally-made-up'/);
+});
+
+test("check 4 catches a real flag given to the wrong subcommand in the synopsis", (t) => {
+  const root = fixture(t);
+  // --stall-minutes is real -- on `report`, never on `clear-lock`. A union membership test,
+  // which is what the invocation arm used to apply, passes this.
+  plantInDigest(root, DIGEST_REL, "clear-lock    --state-root S  --epic ID --stall-minutes N");
+  const r = run(root);
+  assert.equal(r.status, 1, r.stdout);
+  assert.match(r.stderr,
+    /the subagent CLI synopsis gives 'clear-lock' the flag '--stall-minutes'/);
+});
+
+// Scope attack, not a rule attack: the arm must judge every digest copy it FINDS, including
+// one in a skill that has never carried a digest. A hand-kept list of the three synced copies
+// would pass every test above while checking nothing new here.
+test("scope attack: a digest copy in a skill that had none is checked on arrival", (t) => {
+  const root = fixture(t);
+  const rel = "skills/l3io-util-doctor/steps/shared/step-00-digest.md";
+  write(root, rel, fs.readFileSync(path.join(root, DIGEST_REL), "utf8"));
+  plantInDigest(root, rel, "also-not-real --state-root S");
+  const r = run(root);
+  assert.equal(r.status, 1, r.stdout);
+  assert.match(r.stderr,
+    /l3io-util-doctor\/steps\/shared\/step-00-digest\.md:\d+: the subagent CLI synopsis documents subcommand 'also-not-real'/);
+});
+
+// The other half of the scope question: an arm whose input set can become empty passes in
+// silence. Removing every digest must be a failure, not a green run over nothing.
+test("scope attack: removing every digest copy fails rather than passing vacuously", (t) => {
+  const root = fixture(t);
+  const removed = [];
+  const walk = (dir) => {
+    for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+      const p = path.join(dir, entry.name);
+      if (entry.isDirectory()) walk(p);
+      else if (entry.name === "step-00-digest.md") { fs.rmSync(p); removed.push(p); }
+    }
+  };
+  walk(path.join(root, "skills"));
+  assert.ok(removed.length > 0, "no digest copies found to remove");
+  const r = run(root);
+  assert.equal(r.status, 1, r.stdout);
+  assert.match(r.stderr, /no steps\/shared\/step-00-digest\.md found under skills\//);
+});
+
+// M-2(1): an invocation with no literal `uv run` in front of it escaped the arm entirely.
+test("check 4 catches a bare {pm_status} invocation with no uv run", (t) => {
+  const root = fixture(t);
+  write(root, "skills/l3io-util-doctor/steps/triage.md",
+    "\n| `zz` | `{pm_status} totally-made-up --nope X` |\n", true);
+  const r = run(root);
+  assert.equal(r.status, 1, r.stdout);
+  assert.match(r.stderr, /triage\.md:\d+: invokes pm-status\.py subcommand 'totally-made-up'/);
+});
+
+// The false-positive half of that extension, and the reason it is gated on a long flag: the
+// {pm_status} binding really is used in prose, and a checker that cries wolf gets switched off.
+// These are the three prose shapes measured on this tree, none of which carries a flag.
+test("the bare-binding extension leaves flagless prose uses of {pm_status} alone", (t) => {
+  const root = fixture(t);
+  write(root, "skills/l3io-util-doctor/steps/triage.md", [
+    "",
+    "`{pm_status}` not found. Self-install at activation did not complete.",
+    "`{pm_status}` is version {found}, but this migration requires {required} or newer.",
+    "Run `{pm_status} ...` once the state root is known.",
+    "",
+  ].join("\n"), true);
+  const r = run(root);
+  assert.equal(r.status, 0, r.stderr + r.stdout);
+});
+
+// M-2(3): a real flag on the wrong subcommand, in an executed directive rather than a synopsis.
+test("check 4 catches a real flag invoked on a subcommand that does not take it", (t) => {
+  const root = fixture(t);
+  write(root, "skills/l3io-util-doctor/steps/triage.md",
+    "\n| `zy` | `uv run {pm_status} set-status --state-root S --scope story` |\n", true);
+  const r = run(root);
+  assert.equal(r.status, 1, r.stdout);
+  assert.match(r.stderr,
+    /invokes 'set-status --scope', but pm-status\.py registers that option on other subcommands only/);
+});
+
+// ---------------------------------------------------------------------------
+// Check 23 (marketplace-deps). M-4 of the whole-branch review: marketplace.json's
+// `dependencies` block declared three DEPRECATED shims as required, omitted two skills that
+// really are required, and listed one BMad had removed. Nothing read it.
+
+const MARKETPLACE_REL = ".claude-plugin/marketplace.json";
+const INVENTORY_REL = "skills/l3io-util-doctor/assets/bmad-dependencies.json";
+
+function readJson(root, rel) {
+  return JSON.parse(fs.readFileSync(path.join(root, rel), "utf8"));
+}
+
+function writeJson(root, rel, value) {
+  fs.writeFileSync(path.join(root, rel), JSON.stringify(value, null, 2) + "\n");
+}
+
+test("check 23 catches a deprecated shim declared as a required dependency", (t) => {
+  const root = fixture(t);
+  const mp = readJson(root, MARKETPLACE_REL);
+  mp.dependencies["required-skills"].push("bmad-create-story");
+  writeJson(root, MARKETPLACE_REL, mp);
+  const r = run(root);
+  assert.equal(r.status, 1, r.stdout);
+  assert.match(r.stderr, /names 'bmad-create-story', which .* declares 'deprecated' — not 'required'/);
+});
+
+test("check 23 catches a required dependency the marketplace block omits", (t) => {
+  const root = fixture(t);
+  const mp = readJson(root, MARKETPLACE_REL);
+  mp.dependencies["required-skills"] =
+    mp.dependencies["required-skills"].filter((n) => n !== "bmad-sprint-planning");
+  writeJson(root, MARKETPLACE_REL, mp);
+  const r = run(root);
+  assert.equal(r.status, 1, r.stdout);
+  assert.match(r.stderr, /omits 'bmad-sprint-planning', which .* declares 'required'/);
+});
+
+test("check 23 catches a removed skill listed as optional", (t) => {
+  const root = fixture(t);
+  const mp = readJson(root, MARKETPLACE_REL);
+  mp.dependencies["optional-skills"].push("bmad-ux-review");
+  writeJson(root, MARKETPLACE_REL, mp);
+  const r = run(root);
+  assert.equal(r.status, 1, r.stdout);
+  assert.match(r.stderr, /names 'bmad-ux-review', which .* declares 'removed' — not 'optional'/);
+});
+
+test("check 23 catches a non-bmad entry that is not a skill directory", (t) => {
+  const root = fixture(t);
+  const mp = readJson(root, MARKETPLACE_REL);
+  mp.dependencies["optional-skills"].push("l3io-not-a-skill");
+  writeJson(root, MARKETPLACE_REL, mp);
+  const r = run(root);
+  assert.equal(r.status, 1, r.stdout);
+  assert.match(r.stderr,
+    /names 'l3io-not-a-skill', which is neither a bmad-\* skill nor a directory under skills\//);
+});
+
+// The scope attack: the EXPECTED sets are derived from the inventory's `status` field, not
+// typed into the checker. Reclassifying a skill there must move the requirement, so the
+// marketplace block that was correct a moment ago becomes wrong. A hand-listed expectation
+// would sail through this.
+test("scope attack: reclassifying a skill in the inventory moves what check 23 demands", (t) => {
+  const root = fixture(t);
+  const inventory = readJson(root, INVENTORY_REL);
+  const entry = inventory.skills.find((s) => s.name === "bmad-code-review");
+  assert.ok(entry, "bmad-code-review is no longer in the inventory — re-anchor this test");
+  assert.equal(entry.status, "required");
+  entry.status = "optional";
+  writeJson(root, INVENTORY_REL, inventory);
+  const r = run(root);
+  assert.equal(r.status, 1, r.stdout);
+  assert.match(r.stderr, /dependencies\.optional-skills omits 'bmad-code-review'/);
+  assert.match(r.stderr, /dependencies\.required-skills names 'bmad-code-review'/);
+});
+
+// An input set that can silently become empty is the failure this repo keeps meeting.
+test("check 23 fails rather than passing when the inventory declares nothing", (t) => {
+  const root = fixture(t);
+  writeJson(root, INVENTORY_REL, { verified_against: "6.12.0", skills: [] });
+  const r = run(root);
+  assert.equal(r.status, 1, r.stdout);
+  assert.match(r.stderr, /declares no skills — check 23 would compare against an empty set/);
+});

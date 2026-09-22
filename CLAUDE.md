@@ -37,7 +37,7 @@ Files in `skills/_shared/` are the canonical sources for content shared across P
 |---|---|---|
 | `skills/_shared/pm-status.py` | `scripts/pm-status.py` | **l3io-pm-setup**, **l3io-util-doctor** (one payload copy per module, no test suite — see below; pm-execute/pm-plan/pm-sync read l3io-pm-setup's copy as a sibling at activation instead of each carrying their own) |
 | `skills/_shared/spec-align.py` | `scripts/spec-align.py` | pm-execute, **l3io-util-doctor** — run from each skill's own copy, never self-installed; its suite `tests/test-spec-align.py` stays in `_shared/tests/` |
-| `skills/_shared/status-files.md` | `references/status-files.md` | pm-execute, pm-plan, pm-sync |
+| `skills/_shared/status-files.md` | `references/status-files.md` | pm-execute, pm-plan, pm-sync, **l3io-util-doctor** (state layout only — it ships this contract but not `metrics-contract.md`/`calibration-model.md`; six of its directives named it, including `SKILL.md`, and it did not carry it) |
 | `skills/_shared/metrics-contract.md` | `references/metrics-contract.md` | pm-execute, pm-plan, pm-sync |
 | `skills/_shared/calibration-model.md` | `references/calibration-model.md` | pm-execute, pm-plan, pm-sync |
 | `skills/_shared/steps/**` | `steps/**` | pm-execute, pm-plan, pm-sync |
@@ -46,6 +46,21 @@ Files in `skills/_shared/` are the canonical sources for content shared across P
 | `skills/_shared/write-module-config.py` | `scripts/write-module-config.py` | each module's HOME only: `l3io-pm-setup`, `l3io-util-doctor`, `l3io-sec-redteam`, `l3io-arch-review` |
 | `skills/_shared/merge-config.py` | `scripts/merge-config.py` | each module's HOME only: `l3io-pm-setup`, `l3io-util-doctor`, `l3io-sec-redteam`, `l3io-arch-review` |
 | `skills/_shared/merge-help-csv.py` | `scripts/merge-help-csv.py` | each module's HOME only: `l3io-pm-setup`, `l3io-util-doctor`, `l3io-sec-redteam`, `l3io-arch-review` |
+
+**A skill-local pointer is only valid if that skill carries the file.** `l3io-util-doctor` named
+`references/status-files.md` in six runtime directives — `SKILL.md` calls it "the canonical
+contract" — while shipping no such file; it now ships it (row above). **This is not checked
+mechanically, and the class is wider than that one file.** A sweep of every backticked
+`references/…`, `assets/…`, `steps/…` or `scripts/…` path in `skills/*/**.md`, measured
+2026-09-22, found **341 pointers, 50 of which do not resolve in the skill that carries them**
+once cross-skill references that name their owner on the same line are excluded. They fall in
+two classes, both pre-existing and neither fixed here: shared references and digests naming
+`steps/…` files that only `l3io-pm-execute` carries (~36), and `config-resolution.md` naming
+`assets/module-setup.md`/`assets/module.yaml` in the four `l3io-pm` skills that are not the
+module home (~12). Shipping a shared reference also imports its own onward pointers — five of
+the 50 are inside the `status-files.md` copy this change added. A gate over the whole class
+would need those 50 triaged first, and an allowlist instead would be exactly the hand-kept
+scope §4 forbids.
 
 **Test suites are never shipped as payload.** `skills/_shared/tests/test-pm-status.py`,
 `skills/_shared/tests/test-write-module-config.py` and `skills/_shared/tests/test-spec-align.py` stay in `skills/_shared/tests/` only — CI
@@ -86,9 +101,12 @@ Recorded here so the next `npm ci` warning is a known fact rather than a redisco
 the current list rather than trusting this sentence: the `deprecated` field in
 `package-lock.json`'s `packages` map is the source of truth.
 
-`check:docs` runs twenty-two checks asserting facts that have each drifted in this repo's history.
+`check:docs` runs twenty-three checks asserting facts that have each drifted in this repo's history.
 They are numbered and described in `scripts/check-docs.mjs`'s own header — read them there rather
-than restating them here. Two things that header does not tell you:
+than restating them here, **including the `KNOWN GAPS` block** at the end of that header, which
+states in full what check 4 does *not* reach over `skills/`. A numbered entry describes a check's
+rule; only that block describes its reach, and the two are different questions (`CLAUDE.md` §4).
+Three things that header does not tell you:
 
 - Check 16 guards dependency **names** only: **no `check:docs` check verifies probe *paths***. A
   step file that reverted to probing `.claude/commands/<name>.md` alone would pass every CI gate and
@@ -100,6 +118,13 @@ than restating them here. Two things that header does not tell you:
   explaining the change — `docs/upgrading.md` must be able to say `/l3io-pm-epic-execute` →
   `/l3io-pm-execute`. Docs are allowed to quote values inline; they are not allowed to quote them
   wrongly.
+- Check 4's `skills/` arm judges an invocation's long flags against the **invoked subcommand's
+  own** option set, not the union of everything the CLI registers, and it also guards
+  `steps/shared/step-00-digest.md`'s CLI synopsis — a second copy of the `pm-status.py` surface
+  that every dispatched subagent loads on its own. What it still does not judge (the bare
+  `pm-status.py` path form with no `uv run`, short options, flag *values*, and parenthesised
+  spans inside the digest synopsis) is listed in that `KNOWN GAPS` block, not here, so there is
+  one place to keep true.
 
 The `postbump` hook chains sync automatically, so every release keeps the payloads in sync.
 

@@ -77,15 +77,23 @@
   "dependencies": {
     "bmad-module": "bmm",
     "required-skills": [
-      "bmad-create-story",
-      "bmad-dev-story",
       "bmad-code-review",
       "bmad-qa-generate-e2e-tests",
       "bmad-retrospective",
-      "bmad-review-adversarial-general"
+      "bmad-review",
+      "bmad-sprint-planning"
     ],
     "optional-skills": [
-      "bmad-ux-review",
+      "bmad-agent-architect",
+      "bmad-architecture",
+      "bmad-brainstorming",
+      "bmad-build",
+      "bmad-build-auto",
+      "bmad-create-epics-and-stories",
+      "bmad-customize",
+      "bmad-forge-idea",
+      "bmad-help",
+      "bmad-ux",
       "l3io-arch-review"
     ]
   }

@@ -17,8 +17,11 @@
 //   2. gating-tables every mirrored phase table matches the authoritative matrix, cell for cell
 //   3. section-refs  every "<file>.md §N" cross-reference resolves to a section bearing that number
 //   4. cli-surface   documented pm-status.py and spec-align.py subcommands and the real CLIs
-//                    agree, both ways -- across the live docs AND every runtime directive
-//                    under skills/, where an invocation's long flags are checked too
+//                    agree, both ways -- across the live docs, every runtime directive under
+//                    skills/ (where an invocation's long flags are checked against the
+//                    INVOKED SUBCOMMAND's own option set), and the activation digest's CLI
+//                    synopsis. Read the Known gaps block below before believing any wider
+//                    claim about its reach
 //   5. config-values values quoted in prose match the defaults customize.toml ships
 //   6. status-values --status filters named in skill phrase tables are real state folders
 //   7. metric-list   metrics-contract.md documents exactly the metrics in METRIC_FIELDS
@@ -60,6 +63,52 @@
 //                    subdirectories that skill actually has -- both directions, with both
 //                    sides derived (the skill set from skills/, the claims from the block,
 //                    the real directories from disk)
+//  23. marketplace-deps  `.claude-plugin/marketplace.json`'s `dependencies` block agrees with
+//                    the declared inventory in
+//                    `skills/l3io-util-doctor/assets/bmad-dependencies.json` — required and
+//                    optional sets both ways, with both sides derived from the two files
+//
+// ---------------------------------------------------------------------------------------
+// KNOWN GAPS — check 4's reach over skills/
+//
+// Same framing checks 17 and 21 carry, and for the same reason: prose that overstates its own
+// coverage is worse than no prose, because it stops the next reader looking. The whole-branch
+// review measured five escapes (M-2). Three are now closed and each has a mutation test:
+//
+//   CLOSED  a bare `{pm_status} …` invocation with no literal `uv run` — the anchor is now
+//           `uv run` OR the `{pm_status}` binding, the latter gated on the fragment carrying
+//           at least one long flag, which is what separates a command from the three prose
+//           uses of the binding measured on this tree. See pmStatusAnchors().
+//   CLOSED  a flag that exists somewhere in the CLI but not on the subcommand it is given to
+//           (`set-status --scope story`) — flags are now judged against the invoked
+//           subcommand's own option set. See pmStatusSubcommandOptions().
+//   CLOSED  step-00-digest.md's CLI synopsis, a second copy of the CLI surface that every
+//           dispatched subagent loads on its own and nothing verified. See
+//           checkDigestCliSynopsis().
+//
+// What is STILL NOT CHECKED, stated so nobody has to discover it:
+//
+//   (a) The bare `pm-status.py` PATH form with no `uv run` in front of it. Unlike the
+//      `{pm_status}` binding, its prose occurrences DO carry long flags, so the discriminator
+//      that makes the binding safe does not transfer. check 17 forbids reaching a PEP-723
+//      script by any route other than `uv run`, so this shape is a check 17 failure rather
+//      than a hole here — but it is a hole HERE, and check 17 only looks for a python
+//      interpreter, not for the absence of one.
+//   (b) Short options (`-s`), positional arguments, and required-argument presence. Only long
+//      options are extracted and only their membership is judged; `set-status --state-root`
+//      with no value, or `calibration` with no action, passes.
+//   (c) Flag VALUES. `--status not-a-real-status`, `--runtime martian`, `--format xml` are all
+//      accepted here; argparse `choices` are not read.
+//   (d) Fragments that do not parse as shell. Measured on this tree: 8 (two distinct usage
+//      synopsis lines x four synced copies) whose `(--story KEY | --epic ID)` alternation is
+//      not valid shell. They are skipped and counted; `-v` prints the number. Making them
+//      failures would turn CI red on correct documentation.
+//   (e) Parenthesised spans inside the digest synopsis. `(...)` there is used both for
+//      alternation over real flags and for prose notes that legitimately name another
+//      subcommand's flags (`archive-epic … (alias for move-epic --to archived)`), so flags
+//      inside parentheses are not judged at all. Everything outside them is.
+//   (f) Any CLI other than pm-status.py and spec-align.py.
+// ---------------------------------------------------------------------------------------
 //
 // Usage:
 //   node scripts/check-docs.mjs        # report and exit nonzero on any failure (CI)
@@ -399,6 +448,7 @@ function checkCliSurface() {
   // so check 18's derived count (one invocation per header entry) doesn't have to
   // special-case them.
   checkPmStatusInvocations();
+  checkDigestCliSynopsis();
   checkSpecAlignSurface();
 }
 
@@ -460,6 +510,210 @@ function pmStatusLongOptions() {
   return flags;
 }
 
+// PER-SUBCOMMAND long options: Map<subcommand, Set<"--flag">>.
+//
+// Why this is not the union above. The union answers "does pm-status.py have this flag
+// anywhere", which passes `set-status --scope story` -- a real flag on the wrong subcommand,
+// a class the whole-branch review named as still open (M-2(3)). argparse's per-subparser
+// surface is what actually decides, and this reads it out of build_parser()'s source.
+//
+// Why source and not a subprocess. The authoritative answer needs python, and reaching it
+// costs one `uv run` per checker invocation -- ~223 ms measured, multiplied by the 100+
+// fixture runs in scripts/tests/check-docs.test.mjs. So the surface is extracted from source
+// and ANCHORED EXTERNALLY: scripts/tests/check-docs.test.mjs runs the real build_parser()
+// under uv, once, and asserts this function's output is set-identical to
+// `{sub: [a.option_strings]}` in BOTH directions. That is the pattern ADR-0008 lesson 5
+// prescribes -- derive the scope internally, anchor the content externally -- and it is what
+// makes a regex over python source defensible here: it is not a Python parser, it reads one
+// deliberately regular construct, and a second source of truth fails the build if it drifts.
+// Verified at the time of writing: 31 subcommands, every option set identical both ways.
+//
+// build_parser()'s shape, which this relies on and the anchor test enforces:
+//   VAR = sub.add_parser("name", ...)      binds VAR to that subcommand
+//   VAR.add_argument("--a", "--b", ...)    adds to whatever VAR currently names
+//   helper(VAR)                            an inner `def helper(param)` that add_argument's
+//                                          onto `param` (today: node_args)
+// Variables are REUSED (`rp` is report and later repair-issue; `a` is set-actual and later
+// add-test-run), so events are replayed in source order and a rebind retargets the variable.
+// Root-parser options (`p.add_argument("--version")`) are deliberately excluded: argparse
+// accepts `pm-status.py --version`, never `pm-status.py set-status --version`.
+let _subcommandOptionsCache = null;
+
+function pmStatusSubcommandOptions() {
+  if (_subcommandOptionsCache) return _subcommandOptionsCache;
+  const src = read(PM_STATUS);
+  const bySub = new Map();
+
+  const start = src.indexOf("\ndef build_parser(");
+  if (start < 0) return (_subcommandOptionsCache = bySub);
+  const rest = src.slice(start + 1);
+  const end = rest.search(/\n(?:def |if __name__)/);
+  const region = end < 0 ? rest : rest.slice(0, end);
+  const lines = region.split("\n");
+
+  const optionsOf = (call) => [...call.matchAll(/"(--[a-z0-9-]+)"/g)].map((m) => m[1]);
+
+  // Inner helpers, collected by indentation: `    def NAME(PARAM):` plus the more-indented
+  // block under it.
+  const helpers = new Map();
+  for (let i = 0; i < lines.length; i++) {
+    const def = lines[i].match(/^(\s+)def ([a-z_]+)\(([a-z_]+)\):\s*$/);
+    if (!def) continue;
+    const [, indent, name, param] = def;
+    let body = "";
+    for (let j = i + 1; j < lines.length; j++) {
+      if (lines[j].trim() !== "" && !lines[j].startsWith(indent + " ")) break;
+      body += lines[j] + "\n";
+    }
+    const flags = [];
+    for (const call of body.matchAll(PY_LONG_OPTION_RE)) flags.push(...optionsOf(call[1]));
+    helpers.set(name, flags);
+  }
+
+  const events = [];
+  for (const m of region.matchAll(/([a-z_]+)\s*=\s*sub\.add_parser\(\s*"([a-z-]+)"/g)) {
+    events.push({ at: m.index, bind: m[1], sub: m[2] });
+  }
+  for (const m of region.matchAll(/([a-z_]+)\.add_argument\(\s*((?:"--[a-z0-9-]+"\s*,\s*)*"--[a-z0-9-]+")/g)) {
+    events.push({ at: m.index, varName: m[1], flags: optionsOf(m[2]) });
+  }
+  for (const [name, flags] of helpers) {
+    for (const m of region.matchAll(new RegExp(`\\n\\s*${name}\\(([a-z_]+)\\)`, "g"))) {
+      events.push({ at: m.index, varName: m[1], flags });
+    }
+  }
+  events.sort((a, b) => a.at - b.at);
+
+  const varToSub = new Map();
+  for (const ev of events) {
+    if (ev.bind) {
+      varToSub.set(ev.bind, ev.sub);
+      if (!bySub.has(ev.sub)) bySub.set(ev.sub, new Set(["--help"]));
+      continue;
+    }
+    const sub = varToSub.get(ev.varName);
+    if (!sub) continue; // p.add_argument(...) on the root parser, and anything before a bind
+    for (const f of ev.flags) bySub.get(sub).add(f);
+  }
+  return (_subcommandOptionsCache = bySub);
+}
+
+// 4 (continued). The activation digest's CLI synopsis.
+//
+// Why this exists (M-2(2) of the whole-branch review). `steps/shared/step-00-digest.md`
+// carries a fenced synopsis block that is a SECOND COPY of pm-status.py's CLI surface, and
+// CLAUDE.md says dispatched subagents load the digest ON ITS OWN -- so for every subagent in
+// the system it is not a summary of the CLI reference, it IS the CLI reference. Check 10
+// guards pm-status.py's own module docstring; nothing guarded this copy. Measured before this
+// arm existed: a fabricated subcommand and a bogus flag planted in the block left all six
+// gates green. Same shape as the duplicated clear-lock remedy that motivated the invocation
+// arm, at larger blast radius.
+//
+// Scope, derived: every `steps/shared/step-00-digest.md` under skills/ -- the _shared source
+// and each synced copy -- found by walking, never listed. A skill that gains a digest is
+// covered on arrival, and a sync that half-lands is caught here as well as by check:scripts.
+//
+// Parsing. The block is located by its heading, not by line number. Inside it an entry starts
+// at column 0 and continues through the indented lines beneath it; the entry's first token is
+// the subcommand and every later `--flag` is a flag claim.
+//
+// Flags are judged PER SUBCOMMAND, with one deliberate exclusion: parenthesised spans are
+// stripped first. The synopsis uses `(...)` for two different things -- alternation over real
+// flags, `(--story KEY | --epic ID)`, and prose notes that legitimately name ANOTHER
+// subcommand's flags, `archive-epic ... (alias for move-epic --to archived)`. Telling those
+// apart needs judgement, and a checker that cries wolf gets switched off, so parenthesised
+// flags are not judged at all. Everything outside parentheses is, exactly.
+const DIGEST_BASENAME = "steps/shared/step-00-digest.md";
+const DIGEST_SYNOPSIS_HEADING = "### The calls a sprint or epic run makes";
+
+// A flag token in prose: `--tokens-*`, `--cost*` and `--elapsed-hours*` are globs standing for
+// a family, not options, so a `*` immediately after the name disqualifies it.
+function synopsisFlags(text) {
+  const stripped = text.replace(/\([^)]*\)/g, " ");
+  const out = [];
+  for (const m of stripped.matchAll(/--[a-z0-9]+(?:-[a-z0-9]+)*/g)) {
+    if (stripped[m.index + m[0].length] === "*") continue;
+    out.push(m[0]);
+  }
+  return out;
+}
+
+function checkDigestCliSynopsis() {
+  const real = cliSubcommands();
+  const bySub = pmStatusSubcommandOptions();
+  const union = pmStatusLongOptions();
+  const offenders = [];
+  let files = 0;
+  let entries = 0;
+  let flagsChecked = 0;
+
+  for (const rel of allSkillDocs()) {
+    if (!rel.replaceAll("\\", "/").endsWith(DIGEST_BASENAME)) continue;
+    const text = read(rel);
+    const at = text.indexOf(DIGEST_SYNOPSIS_HEADING);
+    if (at < 0) {
+      offenders.push(`${rel}: has no '${DIGEST_SYNOPSIS_HEADING}' section — the CLI synopsis ` +
+        `every dispatched subagent reads is the thing this arm guards; if it moved, move ` +
+        `this heading with it`);
+      continue;
+    }
+    files += 1;
+    const after = text.slice(at);
+    const fence = after.match(/```[a-z]*\n([\s\S]*?)\n```/);
+    if (!fence) {
+      offenders.push(`${rel}: '${DIGEST_SYNOPSIS_HEADING}' is not followed by a fenced block`);
+      continue;
+    }
+    const blockStartLine = text.slice(0, at + after.indexOf(fence[0])).split("\n").length;
+
+    // Entries: a line starting at column 0 opens one; indented lines continue it.
+    const blockLines = fence[1].split("\n");
+    const blockEntries = [];
+    for (let i = 0; i < blockLines.length; i++) {
+      const line = blockLines[i];
+      if (line.trim() === "") continue;
+      if (/^\s/.test(line)) {
+        if (blockEntries.length) blockEntries[blockEntries.length - 1].text += " " + line;
+        continue;
+      }
+      blockEntries.push({ text: line, line: blockStartLine + i + 1 });
+    }
+
+    for (const entry of blockEntries) {
+      const sub = entry.text.trim().split(/\s+/)[0];
+      if (!/^[a-z][a-z-]*$/.test(sub)) continue;
+      entries += 1;
+      if (!real.has(sub)) {
+        offenders.push(`${rel}:${entry.line}: the subagent CLI synopsis documents ` +
+          `subcommand '${sub}', which pm-status.py does not have\n      CLI has: ` +
+          `${[...real].sort().join(", ")}`);
+        continue;
+      }
+      const allowed = bySub.get(sub) || union;
+      for (const flag of synopsisFlags(entry.text)) {
+        flagsChecked += 1;
+        if (allowed.has(flag)) continue;
+        offenders.push(`${rel}:${entry.line}: the subagent CLI synopsis gives '${sub}' the ` +
+          `flag '${flag}', which pm-status.py does not register on that subcommand\n` +
+          `      ${sub} takes: ${[...allowed].sort().join(" ")}`);
+      }
+    }
+  }
+
+  if (files === 0) {
+    offenders.push(`no ${DIGEST_BASENAME} found under skills/ — the arm that guards the ` +
+      `subagent CLI synopsis has nothing to check, which is a scope failure, not a pass`);
+  }
+  if (offenders.length) {
+    failures.push(`the activation digest's CLI synopsis does not match pm-status.py:\n      ` +
+      `${offenders.join("\n      ")}`);
+  }
+  if (verbose) {
+    console.log(`  digest-synopsis: ${entries} synopsis entr(ies) and ${flagsChecked} flag(s) ` +
+      `across ${files} digest cop(ies) checked`);
+  }
+}
+
 // The logical lines of a markdown file, each paired with the 1-based number of the physical
 // line it started on. Two things continue a line:
 //   - a trailing `\`, which is a shell continuation (check 11 joins these too);
@@ -513,9 +767,39 @@ function logicalLines(text) {
   return out;
 }
 
+// Anchor positions in one logical line, in source order, each with whether the fragment that
+// starts there needs the prose discriminator below.
+//
+// `uv run` anchors need nothing: check 17 forbids reaching a PEP-723 script any other way, so
+// a `uv run` fragment naming pm-status.py IS a command by construction.
+//
+// A BARE `{pm_status}` anchor is the M-2(1) extension. The binding appears in runtime
+// directives both as a command and, measured on this tree, in prose: `{pm_status} not found.
+// Self-install at activation did not complete`, `{pm_status} is version {found}, but this
+// migration requires…`, and bare `{pm_status} ...` placeholders. All three are sentences, and
+// none of them contains a long flag. So the discriminator is exactly that: a bare-binding
+// fragment is judged only when it carries at least one `--flag`. That is what makes
+// `{pm_status} totally-made-up --nope X` -- the shape the whole-branch review planted and
+// measured as escaping -- reachable, while leaving every prose occurrence alone. Verified by
+// running the extended arm over the whole tree: 0 new offenders, and the planted shape caught.
+//
+// The `pm-status.py` PATH form is deliberately NOT a bare anchor. Its prose occurrences do
+// carry flags ("a later pm-status.py write … --flock"), and it is the form check 17 already
+// governs. That remainder is in the Known gaps block in this file's header.
+function pmStatusAnchors(text) {
+  const anchors = [];
+  for (const m of text.matchAll(/\buv\s+run\b/g)) anchors.push({ at: m.index, bare: false });
+  for (const m of text.matchAll(/\{pm_status\}/g)) {
+    if (anchors.some((a) => !a.bare && a.at < m.index)) continue; // already inside a uv run run
+    anchors.push({ at: m.index, bare: true });
+  }
+  return anchors.sort((a, b) => a.at - b.at);
+}
+
 function checkPmStatusInvocations() {
   const real = cliSubcommands();
   const flags = pmStatusLongOptions();
+  const bySub = pmStatusSubcommandOptions();
   let checked = 0;
   let unreadable = 0;
   // Reported under -v because it is the number a depth regression moves, and nothing else
@@ -526,11 +810,13 @@ function checkPmStatusInvocations() {
 
   for (const rel of allSkillDocs()) {
     for (const { text, line } of logicalLines(read(rel))) {
-      for (const anchor of text.matchAll(/\buv\s+run\b/g)) {
-        let fragment = text.slice(anchor.index);
+      for (const anchor of pmStatusAnchors(text)) {
+        let fragment = text.slice(anchor.at);
         const closingBacktick = fragment.indexOf("`");
         if (closingBacktick >= 0) fragment = fragment.slice(0, closingBacktick);
         if (!/\{pm_status\}|pm-status\.py/.test(fragment)) continue;
+        // The prose discriminator — see pmStatusAnchors().
+        if (anchor.bare && !/\s--[a-z0-9]/.test(fragment)) continue;
 
         const commands = shellCommands(fragment);
         if (commands === null) { unreadable += 1; continue; }
@@ -552,14 +838,28 @@ function checkPmStatusInvocations() {
               `the CLI does not have\n      CLI has: ${[...real].sort().join(", ")}`);
             continue;
           }
+          // M-2(3): judged against the INVOKED subcommand's own option set, not the union of
+          // every option the CLI registers anywhere. The union passed `set-status --scope
+          // story` -- a real flag on the wrong subcommand -- and the review named that as
+          // still open. pmStatusSubcommandOptions() is anchored against the real argparse by
+          // scripts/tests/check-docs.test.mjs; the union is kept only as the fallback for a
+          // subcommand the extractor did not see, so a future build_parser() shape that
+          // defeats it degrades to the old reach instead of turning CI red on correct docs.
+          const allowed = bySub.get(sub) || flags;
+          const perSubcommand = bySub.has(sub);
           for (const token of argv.slice(at + 2)) {
             if (typeof token !== "string" || !token.startsWith("--")) continue;
             const flag = token.split("=")[0];
             if (flag === "--") continue;
             flagsChecked += 1;
-            if (flags.has(flag)) continue;
-            offenders.push(`${rel}:${line}: invokes '${sub} ${flag}', but pm-status.py ` +
-              `registers no such option anywhere in its CLI`);
+            if (allowed.has(flag)) continue;
+            offenders.push(
+              perSubcommand && flags.has(flag)
+                ? `${rel}:${line}: invokes '${sub} ${flag}', but pm-status.py registers that ` +
+                  `option on other subcommands only, never on '${sub}'\n      ${sub} takes: ` +
+                  `${[...allowed].sort().join(" ")}`
+                : `${rel}:${line}: invokes '${sub} ${flag}', but pm-status.py ` +
+                  `registers no such option anywhere in its CLI`);
           }
         }
       }
@@ -2242,6 +2542,120 @@ function checkReadmeRepoLayout() {
 }
 
 // ---------------------------------------------------------------------------
+// 23. `.claude-plugin/marketplace.json`'s `dependencies` block agrees with the declared
+// inventory, `skills/l3io-util-doctor/assets/bmad-dependencies.json`.
+//
+// Why: the marketplace block is the first thing a prospective consumer reads about what this
+// package needs, and nothing read it. Measured at the time this check was written, it
+// declared three DEPRECATED shims (`bmad-create-story`, `bmad-dev-story`,
+// `bmad-review-adversarial-general`) as **required**, omitted two skills that really are
+// required (`bmad-sprint-planning`, `bmad-review`), and listed one skill BMad removed
+// (`bmad-ux-review`) as optional. Check 16 had kept the inventory honest against the runtime
+// directives for a year; the marketplace copy of the same facts drifted beside it, unguarded
+// — a second copy of a surface that nothing verifies, the same shape as M-2(2)'s digest.
+//
+// Both sides are derived. The expected sets come from the inventory's own `status` field, and
+// the actual sets from the marketplace file; neither is typed here. A skill the inventory
+// reclassifies moves in both directions on the next run.
+//
+// One deliberate carve-out: an entry that is not a `bmad-*` name is this package's own
+// intra-package dependency (`l3io-arch-review` — the epic architecture gate and the story
+// technical-AC checklist self-skip without it). The inventory declares BMad's skills, not
+// ours, so those are checked against `skills/` instead of against it.
+const MARKETPLACE = ".claude-plugin/marketplace.json";
+
+function checkMarketplaceDependencies() {
+  if (!exists(MARKETPLACE) || !exists(DEP_INVENTORY)) {
+    failures.push(`${MARKETPLACE} or ${DEP_INVENTORY} is missing — check 23 has nothing to ` +
+      `compare, which is a scope failure, not a pass`);
+    return;
+  }
+
+  let inventory;
+  let marketplace;
+  try {
+    inventory = JSON.parse(read(DEP_INVENTORY));
+    marketplace = JSON.parse(read(MARKETPLACE));
+  } catch (e) {
+    failures.push(`${MARKETPLACE}/${DEP_INVENTORY}: not valid JSON (${e.message})`);
+    return;
+  }
+
+  const declared = Array.isArray(inventory.skills) ? inventory.skills : [];
+  if (declared.length === 0) {
+    failures.push(`${DEP_INVENTORY}: declares no skills — check 23 would compare against an ` +
+      `empty set and pass in silence`);
+    return;
+  }
+  const byStatus = (status) =>
+    new Set(declared.filter((s) => s.status === status).map((s) => s.name));
+  const modules = new Set(declared.map((s) => s.module).filter(Boolean));
+
+  const deps = marketplace.dependencies || {};
+  const ownSkills = new Set(
+    fs.readdirSync(path.join(repoRoot, "skills"), { withFileTypes: true })
+      .filter((e) => e.isDirectory() && e.name !== "_shared")
+      .map((e) => e.name),
+  );
+
+  let checked = 0;
+  for (const [field, status] of [["required-skills", "required"], ["optional-skills", "optional"]]) {
+    const listed = Array.isArray(deps[field]) ? deps[field] : null;
+    if (listed === null) {
+      failures.push(`${MARKETPLACE}: dependencies.${field} is missing or not an array`);
+      continue;
+    }
+    const expected = byStatus(status);
+    const actualBmad = new Set(listed.filter((n) => n.startsWith("bmad-")));
+
+    for (const name of listed) {
+      checked += 1;
+      if (name.startsWith("bmad-")) continue;
+      if (ownSkills.has(name)) continue;
+      failures.push(`${MARKETPLACE}: dependencies.${field} names '${name}', which is neither ` +
+        `a bmad-* skill nor a directory under skills/`);
+    }
+    for (const name of [...expected].sort()) {
+      if (actualBmad.has(name)) continue;
+      const entry = declared.find((s) => s.name === name);
+      failures.push(`${MARKETPLACE}: dependencies.${field} omits '${name}', which ` +
+        `${DEP_INVENTORY} declares '${status}'${entry?.module ? ` (module ${entry.module})` : ""}`);
+    }
+    for (const name of [...actualBmad].sort()) {
+      if (expected.has(name)) continue;
+      const entry = declared.find((s) => s.name === name);
+      failures.push(`${MARKETPLACE}: dependencies.${field} names '${name}', which ` +
+        `${DEP_INVENTORY} declares ` +
+        `${entry ? `'${entry.status}'` : "not at all"} — not '${status}'`);
+    }
+  }
+
+  const declaredModule = deps["bmad-module"];
+  checked += 1;
+  if (!modules.has(declaredModule)) {
+    failures.push(`${MARKETPLACE}: dependencies.bmad-module is '${declaredModule}', which no ` +
+      `entry in ${DEP_INVENTORY} names as its module (inventory uses: ` +
+      `${[...modules].sort().join(", ")})`);
+  }
+
+  if (verbose) {
+    console.log(`  marketplace-deps: ${checked} dependency entr(ies) checked against ` +
+      `${declared.length} declared skill(s)`);
+  }
+}
+
+// ---------------------------------------------------------------------------
+
+// The external anchor for pmStatusSubcommandOptions(), exposed through the entry point CI
+// runs rather than by exporting a function, because importing this module runs the checks.
+// scripts/tests/check-docs.test.mjs calls this, runs the REAL build_parser() under uv once,
+// and asserts the two agree set-for-set in both directions. Not a check: it prints and exits.
+if (process.argv.includes("--dump-subcommand-options")) {
+  const dump = {};
+  for (const [sub, opts] of [...pmStatusSubcommandOptions()].sort()) dump[sub] = [...opts].sort();
+  console.log(JSON.stringify(dump));
+  process.exit(0);
+}
 
 checkSkillNames();
 checkGatingTables();
@@ -2265,6 +2679,7 @@ checkDerivedCounts();
 checkSharedFilesTable();
 checkSkillFrontmatter();
 checkReadmeRepoLayout();
+checkMarketplaceDependencies();
 
 for (const note of notes) if (verbose) console.log(`  note: ${note}`);
 
