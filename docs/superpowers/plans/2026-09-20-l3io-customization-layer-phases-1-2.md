@@ -3000,3 +3000,49 @@ by hand, not as gates:
 
 Left for a consuming project, unchanged: `/l3io-util-doctor check-deps` verifies **probe
 paths** against a real install, which no repository check can see.
+
+### Task 17: Replace the hand-rolled parsers with maintained libraries
+
+*Added during execution, on an explicit user instruction: "Always use libraries of hand rolled."*
+
+Four hand-rolled parsers exist in `scripts/`, and the code states the reason plainly at
+`check-module.mjs:195`: *"this repo has no npm dependency and CI never runs `npm install` before
+these checks … so a real CSV library is not reachable here without also wiring up a package
+install step."* That constraint was never a decision — it accreted. It is also not uniformly
+applied: the Python half of this repo uses `ruamel.yaml`, `pyyaml` and others freely through
+`uv`. Global rule 1 forbids hand-rolling parsers; global rule 2 requires testing a constraint
+before accepting it, and this one obliges us to maintain a YAML parser, a CSV parser and a shell
+lexer.
+
+**Files:**
+- Modify: `package.json`, `package-lock.json` (devDependencies only — nothing here ships)
+- Modify: `.github/workflows/checks.yml` (add `npm ci`)
+- Modify: `scripts/check-module.mjs` (`parseModuleYaml`, `splitCsvLine`)
+- Modify: `scripts/check-docs.mjs` (`COMMAND_SPLIT_RE` + check 17; `SKILL_FRONTMATTER_PARSER`)
+- Modify: `scripts/tests/check-docs.test.mjs`, `scripts/tests/check-module.test.mjs`
+- Modify: `CLAUDE.md`, `scripts/CLAUDE.md` (any claim that the gates are dependency-free)
+
+**The four:**
+
+| Where | What it hand-rolls | Replace with |
+|---|---|---|
+| `check-module.mjs:82` `parseModuleYaml()` | a YAML subset parser | `yaml` |
+| `check-module.mjs:202` `splitCsvLine()` | a CSV field splitter | `csv-parse` |
+| `check-docs.mjs:1350` `COMMAND_SPLIT_RE` | a quote-unaware shell lexer | `shell-quote` |
+| `check-docs.mjs:1669` `SKILL_FRONTMATTER_PARSER` | correct already (ruamel via `uv`), but pays a subprocess | `yaml`, in process |
+
+**Known defects this closes**, all measured earlier in this plan and none fixable by a better
+regex: `uv run A.py & python3 B.py` inside quotes false-greens; `--with` inside a quoted string
+false-greens; `timeout`/`env`/`sudo` wrappers false-red; a command inside a quoted YAML scalar
+false-reds; `uv  run` with two spaces false-reds; `echo "a;b" ; python3 x.py` is masked because
+the splitter is quote-unaware. Expressing the rule over a real argv list removes the whole class
+rather than one member of it.
+
+**Constraints:** `check:module` must keep honouring `CHECK_MODULE_ROOT`; check 17 keeps its
+markdown-only `PY_FALLBACK_QUALIFIER` scoping; check 21 keeps its `name`/`description` rules and
+its fail-closed behaviour; every existing test must keep passing unchanged unless its expectation
+was itself wrong, in which case say so explicitly.
+
+**Verification:** replay the recorded bypass and false-red strings against the rebuilt check 17
+and report a table. Corpus differ: run old and new over every scanned file and report where the
+verdicts differ, with a justification per difference. Confirm CI installs before any gate runs.
