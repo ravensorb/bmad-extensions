@@ -14,9 +14,15 @@ import { fileURLToPath } from "node:url";
 const REPO = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..");
 const CHECK = path.join(REPO, "scripts", "check-module.mjs");
 
+// Every fixture carries the multi-module marker skills/module.yaml, because check 1 requires
+// it of any tree with a skills/ directory. Tests that are about the marker itself overwrite or
+// delete it explicitly.
+const MARKER = "multi_module_marketplace: true\n";
+
 function fixture(t) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "check-module-"));
   fs.mkdirSync(path.join(dir, "skills"), { recursive: true });
+  fs.writeFileSync(path.join(dir, "skills", "module.yaml"), MARKER);
   t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
   return dir;
 }
@@ -36,19 +42,95 @@ function write(root, rel, text) {
 }
 
 function writeModuleHome(root, dir, code) {
-  write(root, `skills/${dir}/assets/module.yaml`, `code: ${code}\nname: "${dir}"\ndescription: "test module"\n`);
+  const moduleYaml = `code: ${code}\nname: "${dir}"\ndescription: "test module"\n`;
+  write(root, `skills/${dir}/assets/module.yaml`, moduleYaml);
+  // A standalone (non-*-setup) module home must also carry the byte-identical skill-root copy
+  // BMad's installer discovers -- check 1(a). A *-setup home must not.
+  if (!dir.endsWith("-setup")) write(root, `skills/${dir}/module.yaml`, moduleYaml);
   write(root, `skills/${dir}/assets/module-setup.md`, "# setup\n");
   write(root, `skills/${dir}/assets/module-help.csv`, `skill,module,description\n${dir},${code},test skill\n`);
   write(root, `skills/${dir}/scripts/merge-config.py`, "# merge-config\n");
   write(root, `skills/${dir}/scripts/merge-help-csv.py`, "# merge-help-csv\n");
 }
 
-test("check:module rejects a module.yaml at a skill root", (t) => {
+// ---- check 1 (discovery-layout) ----
+//
+// This rule is the one the whole-branch review's C-1/H-1 landed on, and it replaced its own
+// inverse: `no-root-module-yaml` forbade exactly the file BMad's installer discovers for a
+// non-*-setup skill. Every assertion below was reproduced against bmad-method 6.12.0's
+// tools/installer/project-root.js before being written here.
+
+test("check:module rejects a module.yaml at a skill root that is not a standalone module home", (t) => {
   const root = fixture(t);
   write(root, "skills/l3io-pm-execute/module.yaml", "code: l3io-pm\n");
   const r = run(root);
   assert.equal(r.status, 1);
-  assert.match(r.stderr, /module\.yaml at a skill root/);
+  assert.match(r.stderr, /module\.yaml at a skill root that is not a standalone module home/);
+});
+
+test("check:module rejects a standalone module home with no skill-root module.yaml", (t) => {
+  const root = fixture(t);
+  writeModuleHome(root, "solo", "solo");
+  fs.rmSync(path.join(root, "skills/solo/module.yaml"));
+  const r = run(root);
+  assert.equal(r.status, 1);
+  assert.match(r.stderr, /standalone module home skills\/solo has no skills\/solo\/module\.yaml/);
+});
+
+test("check:module rejects a skill-root module.yaml that has drifted from its assets copy", (t) => {
+  const root = fixture(t);
+  writeModuleHome(root, "solo", "solo");
+  write(root, "skills/solo/module.yaml", "code: solo\nname: S\ndescription: drifted\n");
+  const r = run(root);
+  assert.equal(r.status, 1);
+  assert.match(r.stderr, /skills\/solo\/module\.yaml and skills\/solo\/assets\/module\.yaml differ/);
+});
+
+test("check:module rejects a *-setup module home carrying a skill-root module.yaml", (t) => {
+  const root = fixture(t);
+  writeModuleHome(root, "pm-setup", "pm");
+  write(root, "skills/pm-setup/module.yaml", "code: pm\n");
+  const r = run(root);
+  assert.equal(r.status, 1);
+  assert.match(r.stderr, /module\.yaml at a skill root that is not a standalone module home/);
+});
+
+test("check:module rejects a missing skills/module.yaml marker", (t) => {
+  const root = fixture(t);
+  writeModuleHome(root, "solo", "solo");
+  fs.rmSync(path.join(root, "skills/module.yaml"));
+  const r = run(root);
+  assert.equal(r.status, 1);
+  assert.match(r.stderr, /skills\/module\.yaml is missing/);
+});
+
+// The scope attack, not just the rule: the marker being PRESENT is not the property that
+// matters -- what matters is that it declares no code, no name and no agents. A marker that
+// grew a `code:` would make every module's settings land under that one code, and a marker
+// that grew an `agents:` array would emit one agent block per installed module. Both are
+// duplicate TOML tables, which is a config layer no skill can read.
+for (const [field, yaml] of [
+  ["code", "code: l3io-pm\nmulti_module_marketplace: true\n"],
+  ["name", "name: Everything\nmulti_module_marketplace: true\n"],
+  ["agents", "multi_module_marketplace: true\nagents:\n  - code: redteam\n"],
+]) {
+  test(`check:module rejects a skills/module.yaml marker declaring '${field}'`, (t) => {
+    const root = fixture(t);
+    writeModuleHome(root, "solo", "solo");
+    write(root, "skills/module.yaml", yaml);
+    const r = run(root);
+    assert.equal(r.status, 1);
+    assert.match(r.stderr, new RegExp(`skills/module\\.yaml declares '${field}'`));
+  });
+}
+
+test("check:module rejects a skills/module-help.csv beside the marker", (t) => {
+  const root = fixture(t);
+  writeModuleHome(root, "solo", "solo");
+  write(root, "skills/module-help.csv", "module,skill,display-name\n");
+  const r = run(root);
+  assert.equal(r.status, 1);
+  assert.match(r.stderr, /skills\/module-help\.csv exists/);
 });
 
 test("check:module rejects two assets/module.yaml sharing one code", (t) => {

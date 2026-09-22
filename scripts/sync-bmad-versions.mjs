@@ -46,9 +46,12 @@ const pmStatusPath = path.join(repoRoot, "skills", "_shared", "pm-status.py");
   }
 }
 
-// Update module_version in every module's assets/module.yaml (the module home). A skill-root
-// module.yaml is legacy/not-yet-migrated (see check:module); it is still updated if found so a
-// project mid-migration does not silently stop getting version bumps.
+// Update module_version in every module's assets/module.yaml (the module home) AND in the
+// skill-root module.yaml a standalone module home carries beside it. The root copy is not
+// legacy -- it is the only location bmad-method 6.12.0's installer discovers for a
+// non-*-setup skill (check:module rule 1, docs/bmad-module-yaml-discovery.md), and
+// check:module requires the two to stay byte-identical, so bumping one without the other
+// would fail the gate.
 const skillsDir = path.join(repoRoot, "skills");
 let moduleYamlCount = 0;
 for (const skillName of fs.readdirSync(skillsDir)) {

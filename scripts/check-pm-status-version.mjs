@@ -82,9 +82,11 @@ if (marker && konst && marker === konst && marker !== pkg) {
 }
 
 // Every module home's module_version must equal package.json's version. A module home is
-// assets/module.yaml (the target location) or, for a not-yet-migrated module, a skill-root
-// module.yaml -- read both so this survives a partial migration instead of silently checking
-// zero modules.
+// assets/module.yaml, falling back to a skill-root module.yaml -- read both so this survives a
+// tree where only one of the two exists instead of silently checking zero modules. A standalone
+// module home carries BOTH (check:module rule 1: the root copy is what BMad's installer
+// discovers), and check:module requires them byte-identical, so checking the first found here
+// is sufficient: drift between them is a check:module failure, not a silent pass.
 const moduleHomes = [];
 if (exists("skills")) {
   for (const entry of fs.readdirSync(path.join(repoRoot, "skills"), { withFileTypes: true })) {

@@ -11,7 +11,19 @@
 // Deliberately narrow, and deliberately RED against today's layout -- see the commit that
 // introduced this file. The seven assertions:
 //
-//   1. no-root-module-yaml   no `module.yaml` sits at any skill root any more
+//   1. discovery-layout     the layout BMad's INSTALLER discovers, which is not the layout
+//                            `validate-module.py` validates. Three parts:
+//                            (a) every standalone (non-`*-setup`) module home also carries
+//                                `module.yaml` at its SKILL ROOT, byte-identical to its
+//                                `assets/module.yaml`;
+//                            (b) `skills/module.yaml` exists and declares neither `code:`,
+//                                `name:` nor `agents:`;
+//                            (c) `skills/module-help.csv` does NOT exist.
+//                            See docs/bmad-module-yaml-discovery.md and ADR-0008. This rule
+//                            used to be `no-root-module-yaml`, which FORBADE (a) -- the only
+//                            location bmad-method 6.12.0's `project-root.js` discovers for a
+//                            non-`*-setup` skill. It was derived from `validate-module.py`
+//                            alone, and it made a branch that validated clean install broken.
 //   2. required-fields       every `skills/*/assets/module.yaml` has non-empty code/name/description
 //   3. one-home-per-code     exactly one `assets/module.yaml` declares each distinct module code
 //   4. home-payload          each module home carries module-setup.md, module-help.csv, and
@@ -115,24 +127,101 @@ function fieldText(value) {
 }
 
 // ---------------------------------------------------------------------------
-// 1. No module.yaml at any skill root.
-function checkNoRootModuleYaml(skills) {
+// 1. The layout BMad's INSTALLER discovers.
+//
+// `validate-module.py` reads `assets/module.yaml` and nothing else; it neither requires nor
+// forbids a copy at the skill root. `tools/installer/project-root.js` is a different tool with
+// a different contract, and it is the one that decides which module's settings land under
+// which `[modules.<code>]`. Its `searchRootAll()` (6.12.0, line 109) recognises
+// `assets/module.yaml` ONLY under a directory whose name ends in `-setup` (line 134); for any
+// other skill the only location it sees is `skills/<skill>/module.yaml`.
+//
+// This rule's predecessor, `no-root-module-yaml`, forbade exactly that file -- reasoned, like
+// ADR-0008, from the validator alone. The result passed every gate and produced an install
+// whose `_bmad/config.toml` BMad's own resolver refused to parse. Discovery wins.
+//
+// Scope is derived from `byCode`: the standalone module homes are the ones that must carry the
+// root copy, and every other skill must not. Nothing is enumerated by hand.
+function checkDiscoveryLayout(byCode, skills) {
+  const standaloneHomes = new Set();
+  for (const [, { assets }] of byCode) {
+    if (assets.length !== 1) continue; // check 3 reports these
+    const home = assets[0].skill;
+    if (!home.endsWith("-setup")) standaloneHomes.add(home);
+  }
+
   for (const skill of skills) {
-    const rel = `skills/${skill}/module.yaml`;
-    if (exists(rel)) {
+    const rootRel = `skills/${skill}/module.yaml`;
+    const assetsRel = `skills/${skill}/assets/module.yaml`;
+    if (standaloneHomes.has(skill)) {
+      if (!exists(rootRel)) {
+        failures.push(
+          `standalone module home skills/${skill} has no ${rootRel} -- BMad's installer ` +
+          `(project-root.js searchRootAll) only looks under assets/ for a *-setup skill, so ` +
+          `without this copy the module's own module.yaml is undiscoverable and its settings ` +
+          `are filed under another module's code. It must be byte-identical to ${assetsRel}.`
+        );
+      } else if (read(rootRel) !== read(assetsRel)) {
+        failures.push(
+          `${rootRel} and ${assetsRel} differ -- they are the same module declaration read by ` +
+          `two different BMad tools (the installer's discovery, and validate-module.py). ` +
+          `Copy one over the other.`
+        );
+      }
+    } else if (exists(rootRel)) {
       failures.push(
-        `module.yaml at a skill root: ${rel} -- it belongs at ` +
-        `skills/${skill}/assets/module.yaml (the module home), not the skill root.`
+        `module.yaml at a skill root that is not a standalone module home: ${rootRel} -- ` +
+        `a *-setup module home is discovered at assets/module.yaml, and a skill that is not a ` +
+        `module home declares no module at all.`
       );
     }
   }
+
+  // `skills/module.yaml` is the multi-module marker: it is what searchRootAll() returns FIRST
+  // for a local `--custom-source` install, where `searchRoot()` takes all[0] with no matching
+  // on the requested module's code. Declaring no `code:` there makes the TOML section key fall
+  // back to each module's own name; declaring no `agents:` there stops one agent block being
+  // emitted once per installed module. Both produce a duplicate TOML table, which `tomllib`
+  // rejects outright. The file itself documents the mechanism.
+  const markerRel = "skills/module.yaml";
+  if (!exists(markerRel)) {
+    failures.push(
+      `${markerRel} is missing -- it is the first candidate BMad's searchRootAll() returns, ` +
+      `and without it a local --custom-source install resolves every module to whichever ` +
+      `skills/*/module.yaml the filesystem happens to list first.`
+    );
+  } else {
+    const marker = parseModuleYaml(markerRel, read(markerRel));
+    for (const forbidden of ["code", "name", "agents"]) {
+      if (marker[forbidden] !== undefined) {
+        failures.push(
+          `${markerRel} declares '${forbidden}' -- it must declare none of code/name/agents. ` +
+          `A 'code' there becomes the [modules.<code>] section key for EVERY installed module; ` +
+          `an 'agents' array there is emitted once per installed module. Either produces a ` +
+          `duplicate TOML table and a config layer no skill can read.`
+        );
+      }
+    }
+  }
+
+  // PluginResolver strategy 1 (_tryRootModuleFiles) fires when module.yaml AND module-help.csv
+  // both sit at the common parent of a plugin's skills. Every plugin here has `skills/` as that
+  // common parent, so a `skills/module-help.csv` would collapse all four plugins into one
+  // module. The marker above is safe precisely because this file does not exist.
+  if (exists("skills/module-help.csv")) {
+    failures.push(
+      `skills/module-help.csv exists -- with skills/module.yaml beside it, BMad's ` +
+      `PluginResolver strategy 1 would resolve every plugin in marketplace.json to a single ` +
+      `module. It must not exist.`
+    );
+  }
 }
 
-// Collects every module.yaml under skills/ -- at a skill root (legacy/not-yet-migrated) or
-// under assets/ (the target module home) -- grouped by the code each declares. Root-level
-// files are included here (not just in check 1) so a code that currently exists only at a
-// skill root is still known and reported as missing its home in check 3, instead of being
-// invisible because nothing under assets/ mentions it yet.
+// Collects every module.yaml under skills/ -- at a skill root (what BMad's installer
+// discovers, check 1) or under assets/ (the module home that validate-module.py reads) --
+// grouped by the code each declares. Root-level files are included here so a code that exists
+// ONLY at a skill root is still known, and reported as missing its home by check 3, instead of
+// being invisible because nothing under assets/ mentions it yet.
 function collectModuleYamlByCode(skills) {
   const byCode = new Map(); // code -> { assets: [{skill, rel, fields}], root: [...] }
   for (const skill of skills) {
@@ -285,9 +374,9 @@ function checkCsvSkillsExist(skills) {
 
 // ---------------------------------------------------------------------------
 const skills = listSkillDirs();
-checkNoRootModuleYaml(skills);
 checkRequiredFields(skills);
 const byCode = collectModuleYamlByCode(skills);
+checkDiscoveryLayout(byCode, skills);
 checkOneHomePerCode(byCode);
 checkModuleHomes(byCode, skills);
 checkPmStatusSingleton(byCode, skills);
