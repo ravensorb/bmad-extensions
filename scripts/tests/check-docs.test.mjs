@@ -1969,6 +1969,66 @@ test("check 22: a row naming a skill directory that does not exist is caught", (
   assert.match(r.stderr, /lists 'l3io-pm-ghost\/', which is not a directory under skills\//);
 });
 
+// A fixture that is a REAL git work tree. Every other fixture is a plain temp copy, so check
+// 22 falls back to the filesystem in all of them -- which means none of them exercise the git
+// path at all. These two build an index from the real repository's own tracked list (explicit
+// paths, read from `git ls-files`, never a wildcard add) so what is asserted below is the
+// derivation CI actually runs. No commit is needed: `git ls-files` reads the index.
+function gitFixture(t) {
+  const dir = fixture(t);
+  const listed = spawnSync("git", ["-C", REPO, "ls-files", "-z"],
+    { encoding: "utf8", maxBuffer: 64 * 1024 * 1024 });
+  assert.equal(listed.status, 0, "could not read the real repository's tracked file list");
+  assert.equal(spawnSync("git", ["-C", dir, "init", "-q"]).status, 0, "git init failed");
+  const added = spawnSync("git",
+    ["-C", dir, "add", "-f", "--pathspec-from-file=-", "--pathspec-file-nul"],
+    { input: listed.stdout, encoding: "utf8" });
+  assert.equal(added.status, 0, added.stderr);
+  return dir;
+}
+
+// The defect this derivation exists to kill, planted exactly as it occurred: an interpreter
+// left a gitignored __pycache__/ under skills/l3io-pm-plan/scripts/ AFTER that skill's
+// pm-status.py payload copy was cut, and check 22 -- asking readdirSync -- demanded a README
+// row for a scripts/ directory the repository does not have. The row was correct; the gate was
+// red; there was nothing to fix. Reverting trackedEntries() to readdirSync turns this red.
+test("check 22: a gitignored build artifact under a skill demands no README row", (t) => {
+  const root = gitFixture(t);
+  fs.mkdirSync(path.join(root, "skills", "l3io-pm-plan", "scripts", "__pycache__"),
+    { recursive: true });
+  fs.writeFileSync(
+    path.join(root, "skills", "l3io-pm-plan", "scripts", "__pycache__", "x.pyc"), "");
+  const r = run(root);
+  assert.equal(r.status, 0, r.stderr + r.stdout);
+});
+
+// ...and the other direction, in the same git work tree, so the fix cannot have been "stop
+// looking". A TRACKED directory missing from the block must still be caught, with the message
+// naming the set the run actually consulted.
+test("check 22: in a git work tree, a tracked directory no row claims is still caught", (t) => {
+  const root = gitFixture(t);
+  const rel = path.join("skills", "l3io-pm-help", "brand-new-dir", "file.md");
+  write(root, rel, "# hi\n");
+  assert.equal(spawnSync("git", ["-C", root, "add", "-f", "--", rel]).status, 0);
+  const r = run(root);
+  assert.equal(r.status, 1, r.stdout);
+  assert.match(r.stderr,
+    /the skills\/l3io-pm-help\/ row does not list brand-new-dir\/, which is tracked in the repository/);
+});
+
+// Scope attack against the git path itself: the untracked-artifact tolerance must not have
+// become "ignore everything git has not been told about". A brand-new SKILL directory whose
+// files are tracked has no row, and must fail.
+test("check 22: in a git work tree, a tracked brand-new skill with no row is caught", (t) => {
+  const root = gitFixture(t);
+  const rel = path.join("skills", "l3io-zzz-newskill", "references", "x.md");
+  write(root, rel, "# x\n");
+  assert.equal(spawnSync("git", ["-C", root, "add", "-f", "--", rel]).status, 0);
+  const r = run(root);
+  assert.equal(r.status, 1, r.stdout);
+  assert.match(r.stderr, /Repo Layout has no row for skills\/l3io-zzz-newskill\//);
+});
+
 test("check 22: a restructured Repo Layout section fails loudly rather than silently", (t) => {
   const root = fixture(t);
   const p = path.join(root, "README.md");

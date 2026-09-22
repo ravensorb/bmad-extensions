@@ -61,8 +61,9 @@
 //                    warning (Task 11A fix round 1, H-1/H-2)
 //  22. readme-repo-layout  README's "## Repo Layout" block lists, for every l3io-* skill, the
 //                    subdirectories that skill actually has -- both directions, with both
-//                    sides derived (the skill set from skills/, the claims from the block,
-//                    the real directories from disk)
+//                    sides derived (the skill set and the real directories from `git
+//                    ls-files`, the claims from the block), so a gitignored build artifact is
+//                    not mistaken for something README should describe
 //  23. marketplace-deps  `.claude-plugin/marketplace.json`'s `dependencies` block agrees with
 //                    the declared inventory in
 //                    `skills/l3io-util-doctor/assets/bmad-dependencies.json` — required and
@@ -143,6 +144,7 @@
 //   node scripts/check-docs.mjs -v     # also print what passed
 import fs from "node:fs";
 import path from "node:path";
+import { spawnSync } from "node:child_process";
 import YAML from "yaml";
 import sh from "mvdan-sh";
 
@@ -2525,9 +2527,23 @@ function checkSkillFrontmatter() {
 // on disk the day the row was written. Nothing read this block, so every drift survived six
 // green gates and was found only when someone happened to look.
 //
-// Both sides are derived. The skill set comes from skills/ (so a new skill with no row fails
-// rather than being silently unlisted), the claims come from the fenced block itself, and the
-// truth comes from readdirSync. Nothing here is a hand-kept list.
+// Both sides are derived. The skill set and the directories a skill really has both come from
+// `git ls-files` (so a new skill with no row fails rather than being silently unlisted), and
+// the claims come from the fenced block itself. Nothing here is a hand-kept list.
+//
+// WHY GIT AND NOT readdirSync. "On disk" and "in the repository" are not the same set, and
+// this check is about the repository: README describes what a reader clones, not what a local
+// build left behind. It used to ask the filesystem, and a gitignored `__pycache__/` -- dropped
+// under skills/l3io-pm-plan/scripts/ by an interpreter run before that skill's pm-status.py
+// payload copy was cut -- made the gate demand a README row for a `scripts/` directory that
+// does not exist as far as the repo is concerned. The row was CORRECT and the gate was RED, in
+// a shared checkout, with nothing to fix. A guard that cries wolf gets switched off.
+//
+// Fallback, stated rather than hidden: when repoRoot is not the top level of a git work tree
+// (the test fixtures are plain temp copies), the filesystem answer is used instead and a note
+// records it under -v. That direction is strictly the old, stricter behaviour -- it can only
+// demand MORE rows, never fewer -- so it cannot turn a real drift green. The git path itself is
+// anchored by tests that build a real git work tree; see scripts/tests/check-docs.test.mjs.
 //
 // Scope, stated rather than implied. Only DIRECTORY claims are judged -- a token that is a
 // bare name followed by `/`. The block also names files (SKILL.md, customize.toml) and, in
@@ -2538,6 +2554,43 @@ function checkSkillFrontmatter() {
 // ---------------------------------------------------------------------------
 const REPO_LAYOUT_DOC = "README.md";
 const REPO_LAYOUT_HEADING = "## Repo Layout";
+
+// Every path git tracks under repoRoot, or null when repoRoot is not a git work tree's top
+// level. Asked once per run and cached: `ls-files` over this repo is one process, and the
+// answer cannot change under a checker that never writes.
+//
+// The top-level check is not ceremony. Without it, `git -C <temp dir>` walks UP out of the
+// directory it was given and answers about whatever repository it finds above it -- which for
+// a fixture under /tmp is either nothing or, worse, an unrelated repo.
+let trackedPathsCache;
+function trackedPaths() {
+  if (trackedPathsCache !== undefined) return trackedPathsCache;
+  trackedPathsCache = null;
+  const top = spawnSync("git", ["-C", repoRoot, "rev-parse", "--show-toplevel"],
+    { encoding: "utf8" });
+  if (top.status !== 0) return trackedPathsCache;
+  if (path.resolve(top.stdout.trim()) !== path.resolve(repoRoot)) return trackedPathsCache;
+  const ls = spawnSync("git", ["-C", repoRoot, "ls-files", "-z"],
+    { encoding: "utf8", maxBuffer: 64 * 1024 * 1024 });
+  if (ls.status !== 0) return trackedPathsCache;
+  trackedPathsCache = ls.stdout.split("\0").filter(Boolean);
+  return trackedPathsCache;
+}
+
+// The first path segment of everything tracked under `prefix`, split into the names that are
+// DIRECTORIES there (a tracked file lives below them) and the names that are files.
+function trackedEntries(prefix) {
+  const tracked = trackedPaths();
+  if (tracked === null) return null;
+  const dirs = new Set();
+  for (const rel of tracked) {
+    if (!rel.startsWith(prefix)) continue;
+    const rest = rel.slice(prefix.length);
+    const slash = rest.indexOf("/");
+    if (slash > 0) dirs.add(rest.slice(0, slash));
+  }
+  return dirs;
+}
 // A directory claim: a bare name followed by `/`, delimited on both sides. `scripts/tests/`
 // would not match, deliberately -- the block lists one level and a nested claim should fail
 // loudly here rather than be half-read.
@@ -2557,10 +2610,27 @@ function repoLayoutBlock(text) {
 }
 
 function checkReadmeRepoLayout() {
-  const skills = fs.readdirSync(path.join(repoRoot, "skills"), { withFileTypes: true })
-    .filter((e) => e.isDirectory() && e.name.startsWith("l3io-"))
-    .map((e) => e.name)
-    .sort();
+  const trackedSkillDirs = trackedEntries("skills/");
+  if (trackedSkillDirs === null) {
+    notes.push(`check 22: ${repoRoot} is not a git work tree top level, so "what is on disk" ` +
+      `fell back to the filesystem — a gitignored build artifact under a skill can produce a ` +
+      `false positive here`);
+  }
+  const skillDirs = trackedSkillDirs ?? new Set(
+    fs.readdirSync(path.join(repoRoot, "skills"), { withFileTypes: true })
+      .filter((e) => e.isDirectory())
+      .map((e) => e.name),
+  );
+  const skills = [...skillDirs].filter((name) => name.startsWith("l3io-")).sort();
+  // The message names the set it actually consulted, so a reader is never told a directory is
+  // "not tracked" by a run that never asked git.
+  const fromGit = trackedSkillDirs !== null;
+  const present = (n) => (fromGit
+    ? `${n === 1 ? "is" : "are"} tracked in the repository`
+    : `exist${n === 1 ? "s" : ""} on disk`);
+  const absent = (n) => (fromGit
+    ? `${n === 1 ? "is" : "are"} not tracked in the repository`
+    : `${n === 1 ? "does" : "do"} not exist on disk`);
 
   const block = repoLayoutBlock(read(REPO_LAYOUT_DOC));
   if (block === null) {
@@ -2592,7 +2662,7 @@ function checkReadmeRepoLayout() {
         `skill directory needs one, or the block stops describing the tree`);
       continue;
     }
-    const onDisk = new Set(
+    const onDisk = trackedEntries(`skills/${skill}/`) ?? new Set(
       fs.readdirSync(path.join(repoRoot, "skills", skill), { withFileTypes: true })
         .filter((e) => e.isDirectory())
         .map((e) => e.name),
@@ -2602,15 +2672,19 @@ function checkReadmeRepoLayout() {
     const phantom = [...listed].filter((d) => !onDisk.has(d)).sort();
     if (missing.length) {
       failures.push(`${REPO_LAYOUT_DOC}: the skills/${skill}/ row does not list ` +
-        `${missing.map((d) => `${d}/`).join(", ")}, which exist${missing.length === 1 ? "s" : ""} on disk`);
+        `${missing.map((d) => `${d}/`).join(", ")}, which ` +
+        `${present(missing.length)}`);
     }
     if (phantom.length) {
       failures.push(`${REPO_LAYOUT_DOC}: the skills/${skill}/ row lists ` +
         `${phantom.map((d) => `${d}/`).join(", ")}, which ` +
-        `${phantom.length === 1 ? "does" : "do"} not exist on disk`);
+        `${absent(phantom.length)}`);
     }
   }
-  if (verbose) console.log(`  readme-repo-layout: ${checked} skill row(s) matched against disk`);
+  if (verbose) {
+    console.log(`  readme-repo-layout: ${checked} skill row(s) matched against ` +
+      `${trackedSkillDirs === null ? "the filesystem (git unavailable)" : "git's tracked tree"}`);
+  }
 }
 
 // ---------------------------------------------------------------------------
