@@ -4,7 +4,16 @@
 **Status:** proposed
 **Supersedes approach in:** `2026-09-12-bmad-v612-migration-design.md` (Option A — "own the dev step")
 **Amends:** ADR-0006
-**Implies:** ADR-0007 (module packaging shape), ADR-0008 (l3io capabilities as BMad lenses)
+**Implies:** ADR-0008 (module packaging shape — written, accepted 2026-09-22),
+ADR-0009 (l3io capabilities as BMad lenses — not yet written)
+
+> **Renumbered 2026-09-22.** These two were written here as ADR-0007 and ADR-0008. ADR-0007 was
+> then taken by an unrelated decision (`0007-ci-installs-npm-dependencies.md`), whose number was
+> hand-picked from the highest file on disk rather than allocated. Nothing detected the clash:
+> `pm-status.py adr-reserve` allocates against the register and the files in `docs/adr/`, and
+> neither knows what a design document has promised. **A reservation that lives only in prose is
+> not a reservation** — so "ADR-0009" above is an intent, not an allocation, and whoever writes
+> it must take its real number from `adr-reserve` at that time.
 
 ## 1. Problem
 
@@ -327,11 +336,11 @@ A 1.5 KB deprecated forwarder since 2.1.0, still consuming skill-listing budget.
 
    This makes `check:docs` check 16 (`module-yaml-agreement`, sibling files sharing a `code:`)
    **vestigial** — each module ends with exactly one `module.yaml`, so there are no siblings to
-   disagree. Check 16 is retired in the same change, and its retirement noted in ADR-0007, since
+   disagree. Check 16 is retired in the same change, and its retirement noted in ADR-0008, since
    leaving a guard that can no longer fire is worse than no guard.
 2. Add `scripts/merge-config.py` — **writes TOML** to `_bmad/custom/config.toml` /
    `config.user.toml`, wrapping existing `write-module-config.py` logic. Deliberate deviation
-   per §2, recorded in ADR-0007. Lives beside its `module.yaml` (setup skill, or the standalone
+   per §2, recorded in ADR-0008. Lives beside its `module.yaml` (setup skill, or the standalone
    skill).
 3. Add `scripts/merge-help-csv.py` — targets `_bmad/_config/bmad-help.csv`. Same placement rule.
 4. Create **`l3io-pm-setup`** — the only setup skill. `l3io-util-doctor`, `l3io-sec-redteam` and
@@ -391,7 +400,7 @@ right. Resolve with the maintainers before Phase 3; Phases 1–2 do not depend o
 
 | Risk | Mitigation |
 |---|---|
-| bmb v2.2.2 diverges further from core 6.12 | Conform structurally only; keep the TOML writer; ADR-0007 |
+| bmb v2.2.2 diverges further from core 6.12 | Conform structurally only; keep the TOML writer; ADR-0008 |
 | Projects holding both flat and sharded layouts diverge silently | `doctor` health check detects co-existence, proposes `migrate-state` |
 | `implementation_handoff` unreachable on oneshot | Do not route through oneshot (§3.3) |
 | Phase 2 touches every skill directory | Gated by `validate-module.py`, the four `check:*` gates, and a clean-install test |
