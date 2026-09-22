@@ -1025,10 +1025,15 @@ const TASK17_BYPASSES = [
     "NOTE='x ; uv run --with y' python3 skills/_shared/tests/test-pm-status.py"],
   ["a double-quoted `&&` inside an env-assignment prefix",
     'NOTE="x && uv run --with y" python3 skills/_shared/tests/test-pm-status.py'],
+  // These two are the deliberate over-approximation: the shell would run `echo`/`grep` and
+  // never python3, so the check reports them with the WORDING that says exactly that, rather
+  // than claiming an invocation that does not happen. (Fix round 1, L-2.)
   ["a decoy `uv run --with` quoted as an echo argument",
-    "echo 'a & uv run --with y' python3 skills/_shared/tests/test-pm-status.py"],
+    "echo 'a & uv run --with y' python3 skills/_shared/tests/test-pm-status.py",
+    /contains an unquoted `python3 [^`]+` sequence outside a provisioned `uv run`/],
   ["a decoy `uv run --with` quoted as a grep pattern",
-    "grep -q 'x | uv run --with y' python3 skills/_shared/tests/test-pm-status.py"],
+    "grep -q 'x | uv run --with y' python3 skills/_shared/tests/test-pm-status.py",
+    /contains an unquoted `python3 [^`]+` sequence outside a provisioned `uv run`/],
   ["a `$( )` substitution under an otherwise-provisioned uv run",
     "uv run --with 'x' echo \"$(python3 skills/_shared/tests/test-pm-status.py)\""],
   ["a backtick substitution under an otherwise-provisioned uv run",
@@ -1039,7 +1044,7 @@ const TASK17_BYPASSES = [
     "PY=python3; $PY skills/_shared/tests/test-pm-status.py"],
 ];
 
-for (const [label, line] of TASK17_BYPASSES) {
+for (const [label, line, expected] of TASK17_BYPASSES) {
   test(`check 17 Task 17: ${label} no longer bypasses the check`, (t) => {
     const root = fixture(t);
     write(root, ".github/workflows/checks.yml",
@@ -1047,7 +1052,7 @@ for (const [label, line] of TASK17_BYPASSES) {
       /* append */ true);
     const r = run(root);
     assert.equal(r.status, 1, r.stdout);
-    assert.match(r.stderr, /invokes a PEP-723 script with python3/);
+    assert.match(r.stderr, expected ?? /invokes a PEP-723 script with python3/);
   });
 }
 
@@ -1204,9 +1209,61 @@ for (const [label, line] of [
     write(root, "skills/l3io-pm-execute/steps/task17-decorated.md", `${line}\n`);
     const r = run(root);
     assert.equal(r.status, 1, r.stdout);
-    assert.match(r.stderr, /task17-decorated\.md:\d+: invokes a PEP-723 script with python3/);
+    assert.match(r.stderr, /task17-decorated\.md:\d+: (invokes a PEP-723 script with python3|contains an unquoted python3-plus-script sequence)/);
   });
 }
+
+// ---- check 17, python3's option arity is pinned, not just documented (fix round 1, M-2) ----
+//
+// `pythonTarget()` models python3's own CLI so it can tell an interpreter flag from the script
+// it eventually runs. Two of those behaviours were asserted in the check header, in the commit
+// message AND in docs/adr/0007 -- and tested nowhere: deleting `if (tok === "-c") return null;`
+// left the whole suite green while flipping a real verdict. That is the same class of hole the
+// M6 mutation found, so the sweep is finished here rather than left for the next reviewer.
+
+// `-c` runs a command STRING. A `.py` path after it is sys.argv[1], never executed, so no
+// PEP-723 header is bypassed and this must stay exit 0. Deleting the `-c` line makes it red.
+test("check 17 M-2: `python3 -c 'code' <script>.py` executes no script and is not a violation", (t) => {
+  const root = fixture(t);
+  write(root, ".github/workflows/checks.yml",
+    "    - name: m-2 dash-c\n" +
+    "      run: python3 -c 'import sys; print(sys.version)' skills/_shared/tests/test-pm-status.py\n",
+    /* append */ true);
+  const r = run(root);
+  assert.equal(r.status, 0, r.stderr);
+});
+
+// `-m <runner>` is judged by the runner's FIRST non-flag argument -- which is what separates
+// `-m pytest <script>.py` (caught, pinned by the R-1 positive control above) from
+// `-m pip install … build.py`, where `build.py` is a package-name argument to `install` and
+// nothing executes it. A rule that scanned for ANY `.py` among the module's arguments would
+// turn this ordinary line red.
+test("check 17 M-2: `python3 -m pip install … build.py` runs no script and is not a violation", (t) => {
+  const root = fixture(t);
+  write(root, ".github/workflows/checks.yml",
+    "    - name: m-2 dash-m\n" +
+    "      run: python3 -m pip install -r requirements.txt --target build.py\n",
+    /* append */ true);
+  const r = run(root);
+  assert.equal(r.status, 0, r.stderr);
+});
+
+// After `-m`, the remaining flags belong to the MODULE, so python3's own arity table has to
+// stop applying to them. `-X` is a python3 option that takes a separate value; as a runner's
+// flag it takes none, and applying python3's arity would swallow the script path behind it and
+// miss the invocation entirely. (`-W`, `-Q` and `-X` are all plausible third-party runner flag
+// names, which is why this is a hazard and not a curiosity.) This is the case that pins the
+// `-m` branch's existence: without it, `-m` falls through to PY_VALUE_OPTS and this goes green.
+test("check 17 M-2: after `-m`, python3's flag arity stops applying to the runner's own flags", (t) => {
+  const root = fixture(t);
+  write(root, ".github/workflows/checks.yml",
+    "    - name: m-2 runner flag\n" +
+    "      run: python3 -m pytest -X skills/_shared/tests/test-pm-status.py\n",
+    /* append */ true);
+  const r = run(root);
+  assert.equal(r.status, 1, r.stdout);
+  assert.match(r.stderr, /invokes a PEP-723 script with python3/);
+});
 
 // ---- check 18 (docs-check-count) ----
 //

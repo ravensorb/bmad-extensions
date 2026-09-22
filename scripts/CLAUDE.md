@@ -28,6 +28,11 @@ Everything the checkers parse, they parse with a library — never a hand-writte
 | `check-docs.mjs` check 17 | each `run:` script, into argv | `mvdan-sh` |
 | `check-docs.mjs` check 21 | `skills/*/SKILL.md` frontmatter | `yaml` (the package BMad's installer uses) |
 
+`mvdan-sh` is **deprecated on npm** — `npm ci` says so, and the lockfile entry carries it. It is
+still the right choice here and the ADR says why, which successor was considered (`sh-syntax`,
+async-only against a synchronous `check-docs.mjs`) and what would make us switch. Do not reach
+for it in new code without reading that section.
+
 These are **devDependencies**. Nothing here ships: payload scope is `skills/<skill>/` (derived
 from `PAYLOAD_TARGETS`), and `node_modules/` is gitignored, so `check:manifest` cannot see them.
 Nothing mechanically asserts that a gate script's imports are declared in `package.json` — that

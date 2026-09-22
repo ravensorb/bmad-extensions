@@ -1307,17 +1307,32 @@ function checkBmadDependencyInventory() {
 // right one for a guard -- narrowing to argv[0] would also drop the markdown reach that keeps
 // a `- python3 {pm_status} …` bullet and a `| `python3 x.py` |` table cell caught.
 //
+// These offenders get a DIFFERENT message ("contains an unquoted python3 <script> sequence"),
+// because saying a `grep` command "invokes a PEP-723 script" would be a false statement in the
+// one place a reader checks. The narrow cost is measurable and was measured: the rule compares
+// argv WORDS, so `grep -rn "python3 setup.py" skills/` and `echo "never python3 foo.py"` are
+// both clean -- only an UNQUOTED `… python3 x.py` tail trips it. Cost on this repo: zero lines.
+// There is deliberately NO escape hatch on the workflow side (PY_FALLBACK_QUALIFIER is
+// markdown-only, and stays that way). If this ever fires on legitimate workflow content, quote
+// the text or restructure the step; do not add a silencer without first measuring, the way this
+// paragraph was measured.
+//
 // Known gaps (listed rather than left to look complete):
-//   - a command whose argv[0] is not the interpreter and not `uv run` but that still reaches
-//     python3 indirectly -- `xargs python3 S.py`, `bash -c 'python3 S.py'`, `make test`. The
-//     rule sees the argv it is given; it does not follow a command into another program's
-//     argument conventions or into another file.
+//   - a command that reaches python3 through ANOTHER program's own argument parsing or through
+//     a second file -- `bash -c 'python3 S.py'`, `sh -lc …`, `make test`, a script that runs a
+//     script. The rule sees the argv it is given and does not follow a command into another
+//     program's conventions or into another file. (`xargs python3 S.py` IS caught: `python3` is
+//     an argv word of the command being read, and the over-approximation above covers it. This
+//     entry used to claim otherwise, which understated real coverage -- fix round 1, L-1.)
 //   - a variable whose value is not statically known: `PY=$(which python3); $PY S.py`, or one
 //     exported by an earlier `run:` step or by `env:` at job level. Literal in-script
 //     assignments (`PY=python3; $PY S.py`) ARE resolved.
 //   - `python3 -m <runner> <script>.py` is judged by the runner's FIRST non-flag argument, so
-//     `-m pytest S.py` is caught and `-m pip install … build.py` is correctly not; a runner
-//     that takes the script somewhere else in its argv is missed.
+//     `-m pytest S.py` is caught and `-m pip install … build.py` is correctly not. A runner
+//     that takes the script somewhere else in its argv is missed, including behind one of the
+//     runner's OWN value-taking flags (`-m pytest -W ignore::X S.py`): after `-m`, the flags
+//     belong to the module, so python3's arity table deliberately stops applying and a flag's
+//     separate value reads as the first non-flag argument.
 //   - markdown candidacy still rests on PY_INVOKE_RE, so an invocation spelled in a way that
 //     regex does not match is not offered to the rule at all in the markdown corpus.
 // ---------------------------------------------------------------------------
@@ -1452,11 +1467,25 @@ function commandOffence(rawArgv) {
   if (pyIndex < 0) return null;
   const target = pythonTarget(argv.slice(pyIndex));
   if (!target) return null;
-  if (argv[0] === "uv" && argv[1] === "run" &&
+  const isUvRun = argv[0] === "uv" && argv[1] === "run";
+  if (isUvRun &&
       argv.slice(2, pyIndex).some((t) => typeof t === "string" && UV_PROVISION_FLAG_RE.test(t))) {
     return null;
   }
-  return target;
+  // `direct` separates what the shell WILL execute (the interpreter is the command, or uv is
+  // running it) from the over-approximation above, where python3 is merely an argv word of
+  // something else. The two get different messages: only the first is honestly described as
+  // "invokes a PEP-723 script".
+  return { target, direct: pyIndex === 0 || isUvRun };
+}
+
+// The failure text for one offending command. Kept next to commandOffence() so the claim and
+// the condition that produced it cannot drift apart.
+function offenceMessage(offence) {
+  return offence.direct
+    ? `invokes a PEP-723 script with python3 (use uv run instead): ${offence.target}`
+    : `contains an unquoted \`python3 ${offence.target}\` sequence outside a provisioned ` +
+      `\`uv run\` -- the checker does not try to prove it harmless; quote it or remove it`;
 }
 
 // Every offending command in a shell script. null means the script is not valid shell -- the
@@ -1465,8 +1494,8 @@ function pep723Offences(script) {
   const commands = shellCommands(script);
   if (commands === null) return null;
   return commands
-    .map((c) => ({ line: c.line, target: commandOffence(c.argv) }))
-    .filter((c) => c.target !== null);
+    .map((c) => ({ line: c.line, offence: commandOffence(c.argv) }))
+    .filter((c) => c.offence !== null);
 }
 
 function* walkWorkflowFiles() {
@@ -1487,8 +1516,15 @@ function scanMarkdownForPep723(rel) {
     if (PY_FALLBACK_QUALIFIER.test(line)) return;
     const offences = pep723Offences(line);
     if (offences !== null && offences.length === 0) return;
-    offenders.push(`${rel}:${i + 1}: invokes a PEP-723 script with python3 ` +
-      `(use uv run instead): ${line.trim()}`);
+    // A line the shell parser could not read at all (markdown decoration) has no argv to
+    // classify, so it takes the direct wording: PY_INVOKE_RE matched a python3-plus-script
+    // sequence and nothing exempted it, which is exactly what that sentence says.
+    const direct = offences === null || offences.some((o) => o.offence.direct);
+    const detail = direct
+      ? `invokes a PEP-723 script with python3 (use uv run instead)`
+      : `contains an unquoted python3-plus-script sequence outside a provisioned \`uv run\` ` +
+        `-- the checker does not try to prove it harmless`;
+    offenders.push(`${rel}:${i + 1}: ${detail}: ${line.trim()}`);
   });
   return offenders;
 }
@@ -1527,10 +1563,9 @@ function scanWorkflowForPep723(rel) {
           `check 17 cannot rule on it: ${script.split("\n")[0].trim()}`);
         return;
       }
-      for (const offence of offences) {
-        const line = isBlock ? startLine + offence.line : startLine;
-        offenders.push(`${rel}:${line}: invokes a PEP-723 script with python3 ` +
-          `(use uv run instead): ${offence.target}`);
+      for (const found of offences) {
+        const line = isBlock ? startLine + found.line : startLine;
+        offenders.push(`${rel}:${line}: ${offenceMessage(found.offence)}`);
       }
     },
   });
@@ -1543,8 +1578,8 @@ function checkPep723Invocation() {
     ...[...walkWorkflowFiles()].flatMap(scanWorkflowForPep723),
   ];
   if (offenders.length) {
-    failures.push(`runtime directives invoke a PEP-723 script with python3, bypassing its ` +
-      `header-declared deps:\n      ${offenders.join("\n      ")}`);
+    failures.push(`PEP-723 scripts reached without uv, bypassing their header-declared deps ` +
+      `(each line says which of the two shapes it is):\n      ${offenders.join("\n      ")}`);
   }
   if (verbose) console.log(`  pep723-invocation: ${offenders.length} offending line(s)`);
 }
@@ -1804,8 +1839,13 @@ function checkSharedFilesTable() {
 // from CI. `npm ci` in .github/workflows/checks.yml removed that constraint, so the parse now
 // runs in process against the `yaml` package -- the SAME package BMad's own installer parses
 // frontmatter with, which makes this check agree with the thing it is predicting instead of
-// approximating it. The one known divergence the ruamel version carried (a trailing tab after
-// a scalar, rejected here and accepted by BMad) is gone with it.
+// approximating it. (Confirmed against BMad's source: `manifest-generator.js` does
+// `require('yaml')` and `yaml.parse()` with the same field predicates, at `^2.7.0` to this
+// repo's `^2.9.1` -- same major.) The divergences the ruamel version carried go with it: TWO
+// shapes, both tabs, both rejected by ruamel and accepted by BMad -- a trailing tab after a
+// scalar (`name: x<TAB>`) and a tab between the colon and the value (`name:<TAB>x`). Both were
+// false positives here, and both now match BMad. A tab used as INDENTATION is still rejected
+// by `yaml`, exactly as BMad rejects it. No file in this repo is affected by any of the three.
 //
 // Fail-closed, and what replaces the old `uv`-missing branch: the parser is now an `import` at
 // the top of this file, so an absent or broken `node_modules` does not degrade check 21 -- it

@@ -55,6 +55,43 @@ The real hazard of the old arrangement was never a silent failure — `node` exi
    `uv run` carrying a provisioning flag. Quoting, `$( )`, `if`/`then`, `VAR=value`, heredocs,
    backslash continuations and block scalars stop being this repo's problem.
 
+## `mvdan-sh` is deprecated on npm, and is still the right choice today
+
+Stated here because `npm ci` prints the warning and the `package-lock.json` entry this change
+added carries it, so the next reader will meet the fact whether or not this ADR admits it:
+
+```
+node_modules/mvdan-sh  "deprecated": "See https://github.com/mvdan/sh/issues/1145"
+```
+
+`mvdan-sh@0.10.1` is the GopherJS build of mvdan/sh, BSD-3-Clause, last published 2025-04. The
+named successor is **`sh-syntax`** — a WASM build of the *same* mvdan/sh parser, MIT, actively
+released (0.6.0, 2026-07).
+
+**Why the successor was not taken:** `sh-syntax` is **async-only**. Its API returns promises
+because the WASM module must be instantiated before the first parse, and it exposes no
+synchronous entry point. `scripts/check-docs.mjs` is synchronous end to end — twenty-one checks
+called as bare statements, each pushing into a shared `failures` array that is inspected at
+module top level to choose the exit code. Adopting `sh-syntax` means making check 17 async,
+which means making the invocation list async, which means restructuring the exit path of a file
+whose whole job is to be a reliable gate. Its AST is also shaped differently (a JSON projection
+rather than the Go node objects `syntax.Walk` yields), so the rule would be rewritten, not
+ported. That is a disproportionate change to buy a maintenance label on a devDependency that
+never ships and whose parse behaviour is frozen and correct.
+
+**Revisit if** any of these becomes true:
+
+- `check-docs.mjs` becomes asynchronous for some other reason — then the cost of `sh-syntax`
+  collapses to a port of the rule, and it should be taken.
+- `mvdan-sh` stops working on a Node version this repo supports (`engines.node >= 22`), or its
+  transpiled output breaks on a Node release. There is no upstream to fix it.
+- A security advisory is filed against it. Deprecated is not unmaintained-and-vulnerable, but it
+  does mean nobody will ship the fix.
+
+Until one of those happens, the alternative to `mvdan-sh` is not `sh-syntax`; it is going back to
+hand-writing a substitution scanner, an assignment-prefix stripper, a reserved-word list, a
+newline splitter and a backslash-continuation joiner, which is what this ADR exists to stop.
+
 ## Consequences
 
 - A check script may now use a maintained library. That is the point: it stops the next
@@ -70,5 +107,11 @@ The real hazard of the old arrangement was never a silent failure — `node` exi
   installer uses, so it agrees with the thing it predicts instead of approximating it. Its old
   `uv`-missing fail-closed branch is replaced by something stronger: the parser is a top-level
   `import`, so a broken `node_modules` stops the whole gate rather than one check.
-- Revisit if: the install becomes a meaningful share of CI time, or a dependency introduces a
-  supply-chain review burden the maintainer does not want for build tooling.
+- Check 21 now parses with the same `yaml` package and the same field predicates as BMad's own
+  `manifest-generator.js` (`require('yaml')`, `yaml.parse()`, `^2.7.0` against this repo's
+  `^2.9.1` — same major), so it agrees with the thing it predicts rather than approximating it.
+- Revisit if: the install becomes a meaningful share of CI time, a dependency introduces a
+  supply-chain review burden the maintainer does not want for build tooling, or any of the
+  three `mvdan-sh` triggers in the section above fires. That third one is the live one: the
+  library is deprecated **today**, and this ADR would be overstating its own coverage if it
+  listed only the triggers that have not happened yet.
