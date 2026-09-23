@@ -24,7 +24,7 @@ BMad community module package — four modules: `l3io-pm` (sprint/epic orchestra
 ## Conventions that differ from defaults
 
 - `postbump` auto-syncs version strings and payload copies — do not manually bump `marketplace.json` or `module.yaml` files
-- `prerelease` blocks a release when payload copies or manifests are stale — run `check:scripts` and `check:manifest` before releasing
+- `prerelease` runs four gates, not two: `check:scripts`, `check:manifest`, `check:docs` and `check:version` (see `.versionrc.cjs`). Run all four before releasing — stale payload copies, a stale manifest, a doc that disagrees with the code, or a `pm-status.py` version marker out of step with `package.json` each block the release
 - `l3io-util-doctor` modes live one-per-file in `steps/` — never inline a new mode into `SKILL.md`
 
 ## Known pitfalls

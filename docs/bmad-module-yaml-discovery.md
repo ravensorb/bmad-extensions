@@ -47,8 +47,8 @@ plugin l3io-arch  -> code=l3io-arch  strategy=3  skills/l3io-arch-review/assets/
 ### 2. Config-writing resolution — `resolveInstalledModuleYaml()`
 
 `tools/installer/project-root.js:102`. Called per **module name** by
-`collectAgentsFromModuleYaml` (`manifest-generator.js:448`) and `writeCentralConfig`
-(`manifest-generator.js:448`/`:552`) while the manifests are written. This is the one that
+`collectAgentsFromModuleYaml` (`manifest-generator.js:249`) and `writeCentralConfig`
+(`manifest-generator.js:448`/`:560`) while the manifests are written. This is the one that
 decides **which `[modules.<code>]` section each module's answers are written under**, and
 which agents reach `[agents.*]`.
 
@@ -83,11 +83,12 @@ branch was not. For a repository that hosts more than one module — which this 
 
 Two places consume the (wrong) file, and both write TOML without a dedupe:
 
-- `manifest-generator.js:552` — `sectionKey = codeByModuleName[moduleName] || moduleName`.
+- `manifest-generator.js:560` — `sectionKey = codeByModuleName[moduleName] || moduleName`.
   With every module resolving to one file, every module gets that file's `code:` as its TOML
   section key. Two modules with install answers ⇒ `[modules.<code>]` **declared twice**.
-- `manifest-generator.js:610` — one `[agents.<code>]` block per collected agent, and agents
-  are collected once **per module** (`:480`, `module: moduleName`). An `agents:` array in
+- `manifest-generator.js:608` — one `[agents.<code>]` block per collected agent, and agents
+  are collected once **per module** (`:279`, `module: moduleName`, inside the
+  `for (const moduleName of this.updatedModules)` loop at `:248`). An `agents:` array in
   whichever file wins ⇒ `[agents.redteam]` emitted **four times**.
 
 TOML forbids both. `tomllib` refuses the file, `resolve_config.py` exits 1, and
@@ -100,7 +101,7 @@ to stop and report "BMad core is not installed" — which is false.
 | --- | --- | --- |
 | Multi-skill, with a `*-setup` skill (`l3io-pm`) | `skills/l3io-pm-setup/assets/module.yaml` | PluginResolver strategy 2 and `searchRootAll` pattern 5 both read exactly this path |
 | Standalone single-skill (`l3io-sec`, `l3io-util`, `l3io-arch`) | **both** `skills/<skill>/assets/module.yaml` **and** `skills/<skill>/module.yaml`, byte-identical | `assets/` is what PluginResolver strategy 3 and `validate-module.py` read; the **skill root** is the only place `searchRootAll` looks for a non-`*-setup` skill |
-| The repository itself | `skills/module.yaml`, declaring **no** `code:`, **no** `name:`, **no** `agents:` | it is `searchRootAll`'s first candidate, so it is what the local branch's `all[0]` returns for every module; with no `code:` the section key falls back to each module's own name (`manifest-generator.js:552`), and with no `agents:` no agent block is emitted more than once |
+| The repository itself | `skills/module.yaml`, declaring **no** `code:`, **no** `name:`, **no** `agents:` | it is `searchRootAll`'s first candidate, so it is what the local branch's `all[0]` returns for every module; with no `code:` the section key falls back to each module's own name (`manifest-generator.js:560`), and with no `agents:` no agent block is emitted more than once |
 
 `check:module` rule 1 enforces all three, deriving the module homes from the tree rather than
 from a list. The marker file `skills/module.yaml` documents its own mechanism inline.

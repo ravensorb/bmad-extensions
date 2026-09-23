@@ -18,8 +18,15 @@ function fixture(t) {
   t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
   fs.cpSync(REPO, dir, {
     recursive: true,
+    // __pycache__ is filtered for the same reason check 22 asks git rather than readdirSync:
+    // it is gitignored build noise, it lands under skill payload directories whenever the
+    // Python suites run, and in a fixture (which is not a git work tree, so check 22 falls
+    // back to the filesystem) it would make every test in this file fail over a README row
+    // that is correct. Running `npm run test:scripts` after the Python tests used to do
+    // exactly that.
     filter: (src) =>
-      !path.relative(REPO, src).split(path.sep).some((p) => p === ".git" || p === "node_modules"),
+      !path.relative(REPO, src).split(path.sep)
+        .some((p) => p === ".git" || p === "node_modules" || p === "__pycache__"),
   });
   return dir;
 }

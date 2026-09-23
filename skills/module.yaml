@@ -12,15 +12,15 @@
 #     returns `all[0]` (line 149) with NO matching on the requested module's code. Every
 #     plugin in the repo shares one `localPath` (ui.js:1212, `sourceResult.rootDir`), so all
 #     four of our modules resolve to that same first candidate.
-#   - `manifest-generator.js:552` then uses that file's `code:` as the TOML section key for
-#     EVERY module, and `:610` emits one `[agents.<code>]` per (module x agent) pair with no
+#   - `manifest-generator.js:560` then uses that file's `code:` as the TOML section key for
+#     EVERY module, and `:608` emits one `[agents.<code>]` per (module x agent) pair with no
 #     dedupe. Two modules with install answers produced `[modules.l3io-pm]` twice; an `agents:`
 #     array in whichever file won produced `[agents.redteam]` four times. TOML forbids both,
 #     `tomllib` rejects the file, and `resolve_config.py` exits 1 -- so every l3io skill AND
 #     every BMad core skill halts at activation.
 #
 # With no `code:` here, `codeByModuleName` stays unset and the section key falls back to the
-# module's own name (`manifest-generator.js:552`, `|| moduleName`), which for these modules IS
+# module's own name (`manifest-generator.js:560`, `|| moduleName`), which for these modules IS
 # the code -- so each module's answers land under its own `[modules.<code>]`. With no `agents:`
 # here, no agent block is emitted more than once.
 #

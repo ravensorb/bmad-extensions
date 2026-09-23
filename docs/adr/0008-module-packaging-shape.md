@@ -45,7 +45,7 @@ installed tree, decides where a module's settings are actually written, and was 
 Measured against bmad-method 6.12.0 for this amendment:)*
 
 `project-root.js:102` `resolveInstalledModuleYaml()` is called per module name while the
-manifests are written (`manifest-generator.js:448`, `:552`). Its `searchRootAll()` (`:109`)
+manifests are written (`manifest-generator.js:249` and `:448`, feeding `:560`). Its `searchRootAll()` (`:109`)
 recognises `assets/module.yaml` **only** under a directory whose name ends in `-setup`
 (`:134`). For any other skill the one location it looks at is the **skill root**,
 `skills/<skill>/module.yaml`. Relocating the three standalone modules' `module.yaml` under
@@ -57,7 +57,7 @@ Worse, the local `--custom-source` branch (`:171`–`:181`) calls `searchRoot(lo
 is `all[0]` (`:149`) with **no matching on the requested module**, and every plugin in a
 marketplace repo shares one `localPath` (`ui.js:1212`). All four modules resolved to the one
 remaining discoverable file, `skills/l3io-pm-setup/assets/module.yaml`, so
-`manifest-generator.js:552` used `l3io-pm` as the TOML section key for all of them and emitted
+`manifest-generator.js:560` used `l3io-pm` as the TOML section key for all of them and emitted
 `[modules.l3io-pm]` twice. `tomllib` rejects a table declared twice; `resolve_config.py` exited
 1; every l3io skill and every BMad core skill would have halted at activation and reported
 "BMad core is not installed". The full contract, both branches, and the fix are in

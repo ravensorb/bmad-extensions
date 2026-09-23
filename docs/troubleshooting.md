@@ -20,8 +20,8 @@ Both Python helpers use stable exit codes, useful when scripting around them.
 | Code | `pm-status.py` | `spec-align.py` |
 |---|---|---|
 | 0 | success / verified | ok |
-| 1 | — | a report-mode check found problems |
-| 2 | usage error | a gate refused, or bad input |
+| 1 | `notice` only: this notice was already emitted for this key | a report-mode check found problems |
+| 2 | usage error; for `notice`, an unexpected recording failure | a gate refused, or bad input |
 | 3 | node not found | — |
 | 4 | verification failure (missing or invalid field) | — |
 | 5 | epic locked | the spec-sync lease is held by another owner |

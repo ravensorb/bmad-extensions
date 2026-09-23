@@ -109,12 +109,17 @@ nor `.notices.yaml` matches the directory itself.
 Find your starting version and read forward. `npx bmad-method install` upgrades across any
 number of these at once, but the migrations must still run.
 
-### → 3.0.0
+### → the next release (merged to `main`, not yet tagged)
+
+> **These changes are not in a release yet.** They are merged to `main`; the current release
+> is 2.5.1. Because the set includes a breaking change, this repo's Conventional Commits
+> release rules will cut the next one as 3.0.0 — but no 3.0.0 exists, so if you are on 2.5.1
+> you have none of what follows and nothing to migrate yet.
 
 **`l3io-util-cleanup` removed.**
 
-`/l3io-util-cleanup` was a deprecated forwarder from 2.1.0 onward and is now removed.
-Use `/l3io-util-doctor` with the same arguments — every mode name is unchanged.
+`/l3io-util-cleanup` was a deprecated forwarder from 2.1.0 onward and has been removed on
+`main`. Use `/l3io-util-doctor` with the same arguments — every mode name is unchanged.
 
 **Module setup no longer routes through `l3io-pm-execute`, `l3io-pm-plan`, `l3io-pm-help`,
 or `l3io-pm-sync`.** Those four skills previously loaded `assets/module-setup.md` when you
@@ -158,7 +163,7 @@ its sixteen modes, while the default behavior is a diagnose-report-repair health
 
 Backward compatible at the time — no action required. `/l3io-util-cleanup` printed a rename
 notice and forwarded. Update any scripts, aliases, or team docs that invoke the old name; it
-was deprecated and was removed in 3.0.0 (see above).
+was deprecated, and has since been removed on `main` ahead of the next release (see above).
 
 **New: progress reporting.** `/l3io-pm-help progress` (which forwards to
 `/l3io-util-doctor stats`) and `/l3io-util-doctor stats` itself render a plan-aware tree —
@@ -246,5 +251,5 @@ It dry-runs first and confirms before deleting.
 
 | Deprecated | Since | Replacement | Removal |
 |---|---|---|---|
-| `/l3io-util-cleanup` | 2.1.0 | `/l3io-util-doctor` | 3.0.0 |
+| `/l3io-util-cleanup` | 2.1.0 | `/l3io-util-doctor` | removed on `main`; ships in the next release (not in 2.5.1) |
 | `migrate-schema`, `split-status`, `reconcile-status` | — | legacy-only bridging modes; no longer reachable once `migrate-state` has run | when 1.x migration support is dropped |

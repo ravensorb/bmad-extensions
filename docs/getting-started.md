@@ -134,11 +134,18 @@ activation via `_bmad/scripts/resolve_config.py` and uses sensible defaults when
 `modules.l3io-pm` is absent — which is the normal state for a fresh install, not a trigger for
 setup to run automatically.
 
-Key settings (with defaults):
+Key settings (with defaults) — the two `/l3io-pm-setup` collects and writes:
 
-- `output_folder` — default: `{project-root}/_bmad-output`
 - `implementation_artifacts` — default: `{output_folder}/implementation-artifacts`
 - `planning_artifacts` — default: `{output_folder}/planning-artifacts`
+
+`output_folder` (default `{project-root}/_bmad-output`) is **not** one of them. It is a core
+setting (`core.output_folder`) that the BMad installer owns, and `/l3io-pm-setup` deliberately
+refuses to collect or write it — asking again invites an answer that silently loses on the next
+install. Change it through BMad's own config, not through this module's setup.
+
+Both paths resolve from `modules.l3io-pm` for **all four** l3io modules: there is one artifact
+tree, and `l3io-pm` owns the path to it.
 
 See [l3io-pm reference](l3io-pm-reference.md) for the full config schema.
 
@@ -378,7 +385,8 @@ Two modes worth knowing:
 ```
 
 > `/l3io-util-cleanup` was renamed to `/l3io-util-doctor` in 2.1.0. The old name's deprecated
-> forwarder was removed in 3.0.0 — see [Upgrading](upgrading.md).
+> forwarder has been removed on `main` and ships in the next release; it is still present in
+> 2.5.1, the current release — see [Upgrading](upgrading.md).
 
 To split a legacy single `sprint-status.yaml` into the active/backlog/archived three-file layout as a one-time explicit migration (the original is preserved as `sprint-status.yaml.legacy`):
 

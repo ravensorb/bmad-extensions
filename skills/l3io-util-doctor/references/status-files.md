@@ -433,8 +433,12 @@ the flag was opt-in and no step file ever passed it, no project ever produced a 
 event log is unconditional so it cannot be silently skipped.
 
 `set-actual` also derives and appends a calibration sample as a side effect of a successful
-write (`--no-calibrate` suppresses it) — see `references/calibration-model.md` for what it
-computes and why a failed derivation only warns rather than failing the actuals write.
+write (`--no-calibrate` suppresses it). What it computes, and why a failed derivation only
+warns rather than failing the actuals write, is specified in the calibration model —
+`references/calibration-model.md`, which ships with the PM skills (pm-execute, pm-plan,
+pm-sync) and not with every skill that carries this contract. Do not go looking for it here
+unless your own `references/` has it; `pm-status.py` performs the whole loop itself, so
+nothing on a normal run needs to read it.
 
 `show --state-root {pm_state_root} --epic E001 [--sprint S01]` renders a computed roll-up
 (status, story counts by status, summed actuals) from the child files on disk. It replaces
@@ -540,7 +544,7 @@ is harmless.
 `pm-calibration.yaml`, `issues.yaml`, and `adr-register.yaml` are the three shared-append
 targets sharding does not shard, because all three are inherently cross-epic aggregates.
 Every `set-actual` across every epic and every parallel subagent may append a calibration
-sample to the first (`references/calibration-model.md`); every `append-issue` call across
+sample to the first (specified by the calibration model — see above); every `append-issue` call across
 every epic and every parallel subagent appends to the second, first allocating the item's key
 from it (§3); every `adr-reserve` call across every parallel arch-gate agent allocates a block
 of ADR numbers from the third (§1, §6). All three therefore run their **whole
