@@ -3631,6 +3631,31 @@ if (process.argv.includes("--dump-subcommand-options")) {
 //      keywords were removed and what replaced them, exactly as check 1 lets a doc map a
 //      removed skill to its replacement.
 //
+//      This gap has now cost something, so here is what closing it would cost. README.md's
+//      /l3io-util-doctor row listed `overlay` -- removed by d91cb8f -- as a keyword you can
+//      "skip directly to", in the same sentence that links docs/l3io-util-reference.md, which
+//      says "There is no `overlay` keyword". It sat there through every gate and was found by
+//      a human reading in 2026-09-23's independent validation. Two closures were measured
+//      against the whole live-doc corpus before this text was written, and neither is worth
+//      taking:
+//        - THE GENERAL FORM -- treat every backticked lowercase token on a line that mentions
+//          /l3io-util-doctor as a claimed keyword. 87 such lines; 56 tokens judged; 45
+//          reported, of which ONE is real. A 44-item false-positive surface made of statuses
+//          (`done`, `ready-for-dev`), resolutions (`fixed`, `wontfix`), pm-status.py
+//          subcommands (`set-status`, `append-issue`) and sibling skill names. That is the
+//          checker-that-cries-wolf this file's header refuses to write.
+//        - THE NARROW FORM that does catch it -- a gloss list, `` `token` (description) ``,
+//          on a line carrying three or more tokens that ARE valid keywords. 0 false
+//          positives. But its scope across every live doc is exactly ONE LINE (README.md's
+//          row), and it stays one line whether or not the rule is right, so it proves nothing
+//          about its own reach (root CLAUDE.md section 4). Guarding it against vacuity needs a
+//          "at least one such line must exist" threshold, which is a hand-kept fact about one
+//          sentence and turns a legitimate README rewrite red on correct prose.
+//      So the gap stays open, with the number attached rather than the bare assertion: the
+//      keyword enumeration in README.md is documentation of the routing table that NOTHING
+//      mechanically ties back to it. A reader changing that table should grep README for the
+//      keyword by hand.
+//
 // SECOND ARM -- mode-file pointers. A removed mode leaves a second kind of dangling reference:
 // a sibling step file still telling the agent to load `steps/<name>.md`. That is worse than a
 // stale keyword, because the instruction is to READ A FILE THAT IS NOT THERE. It survived the
