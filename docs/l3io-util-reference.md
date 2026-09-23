@@ -96,7 +96,7 @@ than failing.
 | Command | What it does |
 |---------|--------------|
 | `setup` / `configure` / `install` | Registers the `l3io-util` module config for the project. |
-| `clean-legacy` | Removes migration backup files and directories after confirmation: `*.yaml.legacy` files, `*.yaml.v1` calibration backups, `_bmad/pm-calibration.yaml.legacy`, the `_bmad/state.legacy/` directory, and the `_bmad/migration-backup/` directory. |
+| `clean-legacy` | Removes migration backup files and directories after confirmation: `*.yaml.legacy` files, the `state/pm-calibration.yaml.v1` calibration schema backup (beside the live calibration file, not under `_bmad/`), `_bmad/pm-calibration.yaml.legacy`, the `_bmad/state.legacy/` directory, and the `_bmad/migration-backup/` directory. |
 | `rename-active` | Renames `sprint-status-active.yaml` → `sprint-status.yaml` (the health check runs this automatically when the old naming is found). |
 | `rename-epic-dirs` | Renames legacy two-digit `epic-{nn}/` artifact directories to the current three-digit `epic-{nnn}/` form. Rarely needed directly — the health check detects and runs this automatically when the old naming is found. |
 | `help` / `?` | Prints the command list and exits — no project scan. |

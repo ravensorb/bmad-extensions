@@ -236,7 +236,7 @@ Every one-time migration preserves what it replaced:
 | `*.yaml.legacy` | `split-status`, `migrate-state` |
 | `_bmad/state.legacy/` | `migrate-state` (per-epic → sharded) |
 | `_bmad/pm-calibration.yaml.legacy` | `migrate-state` |
-| `pm-calibration.yaml.v1` | first calibration write after a v1 → v2 schema migration |
+| `{implementation_artifacts}/state/pm-calibration.yaml.v1` | first calibration write after a v1 → v2 schema migration (written beside the live calibration file, not under `_bmad/`) |
 | `_bmad/migration-backup/` | `migrate-state` Stage F, when you pick its default "move" option |
 
 Nothing deletes these automatically. Once you have verified the result, remove them with:
