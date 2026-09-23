@@ -46,7 +46,11 @@ explicitly passes `setup`, `configure`, or `install`.
    - GitHub Actions (`.github/workflows/*`) → `references/standards-github-actions.md`
    - Docker / PowerShell / shell → load the matching overlay if present (currently stubs).
    When the user names a stack explicitly, honor that over auto-detection.
-3. **Pick the mode** from the user's intent (or ask if ambiguous):
+3. **Pick the mode** from the user's intent (or ask if ambiguous). The three words
+   `design`, `review` and `decision` name the modes directly — they are the `action`
+   values of this module's three `assets/module-help.csv` rows, so that is what bmad-help
+   hands a user who picks one from the menu. An argument that is not one of them is still
+   read as intent, never rejected:
 
 ### Mode A — Design guardrails (new project)
 
