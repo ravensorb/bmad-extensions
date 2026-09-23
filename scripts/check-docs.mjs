@@ -159,15 +159,50 @@ const read = (p) => fs.readFileSync(path.join(repoRoot, p), "utf8");
 const exists = (p) => fs.existsSync(path.join(repoRoot, p));
 
 // Files a reader is told are current. Historical records are excluded on purpose: CHANGELOG
-// and docs/superpowers/** describe what was true when written, and rewriting them to match
-// today would falsify the record.
-const LIVE_DOCS = [
-  "README.md",
-  "CLAUDE.md",
-  ...fs.readdirSync(path.join(repoRoot, "docs"))
-    .filter((f) => f.endsWith(".md"))
-    .map((f) => path.join("docs", f)),
-];
+// and the trees below describe what was true when written, and rewriting them to match today
+// would falsify the record.
+//
+// The walk is RECURSIVE. It was a single non-recursive readdirSync of docs/, which put every
+// subdirectory outside every check iterating LIVE_DOCS -- checks 1, 3, 4's forward arm, 5, 6
+// and now 17. The eight ADRs under docs/adr/ are live, load-bearing, cross-referenced
+// documents, and not one rule in this file had ever looked at them.
+//
+// The exclusion is hand-named, because "is this a historical record?" is not derivable from a
+// path -- so it is anchored instead: each entry's existence is asserted when the list is
+// built, and a rename fails loudly HERE rather than quietly pulling a historical tree into
+// every live-doc check (or, worse, quietly dropping a live one back out of view).
+//   docs/superpowers/**   design specs and plans, written against the tree of their day
+//   docs/decision-logs/** per-skill authoring records; each one says so in its own header
+//                         ("Historical authoring record ... may not describe current behaviour")
+const HISTORICAL_DOC_DIRS = ["docs/superpowers", "docs/decision-logs"];
+
+function liveDocFiles() {
+  const out = ["README.md", "CLAUDE.md"];
+  const excluded = new Set(HISTORICAL_DOC_DIRS);
+  for (const rel of HISTORICAL_DOC_DIRS) {
+    if (!fs.existsSync(path.join(repoRoot, rel))) {
+      failures.push(`${rel} is named as a historical-record tree excluded from LIVE_DOCS, but ` +
+        `no such directory exists — has it been renamed or removed? The exclusion list in ` +
+        `scripts/check-docs.mjs must be updated with it, or every live-doc check is silently ` +
+        `scoped against a tree that is no longer the one intended`);
+    }
+  }
+  const walk = (rel) => {
+    for (const entry of fs.readdirSync(path.join(repoRoot, rel), { withFileTypes: true })) {
+      const child = path.posix.join(rel, entry.name);
+      if (entry.isDirectory()) {
+        if (excluded.has(child)) continue;
+        walk(child);
+      } else if (entry.name.endsWith(".md")) {
+        out.push(child);
+      }
+    }
+  };
+  walk("docs");
+  return out.sort();
+}
+
+const LIVE_DOCS = liveDocFiles();
 
 // ---------------------------------------------------------------------------
 // 1. Every l3io-* skill named in live docs resolves to a real skill directory.

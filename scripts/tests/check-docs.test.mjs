@@ -1903,6 +1903,65 @@ test("check 4/skills: prose naming pm-status.py outside a uv run command is not 
 });
 
 // ---------------------------------------------------------------------------
+// LIVE_DOCS scope (G3). The list was a single non-recursive readdirSync of docs/, so every
+// subdirectory -- the eight ADRs among them -- sat outside checks 1, 3, 4's forward arm, 5, 6
+// and 17. Not one rule in check-docs.mjs had ever read an ADR, for any reason. These tests
+// pin the recursion, the two deliberate exclusions, and the anchor that keeps the exclusion
+// list from going stale in silence.
+// ---------------------------------------------------------------------------
+
+test("LIVE_DOCS scope: a violation in docs/adr/ is caught", (t) => {
+  const root = fixture(t);
+  write(root, "docs/adr/0099-planted.md",
+    "# ADR-0099\n\nSee `/l3io-pm-ghost-skill` for details.\n");
+  const r = run(root);
+  assert.equal(r.status, 1, r.stdout);
+  assert.match(r.stderr,
+    /docs\/adr\/0099-planted\.md: names skill 'l3io-pm-ghost-skill'/);
+});
+
+// Deeper than one level, so "recursive" means recursive and not "docs/ plus its children".
+test("LIVE_DOCS scope: a violation two directories below docs/ is caught", (t) => {
+  const root = fixture(t);
+  write(root, "docs/adr/appendix/notes.md", "See `/l3io-pm-ghost-skill`.\n");
+  const r = run(root);
+  assert.equal(r.status, 1, r.stdout);
+  assert.match(r.stderr, /docs\/adr\/appendix\/notes\.md: names skill 'l3io-pm-ghost-skill'/);
+});
+
+// The exclusions are facts, not comments: the same violation planted in each historical tree
+// must NOT fail. docs/decision-logs/ says so in its own header ("Historical authoring record
+// ... may not describe current behaviour"), and rewriting either to match today would falsify
+// the record.
+test("LIVE_DOCS scope: docs/superpowers/** stays excluded", (t) => {
+  const root = fixture(t);
+  write(root, "docs/superpowers/specs/2020-01-01-old.md", "See `/l3io-pm-ghost-skill`.\n");
+  const r = run(root);
+  assert.equal(r.status, 0, r.stderr + r.stdout);
+});
+
+test("LIVE_DOCS scope: docs/decision-logs/** stays excluded", (t) => {
+  const root = fixture(t);
+  write(root, "docs/decision-logs/l3io-ghost.md", "See `/l3io-pm-ghost-skill`.\n");
+  const r = run(root);
+  assert.equal(r.status, 0, r.stderr + r.stdout);
+});
+
+// Scope attack on the exclusion list itself. A hand-named path that quietly stops matching is
+// exactly how a guard's reach rots: renaming the tree would either drag a historical record
+// into every live-doc check or, if the rename went the other way, drop a live tree out of view
+// with every gate green. Renaming it must fail HERE, loudly.
+test("LIVE_DOCS scope attack: renaming an excluded tree fails loudly", (t) => {
+  const root = fixture(t);
+  fs.renameSync(path.join(root, "docs", "decision-logs"),
+    path.join(root, "docs", "authoring-logs"));
+  const r = run(root);
+  assert.equal(r.status, 1, r.stdout);
+  assert.match(r.stderr,
+    /docs\/decision-logs is named as a historical-record tree excluded from LIVE_DOCS/);
+});
+
+// ---------------------------------------------------------------------------
 // Check 22 (readme-repo-layout).
 //
 // The block drifted three times in three consecutive tasks -- the l3io-pm-help row, the
