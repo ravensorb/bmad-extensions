@@ -71,7 +71,7 @@ Key settings (with defaults):
 | Command | What it does |
 |---------|--------------|
 | `harvest-debt` | Sweeps the source tree for `bmad-defer:` deferred-shortcut markers and harvests new ones into the consolidated backlog. Language-generic, re-runnable (dedupes by `source`). Report-only by default; merge is confirmed. |
-| `update-ai-rules` | Updates AI instruction files (`CLAUDE.md`, `.github/copilot-instructions.md`, `GEMINI.md`, `AGENTS.md`, `.cursorrules`, …) that reference the legacy single `sprint-status.yaml` to document the three-file split layout. Also auto-invoked after `split-status`. |
+| `update-ai-rules` | Rewrites any reference to a legacy state layout (flat `sprint-status*.yaml`, the three-file split, or `_bmad/state/`) in the project's AI instruction files (`CLAUDE.md`, `.github/copilot-instructions.md`, `GEMINI.md`, `AGENTS.md`, `.cursorrules`, …) so they describe the current sharded state tree. Creates the **currently running** AI system's instruction file if it does not exist; never creates one for another AI system. Also auto-invoked after `split-status`. |
 
 ### BMad customization layer
 
