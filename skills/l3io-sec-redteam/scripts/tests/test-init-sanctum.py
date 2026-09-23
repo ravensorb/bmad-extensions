@@ -64,13 +64,25 @@ def tearDownModule():
 # real script run as a real subprocess, so these tests drive the same code path a real project
 # does -- argv, exit code, stdout, JSON parse -- rather than a patched-out function whose
 # contract only this test believes in.
-_STUB_RESOLVER = """#!/usr/bin/env python3
-# /// script
-# requires-python = ">=3.9"
-# ///
-import json, sys
-print(json.dumps({"core": {"user_name": "Alice", "communication_language": "Welsh"}}))
-"""
+#
+# Built from escaped-newline literals rather than a `"""..."""` block: a triple-quoted string
+# puts its own `# /// script` / `# ///` lines at column 0 of THIS file's real source text, which
+# a PEP 723 metadata scanner reads no differently than this file's own header above -- it does
+# not know Python string-literal syntax, only line patterns. That reads as two metadata blocks
+# in one script and `uv run test-init-sanctum.py` (this test, run directly, as CI runs it)
+# refuses with "multiple PEP 723 metadata blocks" before a single test executes. Escaped `\n`
+# keeps the header text identical once written to the stub file on disk, while every line of
+# this file's own source stays indented past column 0 and inside quotes, so it cannot itself
+# match `^# ///`. `test_a_failing_resolver_warns` below already uses this form for the same
+# reason.
+_STUB_RESOLVER = (
+    "#!/usr/bin/env python3\n"
+    "# /// script\n"
+    "# requires-python = \">=3.9\"\n"
+    "# ///\n"
+    "import json, sys\n"
+    "print(json.dumps({\"core\": {\"user_name\": \"Alice\", \"communication_language\": \"Welsh\"}}))\n"
+)
 
 
 def _install_stub_resolver(project_root: Path, body: str = _STUB_RESOLVER) -> Path:

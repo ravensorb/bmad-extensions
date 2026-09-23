@@ -69,6 +69,27 @@ through `uv`, which provisions their dependencies from an inline PEP 723 header,
 `test-spec-align.py` needs its documented `--with` flags; a bare `uv run --script` fails with
 `ModuleNotFoundError` and is a mis-invocation rather than a failure.
 
+### Pinning GitHub Actions
+
+Every `uses:` in `.github/workflows/*.yml` is on the same version in both workflow files, and
+verified — not just reasoned about — to run under `nektos/act` locally as well as on GitHub.
+
+- **First-party, tag-stable publishers** (`actions/checkout`, `actions/setup-node`,
+  `astral-sh/setup-uv`) are pinned by a rolling major tag (`@v7`), *when that publisher actually
+  maintains one* — confirm with `git ls-remote https://github.com/<owner>/<repo>.git refs/tags/vN`
+  before assuming it. `astral-sh/setup-uv` does not: it has no `vN` major tag or branch at all,
+  only exact release tags, so it is pinned to the full version (`@v10.2.0`) instead.
+- **Everything else** — third-party actions, or a first-party one with no major tag — is pinned
+  to an exact release tag if the project cuts one, otherwise a commit SHA. Never a floating
+  branch (`@master`, `@main`): that runs whatever upstream most recently pushed, with no review
+  on this side, in whichever job references it. This is why `reviewdog/action-detect-secrets`
+  is pinned to `@v0.31.0` rather than `@master`.
+
+`actions/setup-python` was removed from `checks.yml`: every Python entry point in that workflow
+is a PEP-723 script run through `uv run`, which reads each script's own `requires-python` header
+and provisions a matching interpreter itself — `astral-sh/setup-uv` is the only Python toolchain
+step the workflow needs.
+
 ### Never bump versions by hand
 
 `pm-status.py`'s version marker, `.claude-plugin/marketplace.json` and every `module.yaml` are

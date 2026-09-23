@@ -49,6 +49,38 @@ from `PAYLOAD_TARGETS`), and `node_modules/` is gitignored, so `check:manifest` 
 Nothing mechanically asserts that a gate script's imports are declared in `package.json` — that
 follow-up is named in the ADR and is not implemented.
 
+### Action versions across `.github/workflows/*.yml`
+
+`checks.yml` and `reviewdog.yml` keep every shared `uses:` on the same version — verify the
+current major against the upstream repo before bumping either file, rather than assuming the
+other workflow's pin is still current. Two pinning rules, and they differ because the publishers
+differ:
+
+- `actions/checkout`, `actions/setup-node`, `astral-sh/setup-uv` are pinned by major tag
+  (`@v7`, `@v10.2.0` respectively) *only when the publisher maintains a rolling tag* for that
+  major — check with `git ls-remote https://github.com/<owner>/<repo>.git refs/tags/vN` first.
+  `astral-sh/setup-uv` does not carry one (no `v10` ref exists at all), so it is pinned to the
+  exact release tag instead of a major, unlike its GitHub-first-party siblings.
+- Anything else — third-party, or a first-party action without a maintained major tag — is
+  pinned to an exact release tag, or a commit SHA if no tag exists. Never a branch float
+  (`@master`/`@main`): `reviewdog/action-detect-secrets` ran `@master` in a secret-scanning job,
+  meaning whatever landed on that branch ran unreviewed on this repo's PRs; it is now
+  `@v0.31.0`, the action's own latest release tag.
+
+`actions/setup-python` is intentionally absent from `checks.yml`: every Python entry point is a
+PEP-723 script (`# requires-python = ">=3.11"` in its own header) invoked through `uv run`, and
+`uv` provisions a matching interpreter itself — `astral-sh/setup-uv` is the only Python
+toolchain step either workflow needs. Re-check this if a future script needs a system Python
+`uv` cannot provision (e.g. one requiring OS packages only `apt`/`setup-python` install).
+
+Both workflows are meant to run clean under `nektos/act` (`/usr/local/bin/act` locally) as well
+as GitHub — run `act push -W .github/workflows/checks.yml` and `act pull_request -W
+.github/workflows/reviewdog.yml` after touching either file. `reviewdog.yml`'s job posts a
+review to a real pull request via the GitHub API using `github.token`; under `act` there is no
+real PR to review, so that job is GitHub-only by design, not a local-parity gap — a clean `act`
+run there proves the container starts and the action's inputs are well-formed, not that the
+review gets posted.
+
 ## Payload manifests
 
 Each skill also carries a **generated** `skills/<skill>/payload-manifest.json` — a SHA-256 per

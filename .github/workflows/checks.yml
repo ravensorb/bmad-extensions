@@ -8,15 +8,17 @@ jobs:
   shared-scripts:
     runs-on: ubuntu-latest
     steps:
-    - uses: actions/checkout@v4
-    - uses: actions/setup-node@v4
+    - uses: actions/checkout@v7
+    - uses: actions/setup-node@v7
       with:
         node-version: '24'
         cache: npm
-    - uses: actions/setup-python@v5
-      with:
-        python-version: '3.11'
-    - uses: astral-sh/setup-uv@v5
+    - uses: astral-sh/setup-uv@v10.2.0
+    # No actions/setup-python step: every Python entry point below is a PEP-723 script
+    # invoked through `uv run`, which reads each script's own `requires-python` header and
+    # provisions a matching interpreter itself (downloading a managed CPython if the runner's
+    # system Python doesn't satisfy it). setup-uv above installs uv; that is the only Python
+    # toolchain this workflow needs.
     # Every `npm run check:*` gate below imports from node_modules (the YAML, shell and CSV
     # parsers the checkers use instead of hand-rolled ones), so the install has to come first:
     # a gate that ran before it would fail on ERR_MODULE_NOT_FOUND. See
