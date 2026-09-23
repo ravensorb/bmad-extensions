@@ -19,10 +19,18 @@ const CHECK = path.join(REPO, "scripts", "check-module.mjs");
 // delete it explicitly.
 const MARKER = "multi_module_marketplace: true\n";
 
+// Every fixture also carries a .claude-plugin/marketplace.json, because check 8 derives its
+// scope from that file and fails closed when it is absent -- a checker that skipped a missing
+// marketplace would report success over the empty set (root CLAUDE.md §4). The synthetic
+// fixtures declare no plugins; the tests that are about check 8 write their own plugins array.
+const EMPTY_MARKETPLACE = JSON.stringify({ name: "fixture", plugins: [] }, null, 2) + "\n";
+
 function fixture(t) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "check-module-"));
   fs.mkdirSync(path.join(dir, "skills"), { recursive: true });
   fs.writeFileSync(path.join(dir, "skills", "module.yaml"), MARKER);
+  fs.mkdirSync(path.join(dir, ".claude-plugin"), { recursive: true });
+  fs.writeFileSync(path.join(dir, ".claude-plugin", "marketplace.json"), EMPTY_MARKETPLACE);
   t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
   return dir;
 }
@@ -370,4 +378,158 @@ test("the real repository passes check:module with the expected module-home shap
 
   const r = run(root);
   assert.equal(r.status, 0, r.stderr);
+});
+
+// ---- check 8 (plugin-resolver-strategy) ----
+//
+// BMad's installer resolves every plugin in .claude-plugin/marketplace.json through
+// PluginResolver's five strategies. Strategies 1-4 use the authored module.yaml +
+// module-help.csv; strategy 5 SYNTHESIZES a stub catalog from SKILL.md frontmatter --
+// `action: activate` on every row, title-cased display names, generated menu codes, no
+// relationships, no output-location -- and the install still exits 0. Nothing warns. The
+// authored CSVs are simply not used.
+//
+// This package has already shipped that: the gitignored _bmad/ tree from the 2026-09-14
+// install holds exactly those stub rows, including one for `l3io-util-cleanup`, a skill that
+// no longer exists.
+//
+// Every assertion below was reproduced against bmad-method 6.12.0's
+// tools/installer/modules/plugin-resolver.js before being written here.
+
+function writeMarketplace(root, plugins) {
+  write(root, ".claude-plugin/marketplace.json", JSON.stringify({ name: "fixture", plugins }, null, 2) + "\n");
+}
+
+// Give a fixture skill enough shape to be a standalone module home for check 8's purposes.
+// (writeModuleHome already writes assets/module.yaml + assets/module-help.csv, which is what
+// PluginResolver strategies 2/3/4 look for.)
+
+// THE SCOPE ATTACK. Deleting a module-help.csv is the easy mutation: it tests the rule. What
+// matters here is the rule's REACH -- whether the check still sees a plugin after the plugin
+// itself changes shape. `l3io-arch` resolves by strategy 3 for one reason only:
+// _trySingleStandalone requires `skillPaths.length === 1`. Adding a second skill to its
+// `skills` array -- an entirely ordinary change, nothing deleted, every authored file still in
+// place -- drops it to synthesis, silently. A check that derived its plugin set or its skill
+// lists from the filesystem instead of marketplace.json would not notice.
+test("check:module rejects a plugin that a second skill drops to synthesized fallback", (t) => {
+  const root = fixtureFromRepo(t);
+  const mpPath = path.join(root, ".claude-plugin", "marketplace.json");
+  const marketplace = JSON.parse(fs.readFileSync(mpPath, "utf8"));
+  const arch = marketplace.plugins.find((p) => p.name === "l3io-arch");
+  assert.ok(arch, "fixture precondition: marketplace.json declares an l3io-arch plugin");
+  assert.deepEqual(arch.skills, ["./skills/l3io-arch-review"], "fixture precondition: one skill");
+  arch.skills.push("./skills/l3io-pm-help");
+  fs.writeFileSync(mpPath, JSON.stringify(marketplace, null, 2) + "\n");
+
+  const r = run(root);
+  assert.equal(r.status, 1, r.stdout);
+  assert.match(r.stderr, /plugin 'l3io-arch'/);
+  assert.match(r.stderr, /strategy 5/);
+});
+
+// The positive half of the same fact: the real tree resolves every plugin by an authored
+// strategy, and -v names which one, so a reader can see what the check concluded rather than
+// trusting that it concluded anything.
+test("the real repository resolves every plugin by an authored PluginResolver strategy", (t) => {
+  const root = fixtureFromRepo(t);
+  const r = run(root, ["-v"]);
+  assert.equal(r.status, 0, r.stderr);
+  assert.match(r.stdout, /plugin 'l3io-pm' resolves by PluginResolver strategy 2/);
+  assert.match(r.stdout, /plugin 'l3io-sec' resolves by PluginResolver strategy 3/);
+  assert.match(r.stdout, /plugin 'l3io-util' resolves by PluginResolver strategy 3/);
+  assert.match(r.stdout, /plugin 'l3io-arch' resolves by PluginResolver strategy 3/);
+});
+
+// _tryMultipleStandalone's partial-match branch: `resolved.length === skillPaths.length` or
+// `return null`. One skill without both files is enough to synthesize the whole plugin.
+test("check:module rejects a two-skill plugin where only one skill carries the module files", (t) => {
+  const root = fixture(t);
+  writeModuleHome(root, "alpha", "alpha");
+  write(root, "skills/beta/SKILL.md", "---\nname: beta\n---\n");
+  writeMarketplace(root, [{ name: "alpha", skills: ["./skills/alpha", "./skills/beta"] }]);
+  const r = run(root);
+  assert.equal(r.status, 1, r.stdout);
+  assert.match(r.stderr, /plugin 'alpha' .*strategy 5/s);
+});
+
+// The same plugin, with the second skill made a module home too, resolves by strategy 4.
+test("check:module passes a two-skill plugin where both skills carry the module files", (t) => {
+  const root = fixture(t);
+  writeModuleHome(root, "alpha", "alpha");
+  writeModuleHome(root, "beta", "beta");
+  writeMarketplace(root, [{ name: "alpha", skills: ["./skills/alpha", "./skills/beta"] }]);
+  const r = run(root, ["-v"]);
+  assert.equal(r.status, 0, r.stderr);
+  assert.match(r.stdout, /plugin 'alpha' resolves by PluginResolver strategy 4/);
+});
+
+// _trySetupSkill `continue`s past a -setup skill missing either file, so a multi-skill plugin
+// whose setup home lost its CSV synthesizes even though the directory is named correctly.
+test("check:module rejects a plugin whose -setup home is missing module-help.csv", (t) => {
+  const root = fixture(t);
+  writeModuleHome(root, "multi-setup", "multi");
+  write(root, "skills/multi-a/SKILL.md", "---\nname: multi-a\n---\n");
+  fs.rmSync(path.join(root, "skills/multi-setup/assets/module-help.csv"));
+  writeMarketplace(root, [{ name: "multi", skills: ["./skills/multi-setup", "./skills/multi-a"] }]);
+  const r = run(root);
+  assert.equal(r.status, 1, r.stdout);
+  assert.match(r.stderr, /plugin 'multi' .*strategy 5/s);
+});
+
+// resolve() filters a listed skill path that does not exist on disk BEFORE any strategy runs,
+// so `skillPaths.length === 1` is a count of EXISTING skills, not of listed ones. A check that
+// counted the marketplace array instead would call this plugin multi-skill and wrongly expect
+// strategy 4. Pinned here because it is a condition the summary of the resolver did not state.
+test("check:module ignores a marketplace skill path that does not exist on disk", (t) => {
+  const root = fixture(t);
+  writeModuleHome(root, "alpha", "alpha");
+  writeMarketplace(root, [{ name: "alpha", skills: ["./skills/alpha", "./skills/never-built"] }]);
+  const r = run(root, ["-v"]);
+  assert.equal(r.status, 0, r.stderr);
+  assert.match(r.stdout, /plugin 'alpha' resolves by PluginResolver strategy 3/);
+});
+
+// _readModuleYaml returns yaml.parse(content) and every strategy bails on a falsy result, so
+// an EMPTY module.yaml is not a module.yaml -- existence alone is not the resolver's test.
+test("check:module rejects a plugin whose module.yaml parses to nothing", (t) => {
+  const root = fixture(t);
+  writeModuleHome(root, "alpha", "alpha");
+  write(root, "skills/alpha/assets/module.yaml", "\n");
+  write(root, "skills/alpha/module.yaml", "\n");
+  writeMarketplace(root, [{ name: "alpha", skills: ["./skills/alpha"] }]);
+  const r = run(root);
+  assert.equal(r.status, 1, r.stdout);
+  assert.match(r.stderr, /plugin 'alpha' .*strategy 5/s);
+});
+
+// resolve() returns [] for a plugin with no skills array and for one whose skills all fail to
+// resolve: no module is installed at all, which is worse than synthesis, not better.
+test("check:module rejects a plugin that declares no skills", (t) => {
+  const root = fixture(t);
+  writeModuleHome(root, "alpha", "alpha");
+  writeMarketplace(root, [{ name: "alpha" }]);
+  const r = run(root);
+  assert.equal(r.status, 1, r.stdout);
+  assert.match(r.stderr, /plugin 'alpha' declares no 'skills'/);
+});
+
+// Fail closed on the scope source itself. A checker that skipped a missing or unreadable
+// marketplace.json would report success over the empty set -- the failure mode root CLAUDE.md
+// §4 exists to prevent.
+test("check:module reports a missing .claude-plugin/marketplace.json", (t) => {
+  const root = fixture(t);
+  writeModuleHome(root, "alpha", "alpha");
+  fs.rmSync(path.join(root, ".claude-plugin", "marketplace.json"));
+  const r = run(root);
+  assert.equal(r.status, 1, r.stdout);
+  assert.match(r.stderr, /\.claude-plugin\/marketplace\.json is missing/);
+});
+
+test("check:module reports a marketplace.json with no plugins array", (t) => {
+  const root = fixture(t);
+  writeModuleHome(root, "alpha", "alpha");
+  write(root, ".claude-plugin/marketplace.json", JSON.stringify({ name: "fixture" }) + "\n");
+  const r = run(root);
+  assert.equal(r.status, 1, r.stdout);
+  assert.match(r.stderr, /declares no 'plugins' array/);
 });

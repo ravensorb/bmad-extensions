@@ -19,6 +19,17 @@ enforces all of it; `docs/bmad-module-yaml-discovery.md` has the measured contra
 "tidy up" the duplicate — a branch that did exactly that shipped an install whose
 `_bmad/config.toml` BMad's own resolver refused to parse.
 
+**A plugin's `skills` array decides whether its authored `module-help.csv` is used at all.**
+BMad's `PluginResolver` tries five strategies per plugin in `.claude-plugin/marketplace.json`;
+the fifth **synthesizes** a stub catalog from `SKILL.md` frontmatter and the install still exits
+0, with no warning, ignoring every authored CSV. `l3io-pm` reaches strategy 2 only because
+`skills/l3io-pm-setup/` is named `*-setup` and carries both module files; the other three reach
+strategy 3 only because `_trySingleStandalone` requires **exactly one** existing skill. Adding a
+second skill to any of those three plugins — nothing deleted, every file where it was — drops
+that module to synthesis. `check:module` rule 8 mirrors the resolver's conditions and fails on
+anything that would land on strategy 5; run it with `-v` to see the strategy it derived per
+plugin.
+
 ## Dependencies
 
 The checkers are **not** dependency-free, and have not been since
@@ -34,6 +45,7 @@ Everything the checkers parse, they parse with a library — never a hand-writte
 |---|---|---|
 | `check-module.mjs` | `skills/module.yaml`, `skills/*/module.yaml`, `skills/*/assets/module.yaml` | `yaml` |
 | `check-module.mjs` | `skills/*/assets/module-help.csv` | `csv-parse` |
+| `check-module.mjs` check 8 | `.claude-plugin/marketplace.json` | `JSON.parse` |
 | `module-config-keys.mjs` | `skills/*/assets/module.yaml` | `yaml` |
 | `check-docs.mjs` check 17 | `.github/workflows/*.yml` and `*.yaml` | `yaml` |
 | `check-docs.mjs` check 17 | each `run:` script, into argv | `mvdan-sh` |

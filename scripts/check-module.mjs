@@ -9,7 +9,7 @@
 // repo alone, so CI can catch a regression even though the real validator never runs here.
 //
 // Deliberately narrow, and deliberately RED against today's layout -- see the commit that
-// introduced this file. The seven assertions:
+// introduced this file. The eight assertions:
 //
 //   1. discovery-layout     the layout BMad's INSTALLER discovers, which is not the layout
 //                            `validate-module.py` validates. Three parts:
@@ -39,9 +39,34 @@
 //                            l3io-{util,sec,arch}-setup, written for setup skills that never
 //                            existed and, by design, never will (three of the four modules
 //                            are standalone).
+//   8. plugin-resolver-strategy
+//                            every plugin in `.claude-plugin/marketplace.json` resolves, from
+//                            the files on disk, to one of PluginResolver's AUTHORED strategies
+//                            (1-4) rather than its strategy-5 synthesized fallback. Mirrors
+//                            bmad-method 6.12.0's
+//                            `tools/installer/modules/plugin-resolver.js` condition for
+//                            condition. Strategy 5 ignores every authored `module-help.csv`
+//                            and builds a stub catalog from SKILL.md frontmatter -- `action:
+//                            activate` on every row, title-cased display names, generated
+//                            3-letter menu codes, no relationships, no `output-location` --
+//                            and the install still EXITS 0. Nothing warns. This package has
+//                            already shipped that: the gitignored `_bmad/` tree from the
+//                            2026-09-14 install holds exactly those stub rows, including one
+//                            for `l3io-util-cleanup`, a skill that no longer exists.
+//                            The margin at the time this check was written was one file and
+//                            one list entry: `l3io-pm` reaches strategy 2 only because
+//                            `skills/l3io-pm-setup/` is named `*-setup` and carries both
+//                            files, and the other three reach strategy 3 only because
+//                            `_trySingleStandalone` requires EXACTLY ONE existing skill --
+//                            adding a second skill to any of their `skills` arrays, with
+//                            nothing deleted, drops that module to synthesis.
 //
-// Scope for all seven is derived by walking `skills/` -- never from a hand-kept list of module
-// codes or skill names -- so a code nobody told this script about is still found and checked.
+// Scope for checks 1-7 is derived by walking `skills/` and for check 8 from
+// `.claude-plugin/marketplace.json`'s own `plugins` array -- never from a hand-kept list of
+// module codes, skill names or plugin names -- so a code or a plugin nobody told this script
+// about is still found and checked. Check 8 must read the marketplace, not the filesystem:
+// what a plugin LISTS is the input PluginResolver runs on, and a plugin's skill list can
+// change shape while every file on disk stays exactly where it was.
 //
 // Numbering here is prose, not mechanically cross-checked the way check-docs.mjs's own check 18
 // (docs-check-count) verifies ITS header against ITS invocation list (Task 11A fix round 1,
@@ -54,8 +79,9 @@
 // exact, if this numbering drifts again in practice; not done here since it was not observed to
 // have drifted a second time.
 //
-// Parsing: `module.yaml` is read with the `yaml` package and `module-help.csv` with
-// `csv-parse`. Both used to be hand-written readers, kept that way only because CI ran no
+// Parsing: `module.yaml` is read with the `yaml` package, `module-help.csv` with
+// `csv-parse`, and `marketplace.json` with `JSON.parse`. The first two used to be
+// hand-written readers, kept that way only because CI ran no
 // `npm install`; it now runs `npm ci` before every gate, so run `npm ci` once before invoking
 // this locally. See docs/adr/0007-ci-installs-npm-dependencies.md.
 //
@@ -373,6 +399,204 @@ function checkCsvSkillsExist(skills) {
 }
 
 // ---------------------------------------------------------------------------
+// 8. plugin-resolver-strategy: every plugin in .claude-plugin/marketplace.json must resolve to
+// an AUTHORED PluginResolver strategy (1-4), never the synthesized fallback (5).
+//
+// The functions below mirror bmad-method 6.12.0's
+// tools/installer/modules/plugin-resolver.js -- `resolve()`, `_tryRootModuleFiles`,
+// `_trySetupSkill`, `_trySingleStandalone`, `_tryMultipleStandalone` and
+// `_computeCommonParent` -- condition for condition, from the source and not from a summary of
+// it. Four of its conditions are easy to get wrong from a description, and each has a test:
+//
+//   * a listed skill path that does not EXIST on disk is dropped by resolve() before any
+//     strategy runs, so `skillPaths.length === 1` (strategy 3) counts existing skills, not
+//     listed ones;
+//   * a listed path that escapes the repo root (`..`, or an absolute path) is dropped by the
+//     same loop;
+//   * strategy 1 looks for `module.yaml` + `module-help.csv` at the skills' COMMON PARENT
+//     directory itself -- not under an `assets/` subdirectory -- and for a single-skill plugin
+//     that common parent is `skills/`. Check 1(c) forbidding `skills/module-help.csv` is what
+//     keeps strategy 1 from firing here and collapsing all four plugins into one module;
+//   * `_readModuleYaml` returns `yaml.parse(content)` and every strategy bails on a FALSY
+//     result, so an empty or unparseable `module.yaml` is not a `module.yaml`. Existence alone
+//     is not the resolver's test.
+//
+// Reported per plugin under -v so a reader can see what this concluded, rather than trusting
+// that it concluded anything.
+const MARKETPLACE_REL = ".claude-plugin/marketplace.json";
+
+const STRATEGY_NAMES = {
+  1: "root module files at the skills' common parent",
+  2: "a *-setup skill's assets/",
+  3: "the single listed skill's assets/",
+  4: "every listed skill's assets/",
+  5: "SYNTHESIZED fallback from SKILL.md frontmatter",
+};
+
+// plugin-resolver.js `_readModuleYaml`: parse, and treat any parse failure or falsy document
+// (an empty file parses to null) as "no module.yaml here".
+function resolverReadsModuleYaml(absPath) {
+  let text;
+  try {
+    text = fs.readFileSync(absPath, "utf8");
+  } catch {
+    return false;
+  }
+  try {
+    return Boolean(YAML.parse(text));
+  } catch {
+    return false;
+  }
+}
+
+// plugin-resolver.js: a skill is usable by strategies 2/3/4 when BOTH assets files exist and
+// the module.yaml parses to something truthy.
+function hasAssetsModuleFiles(skillAbs) {
+  return (
+    fs.existsSync(path.join(skillAbs, "assets", "module.yaml")) &&
+    fs.existsSync(path.join(skillAbs, "assets", "module-help.csv")) &&
+    resolverReadsModuleYaml(path.join(skillAbs, "assets", "module.yaml"))
+  );
+}
+
+// plugin-resolver.js `_computeCommonParent`: the deepest common ancestor, and for a single
+// path the path's own dirname.
+function computeCommonParent(absPaths) {
+  if (absPaths.length === 0) return "/";
+  if (absPaths.length === 1) return path.dirname(absPaths[0]);
+  const segments = absPaths.map((p) => p.split(path.sep));
+  const minLen = Math.min(...segments.map((s) => s.length));
+  const common = [];
+  for (let i = 0; i < minLen; i++) {
+    const segment = segments[0][i];
+    if (segments.every((s) => s[i] === segment)) common.push(segment);
+    else break;
+  }
+  return common.join(path.sep) || "/";
+}
+
+// plugin-resolver.js `resolve()`: normalize, constrain to the repo root, drop what is not on
+// disk, then try the five strategies in order. Returns the strategy number, or null when
+// resolve() would return [] -- no module installed at all.
+function resolvePluginStrategy(plugin) {
+  const skillRelPaths = Array.isArray(plugin.skills) ? plugin.skills : [];
+  if (skillRelPaths.length === 0) return { strategy: null, reason: "no-skills" };
+
+  const skillPaths = [];
+  for (const rel of skillRelPaths) {
+    if (typeof rel !== "string") continue;
+    const normalized = rel.replace(/^\.\//, "");
+    const abs = path.resolve(repoRoot, normalized);
+    if (!abs.startsWith(repoRoot + path.sep) && abs !== repoRoot) continue;
+    if (fs.existsSync(abs)) skillPaths.push(abs);
+  }
+  if (skillPaths.length === 0) return { strategy: null, reason: "no-skill-exists" };
+
+  // Strategy 1
+  const commonParent = computeCommonParent(skillPaths);
+  if (
+    fs.existsSync(path.join(commonParent, "module.yaml")) &&
+    fs.existsSync(path.join(commonParent, "module-help.csv")) &&
+    resolverReadsModuleYaml(path.join(commonParent, "module.yaml"))
+  ) {
+    return { strategy: 1, skillPaths, where: path.relative(repoRoot, commonParent) || "." };
+  }
+
+  // Strategy 2
+  for (const skillAbs of skillPaths) {
+    if (!path.basename(skillAbs).endsWith("-setup")) continue;
+    if (!hasAssetsModuleFiles(skillAbs)) continue;
+    return { strategy: 2, skillPaths, where: path.relative(repoRoot, skillAbs) };
+  }
+
+  // Strategy 3
+  if (skillPaths.length === 1) {
+    if (hasAssetsModuleFiles(skillPaths[0])) {
+      return { strategy: 3, skillPaths, where: path.relative(repoRoot, skillPaths[0]) };
+    }
+  }
+
+  // Strategy 4 -- ALL listed skills, or plugin-resolver.js falls through to synthesis.
+  if (skillPaths.length >= 2) {
+    const resolved = skillPaths.filter((skillAbs) => hasAssetsModuleFiles(skillAbs));
+    if (resolved.length === skillPaths.length) {
+      return { strategy: 4, skillPaths, where: resolved.map((p) => path.relative(repoRoot, p)).join(", ") };
+    }
+  }
+
+  return { strategy: 5, skillPaths };
+}
+
+function checkPluginResolverStrategy() {
+  if (!exists(MARKETPLACE_REL)) {
+    failures.push(
+      `${MARKETPLACE_REL} is missing -- it is the scope this check derives its plugin set ` +
+      `from, and it is what BMad's installer resolves. Without it nothing here is checked.`
+    );
+    return [];
+  }
+
+  let marketplace;
+  try {
+    marketplace = JSON.parse(read(MARKETPLACE_REL));
+  } catch (e) {
+    failures.push(`${MARKETPLACE_REL}: is not valid JSON (${String(e.message).split("\n")[0]})`);
+    return [];
+  }
+
+  if (!Array.isArray(marketplace?.plugins)) {
+    failures.push(
+      `${MARKETPLACE_REL} declares no 'plugins' array -- BMad's installer resolves one module ` +
+      `per entry there, so an absent or non-array 'plugins' installs nothing.`
+    );
+    return [];
+  }
+
+  const report = [];
+  for (const plugin of marketplace.plugins) {
+    const name = fieldText(plugin?.name).trim() || "(unnamed)";
+    if (!plugin || typeof plugin !== "object" || Array.isArray(plugin)) {
+      failures.push(`${MARKETPLACE_REL}: plugin entry ${name} is not an object`);
+      continue;
+    }
+
+    const result = resolvePluginStrategy(plugin);
+
+    if (result.strategy === null) {
+      const why = result.reason === "no-skills"
+        ? `plugin '${name}' declares no 'skills' array`
+        : `plugin '${name}' lists only skill paths that do not exist under the repository root`;
+      failures.push(
+        `${why} -- BMad's PluginResolver.resolve() returns an empty result for it, so the ` +
+        `installer registers no module for this plugin at all. Listed: ` +
+        `${JSON.stringify(plugin.skills ?? null)}.`
+      );
+      continue;
+    }
+
+    report.push(`  plugin '${name}' resolves by PluginResolver strategy ${result.strategy} ` +
+                `(${STRATEGY_NAMES[result.strategy]})${result.where ? ` -> ${result.where}` : ""}`);
+
+    if (result.strategy === 5) {
+      failures.push(
+        `plugin '${name}' resolves by PluginResolver strategy 5 (${STRATEGY_NAMES[5]}) -- ` +
+        `BMad's installer would IGNORE every authored module-help.csv for this plugin and ` +
+        `synthesize a stub catalog instead: 'action: activate' on every row, title-cased ` +
+        `display names, generated 3-letter menu codes, no relationships and no ` +
+        `output-location. The install still exits 0 and nothing warns. ` +
+        `Existing skills it listed: ` +
+        `${result.skillPaths.map((p) => path.relative(repoRoot, p)).join(", ") || "(none)"}. ` +
+        `To reach an authored strategy: give the plugin exactly one existing skill carrying ` +
+        `assets/module.yaml + assets/module-help.csv (strategy 3), give EVERY listed skill ` +
+        `both files (strategy 4), or add a '*-setup' skill carrying both (strategy 2).`
+      );
+    }
+  }
+
+  return report;
+}
+
+// ---------------------------------------------------------------------------
 const skills = listSkillDirs();
 checkRequiredFields(skills);
 const byCode = collectModuleYamlByCode(skills);
@@ -381,9 +605,11 @@ checkOneHomePerCode(byCode);
 checkModuleHomes(byCode, skills);
 checkPmStatusSingleton(byCode, skills);
 checkCsvSkillsExist(skills);
+const strategyReport = checkPluginResolverStrategy();
 
 if (verbose) {
   console.log(`  skills: ${skills.length}, module codes discovered: ${byCode.size}`);
+  for (const line of strategyReport) console.log(line);
 }
 
 if (failures.length > 0) {
