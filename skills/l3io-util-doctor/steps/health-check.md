@@ -204,7 +204,11 @@ PY
 
 **Check 13 — Backlog integrity and audit**
 If `{pm_state_root}` exists — not gated on `{pm_issues_file}`, because `audit-issues` still
-walks story nodes (1d/1h/1j-class findings) even with no issues file present:
+walks story nodes with no issues file present. The findings reachable in that case are **1b**
+(a `resolves:` key that names neither issue file) and **1h** (two live stories claiming one
+key); both are read from story nodes alone. `1d` needs an open item and `1j` a resolved one,
+so neither can fire without an issue file — do not expect them here. `triage` shares this
+precondition (`steps/triage.md` Step T1) and will act on whatever this check reports.
 
 ```bash
 uv run {pm_status} audit-issues --state-root {pm_state_root} --format json; echo "exit=$?"
