@@ -57,26 +57,34 @@ one file, and follow it.
 **Recognized keywords** — if the user's argument exactly matches any of these, load that
 file and follow it:
 
-| Keyword | Load | Notes |
-|---|---|---|
-| `help` or `?` | — | Print the command list below and exit — no project scan. |
-| `check` or `status` | `steps/health-check.md` | read-only — scan only, no changes |
-| `stats`, `backlog` or `issues` | `steps/stats.md` | read-only — plan-aware progress dashboard plus the per-item backlog table |
-| `check-deps` | `steps/check-deps.md` | read-only — verify BMad skill dependencies resolve |
-| `layout-cleanup` | `steps/layout-cleanup.md` | layout reorganization only |
-| `migrate-schema` | `steps/schema-migration.md` | legacy-only bridge |
-| `split-status` | `steps/split-status.md` | legacy-only bridge |
-| `harvest-debt` | `steps/harvest-debt.md` |  |
-| `reconcile-status` | `steps/reconcile-status.md` |  |
-| `sort-status` | `steps/sort-status.md` |  |
-| `redrive` | `steps/redrive.md` | rebuild calibration `scope`/`fix` from story nodes |
-| `triage` | `steps/triage.md` | audit the backlog and resolve findings already fixed — confirms every write |
-| `migrate-adrs` | `steps/migrate-adrs.md` | move ADRs from the old per-epic home to `docs/adr/` — confirms before writing |
-| `update-ai-rules` | `steps/update-ai-rules.md` |  |
-| `clean-legacy` | `steps/clean-legacy.md` | remove migration backup files |
-| `migrate-state` | `steps/migrate-state.md` | makes a legacy project usable by the PM skills again |
-| `bootstrap-state` | `steps/bootstrap-state.md` | create state nodes from story .md artifacts (legacy `bmad-create-story` workflow) |
-| `setup`, `configure`, `install` | `assets/module-setup.md` | then continue to `steps/health-check.md` |
+The **Menu** column records whether that keyword carries its own row in
+`assets/module-help.csv`, and is the source of truth for that decision — it is not kept
+anywhere else. `registered` means it has a row. `health-check` means it deliberately does
+not: Step HC6 of `steps/health-check.md` already proposes it and fixes its place in the
+execution order, so a global menu entry would invite running a migration or a repair
+*without* the diagnosis that decides whether it is needed. `not-a-capability` is help output
+or module setup.
+
+| Keyword | Load | Menu | Notes |
+|---|---|---|---|
+| `help` or `?` | — | not-a-capability | Print the command list below and exit — no project scan. |
+| `check` or `status` | `steps/health-check.md` | registered | read-only — scan only, no changes |
+| `stats`, `backlog` or `issues` | `steps/stats.md` | registered | read-only — plan-aware progress dashboard plus the per-item backlog table |
+| `check-deps` | `steps/check-deps.md` | registered | read-only — verify BMad skill dependencies resolve |
+| `layout-cleanup` | `steps/layout-cleanup.md` | health-check | layout reorganization only |
+| `migrate-schema` | `steps/schema-migration.md` | health-check | legacy-only bridge |
+| `split-status` | `steps/split-status.md` | health-check | legacy-only bridge |
+| `harvest-debt` | `steps/harvest-debt.md` | health-check |  |
+| `reconcile-status` | `steps/reconcile-status.md` | health-check |  |
+| `sort-status` | `steps/sort-status.md` | health-check |  |
+| `redrive` | `steps/redrive.md` | health-check | rebuild calibration `scope`/`fix` from story nodes |
+| `triage` | `steps/triage.md` | health-check | audit the backlog and resolve findings already fixed — confirms every write |
+| `migrate-adrs` | `steps/migrate-adrs.md` | health-check | move ADRs from the old per-epic home to `docs/adr/` — confirms before writing |
+| `update-ai-rules` | `steps/update-ai-rules.md` | health-check |  |
+| `clean-legacy` | `steps/clean-legacy.md` | health-check | remove migration backup files |
+| `migrate-state` | `steps/migrate-state.md` | health-check | makes a legacy project usable by the PM skills again |
+| `bootstrap-state` | `steps/bootstrap-state.md` | health-check | create state nodes from story .md artifacts (legacy `bmad-create-story` workflow) |
+| `setup`, `configure`, `install` | `assets/module-setup.md` | not-a-capability | then continue to `steps/health-check.md` |
 
 **Everything else** (no argument, unrecognized text, or a natural-language description) →
 load `steps/health-check.md`.
