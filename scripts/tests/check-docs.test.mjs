@@ -2921,3 +2921,74 @@ test("check 4: a doctor mode and a disposition value are not subcommand claims",
   const r = run(root);
   assert.equal(r.status, 0, r.stderr + r.stdout);
 });
+
+// ---------------------------------------------------------------------------
+// Check 25 — doctor-mode-keywords
+//
+// Task 0C removed five doctor mode keywords by hand. Nothing mechanical would have caught a
+// leftover reference to one: the router sends an unrecognised argument to the health check,
+// so a stale `/l3io-util-doctor overlay` in a runtime directive silently runs a project scan
+// instead of erroring. These tests attack the RULE and the SCOPE separately.
+// ---------------------------------------------------------------------------
+
+const DOCTOR_TABLE_ROW = "| `triage` | `steps/triage.md` |";
+
+test("check 25: a live doc naming a removed mode keyword is caught", (t) => {
+  const root = fixture(t);
+  write(root, "docs/l3io-util-reference.md",
+    read(root, "docs/l3io-util-reference.md") +
+    "\nRun `/l3io-util-doctor overlay` to inspect the customization layer.\n");
+  const r = run(root);
+  assert.equal(r.status, 1, r.stdout);
+  assert.match(r.stderr, /names \/l3io-util-doctor overlay, which is not a keyword/);
+});
+
+// SCOPE ATTACK. Deleting a reference from a file the check already reads proves little. This
+// plants the violation in a file type the check was never told about by name -- a Python
+// script, not markdown -- in a directory the corpus reaches only because it is DERIVED by
+// walking skills/. pm-status.py and spec-align.py both print these invocations in real error
+// messages, so this is the shape the check exists for.
+test("check 25: scope attack — a stale keyword in a skills/ .py message is caught", (t) => {
+  const root = fixture(t);
+  write(root, "skills/l3io-util-doctor/scripts/probe-25.py",
+    '#!/usr/bin/env python3\nprint("Run /l3io-util-doctor rename-epic-dirs first.")\n');
+  const r = run(root);
+  assert.equal(r.status, 1, r.stdout);
+  assert.match(r.stderr, /probe-25\.py:2: names \/l3io-util-doctor rename-epic-dirs/);
+});
+
+// SCOPE ATTACK on the valid set. If the keyword list were hand-kept here, renaming a live
+// keyword in SKILL.md's routing table would change nothing. It must instead turn every real
+// invocation of the old name red, because the table is the only source of truth for the set.
+test("check 25: scope attack — the valid set follows SKILL.md's routing table", (t) => {
+  const root = fixture(t);
+  const skill = "skills/l3io-util-doctor/SKILL.md";
+  const text = read(root, skill);
+  assert.ok(text.includes(DOCTOR_TABLE_ROW), "the routing row this test edits must exist");
+  write(root, skill, text.replace(DOCTOR_TABLE_ROW, "| `triage-x` | `steps/triage.md` |"));
+  const r = run(root);
+  assert.equal(r.status, 1, r.stdout);
+  assert.match(r.stderr, /names \/l3io-util-doctor triage, which is not a keyword/);
+});
+
+// A table that stops parsing must fail loudly, not derive an empty set and pass everything.
+test("check 25: an unparseable routing table fails rather than passing vacuously", (t) => {
+  const root = fixture(t);
+  const skill = "skills/l3io-util-doctor/SKILL.md";
+  write(root, skill, read(root, skill).replace(/^\| `/gm, "| "));
+  const r = run(root);
+  assert.equal(r.status, 1, r.stdout);
+  assert.match(r.stderr, /the routing table did not parse/);
+});
+
+// FALSE-POSITIVE PIN. The exemption in gap 1 is what keeps this check at zero false positives
+// on the live tree; these three shapes are real, correct prose and must stay green.
+test("check 25: prose after a bare command invocation is not a keyword claim", (t) => {
+  const root = fixture(t);
+  write(root, "docs/glossary.md",
+    read(root, "docs/glossary.md") +
+    "\nRun /l3io-util-doctor for a health check, /l3io-util-doctor once per upgrade, or\n" +
+    "/l3io-util-doctor to install the helper.\n");
+  const r = run(root);
+  assert.equal(r.status, 0, r.stderr + r.stdout);
+});

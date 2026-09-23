@@ -73,6 +73,10 @@
 //                    scope and destinations both derived from syncGroups, no allowlist. Read
 //                    check 24's own block below for what "pointer" means and what it misses
 //
+//  25. doctor-mode-keywords  every `/l3io-util-doctor <keyword>` invocation, in a live doc or
+//                    a runtime directive, names a keyword the doctor's routing table still
+//                    has. Read check 25's own block for the two forms it cannot see
+//
 // ---------------------------------------------------------------------------------------
 // KNOWN GAPS — check 4's reach over skills/
 //
@@ -3589,6 +3593,96 @@ if (process.argv.includes("--dump-subcommand-options")) {
   process.exit(0);
 }
 
+// ---------------------------------------------------------------------------
+// 25. Every `/l3io-util-doctor <keyword>` invocation names a keyword that exists.
+//
+// A removed mode keyword left named somewhere is a runtime defect, not a documentation nit.
+// The doctor's router sends any argument it does not recognise to the health check
+// (SKILL.md, "Everything else"), so a directive that still says `/l3io-util-doctor overlay`
+// does not error -- it silently runs a full project scan instead of the thing it named, and
+// the user has no way to tell. Check 1 validates l3io-* SKILL names; nothing validated the
+// MODE keywords underneath them, and Task 0C removed five of them by hand.
+//
+// The valid set is DERIVED from the routing table in SKILL.md -- every backticked token in
+// the first cell of a routing row -- never enumerated here. That is the same source of truth
+// check 15 counts, so a keyword added or removed moves this check with it, in the same edit.
+//
+// The corpus is LIVE_DOCS plus every text file under skills/, not only markdown: the doctor's
+// own scripts print these invocations in user-facing messages (pm-status.py and spec-align.py
+// both name `/l3io-util-doctor triage`), and a dangling keyword in an error message is worse
+// than one in a doc, because the user is already stuck when they read it.
+//
+// KNOWN GAPS -- what this check cannot see, stated so the next reader does not assume cover:
+//
+//   1. A single-word keyword followed by prose. The rule below reads the token after the
+//      command as an argument UNLESS it is followed by whitespace and another lowercase word,
+//      because English prose puts one there constantly ("Run /l3io-util-doctor for a health
+//      check", "...to install it"). Measured over the whole live tree at the time of writing,
+//      that exemption is what keeps the false-positive count at zero; without it there are
+//      three prose sites and no real findings. The cost is that
+//      "/l3io-util-doctor overlay to see what is customizable" is invisible. A HYPHENATED
+//      token is always checked, prose or not, because English does not put one there -- and
+//      twelve of the doctor's sixteen keywords are hyphenated, so the reach is most of the set
+//      and all of the migration-critical part of it.
+//   2. An invocation written some other way -- "the overlay mode", "pass `overlay`", a
+//      keyword named in a table cell. Deliberate: docs/upgrading.md must be able to say which
+//      keywords were removed and what replaced them, exactly as check 1 lets a doc map a
+//      removed skill to its replacement.
+// ---------------------------------------------------------------------------
+const DOCTOR_ROUTING_ROW_RE = /^\| ((?:`[^`|]+`(?:[,/]| or )?\s*)+)\|/gm;
+const DOCTOR_INVOCATION_RE = /\/l3io-util-(?:doctor|cleanup)[ \t]+([a-z][a-z0-9-]*)/g;
+const DOCTOR_CORPUS_EXT = [".md", ".py", ".yaml", ".yml", ".toml", ".csv", ".json", ".txt"];
+
+function* walkTextFiles(rel) {
+  const abs = path.join(repoRoot, rel);
+  if (!fs.existsSync(abs)) return;
+  for (const entry of fs.readdirSync(abs, { withFileTypes: true })) {
+    const child = path.posix.join(rel, entry.name);
+    if (entry.isDirectory()) {
+      if (entry.name === "__pycache__" || entry.name === "node_modules") continue;
+      yield* walkTextFiles(child);
+    } else if (DOCTOR_CORPUS_EXT.some((e) => entry.name.endsWith(e))) {
+      yield child;
+    }
+  }
+}
+
+function checkDoctorModeKeywords() {
+  const skill = read(`${DOCTOR_DIR}/SKILL.md`);
+  const valid = new Set();
+  let rows = 0;
+  for (const row of skill.matchAll(DOCTOR_ROUTING_ROW_RE)) {
+    rows++;
+    for (const k of row[1].matchAll(/`([^`]+)`/g)) valid.add(k[1].trim());
+  }
+  // The set is derived, so a reshaped table would silently derive an EMPTY set and pass
+  // everything. Refuse that outcome rather than report a green over nothing.
+  if (rows < 5 || valid.size < 5) {
+    failures.push(`${DOCTOR_DIR}/SKILL.md: the routing table did not parse — ${rows} row(s), ` +
+      `${valid.size} keyword(s). check 25 derives the valid keyword set from it, so it cannot ` +
+      `run at all until the table is readable again`);
+    return;
+  }
+  let scanned = 0;
+  for (const rel of [...LIVE_DOCS, ...walkTextFiles("skills")]) {
+    let text;
+    try { text = read(rel); } catch { continue; }
+    scanned++;
+    for (const m of text.matchAll(DOCTOR_INVOCATION_RE)) {
+      const token = m[1];
+      if (valid.has(token)) continue;
+      const after = text.slice(m.index + m[0].length, m.index + m[0].length + 2);
+      if (/^\s[a-z]/.test(after) && !token.includes("-")) continue; // prose, per gap 1
+      const line = text.slice(0, m.index).split("\n").length;
+      failures.push(`${rel}:${line}: names /l3io-util-doctor ${token}, which is not a keyword ` +
+        `the doctor's routing table has — the router sends an unrecognised argument to the ` +
+        `health check, so this silently runs a project scan instead. Valid: ` +
+        `${[...valid].sort().join(", ")}`);
+    }
+  }
+  if (verbose) console.log(`  doctor-mode-keywords: ${valid.size} keyword(s), ${scanned} file(s)`);
+}
+
 checkSkillNames();
 checkGatingTables();
 checkSectionRefs();
@@ -3613,6 +3707,7 @@ checkSkillFrontmatter();
 checkReadmeRepoLayout();
 checkMarketplaceDependencies();
 checkSharedPointerResolution();
+checkDoctorModeKeywords();
 
 for (const note of notes) if (verbose) console.log(`  note: ${note}`);
 
