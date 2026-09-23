@@ -4,7 +4,9 @@
 
 Accepted — 2026-09-22. **Amended 2026-09-22**, same day, after the whole-branch review found
 that a real install of the shape decided here does not work: see *The validator is not the
-installer* in Context and the correction to Decision 1.
+installer* in Context and the correction to Decision 1. **Amended again 2026-09-23**, after an
+independent validation found Decision 7's `pass` results falsified by a later change: see the
+amendment inside Decision 7.
 
 Number allocated by `pm-status.py adr-reserve --epic E000 --slug module-packaging-shape`, not
 chosen by hand. See *A reservation that lives only in prose is not a reservation*, below.
@@ -173,6 +175,62 @@ the check could not fail for any tree the other checks permit.
    true is the narrower statement: **from the flat source tree alone, `l3io-pm` cannot be
    validated** — only the three standalone modules can.
 
+   **Amended 2026-09-23.** Every `pass` above is now false, and the closing sentence is too.
+   The results were measured on 2026-09-22; on 2026-09-23 an independent validation re-ran the
+   same commands and got:
+
+   | Invocation | 2026-09-22 | 2026-09-23 |
+   |---|---|---|
+   | `validate-module.py skills/l3io-util-doctor` | `pass`, 0 findings | `fail` — 4 high |
+   | `validate-module.py skills/l3io-sec-redteam` | `pass`, 0 findings | `fail` — 4 high, 1 medium |
+   | `validate-module.py skills/l3io-arch-review` | `pass`, 0 findings | `fail` — 4 high, 1 medium |
+   | the four assembled views `smoke:install` builds | all `pass` | all `fail` — 4 or 5 findings each |
+
+   Nothing about the packaging shape changed. What changed is the CSVs, which adopted two
+   conventions `bmad-help` documents and `validate-module.py` does not implement:
+
+   - **the `_meta` row** (`bmad-help/SKILL.md:29` — a row carrying the module's documentation
+     URL in `output-location` and nothing else). The validator's step 8 reports it as an
+     `orphan-entry` because there is no `_meta/` skill directory, and step 11 reports its three
+     deliberately empty columns as `missing-field`. Four high findings per module.
+   - **cross-module `skill:action` relationships** (`l3io-arch-review` → `l3io-pm-execute`, and
+     so on). The validator's step 10 explicitly skips a colon-*less* ref as cross-module but
+     requires every `skill:action` ref to resolve inside the one module it was handed. These
+     refs do resolve — in `_bmad/_config/bmad-help.csv`, the assembled index bmad-help actually
+     reads, where 0 of 58 rows carry an unresolved ref. One medium per affected module.
+
+   **This is a gap in `validate-module.py`, not a defect in these CSVs, and the evidence for
+   that is BMad's own module.** Measured 2026-09-23: pointed straight at
+   `<bmad-method>/src/bmm-skills`, the validator fails for an unrelated structural reason (that
+   tree is neither shape it accepts), so the comparison has to be made fairly — assemble bmm's
+   own `module.yaml` and `module-help.csv` under a `bmm-setup/assets/` with one directory per
+   skill the CSV names, which is a shape it does accept. It then returns `"status": "fail"` with
+   exactly four findings: `orphan-entry` for `_meta`, and `missing-field` for `_meta`'s
+   `display-name`, `menu-code` and `description`. Nothing else. The reference implementation of
+   a BMad module fails the reference checker in precisely the way this package does. Per
+   Decision 9 below — *conformance to one of a system's tools is not conformance to the system*
+   — the `_meta` rows and the relationships stay.
+
+   **So the gate stopped being the validator's verdict.** `scripts/smoke-install.sh` no longer
+   greps for `"status": "pass"`; it pipes each run through `scripts/check-module-view.mjs`,
+   which exempts exactly those two classes — evidenced row by row against the module's own CSV,
+   switching itself off when the evidence stops holding — and fails on everything else,
+   including a `medium`, which the validator's own `status` tolerates. That is a *stricter* bar
+   than the one it replaces, not a looser one. `scripts/tests/check-module-view.test.mjs` runs
+   in CI and attacks each exemption; the script's header states them.
+
+   **What this decision now claims, precisely.** From the flat source tree alone, `l3io-pm`
+   cannot be validated — unchanged. And: **no module of this package returns
+   `validate-module.py`'s own `pass`, from any tree, and that is expected**; the checkable
+   claim is the narrower one `check-module-view.mjs` makes.
+
+   **The lesson, which is Decision 9's with one turn added.** Decision 9 says *name the tool a
+   claim was measured against, in the claim*. These claims did name the tool. They still went
+   stale, because naming the tool fixes the claim's meaning and nothing about its freshness —
+   the *input* moved underneath it. A measured claim needs a gate that re-measures it, and
+   `smoke:install` is not in CI (no network guarantee, `_bmad/` is gitignored), so for a day
+   nothing did. Six gates and 310 tests were green over four `pass` claims that were all false.
+
 ## Consequences
 
 - The package satisfies BMad's installed-shape contract for all four modules without adopting a
@@ -188,6 +246,11 @@ the check could not fail for any tree the other checks permit.
   rather than presence — at which point the wrapper may be able to go away entirely.
 - The `l3io-pm` flat-tree conformance gap in Decision 7 stays open, deliberately. This sentence
   is the record that nothing closes it from source.
+- **Added 2026-09-23.** `npm run smoke:install`'s module-contract gate is now this package's
+  own, not BMad's: `scripts/check-module-view.mjs` judges `validate-module.py`'s findings
+  rather than its verdict. It must be revisited if `validate-module.py` learns the `_meta`
+  convention or gains a view of sibling modules — at which point the two exemptions become
+  dead code and should go, not linger as permanent blanket permission.
 
 ## What this plan's execution taught, with the evidence that cost it
 

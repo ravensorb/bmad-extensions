@@ -52,6 +52,18 @@ table too, so deleting a table fails instead of passing over an empty set: a top
 `steps/<name>.md` that is not part of a numbered `step-NN-*.md` sequence is a mode, and a
 skill with mode files (or a "Recognized keywords" section) owes a table.
 
+**`smoke:install` judges the validator's findings, not its verdict.** `validate-module.py` does
+not implement two conventions `bmad-help` documents and BMad's own modules ship — the `_meta`
+documentation row, and cross-module `skill:action` relationships — so it returns `fail` for all
+four of this package's modules, and for BMad's own `bmm` CSV when that is put in a shape it can
+read. `scripts/smoke-install.sh` therefore pipes each run through
+`scripts/check-module-view.mjs`, which exempts exactly those two classes, evidenced against the
+module's own CSV, and fails on anything else — including a `medium`, which the validator's own
+`status` tolerates, so the bar is stricter than the one it replaces. The script's header states
+each exemption and the condition that switches it off; `scripts/tests/check-module-view.test.mjs`
+attacks all of them and runs in CI, which `smoke:install` does not. ADR-0008 Decision 7's
+2026-09-23 amendment has the measurements.
+
 ## Dependencies
 
 The checkers are **not** dependency-free, and have not been since
@@ -67,6 +79,7 @@ Everything the checkers parse, they parse with a library — never a hand-writte
 |---|---|---|
 | `check-module.mjs` | `skills/module.yaml`, `skills/*/module.yaml`, `skills/*/assets/module.yaml` | `yaml` |
 | `check-module.mjs` | `skills/*/assets/module-help.csv` | `csv-parse` |
+| `check-module-view.mjs` | the assembled view's `<skill>/assets/module-help.csv` | `csv-parse` |
 | `check-module.mjs` check 9 | each `skills/*/SKILL.md` routing table, split on `\|` | `csv-parse` |
 | `check-module.mjs` check 10 | `skills/*/customize.toml` | `smol-toml` |
 | `check-module.mjs` check 8 | `.claude-plugin/marketplace.json` | `JSON.parse` |

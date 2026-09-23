@@ -104,8 +104,27 @@ echo "== module contract =="
 #
 # So the module has to be assembled before it can be validated. That is the closing move
 # ruling-task9-validator-scope.md wrote up and left unimplemented; ADR-0008 Decision 7
-# records why it is needed. Verified both ways: the constructed l3io-pm view returns
-# `"status": "pass"` with zero findings, and the same run before assembly returns `fail`.
+# records why it is needed. Verified both ways: the constructed view is the only one the
+# validator can read at all, and the same run before assembly returns a structural `fail`.
+#
+# The verdict is NOT the validator's own `"status"`, and this comment used to say it was
+# ("returns `"status": "pass"` with zero findings"). That stopped being true on 2026-09-23,
+# when the package adopted the `_meta` row and cross-module `skill:action` relationships --
+# two conventions bmad-help documents and BMad's own modules ship, and validate-module.py
+# implements neither. The findings are real output about a tool gap, not about these CSVs;
+# BMad's own `bmm` module-help.csv produces the identical four `_meta` findings when put in
+# the shape the validator accepts. So the run is piped through
+# scripts/check-module-view.mjs, which exempts exactly those two classes, evidenced against
+# the module's own CSV, and FAILS on anything else -- a stricter bar than `status`, which
+# tolerates a `medium`. Its header states each exemption and the condition that switches it
+# off; scripts/tests/check-module-view.test.mjs attacks all four. Nothing here is a blanket
+# "ignore findings": plant a real orphan, a duplicate menu code or a broken intra-module ref
+# and this goes red.
+#
+# The `|| true` is on the VALIDATOR, not on the judgement: validate-module.py exits non-zero
+# whenever it reports `fail`, and `set -o pipefail` would otherwise fail the pipeline before
+# the filter got to decide. The filter itself fails closed on empty or unparseable input, so
+# suppressing the exit code cannot turn a crash into a pass.
 view_root="$work/.smoke-module-views"
 rm -rf "$view_root"
 mkdir -p "$view_root"
@@ -121,8 +140,9 @@ for i in $(seq 0 $((plugin_count - 1))); do
   for skill in $(jq -r ".plugins[$i].skills[]" "$pkg/.claude-plugin/marketplace.json" | xargs -n1 basename); do
     cp -r ".claude/skills/$skill" "$view/$skill"
   done
-  check "validate-module.py passes for module '$plugin_name' (view built from marketplace.json)" \
-    "uv run .claude/skills/bmad-module-builder/scripts/validate-module.py '$view' 2>/dev/null | grep -q '\"status\": \"pass\"'"
+  check "validate-module.py reports nothing outside its two known gaps for module '$plugin_name' (view built from marketplace.json)" \
+    "{ uv run .claude/skills/bmad-module-builder/scripts/validate-module.py '$view' 2>/dev/null || true; } \
+       | node '$pkg/scripts/check-module-view.mjs' '$view'"
 done
 
 echo "== pm-status.py sibling path (Task 11A) =="
