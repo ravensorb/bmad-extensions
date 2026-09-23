@@ -9,7 +9,7 @@
 // repo alone, so CI can catch a regression even though the real validator never runs here.
 //
 // Deliberately narrow, and deliberately RED against today's layout -- see the commit that
-// introduced this file. The eight assertions:
+// introduced this file. The nine assertions:
 //
 //   1. discovery-layout     the layout BMad's INSTALLER discovers, which is not the layout
 //                            `validate-module.py` validates. Three parts:
@@ -63,10 +63,22 @@
 //                            adding a second skill to any of their `skills` arrays, with
 //                            nothing deleted, drops that module to synthesis.
 //
-// Scope for checks 1-7 is derived by walking `skills/` and for check 8 from
+//   9. help-registration     every mode keyword a skill documents in its SKILL.md routing
+//                            table either carries a `module-help.csv` row or is marked
+//                            excluded in that table's own `Menu` column. A capability with
+//                            no row cannot be selected from BMad's help menu at all; the
+//                            module-help-registration plan corrected four CSVs by hand and
+//                            nothing would have caught the next drift. The exclusion set is
+//                            READ FROM THE TABLE, not listed here, and the expectation
+//                            survives the table being deleted -- see the rule's own header.
+//
+// Scope for checks 1-7 and 9 is derived by walking `skills/` and for check 8 from
 // `.claude-plugin/marketplace.json`'s own `plugins` array -- never from a hand-kept list of
 // module codes, skill names or plugin names -- so a code or a plugin nobody told this script
-// about is still found and checked. Check 8 must read the marketplace, not the filesystem:
+// about is still found and checked. Check 9 derives a second scope the same way: which
+// keywords must be registered, and which are deliberately exempt, is read from each skill's
+// own routing table, never from a list of exemptions kept here.
+// Check 8 must read the marketplace, not the filesystem:
 // what a plugin LISTS is the input PluginResolver runs on, and a plugin's skill list can
 // change shape while every file on disk stays exactly where it was.
 //
@@ -609,6 +621,229 @@ function checkPluginResolverStrategy() {
 }
 
 // ---------------------------------------------------------------------------
+// 9. help-registration: every mode keyword a skill documents must either carry a
+// `module-help.csv` row or be excluded, in the routing table itself, by name.
+//
+// Why: a capability with no CSV row cannot be selected from BMad's help menu at all, and the
+// registration and the keyword table are two copies of the same fact in two files. Tasks 1-6
+// of the module-help-registration plan corrected that by hand across four CSVs -- two
+// advertised flags that no skill parsed, a fabricated `args` value, two unregistered
+// `l3io-pm-help` modes and a doctor registering one capability out of twenty-one. Nothing
+// would have caught any of it, and nothing would catch the next one (repo CLAUDE.md §3: when
+// you write a rule, write the check that enforces it in the same change).
+//
+// THE EXCLUSION SET IS DERIVED, NOT LISTED HERE. `skills/l3io-util-doctor/SKILL.md`'s routing
+// table carries a `Menu` column whose value per keyword is:
+//
+//   registered       -- carries its own row, whose `action` column equals the keyword
+//   default          -- served by the module's bare-invocation row (empty `action`, which is
+//                       BMad's own convention for a default invocation)
+//   health-check     -- deliberately unregistered: the health check already proposes it, and
+//                       a global menu entry would invite running a migration or a repair
+//                       WITHOUT the diagnosis that decides whether it is needed
+//   not-a-capability -- help output or module setup
+//
+// A checker holding its own copy of that list would drift from it exactly the way the rows
+// drifted from the skills (root CLAUDE.md §4: derive the scope from the source of truth,
+// never enumerate it by hand). An unrecognised value is a FAILURE rather than an exclusion,
+// so a typo cannot quietly drop a keyword out of scope, and a table with NO `Menu` column
+// claims every keyword it lists is registered -- deleting the column makes the rule stricter.
+//
+// SCOPE, and how it survives the table being deleted. Deriving the expectation only from the
+// table under test would pass vacuously the moment the table went away. Two anchors outside
+// it, each independently sufficient, make a skill OWE a keyword table:
+//
+//   (a) mode files on disk -- a top-level `steps/<name>.md` that is not part of a numbered
+//       `step-NN-*.md` sequence IS a mode (root CLAUDE.md, "Module Layout": add a mode as a
+//       file plus a table row). Sixteen of them under l3io-util-doctor, two under
+//       l3io-pm-help; the sequential step files of the PM skills are not modes and are not
+//       counted.
+//   (b) the "Recognized keywords" paragraph both real tables sit under, for a skill whose
+//       modes are not one-file-per-mode.
+//
+// KNOWN GAP, stated rather than implied: the check is one-directional per keyword. It does
+// not require every CSV row to map back to a table entry, because three skills
+// (l3io-pm-plan, l3io-pm-sync, l3io-pm-execute) document their modes in prose rather than a
+// routing table, and l3io-pm-help's `status` row is served by its default fallthrough rather
+// than a keyword. Rows whose `action` no skill parses are check 25 of check:docs's territory
+// for the doctor, and nobody's for the rest.
+//
+// Parsing: the routing table is split with `csv-parse` on a `|` delimiter with quoting
+// disabled -- markdown cells are not CSV fields, and a hand-written splitter is what this
+// repo's global rule 1 exists to prevent. A cell containing a literal `|` inside backticks
+// would still split wrongly; no table here has one.
+const KEYWORD_HEADER = "keyword";
+const MENU_HEADER = "menu";
+const MENU_REGISTERED = "registered";
+const MENU_DEFAULT = "default";
+const MENU_VALUES = new Set([MENU_REGISTERED, MENU_DEFAULT, "health-check", "not-a-capability"]);
+const RECOGNIZED_KEYWORDS_RE = /\*\*Recognized keywords\*\*/i;
+const TABLE_DIVIDER_CELL_RE = /^:?-+:?$/;
+const NUMBERED_STEP_RE = /^step-\d/;
+
+// One markdown table row as trimmed cells, or null when the line is not a table row. The
+// leading and trailing empty cells a `| a | b |` row produces are dropped.
+function pipeCells(rel, line) {
+  if (!line.trimStart().startsWith("|")) return null;
+  let records;
+  try {
+    records = parseCsv(line, {
+      delimiter: "|",
+      quote: false,
+      escape: false,
+      relax_column_count: true,
+      skip_empty_lines: true,
+      trim: false,
+    });
+  } catch (e) {
+    failures.push(`${rel}: table row is unreadable (${String(e.message).split("\n")[0]})`);
+    return null;
+  }
+  const cells = (records[0] ?? []).map((c) => c.trim());
+  if (cells.length && cells[0] === "") cells.shift();
+  if (cells.length && cells[cells.length - 1] === "") cells.pop();
+  return cells;
+}
+
+// Every routing table in a SKILL.md: a header row whose first column is `Keyword`, its
+// divider row, and the contiguous rows under it.
+function keywordTables(rel, text) {
+  const lines = text.split("\n");
+  const tables = [];
+  for (let i = 0; i < lines.length; i++) {
+    const header = pipeCells(rel, lines[i]);
+    if (!header || header.length < 2) continue;
+    if (header[0].toLowerCase() !== KEYWORD_HEADER) continue;
+    const divider = pipeCells(rel, lines[i + 1] ?? "");
+    if (!divider || !divider.every((c) => TABLE_DIVIDER_CELL_RE.test(c))) continue;
+    const rows = [];
+    let j = i + 2;
+    for (; j < lines.length; j++) {
+      const cells = pipeCells(rel, lines[j]);
+      if (!cells) break;
+      rows.push({ cells, line: j + 1 });
+    }
+    tables.push({ headers: header.map((h) => h.toLowerCase()), rows, line: i + 1 });
+    i = j;
+  }
+  return tables;
+}
+
+const backticked = (cell) => [...cell.matchAll(/`([^`]+)`/g)].map((m) => m[1].trim()).filter(Boolean);
+
+// Top-level `steps/*.md` files that are modes: a numbered `step-NN-*.md` is one step of a
+// single procedure, not a mode with a keyword of its own.
+function modeFiles(skill) {
+  const abs = path.join(repoRoot, "skills", skill, "steps");
+  if (!fs.existsSync(abs)) return [];
+  return fs.readdirSync(abs, { withFileTypes: true })
+    .filter((e) => e.isFile() && e.name.endsWith(".md") && !NUMBERED_STEP_RE.test(e.name))
+    .map((e) => `steps/${e.name}`)
+    .sort();
+}
+
+function checkHelpRegistration(skills) {
+  // Every row of every module-help.csv in the tree, indexed by the skill it registers. A
+  // skill's rows do not necessarily live in its own directory: the whole l3io-pm module is
+  // registered from skills/l3io-pm-setup/assets/module-help.csv.
+  const actionsBySkill = new Map();
+  for (const skill of skills) {
+    const rel = `skills/${skill}/assets/module-help.csv`;
+    if (!exists(rel)) continue;
+    for (const row of parseCsvRows(rel, read(rel))) {
+      const registered = fieldText(row.skill).trim();
+      if (!registered || registered === CSV_META_SKILL) continue;
+      if (!actionsBySkill.has(registered)) actionsBySkill.set(registered, new Set());
+      actionsBySkill.get(registered).add(fieldText(row.action).trim());
+    }
+  }
+
+  let tableCount = 0;
+  let keywordCount = 0;
+  let requiredCount = 0;
+
+  for (const skill of skills) {
+    const rel = `skills/${skill}/SKILL.md`;
+    if (!exists(rel)) continue;
+    const text = read(rel);
+    const tables = keywordTables(rel, text);
+
+    if (tables.length === 0) {
+      const modes = modeFiles(skill);
+      const owes = modes.length > 0 || RECOGNIZED_KEYWORDS_RE.test(text);
+      if (owes) {
+        const why = modes.length > 0
+          ? `it carries ${modes.length} mode file(s) (${modes.join(", ")})`
+          : `it has a "Recognized keywords" section`;
+        failures.push(
+          `${rel}: no keyword table, but ${why} -- a mode is a file plus a routing row, and ` +
+          `the routing table is where this check reads which keywords are registered in ` +
+          `module-help.csv and which are deliberately not. With the table gone there is ` +
+          `nothing to check and every keyword would pass unregistered.`
+        );
+      }
+      continue;
+    }
+
+    for (const table of tables) {
+      tableCount += 1;
+      const menuIndex = table.headers.indexOf(MENU_HEADER);
+      if (table.rows.length === 0) {
+        failures.push(`${rel}:${table.line}: keyword table has no rows -- it documents no keyword at all.`);
+        continue;
+      }
+      for (const { cells, line } of table.rows) {
+        const aliases = backticked(cells[0] ?? "");
+        if (aliases.length === 0) {
+          failures.push(
+            `${rel}:${line}: keyword table row names no backticked keyword -- ` +
+            `first cell: '${cells[0] ?? ""}'.`
+          );
+          continue;
+        }
+        keywordCount += 1;
+
+        // No Menu column at all: the table claims every keyword it lists is registered.
+        const menu = menuIndex === -1 ? MENU_REGISTERED : (cells[menuIndex] ?? "").trim();
+        if (!MENU_VALUES.has(menu)) {
+          failures.push(
+            `${rel}:${line}: keyword ${aliases.map((a) => `\`${a}\``).join(" / ")} has Menu ` +
+            `value '${menu}', which is not one of ${[...MENU_VALUES].join(", ")} -- this ` +
+            `column is the source of truth for which keywords must be registered, so an ` +
+            `unrecognised value is a failure rather than a silent exclusion.`
+          );
+          continue;
+        }
+        if (menu !== MENU_REGISTERED && menu !== MENU_DEFAULT) continue; // excluded, by name
+
+        requiredCount += 1;
+        const actions = actionsBySkill.get(skill) ?? new Set();
+        const want = menu === MENU_DEFAULT ? [""] : aliases;
+        if (want.some((a) => actions.has(a))) continue;
+
+        const shown = aliases.map((a) => `\`${a}\``).join(" / ");
+        failures.push(
+          menu === MENU_DEFAULT
+            ? `${rel}:${line}: keyword ${shown} is marked '${MENU_DEFAULT}', but no ` +
+              `module-help.csv row registers skill '${skill}' with an empty 'action' column ` +
+              `-- that bare-invocation row is what the default keyword routes to.`
+            : `${rel}:${line}: keyword ${shown} is marked '${MENU_REGISTERED}', but no ` +
+              `module-help.csv row registers skill '${skill}' with a matching 'action' ` +
+              `column (rows found: ${[...actions].map((a) => `'${a}'`).join(", ") || "none"}) ` +
+              `-- a capability with no row cannot be reached from BMad's help menu. Add the ` +
+              `row, or mark the keyword excluded in the Menu column and say why.`
+        );
+      }
+    }
+  }
+
+  if (verbose) {
+    console.log(`  help-registration: ${tableCount} keyword table(s), ${keywordCount} keyword(s), ` +
+      `${requiredCount} of them expecting a module-help.csv row`);
+  }
+}
+
+// ---------------------------------------------------------------------------
 const skills = listSkillDirs();
 checkRequiredFields(skills);
 const byCode = collectModuleYamlByCode(skills);
@@ -617,6 +852,7 @@ checkOneHomePerCode(byCode);
 checkModuleHomes(byCode, skills);
 checkPmStatusSingleton(byCode, skills);
 checkCsvSkillsExist(skills);
+checkHelpRegistration(skills);
 const strategyReport = checkPluginResolverStrategy();
 
 if (verbose) {

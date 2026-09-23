@@ -566,3 +566,151 @@ test("check:module reports a marketplace.json with no plugins array", (t) => {
   assert.equal(r.status, 1, r.stdout);
   assert.match(r.stderr, /declares no 'plugins' array/);
 });
+
+// ---- check 9 (help-registration) ----
+//
+// Every mode keyword a skill documents in its SKILL.md routing table must either carry a
+// module-help.csv row or be explicitly excluded in that table's own `Menu` column. The
+// exclusion set is read from the table -- never from a list inside the checker -- because a
+// hand-kept list of exempt keywords is exactly the drift this rule exists to stop (root
+// CLAUDE.md §4).
+//
+// The rule's SCOPE is attacked as hard as the rule: a table whose `Menu` column is deleted
+// makes every keyword required rather than exempt, an unknown `Menu` value fails instead of
+// quietly excluding, and a skill whose mode files exist but whose whole table has been
+// deleted fails rather than passing over an empty expectation set.
+
+const HELP_CSV_HEADER =
+  "module,skill,display-name,menu-code,description,action,args,phase,preceded-by,followed-by,required,output-location,outputs\n";
+
+// A skill that documents its modes the way the real ones do: a "Recognized keywords"
+// paragraph, a routing table, and one steps/<mode>.md file per row.
+function writeKeywordSkill(root, dir, rows, { menuColumn = true, table = true } = {}) {
+  const header = menuColumn
+    ? "| Keyword | Load | Menu | Notes |\n|---|---|---|---|\n"
+    : "| Keyword | Load | Notes |\n|---|---|---|\n";
+  const body = rows
+    .map((r) => (menuColumn
+      ? `| \`${r.keyword}\` | \`${r.load}\` | ${r.menu} | note |\n`
+      : `| \`${r.keyword}\` | \`${r.load}\` | note |\n`))
+    .join("");
+  write(root, `skills/${dir}/SKILL.md`,
+    `# ${dir}\n\n**Recognized keywords** — match the argument and load that file:\n\n` +
+    (table ? header + body : "") + "\n**Everything else** → the default.\n");
+  for (const r of rows) write(root, `skills/${dir}/${r.load}`, `# ${r.keyword}\n`);
+}
+
+// The canonical failure: a keyword documented in the table, marked as registered, with no row
+// anywhere. This is the drift Tasks 1-6 corrected by hand.
+test("check:module rejects a keyword-table entry with no module-help.csv row", (t) => {
+  const root = fixture(t);
+  writeModuleHome(root, "solo", "solo");
+  writeKeywordSkill(root, "solo", [
+    { keyword: "stats", load: "steps/stats.md", menu: "registered" },
+    { keyword: "brand-new-mode", load: "steps/brand-new-mode.md", menu: "registered" },
+  ]);
+  write(root, "skills/solo/assets/module-help.csv", HELP_CSV_HEADER +
+    'Solo,solo,Stats,SST,"Render the dashboard.",stats,,anytime,,,false,,report\n');
+  const r = run(root);
+  assert.equal(r.status, 1, r.stdout);
+  assert.match(r.stderr, /brand-new-mode/);
+});
+
+// The shape the real tree ships: a `default` keyword served by the module's bare-invocation
+// row (empty `action`, BMad's convention), a `registered` keyword matched by action, and
+// excluded keywords carrying no row at all.
+test("check:module passes a keyword table whose registered keywords all have rows", (t) => {
+  const root = fixture(t);
+  writeModuleHome(root, "solo", "solo");
+  writeKeywordSkill(root, "solo", [
+    { keyword: "check", load: "steps/health-check.md", menu: "default" },
+    { keyword: "stats", load: "steps/stats.md", menu: "registered" },
+    { keyword: "migrate-state", load: "steps/migrate-state.md", menu: "health-check" },
+    { keyword: "setup", load: "steps/setup.md", menu: "not-a-capability" },
+  ]);
+  write(root, "skills/solo/assets/module-help.csv", HELP_CSV_HEADER +
+    'Solo,solo,Doctor,SDR,"Scan project state.",,,anytime,,,false,,findings\n' +
+    'Solo,solo,Stats,SST,"Render the dashboard.",stats,,anytime,,,false,,report\n');
+  const r = run(root, ["-v"]);
+  assert.equal(r.status, 0, r.stderr);
+});
+
+// A `default` keyword needs the bare-invocation row to actually exist: with every row
+// carrying an action, nothing routes the bare command.
+test("check:module rejects a default keyword with no empty-action row", (t) => {
+  const root = fixture(t);
+  writeModuleHome(root, "solo", "solo");
+  writeKeywordSkill(root, "solo", [
+    { keyword: "check", load: "steps/health-check.md", menu: "default" },
+  ]);
+  write(root, "skills/solo/assets/module-help.csv", HELP_CSV_HEADER +
+    'Solo,solo,Stats,SST,"Render the dashboard.",stats,,anytime,,,false,,report\n');
+  const r = run(root);
+  assert.equal(r.status, 1, r.stdout);
+  assert.match(r.stderr, /`check`/);
+});
+
+// SCOPE ATTACK 1: the exclusion marker itself. An unrecognised `Menu` value -- a typo, or a
+// new word someone invents -- must fail loudly. A rule that treated "anything that is not
+// `registered`" as excluded would let one keystroke silently drop a keyword out of scope.
+test("check:module rejects an unrecognised Menu value in a keyword table", (t) => {
+  const root = fixture(t);
+  writeModuleHome(root, "solo", "solo");
+  writeKeywordSkill(root, "solo", [
+    { keyword: "stats", load: "steps/stats.md", menu: "healthcheck" },
+  ]);
+  const r = run(root);
+  assert.equal(r.status, 1, r.stdout);
+  assert.match(r.stderr, /healthcheck/);
+});
+
+// SCOPE ATTACK 2: deleting the Menu column must make the rule STRICTER, never weaker. A table
+// with no exclusion column claims every keyword it lists is registered.
+test("check:module requires a row for every keyword when the table has no Menu column", (t) => {
+  const root = fixture(t);
+  writeModuleHome(root, "solo", "solo");
+  writeKeywordSkill(root, "solo", [
+    { keyword: "progress", load: "steps/mode-progress.md" },
+  ], { menuColumn: false });
+  const r = run(root);
+  assert.equal(r.status, 1, r.stdout);
+  assert.match(r.stderr, /progress/);
+});
+
+// No false positive on a skill that documents no keywords at all: most skills have one mode
+// and no routing table, and the rule must be silent about them.
+test("check:module passes a skill with no keyword table at all", (t) => {
+  const root = fixture(t);
+  writeModuleHome(root, "solo", "solo");
+  write(root, "skills/solo/SKILL.md", "---\nname: solo\n---\n\n# solo\n\nOne mode, no table.\n");
+  const r = run(root, ["-v"]);
+  assert.equal(r.status, 0, r.stderr);
+});
+
+// SCOPE ATTACK 3 -- THE VACUITY TEST. Removing every keyword table must FAIL, not pass over an
+// empty expectation set. The expectation is anchored outside the table: the mode files on disk
+// under steps/, which is what a mode IS (root CLAUDE.md, "Module Layout"). A rule that derived
+// its cases only from the table under test could not catch the table being deleted.
+test("check:module rejects a skill whose mode files exist but whose keyword table was removed", (t) => {
+  const root = fixture(t);
+  writeModuleHome(root, "solo", "solo");
+  writeKeywordSkill(root, "solo", [
+    { keyword: "stats", load: "steps/stats.md", menu: "registered" },
+    { keyword: "triage", load: "steps/triage.md", menu: "health-check" },
+  ], { table: false });
+  const r = run(root);
+  assert.equal(r.status, 1, r.stdout);
+  assert.match(r.stderr, /no keyword table/);
+  assert.match(r.stderr, /steps\/stats\.md/);
+});
+
+// The second net under the same attack: the "Recognized keywords" paragraph left behind with
+// no table under it. Catches a deletion in a skill whose modes are not one-file-per-mode.
+test("check:module rejects a Recognized-keywords section with no table under it", (t) => {
+  const root = fixture(t);
+  writeModuleHome(root, "solo", "solo");
+  write(root, "skills/solo/SKILL.md", "# solo\n\n**Recognized keywords** — match and load:\n\nnone yet.\n");
+  const r = run(root);
+  assert.equal(r.status, 1, r.stdout);
+  assert.match(r.stderr, /no keyword table/);
+});

@@ -59,8 +59,12 @@ file and follow it:
 
 The **Menu** column records whether that keyword carries its own row in
 `assets/module-help.csv`, and is the source of truth for that decision — it is not kept
-anywhere else. `registered` means it has a row. `health-check` means it deliberately does
-not: Step HC6 of `steps/health-check.md` already proposes it and fixes its place in the
+anywhere else; `check:module` rule 9 reads this column and fails on a keyword that is
+neither registered nor excluded here, so an unrecognized value fails rather than quietly
+excluding a mode. `registered` means it has a row whose `action` column is the keyword.
+`default` means it is served by the module's bare-invocation row — the one with an empty
+`action`, which is BMad's convention for a default invocation. `health-check` means it
+deliberately does not: Step HC6 of `steps/health-check.md` already proposes it and fixes its place in the
 execution order, so a global menu entry would invite running a migration or a repair
 *without* the diagnosis that decides whether it is needed. `not-a-capability` is help output
 or module setup.
@@ -68,7 +72,7 @@ or module setup.
 | Keyword | Load | Menu | Notes |
 |---|---|---|---|
 | `help` or `?` | — | not-a-capability | Print the command list below and exit — no project scan. |
-| `check` or `status` | `steps/health-check.md` | registered | read-only — scan only, no changes |
+| `check` or `status` | `steps/health-check.md` | default | read-only — scan only, no changes |
 | `stats`, `backlog` or `issues` | `steps/stats.md` | registered | read-only — plan-aware progress dashboard plus the per-item backlog table |
 | `check-deps` | `steps/check-deps.md` | registered | read-only — verify BMad skill dependencies resolve |
 | `layout-cleanup` | `steps/layout-cleanup.md` | health-check | layout reorganization only |

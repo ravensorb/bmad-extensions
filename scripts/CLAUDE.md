@@ -30,6 +30,17 @@ that module to synthesis. `check:module` rule 8 mirrors the resolver's condition
 anything that would land on strategy 5; run it with `-v` to see the strategy it derived per
 plugin.
 
+**A mode keyword with no `module-help.csv` row is unreachable from BMad's menu.** The routing
+table in a skill's `SKILL.md` and the module's CSV are two copies of the same fact, and they
+drifted: the doctor advertised twenty-one modes and registered one. `check:module` rule 9
+requires every keyword in a routing table to carry a row or to be marked excluded in that
+table's own **Menu** column (`registered` · `default` · `health-check` · `not-a-capability`)
+— the exclusion set is read from the table, never kept in the checker, and an unrecognized
+value fails rather than quietly exempting a keyword. The expectation is anchored outside the
+table too, so deleting a table fails instead of passing over an empty set: a top-level
+`steps/<name>.md` that is not part of a numbered `step-NN-*.md` sequence is a mode, and a
+skill with mode files (or a "Recognized keywords" section) owes a table.
+
 ## Dependencies
 
 The checkers are **not** dependency-free, and have not been since
@@ -45,6 +56,7 @@ Everything the checkers parse, they parse with a library — never a hand-writte
 |---|---|---|
 | `check-module.mjs` | `skills/module.yaml`, `skills/*/module.yaml`, `skills/*/assets/module.yaml` | `yaml` |
 | `check-module.mjs` | `skills/*/assets/module-help.csv` | `csv-parse` |
+| `check-module.mjs` check 9 | each `skills/*/SKILL.md` routing table, split on `\|` | `csv-parse` |
 | `check-module.mjs` check 8 | `.claude-plugin/marketplace.json` | `JSON.parse` |
 | `module-config-keys.mjs` | `skills/*/assets/module.yaml` | `yaml` |
 | `check-docs.mjs` check 17 | `.github/workflows/*.yml` and `*.yaml` | `yaml` |
