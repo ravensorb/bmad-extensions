@@ -119,7 +119,30 @@ find "{epic_state_dir}/sprint-{nn}" -name "sprint.yaml" 2>/dev/null | head -1
 ```
 
 - If found: sprint state exists — do not create a new `sprint.yaml`.
-- If not found: add to sprint create list.
+- If not found: add to sprint create list. Determine `sprint_status` from the spread of story
+  statuses across the artifact-only stories in that sprint, by **the same rule BS2 applies one
+  level up to the epic** — this is the only place the sprint rule is stated; BS3 and BS4 print
+  and write `{sprint_status}`, they do not re-derive it:
+  - Any story has `status: in-progress` or `status: review` → `sprint_status = in-progress`
+  - All stories are `status: done` → `sprint_status = done`
+  - Otherwise → `sprint_status = backlog`
+
+  **Decision (2026-09-23): an all-done sprint is written `done`, not `in-progress`.** The rule
+  used to be stated twice and differently — BS2 inferred `done`/`archived` for an all-done
+  epic while BS4 wrote `in-progress` for an all-done sprint, so a bootstrap produced an
+  `in-progress` sprint inside a `done` epic under `archived/`, from one pass over one set of
+  story statuses. Three things decide it for `done`:
+  - `done` is a legal sprint status (`pm-status.py`: `VALID_SPRINT_STATUS = {backlog,
+    in-progress, done}`), so `in-progress` was a choice, not a constraint.
+  - BS2 already applies exactly this inference to the epic. Applying the opposite rule to the
+    sprint contradicts the parent node this same run writes.
+  - `stats` reads "last closed sprint" as the highest `sprint.yaml` with `status: done`, so
+    `in-progress` hid every bootstrapped sprint from it.
+
+  This does **not** assert that sprint closure ran — bootstrap reconstructs what the artifacts
+  say and writes minimal nodes with no `estimate`/`actual` blocks, exactly as it does for the
+  epic. `verify --scope epic` (BS5) is structural only and does not check completion, so a
+  `done` sprint costs nothing there.
 
 All artifact-only stories are added to the story create list (by definition — their state YAML
 was not found in Step BS1).
@@ -142,7 +165,7 @@ Epics to create:
   E{nnn}  → {pm_state_root}/{status_dir}/epic-{nnn}/epic.yaml   (status: {epic_status})
 
 Sprints to create:
-  S{nn} under E{nnn}  → .../epic-{nnn}/sprint-{nn}/sprint.yaml  (status: in-progress)
+  S{nn} under E{nnn}  → .../epic-{nnn}/sprint-{nn}/sprint.yaml  (status: {sprint_status})
 
 Stories to create:
   {story_key}  → .../sprint-{nn}/{story_key}.yaml  (status: {story_status}, classification: {story_classification})
@@ -239,9 +262,8 @@ For `{epic_title_or_placeholder}`: read the story's frontmatter `title` field (i
 the epic carries an epic-level title, prefer that); otherwise use `'Epic {nnn}'` as a
 placeholder — the user can fill in `goal` and `title` in `epic.yaml` directly after bootstrap.
 
-Sprint status inference: if any story in the sprint has `status: in-progress` or
-`status: review`, sprint status = `in-progress`; if all are `done`, `in-progress`; otherwise
-`backlog`.
+`{sprint_status}` is the value BS2 derived and BS3 printed — do not re-derive it here. The
+rule lives in BS2 only, so it cannot be stated twice and drift apart again.
 
 **If `uv` is unavailable**, use `python3` in place of `uv run --with ruamel.yaml python3`.
 
