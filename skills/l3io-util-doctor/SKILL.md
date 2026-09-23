@@ -27,7 +27,6 @@ Modes (pass as argument to skip directly to that mode):
 - **`migrate-adrs`:** Moves ADRs from the old per-epic home (`{implementation_artifacts}/epic-*/arch/`) to `{project-root}/docs/adr/`, renumbering a colliding one only inside its own epic's artifacts; plans first, confirms, commits once.
 
 **Ongoing maintenance (safe to repeat)**
-- **`normalize`:** Convenience shortcut — runs `reconcile-status` then `sort-status` in one confirmed pass. Use for routine maintenance instead of running two commands separately.
 - **`reconcile-status`:** *(legacy-only)* Audits the three split status files for placement and structure issues: epics in the wrong file for their `status`, nested per-epic `backlog:` arrays that should be flattened into the consolidated top-level list, stale backlog items whose status is no longer `backlog`, and empty epic shells in the backlog file. Dry-run first; confirms before writing. Safe to run at any time.
 - **`sort-status`:** Validates state file and directory naming against the zero-padded convention (`epic-{nnn}/`, `sprint-{nn}/`, `E{nnn}-S{nn}-{nnn}.yaml`). Ordering itself can no longer drift under the sharded layout — directory listing order is correct order — so this mode no longer reorders anything. It reports misnamed entries, which would sort incorrectly and break key resolution.
 - **`layout-cleanup`:** Runs only the artifact layout reorganization (the original default behavior) — reorganizes flat artifact outputs into the structured epic/sprint folder hierarchy, reconciles references, verifies state consistency.
@@ -64,8 +63,8 @@ Modes (pass as argument to skip directly to that mode):
 
 **Load exactly one mode file.** Every mode below lives in its own file under `steps/`, and
 only the one the argument selects is ever loaded. That is the point of the layout: this skill
-carries twenty-one procedures and a run needs one, so inlining them all charged every
-invocation for twenty it would not execute. Read this file, match the keyword, load that
+carries twenty procedures and a run needs one, so inlining them all charged every
+invocation for nineteen it would not execute. Read this file, match the keyword, load that
 one file, and follow it.
 
 **Recognized keywords** — if the user's argument exactly matches any of these, load that
@@ -78,7 +77,6 @@ file and follow it:
 | `stats` | `steps/stats.md` | read-only — plan-aware progress dashboard |
 | `backlog` | `steps/backlog.md` | read-only — list consolidated backlog items |
 | `check-deps` | `steps/check-deps.md` | read-only — verify BMad skill dependencies resolve |
-| `normalize` | `steps/normalize.md` | reconcile-status then sort-status in one confirmed pass |
 | `layout-cleanup` | `steps/layout-cleanup.md` | layout reorganization only |
 | `migrate-schema` | `steps/schema-migration.md` | legacy-only bridge |
 | `split-status` | `steps/split-status.md` | legacy-only bridge |
@@ -100,10 +98,10 @@ file and follow it:
 **Everything else** (no argument, unrecognized text, or a natural-language description) →
 load `steps/health-check.md`.
 
-A mode file may direct you to another mode's file — `normalize` runs reconcile-status then
-sort-status, and the health check proposes fixes by naming the modes that apply. Load each as
-you reach it; do not pre-load the set. One proposed action, `untrack-locks`, is not a mode and
-has no file: `steps/health-check.md` runs it inline.
+A mode file may direct you to another mode's file — the health check proposes fixes by
+naming the modes that apply. Load each as you reach it; do not pre-load the set. One proposed
+action, `untrack-locks`, is not a mode and has no file: `steps/health-check.md` runs it
+inline.
 
 **Help output** — when `help` or `?` is passed, print exactly this and exit:
 
@@ -129,7 +127,6 @@ One-time migrations (run in this order)
   migrate-adrs       Move ADRs from epic-*/arch/ to docs/adr/, the one ADR home
 
 Ongoing maintenance (safe to repeat)
-  normalize          Reconcile then sort all status files in one pass
   reconcile-status   (legacy-only) Fix misplaced epics, nested backlogs, stale items
   sort-status        Validate zero-padded naming (epic-{nnn}/, sprint-{nn}/, story keys)
   layout-cleanup     Reorganize flat artifact files into epic/sprint folder structure

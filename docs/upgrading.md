@@ -116,6 +116,13 @@ number of these at once, but the migrations must still run.
 > release rules will cut the next one as 3.0.0 — but no 3.0.0 exists, so if you are on 2.5.1
 > you have none of what follows and nothing to migrate yet.
 
+**Doctor modes removed.** `/l3io-util-doctor` keyword removals — if a script, alias, or
+habit invokes one of these, switch it to the replacement named here.
+
+| Removed keyword | Use instead |
+|---|---|
+| `normalize` | `sort-status` (naming report) and, on a legacy split layout, `reconcile-status` — `normalize` only ran those two, and on a migrated project it ran nothing but `sort-status` |
+
 **`l3io-util-cleanup` removed.**
 
 `/l3io-util-cleanup` was a deprecated forwarder from 2.1.0 onward and has been removed on

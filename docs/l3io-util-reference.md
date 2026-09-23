@@ -59,7 +59,6 @@ Key settings (with defaults):
 
 | Command | What it does |
 |---------|--------------|
-| `normalize` | Convenience — runs `reconcile-status` then `sort-status` in one confirmed pass. |
 | `reconcile-status` | Fixes placement/structure drift: misplaced epics, nested per-epic `backlog:` arrays (flatten to the top-level list), stale non-`backlog` items, empty epic shells. |
 | `sort-status` | Read-only. Validates zero-padded naming (`epic-{nnn}/`, `sprint-{nn}/`, `E{nnn}-S{nn}-{nnn}.yaml`) in the sharded state tree and reports misnamed entries. Performs no reordering and applies no fixes — ordering itself cannot drift under the sharded layout, since each node is its own file and zero-padded names already make directory-listing order the correct order. |
 | `triage` | Audits the backlog and resolves findings that are already fixed — confirms every write, including when the health check runs it. Also carries the **spec pass**: every open `spec-change` and `spec-proposal` item is shown with its commit diff or proposal file and confirmed, rejected, or skipped one at a time. Rejecting reverts the spec edit, resolves the item `wontfix`, and refiles the drift as a code fix at its original severity; skipping leaves it open for Check 18 to flag once a later commit builds on it. |
