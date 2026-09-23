@@ -2556,6 +2556,17 @@ def _git_toplevel(path: str):
     return top if r.returncode == 0 and top else None
 
 
+class AdrHomeUnresolved(Exception):
+    """The one ADR home (ADR-0005) could not be located, so the disk scan is impossible.
+
+    Raised rather than warned-and-continued. `adr-reserve` is the only thing standing
+    between two agents and one ADR number, so a number allocated from a scan that never
+    happened is worse than no number at all: the caller reads exit 0 and a four-digit
+    string off stdout and has no way to tell it apart from a real allocation. The old
+    behaviour printed `0001` next to a stderr warning nobody captured.
+    """
+
+
 def highest_adr_on_disk(state_root: str, adr_dir: str = "") -> int:
     """Highest ADR number already written, in the one home and in the old one (ADR-0005).
 
@@ -2563,7 +2574,12 @@ def highest_adr_on_disk(state_root: str, adr_dir: str = "") -> int:
     from colliding with a file that already exists: a hand-written ADR, a Mode C ADR, or
     an ADR in a project that has not run `migrate-adrs`. The one home is `adr_dir` when
     given (step files pass {project-root}/docs/adr, since a BMad project need not be the
-    repository root), else <git top-level of the state root>/docs/adr."""
+    repository root), else <git top-level of the state root>/docs/adr.
+
+    Raises AdrHomeUnresolved when neither is available. The default is deliberately NOT
+    widened to some guess (the state root's parent, the cwd): scanning the wrong tree
+    reports "highest is 0" just as confidently as scanning an empty right one.
+    """
     impl = os.path.dirname(os.path.abspath(state_root))
     hi = 0
     for arch in glob.glob(os.path.join(impl, "epic-*", "arch")):
@@ -2574,11 +2590,13 @@ def highest_adr_on_disk(state_root: str, adr_dir: str = "") -> int:
     if not adr_dir:
         top = _git_toplevel(state_root if os.path.isdir(state_root) else impl)
         if top is None:
-            sys.stderr.write(f"pm-status.py: adr-reserve: {state_root} is not inside a git work "
-                             f"tree -- scanned only the old ADR home (epic-*/arch/); pass "
-                             f"--adr-dir to scan docs/adr too\n")
-        else:
-            adr_dir = os.path.join(top, "docs", "adr")
+            raise AdrHomeUnresolved(
+                f"{state_root} is not inside a git work tree, so the one ADR home "
+                f"(<git top-level>/docs/adr) cannot be located, and the old home "
+                f"(epic-*/arch/) alone does not say what numbers docs/adr already "
+                f"holds. Pass --adr-dir DIR naming the project's ADR directory "
+                f"(normally {{project-root}}/docs/adr) and retry.")
+        adr_dir = os.path.join(top, "docs", "adr")
     if adr_dir and os.path.isdir(adr_dir):
         for name in os.listdir(adr_dir):
             m = _ADR_DOC_NAME.match(name)
@@ -2624,7 +2642,15 @@ def cmd_adr_reserve(args) -> int:
             start = 1
         if start < 1:
             start = 1
-        start = max(start, highest_adr_on_disk(args.state_root, args.adr_dir) + 1)
+        # Refuse rather than guess. Every other failure in this function returns 2
+        # before a number is printed, and so does this one: a caller capturing stdout
+        # cannot tell a guessed 0001 from a scanned one.
+        try:
+            on_disk = highest_adr_on_disk(args.state_root, args.adr_dir)
+        except AdrHomeUnresolved as exc:
+            sys.stderr.write(f"pm-status.py: adr-reserve: refusing to allocate -- {exc}\n")
+            return 2
+        start = max(start, on_disk + 1)
         numbers = list(range(start, start + args.count))
         for n in numbers:
             entry = CommentedMap()

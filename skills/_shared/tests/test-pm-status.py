@@ -9394,12 +9394,48 @@ class TestAdrReserveScansDisk(unittest.TestCase):
         self.assertEqual((code, out), (0, ["0008"]), err)
         self.assertNotIn("not inside a git work tree", err)
 
-    def test_outside_git_warns_and_scans_old_home_only(self):
+    def test_outside_git_without_adr_dir_refuses_rather_than_guessing(self):
+        """The regression this guards: a warning on stderr, `0001` on stdout, exit 0.
+
+        A caller capturing stdout -- which is the documented way to use this
+        subcommand, and the only thing stopping two ADRs sharing one number --
+        got a confidently wrong allocation with a success code. docs/adr/0007
+        below is real and unreachable without git or --adr-dir, so the number
+        that WOULD have been printed collides with a file already on disk.
+        """
         self.touch("docs", "adr", "0007-x.md")      # unreachable without git or --adr-dir
         self.touch("impl", "epic-002", "arch", "adr-0002-y.md")
         code, out, err = self.reserve()
-        self.assertEqual((code, out), (0, ["0003"]))
+        self.assertEqual(code, 2, f"expected a refusal, got exit {code} and {out!r}")
+        self.assertEqual(out, [], "a refusal must print no number at all")
+        self.assertIn("--adr-dir", err, "the refusal must name what to pass")
         self.assertIn("not inside a git work tree", err)
+        # And it refused BEFORE mutating: no reservation was recorded.
+        self.assertFalse(os.path.exists(pm.adr_register_path(self.root)),
+                         "a refused reservation must not write the register")
+
+    def test_refusal_does_not_consume_a_number_from_an_existing_register(self):
+        """The register must survive a refusal unchanged -- a burnt `next` would
+        leave a permanent gap, and a recorded `reserved` entry would name an
+        agent that was never handed anything."""
+        with open(pm.adr_register_path(self.root), "w", encoding="utf-8") as fh:
+            fh.write("next: 5\nreserved: []\n")
+        before = open(pm.adr_register_path(self.root), encoding="utf-8").read()
+        code, out, err = self.reserve()
+        self.assertEqual((code, out), (2, []), err)
+        self.assertEqual(open(pm.adr_register_path(self.root), encoding="utf-8").read(), before)
+
+    def test_a_normal_allocation_still_returns_the_right_number(self):
+        """The other direction: when it CAN scan, nothing about the allocation
+        changed -- max(register next, highest on disk) + 1, exit 0, one line."""
+        with open(pm.adr_register_path(self.root), "w", encoding="utf-8") as fh:
+            fh.write("next: 3\nreserved: []\n")
+        self.touch("docs", "adr", "0009-x.md")
+        self.touch("impl", "epic-002", "arch", "adr-0002-y.md")
+        code, out, err = self.reserve("--adr-dir", os.path.join(self.d, "docs", "adr"))
+        self.assertEqual((code, out), (0, ["0010"]), err)
+        self.assertEqual(err, "")
+        self.assertEqual(pm.load_adr_register(self.root)[1]["next"], 11)
 
     def test_concurrent_reservations_skip_a_hand_written_adr(self):
         import subprocess

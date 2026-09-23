@@ -561,8 +561,11 @@ flock. Contrast this with per-epic node files: `sprint.yaml` and story `.yaml` s
 flock, because sharding gives each epic its own directory; `epic.yaml` now does, per above.
 The first number `adr-reserve` hands out is the larger of the register's `next` and the
 highest ADR number already on disk — in `--adr-dir` and in the old per-epic home
-`epic-*/arch/` — plus one (ADR-0005); outside a git work tree without `--adr-dir` it scans
-the old home only, with a stderr warning.
+`epic-*/arch/` — plus one (ADR-0005). Outside a git work tree and with no `--adr-dir`, the
+one ADR home cannot be located at all, so `adr-reserve` **refuses** (exit 2, nothing on stdout,
+register untouched) and names `--adr-dir` in the message. It does not fall back to the old home
+and print a number: a caller reads the number off stdout, and an allocation made without seeing
+`docs/adr/` is exactly the collision the register exists to prevent.
 
 `issues-resolved.yaml` shares `issues_lock` with `issues.yaml` — every issue verb loads and
 saves both under one hold. **The epic lock is always the outer lock; nothing takes it in
