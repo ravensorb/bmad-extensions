@@ -1,9 +1,18 @@
 # overlay — generate, diff and verify BMad customization overlays
 
-Invoked with `overlay [list|diff|verify]`. Default action (no sub-argument, or an unrecognized
+> **This is a specification, not a live mode.** There is no `overlay` keyword on
+> `/l3io-util-doctor`, and this file is not under `steps/` — nothing loads it at runtime. It
+> describes the mode Phase 3 will restore, once this directory holds overlay content. Until
+> then all three actions below would report "nothing ships yet" by construction: `assets/overlays/`
+> contains this file and `README.md` and no TOML, so `diff` and `verify` have nothing to read
+> and `list` only re-prints what `bmad-customize` already reports about the install. Restoring
+> it means adding `steps/overlay.md` back plus its routing row in `SKILL.md` — a mode is a file
+> plus a table row.
+
+Specified as `overlay [list|diff|verify]`. Default action (no sub-argument, or an unrecognized
 one) is `list`. Owner of the BMad customization layer: what an overlay is, where it is staged,
 and how to check it landed. Phase 3 (`docs/superpowers/specs/2026-09-20-l3io-customization-layer-design.md`)
-fills `assets/overlays/` with actual TOML; this mode is the contract those files land in.
+fills `assets/overlays/` with actual TOML; this document is the contract those files land in.
 
 ## What this mode may not do
 

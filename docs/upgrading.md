@@ -125,6 +125,7 @@ habit invokes one of these, switch it to the replacement named here.
 | `backlog` | `stats` — `backlog` and `issues` are now aliases for it, so the keyword still works; the per-item table it printed is a section of the `stats` dashboard, from the same single `list-issues --all` call |
 | `rename-active` | `/l3io-util-doctor` — Health Check 1 detects the old filename and renames it inline. There was never a reason to invoke it alone: a renamed flat file is still a legacy layout |
 | `rename-epic-dirs` | `/l3io-util-doctor` — Health Check 10 detects two-digit `epic-{nn}/` artifact directories and renames them inline |
+| `overlay` | nothing yet — the mode is held back until `assets/overlays/` ships overlay TOML (Phase 3 of the customization-layer design). All three actions reported "nothing ships yet" by construction; the contract is kept at `skills/l3io-util-doctor/assets/overlays/overlay-mode.md` |
 
 **`l3io-util-cleanup` removed.**
 

@@ -9,7 +9,7 @@ Architecture decisions are recorded in `docs/adr/` — ADR-0001: `pm-status.py` 
 ## Module Layout
 
 `l3io-util-doctor` routes: `SKILL.md` carries the overview, the keyword table, safety rules
-and the state layout, and each of its seventeen modes lives in its own `steps/` file loaded
+and the state layout, and each of its sixteen modes lives in its own `steps/` file loaded
 only when its keyword selects it. Add a mode as a file plus a table row — never inline. The
 modes were inlined once and `SKILL.md` reached 96,980 B, so every invocation paid for fifteen
 procedures it would not run.
@@ -25,7 +25,7 @@ Module setup lives at each module's **home**: a dedicated `l3io-pm-setup` skill 
 | `l3io-pm-help` | Reads project state and recommends the exact next l3io-pm action |
 | `l3io-pm-sync` | Bidirectional sync between l3io-pm state and GitHub Issues — setup, push, pull, sync, and status modes |
 | `l3io-sec-redteam` | Red team security analysis — five threat lenses + AI poisoning cross-cut, live cloud/platform best practices research |
-| `l3io-util-doctor` | Project state diagnostics and housekeeping — default is a health check that reports findings and proposes an ordered fix plan; `stats` is the plan-aware progress dashboard; plus `triage`, `migrate-adrs`, `migrate-state`, `split-status`, `harvest-debt`, `sort-status`, `update-ai-rules`, `clean-legacy`, `redrive`, `overlay` (stages BMad customization overlays; never writes `_bmad/custom/`). Renamed from `l3io-util-cleanup` in 2.1.0; the deprecated forwarder is removed on `main` and unreleased — 2.5.1, the current release, still carries it (see `docs/upgrading.md`) |
+| `l3io-util-doctor` | Project state diagnostics and housekeeping — default is a health check that reports findings and proposes an ordered fix plan; `stats` is the plan-aware progress dashboard; plus `triage`, `migrate-adrs`, `migrate-state`, `split-status`, `harvest-debt`, `sort-status`, `update-ai-rules`, `clean-legacy`, `redrive`. Renamed from `l3io-util-cleanup` in 2.1.0; the deprecated forwarder is removed on `main` and unreleased — 2.5.1, the current release, still carries it (see `docs/upgrading.md`) |
 | `l3io-arch-review` | Engineering-standards architecture guardrails and review — three modes: design guardrails (new project), architectural review (audit), decision support + ADR recording |
 | `l3io-pm-setup` | Records `l3io-pm`'s project-level settings and registers its capabilities for the help system — the module's dedicated setup skill, run only on an explicit `setup`/`configure`/`install` request |
 

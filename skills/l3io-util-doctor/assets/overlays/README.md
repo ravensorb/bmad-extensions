@@ -1,9 +1,15 @@
 # Overlays — empty by design (Phase 3)
 
-This directory is where `l3io-util-doctor`'s `overlay` mode (`steps/overlay.md`) looks for
-customization TOML this package ships for BMad core skills — `bmad-build`, `bmad-review`, and
-the story skills. It is empty on purpose: this task (Phase 1/2, "scaffold the overlay owner")
-creates the mode and its contract; the overlay **content** is Phase 3.
+This directory is where `l3io-util-doctor`'s `overlay` mode will look for customization TOML
+this package ships for BMad core skills — `bmad-build`, `bmad-review`, and the story skills. It
+holds no TOML on purpose: Phase 1/2 ("scaffold the overlay owner") wrote the mode's contract,
+and the overlay **content** is Phase 3.
+
+**The mode itself is not installed.** Its contract lives beside this file as
+`overlay-mode.md`, not under `steps/`, and `/l3io-util-doctor` has no `overlay` keyword — all
+three of its actions would report "nothing ships yet" while this directory has no TOML in it.
+Phase 3 restores the keyword by adding `steps/overlay.md` back with that contract and a routing
+row in `SKILL.md`.
 
 ## What lands here, once Phase 3 ships it
 
@@ -26,7 +32,7 @@ Skill Authoring Conventions table.
 
 **Nothing in this directory is ever written to `{project-root}/_bmad/custom/` by this
 package.** BMad Builder is explicit: *"There is no supported pattern for modules to write into
-`_bmad/custom/`"* — that space belongs to the end user. `overlay diff` renders a file from here
-to a staging path and hands the user one `cp` command; `overlay verify` checks whether they ran
-it. If Phase 3 ever needs to change that, it is a decision recorded in an ADR, not a quiet
+`_bmad/custom/`"* — that space belongs to the end user. `overlay diff` will render a file from here
+to a staging path and hand the user one `cp` command; `overlay verify` will check whether they
+ran it. If Phase 3 ever needs to change that, it is a decision recorded in an ADR, not a quiet
 addition to a script.

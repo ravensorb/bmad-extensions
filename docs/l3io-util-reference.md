@@ -71,23 +71,22 @@ Key settings (with defaults):
 | `harvest-debt` | Sweeps the source tree for `bmad-defer:` deferred-shortcut markers and harvests new ones into the consolidated backlog. Language-generic, re-runnable (dedupes by `source`). Report-only by default; merge is confirmed. |
 | `update-ai-rules` | Rewrites any reference to a legacy state layout (flat `sprint-status*.yaml`, the three-file split, or `_bmad/state/`) in the project's AI instruction files (`CLAUDE.md`, `.github/copilot-instructions.md`, `GEMINI.md`, `AGENTS.md`, `.cursorrules`, …) so they describe the current sharded state tree. Creates the **currently running** AI system's instruction file if it does not exist; never creates one for another AI system. Also auto-invoked after `split-status`. |
 
-### BMad customization layer
+### BMad customization layer — specified, not shipped
 
-| Command | What it does |
-|---------|--------------|
-| `overlay [list\|diff\|verify]` | Owner of the BMad customization layer. `list` (the default, and what an unrecognized sub-argument falls back to) enumerates what `bmad-customize` exposes in this install, each skill's root key (`agent` or `workflow`), and which of those skills this package ships an overlay for. `diff` stages each shipped overlay to `{implementation_artifacts}/l3io/overlays/<skill>.toml` and shows it next to what `resolve_customization.py` currently resolves. `verify` reports, per overlay, whether it is placed and merged, **placed but not merged** (usually the wrong root key, which BMad ignores silently rather than erroring), or not placed. Needs `bmad-customize` installed; `BLOCKED` without it. |
+There is **no `overlay` keyword** on `/l3io-util-doctor`. The mode was specified and then held
+back, because `skills/l3io-util-doctor/assets/overlays/` ships no overlay TOML: all three of its
+actions (`list`, `diff`, `verify`) would report "nothing ships yet" by construction. Its full
+contract is kept as `skills/l3io-util-doctor/assets/overlays/overlay-mode.md`, beside the
+directory it describes, and Phase 3 of the customization-layer design restores the keyword along
+with the content.
 
-**`overlay` never writes `{project-root}/_bmad/custom/`.** That space belongs to the end user,
-and BMad Builder is explicit that there is no supported pattern for a module to write into it.
-`diff` stages the file under `{implementation_artifacts}/` and **prints one `cp` command** for
-you to run yourself — placing the file is the act this mode exists not to perform. You choose
-the scope by choosing the filename: `_bmad/custom/<skill>.toml` is the committed team layer,
-`_bmad/custom/<skill>.user.toml` is gitignored. If that upstream constraint is ever lifted, it
-changes by ADR, not quietly.
-
-`assets/overlays/` ships empty today — the overlays themselves are Phase 3 of the
-customization-layer design — so all three actions correctly report "nothing ships yet" rather
-than failing.
+**Nothing in this package ever writes `{project-root}/_bmad/custom/`.** That space belongs to
+the end user, and BMad Builder is explicit that there is no supported pattern for a module to
+write into it. The specified `diff` action stages a file under `{implementation_artifacts}/`
+and **prints one `cp` command** for you to run yourself — placing the file is the act the mode
+exists not to perform. You choose the scope by choosing the filename:
+`_bmad/custom/<skill>.toml` is the committed team layer, `_bmad/custom/<skill>.user.toml` is
+gitignored. If that upstream constraint is ever lifted, it changes by ADR, not quietly.
 
 ### Setup & housekeeping
 
