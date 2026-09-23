@@ -38,7 +38,9 @@
 //                            substitute. Found three real phantom rows (fix round 1, F-4):
 //                            l3io-{util,sec,arch}-setup, written for setup skills that never
 //                            existed and, by design, never will (three of the four modules
-//                            are standalone).
+//                            are standalone). ONE exemption: the literal `_meta`, which
+//                            bmad-help reserves for a module's documentation row and is not
+//                            a skill -- see the rule for why, and its two tests for its scope.
 //   8. plugin-resolver-strategy
 //                            every plugin in `.claude-plugin/marketplace.json` resolves, from
 //                            the files on disk, to one of PluginResolver's AUTHORED strategies
@@ -379,6 +381,15 @@ function checkPmStatusSingleton(byCode, skills) {
 // 7. Every module-help.csv row's `skill` column names a real directory under skills/. The
 // valid skill set is `listSkillDirs()` -- the same filesystem derivation every check above
 // uses -- never a hand-list, so a skill directory added or removed is picked up automatically.
+//
+// `_meta` is the ONE reserved value that is not a skill. bmad-help/SKILL.md ("Module docs")
+// defines it: a row whose `skill` column is the literal `_meta` carries the module's
+// documentation URL or path in `output-location`, and bmad-help fetches it to answer general
+// questions about that module. Both of BMad 6.12.0's own catalogs ship one
+// (src/bmm-skills/module-help.csv:2, src/core-skills/module-help.csv:2). The exemption is
+// exactly that one literal -- every other non-skill value is still an orphan.
+const CSV_META_SKILL = "_meta";
+
 function checkCsvSkillsExist(skills) {
   const knownSkills = new Set(skills);
   for (const skill of skills) {
@@ -388,6 +399,7 @@ function checkCsvSkillsExist(skills) {
     for (const row of rows) {
       const csvSkill = fieldText(row.skill).trim();
       if (!csvSkill) continue;
+      if (csvSkill === CSV_META_SKILL) continue; // reserved module-documentation row
       if (!knownSkills.has(csvSkill)) {
         failures.push(
           `${rel}: row names skill '${csvSkill}', which is not a directory under skills/ -- ` +

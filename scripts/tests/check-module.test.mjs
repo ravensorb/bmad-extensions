@@ -255,6 +255,39 @@ test("check:module passes a module-help.csv whose rows all name real skills", (t
   assert.equal(r.status, 0, r.stderr);
 });
 
+// `_meta` is the one reserved value in the `skill` column that is not a skill:
+// bmad-help/SKILL.md ("Module docs") defines it as the row carrying a module's documentation
+// URL, and both of BMad 6.12.0's own catalogs ship one. Before this exemption, adding the row
+// BMad's own format prescribes failed check 7 as an "orphan capability entry".
+test("check:module accepts the reserved _meta documentation row", (t) => {
+  const root = fixture(t);
+  writeModuleHome(root, "solo", "solo");
+  write(root, "skills/solo/assets/module-help.csv",
+    "module,skill,display-name,menu-code,description,action,args,phase,preceded-by,followed-by,required,output-location,outputs\n" +
+    "Solo,_meta,,,,,,,,,false,https://example.invalid/docs/solo.md,\n" +
+    'Solo,solo,Solo,SOL,"Real skill, real row.",,,anytime,,,false,,report\n');
+  const r = run(root);
+  assert.equal(r.status, 0, r.stderr);
+});
+
+// THE SCOPE ATTACK on that exemption: it must cover the one literal `_meta` and nothing more.
+// A rule that skipped every underscore-prefixed value, or every row with an empty
+// display-name, would pass this file too -- and then no phantom row would ever be caught
+// again, because a phantom is exactly a row whose skill column names nothing on disk.
+test("check:module still rejects a non-_meta phantom row beside a real _meta row", (t) => {
+  const root = fixture(t);
+  writeModuleHome(root, "solo", "solo");
+  write(root, "skills/solo/assets/module-help.csv",
+    "module,skill,display-name,menu-code,description,action,args,phase,preceded-by,followed-by,required,output-location,outputs\n" +
+    "Solo,_meta,,,,,,,,,false,https://example.invalid/docs/solo.md,\n" +
+    "Solo,__meta,,,,,,,,,false,https://example.invalid/docs/nope.md,\n" +
+    'Solo,solo-setup,Setup,SST,"Phantom row for a skill that was never built.",configure,,anytime,,,false,,config\n');
+  const r = run(root);
+  assert.equal(r.status, 1);
+  assert.match(r.stderr, /row names skill 'solo-setup', which is not a directory under skills\//);
+  assert.match(r.stderr, /row names skill '__meta', which is not a directory under skills\//);
+});
+
 // ---- parsers, not hand-written readers (Task 17) ----
 //
 // `parseModuleYaml()` was a per-line `key: value` regex plus a hand-written block-scalar
