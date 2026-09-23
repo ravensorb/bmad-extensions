@@ -30,6 +30,17 @@ that module to synthesis. `check:module` rule 8 mirrors the resolver's condition
 anything that would land on strategy 5; run it with `-v` to see the strategy it derived per
 plugin.
 
+**An agent is declared twice, and the two copies are read by different things.** A module's
+`agents:` roster is what the installer writes into `_bmad/config.toml` as `[agents.<code>]`;
+the skill's own `customize.toml` `[agent]` block is what it reads at activation. `check:module`
+rule 10 requires them equal on `title`, `icon` and `description`, with `name` present on both
+(empty is valid — a First-Breath agent fills it) — and checks the pair both ways, because a
+`[agent]` block no roster lists never reaches `config.toml` at all while the skill still
+activates. The entry is tied to its skill through the `[agent] code`, **not** the directory
+name: `l3io-sec-redteam` declares `code: redteam`, which the installer uses only as the TOML
+section key (`manifest-generator.js:608`). `skills/l3io-sec-redteam/assets/module.yaml` records
+why beside the field.
+
 **A mode keyword with no `module-help.csv` row is unreachable from BMad's menu.** The routing
 table in a skill's `SKILL.md` and the module's CSV are two copies of the same fact, and they
 drifted: the doctor advertised twenty-one modes and registered one. `check:module` rule 9
@@ -57,6 +68,7 @@ Everything the checkers parse, they parse with a library — never a hand-writte
 | `check-module.mjs` | `skills/module.yaml`, `skills/*/module.yaml`, `skills/*/assets/module.yaml` | `yaml` |
 | `check-module.mjs` | `skills/*/assets/module-help.csv` | `csv-parse` |
 | `check-module.mjs` check 9 | each `skills/*/SKILL.md` routing table, split on `\|` | `csv-parse` |
+| `check-module.mjs` check 10 | `skills/*/customize.toml` | `smol-toml` |
 | `check-module.mjs` check 8 | `.claude-plugin/marketplace.json` | `JSON.parse` |
 | `module-config-keys.mjs` | `skills/*/assets/module.yaml` | `yaml` |
 | `check-docs.mjs` check 17 | `.github/workflows/*.yml` and `*.yaml` | `yaml` |

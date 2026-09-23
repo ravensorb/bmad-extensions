@@ -10,6 +10,16 @@ module_greeting: >
   Ensure WebSearch is enabled in Claude Code permissions for live platform research.
 
 agents:
+  # `code` is the TOML section key, NOT a directory name. The installer writes each roster
+  # entry into _bmad/config.toml as [agents.<code>] (tools/installer/core/
+  # manifest-generator.js:589, :597, :608 in 6.12.0) and nothing resolves it to a path --
+  # tools/installer/project-root.js never mentions agents. The module-builder workflow's
+  # guidance suggests matching the skill directory basename (l3io-sec-redteam); this short
+  # form is a deliberate, verified deviation, not an oversight. Do not "fix" it: renaming the
+  # code renames the [agents.<code>] table in every project already installed.
+  # It must keep matching `code` in skills/l3io-sec-redteam/customize.toml's [agent] block --
+  # that is how check:module rule 10 ties this entry to the skill it declares, and the rule
+  # also compares title, icon and description across the pair.
   - code: redteam
     name: ""
     title: "Red Team Agent"

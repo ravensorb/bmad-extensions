@@ -714,3 +714,125 @@ test("check:module rejects a Recognized-keywords section with no table under it"
   assert.equal(r.status, 1, r.stdout);
   assert.match(r.stderr, /no keyword table/);
 });
+
+// ---- check 10 (agent-roster) ----
+//
+// A module.yaml `agents:` roster and the agent skill's own `customize.toml` `[agent]` block
+// are the same declaration in two files, and nothing compared them. The installer writes the
+// roster into `_bmad/config.toml` as `[agents.<code>]` (manifest-generator.js:589, :597,
+// :608) and the skill reads its own block through `resolve_customization.py --key agent`, so
+// a drifted title or icon shows one identity at install time and another at activation.
+// BMad's own module-builder workflow calls out icon drift specifically.
+
+// A module whose roster and agent skill agree. `rosterOverrides` perturbs exactly one field
+// of the module.yaml side so each test isolates one drift.
+function writeAgentModule(root, dir, code, { roster = {}, agent = {}, rosterAgents } = {}) {
+  const entry = {
+    code: "redteam", name: "", title: "Red Team Agent", icon: "🔴",
+    description: "Adversarial analysis.", ...roster,
+  };
+  const entries = rosterAgents ?? [entry];
+  const agentLines = entries.map((e) => [
+    `  - code: ${JSON.stringify(e.code)}`,
+    ...(("name" in e) ? [`    name: ${JSON.stringify(e.name)}`] : []),
+    `    title: ${JSON.stringify(e.title ?? "")}`,
+    `    icon: ${JSON.stringify(e.icon ?? "")}`,
+    `    description: ${JSON.stringify(e.description ?? "")}`,
+  ].join("\n")).join("\n");
+  const moduleYaml =
+    `code: ${code}\nname: "${dir}"\ndescription: "test module"\nagents:\n${agentLines}\n`;
+  write(root, `skills/${dir}/assets/module.yaml`, moduleYaml);
+  if (!dir.endsWith("-setup")) write(root, `skills/${dir}/module.yaml`, moduleYaml);
+  write(root, `skills/${dir}/assets/module-setup.md`, "# setup\n");
+  write(root, `skills/${dir}/assets/module-help.csv`, `skill,module,description\n${dir},${code},test skill\n`);
+  write(root, `skills/${dir}/scripts/merge-config.py`, "# merge-config\n");
+  write(root, `skills/${dir}/scripts/merge-help-csv.py`, "# merge-help-csv\n");
+  const a = { code: "redteam", name: "", title: "Red Team Agent", icon: "🔴",
+    description: "Adversarial analysis.", ...agent };
+  write(root, `skills/${dir}/customize.toml`,
+    `[agent]\ncode        = ${JSON.stringify(a.code)}\n` +
+    (("name" in a) ? `name        = ${JSON.stringify(a.name)}\n` : "") +
+    `title       = ${JSON.stringify(a.title)}\n` +
+    `icon        = ${JSON.stringify(a.icon)}\n` +
+    `description = ${JSON.stringify(a.description)}\n` +
+    `agent_type  = "memory"\n`);
+}
+
+// The canonical drift, and the one BMad's own validation workflow names: the icon.
+test("check:module rejects a roster icon that differs from the skill's customize.toml", (t) => {
+  const root = fixture(t);
+  writeAgentModule(root, "sec-redteam", "sec", { roster: { icon: "🟥" } });
+  const r = run(root);
+  assert.equal(r.status, 1, r.stdout);
+  assert.match(r.stderr, /icon/);
+  assert.match(r.stderr, /redteam/);
+});
+
+test("check:module rejects a roster title that differs from the skill's customize.toml", (t) => {
+  const root = fixture(t);
+  writeAgentModule(root, "sec-redteam", "sec", { agent: { title: "Red Team Analyst" } });
+  const r = run(root);
+  assert.equal(r.status, 1, r.stdout);
+  assert.match(r.stderr, /title/);
+});
+
+test("check:module rejects an empty roster description", (t) => {
+  const root = fixture(t);
+  writeAgentModule(root, "sec-redteam", "sec", { roster: { description: "" }, agent: { description: "" } });
+  const r = run(root);
+  assert.equal(r.status, 1, r.stdout);
+  assert.match(r.stderr, /description/);
+});
+
+// `name` is the one roster field that may be empty -- a First-Breath agent fills it after
+// activation -- but the KEY must be present: the installer writes `name = ''` from it either
+// way, and an absent key is indistinguishable from a forgotten one.
+test("check:module accepts an empty roster name and rejects an absent one", (t) => {
+  const ok = fixture(t);
+  writeAgentModule(ok, "sec-redteam", "sec");
+  assert.equal(run(ok, ["-v"]).status, 0, run(ok).stderr);
+
+  const bad = fixture(t);
+  writeAgentModule(bad, "sec-redteam", "sec", { rosterAgents: [
+    { code: "redteam", title: "Red Team Agent", icon: "🔴", description: "Adversarial analysis." },
+  ] });
+  const r = run(bad);
+  assert.equal(r.status, 1, r.stdout);
+  assert.match(r.stderr, /name/);
+});
+
+// SCOPE: the roster entry is matched to its skill through the `[agent] code` in
+// customize.toml -- NOT through the directory name, because `code: redteam` deliberately does
+// not match `skills/l3io-sec-redteam` (the installer uses it only as the `[agents.<code>]`
+// TOML section key). A roster entry whose code no skill claims declares an agent that no
+// skill implements.
+test("check:module rejects a roster entry whose code no skill in the module declares", (t) => {
+  const root = fixture(t);
+  writeAgentModule(root, "sec-redteam", "sec", { roster: { code: "ghost" } });
+  const r = run(root);
+  assert.equal(r.status, 1, r.stdout);
+  assert.match(r.stderr, /ghost/);
+});
+
+// The other direction, which is the one that fails SILENTLY in production: a skill declaring
+// an [agent] block that no roster lists is never written to config.toml at all.
+test("check:module rejects a customize.toml [agent] block with no roster entry", (t) => {
+  const root = fixture(t);
+  writeModuleHome(root, "sec-redteam", "sec");
+  write(root, "skills/sec-redteam/customize.toml",
+    '[agent]\ncode        = "redteam"\nname        = ""\ntitle       = "Red Team Agent"\n' +
+    'icon        = "🔴"\ndescription = "Adversarial analysis."\n');
+  const r = run(root);
+  assert.equal(r.status, 1, r.stdout);
+  assert.match(r.stderr, /redteam/);
+});
+
+// A workflow skill's customize.toml carries [workflow], not [agent], and must not be dragged
+// into the roster rule.
+test("check:module ignores a customize.toml with no [agent] block", (t) => {
+  const root = fixture(t);
+  writeModuleHome(root, "solo", "solo");
+  write(root, "skills/solo/customize.toml", "[workflow]\nmax_fix_iterations = 3\n");
+  const r = run(root, ["-v"]);
+  assert.equal(r.status, 0, r.stderr);
+});

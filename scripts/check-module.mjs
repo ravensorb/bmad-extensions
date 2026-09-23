@@ -9,7 +9,7 @@
 // repo alone, so CI can catch a regression even though the real validator never runs here.
 //
 // Deliberately narrow, and deliberately RED against today's layout -- see the commit that
-// introduced this file. The nine assertions:
+// introduced this file. The ten assertions:
 //
 //   1. discovery-layout     the layout BMad's INSTALLER discovers, which is not the layout
 //                            `validate-module.py` validates. Three parts:
@@ -62,7 +62,6 @@
 //                            `_trySingleStandalone` requires EXACTLY ONE existing skill --
 //                            adding a second skill to any of their `skills` arrays, with
 //                            nothing deleted, drops that module to synthesis.
-//
 //   9. help-registration     every mode keyword a skill documents in its SKILL.md routing
 //                            table either carries a `module-help.csv` row or is marked
 //                            excluded in that table's own `Menu` column. A capability with
@@ -71,8 +70,16 @@
 //                            nothing would have caught the next drift. The exclusion set is
 //                            READ FROM THE TABLE, not listed here, and the expectation
 //                            survives the table being deleted -- see the rule's own header.
+//  10. agent-roster          every `agents[]` entry in a module.yaml agrees, field for
+//                            field, with the `[agent]` block in the customize.toml of the
+//                            skill that implements it, and each block is listed by exactly
+//                            one roster. The installer writes the ROSTER into
+//                            `_bmad/config.toml` as `[agents.<code>]`; the skill reads its
+//                            OWN block at activation, so drift gives the agent two
+//                            identities. `code` is the TOML section key, never a directory
+//                            name -- see the rule's own header for the verification.
 //
-// Scope for checks 1-7 and 9 is derived by walking `skills/` and for check 8 from
+// Scope for checks 1-7, 9 and 10 is derived by walking `skills/` and for check 8 from
 // `.claude-plugin/marketplace.json`'s own `plugins` array -- never from a hand-kept list of
 // module codes, skill names or plugin names -- so a code or a plugin nobody told this script
 // about is still found and checked. Check 9 derives a second scope the same way: which
@@ -93,8 +100,9 @@
 // exact, if this numbering drifts again in practice; not done here since it was not observed to
 // have drifted a second time.
 //
-// Parsing: `module.yaml` is read with the `yaml` package, `module-help.csv` with
-// `csv-parse`, and `marketplace.json` with `JSON.parse`. The first two used to be
+// Parsing: `module.yaml` is read with the `yaml` package, `module-help.csv` and the SKILL.md
+// routing tables with `csv-parse`, `customize.toml` with `smol-toml`, and `marketplace.json`
+// with `JSON.parse`. The first two used to be
 // hand-written readers, kept that way only because CI ran no
 // `npm install`; it now runs `npm ci` before every gate, so run `npm ci` once before invoking
 // this locally. See docs/adr/0007-ci-installs-npm-dependencies.md.
@@ -106,6 +114,7 @@ import fs from "node:fs";
 import path from "node:path";
 import YAML from "yaml";
 import { parse as parseCsv } from "csv-parse/sync";
+import { parse as parseToml } from "smol-toml";
 
 // CHECK_MODULE_ROOT points the checker at another tree -- scripts/tests/check-module.test.mjs
 // runs it against fixtures built from an empty skills/ tree.
@@ -844,6 +853,193 @@ function checkHelpRegistration(skills) {
 }
 
 // ---------------------------------------------------------------------------
+// 10. agent-roster: every `agents[]` entry in a module.yaml agrees, field for field, with the
+// `[agent]` block in the customize.toml of the skill that implements it.
+//
+// Why: these are the same declaration in two files that are read by two different things at
+// two different times. The installer reads the ROSTER
+// (manifest-generator.js `collectAgentsFromModuleYaml`) and writes each entry into
+// `_bmad/config.toml` as `[agents.<code>]` with `name`, `title`, `icon` and `description`;
+// the skill reads its OWN `[agent]` block at activation through
+// `resolve_customization.py --key agent`. A drifted icon or title therefore shows one
+// identity in the installed config and another when the agent speaks, and nothing compared
+// them -- the last cross-file pair in this repo with no guard. BMad's own module-builder
+// validation workflow calls out icon drift by name.
+//
+// `code` IS NOT A DIRECTORY NAME, and this check is where that is recorded mechanically.
+// BMad's module-builder guidance suggests matching the skill directory's basename, and
+// `l3io-sec-redteam` deliberately does not: its roster says `code: redteam`. Verified against
+// bmad-method 6.12.0 before relying on it -- `manifest-generator.js:589`, `:597` and `:608`
+// use `agent.code` only to build the `[agents.<code>]` TOML section key, and
+// `tools/installer/project-root.js` never mentions agents at all (its one `agent` match is a
+// `src/core-skills/agents` probe for BMad's own source tree). So the roster entry is matched
+// to its skill through the `[agent] code` in that skill's customize.toml, never through the
+// directory name -- which also means the pair is checked in both directions:
+//
+//   * a roster entry whose code no skill in that module declares is an agent the installer
+//     writes into config.toml and nothing implements;
+//   * a customize.toml `[agent]` block that no roster lists is an agent that is never written
+//     to config.toml at all -- the silent direction, because the skill still activates.
+//
+// `name` may be empty (a First-Breath agent fills it after activation) but the KEY must be
+// present on both sides; `title`, `icon` and `description` must be non-empty on both.
+//
+// Scope is derived: the module codes come from `byCode`, a module's skills the same way
+// checks 5 and 6 derive them (the directory named exactly the code, or prefixed `{code}-`),
+// and the `[agent]` blocks by walking `skills/`. Nothing here is a hand-kept list.
+//
+// TOML is parsed with `smol-toml`, not a regex (global rule 1). check-docs.mjs's `tomlInt()`
+// reads a single integer key with a regex and is not a parser; an identity comparison needs
+// the real quoting and escaping rules.
+const AGENT_TEXT_FIELDS = ["title", "icon", "description"];
+
+// The `[agent]` table of a skill's customize.toml, or null when the file is absent or
+// declares a `[workflow]` instead (every non-agent skill).
+function parseCustomizeAgent(rel) {
+  if (!exists(rel)) return null;
+  let doc;
+  try {
+    doc = parseToml(read(rel));
+  } catch (e) {
+    failures.push(`${rel}: is not valid TOML (${String(e.message).split("\n")[0]})`);
+    return null;
+  }
+  const agent = doc?.agent;
+  if (!agent || typeof agent !== "object" || Array.isArray(agent)) return null;
+  return agent;
+}
+
+function checkAgentRoster(byCode, skills) {
+  const agentSkills = new Map(); // skill -> { rel, agent }
+  for (const skill of skills) {
+    const rel = `skills/${skill}/customize.toml`;
+    const agent = parseCustomizeAgent(rel);
+    if (agent) agentSkills.set(skill, { rel, agent });
+  }
+
+  const claimed = new Set(); // `${skill}\0${code}` pairs a roster entry resolved to
+  let entryCount = 0;
+
+  for (const [code, { assets }] of byCode) {
+    for (const { rel, fields } of assets) {
+      const roster = fields.agents;
+      if (roster === undefined) continue;
+      if (!Array.isArray(roster)) {
+        failures.push(
+          `${rel}: 'agents' is ${JSON.stringify(fieldText(roster))}, not a list -- the ` +
+          `installer iterates it to write one [agents.<code>] block per entry, and a ` +
+          `non-list contributes nothing.`
+        );
+        continue;
+      }
+      const siblings = skills.filter((s) => s === code || s.startsWith(`${code}-`));
+
+      for (const [i, entry] of roster.entries()) {
+        entryCount += 1;
+        const where = `${rel}: agents[${i}]`;
+        if (!entry || typeof entry !== "object" || Array.isArray(entry)) {
+          failures.push(`${where} is not a mapping: ${JSON.stringify(fieldText(entry))}`);
+          continue;
+        }
+        const agentCode = fieldText(entry.code).trim();
+        if (!agentCode) {
+          failures.push(
+            `${where}: missing or empty 'code' -- it is the [agents.<code>] section key the ` +
+            `installer writes into _bmad/config.toml, and manifest-generator.js skips an ` +
+            `entry whose code is not a string.`
+          );
+          continue;
+        }
+        if (!("name" in entry)) {
+          failures.push(
+            `${where} ('${agentCode}'): no 'name' key -- an EMPTY name is valid (a ` +
+            `First-Breath agent fills it after activation), an absent one is not: the ` +
+            `installer writes name = '' either way, so the omission is indistinguishable ` +
+            `from a forgotten field.`
+          );
+        }
+        for (const field of AGENT_TEXT_FIELDS) {
+          if (fieldText(entry[field]).trim() === "") {
+            failures.push(
+              `${where} ('${agentCode}'): '${field}' is missing or empty -- the installer ` +
+              `writes it into [agents.${agentCode}] verbatim, and an empty one is what the ` +
+              `user sees in the agent roster.`
+            );
+          }
+        }
+
+        const matches = siblings.filter(
+          (s) => agentSkills.has(s) && fieldText(agentSkills.get(s).agent.code).trim() === agentCode
+        );
+        if (matches.length === 0) {
+          failures.push(
+            `${where}: declares agent '${agentCode}', but no skill in module '${code}' has a ` +
+            `customize.toml [agent] block with that code (looked in: ` +
+            `${siblings.map((s) => `skills/${s}`).join(", ") || "no sibling skills"}) -- the ` +
+            `installer would write [agents.${agentCode}] into _bmad/config.toml for an agent ` +
+            `nothing implements. The roster entry is matched to its skill through that ` +
+            `[agent] code, never through the directory name.`
+          );
+          continue;
+        }
+        if (matches.length > 1) {
+          failures.push(
+            `${where}: agent code '${agentCode}' is declared by more than one skill ` +
+            `(${matches.map((s) => `skills/${s}/customize.toml`).join(", ")}) -- one code is ` +
+            `one [agents.<code>] TOML table, so two skills claiming it is a duplicate table.`
+          );
+          continue;
+        }
+
+        const skill = matches[0];
+        claimed.add(`${skill}\u0000${agentCode}`);
+        const { rel: tomlRel, agent } = agentSkills.get(skill);
+        if (!("name" in agent)) {
+          failures.push(
+            `${tomlRel}: [agent] has no 'name' key, but ${where} declares one -- the two are ` +
+            `the same field read by the installer and by the skill itself.`
+          );
+        }
+        for (const field of AGENT_TEXT_FIELDS) {
+          const rosterValue = fieldText(entry[field]);
+          const skillValue = fieldText(agent[field]);
+          if (rosterValue === skillValue) continue;
+          failures.push(
+            `${where} ('${agentCode}'): '${field}' is ${JSON.stringify(rosterValue)}, but ` +
+            `${tomlRel}'s [agent] block says ${JSON.stringify(skillValue)} -- the installer ` +
+            `writes the roster value into _bmad/config.toml and the skill reads its own at ` +
+            `activation, so the agent has two identities. Make them equal.`
+          );
+        }
+      }
+    }
+  }
+
+  for (const [skill, { rel, agent }] of agentSkills) {
+    const agentCode = fieldText(agent.code).trim();
+    if (!agentCode) {
+      failures.push(
+        `${rel}: [agent] declares no 'code' -- it is what ties this block to its module.yaml ` +
+        `roster entry and what becomes the [agents.<code>] section key.`
+      );
+      continue;
+    }
+    if (claimed.has(`${skill}\u0000${agentCode}`)) continue;
+    failures.push(
+      `${rel}: declares agent '${agentCode}', but no module.yaml roster in its module lists ` +
+      `it -- the installer writes [agents.<code>] blocks from the roster ALONE, so this ` +
+      `agent never reaches _bmad/config.toml. The skill still activates, which is why this ` +
+      `direction fails silently.`
+    );
+  }
+
+  if (verbose) {
+    console.log(`  agent-roster: ${entryCount} roster entry/entries, ` +
+      `${agentSkills.size} skill [agent] block(s)`);
+  }
+}
+
+// ---------------------------------------------------------------------------
 const skills = listSkillDirs();
 checkRequiredFields(skills);
 const byCode = collectModuleYamlByCode(skills);
@@ -853,6 +1049,7 @@ checkModuleHomes(byCode, skills);
 checkPmStatusSingleton(byCode, skills);
 checkCsvSkillsExist(skills);
 checkHelpRegistration(skills);
+checkAgentRoster(byCode, skills);
 const strategyReport = checkPluginResolverStrategy();
 
 if (verbose) {
