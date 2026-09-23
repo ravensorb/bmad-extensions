@@ -191,6 +191,34 @@ test("check 4: spec-align names in backticks are not read as pm-status subcomman
   assert.equal(r.status, 0, r.stderr + r.stdout);
 });
 
+// The hand-kept prefix list in the forward arm's fallback (the ^(set|estimate|move|archive|
+// append|list|check|clear|self)- test) judges any hyphenated backtick token in that shape, on
+// any line, even one that names neither pm-status.py nor {pm_status}. `check-deps` (a
+// l3io-util-doctor mode keyword) and `check-ignore` (git's own subcommand) both start with
+// "check-", so both used to be misjudged as claimed pm-status.py subcommands.
+test("check 4: an l3io-util-doctor mode keyword (check-deps) is not read as a claimed pm-status subcommand", (t) => {
+  const root = fixture(t);
+  write(root, "CLAUDE.md", "\nSee `check-deps` for the BMad dependency report.\n", true);
+  const r = run(root);
+  assert.equal(r.status, 0, r.stderr + r.stdout);
+});
+
+test("check 4: a token structurally naming another tool's subcommand (grep `check-ignore`) is not read as a claimed pm-status subcommand", (t) => {
+  const root = fixture(t);
+  write(root, "CLAUDE.md", "\nSanity check: grep `check-ignore` in the health check step file.\n", true);
+  const r = run(root);
+  assert.equal(r.status, 0, r.stderr + r.stdout);
+});
+
+test("check 4: a genuinely fabricated pm-status.py subcommand in that same shape is still caught", (t) => {
+  const root = fixture(t);
+  write(root, "CLAUDE.md", "\nRun `check-frobnicate` before shipping a release.\n", true);
+  const r = run(root);
+  assert.equal(r.status, 1, r.stdout);
+  assert.match(r.stderr,
+    /documents pm-status\.py subcommand 'check-frobnicate', which the CLI does not have/);
+});
+
 test("check 10: a spec-align.py subcommand missing from its own docstring is caught", (t) => {
   const root = fixture(t);
   const rel = "skills/_shared/spec-align.py";

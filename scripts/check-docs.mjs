@@ -474,9 +474,16 @@ function checkSectionRefs() {
 // ---------------------------------------------------------------------------
 const PM_STATUS = "skills/_shared/pm-status.py";
 const CLI_REFERENCE_DOC = "docs/l3io-pm-reference.md";
-// Words that follow "pm-status.py" in prose rather than naming a subcommand.
+// Common English glue words -- articles, prepositions, conjunctions, copulas -- that show up
+// beside "pm-status.py"/"spec-align.py" in ordinary prose rather than naming a subcommand.
+// A closed linguistic class, not a domain enumeration: it does not drift as subcommands or
+// modes are added or removed, so keeping it by hand here does not run afoul of "derive the
+// scope, never enumerate it" -- there is no source of truth for "words that are English
+// filler" to derive it from. Reused below (otherToolPrecedesEveryOccurrence) as the same
+// filter on the word immediately BEFORE a candidate token, not just the word after.
 const PROSE_AFTER_CMD = new Set(["only", "is", "are", "and", "or", "the", "for", "with",
-  "to", "from", "in", "on", "at", "by", "not", "itself", "runs", "writes", "reads"]);
+  "to", "from", "in", "on", "at", "by", "not", "itself", "runs", "writes", "reads",
+  "a", "an", "while", "when"]);
 
 function cliSubcommands() {
   // argparse registrations are the authoritative surface: sub.add_parser("name", ...)
@@ -492,6 +499,62 @@ function specAlignSubcommands() {
   if (!exists(SPEC_ALIGN)) return new Set();
   return new Set([...read(SPEC_ALIGN).matchAll(/\bsub\.add_parser\(\s*"([a-z-]+)"/g)]
     .map((m) => m[1]));
+}
+
+// The doctor's mode-keyword routing table, read once and shared with check 25
+// (checkDoctorModeKeywords), which is the check that owns reporting when the table itself
+// fails to parse. Returning {valid, rows} rather than baking the "did it parse" verdict in
+// here keeps that ownership in one place instead of two checks each deciding it their own way.
+function doctorRoutingTable() {
+  const skill = read(`${DOCTOR_DIR}/SKILL.md`);
+  const valid = new Set();
+  let rows = 0;
+  for (const row of skill.matchAll(DOCTOR_ROUTING_ROW_RE)) {
+    rows++;
+    for (const k of row[1].matchAll(/`([^`]+)`/g)) valid.add(k[1].trim());
+  }
+  return { valid, rows };
+}
+
+// The doctor's valid keyword set, DERIVED from the same routing table check 25 uses -- never
+// a hand-list here. Returns null (not an empty set) when the table did not parse, so a caller
+// can tell "no keywords" apart from "table unreadable" and skip exempting anything rather than
+// silently trusting an empty derivation; check 25 is the one place that reports the parse
+// failure itself.
+function doctorModeKeywords() {
+  const { valid, rows } = doctorRoutingTable();
+  return rows < 5 || valid.size < 5 ? null : valid;
+}
+
+// A backtick-quoted hyphenated token immediately preceded -- on the same line, outside its own
+// backticks, with only whitespace between -- by a bare identifier word (letters/digits/
+// underscore only: no hyphen, no dot) that is NOT ordinary English filler (PROSE_AFTER_CMD) is
+// claiming to be a subcommand of THAT word's tool, e.g. "git `check-ignore`", "grep
+// `check-ignore`" -- not of pm-status.py. This is structural (fires on any qualifying
+// preceding bareword) rather than a hand-kept list of other tool names: every real
+// pm-status.py reference-table row instead puts the token right after a `| ` table pipe
+// (tableRowSubcommands() reads those), never after a bare word, and pm-status.py/{pm_status}
+// itself never matches the bareword pattern (both contain a hyphen or a brace). The
+// PROSE_AFTER_CMD filter is what keeps this from firing on ordinary sentences ("a
+// `clear-lock` remedy", "while `set-lock` exits", "on `estimate-story`") -- measured on this
+// tree: without it, 6 correct occurrences of real subcommands lose coverage from this arm
+// (they still pass, because they ARE real, so nothing turns red, but the arm's reach for a
+// FUTURE fabricated name in the same shape would have narrowed for no reason). EVERY
+// occurrence in the text must show the pattern -- a token used once as another tool's
+// subcommand and once as a bare (wrong) pm-status.py claim must still be judged on the claim.
+function otherToolPrecedesEveryOccurrence(text, name) {
+  const escaped = name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  let found = false;
+  for (const line of text.split("\n")) {
+    const tokenRe = new RegExp("`" + escaped + "`", "g");
+    let m;
+    while ((m = tokenRe.exec(line)) !== null) {
+      found = true;
+      const wordMatch = line.slice(0, m.index).match(/\b([a-z][a-z0-9_]*)[ \t]+$/);
+      if (!wordMatch || PROSE_AFTER_CMD.has(wordMatch[1])) return false;
+    }
+  }
+  return found;
 }
 
 // The text of a markdown section: from its heading to the next ##/### heading.
@@ -511,6 +574,7 @@ function checkCliSurface() {
     failures.push(`${PM_STATUS}: no sub.add_parser() calls found — has the CLI been restructured?`);
     return;
   }
+  const doctorKeywords = doctorModeKeywords();
   let checked = 0;
 
   // Forward. Hyphenated names are unambiguous wherever they appear in backticks. Single-word
@@ -558,8 +622,19 @@ function checkCliSurface() {
       // l3io-util-doctor mode) and `adr-justified` in two docs (a spec-align disposition
       // value). Requiring pm-status.py on the line drops those three and keeps seven.
       const derivedClaim = onCliLine.has(name) && cliPrefixes.has(name.split("-")[0]);
-      if (!explicit && !derivedClaim &&
-          !/^(set|estimate|move|archive|append|list|check|clear|self)-/.test(name)) continue;
+      // The hand-kept prefix list's own catch: a token in this shape but on a line that names
+      // neither pm-status.py nor {pm_status}. Two classes of correct prose live there and must
+      // not be judged as a pm-status.py claim: an l3io-util-doctor mode keyword (`check-deps`
+      // is one; the valid set comes from doctorModeKeywords(), the SAME routing-table source
+      // check 25 uses, never a second hand-list here), and a token that is structurally another
+      // tool's subcommand on the same line (`grep \`check-ignore\``, `git \`check-ignore\``, via
+      // otherToolPrecedesEveryOccurrence()). Both exemptions apply ONLY to this fallback arm --
+      // an explicit "pm-status.py check-deps" or a same-line derived claim still gets judged,
+      // because that really would be a false claim about the CLI.
+      const fallbackClaim = /^(set|estimate|move|archive|append|list|check|clear|self)-/.test(name)
+        && !(doctorKeywords && doctorKeywords.has(name))
+        && !otherToolPrecedesEveryOccurrence(text, name);
+      if (!explicit && !derivedClaim && !fallbackClaim) continue;
       checked += 1;
       if (real.has(name)) continue;
       const line = text.split("\n").find((l) => l.includes(name)) || "";
@@ -3684,13 +3759,10 @@ function* walkTextFiles(rel) {
 }
 
 function checkDoctorModeKeywords() {
-  const skill = read(`${DOCTOR_DIR}/SKILL.md`);
-  const valid = new Set();
-  let rows = 0;
-  for (const row of skill.matchAll(DOCTOR_ROUTING_ROW_RE)) {
-    rows++;
-    for (const k of row[1].matchAll(/`([^`]+)`/g)) valid.add(k[1].trim());
-  }
+  // doctorRoutingTable() is the one place that parses the table -- shared with check 4's
+  // fallback-arm exemption (doctorModeKeywords()), so the two checks can never derive
+  // disagreeing keyword sets from the same source.
+  const { valid, rows } = doctorRoutingTable();
   // The set is derived, so a reshaped table would silently derive an EMPTY set and pass
   // everything. Refuse that outcome rather than report a green over nothing.
   if (rows < 5 || valid.size < 5) {
