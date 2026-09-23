@@ -78,7 +78,8 @@
 //
 // Same framing checks 17 and 21 carry, and for the same reason: prose that overstates its own
 // coverage is worse than no prose, because it stops the next reader looking. The whole-branch
-// review measured five escapes (M-2). Three are now closed and each has a mutation test:
+// review measured five escapes (M-2); those four plus seven more are now closed, and each has
+// a mutation test:
 //
 //   CLOSED  a bare `{pm_status} …` invocation with no literal `uv run` — the anchor is now
 //           `uv run` OR the `{pm_status}` binding, the latter qualified on the binding being
@@ -92,18 +93,59 @@
 //           long-flag predicate could not see either, so renaming `usage` or `show` would
 //           have left them stale with every gate green.
 //   CLOSED  a flag that exists somewhere in the CLI but not on the subcommand it is given to
-//           (`set-status --scope story`) — flags are now judged against the invoked
-//           subcommand's own option set. See pmStatusSubcommandOptions().
+//           (`set-status --scope story`) — flags are judged against the invoked subcommand's
+//           own option set. See argparseSurface() / pmStatusSubcommandOptions().
 //   CLOSED  step-00-digest.md's CLI synopsis, a second copy of the CLI surface that every
 //           dispatched subagent loads on its own and nothing verified. See
 //           checkDigestCliSynopsis().
+//   CLOSED  SHORT OPTIONS in a skills/ invocation. `set-status -s done` is now reported.
+//           argparse is the source: pm-status.py registers no short option on any subcommand
+//           today, so every `-x` is wrong — but the set is READ, not assumed, so the day one
+//           is added it is accepted with no edit here. Measured before shipping: 0 short
+//           options occur in the tree, so the false-positive surface is empty by inspection.
+//   CLOSED  FLAG VALUES. `--status not-a-real-status`, `--runtime martian`, `--format xml`
+//           are reported where argparse declares `choices` — literal lists and
+//           `choices=list(CONST)` alike, the constant resolved from the module. Only a plain
+//           literal value is judged; a `{binding}`, `$VAR` or `<PLACEHOLDER>` is what a
+//           directive writes for a value the run supplies. Measured: 136 values judged across
+//           the tree, 0 offenders, so nothing correct turns red.
+//   CLOSED  a value-taking flag given NO value (`set-status --state-root` with nothing after
+//           it), derived from argparse's own action= (store_true and friends take none).
+//   CLOSED  POSITIONALS: a required one missing (`calibration` with no action), and a
+//           positional whose word is not one of its declared `choices`. `nargs="?"`/`"*"`
+//           positionals are optional and judged on value only — `usage`'s `transcript` is one,
+//           and treating it as required reported 8 correct invocations before nargs was read.
+//   CLOSED  FRAGMENTS THAT DO NOT PARSE AS SHELL. A usage synopsis writes alternation as
+//           `(--story KEY | --epic ID)`, which puts a `(` mid-command and is not valid shell;
+//           8 fragments (2 distinct lines x 4 synced copies) were skipped whole, flags and
+//           all. A fragment that fails to parse is now retried with synopsis notation
+//           normalised away (brackets and parentheses to spaces, a STANDALONE `|` to a space,
+//           so `{story|sprint|epic}` is untouched) and only then counted unreadable. The retry
+//           runs only on a fragment that already failed, so it cannot change any verdict that
+//           parsing reached; measured, it recovers all 8 and surfaces no new offender. The
+//           unreadable count is now 0 and `-v` still prints it.
+//   CLOSED  LONG FLAGS ON spec-align.py. checkSpecAlignFlags() judges them per subcommand
+//           through the same argparseSurface() extractor, which handles the two shapes
+//           spec-align's parser uses and pm-status's does not: six
+//           `add_mutually_exclusive_group()` aliases, and the nested `lease acquire` /
+//           `lease release` subparsers, folded into `lease` because that is how the
+//           invocation is written. Measured: 31 flags judged, 0 offenders.
+//   CLOSED  (partly) the live-docs forward arm's HAND-KEPT PREFIX LIST. A second, DERIVED
+//           way in was added: a backticked hyphenated token whose first segment is the first
+//           segment of a real subcommand, ON A LINE THAT ALSO NAMES pm-status.py or
+//           {pm_status}. That brings `adr-reserve` and `add-test-run` in a doc under the
+//           check without the explicit `pm-status.py <name>` form. The same-line qualifier is
+//           what makes it safe, and it was measured: the derived prefixes ALONE newly judge 39
+//           tokens, three of which are correct prose that would red CI (`update-ai-rules`, an
+//           l3io-util-doctor mode, and `adr-justified` in two docs, a spec-align disposition
+//           value). Requiring pm-status.py on the line drops all three and keeps seven.
 //
 // What is STILL NOT CHECKED, stated so nobody has to discover it:
 //
 // This block lists FALSE NEGATIVES — invocations that are wrong and are not reported. It does
-// not list false positives, because there are none known: the two predicates that could
-// produce one (the `uv run` anchor and the code-formatting qualifier) are each pinned by a
-// test that plants prose and requires exit 0.
+// not list false positives, because there are none known: every predicate that could produce
+// one (the `uv run` anchor, the code-formatting qualifier, the same-line CLI qualifier, the
+// literal-value qualifier) is pinned by a test that plants prose and requires exit 0.
 //
 //   (a) The bare `pm-status.py` PATH form with no `uv run` in front of it. Unlike the
 //      `{pm_status}` binding, its prose occurrences DO carry long flags AND are not reliably
@@ -113,29 +155,26 @@
 //      interpreter, not for the absence of one.
 //   (a2) A bare-binding invocation that is NOT code-formatted — `{pm_status} set-status …`
 //      written as plain text, or inside a fenced block with no backticks around it and no
-//      `uv run`. This is the price of (a)'s qualifier, paid deliberately: the same shape in
-//      prose is what the qualifier exists to exclude, and no predicate separates them. Every
-//      real invocation in the tree today is either `uv run`-anchored or code-formatted.
-//   (a3) Long flags on `spec-align.py`. checkSpecAlignSurface() judges SUBCOMMAND NAMES only,
-//      in both directions; it never looks at a flag. `{spec_align} check-pointers --nope X`
-//      passes. The pm-status arm's per-subcommand extraction has no spec-align counterpart.
+//      `uv run`. Re-measured while closing the rest: the tree holds exactly TWO such
+//      occurrences, `assets/migrate-state.md:42` and `:61`, and both are prose ("{pm_status}
+//      not found", "{pm_status} is version {found}") — there is no real invocation of this
+//      shape to miss. The obvious discriminator, "anchor it when the next word is a real
+//      subcommand", is also SELF-DEFEATING for the thing this arm exists to catch: if the
+//      subcommand were renamed the word would stop being real and the anchor would stop
+//      firing, so it could never report the stale name. It would buy only bad-flag detection
+//      on a shape no directive uses, in exchange for reddening on a sentence like
+//      "the {pm_status} report is written by". Left open deliberately, on that measurement.
 //   (a4) Flags past the third soft-wrap inside ONE unclosed code span. MAX_SPAN_JOINS bounds
 //      that join (a stray backtick otherwise swallows to end of file); a `\`-continued
 //      command has no such cap and is read whole however deep it goes.
-//   (a5) In the LIVE-DOCS forward arm only: a hyphenated subcommand named in backticks whose
-//      prefix is not one of set-/estimate-/move-/archive-/append-/list-/check-/clear-/self-,
-//      unless the doc uses the explicit `pm-status.py <name>` form. `add-test-run` and
-//      `adr-reserve` in a doc are judged only through that explicit form. The skills/ arm
-//      does not share this limit — it reads argv, not prose.
-//   (b) Short options (`-s`), positional arguments, and required-argument presence. Only long
-//      options are extracted and only their membership is judged; `set-status --state-root`
-//      with no value, or `calibration` with no action, passes.
-//   (c) Flag VALUES. `--status not-a-real-status`, `--runtime martian`, `--format xml` are all
-//      accepted here; argparse `choices` are not read.
-//   (d) Fragments that do not parse as shell. Measured on this tree: 8 (two distinct usage
-//      synopsis lines x four synced copies) whose `(--story KEY | --epic ID)` alternation is
-//      not valid shell. They are skipped and counted; `-v` prints the number. Making them
-//      failures would turn CI red on correct documentation.
+//   (a5) The live-docs forward arm still carries a HAND-KEPT prefix list for tokens on a line
+//      that does not name pm-status.py at all — see the CLOSED entry above for the derived
+//      arm beside it, and for the measurement that says why the derived rule cannot simply
+//      replace it.
+//   (b2) Short options, flag values and positionals are judged in the skills/ INVOCATION arm
+//      only. The live-docs forward arm judges subcommand NAMES (it reads prose, not argv), and
+//      the digest-synopsis arm judges flag names but not their values, because a synopsis
+//      writes `--scope {story|sprint}` and `--status STATUS` — placeholders by design.
 //   (e) Parenthesised spans inside the digest synopsis. `(...)` there is used both for
 //      alternation over real flags and for prose notes that legitimately name another
 //      subcommand's flags (`archive-epic … (alias for move-epic --to archived)`), so flags
@@ -461,6 +500,7 @@ function docSection(text, heading) {
 function checkCliSurface() {
   const real = cliSubcommands();
   const saReal = specAlignSubcommands();
+  const cliPrefixes = new Set([...real].map((n) => n.split("-")[0]));
   if (real.size === 0) {
     failures.push(`${PM_STATUS}: no sub.add_parser() calls found — has the CLI been restructured?`);
     return;
@@ -479,6 +519,13 @@ function checkCliSurface() {
       ...[...text.matchAll(/`([a-z]+(?:-[a-z]+)+)`/g)].map((m) => m[1]),
       ...[...text.matchAll(/pm-status\.py\s+([a-z-]+)/g)].map((m) => m[1]),
     ]);
+    // Hyphenated names written in backticks ON A LINE THAT ALSO NAMES pm-status.py or the
+    // {pm_status} binding. See the prefix test below for what this buys.
+    const onCliLine = new Set();
+    for (const docLine of text.split("\n")) {
+      if (!/pm-status\.py|\{pm_status\}/.test(docLine)) continue;
+      for (const m of docLine.matchAll(/`([a-z]+(?:-[a-z]+)+)`/g)) onCliLine.add(m[1]);
+    }
     for (const name of named) {
       // "pm-status.py" is followed by prose as often as by a subcommand ("written by
       // pm-status.py only", "see pm-status.py --help"), so filter both shapes out. Flags are
@@ -490,7 +537,23 @@ function checkCliSurface() {
       const explicit = new RegExp(`pm-status\\.py\\s+${name}\\b`).test(text);
       // spec-align.py has check-* subcommands of its own; they are not pm-status claims.
       if (!explicit && saReal.has(name)) continue;
-      if (!explicit && !/^(set|estimate|move|archive|append|list|check|clear|self)-/.test(name)) continue;
+      // Which hyphenated tokens are CLAIMING to be subcommands. Two ways in, and the second
+      // is derived:
+      //   - the hand-kept prefix list, kept because it reaches a token on a line that says
+      //     nothing about pm-status.py at all;
+      //   - any token whose FIRST SEGMENT is the first segment of a real subcommand, when the
+      //     same line also names pm-status.py or {pm_status}. That derivation is what brings
+      //     `adr-reserve` and `add-test-run` in a doc under the check at last -- the KNOWN
+      //     GAPS block recorded both as reachable only through the explicit form.
+      //
+      // The same-line qualifier is not decoration; it is what makes the derived set safe.
+      // Measured on this tree: the derived prefixes alone newly judge 39 tokens, of which
+      // THREE are correct prose that would turn CI red -- `update-ai-rules` (an
+      // l3io-util-doctor mode) and `adr-justified` in two docs (a spec-align disposition
+      // value). Requiring pm-status.py on the line drops those three and keeps seven.
+      const derivedClaim = onCliLine.has(name) && cliPrefixes.has(name.split("-")[0]);
+      if (!explicit && !derivedClaim &&
+          !/^(set|estimate|move|archive|append|list|check|clear|self)-/.test(name)) continue;
       checked += 1;
       if (real.has(name)) continue;
       const line = text.split("\n").find((l) => l.includes(name)) || "";
@@ -570,24 +633,27 @@ function checkCliSurface() {
 // "later pm-status.py write on that node fail" (migrate-state.md, inside a fenced BLOCKED
 // message) is a sentence, not a command, and no stopword list is needed to say so.
 //
-// Flags are checked for EXISTENCE IN THE CLI, not for belonging to that subcommand. The
-// authoritative per-subcommand surface lives in argparse objects that only python can build,
-// and reaching it means one `uv run` subprocess per checker run -- multiplied by the 100+
-// fixture runs in scripts/tests/check-docs.test.mjs. So the rule here is the union of every
-// long option the CLI registers anywhere. Measured against the real thing before shipping:
-// building build_parser() under uv and unioning every subparser's option_strings -- including
-// the --help argparse adds to each, plus the root parser's --version -- yields **84** flags,
-// and pmStatusLongOptions() yields exactly the same 84: set-identical, nothing missing in
-// either direction. (An earlier note here said "82 plus --version", which compared unlike
-// sets: it dropped --help from the argparse side while the checker seeds it. The conclusion
-// held; the number did not, and a measurement stated wrongly is worth no more than one not
-// taken.) What this does NOT catch: a real flag used with the wrong
-// subcommand (`set-status --scope story`). That is stated here rather than implied.
+// WHAT IS JUDGED, per invocation, all of it against the INVOKED SUBCOMMAND's own argparse
+// surface (argparseSurface) rather than the union of everything the CLI registers anywhere:
+// the subcommand name, every long flag, every SHORT option, each flag's VALUE where argparse
+// declares `choices`, whether a value-taking flag was given one, and whether a required
+// positional is present and one of its `choices`. pmStatusLongOptions()'s union survives only
+// as the fallback for a subcommand the extractor did not see, so a future build_parser() shape
+// that defeats it degrades to the old reach instead of turning CI red on correct docs.
 //
-// Not detected, measured on this tree: 8 fragments (2 distinct synopsis lines x 4 synced
-// copies, metrics-contract.md:442 and :547) do not parse as shell, because a usage synopsis
-// writes alternation as `(--story KEY | --epic ID)`. They are skipped and counted; -v prints
-// the number. Making them failures would turn CI red on correct documentation.
+// Why source and not a subprocess: the authoritative answer needs python, and reaching it
+// costs one `uv run` per checker invocation -- ~223 ms measured, multiplied by the 100+
+// fixture runs in scripts/tests/check-docs.test.mjs. The extraction is ANCHORED EXTERNALLY
+// instead: scripts/tests/check-docs.test.mjs runs the real build_parser() under uv, once, and
+// asserts the option sets are identical in both directions.
+//
+// Values are judged only when the token is a plain literal. `{binding}`, `$VAR` and
+// `<PLACEHOLDER>` are what a directive writes for a value the run supplies, and judging those
+// would red on correct docs. Measured on this tree: 136 values judged, 0 offenders.
+//
+// A fragment that does not parse as shell is retried with usage-synopsis notation normalised
+// away before being counted unreadable -- see normaliseSynopsis(). That took the unreadable
+// count on this tree from 8 to 0 without surfacing a single new offender; -v still prints it.
 const PM_STATUS_TOKEN_RE = /^(?:.*\/)?(?:\{pm_status\}|pm-status\.py)$/;
 // All long option strings of one add_argument(...) call, including aliases: --elapsed-hours
 // and --time-hours are registered in one call, and matching only the first would have missed
@@ -629,21 +695,112 @@ function pmStatusLongOptions() {
 // add-test-run), so events are replayed in source order and a rebind retargets the variable.
 // Root-parser options (`p.add_argument("--version")`) are deliberately excluded: argparse
 // accepts `pm-status.py --version`, never `pm-status.py set-status --version`.
-let _subcommandOptionsCache = null;
+// One extractor, four facets. `options` is what pmStatusSubcommandOptions() returns and what
+// the external anchor test pins; `shorts`, `choices`, `valueFlags` and `positionals` are the
+// facets the KNOWN GAPS block used to list as unjudged (short options, flag VALUES, positional
+// and required-argument presence). They come from the same walk because a second walk over the
+// same construct is a second thing to keep in step.
+//
+// Shapes handled, all of them present in one of the two CLIs:
+//   SUBS = ROOT.add_subparsers(...)           the root's subparser factory
+//   VAR  = SUBS.add_parser("name", ...)       binds VAR to that subcommand
+//   NEST = VAR.add_subparsers(...)            a nested factory; its parsers FOLD INTO VAR's
+//                                             subcommand, because `lease acquire --owner` is
+//                                             written as one invocation and judged as one
+//   G    = VAR.add_mutually_exclusive_group() an alias for VAR (spec-align uses six)
+//   VAR.add_argument("--a", "-a", "pos", …)   adds to whatever VAR currently names
+//   helper(VAR)                               an inner `def helper(param)` that add_argument's
+//                                             onto `param` (pm-status's node_args)
+// Variables are REUSED (pm-status's `rp` is report and later repair-issue), so events are
+// replayed in source order and a rebind retargets the variable.
+// Root-parser options (`p.add_argument("--version")`) are deliberately excluded: argparse
+// accepts `pm-status.py --version`, never `pm-status.py set-status --version`.
+const ARG_NAME_RE = /"((?:--|-)?[A-Za-z0-9][A-Za-z0-9-]*)"/g;
 
-function pmStatusSubcommandOptions() {
-  if (_subcommandOptionsCache) return _subcommandOptionsCache;
-  const src = read(PM_STATUS);
+// Every `VAR.add_argument(...)` call in a region, with its FULL argument list. The list is
+// found by balancing parentheses (quote-aware), not by a line-shaped regex: an add_argument
+// spans lines both ways in these two files -- one call wrapping onto a `help=` continuation,
+// and three consecutive one-line calls at the same indent inside `def node_args(sp):`. A
+// tail regex that swallows indented lines ate the second and third of those (--epic and
+// --sprint vanished from five subcommands, caught by the external anchor test), and one that
+// stopped at any `name=` line would truncate the first. Balancing is the only rule that is
+// right for both.
+function pyArgCalls(region) {
+  const out = [];
+  const re = /([a-z_]+)\.add_argument\(/g;
+  let m;
+  while ((m = re.exec(region)) !== null) {
+    let depth = 1;
+    let i = re.lastIndex;
+    let quote = null;
+    while (i < region.length && depth > 0) {
+      const ch = region[i];
+      if (quote !== null) {
+        if (ch === "\\") i += 1;
+        else if (ch === quote) quote = null;
+      } else if (ch === '"' || ch === "'") quote = ch;
+      else if (ch === "(") depth += 1;
+      else if (ch === ")") depth -= 1;
+      i += 1;
+    }
+    const body = region.slice(re.lastIndex, Math.max(re.lastIndex, i - 1));
+    const lead = body.match(/^\s*((?:"[^"]*"\s*,\s*)*"[^"]*")/);
+    if (lead) out.push({ at: m.index, varName: m[1], names: lead[1], tail: body });
+    re.lastIndex = i;
+  }
+  return out;
+}
+
+// Module-level `NAME = [...]` / `NAME = (...)` string collections, so `choices=list(RESOLUTIONS)`
+// resolves to the same values argparse would see. An unresolvable choices= is simply not
+// recorded -- an unknown set judges nothing, which is the fail-open direction a value check
+// must take.
+function pyStringCollections(src) {
+  const out = new Map();
+  for (const m of src.matchAll(/^([A-Z_][A-Z0-9_]*)\s*=\s*[[(]([^\])]*)[\])]/gm)) {
+    const vals = [...m[2].matchAll(/"([^"]*)"|'([^']*)'/g)].map((x) => x[1] ?? x[2]);
+    if (vals.length) out.set(m[1], vals);
+  }
+  return out;
+}
+
+const _surfaceCache = new Map();
+
+function argparseSurface(pyRel) {
+  if (_surfaceCache.has(pyRel)) return _surfaceCache.get(pyRel);
   const bySub = new Map();
+  if (!exists(pyRel)) return (_surfaceCache.set(pyRel, bySub), bySub);
+  const src = read(pyRel);
+  const consts = pyStringCollections(src);
 
   const start = src.indexOf("\ndef build_parser(");
-  if (start < 0) return (_subcommandOptionsCache = bySub);
+  if (start < 0) return (_surfaceCache.set(pyRel, bySub), bySub);
   const rest = src.slice(start + 1);
   const end = rest.search(/\n(?:def |if __name__)/);
   const region = end < 0 ? rest : rest.slice(0, end);
   const lines = region.split("\n");
 
-  const optionsOf = (call) => [...call.matchAll(/"(--[a-z0-9-]+)"/g)].map((m) => m[1]);
+  const choicesOf = (tail) => {
+    const lit = tail.match(/choices=\[([^\]]*)\]/);
+    if (lit) {
+      const vals = [...lit[1].matchAll(/"([^"]*)"|'([^']*)'/g)].map((x) => x[1] ?? x[2]);
+      return vals.length ? vals : null;
+    }
+    const named = tail.match(/choices=(?:list|tuple|sorted)\(([A-Z_]+)\)/) ||
+                  tail.match(/choices=([A-Z_]+)\b/);
+    return named && consts.has(named[1]) ? consts.get(named[1]) : null;
+  };
+  const argsOf = (call, tail) => {
+    const names = [...call.matchAll(ARG_NAME_RE)].map((m) => m[1]);
+    return {
+      names,
+      // store_true/store_false/count/store_const consume no value; everything else does.
+      takesValue: !/action="(store_true|store_false|count|store_const|help|version)"/.test(tail),
+      // nargs="?" and nargs="*" make a positional optional; a bare positional is required.
+      optional: /nargs="[?*]"/.test(tail),
+      choices: choicesOf(tail),
+    };
+  };
 
   // Inner helpers, collected by indentation: `    def NAME(PARAM):` plus the more-indented
   // block under it.
@@ -651,43 +808,102 @@ function pmStatusSubcommandOptions() {
   for (let i = 0; i < lines.length; i++) {
     const def = lines[i].match(/^(\s+)def ([a-z_]+)\(([a-z_]+)\):\s*$/);
     if (!def) continue;
-    const [, indent, name, param] = def;
+    const [, indent, name] = def;
     let body = "";
     for (let j = i + 1; j < lines.length; j++) {
       if (lines[j].trim() !== "" && !lines[j].startsWith(indent + " ")) break;
       body += lines[j] + "\n";
     }
-    const flags = [];
-    for (const call of body.matchAll(PY_LONG_OPTION_RE)) flags.push(...optionsOf(call[1]));
-    helpers.set(name, flags);
+    const args = pyArgCalls(body).map((c) => argsOf(c.names, c.tail));
+    helpers.set(name, args);
   }
 
   const events = [];
-  for (const m of region.matchAll(/([a-z_]+)\s*=\s*sub\.add_parser\(\s*"([a-z-]+)"/g)) {
-    events.push({ at: m.index, bind: m[1], sub: m[2] });
+  for (const m of region.matchAll(/([a-z_]+)\s*=\s*([a-z_]+)\.add_subparsers\(/g)) {
+    events.push({ at: m.index, factory: m[1], of: m[2] });
   }
-  for (const m of region.matchAll(/([a-z_]+)\.add_argument\(\s*((?:"--[a-z0-9-]+"\s*,\s*)*"--[a-z0-9-]+")/g)) {
-    events.push({ at: m.index, varName: m[1], flags: optionsOf(m[2]) });
+  for (const m of region.matchAll(/([a-z_]+)\s*=\s*([a-z_]+)\.add_parser\(\s*"([a-z-]+)"/g)) {
+    events.push({ at: m.index, bind: m[1], factory: m[2], sub: m[3] });
   }
-  for (const [name, flags] of helpers) {
+  for (const m of region.matchAll(/([a-z_]+)\s*=\s*([a-z_]+)\.add_(?:mutually_exclusive_group|argument_group)\(/g)) {
+    events.push({ at: m.index, alias: m[1], of: m[2] });
+  }
+  for (const c of pyArgCalls(region)) {
+    events.push({ at: c.at, varName: c.varName, args: [argsOf(c.names, c.tail)] });
+  }
+  for (const [name, args] of helpers) {
     for (const m of region.matchAll(new RegExp(`\\n\\s*${name}\\(([a-z_]+)\\)`, "g"))) {
-      events.push({ at: m.index, varName: m[1], flags });
+      events.push({ at: m.index, varName: m[1], args });
     }
   }
   events.sort((a, b) => a.at - b.at);
 
-  const varToSub = new Map();
+  const varToSub = new Map();   // parser variable -> subcommand it belongs to
+  const factoryOf = new Map();  // subparsers-factory variable -> parent subcommand, or null for root
   for (const ev of events) {
+    if (ev.factory && ev.bind === undefined) {
+      factoryOf.set(ev.factory, varToSub.get(ev.of) ?? null);
+      continue;
+    }
     if (ev.bind) {
-      varToSub.set(ev.bind, ev.sub);
-      if (!bySub.has(ev.sub)) bySub.set(ev.sub, new Set(["--help"]));
+      // A nested factory folds into its parent subcommand; the root factory opens a new one.
+      const parent = factoryOf.get(ev.factory);
+      const sub = parent ?? ev.sub;
+      varToSub.set(ev.bind, sub);
+      if (!bySub.has(sub)) {
+        bySub.set(sub, {
+          options: new Set(["--help"]), shorts: new Set(["-h"]),
+          choices: new Map(), valueFlags: new Map(), positionals: [],
+        });
+      }
+      continue;
+    }
+    if (ev.alias) {
+      const s = varToSub.get(ev.of);
+      if (s) varToSub.set(ev.alias, s);
       continue;
     }
     const sub = varToSub.get(ev.varName);
-    if (!sub) continue; // p.add_argument(...) on the root parser, and anything before a bind
-    for (const f of ev.flags) bySub.get(sub).add(f);
+    if (!sub) continue;  // the root parser, and anything before the first bind
+    const entry = bySub.get(sub);
+    for (const a of ev.args) {
+      for (const name of a.names) {
+        if (name.startsWith("--")) {
+          entry.options.add(name);
+          entry.valueFlags.set(name, a.takesValue);
+          if (a.choices) entry.choices.set(name, new Set(a.choices));
+        } else if (name.startsWith("-")) {
+          entry.shorts.add(name);
+        } else {
+          entry.positionals.push({ name, optional: a.optional, choices: a.choices });
+        }
+      }
+    }
   }
-  return (_subcommandOptionsCache = bySub);
+  _surfaceCache.set(pyRel, bySub);
+  return bySub;
+}
+
+// PER-SUBCOMMAND long options: Map<subcommand, Set<"--flag">>, the projection of
+// argparseSurface() that the external anchor test pins.
+//
+// Why this is not the union pmStatusLongOptions() returns. The union answers "does
+// pm-status.py have this flag anywhere", which passes `set-status --scope story` -- a real
+// flag on the wrong subcommand, a class the whole-branch review named as open (M-2(3)).
+//
+// Why source and not a subprocess. The authoritative answer needs python, and reaching it
+// costs one `uv run` per checker invocation -- ~223 ms measured, multiplied by the 100+
+// fixture runs in scripts/tests/check-docs.test.mjs. So the surface is extracted from source
+// and ANCHORED EXTERNALLY: scripts/tests/check-docs.test.mjs runs the real build_parser()
+// under uv, once, and asserts this function's output is set-identical to
+// `{sub: [a.option_strings]}` in BOTH directions. That is the pattern ADR-0008 lesson 5
+// prescribes -- derive the scope internally, anchor the content externally -- and it is what
+// makes a regex over python source defensible here: it is not a Python parser, it reads one
+// deliberately regular construct, and a second source of truth fails the build if it drifts.
+function pmStatusSubcommandOptions() {
+  const out = new Map();
+  for (const [sub, entry] of argparseSurface(PM_STATUS)) out.set(sub, entry.options);
+  return out;
 }
 
 // 4 (continued). The activation digest's CLI synopsis.
@@ -924,6 +1140,9 @@ function pmStatusAnchors(text) {
 // the flag arm below and check 4's module-reference arm read the corpus the SAME way: two
 // extractors over one corpus is two things to keep in step, and the second one silently
 // diverging is how a guard stops covering what its prose says it covers.
+const normaliseSynopsis = (s) =>
+  s.replace(/[()[\]]/g, " ").replace(/(^|\s)\|(\s|$)/g, "$1 $2");
+
 function* pmStatusCommands(rel) {
   for (const { text, line } of logicalLines(read(rel))) {
     for (const anchor of pmStatusAnchors(text)) {
@@ -932,7 +1151,17 @@ function* pmStatusCommands(rel) {
       if (closingBacktick >= 0) fragment = fragment.slice(0, closingBacktick);
       if (!/\{pm_status\}|pm-status\.py/.test(fragment)) continue;
 
-      const commands = shellCommands(fragment);
+      // A usage SYNOPSIS is not valid shell: `(--story KEY | --epic ID)` puts a `(` in the
+      // middle of a simple command, which bash rejects. Eight fragments on this tree (two
+      // distinct lines x four synced copies) were skipped for that reason alone, taking
+      // their real flags with them. So a fragment that does not parse is retried with
+      // synopsis notation normalised away -- brackets and parentheses become spaces, a
+      // standalone `|` becomes a space -- and only then counted unreadable. The retry runs
+      // ONLY on a fragment that already failed, so it cannot change the verdict on anything
+      // that parses; measured on this tree it recovers all 8 and surfaces no new offender.
+      // `{story|sprint|epic}` is untouched: only a `|` with whitespace on both sides goes.
+      let commands = shellCommands(fragment);
+      if (commands === null) commands = shellCommands(normaliseSynopsis(fragment));
       if (commands === null) { yield { unreadable: true }; continue; }
       for (const { argv } of commands) {
         const at = argv.findIndex((t) => typeof t === "string" && PM_STATUS_TOKEN_RE.test(t));
@@ -948,8 +1177,9 @@ function* pmStatusCommands(rel) {
 function checkPmStatusInvocations() {
   const real = cliSubcommands();
   const flags = pmStatusLongOptions();
-  const bySub = pmStatusSubcommandOptions();
+  const surface = argparseSurface(PM_STATUS);
   let checked = 0;
+  let valuesChecked = 0;
   let unreadable = 0;
   // Reported under -v because it is the number a depth regression moves, and nothing else
   // would show it: an invocation truncated mid-command still counts as one `checked`
@@ -980,21 +1210,92 @@ function checkPmStatusInvocations() {
       // scripts/tests/check-docs.test.mjs; the union is kept only as the fallback for a
       // subcommand the extractor did not see, so a future build_parser() shape that
       // defeats it degrades to the old reach instead of turning CI red on correct docs.
-      const allowed = bySub.get(sub) || flags;
-      const perSubcommand = bySub.has(sub);
-      for (const token of argv.slice(at + 2)) {
-        if (typeof token !== "string" || !token.startsWith("--")) continue;
+      const entry = surface.get(sub);
+      const allowed = entry ? entry.options : flags;
+      const perSubcommand = Boolean(entry);
+      const rest = argv.slice(at + 2);
+      const free = [];   // non-option words that are not a preceding flag's value
+      for (let i = 0; i < rest.length; i += 1) {
+        const token = rest[i];
+        if (typeof token !== "string") continue;
+        if (token === "--") break;            // everything after it is a positional
+        if (!token.startsWith("-") || token === "-") { free.push(token); continue; }
+
+        // SHORT OPTIONS. Derived, never assumed: pm-status.py registers none today, so any
+        // `-x` is wrong -- but the set is read out of argparse, so the day one is added it
+        // is accepted without touching this file.
+        if (!token.startsWith("--")) {
+          if (/^-\d/.test(token)) { free.push(token); continue; }   // a negative number value
+          if (entry && !entry.shorts.has(token)) {
+            offenders.push(`${rel}:${line}: invokes '${sub} ${token}', but pm-status.py ` +
+              `registers no such short option on '${sub}'` +
+              (entry.shorts.size <= 1 ? " (it registers no short options at all)" : ""));
+          }
+          continue;
+        }
+
         const flag = token.split("=")[0];
-        if (flag === "--") continue;
         flagsChecked += 1;
-        if (allowed.has(flag)) continue;
-        offenders.push(
-          perSubcommand && flags.has(flag)
-            ? `${rel}:${line}: invokes '${sub} ${flag}', but pm-status.py registers that ` +
-              `option on other subcommands only, never on '${sub}'\n      ${sub} takes: ` +
-              `${[...allowed].sort().join(" ")}`
-            : `${rel}:${line}: invokes '${sub} ${flag}', but pm-status.py ` +
-              `registers no such option anywhere in its CLI`);
+        if (!allowed.has(flag)) {
+          offenders.push(
+            perSubcommand && flags.has(flag)
+              ? `${rel}:${line}: invokes '${sub} ${flag}', but pm-status.py registers that ` +
+                `option on other subcommands only, never on '${sub}'\n      ${sub} takes: ` +
+                `${[...allowed].sort().join(" ")}`
+              : `${rel}:${line}: invokes '${sub} ${flag}', but pm-status.py ` +
+                `registers no such option anywhere in its CLI`);
+          continue;
+        }
+        if (!entry) continue;
+
+        // The flag's VALUE: present when argparse needs one, and one of its `choices` when
+        // argparse declares them. Only a plain literal value is judged -- a `{binding}`, a
+        // `$VAR`, a `<PLACEHOLDER>` or anything else non-literal is what a directive writes
+        // for a value the run supplies, and judging those would red on correct docs.
+        const takesValue = entry.valueFlags.get(flag) !== false;
+        let value = null;
+        if (token.includes("=")) value = token.slice(token.indexOf("=") + 1);
+        else if (takesValue) {
+          const next = rest[i + 1];
+          if (typeof next === "string" && !next.startsWith("--")) { value = next; i += 1; }
+        }
+        if (takesValue && value === null) {
+          offenders.push(`${rel}:${line}: invokes '${sub} ${flag}' with no value, but ` +
+            `pm-status.py declares it as taking one`);
+          continue;
+        }
+        const choices = entry.choices.get(flag);
+        if (!choices || value === null) continue;
+        if (!/^[A-Za-z][A-Za-z0-9_.-]*$/.test(value)) continue;
+        valuesChecked += 1;
+        if (!choices.has(value)) {
+          offenders.push(`${rel}:${line}: invokes '${sub} ${flag} ${value}', but ` +
+            `pm-status.py accepts only ${[...choices].sort().join(" | ")} there`);
+        }
+      }
+
+      // POSITIONALS. A required positional (no nargs, or a numeric one) must be supplied,
+      // and when argparse declares `choices` for it the word given must be one of them.
+      // `nargs="?"`/`nargs="*"` positionals are optional and judged only on their value.
+      if (entry) {
+        entry.positionals.forEach((pos, idx) => {
+          const given = free[idx];
+          if (given === undefined) {
+            if (!pos.optional) {
+              offenders.push(`${rel}:${line}: invokes '${sub}' with no ${pos.name}, but ` +
+                `pm-status.py requires that argument` +
+                (pos.choices ? ` (${pos.choices.join(" | ")})` : ""));
+            }
+            return;
+          }
+          if (!pos.choices) return;
+          if (!/^[A-Za-z][A-Za-z0-9_.-]*$/.test(given)) return;
+          valuesChecked += 1;
+          if (!pos.choices.includes(given)) {
+            offenders.push(`${rel}:${line}: invokes '${sub} ${given}', but pm-status.py ` +
+              `accepts only ${pos.choices.join(" | ")} as its ${pos.name}`);
+          }
+        });
       }
     }
   }
@@ -1004,8 +1305,10 @@ function checkPmStatusInvocations() {
       `not exist:\n      ${offenders.join("\n      ")}`);
   }
   if (verbose) {
-    console.log(`  pm-status-invocations: ${checked} invocation(s) and ${flagsChecked} long ` +
-      `flag(s) in skills/ checked (${unreadable} fragment(s) not readable as shell, skipped)`);
+    console.log(`  pm-status-invocations: ${checked} invocation(s), ${flagsChecked} long ` +
+      `flag(s) and ${valuesChecked} flag/positional value(s) in skills/ checked ` +
+      `(${unreadable} fragment(s) not readable as shell even after synopsis normalisation, ` +
+      `skipped)`);
   }
 }
 
@@ -1137,6 +1440,85 @@ function tableRowSubcommands(text) {
 // `{spec_align}` binding, so forward reads `{spec_align} <sub>` anywhere, and the explicit
 // `spec-align.py <sub>` form only inside code (a fence or a backtick span) -- prose such as
 // "spec-align.py stays one file" is not a claim. Scope: every live doc and every skill doc.
+//
+// FLAGS ARE NOW JUDGED TOO, per subcommand, the same way the pm-status arm judges them and
+// through the same argparseSurface() extractor. This arm used to read subcommand NAMES only,
+// in both directions, and never look at a flag -- `{spec_align} check-pointers --nope X`
+// passed. spec-align.py's parser needs two shapes pm-status.py does not use, and the shared
+// extractor handles both: six `add_mutually_exclusive_group()` aliases, and the nested
+// `lease acquire` / `lease release` subparsers, whose options fold into `lease` because
+// `{spec_align} lease acquire --owner E001` is written and judged as one invocation.
+// Measured before shipping: 31 flags judged across the tree, 0 offenders.
+//
+// Extraction is shell-parsed, not regex'd over text: the same logicalLines() + anchor +
+// mvdan-sh path the pm-status arm uses, so a `\`-continued invocation is read whole.
+const SPEC_ALIGN_TOKEN_RE = /^(?:.*\/)?(?:\{spec_align\}|spec-align\.py)$/;
+
+function* specAlignCommands(rel) {
+  for (const { text, line } of logicalLines(read(rel))) {
+    const anchors = [];
+    for (const m of text.matchAll(/\buv\s+run\b/g)) anchors.push(m.index);
+    // The bare `{spec_align}` binding, qualified on code formatting for exactly the reason
+    // pmStatusAnchors() qualifies its own bare anchor -- see that function's comment.
+    for (const m of text.matchAll(/\{spec_align\}/g)) {
+      const before = (text.slice(0, m.index).match(/`/g) || []).length;
+      if (before % 2 === 1 && text.indexOf("`", m.index) >= 0) anchors.push(m.index);
+    }
+    for (const at of [...new Set(anchors)].sort((a, b) => a - b)) {
+      let fragment = text.slice(at);
+      const closing = fragment.indexOf("`");
+      if (closing >= 0) fragment = fragment.slice(0, closing);
+      if (!/\{spec_align\}|spec-align\.py/.test(fragment)) continue;
+      let commands = shellCommands(fragment);
+      if (commands === null) commands = shellCommands(normaliseSynopsis(fragment));
+      if (commands === null) continue;
+      for (const { argv } of commands) {
+        const i = argv.findIndex((t) => typeof t === "string" && SPEC_ALIGN_TOKEN_RE.test(t));
+        if (i < 0) continue;
+        // spec-align.py's GLOBAL flags come before the subcommand (`--project-root` is
+        // required), so the subcommand is not always the next token. Every real invocation in
+        // the tree writes them into the `{spec_align}` binding itself and so has the
+        // subcommand first, but a doc spelling the path out does not have to -- skip a
+        // leading run of options and their values to find it. Those globals belong to the
+        // root parser and are deliberately not judged here.
+        let j = i + 1;
+        while (j < argv.length && typeof argv[j] === "string" && argv[j].startsWith("-")) {
+          j += argv[j].includes("=") ? 1 : 2;
+        }
+        const cmd = argv[j];
+        if (typeof cmd !== "string" || !/^[a-z][a-z-]*$/.test(cmd)) continue;
+        yield { sub: cmd, argv, at: j, line };
+      }
+    }
+  }
+}
+
+function checkSpecAlignFlags() {
+  const surface = argparseSurface(SPEC_ALIGN);
+  const offenders = [];
+  let flagsChecked = 0;
+  for (const rel of [...LIVE_DOCS, ...walkMarkdown("skills")]) {
+    for (const { sub, argv, at, line } of specAlignCommands(rel)) {
+      const entry = surface.get(sub);
+      if (!entry) continue;   // an unknown subcommand is the name arm's offence, not this one
+      for (const token of argv.slice(at + 1)) {
+        if (typeof token !== "string" || !token.startsWith("--") || token === "--") continue;
+        const flag = token.split("=")[0];
+        flagsChecked += 1;
+        if (entry.options.has(flag)) continue;
+        offenders.push(`${rel}:${line}: invokes 'spec-align.py ${sub} ${flag}', but ` +
+          `spec-align.py registers no such option on '${sub}'\n      ${sub} takes: ` +
+          `${[...entry.options].sort().join(" ")}`);
+      }
+    }
+  }
+  if (offenders.length) {
+    failures.push(`spec-align.py invocations use options their subcommand does not have:\n` +
+      `      ${offenders.join("\n      ")}`);
+  }
+  if (verbose) console.log(`  spec-align-flags: ${flagsChecked} flag(s) checked per subcommand`);
+}
+
 function checkSpecAlignSurface() {
   const real = specAlignSubcommands();
   if (real.size === 0) {
@@ -1177,6 +1559,7 @@ function checkSpecAlignSurface() {
       `as a table row under "${SPEC_ALIGN_HEADING}"`);
   }
   if (verbose) console.log(`  spec-align-surface: ${checked} claim(s) checked both ways`);
+  checkSpecAlignFlags();
 }
 
 // ---------------------------------------------------------------------------
@@ -2050,16 +2433,27 @@ function checkBmadDependencyInventory() {
 // the text or restructure the step; do not add a silencer without first measuring, the way this
 // paragraph was measured.
 //
+// Closed since this list was written, each with a mutation test:
+//   - `bash -c 'python3 S.py'` and `sh -lc "…"`. The inner string is shell, so it is parsed as
+//     shell and judged by the same rule, to a depth of MAX_SHELL_C_DEPTH. See
+//     shellDashCScript(). (`xargs python3 S.py` was ALREADY caught, by the over-approximation
+//     above -- re-verified with a test rather than taken on the old note's word.)
+//   - `PY=$(which python3); $PY S.py`. A command substitution that is a path LOOKUP --
+//     `which X`, `command -v X`, `type -p X` -- resolves to X. See commandLookupTarget().
+//     Nothing else in a substitution is resolved: this reads a lookup, it does not guess.
+//   - a variable from a workflow's `env:`, at workflow, job or step level, in GitHub's own
+//     precedence order. See envForRunStep(). A value containing a `${{ }}` expression is not
+//     a literal and is not seeded.
+//
 // Known gaps (listed rather than left to look complete):
-//   - a command that reaches python3 through ANOTHER program's own argument parsing or through
-//     a second file -- `bash -c 'python3 S.py'`, `sh -lc …`, `make test`, a script that runs a
-//     script. The rule sees the argv it is given and does not follow a command into another
-//     program's conventions or into another file. (`xargs python3 S.py` IS caught: `python3` is
-//     an argv word of the command being read, and the over-approximation above covers it. This
-//     entry used to claim otherwise, which understated real coverage -- fix round 1, L-1.)
-//   - a variable whose value is not statically known: `PY=$(which python3); $PY S.py`, or one
-//     exported by an earlier `run:` step or by `env:` at job level. Literal in-script
-//     assignments (`PY=python3; $PY S.py`) ARE resolved.
+//   - a command that reaches python3 through a SECOND FILE -- `make test`, a script that runs
+//     a script. Judging those means following the invocation into another file written in
+//     another language (a Makefile, in the first case -- and this repo has none for it to
+//     reach). The rule sees the argv it is given; it does not open other files.
+//   - a variable exported by an EARLIER `run:` step through `$GITHUB_ENV`. That is state
+//     carried between steps through a file, so reading it means interpreting one step's
+//     writes as another step's inputs. Literal in-script assignments (`PY=python3; $PY S.py`)
+//     and `env:` maps ARE resolved.
 //   - `python3 -m <runner> <script>.py` is judged by the runner's FIRST non-flag argument, so
 //     `-m pytest S.py` is caught and `-m pip install … build.py` is correctly not. A runner
 //     that takes the script somewhere else in its argv is missed, including behind one of the
@@ -2107,10 +2501,34 @@ const WRAPPER_COMMANDS = new Set(["env", "sudo", "doas", "nice", "ionice", "nohu
 // `--with-coverage` is not one of them; matching a bare `--with\b` used to accept it.
 const UV_PROVISION_FLAG_RE = /^--with(?:-editable|-requirements)?(?:=|$)/;
 
+// The one command substitution whose value IS statically known: a lookup of a command's own
+// path. `which python3`, `command -v python3` and `type -p python3` all print a path to
+// python3, so `PY=$(which python3); $PY s.py` is a python3 invocation the checker can see --
+// it was the first entry under "a variable whose value is not statically known", and it is
+// the shape a real workflow writes. Anything else in a substitution stays unknown: this
+// resolves a lookup, it does not execute anything or guess.
+const PATH_LOOKUP_COMMANDS = new Set(["which", "command", "type", "whence"]);
+
+function commandLookupTarget(cmdSubst) {
+  const stmts = cmdSubst.Stmts || [];
+  if (stmts.length !== 1) return null;
+  const cmd = stmts[0].Cmd;
+  if (!cmd || syntax.NodeType(cmd) !== "CallExpr") return null;
+  const words = (cmd.Args || []).map((w) => (w.Parts || [])
+    .map((pt) => (syntax.NodeType(pt) === "Lit" || syntax.NodeType(pt) === "SglQuoted")
+      ? pt.Value : null)
+    .reduce((acc, v) => (acc === null || v === null ? null : acc + v), ""));
+  if (words.some((w) => w === null) || words.length < 2) return null;
+  if (!PATH_LOOKUP_COMMANDS.has(words[0].replace(/^.*\//, ""))) return null;
+  const last = words[words.length - 1];
+  return /^-/.test(last) ? null : last;
+}
+
 // Flatten a parsed shell Word to the literal text the shell would produce, or null when part
-// of it is an expansion whose value is not statically known (a command substitution, an
-// arithmetic expansion, an unresolved parameter). Returning null rather than a partial string
-// keeps a half-known token from ever comparing equal to `uv`, `run` or an interpreter name.
+// of it is an expansion whose value is not statically known (an arithmetic expansion, an
+// unresolved parameter, a command substitution that is not a path lookup). Returning null
+// rather than a partial string keeps a half-known token from ever comparing equal to `uv`,
+// `run` or an interpreter name.
 function wordLiteral(word, vars) {
   let text = "";
   let known = true;
@@ -2122,6 +2540,8 @@ function wordLiteral(word, vars) {
       else if (kind === "DblQuoted") visit(part.Parts);
       else if (kind === "ParamExp" && !part.Exp && part.Param && vars.has(part.Param.Value)) {
         text += vars.get(part.Param.Value);
+      } else if (kind === "CmdSubst" && commandLookupTarget(part) !== null) {
+        text += commandLookupTarget(part);
       } else known = false;
     }
   };
@@ -2133,15 +2553,17 @@ function wordLiteral(word, vars) {
 // a `$( )` substitution, an `if`/`while` body or a function come out as their own entries --
 // that is what makes the substitution and shell-block cases work without a special case here.
 // A bare `NAME=value` command (assignments with no argv) sets a variable for the commands that
-// follow it instead of producing one. Returns null when the script is not valid shell.
-function shellCommands(script) {
+// follow it instead of producing one. `seed` supplies variables the script inherits rather
+// than sets -- a workflow's `env:` maps, which are the other half of the
+// "value not statically known" gap. Returns null when the script is not valid shell.
+function shellCommands(script, seed) {
   let file;
   try {
     file = shellParser.Parse(script, "run");
   } catch {
     return null;
   }
-  const vars = new Map();
+  const vars = new Map(seed || []);
   const commands = [];
   syntax.Walk(file, (node) => {
     if (!node || syntax.NodeType(node) !== "CallExpr") return true;
@@ -2235,14 +2657,50 @@ function offenceMessage(offence) {
       `\`uv run\` -- the checker does not try to prove it harmless; quote it or remove it`;
 }
 
+// A command that hands a whole script to another shell: `bash -c '…'`, `sh -lc '…'`,
+// `zsh -c …`. The inner string is shell, so it is parsed as shell and judged by the same
+// rule -- closing the first half of the "reaches python3 through another program's argument
+// parsing" gap. The other halves (`make target`, a script that runs a script) are NOT closed:
+// both mean following the invocation into ANOTHER FILE written in another language, and the
+// repo has no Makefile for the first to even reach. That remains recorded as a gap.
+const SHELL_COMMANDS = new Set(["sh", "bash", "zsh", "dash", "ksh", "ash", "busybox"]);
+const MAX_SHELL_C_DEPTH = 3;
+
+function shellDashCScript(argv) {
+  if (argv.length < 2 || typeof argv[0] !== "string") return null;
+  if (!SHELL_COMMANDS.has(argv[0].replace(/^.*\//, ""))) return null;
+  for (let i = 1; i < argv.length; i += 1) {
+    const tok = argv[i];
+    if (typeof tok !== "string") return null;
+    // `-c`, or a cluster containing it (`-lc`, `-ec`, `-euxc`). A long option never carries it.
+    if (/^-[^-]*c[^-]*$/.test(tok)) {
+      const script = argv[i + 1];
+      return typeof script === "string" ? script : null;
+    }
+    if (!tok.startsWith("-")) return null;   // the first non-option ends the option run
+  }
+  return null;
+}
+
 // Every offending command in a shell script. null means the script is not valid shell -- the
 // caller decides what that means for its corpus.
-function pep723Offences(script) {
-  const commands = shellCommands(script);
+function pep723Offences(script, seed, depth = 0) {
+  const commands = shellCommands(script, seed);
   if (commands === null) return null;
-  return commands
-    .map((c) => ({ line: c.line, offence: commandOffence(c.argv) }))
-    .filter((c) => c.offence !== null);
+  const out = [];
+  for (const c of commands) {
+    const offence = commandOffence(c.argv);
+    if (offence !== null) { out.push({ line: c.line, offence }); continue; }
+    if (depth >= MAX_SHELL_C_DEPTH) continue;
+    const inner = shellDashCScript(stripWrappers(c.argv));
+    if (inner === null) continue;
+    for (const nested of pep723Offences(inner, seed, depth + 1) || []) {
+      // The inner script's own line numbers are meaningless outside it; report the line the
+      // wrapping command sits on, which is the line a reader has to edit.
+      out.push({ line: c.line, offence: nested.offence });
+    }
+  }
+  return out;
 }
 
 function* walkWorkflowFiles() {
@@ -2276,6 +2734,38 @@ function scanMarkdownForPep723(rel) {
   return offenders;
 }
 
+// A mapping node's literal string entries, for an `env:` block. A non-scalar or non-string
+// value (an expression, a nested map) is simply not seeded -- an unknown variable stays
+// unknown, which is where it was before.
+function literalEnvMap(node) {
+  const out = new Map();
+  if (!YAML.isMap(node)) return out;
+  for (const pair of node.items) {
+    if (!YAML.isScalar(pair.key) || typeof pair.key.value !== "string") continue;
+    if (!YAML.isScalar(pair.value) || typeof pair.value.value !== "string") continue;
+    if (/\$\{\{/.test(pair.value.value)) continue;   // a GitHub expression, not a literal
+    out.set(pair.key.value, pair.value.value);
+  }
+  return out;
+}
+
+// The env a `run:` step inherits: workflow-level, then the job's, then the step's own, in
+// GitHub's own precedence order. This closes the `env:`-at-job-level half of the
+// "value not statically known" gap -- `env: {PY: python3}` plus `run: $PY s.py` used to be
+// invisible. What is still NOT closed is a variable a PREVIOUS step exported through
+// $GITHUB_ENV: that is state carried between steps through a file, and reading it means
+// interpreting one step's writes as another step's inputs.
+function envForRunStep(doc, pairPath) {
+  const seed = new Map();
+  const apply = (node) => { for (const [k, v] of literalEnvMap(node)) seed.set(k, v); };
+  for (const ancestor of pairPath) {
+    if (!YAML.isMap(ancestor)) continue;
+    const env = ancestor.items.find((it) => YAML.isScalar(it.key) && it.key.value === "env");
+    if (env) apply(env.value);
+  }
+  return seed;
+}
+
 // Workflows: the YAML document supplies the `run:` scripts, the shared rule decides them.
 // Both parsers fail closed.
 function scanWorkflowForPep723(rel) {
@@ -2295,7 +2785,7 @@ function scanWorkflowForPep723(rel) {
   const lineOfOffset = (offset) => text.slice(0, offset).split("\n").length;
 
   YAML.visit(doc, {
-    Pair(_key, pair) {
+    Pair(_key, pair, pairPath) {
       if (!YAML.isScalar(pair.key) || pair.key.value !== "run") return;
       if (!YAML.isScalar(pair.value) || typeof pair.value.value !== "string") return;
       const script = pair.value.value;
@@ -2304,7 +2794,7 @@ function scanWorkflowForPep723(rel) {
       // in-script line number maps onto the file. Any other scalar occupies one starting line
       // and may carry escapes, so the whole script is reported against that line.
       const isBlock = typeof pair.value.type === "string" && pair.value.type.startsWith("BLOCK");
-      const offences = pep723Offences(script);
+      const offences = pep723Offences(script, envForRunStep(doc, pairPath));
       if (offences === null) {
         offenders.push(`${rel}:${startLine}: this run: script does not parse as shell, so ` +
           `check 17 cannot rule on it: ${script.split("\n")[0].trim()}`);

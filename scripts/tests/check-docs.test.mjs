@@ -2694,3 +2694,230 @@ test("check 24 fails loudly when it cannot derive its scope", (t) => {
   assert.equal(r.status, 1, r.stdout);
   assert.match(r.stderr, /check 24 cannot derive its scope/);
 });
+
+// ---------------------------------------------------------------------------
+// check 17 — indirect invocation and non-literal variables
+//
+// Each of these was an entry in check 17's "Known gaps" list. One test per closure, planting
+// the exact shape the entry named, plus the one entry that claimed a gap it did not have.
+// ---------------------------------------------------------------------------
+const STEP = (name, run) => `    - name: ${name}\n      run: ${run}\n`;
+
+test("check 17: `bash -c '…python3 S.py'` is caught", (t) => {
+  const root = fixture(t);
+  write(root, ".github/workflows/checks.yml",
+    STEP("indirect bash -c", "bash -c 'python3 skills/_shared/tests/test-pm-status.py'"), true);
+  const r = run(root);
+  assert.equal(r.status, 1, r.stdout);
+  assert.match(r.stderr, /invokes a PEP-723 script with python3.*test-pm-status\.py/);
+});
+
+test("check 17: `sh -lc \"…python3 S.py\"` is caught, clustered short options and all", (t) => {
+  const root = fixture(t);
+  write(root, ".github/workflows/checks.yml",
+    STEP("indirect sh -lc", 'sh -lc "python3 skills/_shared/tests/test-pm-status.py"'), true);
+  const r = run(root);
+  assert.equal(r.status, 1, r.stdout);
+  assert.match(r.stderr, /invokes a PEP-723 script with python3.*test-pm-status\.py/);
+});
+
+// The old note claimed xargs was NOT caught, then a later fix round corrected the note. This
+// pins the correction so the next rewrite of that paragraph cannot un-correct it.
+test("check 17: `xargs python3 S.py` is caught, as the gap list says it is", (t) => {
+  const root = fixture(t);
+  write(root, ".github/workflows/checks.yml",
+    STEP("xargs", "xargs python3 skills/_shared/tests/test-pm-status.py < list.txt"), true);
+  const r = run(root);
+  assert.equal(r.status, 1, r.stdout);
+  assert.match(r.stderr, /unquoted `python3 skills\/_shared\/tests\/test-pm-status\.py` sequence/);
+});
+
+test("check 17: `PY=$(which python3); $PY S.py` resolves and is caught", (t) => {
+  const root = fixture(t);
+  write(root, ".github/workflows/checks.yml",
+    STEP("which", "PY=$(which python3); $PY skills/_shared/tests/test-pm-status.py"), true);
+  const r = run(root);
+  assert.equal(r.status, 1, r.stdout);
+  assert.match(r.stderr, /invokes a PEP-723 script with python3.*test-pm-status\.py/);
+});
+
+test("check 17: a variable from the workflow's own env: is resolved", (t) => {
+  const root = fixture(t);
+  const wf = "name: probe\non: [push]\nenv:\n  PY: python3\njobs:\n  a:\n" +
+    "    runs-on: ubuntu-latest\n    steps:\n" +
+    STEP("env var", "$PY skills/_shared/tests/test-pm-status.py");
+  write(root, ".github/workflows/probe.yml", wf);
+  const r = run(root);
+  assert.equal(r.status, 1, r.stdout);
+  assert.match(r.stderr, /probe\.yml:\d+: invokes a PEP-723 script with python3/);
+});
+
+test("check 17: a job-level env: var beats the workflow-level one it shadows", (t) => {
+  const root = fixture(t);
+  const wf = "name: probe\non: [push]\nenv:\n  PY: echo\njobs:\n  a:\n" +
+    "    runs-on: ubuntu-latest\n    env:\n      PY: python3\n    steps:\n" +
+    STEP("env var", "$PY skills/_shared/tests/test-pm-status.py");
+  write(root, ".github/workflows/probe.yml", wf);
+  const r = run(root);
+  assert.equal(r.status, 1, r.stdout);
+  assert.match(r.stderr, /probe\.yml:\d+: invokes a PEP-723 script with python3/);
+});
+
+// FALSE-POSITIVE PIN for the env: seeding. A `${{ }}` expression is not a literal, and an
+// env var that is not an interpreter must not make an ordinary command look like one.
+test("check 17: a non-literal env: value seeds nothing and reddens nothing", (t) => {
+  const root = fixture(t);
+  const wf = "name: probe\non: [push]\nenv:\n  PY: ${{ matrix.python }}\n  TOOL: echo\njobs:\n  a:\n" +
+    "    runs-on: ubuntu-latest\n    steps:\n" +
+    STEP("ok a", "$PY skills/_shared/tests/test-pm-status.py") +
+    STEP("ok b", "$TOOL skills/_shared/tests/test-pm-status.py");
+  write(root, ".github/workflows/probe.yml", wf);
+  const r = run(root);
+  assert.equal(r.status, 0, r.stderr + r.stdout);
+});
+
+// FALSE-POSITIVE PIN for the shell -c recursion: a shell invoked with something other than a
+// script, and a `bash -c` whose script is clean, must both stay green.
+test("check 17: `bash -c` around a clean uv run is not a violation", (t) => {
+  const root = fixture(t);
+  write(root, ".github/workflows/checks.yml",
+    STEP("clean bash -c", "bash -c 'uv run skills/_shared/tests/test-pm-status.py'"), true);
+  const r = run(root);
+  assert.equal(r.status, 0, r.stderr);
+});
+
+// ---------------------------------------------------------------------------
+// check 4 — the facets closed in this round
+// ---------------------------------------------------------------------------
+const DIRECTIVE = (cmd) => "# Probe\n\n```bash\n" + cmd + "\n```\n";
+// The probe lives in an EXISTING subdirectory of l3io-pm-execute, deliberately:
+// skills/l3io-util-doctor/steps/ is where check 15 counts the doctor's modes (a new file
+// there fails it), and l3io-pm's reference doc is the one that documents every pm-status
+// subcommand, so check 4's module-reference arm has nothing to complain about either.
+const PROBE_MD = "skills/l3io-pm-execute/references/zz-probe.md";
+
+test("check 4: a short option on a pm-status.py invocation is caught", (t) => {
+  const root = fixture(t);
+  write(root, PROBE_MD, DIRECTIVE("uv run {pm_status} set-status -s done --state-root S --story K"));
+  const r = run(root);
+  assert.equal(r.status, 1, r.stdout);
+  assert.match(r.stderr, /invokes 'set-status -s', but pm-status\.py registers no such short option/);
+});
+
+test("check 4: a flag value outside argparse's choices is caught", (t) => {
+  const root = fixture(t);
+  write(root, PROBE_MD,
+    DIRECTIVE("uv run {pm_status} verify --state-root S --scope story --story K --runtime martian"));
+  const r = run(root);
+  assert.equal(r.status, 1, r.stdout);
+  assert.match(r.stderr, /invokes 'verify --runtime martian', but pm-status\.py accepts only/);
+});
+
+// The choices came from `choices=list(RESOLUTIONS)`, a module constant -- not a literal list
+// -- so this also pins the constant resolution.
+test("check 4: a flag value from a choices=list(CONST) set is judged too", (t) => {
+  const root = fixture(t);
+  write(root, PROBE_MD,
+    DIRECTIVE("uv run {pm_status} resolve-issue --state-root S --key BL-E001-001 --resolution maybe"));
+  const r = run(root);
+  assert.equal(r.status, 1, r.stdout);
+  assert.match(r.stderr, /invokes 'resolve-issue --resolution maybe', but pm-status\.py accepts only/);
+});
+
+test("check 4: a value-taking flag given no value is caught", (t) => {
+  const root = fixture(t);
+  write(root, PROBE_MD, DIRECTIVE("uv run {pm_status} set-status --state-root --story K --status done"));
+  const r = run(root);
+  assert.equal(r.status, 1, r.stdout);
+  assert.match(r.stderr, /invokes 'set-status --state-root' with no value/);
+});
+
+test("check 4: a required positional left out is caught", (t) => {
+  const root = fixture(t);
+  write(root, PROBE_MD, DIRECTIVE("uv run {pm_status} calibration --state-root S"));
+  const r = run(root);
+  assert.equal(r.status, 1, r.stdout);
+  assert.match(r.stderr, /invokes 'calibration' with no action, but pm-status\.py requires/);
+});
+
+test("check 4: a positional outside its choices is caught", (t) => {
+  const root = fixture(t);
+  write(root, PROBE_MD, DIRECTIVE("uv run {pm_status} calibration explode --state-root S"));
+  const r = run(root);
+  assert.equal(r.status, 1, r.stdout);
+  assert.match(r.stderr, /invokes 'calibration explode', but pm-status\.py accepts only/);
+});
+
+// FALSE-POSITIVE PINS for the value rule. An optional positional (`usage`'s transcript is
+// nargs="*") must not be demanded, and a value written as a binding or a placeholder -- which
+// is what every real directive writes -- must not be compared against choices.
+test("check 4: an optional positional and placeholder values stay green", (t) => {
+  const root = fixture(t);
+  write(root, PROBE_MD,
+    DIRECTIVE("uv run {pm_status} usage --state-root S --story {story_key} --model {model}\n" +
+              "uv run {pm_status} verify --state-root S --scope {scope} --story {story_key} " +
+              "--runtime {runtime}"));
+  const r = run(root);
+  assert.equal(r.status, 0, r.stderr + r.stdout);
+});
+
+// A usage synopsis is not valid shell; before the normalise-and-retry it was skipped whole,
+// flags and all. Plant a bogus flag inside one and require it to be reported.
+test("check 4: a bogus flag inside a usage-synopsis fragment is no longer skipped", (t) => {
+  const root = fixture(t);
+  write(root, PROBE_MD,
+    DIRECTIVE("uv run {pm_status} set-actual --state-root S \\\n" +
+              "  --node story (--story KEY | --epic ID) --nope 1"));
+  const r = run(root);
+  assert.equal(r.status, 1, r.stdout);
+  assert.match(r.stderr, /invokes 'set-actual --nope'/);
+});
+
+test("check 4: a spec-align.py flag its subcommand does not have is caught", (t) => {
+  const root = fixture(t);
+  write(root, PROBE_MD,
+    DIRECTIVE("uv run {spec_align} check-pointers --nope X"));
+  const r = run(root);
+  assert.equal(r.status, 1, r.stdout);
+  assert.match(r.stderr, /invokes 'spec-align\.py check-pointers --nope'/);
+});
+
+// spec-align's `lease acquire --owner E001` is a nested subparser; its options must fold into
+// `lease` or every real invocation of it would be reported. Green, and the bogus one red.
+test("check 4: spec-align's nested lease subcommand folds its options into lease", (t) => {
+  const root = fixture(t);
+  write(root, PROBE_MD,
+    DIRECTIVE("uv run {spec_align} lease acquire --owner E001 --ttl-minutes 30"));
+  assert.equal(run(root).status, 0, "a real nested-subparser invocation must stay green");
+  write(root, PROBE_MD,
+    DIRECTIVE("uv run {spec_align} lease acquire --owner E001 --nope 1"));
+  const r = run(root);
+  assert.equal(r.status, 1, r.stdout);
+  assert.match(r.stderr, /invokes 'spec-align\.py lease --nope'/);
+});
+
+// The derived half of the live-docs forward arm: a hyphenated name whose first segment is a
+// real subcommand's, on a line that also names pm-status.py. `add-test-run` reaches the check
+// through this path and through no other.
+test("check 4: a stale hyphenated subcommand on a pm-status.py line is caught", (t) => {
+  const root = fixture(t);
+  write(root, "docs/architecture.md",
+    read(root, "docs/architecture.md") +
+    "\n`pm-status.py` records evidence through `add-bogus-run`, appended per command.\n");
+  const r = run(root);
+  assert.equal(r.status, 1, r.stdout);
+  assert.match(r.stderr, /documents pm-status\.py subcommand 'add-bogus-run'/);
+});
+
+// FALSE-POSITIVE PIN for that derived half, and the reason it is qualified on the line. Both
+// of these are real, correct prose in the tree today: `update-ai-rules` is a doctor mode and
+// `adr-justified` is a spec-align disposition, and both share a first segment with a real
+// pm-status subcommand. On a line that does not name pm-status.py they must stay green.
+test("check 4: a doctor mode and a disposition value are not subcommand claims", (t) => {
+  const root = fixture(t);
+  write(root, "docs/glossary.md",
+    read(root, "docs/glossary.md") +
+    "\nThe doctor's `update-ai-rules` mode rewrites them, and a finding may be `adr-justified`.\n");
+  const r = run(root);
+  assert.equal(r.status, 0, r.stderr + r.stdout);
+});

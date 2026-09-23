@@ -127,8 +127,11 @@ Three things that header does not tell you:
   explaining the change — `docs/upgrading.md` must be able to say `/l3io-pm-epic-execute` →
   `/l3io-pm-execute`. Docs are allowed to quote values inline; they are not allowed to quote them
   wrongly.
-- Check 4's `skills/` arm judges an invocation's long flags against the **invoked subcommand's
-  own** option set, not the union of everything the CLI registers, and it also guards
+- Check 4's `skills/` arm judges an invocation against the **invoked subcommand's own**
+  argparse surface, not the union of everything the CLI registers: long flags, short options,
+  each flag's value where argparse declares `choices`, whether a value-taking flag was given
+  one, and whether a required positional is present and legal. The same extractor now judges
+  `spec-align.py`'s flags too, which that arm never looked at. It also guards
   `steps/shared/step-00-digest.md`'s CLI synopsis — a second copy of the `pm-status.py` surface
   that every dispatched subagent loads on its own. A bare `{pm_status} …` invocation counts as
   one when the binding is **code-formatted** — that qualifier, not "carries a long flag", is
