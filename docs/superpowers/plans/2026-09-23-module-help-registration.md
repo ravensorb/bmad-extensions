@@ -315,7 +315,16 @@ normalize 0 · overlay 0 · check-deps 0
 - `check`/`status` — the default health check. **The entry point.** Everything with a non-zero count above is reached *through* it.
 - `stats` — "how is the work going", not "is my state healthy". Named in the module's own `module_greeting` as a co-equal entry point.
 - `check-deps` — "do my BMad skill dependencies resolve". Zero health-check mentions; `CLAUDE.md` tells users to run it.
-- `overlay` — BMad customization overlays. Zero health-check mentions; nothing to do with project state.
+
+**Re-derived after Phase 0 (2026-09-23).** Task 0C removed `normalize`, demoted `overlay` to a spec, and made `backlog` an alias of `stats` — so three of the five candidates no longer exist as keywords. Measured against the current table:
+
+```
+check-deps 0 · help 0 · setup 0 · stats 2 · sort-status 3 · migrate-schema 4
+bootstrap-state 5 · clean-legacy 5 · harvest-debt 5 · reconcile-status 5 · redrive 5
+layout-cleanup 6 · migrate-adrs 6 · split-status 7 · triage 11 · migrate-state 13 · check 27
+```
+
+`help` and `setup` score zero but are not capabilities. That leaves **three rows: the default, `stats`, `check-deps`.** Re-derive this yourself from the live table rather than trusting the block above — Phase 0 moved it twice.
 
 **Do not register — the health check detects and sequences them.** Everything with a non-zero count. This includes `migrate-state`, despite `docs/upgrading.md` naming it: **13 mentions means the doctor already tells you when you need it**, and a menu entry would let a user migrate without the check that decides whether they should.
 
@@ -400,18 +409,18 @@ git add skills/l3io-pm-setup/assets/module-help.csv skills/l3io-util-doctor/asse
 
 ---
 
-### Task 7: Add `check:module` rule 8 — registration matches the keyword table
+### Task 7: Add `check:module` rule 9 — registration matches the keyword table
 
 Rule 3 of this repo's engineering rules: when you write a rule, write the check that enforces it in the same change. Everything above is a one-time correction; this is what stops it drifting again.
 
 **Files:**
-- Modify: `scripts/check-module.mjs` (new rule 8, `help-registration`)
+- Modify: `scripts/check-module.mjs` (new rule 9, `help-registration`)
 - Modify: `scripts/tests/check-module.test.mjs`
 - Modify: `CLAUDE.md` and `scripts/CLAUDE.md` if either states the rule count
 
 **Interfaces:**
 - Consumes: Task 5's exclusion markers in `SKILL.md`.
-- Produces: rule 8; failure message names the unregistered keyword and its skill.
+- Produces: rule 9; failure message names the unregistered keyword and its skill.
 
 - [ ] **Step 1: Write the failing test first**
 
@@ -434,7 +443,7 @@ test("check:module rejects a keyword-table entry with no module-help.csv row", (
 Run: `node --test scripts/tests/check-module.test.mjs`
 Expected: FAIL — no such rule exists yet.
 
-- [ ] **Step 3: Implement rule 8**
+- [ ] **Step 3: Implement rule 9**
 
 Parse each skill's `SKILL.md` keyword table with a real parser, drop the entries Task 5 marked excluded, and require a `module-help.csv` row for every keyword that remains. **Derive the skill set by walking `skills/`** — never a hand-list. Parse the CSV with `csv-parse`.
 
@@ -462,7 +471,7 @@ git add scripts/check-module.mjs scripts/tests/check-module.test.mjs
 
 **Files:**
 - Modify: `skills/l3io-sec-redteam/assets/module.yaml` (comment recording why `code` is short)
-- Modify: `scripts/check-module.mjs` (new rule 9, `agent-roster`)
+- Modify: `scripts/check-module.mjs` (new rule 10, `agent-roster`)
 - Modify: `scripts/tests/check-module.test.mjs`
 
 **Interfaces:**
