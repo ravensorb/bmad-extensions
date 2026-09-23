@@ -18,6 +18,11 @@ Does `{implementation_artifacts}/sprint-status-active.yaml` exist?
 - Yes → flag `rename-active` · Priority: Critical (must run before any other status-file action)
 - No → ✓
 
+`rename-active` is an **inline action with no mode file** — Step HC6 performs it. It is a
+single rename of a legacy flat file, so it can only fire on a project that still has
+`sprint-status-active.yaml`; there is nothing for it to do on a migrated one, and it had no
+caller outside this check.
+
 **Check 2 — Status file layout**
 Do `sprint-status-backlog.yaml` OR `sprint-status-archived.yaml` exist in `{implementation_artifacts}/`?
 - Neither exists, but `sprint-status.yaml` is present with content that includes done or backlog epics → flag `split-status` · Priority: High
@@ -133,6 +138,8 @@ Scan the top level of `{implementation_artifacts}/` for directories matching `ep
   three-digit form; a two-digit `epic-{nn}/` will never match its `state/{status}/epic-{nnn}/`
   counterpart or be found by Check 11's drift diff.
 - None → ✓
+
+`rename-epic-dirs` is an **inline action with no mode file** — Step HC6 performs it.
 
 **Check 11 — State/artifact drift**
 `{pm_state_root}` = `{implementation_artifacts}/state` (see `references/status-files.md`,
@@ -385,8 +392,8 @@ If `n`: print "Exiting — no changes made." and exit.
 
 Run each approved action in this fixed priority sequence (skip any that were not flagged):
 
-1. `rename-active`
-2. `rename-epic-dirs`
+1. `rename-active` (inline — see below)
+2. `rename-epic-dirs` (inline — see below)
 3. `migrate-schema`
 4. `split-status`
 5. `migrate-state`
@@ -425,6 +432,39 @@ Each action runs its full mode implementation from its own section. **Suppress t
 **`triage` keeps its own confirmations here.** The rule above does not apply to it: every triage action resolves or rewrites backlog items, which the HC5 yes did not see item by item. It runs right after `harvest-debt`, so markers harvested in the same run are audited too.
 
 **`migrate-adrs` keeps its own confirmation too** — it moves files and commits.
+
+**`rename-active` (Check 1) has no mode file — run it here, inline.** It is one rename of a
+legacy flat file. Re-check the precondition first rather than trusting Check 1's earlier
+result, because an action run before this one may have changed the tree:
+
+- If `{implementation_artifacts}/sprint-status-active.yaml` does not exist → nothing to
+  rename; skip.
+- If `{implementation_artifacts}/sprint-status.yaml` already exists → **conflict**. Do not
+  rename and do not overwrite; print
+  `Conflict: sprint-status.yaml already exists at {implementation_artifacts}. Cannot rename
+  sprint-status-active.yaml — resolve manually (remove or merge the existing file first).`
+  and treat this action as failed, per the stop-on-failure rule above.
+
+Otherwise print the one-line dry run
+(`Will rename: {implementation_artifacts}/sprint-status-active.yaml →
+{implementation_artifacts}/sprint-status.yaml — content unchanged, filename only`), rename,
+then re-parse `sprint-status.yaml` as YAML. If it does not parse, rename it back to
+`sprint-status-active.yaml` and report
+`FAILED — sprint-status.yaml is not valid YAML after rename. Restored. Parse error: {error}`.
+
+**`rename-epic-dirs` (Check 10) has no mode file — run it here, inline.** It renames legacy
+two-digit `epic-{nn}/` **artifact** directories to the three-digit `epic-{nnn}/` form, so each
+matches its epic key `E{nnn}` and its `state/{status}/epic-{nnn}/` counterpart — the
+identical-path-suffix property Check 11's drift diff depends on. Contents are never touched.
+
+Re-scan the top level of `{implementation_artifacts}/` for `epic-[0-9][0-9]` directories. For
+each, compute the three-digit destination by zero-padding the epic number; if that destination
+already exists, record a **conflict** and skip it — never overwrite, never merge. Print the
+rename map and the conflict count as this action's dry run, then rename each non-conflicting
+directory and re-scan to confirm no two-digit directory remains except the recorded conflicts.
+
+Report renamed and conflict counts. A remaining conflict needs manual resolution (merge or
+remove one side) before Check 11's drift comparison can be trusted for that epic.
 
 **`untrack-locks` (Check 14) has no mode file — run it here, inline.** First make sure
 `{pm_state_root}/.gitignore` contains a `*.lock` line: create the file with that line if it is

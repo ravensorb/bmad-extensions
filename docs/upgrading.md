@@ -123,6 +123,8 @@ habit invokes one of these, switch it to the replacement named here.
 |---|---|
 | `normalize` | `sort-status` (naming report) and, on a legacy split layout, `reconcile-status` — `normalize` only ran those two, and on a migrated project it ran nothing but `sort-status` |
 | `backlog` | `stats` — `backlog` and `issues` are now aliases for it, so the keyword still works; the per-item table it printed is a section of the `stats` dashboard, from the same single `list-issues --all` call |
+| `rename-active` | `/l3io-util-doctor` — Health Check 1 detects the old filename and renames it inline. There was never a reason to invoke it alone: a renamed flat file is still a legacy layout |
+| `rename-epic-dirs` | `/l3io-util-doctor` — Health Check 10 detects two-digit `epic-{nn}/` artifact directories and renames them inline |
 
 **`l3io-util-cleanup` removed.**
 
@@ -220,10 +222,10 @@ If your sanctum lived at `_bmad/memory/l3io-sec-agent-redteam/`, the current pat
 
 ### From before 1.0.20
 
-Status files were named `sprint-status-active.yaml`. `/l3io-util-doctor` detects this and runs
-`rename-active` automatically as the first step of the sequence — you do not need to invoke it
-yourself, and invoking it alone is not enough, because a renamed flat file is still a legacy
-layout.
+Status files were named `sprint-status-active.yaml`. `/l3io-util-doctor` detects this (Check 1)
+and renames it inline as the first step of the sequence. There is no `rename-active` keyword to
+invoke — and there was never a reason to invoke it alone, because a renamed flat file is still
+a legacy layout.
 
 ## Verifying the upgrade
 

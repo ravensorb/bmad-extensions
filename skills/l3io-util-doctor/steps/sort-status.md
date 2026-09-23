@@ -83,7 +83,9 @@ Path                                              Issue
 ...
 ================================================================
 {N} naming issue(s) found. Report only — this mode does not rename or move anything.
-Two-digit epic-{nn}/ directories: fix with `/l3io-util-doctor rename-epic-dirs`.
+Two-digit epic-{nn}/ directories: fix by running `/l3io-util-doctor` — Health Check 10
+detects them and its `rename-epic-dirs` inline action renames them. There is no
+standalone keyword for it.
 Other naming issues need manual correction — they usually mean a file was created or edited
 outside pm-status.py.
 ```

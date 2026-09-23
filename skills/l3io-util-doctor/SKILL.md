@@ -48,8 +48,6 @@ Modes (pass as argument to skip directly to that mode):
 
 **Setup & housekeeping**
 - **`clean-legacy`:** Removes migration backup files and directories left behind by one-time migration commands — `.yaml.legacy` files, the `{pm_calibration_file}.v1` calibration schema backup in the state root, the pre-migration `_bmad/state.legacy/` directory and `_bmad/pm-calibration.yaml.legacy` file, and the `_bmad/migration-backup/` directory `migrate-state` Stage F's default "move" option relocates everything into. Dry-run first; confirms before deleting. Safe to run once migrations have been verified.
-- **`rename-active`:** Renames `sprint-status-active.yaml` → `sprint-status.yaml`. Rarely needed directly — the health check detects and runs this automatically when the old naming is found.
-- **`rename-epic-dirs`:** Renames legacy two-digit `epic-{nn}/` artifact directories to the current three-digit `epic-{nnn}/` form. Rarely needed directly — the health check detects and runs this automatically when the old naming is found.
 
 **One-time use (layout cleanup):** Designed to be run once per project. Running again after a successful cleanup produces zero moves (everything already placed) or conflicts (for new flat files added since the first run).
 
@@ -62,8 +60,8 @@ Modes (pass as argument to skip directly to that mode):
 
 **Load exactly one mode file.** Every mode below lives in its own file under `steps/`, and
 only the one the argument selects is ever loaded. That is the point of the layout: this skill
-carries nineteen procedures and a run needs one, so inlining them all charged every
-invocation for eighteen it would not execute. Read this file, match the keyword, load that
+carries seventeen procedures and a run needs one, so inlining them all charged every
+invocation for sixteen it would not execute. Read this file, match the keyword, load that
 one file, and follow it.
 
 **Recognized keywords** — if the user's argument exactly matches any of these, load that
@@ -84,8 +82,6 @@ file and follow it:
 | `redrive` | `steps/redrive.md` | rebuild calibration `scope`/`fix` from story nodes |
 | `triage` | `steps/triage.md` | audit the backlog and resolve findings already fixed — confirms every write |
 | `migrate-adrs` | `steps/migrate-adrs.md` | move ADRs from the old per-epic home to `docs/adr/` — confirms before writing |
-| `rename-active` | `steps/rename-active.md` |  |
-| `rename-epic-dirs` | `steps/rename-epic-dirs.md` |  |
 | `update-ai-rules` | `steps/update-ai-rules.md` |  |
 | `overlay` | `steps/overlay.md` | list/diff/verify BMad customization overlays — never writes `_bmad/custom/` |
 | `clean-legacy` | `steps/clean-legacy.md` | remove migration backup files |
@@ -97,9 +93,10 @@ file and follow it:
 load `steps/health-check.md`.
 
 A mode file may direct you to another mode's file — the health check proposes fixes by
-naming the modes that apply. Load each as you reach it; do not pre-load the set. One proposed
-action, `untrack-locks`, is not a mode and has no file: `steps/health-check.md` runs it
-inline.
+naming the modes that apply. Load each as you reach it; do not pre-load the set. Three
+proposed actions are **not** modes and have no file — `rename-active`, `rename-epic-dirs` and
+`untrack-locks`: each is a single rename or `git rm --cached` with no caller outside the check
+that detects it, and `steps/health-check.md` runs all three inline.
 
 **Help output** — when `help` or `?` is passed, print exactly this and exit:
 
@@ -143,10 +140,6 @@ Setup & housekeeping
   setup              Register l3io-util module config for this project
   clean-legacy       Remove .legacy/.v1 migration backup files and the state.legacy/ and
                      migration-backup/ backup directories after confirmation
-  rename-active      (Rarely needed) Rename sprint-status-active.yaml → sprint-status.yaml;
-                     the health check detects and runs this automatically when needed.
-  rename-epic-dirs   (Rarely needed) Rename legacy epic-{nn}/ dirs to epic-{nnn}/; the health
-                     check detects and runs this automatically when needed.
 
 Run without arguments to let the health check decide what's needed.
 ```

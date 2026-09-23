@@ -95,8 +95,6 @@ than failing.
 |---------|--------------|
 | `setup` / `configure` / `install` | Registers the `l3io-util` module config for the project. |
 | `clean-legacy` | Removes migration backup files and directories after confirmation: `*.yaml.legacy` files, the `state/pm-calibration.yaml.v1` calibration schema backup (beside the live calibration file, not under `_bmad/`), `_bmad/pm-calibration.yaml.legacy`, the `_bmad/state.legacy/` directory, and the `_bmad/migration-backup/` directory. |
-| `rename-active` | Renames `sprint-status-active.yaml` → `sprint-status.yaml` (the health check runs this automatically when the old naming is found). |
-| `rename-epic-dirs` | Renames legacy two-digit `epic-{nn}/` artifact directories to the current three-digit `epic-{nnn}/` form. Rarely needed directly — the health check detects and runs this automatically when the old naming is found. |
 | `help` / `?` | Prints the command list and exits — no project scan. |
 
 ## `pm-status.py` subcommands this skill runs
@@ -125,7 +123,16 @@ The default mode runs nineteen numbered read-only checks (Checks 1–19, plus 2b
 
 `rename-active → rename-epic-dirs → migrate-schema → split-status → migrate-state → bootstrap-state → reconcile-status → layout-cleanup → sort-status → harvest-debt → migrate-adrs → triage → update-ai-rules → redrive → untrack-locks → clean-legacy`
 
-`untrack-locks` (Check 14, lock files tracked in git) is the one action that is not a mode: the health check makes sure `state/.gitignore` has a `*.lock` line, then runs `git rm --cached` over the tracked `*.lock` files under the state root. The files stay on disk, and the removal is staged for your next commit.
+Three of those actions are **not modes** and have no keyword — the health check runs each one
+inline, from the check that detects it:
+
+- `rename-active` (Check 1) renames `sprint-status-active.yaml` → `sprint-status.yaml`, content
+  unchanged. It refuses on a conflict and renames back if the result does not parse.
+- `rename-epic-dirs` (Check 10) renames legacy two-digit `epic-{nn}/` artifact directories to
+  the three-digit `epic-{nnn}/` form, skipping any whose destination already exists.
+- `untrack-locks` (Check 14) makes sure `state/.gitignore` has a `*.lock` line, then runs
+  `git rm --cached` over the tracked `*.lock` files under the state root. The files stay on
+  disk, and the removal is staged for your next commit.
 
 Each executed action runs its full mode (dry-run + verify still shown); per-mode confirmations are suppressed since the user already confirmed — except `triage`, which keeps its own confirmations, because every triage action resolves or rewrites backlog items the single confirmation did not show item by item. If any action fails, the sequence stops and reports.
 
