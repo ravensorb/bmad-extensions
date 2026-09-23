@@ -41,8 +41,7 @@ Key settings (with defaults):
 |---------|--------------|
 | *(no argument)* | Project health check — runs all checks and, after one confirmation, executes the flagged actions in priority order. |
 | `check` / `status` | Same scan as the health check, but reports the findings table and exits without changing anything. |
-| `stats` | Plan-aware progress dashboard — renders the phase → epic → sprint → story hierarchy with per-status dwell times and stuck-item flags, a live-view hint, and (per affected epic) the stale-lock `clear-lock` remedy, then appends backlog size by severity, last closed sprint/epic, and calibration file state. Delegates the state walk to `pm-status.py report` rather than duplicating it; falls back to counts only when `pm-status.py` is not installed yet. Archived epics count toward phase denominators but are listed only with `--all`. `/l3io-pm-help progress` forwards here rather than rendering its own copy of the tree. See [l3io-pm reference § Progress Reporting](l3io-pm-reference.md#progress-reporting). |
-| `backlog` | Lists the consolidated `backlog:` list grouped by severity. Items carry a `kind` — `defect` (the default, and assumed when the field is absent) plus `spec-change` and `spec-proposal`, which spec sync files and `triage`'s spec pass resolves. |
+| `stats` (aliases `backlog`, `issues`) | Plan-aware progress dashboard — renders the phase → epic → sprint → story hierarchy with per-status dwell times and stuck-item flags, a live-view hint, and (per affected epic) the stale-lock `clear-lock` remedy, then appends backlog size by severity, last closed sprint/epic, and calibration file state. Delegates the state walk to `pm-status.py report` rather than duplicating it; falls back to counts only when `pm-status.py` is not installed yet. Archived epics count toward phase denominators but are listed only with `--all`. `/l3io-pm-help progress` forwards here rather than rendering its own copy of the tree. See [l3io-pm reference § Progress Reporting](l3io-pm-reference.md#progress-reporting). Step ST4 then lists the consolidated `backlog:` list per item, grouped by severity — items carry a `kind` — `defect` (the default, and assumed when the field is absent) plus `spec-change` and `spec-proposal`, which spec sync files and `triage`'s spec pass resolves. The `backlog` and `issues` aliases land here and always print that table; it was a separate mode until it was folded in, since it made the same single `list-issues --all` call `stats` already makes. |
 | `check-deps` | Verifies every BMad skill this package dispatches resolves in this project, reports deprecated shims still in use, and names optional dependencies whose phases will self-skip. Read-only. |
 
 ### One-time migrations (run in this order)
@@ -109,7 +108,7 @@ in the [l3io-pm reference](l3io-pm-reference.md), which documents the whole CLI.
 | Subcommand | Used by | For |
 |---|---|---|
 | `report` | `stats` | The state walk behind the progress dashboard — the tree, dwell times and stuck flags are rendered from its output rather than duplicated here. |
-| `list-issues` | `backlog`, `stats`, `triage` | Reads the backlog, whole (`--all`) or filtered by `--kind` for the spec pass. |
+| `list-issues` | `stats`, `triage` | Reads the backlog, whole (`--all`) or filtered by `--kind` for the spec pass. |
 | `audit-issues` | `triage`, the health check | The backlog integrity audit whose findings `triage` then resolves. |
 | `resolve-issue` | `triage` | Closes an item that is already fixed, with a `--resolution` and a `--ref`. |
 | `repair-issue` | `triage` | `unschedule`, `reopen`, `link` and `reseed` repairs for the findings the audit reports. |

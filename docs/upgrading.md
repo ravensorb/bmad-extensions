@@ -122,6 +122,7 @@ habit invokes one of these, switch it to the replacement named here.
 | Removed keyword | Use instead |
 |---|---|
 | `normalize` | `sort-status` (naming report) and, on a legacy split layout, `reconcile-status` — `normalize` only ran those two, and on a migrated project it ran nothing but `sort-status` |
+| `backlog` | `stats` — `backlog` and `issues` are now aliases for it, so the keyword still works; the per-item table it printed is a section of the `stats` dashboard, from the same single `list-issues --all` call |
 
 **`l3io-util-cleanup` removed.**
 

@@ -1,8 +1,15 @@
 ## Stats Mode
 
-Invoked with `stats` argument. Read-only plan-aware progress dashboard — renders the
-phase → epic → sprint → story hierarchy via `pm-status.py report`, then appends the backlog,
-calibration, and last-closed sections that `report` does not cover. No files are changed.
+Invoked with the `stats` argument, or with its aliases `backlog` / `issues`. Read-only
+plan-aware progress dashboard — renders the phase → epic → sprint → story hierarchy via
+`pm-status.py report`, then appends the backlog, calibration, and last-closed sections that
+`report` does not cover. No files are changed.
+
+**One `list-issues` call serves both views.** Step ST2 already reads the whole backlog
+(`--all`) to produce the counts, so the per-item table in Step ST4 costs nothing extra; it
+used to be a separate `backlog` mode that made the identical call and formatted it. Under the
+`backlog`/`issues` alias the per-item table is always printed and the hierarchy uses the
+default scope; under `stats` the table is printed whenever there is at least one open item.
 
 ### Steps
 
@@ -111,7 +118,7 @@ story node. Accumulate:
 
 **Read directly in both branches:**
 
-- **Backlog items** — `uv run {pm_status} list-issues --state-root {pm_state_root} --all --format json`: count `open` by severity (Critical, High, Medium, Low, unknown) and by status (untriaged = `backlog`, `scheduled`) plus `origin_archived`; count `resolved` by `resolution`. An absent file = zero items, not an error.
+- **Backlog items** — `uv run {pm_status} list-issues --state-root {pm_state_root} --all --format json`: count `open` by severity (Critical, High, Medium, Low, unknown) and by status (untriaged = `backlog`, `scheduled`) plus `origin_archived`; count `resolved` by `resolution`. An absent file = zero items, not an error. **Keep the `open` records themselves, not only the counts** — Step ST4 prints them per item from this same call; do not make a second `list-issues` call for it.
 - **Last closed sprint** — across all epics, the highest `epic-{nnn}/sprint-{nn}` whose `sprint.yaml` has `status: done` (lexical order over the zero-padded names is the correct order — §8).
 - **Last closed epic** — the highest `epic-{nnn}` under `{pm_state_root}/archived/`; note its key and title.
 - **Calibration file** — check `{pm_calibration_file}` (`{pm_state_root}/pm-calibration.yaml` — migrate-state moves it here from `{project-root}/_bmad/`); if present, note its version and the number of scope/closure/fix sample entries.
@@ -182,6 +189,32 @@ warrants them:**
 - If the tree ends with the `~ dwell times are approximate` note, add: `Dwell times sharpen
   once state/events.jsonl accumulates transitions — it starts recording on the next
   /l3io-pm-execute run.`
+
+**Step ST4 — Per-item backlog table**
+
+From the `open` records Step ST2 already read — no second `list-issues` call. Print this when
+the argument was `backlog`/`issues`, or when `stats` found at least one open item. Group by
+severity (Critical → High → Medium → Low → unknown); within a group sort by `epic` then `key`.
+`scheduled` items show the story they are scheduled into; `origin_archived` items are marked.
+Each item carries a `kind` — `defect` (the default, and what an absent field means) plus
+`spec-change` and `spec-proposal`, which epic closure's spec sync files and `triage`'s spec
+pass resolves:
+
+```
+----------------------------------------------------------------
+BACKLOG — {pm_issues_file}
+Sev    Key           Epic  Sprint  Kind        Status              Title
+----------------------------------------------------------------
+High
+  HIGH   BL-E001-002   001   —       defect      scheduled E003-S02-004  {title}
+Low
+  LOW    BL-E002-001   002   03      spec-change backlog (archived)      {title}
+----------------------------------------------------------------
+Run /l3io-util-doctor triage to audit these and close what is already fixed.
+```
+
+Truncate titles at 50 characters with `…`. Show the sprint as `—` when blank. With no open
+items, print `Backlog is empty — no open items.` in place of the table.
 
 **When Step ST2b ran** (no `pm-status.py`), print the flat form instead, followed by the same
 appended block above:
