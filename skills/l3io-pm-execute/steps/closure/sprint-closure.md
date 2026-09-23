@@ -105,7 +105,8 @@ grep -qE "^[[:space:]]*-[[:space:]]*name:[[:space:]]*l3io-sec[[:space:]]*$" \
 ```
 **Redteam is not scoped like the reviewers above — give it a starting set, not a fence.**
 The diff-scoping rule in §2–3 exists because a diff *is* a reviewer's whole input; redteam's
-own method (`references/scope-mapping.md`, this skill) is different by design: it builds a
+own method (`l3io-sec-redteam/references/scope-mapping.md`, that agent's own reference — not
+this skill's) is different by design: it builds a
 surface map — entry points, trust boundaries, data flows, auth checkpoints, persistent
 state — "from what's actually implemented, not from documentation assumptions," and states
 that "a scope with no entry points or no trust boundaries is incomplete — expand until the
@@ -156,7 +157,7 @@ If `l3io-arch-review` is installed: invoke Mode B (architectural review) on this
 stories and **diff**, plus the ADRs and standard sections they bear on, by path — not the
 repository (see §2–3). List the epic's ADRs with `{spec_align} adrs --epic {epic_key}`. Output
 path: `{sprint_root}/closure/arch-drift-review.md`. Its findings table follows
-`references/review-report.md`, with each ID in the `#` column as `SD-{nn}-{n}`, where `{nn}` is
+`l3io-arch-review/references/review-report.md` (that skill's own reference), with each ID in the `#` column as `SD-{nn}-{n}`, where `{nn}` is
 this sprint's two-digit number (the `sprint-{nn}` in `{sprint_root}`) — for example `SD-02-3`.
 
 When `{spec_alignment}` is `true`, also pass the spec index and the ranges this sprint's

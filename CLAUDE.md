@@ -49,27 +49,27 @@ Files in `skills/_shared/` are the canonical sources for content shared across P
 
 **A skill-local pointer is only valid if that skill carries the file.** `l3io-util-doctor` named
 `references/status-files.md` in six runtime directives — `SKILL.md` calls it "the canonical
-contract" — while shipping no such file; it now ships it (row above). **This is not checked
-mechanically, and the class is wider than that one file.** A sweep of every backticked
-`references/…`, `assets/…`, `steps/…` or `scripts/…` path in `skills/*/**.md`, measured
-2026-09-22, found **341 pointers, 50 of which do not resolve in the skill that carries them**
-once cross-skill references that name their owner on the same line are excluded. They fall in
-two classes, both pre-existing and neither fixed here: shared references and digests naming
-`steps/…` files that only `l3io-pm-execute` carries (~36), and `config-resolution.md` naming
-`assets/module-setup.md`/`assets/module.yaml` in the four `l3io-pm` skills that are not the
-module home (~12). Shipping a shared reference also imports its own onward pointers — five of
-the 50 are inside the `status-files.md` copy this change added. A gate over the whole class
-would need those 50 triaged first, and an allowlist instead would be exactly the hand-kept
-scope §4 forbids.
+contract" — while shipping no such file; it now ships it (row above). The wider class this
+belongs to is **now fixed and, for the shared files, mechanically guarded.** A sweep of every
+backticked `references/…`, `assets/…`, `steps/…` or `scripts/…` path in `skills/*/**.md`,
+re-measured 2026-09-22 **after** the fix, finds **347 pointers and 0 unresolved** (it was 337
+examined with 56 unresolved before). The three pre-existing classes were resolved by rewording
+rather than by moving files: shared references and digests naming `steps/…` files that only
+`l3io-pm-execute` carries now name them as `l3io-pm-execute/steps/…`; `config-resolution.md`
+names the module home's copy (`l3io-pm-setup/assets/module-setup.md`) instead of a bare
+`assets/…`; and the onward pointers inside the `status-files.md` copy shipped to
+`l3io-util-doctor` say which skills carry their targets. Cross-skill citations into
+`l3io-sec-redteam` and `l3io-arch-review` are qualified the same way.
 
-**The available narrower gate, recorded as a follow-up rather than built.** Scope it to
-*pointers inside a file that `sync-shared-scripts.mjs` ships, required to resolve in every
-skill that file's sync group delivers it to*. That derives entirely from `syncGroups` — no
-allowlist, no judgement about attribution — and on today's tree it would be red on **5 lines,
-not 50**: the onward pointers inside the `status-files.md` copy now shipped to
-`l3io-util-doctor`. It is not built here because the five would have to be resolved first, and
-resolving them means deciding what a doctor agent should read instead, which is a content
-question this round did not open.
+**The gate this made possible is check 24 (`shared-pointers`)**, in `scripts/check-docs.mjs`.
+It is scoped to *pointers inside a file `sync-shared-scripts.mjs` ships, required to resolve in
+every skill that file's sync group delivers it to* — scope and destinations both derived from
+`syncGroups` (read by spawning the checked tree's own `sync-shared-scripts.mjs
+--dump-deliveries`), so there is no allowlist and nothing hand-kept to go stale. It judges 95
+pointers across the 28 shared `.md` files. The one exemption is derived too: a pointer whose
+line names a real skill directory that actually contains the file. It does **not** look at a
+skill's own non-shared files, at non-`.md` payloads, or at whether the cited `§N` exists (check
+3 does that).
 
 **Test suites are never shipped as payload.** `skills/_shared/tests/test-pm-status.py`,
 `skills/_shared/tests/test-write-module-config.py` and `skills/_shared/tests/test-spec-align.py` stay in `skills/_shared/tests/` only — CI
@@ -110,7 +110,7 @@ Recorded here so the next `npm ci` warning is a known fact rather than a redisco
 the current list rather than trusting this sentence: the `deprecated` field in
 `package-lock.json`'s `packages` map is the source of truth.
 
-`check:docs` runs twenty-three checks asserting facts that have each drifted in this repo's history.
+`check:docs` runs twenty-four checks asserting facts that have each drifted in this repo's history.
 They are numbered and described in `scripts/check-docs.mjs`'s own header — read them there rather
 than restating them here, **including the `KNOWN GAPS` block** at the end of that header, which
 states in full what check 4 does *not* reach over `skills/`. A numbered entry describes a check's

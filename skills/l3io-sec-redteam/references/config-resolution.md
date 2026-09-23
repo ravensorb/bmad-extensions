@@ -20,7 +20,9 @@ BMad 6.10 keeps central config in four TOML files, merged in order (later wins):
 
 Layers 1–2 are **regenerated on every install** — never write to them. Layers 3–4 are
 never touched by the installer and are the only correct destination for settings a skill
-records (see the module home's `assets/module-setup.md`, §5 below).
+records (see §5 below, and the module home's own setup procedure —
+`l3io-pm-setup/assets/module-setup.md` for the `l3io-pm` module, and the same path inside
+each standalone module's one skill).
 
 There is **no `{project-root}/_bmad/config.yaml`**. Earlier versions of these skills read
 one; BMad has not created that file since the TOML migration, so the read always missed
@@ -120,9 +122,10 @@ the base.
 is the normal state — none of the l3io modules declare required settings, so a correct
 install produces no section at all. Bind the defaults from §3 and carry on.
 
-**This applies to a module's home only** — the skill carrying `assets/module.yaml`
-(`l3io-pm-setup`, `l3io-util-doctor`, `l3io-sec-redteam`, `l3io-arch-review`). There, load
-`assets/module-setup.md` only when:
+**This applies to a module's home only** — the four skills that carry a module manifest and a
+setup procedure of their own (`l3io-pm-setup/assets/module.yaml` and
+`l3io-pm-setup/assets/module-setup.md`, and the same two paths inside `l3io-util-doctor`,
+`l3io-sec-redteam` and `l3io-arch-review`). A module home loads that setup procedure only when:
 
 - the user explicitly passes `setup`, `configure`, or `install`; or
 - a skill-specific first-run artifact is genuinely absent (for `l3io-sec-redteam`, the
@@ -132,7 +135,8 @@ Never treat a missing config section as the trigger. That mistake is what made e
 invocation open with "No {module} section in config — loading module setup first."
 
 The four `l3io-pm` operational skills — `l3io-pm-execute`, `l3io-pm-plan`, `l3io-pm-help`,
-`l3io-pm-sync` — do not carry `assets/module-setup.md` and never load it, regardless of
+`l3io-pm-sync` — carry no setup procedure of their own (it ships only to the four module homes
+above, e.g. `l3io-pm-setup/assets/module-setup.md`) and never load it, regardless of
 argument: `/l3io-pm-setup` is the module's setup entry point for all of them.
 
 At most once ever, per project — not per session — an **orchestrator** may mention that

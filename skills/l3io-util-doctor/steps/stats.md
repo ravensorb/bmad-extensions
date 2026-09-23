@@ -10,8 +10,8 @@ calibration, and last-closed sections that `report` does not cover. No files are
 
 Load config (same as layout cleanup). Run the same three-way count Check 2b uses (Check 2b in
 `steps/health-check.md` is the source of the multi-layout condition and its Critical severity
-below — this makes a third copy of layout detection, alongside Check 2b and `l3io-pm-help`'s
-own `steps/step-02-detect-layout.md`; keep the multi-layout branch in sync with Check 2b's
+below — this makes a third copy of layout detection, alongside Check 2b and
+`l3io-pm-help/steps/step-02-detect-layout.md`; keep the multi-layout branch in sync with Check 2b's
 condition and severity if either changes):
 
 ```bash
@@ -41,8 +41,8 @@ Apply the first matching rule:
   ```
 - **Nothing present** → before concluding there is nothing to report, rule out an orphan
   caused by `implementation_artifacts` having been repointed — an empty probe result here is
-  not proof there is no history. This is the same check `l3io-pm-help`'s own
-  `steps/step-02-detect-layout.md` runs (a cross-skill duplication with no mechanical guard;
+  not proof there is no history. This is the same check
+  `l3io-pm-help/steps/step-02-detect-layout.md` runs (a cross-skill duplication with no mechanical guard;
   keep both in sync if the paths or wording change):
   ```bash
   git -C {project-root} ls-files -- '*/state/active/epic-*/epic.yaml' 'state/active/epic-*/epic.yaml' 2>/dev/null | head -5

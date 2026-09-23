@@ -162,7 +162,7 @@ Sprint closure already runs redteam per sprint (`sprint-closure.md` §4), but a 
 surface map is the narrowest one it ever builds; an epic-wide analysis is where entry
 points, trust boundaries, and auth checkpoints spanning multiple sprints' changes actually
 come into view. Give it a starting set, not a fence — the same distinction sprint closure
-draws, for the same reason (redteam's own method, `references/scope-mapping.md`, builds its
+draws, for the same reason (redteam's own method, `l3io-sec-redteam/references/scope-mapping.md`, builds its
 surface map from what's actually implemented, and "a scope with no entry points or no trust
 boundaries is incomplete — expand until the picture is coherent"). Pass:
 
@@ -180,7 +180,7 @@ boundaries is incomplete — expand until the picture is coherent"). Pass:
 Cost discipline takes the form of accountability, not a fence: start from the seed artifacts,
 widen only with a reason, and report what it widened to and why.
 
-**Findings use redteam's own severity vocabulary** (`references/findings-report.md`), not the
+**Findings use redteam's own severity vocabulary** (`l3io-sec-redteam/references/findings-report.md`), not the
 arch reviewer's BLOCKER/MAJOR/MINOR:
 - CRITICAL/HIGH: must be resolved before closure completes (fix loop, max
   `{max_fix_iterations}` iterations) or recorded as an accepted ADR that justifies leaving it.

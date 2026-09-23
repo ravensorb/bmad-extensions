@@ -68,6 +68,10 @@
 //                    the declared inventory in
 //                    `skills/l3io-util-doctor/assets/bmad-dependencies.json` — required and
 //                    optional sets both ways, with both sides derived from the two files
+//  24. shared-pointers  every skill-relative pointer inside a file sync-shared-scripts.mjs
+//                    ships resolves in EVERY skill that file's sync group delivers it to —
+//                    scope and destinations both derived from syncGroups, no allowlist. Read
+//                    check 24's own block below for what "pointer" means and what it misses
 //
 // ---------------------------------------------------------------------------------------
 // KNOWN GAPS — check 4's reach over skills/
@@ -2957,6 +2961,132 @@ function checkMarketplaceDependencies() {
 }
 
 // ---------------------------------------------------------------------------
+// 24. Every skill-relative pointer inside a shared file resolves in EVERY skill that file's
+// sync group ships it to.
+//
+// Why: a file in skills/_shared/ is authored once and copied into several skills, so a
+// pointer inside it is evaluated N times against N different directories. `references/…`,
+// `assets/…`, `steps/…` and `scripts/…` are all skill-relative, so a pointer that is true in
+// the skill the author had in mind is a pointer at nothing in the others -- and BMad installs
+// skills independently, so "the other skill has it" is not a fallback a reader can use.
+//
+// Caught in practice: a 2026-09-22 sweep of skills/*/**.md found 337 such pointers with 56
+// unresolved in the skill carrying them. Every one was a shared file naming a file only one
+// of its consumers ships -- `metrics-contract.md` citing `steps/sprint/step-04-sprint-closure.md`
+// (l3io-pm-execute only), `config-resolution.md` citing `assets/module-setup.md` (module homes
+// only), and `status-files.md`, newly shipped to l3io-util-doctor, importing its own onward
+// pointers into a skill that carries none of them.
+//
+// SCOPE IS DERIVED, NOT ENUMERATED (repo CLAUDE.md §4). Both halves come from
+// sync-shared-scripts.mjs's own syncGroups, read by spawning the checked tree's copy with
+// --dump-deliveries: which files are shared, and which skills each one lands in. A new sync
+// group, a widened `dirs`, or a new shared .md is covered the moment it is added. There is no
+// allowlist and no list of paths here to go stale.
+//
+// WHAT COUNTS AS A POINTER: a whole backtick span that is a path starting `references/`,
+// `assets/`, `steps/` or `scripts/` (optionally behind `{skill-root}/` or `./`). A span with
+// any other root -- `{project-root}/…`, `{implementation_artifacts}/…`, `l3io-pm-execute/…` --
+// is not skill-relative and is not judged as one. A span whose first segment IS a real skill
+// directory is judged too, against THAT skill: that is the shape this check's own fixes use
+// (`l3io-sec-redteam/references/scope-mapping.md`), so the replacement is guarded as well as
+// the thing it replaced.
+//
+// THE ONE EXEMPTION, and it is derived rather than allowlisted: a pointer whose LINE also
+// names a real skill directory in which the path does resolve. That is the attribution shape
+// the original sweep excluded ("`l3io-util-doctor`'s own `steps/stats.md`") and it carries the
+// information a reader needs -- which skill to look in. It is mechanical: the named directory
+// must exist under skills/ AND must actually contain the file. Naming a skill that does not
+// have it exempts nothing.
+//
+// FALSE-POSITIVE SURFACE, measured against this tree rather than asserted. Exactly one shape
+// can red on correct prose: a sentence stating a NEGATIVE ("the four operational skills do not
+// carry `assets/module-setup.md`"). config-resolution.md had the only one, and the fix was to
+// name where the file DOES live on the same line, which the sentence should have said anyway.
+// The whole tree is otherwise green. If this ever fires on a second negative statement, add
+// the "it lives in X" half rather than a silencer.
+//
+// NOT CHECKED, stated so nobody has to discover it:
+//   - files a sync group ships that are not .md (the .py payloads). Their pointers are in
+//     Python source, not backtick spans.
+//   - pointers in a skill's OWN files. This check's corpus is the shared set only; a
+//     l3io-util-doctor step file naming a l3io-util-doctor reference that does not exist is
+//     not in scope here, and nothing else checks it either.
+//   - whether the pointed-at SECTION exists. Check 3 does that for `<file>.md §N`.
+//   - a pointer split across a line break, which the line-scoped scan cannot see as one span.
+// ---------------------------------------------------------------------------
+const SHARED_POINTER_RE =
+  /`(?:\{skill-root\}\/|\.\/)?((?:references|assets|steps|scripts)\/[A-Za-z0-9_.-]+(?:\/[A-Za-z0-9_.-]+)*)`/g;
+const QUALIFIED_POINTER_RE =
+  /`(l3io-[a-z0-9-]+)\/((?:references|assets|steps|scripts)\/[A-Za-z0-9_.-]+(?:\/[A-Za-z0-9_.-]+)*)`/g;
+
+function syncDeliveries() {
+  const script = path.join(repoRoot, SYNC_SCRIPT);
+  const r = spawnSync(process.execPath, [script, "--dump-deliveries"],
+    { cwd: repoRoot, encoding: "utf8" });
+  if (r.status !== 0) {
+    return { error: `${SYNC_SCRIPT} --dump-deliveries exited ${r.status}: ` +
+      `${(r.stderr || "").trim().split("\n")[0] || "no output"}` };
+  }
+  try {
+    return { deliveries: JSON.parse(r.stdout) };
+  } catch (e) {
+    return { error: `${SYNC_SCRIPT} --dump-deliveries did not print JSON (${e.message})` };
+  }
+}
+
+function checkSharedPointerResolution() {
+  const { deliveries, error } = syncDeliveries();
+  if (error) {
+    failures.push(`check 24 cannot derive its scope — ${error}. It reads the sync groups from ` +
+      `the sync script itself; a hand-kept copy of that list here would drift from it.`);
+    return;
+  }
+  const realSkills = new Set(skillDirNames());
+  // source -> union of destination skills, across every group naming that source.
+  const bySource = new Map();
+  for (const d of deliveries) {
+    if (!d.source.endsWith(".md")) continue;
+    if (!bySource.has(d.source)) bySource.set(d.source, new Set());
+    for (const skill of d.skills) bySource.get(d.source).add(skill);
+  }
+
+  const offenders = [];
+  let pointers = 0;
+  for (const [source, skillSet] of [...bySource].sort()) {
+    if (!exists(source)) continue;
+    const skills = [...skillSet].sort();
+    read(source).split("\n").forEach((line, i) => {
+      // Attribution: skills named on this line that actually carry the path in question.
+      const named = [...realSkills].filter((sk) => line.includes(sk));
+      const judge = (rel, owners, label) => {
+        pointers += 1;
+        const missing = owners.filter((sk) => !exists(path.posix.join("skills", sk, rel)));
+        if (missing.length === 0) return;
+        if (named.some((sk) => exists(path.posix.join("skills", sk, rel)))) return;
+        offenders.push(`${source}:${i + 1}: ${label} does not exist in ` +
+          `${missing.join(", ")} — this file is shipped to ${skills.join(", ")}, and nothing ` +
+          `on the line names a skill that has it: ${line.trim().slice(0, 120)}`);
+      };
+      for (const m of line.matchAll(SHARED_POINTER_RE)) judge(m[1], skills, `\`${m[1]}\``);
+      for (const m of line.matchAll(QUALIFIED_POINTER_RE)) {
+        if (!realSkills.has(m[1])) continue;
+        judge(m[2], [m[1]], `\`${m[1]}/${m[2]}\``);
+      }
+    });
+  }
+
+  if (offenders.length) {
+    failures.push(`shared files point at paths their consumers do not carry (a pointer inside ` +
+      `a synced file must resolve in every skill that file is shipped to — reword it to name ` +
+      `the owning skill, or ship the target):\n      ${offenders.join("\n      ")}`);
+  }
+  if (verbose) {
+    console.log(`  shared-pointers: ${pointers} pointer(s) across ${bySource.size} shared ` +
+      `.md file(s), ${offenders.length} unresolved`);
+  }
+}
+
+// ---------------------------------------------------------------------------
 
 // The external anchor for pmStatusSubcommandOptions(), exposed through the entry point CI
 // runs rather than by exporting a function, because importing this module runs the checks.
@@ -2992,6 +3122,7 @@ checkSharedFilesTable();
 checkSkillFrontmatter();
 checkReadmeRepoLayout();
 checkMarketplaceDependencies();
+checkSharedPointerResolution();
 
 for (const note of notes) if (verbose) console.log(`  note: ${note}`);
 

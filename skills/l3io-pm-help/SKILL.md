@@ -50,7 +50,7 @@ config and no state itself, so it has nothing for `steps/step-01-config.md` or
 before this mode became a forwarder: it used to run both steps first because it read
 `{pm_state_root}` and `{pm_status}` directly and needed the layout gate to avoid
 recommending a fresh backlog over a legacy tree. `l3io-util-doctor stats`'s own layout check
-(`steps/stats.md` Step ST1) reproduces both branches that actually mattered here — it BLOCKs
+(`l3io-util-doctor/steps/stats.md` Step ST1) reproduces both branches that actually mattered here — it BLOCKs
 with no tree rendered when more than one state layout is present, and it also rules out a
 repointed-`implementation_artifacts` orphan before showing an empty dashboard, the same two
 conditions and severities as this skill's own gate (the second matched to

@@ -68,7 +68,8 @@ self-report of how long the dev/review subagents ran (that is `elapsed_hours`), 
 this number **before** reading the node's own `estimate.man_hours` (or any report that shows
 it) — reading the estimate first anchors the re-assessment toward it. This requirement is
 agent discipline, "specified, not mechanized" (§9) — no script enforces the read order. The
-closure step files (`steps/sprint/step-04-sprint-closure.md`, `steps/execute/step-06-epic-closure.md`)
+closure step files (`l3io-pm-execute/steps/sprint/step-04-sprint-closure.md`,
+`l3io-pm-execute/steps/execute/step-06-epic-closure.md`)
 place the re-assessment as their first step for exactly this reason.
 
 **`hitl_hours` is new and observable.** It is the human's own supervisory attention — reading
@@ -625,7 +626,8 @@ actual comparable at all, and it is what `derive_closure_sample` and
 > identically zero and, after three closes, trains the closure band to contribute nothing to
 > every future estimate. `set-actual` refuses a zero residual for this reason (§8), and the
 > closure step files
-> (`steps/sprint/step-04-sprint-closure.md` §3, `steps/execute/step-06-epic-closure.md` §3)
+> (`l3io-pm-execute/steps/sprint/step-04-sprint-closure.md` §3,
+> `l3io-pm-execute/steps/execute/step-06-epic-closure.md` §3)
 > state the sum-plus-closure rule per metric.
 
 `man_hours` is the one exception, and it is not a sum in the first place: it is the

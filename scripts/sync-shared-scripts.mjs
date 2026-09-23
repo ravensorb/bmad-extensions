@@ -317,6 +317,39 @@ function findOrphans() {
 // Guard: importing this module (e.g. from write-payload-manifest.mjs) must not perform a
 // sync. The body below only runs when this file is executed directly as the entry point.
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
+  // `--dump-deliveries`: print who ships what, as JSON, and exit without writing anything.
+  //
+  // scripts/check-docs.mjs's check 24 needs the source -> (destination path, destination
+  // skills) mapping, and must get it for the tree IT is checking -- which, under
+  // CHECK_DOCS_ROOT, is a temp copy of the repo and not this process's cwd. Importing this
+  // module would derive the mapping from the REAL repo (repoRoot is process.cwd()), and
+  // re-parsing syncGroups out of this file's text would be a second, hand-written derivation
+  // of the thing this file already states -- exactly the drift repo CLAUDE.md §4 forbids. So
+  // the checker spawns the COPY's own sync script and reads this.
+  if (process.argv.includes("--dump-deliveries")) {
+    const deliveries = new Map();   // "<src rel>\0<dest rel>" -> Set<skill name>
+    for (const { files, dirs, skipMissing } of syncGroups) {
+      for (const { src, rel } of files) {
+        if (!fs.existsSync(src)) continue;
+        for (const skillDir of dirs) {
+          if (skipMissing && !fs.existsSync(skillDir)) continue;
+          const key = `${path.relative(repoRoot, src)}\0${rel}`;
+          if (!deliveries.has(key)) deliveries.set(key, new Set());
+          deliveries.get(key).add(path.basename(skillDir));
+        }
+      }
+    }
+    console.log(JSON.stringify([...deliveries].map(([key, skills]) => {
+      const [source, dest] = key.split("\0");
+      return {
+        source: source.split(path.sep).join("/"),
+        dest: dest.split(path.sep).join("/"),
+        skills: [...skills].sort(),
+      };
+    })));
+    process.exit(0);
+  }
+
   let drift = 0;
   let written = 0;
 

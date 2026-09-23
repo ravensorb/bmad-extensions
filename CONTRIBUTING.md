@@ -58,7 +58,7 @@ on `ERR_MODULE_NOT_FOUND`. CI installs before any gate, and so should you.
 |---|---|
 | `npm run check:scripts` | Per-skill payload copies match their `_shared/` source |
 | `npm run check:manifest` | Every `payload-manifest.json` hash matches the file it names |
-| `npm run check:docs` | Documentation matches the code it describes — twenty-three checks, including that every documented CLI subcommand exists and every `<file>.md §N` cross-reference resolves |
+| `npm run check:docs` | Documentation matches the code it describes — twenty-four checks, including that every documented CLI subcommand exists and every `<file>.md §N` cross-reference resolves |
 | `npm run check:version` | `pm-status.py`'s version marker, its `PM_STATUS_VERSION`, and `package.json` agree |
 | `npm run check:module` | One `module.yaml` per module code, correctly homed, with its required payload |
 | `npm run test:scripts` | The `check-docs` and `check-module` self-tests |

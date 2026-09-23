@@ -2570,3 +2570,127 @@ test("check 23 fails rather than passing when the inventory declares nothing", (
   assert.equal(r.status, 1, r.stdout);
   assert.match(r.stderr, /declares no skills — check 23 would compare against an empty set/);
 });
+
+// ---------------------------------------------------------------------------
+// check 24 — shared-pointers
+//
+// Every test below plants into skills/_shared/, because that is what the check reads: the
+// authored source, not the generated per-skill copies (check:scripts owns those).
+// ---------------------------------------------------------------------------
+function read(root, rel) {
+  return fs.readFileSync(path.join(root, rel), "utf8");
+}
+
+// Write a skills/_shared/ reference AND every per-skill copy of it, the way `npm run
+// sync:scripts` would. Editing only the source is not a realistic tree: check 4's
+// module-reference arm excludes a per-skill file by SHA-256 match against skills/_shared/,
+// so a source edited alone turns every synced copy into "something this module chose to
+// run" and reports unrelated offences. Check 24 reads the source, so mirroring costs it
+// nothing.
+function writeSharedReference(root, basename, text) {
+  write(root, `skills/_shared/${basename}`, text);
+  for (const skill of fs.readdirSync(path.join(root, "skills"))) {
+    const rel = `skills/${skill}/references/${basename}`;
+    if (fs.existsSync(path.join(root, rel))) write(root, rel, text);
+  }
+}
+
+// Re-plant one of the pointers this check was built to catch: metrics-contract.md ships to
+// l3io-pm-execute, l3io-pm-plan and l3io-pm-sync, and the sprint-closure step file it cites
+// ships to l3io-pm-execute alone. Reverting the qualifier must turn CI red again.
+test("check 24 catches a re-planted bare pointer in a shared reference", (t) => {
+  const root = fixture(t);
+  const before = read(root, "skills/_shared/metrics-contract.md");
+  const planted = before.replace(
+    "`l3io-pm-execute/steps/sprint/step-04-sprint-closure.md`",
+    "`steps/sprint/step-04-sprint-closure.md`");
+  assert.notEqual(planted, before, "the qualified pointer is gone — re-anchor this test");
+  writeSharedReference(root, "metrics-contract.md", planted);
+  const r = run(root);
+  assert.equal(r.status, 1, r.stdout);
+  assert.match(r.stderr,
+    /metrics-contract\.md:\d+: `steps\/sprint\/step-04-sprint-closure\.md` does not exist in l3io-pm-plan, l3io-pm-sync/);
+});
+
+// The same shape in the file that made this class visible: status-files.md is the one shared
+// reference l3io-util-doctor carries, so its onward pointers must hold in a doctor install too.
+test("check 24 catches a bare onward pointer in the reference shipped to l3io-util-doctor", (t) => {
+  const root = fixture(t);
+  writeSharedReference(root, "status-files.md",
+    read(root, "skills/_shared/status-files.md") +
+    "\nSee `references/calibration-model.md` for the ratios.\n");
+  const r = run(root);
+  assert.equal(r.status, 1, r.stdout);
+  assert.match(r.stderr,
+    /status-files\.md:\d+: `references\/calibration-model\.md` does not exist in l3io-util-doctor/);
+});
+
+// THE SCOPE ATTACK. The corpus and the destination set both come from syncGroups, read out of
+// the checked tree's own sync script -- not from a list in check-docs.mjs. A brand-new shared
+// file, registered in an existing group, must be in scope the moment it is registered. A
+// hand-kept corpus would sail straight past this. (`skills/_shared/steps/**` is already a
+// wildcard row in CLAUDE.md's Shared Files table, so check 20 stays green.)
+test("scope attack: a pointer in a newly registered shared file is in scope at once", (t) => {
+  const root = fixture(t);
+  write(root, "skills/_shared/steps/plan/step-99-brand-new.md",
+    "# New\n\nSee `steps/execute/step-05-epic-loop.md` §5.\n");
+  const syncRel = "scripts/sync-shared-scripts.mjs";
+  const sync = read(root, syncRel);
+  const anchor = `const planStepFiles = [\n`;
+  assert.ok(sync.includes(anchor), "planStepFiles has moved — re-anchor this test");
+  write(root, syncRel, sync.replace(anchor, anchor +
+    `  { src: path.join(sharedDir, "steps", "plan", "step-99-brand-new.md"), ` +
+    `rel: path.join("steps", "plan", "step-99-brand-new.md") },\n`));
+  const r = run(root);
+  assert.equal(r.status, 1, r.stdout);
+  assert.match(r.stderr,
+    /step-99-brand-new\.md:\d+: `steps\/execute\/step-05-epic-loop\.md` does not exist in l3io-pm-plan/);
+});
+
+// A skill-qualified pointer is judged against the skill it names, so the replacement shape
+// this class was fixed with is guarded too -- not just the bare shape it replaced.
+test("check 24 catches a qualified pointer naming a skill that does not carry it", (t) => {
+  const root = fixture(t);
+  writeSharedReference(root, "config-resolution.md",
+    read(root, "skills/_shared/config-resolution.md") +
+    "\nSee `l3io-pm-help/references/metrics-contract.md` for the metrics.\n");
+  const r = run(root);
+  assert.equal(r.status, 1, r.stdout);
+  assert.match(r.stderr,
+    /config-resolution\.md:\d+: `l3io-pm-help\/references\/metrics-contract\.md` does not exist in l3io-pm-help/);
+});
+
+// FALSE-POSITIVE PIN. The exemption is attribution, and it must hold: a line that names a real
+// skill directory which really does carry the file is correct prose, and reddening on it is
+// the failure mode this repo already shipped once. This is the shape every cross-skill
+// citation in the tree uses.
+test("check 24 stays green on a bare pointer attributed to a skill that has it", (t) => {
+  const root = fixture(t);
+  writeSharedReference(root, "config-resolution.md",
+    read(root, "skills/_shared/config-resolution.md") +
+    "\n`l3io-pm-execute`'s own `steps/execute/step-04-arch-gate.md` runs the epic arch gate.\n");
+  const r = run(root);
+  assert.equal(r.status, 0, r.stderr + r.stdout);
+});
+
+// ...and naming a skill that does NOT have it exempts nothing. Attribution is checked against
+// the filesystem, not taken on the sentence's word.
+test("check 24 does not accept attribution to a skill that lacks the file", (t) => {
+  const root = fixture(t);
+  writeSharedReference(root, "config-resolution.md",
+    read(root, "skills/_shared/config-resolution.md") +
+    "\n`l3io-pm-help`'s own `steps/execute/step-04-arch-gate.md` runs the epic arch gate.\n");
+  const r = run(root);
+  assert.equal(r.status, 1, r.stdout);
+  assert.match(r.stderr, /`steps\/execute\/step-04-arch-gate\.md` does not exist in/);
+});
+
+// An input set that can silently become empty is the failure this repo keeps meeting: if the
+// sync script cannot be read, check 24 must say so rather than pass over nothing.
+test("check 24 fails loudly when it cannot derive its scope", (t) => {
+  const root = fixture(t);
+  write(root, "scripts/sync-shared-scripts.mjs", "throw new Error('broken');\n");
+  const r = run(root);
+  assert.equal(r.status, 1, r.stdout);
+  assert.match(r.stderr, /check 24 cannot derive its scope/);
+});

@@ -4,7 +4,9 @@ Communicate all responses in `{communication_language}`.
 
 This file is the single source of truth for **where** epic/sprint/story/backlog state lives
 on disk and **how** to read or write it. It is a **deep reference, consulted on demand** — do
-not load it at activation. `steps/shared/step-00-digest.md` carries the operative digest
+not load it at activation. The PM skills' `l3io-pm-execute/steps/shared/step-00-digest.md`
+(each of `l3io-pm-execute`, `l3io-pm-plan` and `l3io-pm-sync` carries its own copy; a
+`l3io-util` install has none) carries the operative digest
 every run needs (keys, subcommand signatures, exit codes) plus a routing table naming the
 section to read for each case that genuinely needs this file: a `verify` failure (§7), a
 per-file schema question (§4), a migration or legacy layout (§10), `depends_on` (§11), or an
@@ -435,8 +437,9 @@ event log is unconditional so it cannot be silently skipped.
 `set-actual` also derives and appends a calibration sample as a side effect of a successful
 write (`--no-calibrate` suppresses it). What it computes, and why a failed derivation only
 warns rather than failing the actuals write, is specified in the calibration model —
-`references/calibration-model.md`, which ships with the PM skills (pm-execute, pm-plan,
-pm-sync) and not with every skill that carries this contract. Do not go looking for it here
+`l3io-pm-execute/references/calibration-model.md`, which ships with the PM skills
+(`l3io-pm-execute`, `l3io-pm-plan`, `l3io-pm-sync`) and not with every skill that carries
+this contract. Do not go looking for it here
 unless your own `references/` has it; `pm-status.py` performs the whole loop itself, so
 nothing on a normal run needs to read it.
 
@@ -533,9 +536,10 @@ no `--state-root`) is skipped, so it never writes a `.gitignore` into a repo roo
 absent from the file is appended (patterns already present are left alone, never rewritten or
 reordered); an absent file is created with both. The check is best-effort: a failure warns on
 stderr and never fails the verb. Neither pattern matches a directory, so the activation gate's
-`git check-ignore` on the state-root directory (`steps/shared/step-00-activate.md`) still
-passes. Lock files a project committed before this rule existed are untracked, and left on
-disk, by the sprint-closure checkpoint (`steps/sprint/step-04-sprint-closure.md` §9) and by
+`git check-ignore` on the state-root directory (the PM skills'
+`l3io-pm-execute/steps/shared/step-00-activate.md`) still passes. Lock files a project
+committed before this rule existed are untracked, and left on disk, by the sprint-closure
+checkpoint (`l3io-pm-execute/steps/sprint/step-04-sprint-closure.md` §9) and by
 `/l3io-util-doctor`'s health check (Check 14). Old `epic.yaml.lock` files
 left inside an epic directory by a pre-relocation `pm-status.py` are no longer the epic lock;
 the same filename is reused only as the redundant `--flock` sidecar (above), so removing one
