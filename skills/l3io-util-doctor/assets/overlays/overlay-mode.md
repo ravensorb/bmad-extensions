@@ -6,8 +6,8 @@
 > then all three actions below would report "nothing ships yet" by construction: `assets/overlays/`
 > contains this file and `README.md` and no TOML, so `diff` and `verify` have nothing to read
 > and `list` only re-prints what `bmad-customize` already reports about the install. Restoring
-> it means adding `steps/overlay.md` back plus its routing row in `SKILL.md` — a mode is a file
-> plus a table row.
+> it means moving this file back under the skill's `steps/` directory and adding its routing
+> row in `SKILL.md` — a mode is a file plus a table row.
 
 Specified as `overlay [list|diff|verify]`. Default action (no sub-argument, or an unrecognized
 one) is `list`. Owner of the BMad customization layer: what an overlay is, where it is staged,

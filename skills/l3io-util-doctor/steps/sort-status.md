@@ -12,8 +12,9 @@ every node path from its key, so a wrongly-padded directory or file is silently 
 key lookup rather than merely out of order. That is what this mode checks for.
 
 If you want a rename applied rather than just reported, the two-digit legacy epic form is
-fixed by `steps/rename-epic-dirs.md` (Rename Epic Dirs Mode) (`rename-epic-dirs`) — this mode does
-not duplicate that rename logic itself.
+fixed by the `rename-epic-dirs` inline action inside `steps/health-check.md` (Health Check 10
+detects it, Step HC6 performs it) — this mode does not duplicate that rename logic itself, and
+there is no standalone keyword for it.
 
 **Naming convention checked:**
 

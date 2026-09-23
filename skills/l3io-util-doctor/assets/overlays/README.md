@@ -8,8 +8,8 @@ and the overlay **content** is Phase 3.
 **The mode itself is not installed.** Its contract lives beside this file as
 `overlay-mode.md`, not under `steps/`, and `/l3io-util-doctor` has no `overlay` keyword — all
 three of its actions would report "nothing ships yet" while this directory has no TOML in it.
-Phase 3 restores the keyword by adding `steps/overlay.md` back with that contract and a routing
-row in `SKILL.md`.
+Phase 3 restores the keyword by moving that contract back under the skill's `steps/`
+directory and adding its routing row in `SKILL.md`.
 
 ## What lands here, once Phase 3 ships it
 

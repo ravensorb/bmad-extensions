@@ -357,10 +357,14 @@ test("check 15 scope attack: a new steps file plus its routing row, prose unchan
   write(root, "skills/l3io-util-doctor/steps/zzz-extra-mode.md", "# Extra mode\n");
   const rel = "skills/l3io-util-doctor/SKILL.md";
   const text = fs.readFileSync(path.join(root, rel), "utf8");
-  write(root, rel, text.replace(
-    "| `stats` | `steps/stats.md` | read-only — plan-aware progress dashboard |",
-    "| `stats` | `steps/stats.md` | read-only — plan-aware progress dashboard |\n" +
-      "| `zzz-extra` | `steps/zzz-extra-mode.md` | test-only extra mode |"));
+  // Anchored on the check-deps routing row rather than a literal that carries prose: the
+  // stats row was this anchor until its Notes cell was reworded, and the replace silently
+  // became a no-op, so the test planted a steps file with no row and asserted the wrong
+  // branch. Assert the anchor before using it -- a future reword fails HERE, loudly.
+  const anchor = "| `check-deps` | `steps/check-deps.md` |";
+  assert.ok(text.includes(anchor), `the routing row this test anchors on must exist: ${anchor}`);
+  write(root, rel, text.replace(anchor,
+    "| `zzz-extra` | `steps/zzz-extra-mode.md` | test-only extra mode |\n" + anchor));
   const r = run(root);
   assert.equal(r.status, 1);
   assert.match(r.stderr, new RegExp(`says "${word}" modes, but the doctor has ${n + 1} mode\\(s\\)`));
@@ -2989,6 +2993,31 @@ test("check 25: prose after a bare command invocation is not a keyword claim", (
     read(root, "docs/glossary.md") +
     "\nRun /l3io-util-doctor for a health check, /l3io-util-doctor once per upgrade, or\n" +
     "/l3io-util-doctor to install the helper.\n");
+  const r = run(root);
+  assert.equal(r.status, 0, r.stderr + r.stdout);
+});
+
+// SECOND ARM. steps/sort-status.md pointed at steps/rename-epic-dirs.md after that mode was
+// folded into the health check, and survived a hand sweep plus all six gates. A directive to
+// load a file that is not there is worse than a stale keyword.
+test("check 25: a step file pointing at a mode file the doctor does not carry is caught", (t) => {
+  const root = fixture(t);
+  write(root, "skills/l3io-util-doctor/steps/sort-status.md",
+    read(root, "skills/l3io-util-doctor/steps/sort-status.md") +
+    "\nApply the fix with `steps/rename-epic-dirs.md` (Rename Epic Dirs Mode).\n");
+  const r = run(root);
+  assert.equal(r.status, 1, r.stdout);
+  assert.match(r.stderr, /points at steps\/rename-epic-dirs\.md, which skills\/l3io-util-doctor does not carry/);
+});
+
+// FALSE-POSITIVE PIN for the second arm: a pointer qualified with another skill resolves
+// against THAT skill and must stay green. Both of the doctor's real cross-skill pointers are
+// written this way.
+test("check 25: a cross-skill qualified mode-file pointer is not a doctor pointer", (t) => {
+  const root = fixture(t);
+  write(root, "skills/l3io-util-doctor/steps/sort-status.md",
+    read(root, "skills/l3io-util-doctor/steps/sort-status.md") +
+    "\nThe same walk runs in `l3io-pm-help/steps/step-02-detect-layout.md`.\n");
   const r = run(root);
   assert.equal(r.status, 0, r.stderr + r.stdout);
 });

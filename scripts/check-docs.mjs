@@ -75,7 +75,9 @@
 //
 //  25. doctor-mode-keywords  every `/l3io-util-doctor <keyword>` invocation, in a live doc or
 //                    a runtime directive, names a keyword the doctor's routing table still
-//                    has. Read check 25's own block for the two forms it cannot see
+//                    has -- and every unqualified `steps/<name>.md` pointer inside the doctor
+//                    resolves to a file it carries. Read check 25's own block for the two
+//                    invocation forms it cannot see
 //
 // ---------------------------------------------------------------------------------------
 // KNOWN GAPS — check 4's reach over skills/
@@ -3628,6 +3630,15 @@ if (process.argv.includes("--dump-subcommand-options")) {
 //      keyword named in a table cell. Deliberate: docs/upgrading.md must be able to say which
 //      keywords were removed and what replaced them, exactly as check 1 lets a doc map a
 //      removed skill to its replacement.
+//
+// SECOND ARM -- mode-file pointers. A removed mode leaves a second kind of dangling reference:
+// a sibling step file still telling the agent to load `steps/<name>.md`. That is worse than a
+// stale keyword, because the instruction is to READ A FILE THAT IS NOT THERE. It survived the
+// whole of Task 0C's hand sweep and every gate (steps/sort-status.md pointed at
+// steps/rename-epic-dirs.md), which is the evidence for this arm existing. Every unqualified
+// `steps/<name>.md` inside skills/l3io-util-doctor/ must resolve there; a pointer written
+// `<other-skill>/steps/<name>.md` is a cross-skill reference and is skipped, because it
+// resolves against that skill, not this one.
 // ---------------------------------------------------------------------------
 const DOCTOR_ROUTING_ROW_RE = /^\| ((?:`[^`|]+`(?:[,/]| or )?\s*)+)\|/gm;
 const DOCTOR_INVOCATION_RE = /\/l3io-util-(?:doctor|cleanup)[ \t]+([a-z][a-z0-9-]*)/g;
@@ -3680,7 +3691,25 @@ function checkDoctorModeKeywords() {
         `${[...valid].sort().join(", ")}`);
     }
   }
-  if (verbose) console.log(`  doctor-mode-keywords: ${valid.size} keyword(s), ${scanned} file(s)`);
+
+  let pointers = 0;
+  for (const rel of walkTextFiles(DOCTOR_DIR)) {
+    let text;
+    try { text = read(rel); } catch { continue; }
+    for (const m of text.matchAll(/(\S*?)steps\/([a-z0-9-]+\.md)/g)) {
+      if (m[1].endsWith("/")) continue; // qualified against another skill
+      pointers++;
+      if (exists(`${DOCTOR_DIR}/steps/${m[2]}`)) continue;
+      const line = text.slice(0, m.index).split("\n").length;
+      failures.push(`${rel}:${line}: points at steps/${m[2]}, which ${DOCTOR_DIR} does not ` +
+        `carry — a directive to load a file that is not there. Name the mode that absorbed ` +
+        `it, or qualify the pointer with the skill that has it`);
+    }
+  }
+  if (verbose) {
+    console.log(`  doctor-mode-keywords: ${valid.size} keyword(s), ${scanned} file(s), ` +
+      `${pointers} mode-file pointer(s)`);
+  }
 }
 
 checkSkillNames();
