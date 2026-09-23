@@ -145,6 +145,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { spawnSync } from "node:child_process";
+import { createHash } from "node:crypto";
 import YAML from "yaml";
 import sh from "mvdan-sh";
 
@@ -203,6 +204,27 @@ function liveDocFiles() {
 }
 
 const LIVE_DOCS = liveDocFiles();
+
+// The module a skill's directory belongs to, from that module's own module.yaml `code:`.
+// assets/module.yaml is the target module home; a skill-root module.yaml is a not-yet-migrated
+// module. Read both so a partial migration does not silently count zero modules.
+function moduleCodeOf(skill) {
+  for (const rel of [`skills/${skill}/assets/module.yaml`, `skills/${skill}/module.yaml`]) {
+    if (!exists(rel)) continue;
+    const m = read(rel).match(/^code:\s*(\S+)/m);
+    if (m) return m[1];
+  }
+  return null;
+}
+
+// Every l3io-* directory under skills/, sorted. One derivation, used by every check that asks
+// "which skills are there".
+function skillDirNames() {
+  return fs.readdirSync(path.join(repoRoot, "skills"), { withFileTypes: true })
+    .filter((e) => e.isDirectory() && e.name.startsWith("l3io-"))
+    .map((e) => e.name)
+    .sort();
+}
 
 // ---------------------------------------------------------------------------
 // 1. Every l3io-* skill named in live docs resolves to a real skill directory.
@@ -513,6 +535,7 @@ function checkCliSurface() {
   // so check 18's derived count (one invocation per header entry) doesn't have to
   // special-case them.
   checkPmStatusInvocations();
+  checkModuleReferenceCoverage();
   checkDigestCliSynopsis();
   checkSpecAlignSurface();
 }
@@ -892,6 +915,32 @@ function pmStatusAnchors(text) {
   return anchors.sort((a, b) => a.at - b.at);
 }
 
+// Every pm-status.py invocation in one markdown file, as {sub, argv, at, line, text}, plus an
+// {unreadable: true} marker for a fragment the shell parser could not read. Factored out so
+// the flag arm below and check 4's module-reference arm read the corpus the SAME way: two
+// extractors over one corpus is two things to keep in step, and the second one silently
+// diverging is how a guard stops covering what its prose says it covers.
+function* pmStatusCommands(rel) {
+  for (const { text, line } of logicalLines(read(rel))) {
+    for (const anchor of pmStatusAnchors(text)) {
+      let fragment = text.slice(anchor.at);
+      const closingBacktick = fragment.indexOf("`");
+      if (closingBacktick >= 0) fragment = fragment.slice(0, closingBacktick);
+      if (!/\{pm_status\}|pm-status\.py/.test(fragment)) continue;
+
+      const commands = shellCommands(fragment);
+      if (commands === null) { yield { unreadable: true }; continue; }
+      for (const { argv } of commands) {
+        const at = argv.findIndex((t) => typeof t === "string" && PM_STATUS_TOKEN_RE.test(t));
+        if (at < 0) continue;
+        const sub = argv[at + 1];
+        if (typeof sub !== "string" || !/^[a-z][a-z-]*$/.test(sub)) continue;
+        yield { sub, argv, at, line, text };
+      }
+    }
+  }
+}
+
 function checkPmStatusInvocations() {
   const real = cliSubcommands();
   const flags = pmStatusLongOptions();
@@ -905,57 +954,43 @@ function checkPmStatusInvocations() {
   const offenders = [];
 
   for (const rel of allSkillDocs()) {
-    for (const { text, line } of logicalLines(read(rel))) {
-      for (const anchor of pmStatusAnchors(text)) {
-        let fragment = text.slice(anchor.at);
-        const closingBacktick = fragment.indexOf("`");
-        if (closingBacktick >= 0) fragment = fragment.slice(0, closingBacktick);
-        if (!/\{pm_status\}|pm-status\.py/.test(fragment)) continue;
-
-        const commands = shellCommands(fragment);
-        if (commands === null) { unreadable += 1; continue; }
-        for (const { argv } of commands) {
-          const at = argv.findIndex((t) => typeof t === "string" && PM_STATUS_TOKEN_RE.test(t));
-          if (at < 0) continue;
-          const sub = argv[at + 1];
-          if (typeof sub !== "string" || !/^[a-z][a-z-]*$/.test(sub)) continue;
-          checked += 1;
-          if (!real.has(sub)) {
-            // Same tolerance the live-docs arm gives: a line that is describing the removal
-            // is allowed to name what was removed.
-            if (/remov|deprecat|no longer|replaced|used to/i.test(text)) {
-              notes.push(`${rel}:${line}: names absent subcommand '${sub}' while describing ` +
-                `its removal — allowed`);
-              continue;
-            }
-            offenders.push(`${rel}:${line}: invokes pm-status.py subcommand '${sub}', which ` +
-              `the CLI does not have\n      CLI has: ${[...real].sort().join(", ")}`);
-            continue;
-          }
-          // M-2(3): judged against the INVOKED subcommand's own option set, not the union of
-          // every option the CLI registers anywhere. The union passed `set-status --scope
-          // story` -- a real flag on the wrong subcommand -- and the review named that as
-          // still open. pmStatusSubcommandOptions() is anchored against the real argparse by
-          // scripts/tests/check-docs.test.mjs; the union is kept only as the fallback for a
-          // subcommand the extractor did not see, so a future build_parser() shape that
-          // defeats it degrades to the old reach instead of turning CI red on correct docs.
-          const allowed = bySub.get(sub) || flags;
-          const perSubcommand = bySub.has(sub);
-          for (const token of argv.slice(at + 2)) {
-            if (typeof token !== "string" || !token.startsWith("--")) continue;
-            const flag = token.split("=")[0];
-            if (flag === "--") continue;
-            flagsChecked += 1;
-            if (allowed.has(flag)) continue;
-            offenders.push(
-              perSubcommand && flags.has(flag)
-                ? `${rel}:${line}: invokes '${sub} ${flag}', but pm-status.py registers that ` +
-                  `option on other subcommands only, never on '${sub}'\n      ${sub} takes: ` +
-                  `${[...allowed].sort().join(" ")}`
-                : `${rel}:${line}: invokes '${sub} ${flag}', but pm-status.py ` +
-                  `registers no such option anywhere in its CLI`);
-          }
+    for (const { sub, argv, at, line, text, unreadable: bad } of pmStatusCommands(rel)) {
+      if (bad) { unreadable += 1; continue; }
+      checked += 1;
+      if (!real.has(sub)) {
+        // Same tolerance the live-docs arm gives: a line that is describing the removal
+        // is allowed to name what was removed.
+        if (/remov|deprecat|no longer|replaced|used to/i.test(text)) {
+          notes.push(`${rel}:${line}: names absent subcommand '${sub}' while describing ` +
+            `its removal — allowed`);
+          continue;
         }
+        offenders.push(`${rel}:${line}: invokes pm-status.py subcommand '${sub}', which ` +
+          `the CLI does not have\n      CLI has: ${[...real].sort().join(", ")}`);
+        continue;
+      }
+      // M-2(3): judged against the INVOKED subcommand's own option set, not the union of
+      // every option the CLI registers anywhere. The union passed `set-status --scope
+      // story` -- a real flag on the wrong subcommand -- and the review named that as
+      // still open. pmStatusSubcommandOptions() is anchored against the real argparse by
+      // scripts/tests/check-docs.test.mjs; the union is kept only as the fallback for a
+      // subcommand the extractor did not see, so a future build_parser() shape that
+      // defeats it degrades to the old reach instead of turning CI red on correct docs.
+      const allowed = bySub.get(sub) || flags;
+      const perSubcommand = bySub.has(sub);
+      for (const token of argv.slice(at + 2)) {
+        if (typeof token !== "string" || !token.startsWith("--")) continue;
+        const flag = token.split("=")[0];
+        if (flag === "--") continue;
+        flagsChecked += 1;
+        if (allowed.has(flag)) continue;
+        offenders.push(
+          perSubcommand && flags.has(flag)
+            ? `${rel}:${line}: invokes '${sub} ${flag}', but pm-status.py registers that ` +
+              `option on other subcommands only, never on '${sub}'\n      ${sub} takes: ` +
+              `${[...allowed].sort().join(" ")}`
+            : `${rel}:${line}: invokes '${sub} ${flag}', but pm-status.py ` +
+              `registers no such option anywhere in its CLI`);
       }
     }
   }
@@ -967,6 +1002,113 @@ function checkPmStatusInvocations() {
   if (verbose) {
     console.log(`  pm-status-invocations: ${checked} invocation(s) and ${flagsChecked} long ` +
       `flag(s) in skills/ checked (${unreadable} fragment(s) not readable as shell, skipped)`);
+  }
+}
+
+// 4 (continued). Every module's reference doc documents the pm-status.py subcommands that
+// module's OWN skills actually run.
+//
+// Why this exists. The reverse arm above -- "every subcommand the CLI has must be documented"
+// -- was bound to one hand-typed constant, docs/l3io-pm-reference.md. That is the right rule
+// for the CLI's own reference, and it is the whole reach: docs/l3io-util-reference.md
+// documents a skill whose mode files invoke {pm_status} directly, and NOTHING asked whether
+// what it runs is written down anywhere in it. The forward arm reads that file (it is in
+// LIVE_DOCS) and would catch a subcommand named there that does not exist -- but a subcommand
+// that exists, that the skill really runs, and that the doc never mentions is invisible to
+// every direction of every check. "Right rule, incomplete set" is the failure mode CLAUDE.md
+// §4 names.
+//
+// Adding a second constant would repeat the mistake one path later, so the set is DERIVED:
+//   which modules exist          <- each skill's own module.yaml `code:` (moduleCodeOf)
+//   which skills are in a module <- the repo's own naming convention, `<code>` or `<code>-*`,
+//                                   the same one check 19 and check-module.mjs use
+//   which doc is a module's ref  <- docs/<code>-reference.md
+//   what that module runs        <- pmStatusCommands() over that module's skill docs
+//   what the doc documents       <- tableRowSubcommands(), the same anchor the arm above uses
+//
+// Both directions of the doc set are checked, so neither side can silently shrink: a module
+// with no reference doc fails, and a docs/l3io-*-reference.md naming no real module fails.
+//
+// SYNCED COPIES ARE EXCLUDED, and that exclusion is derived too -- a per-skill file whose
+// bytes are identical to a file under skills/_shared/ is a generated copy of shared contract
+// text, not something this module chose to run. Without it, syncing status-files.md into
+// l3io-util-doctor (commit 98945ac) would have demanded rows in docs/l3io-util-reference.md
+// for set-lock, check-lock and set-status purely because the shared state contract quotes
+// them. A guard that cries wolf gets switched off.
+//
+// self-install is excluded for the same reason the arm above excludes it: internal plumbing,
+// deliberately not user-facing surface.
+function sharedDocDigests() {
+  const digests = new Set();
+  for (const rel of walkMarkdown(path.join("skills", "_shared"))) {
+    digests.add(createHash("sha256").update(read(rel)).digest("hex"));
+  }
+  return digests;
+}
+
+const MODULE_REFERENCE_RE = /^docs\/(l3io-[a-z0-9-]+)-reference\.md$/;
+
+function checkModuleReferenceCoverage() {
+  const real = cliSubcommands();
+  const shared = sharedDocDigests();
+  const dirs = skillDirNames();
+
+  const codes = new Set();
+  for (const dir of dirs) {
+    const code = moduleCodeOf(dir);
+    if (code) codes.add(code);
+  }
+  if (codes.size === 0) {
+    failures.push(`no skills/*/module.yaml declares a \`code:\` — check 4's module-reference ` +
+      `arm would examine nothing and pass in silence`);
+    return;
+  }
+
+  // Direction 1: every module named by a module.yaml has a reference doc among the live docs.
+  // Direction 2: every docs/l3io-*-reference.md names a module that exists.
+  const refDocs = new Map();
+  for (const rel of LIVE_DOCS) {
+    const m = rel.match(MODULE_REFERENCE_RE);
+    if (!m) continue;
+    if (!codes.has(m[1])) {
+      failures.push(`${rel}: is a reference doc for module '${m[1]}', which no ` +
+        `skills/*/module.yaml declares (modules: ${[...codes].sort().join(", ")})`);
+      continue;
+    }
+    refDocs.set(m[1], rel);
+  }
+  for (const code of [...codes].sort()) {
+    if (refDocs.has(code)) continue;
+    failures.push(`docs/${code}-reference.md: module '${code}' has no reference doc among the ` +
+      `live docs — without one, nothing checks what that module documents about pm-status.py`);
+  }
+
+  let checked = 0;
+  for (const [code, doc] of [...refDocs].sort()) {
+    const owned = dirs.filter((d) => d === code || d.startsWith(`${code}-`));
+    const invoked = new Map(); // sub -> "file:line" of the first invocation found
+    for (const dir of owned) {
+      for (const rel of walkMarkdown(path.join("skills", dir))) {
+        if (shared.has(createHash("sha256").update(read(rel)).digest("hex"))) continue;
+        for (const { sub, line, unreadable } of pmStatusCommands(rel)) {
+          if (unreadable) continue;
+          if (sub === "self-install" || !real.has(sub)) continue;
+          if (!invoked.has(sub)) invoked.set(sub, `${rel}:${line}`);
+        }
+      }
+    }
+    const documented = tableRowSubcommands(read(doc));
+    for (const [sub, where] of [...invoked].sort()) {
+      checked += 1;
+      if (documented.has(sub)) continue;
+      failures.push(`${doc}: does not document pm-status.py subcommand '${sub}' as a table ` +
+        `row, but ${code}'s own skills invoke it (${where})\n      every subcommand a module ` +
+        `runs should appear as a '| \`${sub}\` | ... |' row in that module's reference doc`);
+    }
+  }
+  if (verbose) {
+    console.log(`  module-reference-coverage: ${refDocs.size} module reference doc(s), ` +
+      `${checked} invoked subcommand claim(s) checked`);
   }
 }
 
@@ -2275,23 +2417,12 @@ function checkDocsCheckCount() {
 // drifted only because no task had changed the numbers yet.
 // ---------------------------------------------------------------------------
 function derivedCounts() {
-  const dirs = fs.readdirSync(path.join(repoRoot, "skills"), { withFileTypes: true })
-    .filter((e) => e.isDirectory() && e.name.startsWith("l3io-"))
-    .map((e) => e.name);
-  // assets/module.yaml is the target module home; a skill-root module.yaml is a not-yet-
-  // migrated module. Read both so this check survives a partial migration instead of silently
-  // counting zero modules.
-  const codeOf = (skill) => {
-    for (const rel of [`skills/${skill}/assets/module.yaml`, `skills/${skill}/module.yaml`]) {
-      if (!exists(rel)) continue;
-      const m = read(rel).match(/^code:\s*(\S+)/m);
-      if (m) return m[1];
-    }
-    return null;
-  };
+  const dirs = skillDirNames();
+  // moduleCodeOf() is the one derivation of "which module is this skill's home", shared with
+  // check 4's module-reference arm, so the two can never disagree about the module set.
   const homeOfCode = new Map();
   for (const dir of dirs) {
-    const code = codeOf(dir);
+    const code = moduleCodeOf(dir);
     if (code) homeOfCode.set(code, dir);
   }
   // A directory is a real, installable skill only once it carries a SKILL.md -- a module home

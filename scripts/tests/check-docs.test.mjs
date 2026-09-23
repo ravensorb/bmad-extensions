@@ -1880,13 +1880,21 @@ test("check 4/skills: a correct invocation does not fire", (t) => {
 // --time-hours-low, --time-hours-high) -- measured against the parser object itself, built
 // under uv from build_parser(), before this check shipped. This pins the alias case, so that
 // simplification fails loudly instead of inventing three phantom violations.
+// This one plants under l3io-pm rather than at PLANT_FILE, because it is the only
+// expect-GREEN plant that names a subcommand l3io-util-doctor does not really run: check 4's
+// module-reference arm would rightly demand a docs/l3io-util-reference.md row for it, and this
+// test is about flag ALIASES, not about module documentation. docs/l3io-pm-reference.md
+// documents the whole CLI, so the module arm has nothing to add there. Still a brand-new file
+// in a brand-new directory, so it still attacks the scope.
 test("check 4/skills: a second spelling registered in the same add_argument() is accepted", (t) => {
   const root = fixture(t);
   const cli = fs.readFileSync(path.join(root, "skills", "_shared", "pm-status.py"), "utf8");
   assert.match(cli, /add_argument\(\s*"--elapsed-hours",\s*"--time-hours"/,
     "pm-status.py no longer registers --time-hours as an alias; this test needs a new one");
-  plantInvocation(root,
-    "uv run {pm_status} set-estimate --state-root {r} --story {s} --time-hours 2");
+  write(root, path.join("skills", "l3io-pm-execute", "steps", "brand-new-alias-dir", "planted.md"),
+    ["# Planted", "", "```bash",
+     "uv run {pm_status} set-estimate --state-root {r} --story {s} --time-hours 2",
+     "```", ""].join("\n"));
   const r = run(root);
   assert.equal(r.status, 0, r.stderr);
 });
@@ -1900,6 +1908,86 @@ test("check 4/skills: prose naming pm-status.py outside a uv run command is not 
   ].join("\n"));
   const r = run(root);
   assert.equal(r.status, 0, r.stderr);
+});
+
+// ---------------------------------------------------------------------------
+// Check 4, module-reference arm. The completeness arm was bound to one hand-typed constant,
+// docs/l3io-pm-reference.md, so docs/l3io-util-reference.md -- a reference for a skill whose
+// mode files invoke {pm_status} directly -- was checked by nothing in either direction. The
+// set is now derived from each skill's module.yaml `code:` and the repo's own `<code>-*`
+// naming convention. These tests attack that derivation, not just the rule.
+// ---------------------------------------------------------------------------
+
+test("check 4/modules: a subcommand a module runs but its reference doc omits is caught", (t) => {
+  const root = fixture(t);
+  write(root, "skills/l3io-util-doctor/steps/planted-mode.md",
+    "Run `uv run {pm_status} estimate-story --state-root x --story E001-S01-001`.\n");
+  const r = run(root);
+  assert.equal(r.status, 1, r.stdout);
+  assert.match(r.stderr,
+    /docs\/l3io-util-reference\.md: does not document pm-status\.py subcommand 'estimate-story' as a table row, but l3io-util's own skills invoke it/);
+});
+
+// Scope attack on module MEMBERSHIP: a brand-new skill directory is bound to its module by the
+// `<code>-*` naming convention, never by a list. A checker that iterated a hand-kept set of
+// skills would generate no case here and pass in silence.
+test("check 4/modules scope attack: a brand-new skill in a module is covered on arrival", (t) => {
+  const root = fixture(t);
+  write(root, "skills/l3io-util-newskill/steps/x.md",
+    "Run `uv run {pm_status} estimate-rollup --state-root x --epic E001`.\n");
+  const r = run(root);
+  assert.equal(r.status, 1, r.stdout);
+  assert.match(r.stderr,
+    /docs\/l3io-util-reference\.md: does not document pm-status\.py subcommand 'estimate-rollup' as a table row/);
+});
+
+// A per-skill file whose bytes match a skills/_shared/ file is a GENERATED copy of shared
+// contract text, not something the module chose to run -- syncing status-files.md into
+// l3io-util-doctor must not start demanding rows for the subcommands the shared state contract
+// quotes. The exclusion is derived from content, so this plants the same bytes in both places.
+test("check 4/modules: a synced copy of a shared reference demands no row", (t) => {
+  const root = fixture(t);
+  const body = "# Shared\n\nRun `uv run {pm_status} estimate-story --state-root x --story S`.\n";
+  write(root, "skills/_shared/planted-shared.md", body);
+  write(root, "skills/l3io-util-doctor/references/planted-shared.md", body);
+  const r = run(root);
+  assert.equal(r.status, 0, r.stderr + r.stdout);
+});
+
+// ...and the control for it: one byte different and it is no longer a synced copy, so the row
+// is demanded again. Without this, the test above would pass just as well if the arm had
+// stopped looking at l3io-util-doctor entirely.
+test("check 4/modules: a NEAR-copy of a shared reference is not exempt", (t) => {
+  const root = fixture(t);
+  const body = "# Shared\n\nRun `uv run {pm_status} estimate-story --state-root x --story S`.\n";
+  write(root, "skills/_shared/planted-shared.md", body);
+  write(root, "skills/l3io-util-doctor/references/planted-shared.md", body + "\nLocal note.\n");
+  const r = run(root);
+  assert.equal(r.status, 1, r.stdout);
+  assert.match(r.stderr,
+    /docs\/l3io-util-reference\.md: does not document pm-status\.py subcommand 'estimate-story'/);
+});
+
+// Both directions of the DOC set, so neither side can silently shrink. A module whose
+// reference doc disappears must fail rather than quietly stop being checked...
+test("check 4/modules: a module with no reference doc is caught", (t) => {
+  const root = fixture(t);
+  fs.rmSync(path.join(root, "docs", "l3io-sec-reference.md"));
+  const r = run(root);
+  assert.equal(r.status, 1, r.stdout);
+  assert.match(r.stderr,
+    /docs\/l3io-sec-reference\.md: module 'l3io-sec' has no reference doc among the live docs/);
+});
+
+// ...and a reference doc for a module that does not exist must fail too, rather than being
+// silently skipped as "not one of ours".
+test("check 4/modules: a reference doc naming no real module is caught", (t) => {
+  const root = fixture(t);
+  write(root, "docs/l3io-ghost-reference.md", "# Ghost\n\nNothing here.\n");
+  const r = run(root);
+  assert.equal(r.status, 1, r.stdout);
+  assert.match(r.stderr,
+    /docs\/l3io-ghost-reference\.md: is a reference doc for module 'l3io-ghost', which no skills\/\*\/module\.yaml declares/);
 });
 
 // ---------------------------------------------------------------------------

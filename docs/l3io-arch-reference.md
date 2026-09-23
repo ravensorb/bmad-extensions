@@ -16,9 +16,12 @@ Config is resolved via `{project-root}/_bmad/scripts/resolve_config.py` — `cor
 
 Key settings (with defaults):
 
-- `preferred_diagram_format` — `mermaid` (fallback `ascii`). Preferred format for architecture diagrams.
-- `output_folder` — default: `{project-root}/_bmad-output`
-- `implementation_artifacts` — default: `{output_folder}/implementation-artifacts` (review reports)
+- `preferred_diagram_format` — `mermaid` (fallback `ascii`). Preferred format for architecture diagrams. This is the **only** setting `modules.l3io-arch` owns, and the only one this module's `module.yaml` declares.
+
+Two paths this module reads are **not** its own keys:
+
+- `output_folder` — `core.output_folder`, default `{project-root}/_bmad-output`. The installer owns it.
+- `implementation_artifacts` — `modules.l3io-pm.implementation_artifacts`, default `{output_folder}/implementation-artifacts`. `l3io-pm` owns the state tree, so it owns the path, and all four modules resolve it from there — there is one artifact tree, not one per module. Setting `modules.l3io-arch.implementation_artifacts` in `_bmad/custom/config.toml` has **no effect**.
 
 Review reports write to `implementation_artifacts`; ADRs and the docs skeleton write under `{project-root}/docs/`.
 
@@ -81,6 +84,12 @@ Fill `Epic:` (`n/a` outside an epic) and `Departs from spec:` with the `path#anc
 
 Invocation shortcuts: `/l3io-arch-review design|review|decision [--stack python|nodejs|dotnet|github-actions]`.
 
+### `pm-status.py` subcommands this skill runs
+
+| Subcommand | Used by | For |
+|---|---|---|
+| `adr-reserve` | Mode C, and Mode A's initial ADR set | Allocates the next ADR number under a lock, from `l3io-pm`'s register, before the file is written. Optional: without `l3io-pm` installed there is no register and the skill falls back to the highest number on disk plus one. Full signature in the [l3io-pm reference](l3io-pm-reference.md). |
+
 ## Severity Model
 
 | Severity | Meaning |
@@ -94,6 +103,7 @@ Invocation shortcuts: `/l3io-arch-review design|review|decision [--stack python|
 `assets/customize-architect.md` documents the `bmad-customize` overlays to author **in the consuming project** (the core skills live there, not in this extension repo):
 
 - **`bmad-architecture`** — load the standards before finalizing any architecture/technology decision; hold the design against every principle; record ADRs; produce diagrams and the docs skeleton.
+- **the story enricher, legacy `bmad-create-story`** — when drafting a story's acceptance criteria, make the technical contract explicit wherever the story implies one (interfaces/API contracts, data model, error and edge handling, observability, security controls, testability), adding one concrete technical AC per applicable dimension without expanding scope. This is the same contract `l3io-pm-execute`'s story technical-AC gate checks, applied at authoring time.
 - **`bmad-code-review`** (and/or `l3io-sec-redteam`) — additionally check standards compliance during review; treat BLOCKER/MAJOR as gating, MINOR as backlog.
 
 The overlays point at the standards files rather than duplicating them, keeping a single source of truth.

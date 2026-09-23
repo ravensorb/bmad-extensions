@@ -15,8 +15,9 @@ Skill: `/l3io-util-doctor [command]`.
 
 > **Renamed in 2.1.0.** This skill was `l3io-util-cleanup` through 2.0.x. "Cleanup"
 > described about three of its modes, while the default behavior is a
-> diagnose-report-repair health check. The deprecated `/l3io-util-cleanup` forwarder was
-> removed in 3.0.0 — see [Upgrading](upgrading.md). Update any scripts or docs that still
+> diagnose-report-repair health check. The deprecated `/l3io-util-cleanup` forwarder has
+> been **removed on `main`** and ships in the next release — it is still present in 2.5.1,
+> the current release. See [Upgrading](upgrading.md). Update any scripts or docs that still
 > invoke the old name.
 
 ## Configuration
@@ -72,6 +73,24 @@ Key settings (with defaults):
 | `harvest-debt` | Sweeps the source tree for `bmad-defer:` deferred-shortcut markers and harvests new ones into the consolidated backlog. Language-generic, re-runnable (dedupes by `source`). Report-only by default; merge is confirmed. |
 | `update-ai-rules` | Updates AI instruction files (`CLAUDE.md`, `.github/copilot-instructions.md`, `GEMINI.md`, `AGENTS.md`, `.cursorrules`, …) that reference the legacy single `sprint-status.yaml` to document the three-file split layout. Also auto-invoked after `split-status`. |
 
+### BMad customization layer
+
+| Command | What it does |
+|---------|--------------|
+| `overlay [list\|diff\|verify]` | Owner of the BMad customization layer. `list` (the default, and what an unrecognized sub-argument falls back to) enumerates what `bmad-customize` exposes in this install, each skill's root key (`agent` or `workflow`), and which of those skills this package ships an overlay for. `diff` stages each shipped overlay to `{implementation_artifacts}/l3io/overlays/<skill>.toml` and shows it next to what `resolve_customization.py` currently resolves. `verify` reports, per overlay, whether it is placed and merged, **placed but not merged** (usually the wrong root key, which BMad ignores silently rather than erroring), or not placed. Needs `bmad-customize` installed; `BLOCKED` without it. |
+
+**`overlay` never writes `{project-root}/_bmad/custom/`.** That space belongs to the end user,
+and BMad Builder is explicit that there is no supported pattern for a module to write into it.
+`diff` stages the file under `{implementation_artifacts}/` and **prints one `cp` command** for
+you to run yourself — placing the file is the act this mode exists not to perform. You choose
+the scope by choosing the filename: `_bmad/custom/<skill>.toml` is the committed team layer,
+`_bmad/custom/<skill>.user.toml` is gitignored. If that upstream constraint is ever lifted, it
+changes by ADR, not quietly.
+
+`assets/overlays/` ships empty today — the overlays themselves are Phase 3 of the
+customization-layer design — so all three actions correctly report "nothing ships yet" rather
+than failing.
+
 ### Setup & housekeeping
 
 | Command | What it does |
@@ -81,6 +100,26 @@ Key settings (with defaults):
 | `rename-active` | Renames `sprint-status-active.yaml` → `sprint-status.yaml` (the health check runs this automatically when the old naming is found). |
 | `rename-epic-dirs` | Renames legacy two-digit `epic-{nn}/` artifact directories to the current three-digit `epic-{nnn}/` form. Rarely needed directly — the health check detects and runs this automatically when the old naming is found. |
 | `help` / `?` | Prints the command list and exits — no project scan. |
+
+## `pm-status.py` subcommands this skill runs
+
+The doctor self-installs `pm-status.py` at activation (above) because its modes call it
+directly. These are the subcommands they invoke; the authoritative signature for each one is
+in the [l3io-pm reference](l3io-pm-reference.md), which documents the whole CLI.
+
+| Subcommand | Used by | For |
+|---|---|---|
+| `report` | `stats` | The state walk behind the progress dashboard — the tree, dwell times and stuck flags are rendered from its output rather than duplicated here. |
+| `list-issues` | `backlog`, `stats`, `triage` | Reads the backlog, whole (`--all`) or filtered by `--kind` for the spec pass. |
+| `audit-issues` | `triage`, the health check | The backlog integrity audit whose findings `triage` then resolves. |
+| `resolve-issue` | `triage` | Closes an item that is already fixed, with a `--resolution` and a `--ref`. |
+| `repair-issue` | `triage` | `unschedule`, `reopen`, `link` and `reseed` repairs for the findings the audit reports. |
+| `append-issue` | `migrate-state` | Files a migration finding into the backlog rather than dropping it. |
+| `verify` | `migrate-state`, `bootstrap-state` | Reads a migrated or bootstrapped node back and confirms it landed. |
+| `set-status` | `migrate-state`, `bootstrap-state` | The single atomic status write; these modes never edit a state YAML by hand. |
+| `clear-lock` | `stats` | The stale-lock remedy `stats` prints per affected epic. |
+| `calibration` | `redrive` | `redrive` rebuilds the `scope` and `fix` components through it. |
+| `dispatch` | `triage` | Opens and closes the dispatch record for a subagent the mode fans out to. |
 
 ## Project Health Check
 
