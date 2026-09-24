@@ -10,14 +10,22 @@ The doctor grew one mode at a time. Each mode was reasonable on its own; the set
 is not. Three problems follow from that history, and this redesign exists to
 close them.
 
-**The migrations are prose, so nothing tests them.** `assets/migrate-state.md`
-is 817 lines of procedure that constructs state paths by hand —
-`mkdir -p {pm_state_root}/{status_dir}/epic-{nnn}/` at `:352` and the sprint
-directory at `:355`. It calls exactly two real `pm-status.py` verbs
-(`append-issue`, `verify`). Everything else it does to the state tree, it does
-itself. `CLAUDE.md` states that `pm-status.py` "is the only place that resolves
-a key to a file location"; the doctor's largest procedure is the standing
-exception.
+**The migrations are prose, so nothing tests them.** `CLAUDE.md` states that
+`pm-status.py` "is the only place that resolves a key to a file location."
+**Two doctor procedures are standing exceptions, not one** — measured across
+`skills/`, they are the only two files that assemble a state path outside the
+canonical contract:
+
+| File | Path-assembly sites | `pm-status.py` verbs it uses | How it writes nodes |
+|---|---|---|---|
+| `steps/bootstrap-state.md` | **6** (`:226`, `:237`, `:248`, …) | `verify` only | an inline `write_node()` calling `ruamel` directly |
+| `assets/migrate-state.md` | 3 (`:352`, `:355`, …) | `append-issue`, `verify` | prose `write …` directives |
+
+`bootstrap-state` is the larger offender by site count, and its inline writer
+bypasses `_epic_write_lock`, `append_event`, and status validation — it writes
+whatever status string the prose derived, unchecked. Its idempotency is its own
+skip-if-exists rule rather than the shared one. Neither procedure was reachable
+by a test.
 
 **The consequence is live and destructive.** BMad's own
 `sprint-status.yaml` — `.claude/skills/bmad-sprint-planning/sprint-status-template.yaml:53-66`
@@ -81,9 +89,12 @@ and judgement stay in prose; parsing and writing become code.**
 | **Writer** | a new `pm-status.py` verb | Create a state node from a record, under the existing lock/event/exit-code contract. |
 | **Prose** | `assets/`, `steps/` | Detect which layout is present, explain what will happen, exercise judgement, confirm, dispose of the source. |
 
-Four readers and one writer replace six hand-written procedures. The readers are
-single-consumer code and live in the doctor's own `scripts/` per ADR-0001. The
-writer is shared runtime and lives in `skills/_shared/pm-status.py`.
+**Five readers and one writer** replace the hand-written procedures — four
+status-file layouts plus `bootstrap-state`'s artifacts reader, which derives
+records from story `.md` frontmatter rather than from a status file but emits the
+same record and feeds the same writer. The readers are single-consumer code and
+live in the doctor's own `scripts/` per ADR-0001. The writer is shared runtime
+and lives in `skills/_shared/pm-status.py`.
 
 **Layout detection has one home.** There are already three copies of layout
 detection in the tree, each carrying a comment asking the next person to keep
@@ -110,11 +121,21 @@ for four reasons, each checked rather than assumed:
    is a second thing to install, hash and keep in step — the exact class of drift
    the content guard was introduced to end.
 
-**The invariant was verified, not assumed:** zero state-node path constructions
-exist outside lines 475–908. **Add a guard so it stays true** — a `check:scripts`
-rule asserting that `epic-`/`sprint-` path assembly appears only in the resolver
-section. Writing the rule without the check is how the current `migrate-state`
-exception survived in the first place.
+**The invariant was verified, not assumed:** inside `pm-status.py`, zero
+state-node path constructions exist outside lines 475–908. **Add a guard so it
+stays true**, and give the guard both halves of the rule:
+
+1. *Inside* `pm-status.py` — `epic-`/`sprint-` path assembly appears only in the
+   resolver section.
+2. *Outside* it — no file under `skills/` assembles a state path, with
+   `skills/_shared/status-files.md` (the canonical contract, which must describe
+   the layout) as the one derived exemption.
+
+**Derive the scope from the tree, never from a list of known offenders.** Half 2
+is the half that matters: a guard scoped to `migrate-state` would have passed
+over `bootstrap-state`'s six sites and reported success — the same shape of
+failure as Stage E's vacuous gates, one level up. Writing the rule without the
+check is how both exceptions survived in the first place.
 
 ## 5. The writer verb
 
@@ -136,6 +157,11 @@ body is precisely how the resolver invariant would break — and it is what
 The verb takes the same node-addressing flags as every other
 (`--state-root`, `--epic`, `--sprint`, `--story`) plus the record's fields. It
 never takes a path.
+
+**It has two callers, not one:** the migration readers and `bootstrap-state`.
+Routing both through it is what retires the inline `write_node()` and puts
+bootstrap-created nodes under the same lock, event log and status validation as
+every other write.
 
 ## 6. The normalised record and the run
 
@@ -186,8 +212,9 @@ stops being a backfill.
 | End-to-end per path | `skills/l3io-util-doctor/scripts/tests/` | fixture project → run → assert the resulting tree |
 
 One fixture project per source layout: base-BMad adoption, l3io legacy flat,
-per-epic `_bmad/state/`, and the split three-file layout. Each asserts node count,
-keys, placement, and that the source is preserved.
+per-epic `_bmad/state/`, the split three-file layout, and an artifacts-only
+project (story `.md` files, no status file) for the `bootstrap-state` reader.
+Each asserts node count, keys, placement, and that the source is preserved.
 
 Four tests exist because of what actually went wrong, not because they are
 conventional:
@@ -216,11 +243,17 @@ Mapped to the ranked gaps in `docs/l3io-util-doctor-gap-analysis.md` §3:
 | 1. Discriminate `sprint-status.yaml` by schema | §3 — second exit code from `detect-layout.py` |
 | 2. Refuse a migration that moved nothing | §6 step 5 — the pre-write gate |
 | 5. Dedupe the working epic list on both paths | §6 step 3 — one rule at the join |
-| 9. The base-BMad on-ramp | §2 — detect **and convert**, with inferred sprints marked |
+| 9. The base-BMad on-ramp | §2 — detect **and convert**; §3 — the artifacts reader gives `bootstrap-state` a tested path |
 
 Gaps 3, 4, 6, 7, 8 and 10 are health-check and wiring work. They are real and
 remain open; they are not part of this design, which is scoped to the migration
 architecture and the record contract.
+
+Gap 7 was re-measured while writing this: the doctor invokes `move-epic` and
+`archive-epic` **zero** times. Placement anomalies are detected in two places
+(`pm-status.py report`, and `stats`'s helper-absent fallback) and repaired in
+none. That confirms the gap mechanically rather than by reading; it does not move
+it into scope.
 
 ## 9. Out of scope
 
