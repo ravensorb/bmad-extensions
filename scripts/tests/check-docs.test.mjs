@@ -3089,7 +3089,7 @@ test('check 26: the canonical contract is exempt', () => {
 
 test('check 26: a planted pm-status.py violation outside the resolver section is caught', () => {
   const { violations } = resolverInvariant({
-    plantInPmStatus: { line: 4000, text: '    d = os.path.join(root, "epic-{nnn}")' },
+    plantInPmStatus: { line: 4000, text: '    d = os.path.join(state_root, "planned", "epic-{nnn}")' },
   })
   assert.ok(violations.some(v => v.includes('pm-status.py:4000')),
     `expected the planted pm-status violation, got: ${JSON.stringify(violations)}`)

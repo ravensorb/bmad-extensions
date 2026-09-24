@@ -3842,10 +3842,16 @@ function checkDoctorModeKeywords() {
 // references/status-files.md copies are the same bytes, so they are exempt by the same
 // rule rather than by a second entry.
 //
-// KNOWN GAP: this matches literal `epic-`/`sprint-` assembly adjacent to a path separator
-// or a state-root token. It does NOT catch a path built from a variable whose value is
-// "epic-" assigned elsewhere. That is a FALSE-NEGATIVE direction, stated here rather than
-// left for a reader to discover.
+// KNOWN GAPS:
+// (1) FALSE-NEGATIVE: a path built from a variable whose value is "epic-" assigned elsewhere
+//     is not flagged. Stated here so a reader need not discover it.
+// (2) FALSE-NEGATIVE: a STATE_PATH_RE match on a line with NONE of the state-context tokens
+//     (state, planned, active, archived, state_root, pm_state_root) is suppressed by the
+//     STATE_CONTEXT_RE guard — it is far more likely to be an artifact-path assembly
+//     ({implementation_artifacts}/epic-{nnn}/..., which is a separate concern) than a
+//     state-path assembly. Any artifact-path template written on a line that also
+//     happens to carry a state-context token would be a false positive; none exist in the
+//     current tree.
 
 const RESOLVER_START_MARKER =
   'Sharded layout resolution — the ONLY place that knows where nodes live'
@@ -3854,6 +3860,11 @@ const RESOLVER_END_MARKER =
 
 const STATE_PATH_RE =
   /(?:mkdir\s+-p\s+|["'`(]|\/)\s*\{?[\w.\-/{}]*\}?\/?(?:epic-\{?n{2,3}\}?|epic-\{int|sprint-\{?n{1,2}\}?)/
+
+// Require at least one state-context token on the same line so that artifact-path
+// templates ({implementation_artifacts}/epic-{nnn}/...) and documentation tables
+// that merely NAME the pattern are not caught. A violation must have BOTH.
+const STATE_CONTEXT_RE = /\b(?:state|planned|active|archived|state_root|pm_state_root)\b/
 
 function isStatusFilesContract(file) {
   return file === 'skills/_shared/status-files.md' ||
@@ -3894,7 +3905,7 @@ export function resolverInvariant(opts = {}) {
       const n = i + 1
       if (n > start + 1 && n < end + 1) return    // inside the resolver section — allowed
       if (line.trimStart().startsWith('#')) return  // pure comment line, not code
-      if (STATE_PATH_RE.test(line)) {
+      if (STATE_PATH_RE.test(line) && STATE_CONTEXT_RE.test(line)) {
         violations.push(
           `${pmPath}:${n} assembles a state path outside the resolver section: ${line.trim()}`)
       }
@@ -3911,7 +3922,7 @@ export function resolverInvariant(opts = {}) {
     scannedFiles.push(file)
     if (isStatusFilesContract(file)) continue
     text.split('\n').forEach((line, i) => {
-      if (STATE_PATH_RE.test(line)) {
+      if (STATE_PATH_RE.test(line) && STATE_CONTEXT_RE.test(line)) {
         violations.push(`${file}:${i + 1} assembles a state path: ${line.trim()}`)
       }
     })
