@@ -9454,5 +9454,72 @@ class TestAdrReserveScansDisk(unittest.TestCase):
         self.assertEqual(sorted(numbers), [f"{n:04d}" for n in range(4, 12)])
 
 
+class TestEnsureNodePath(Base):
+    class _Args:
+        def __init__(self, **kw):
+            self.epic = kw.get("epic")
+            self.sprint = kw.get("sprint")
+            self.story = kw.get("story")
+            self.state_root = kw.get("state_root")
+
+    def test_dir_for_status_is_the_inverse_of_status_for_dir(self):
+        for folder, status in pm.STATUS_FOR_DIR.items():
+            self.assertEqual(pm.DIR_FOR_STATUS[status], folder)
+        self.assertEqual(len(pm.DIR_FOR_STATUS), len(pm.STATUS_FOR_DIR))
+
+    def test_new_epic_lands_in_the_folder_named_for_its_status(self):
+        a = self._Args(epic="E001", state_root=self.d)
+        path, label = pm.ensure_node_path(self.d, a, "epic", "in-progress")
+        self.assertEqual(path, os.path.join(self.d, "active", "epic-001", "epic.yaml"))
+        self.assertTrue(os.path.isdir(os.path.dirname(path)))
+        self.assertEqual(label, "epic E001")
+
+    def test_backlog_epic_lands_in_planned(self):
+        a = self._Args(epic="E002", state_root=self.d)
+        path, _ = pm.ensure_node_path(self.d, a, "epic", "backlog")
+        self.assertEqual(path, os.path.join(self.d, "planned", "epic-002", "epic.yaml"))
+
+    def test_done_epic_lands_in_archived(self):
+        a = self._Args(epic="E003", state_root=self.d)
+        path, _ = pm.ensure_node_path(self.d, a, "epic", "done")
+        self.assertEqual(path, os.path.join(self.d, "archived", "epic-003", "epic.yaml"))
+
+    def test_existing_epic_dir_is_reused_not_relocated(self):
+        a = self._Args(epic="E001", state_root=self.d)
+        pm.ensure_node_path(self.d, a, "epic", "backlog")          # creates planned/
+        path, _ = pm.ensure_node_path(self.d, a, "epic", "done")   # must NOT create archived/
+        self.assertEqual(path, os.path.join(self.d, "planned", "epic-001", "epic.yaml"))
+        self.assertFalse(os.path.isdir(os.path.join(self.d, "archived", "epic-001")))
+
+    def test_sprint_dir_is_created_under_its_epic(self):
+        a = self._Args(epic="E001", sprint="S02", state_root=self.d)
+        pm.ensure_node_path(self.d, a, "epic", "backlog")
+        path, label = pm.ensure_node_path(self.d, a, "sprint", "in-progress")
+        self.assertEqual(
+            path, os.path.join(self.d, "planned", "epic-001", "sprint-02", "sprint.yaml"))
+        self.assertTrue(os.path.isdir(os.path.dirname(path)))
+        self.assertEqual(label, "epic E001 sprint S02")
+
+    def test_story_path_is_created_under_its_sprint(self):
+        a = self._Args(epic="E001", story="E001-S02-003", state_root=self.d)
+        pm.ensure_node_path(self.d, a, "epic", "backlog")
+        path, _ = pm.ensure_node_path(self.d, a, "story", "ready-for-dev")
+        self.assertEqual(
+            path,
+            os.path.join(self.d, "planned", "epic-001", "sprint-02", "E001-S02-003.yaml"))
+
+    def test_sprint_without_an_epic_dir_exits_3(self):
+        a = self._Args(epic="E404", sprint="S01", state_root=self.d)
+        with self.assertRaises(SystemExit) as cm:
+            pm.ensure_node_path(self.d, a, "sprint", "backlog")
+        self.assertEqual(cm.exception.code, 3)
+
+    def test_unknown_status_exits_2(self):
+        a = self._Args(epic="E001", state_root=self.d)
+        with self.assertRaises(SystemExit) as cm:
+            pm.ensure_node_path(self.d, a, "epic", "nonsense")
+        self.assertEqual(cm.exception.code, 2)
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

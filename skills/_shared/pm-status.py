@@ -476,6 +476,12 @@ def _flock_write_or_plain(use_flock: bool, y: YAML, data, path: str) -> None:
 # --------------------------------------------------------------------------- #
 STATUS_DIRS = ("active", "planned", "archived")  # active first: hottest path
 
+# Layout knowledge belongs in the resolver section with everything else that knows
+# where a node lives. DIR_FOR_STATUS is DERIVED, never written out a second time --
+# two hand-kept halves of one mapping is how they drift apart.
+STATUS_FOR_DIR = {"planned": "backlog", "active": "in-progress", "archived": "done"}
+DIR_FOR_STATUS = {status: folder for folder, status in STATUS_FOR_DIR.items()}
+
 
 def epic_dirname(epic_key: str) -> str:
     """'E001' -> 'epic-001'. Accepts unpadded input ('E42' -> 'epic-042')."""
@@ -595,6 +601,58 @@ def resolve_node_path(state_root: str, args, kind: str):
     return p, label
 
 
+def ensure_node_path(state_root: str, args, kind: str, status: str):
+    """Resolve a node kind + keys to (path, label), CREATING the directory when absent.
+
+    The counterpart to resolve_node_path() for the one case that function cannot serve:
+    a node that does not exist yet. It is the ONLY function that creates a state
+    directory, and it lives here -- in the section that is the only place a key becomes
+    a location -- on purpose. A mkdir in a subcommand body is exactly how that invariant
+    breaks; check 26 in check-docs.mjs fails the build if one appears.
+
+    A NEW epic is placed by its status, per the placement rule. An epic that already has
+    a directory is left where it is: relocating on a status change is move-epic's job,
+    which uses `git mv` so history survives. Sprints and stories require their epic's
+    directory to exist and exit 3 when it does not.
+    """
+    if kind == "epic" and status not in DIR_FOR_STATUS:
+        _die_usage(
+            f"cannot place a new epic with status {status!r} -- "
+            f"expected one of {sorted(DIR_FOR_STATUS)}"
+        )
+    if kind == "epic":
+        if not args.epic:
+            _die_usage("--epic is required for an epic node")
+        d = find_epic_dir(state_root, args.epic)
+        if d is None:
+            d = os.path.join(state_root, DIR_FOR_STATUS[status], epic_dirname(args.epic))
+        os.makedirs(d, exist_ok=True)
+        return os.path.join(d, "epic.yaml"), f"epic {args.epic}"
+
+    if kind == "sprint":
+        if not (args.epic and args.sprint):
+            _die_usage("--epic and --sprint are required for a sprint node")
+        d = find_epic_dir(state_root, args.epic)
+        if d is None:
+            _die_notfound(f"epic {args.epic} (create it before its sprints)")
+        sd = os.path.join(d, sprint_dirname(args.sprint))
+        os.makedirs(sd, exist_ok=True)
+        return os.path.join(sd, "sprint.yaml"), f"epic {args.epic} sprint {args.sprint}"
+
+    if kind == "story":
+        if not args.story:
+            _die_usage("--story is required for a story node")
+        epic_key, sprint_key, _ = parse_story_key(args.story)
+        d = find_epic_dir(state_root, epic_key)
+        if d is None:
+            _die_notfound(f"epic {epic_key} (create it before its stories)")
+        sd = os.path.join(d, sprint_dirname(sprint_key))
+        os.makedirs(sd, exist_ok=True)
+        return os.path.join(sd, f"{args.story}.yaml"), f"story {args.story}"
+
+    _die_usage(f"unknown node kind: {kind}")
+
+
 def _load_checked(state_root: str, args, kind: str):
     """Resolve, load, and validate back-references. Exits 3 (missing) or 4 (misplaced)."""
     path, label = resolve_node_path(state_root, args, kind)
@@ -624,14 +682,21 @@ def _infer_kind(args) -> str:
     _die_usage("specify --story, or --epic [--sprint]")
 
 
-def _epic_write_lock(args, kind):
+def _epic_write_lock(args, kind, require_exists: bool = True):
     """epic_node_lock around a node verb's read-modify-write when the node is an epic; no
     lock for a sprint or story, whose files are not epic.yaml. Resolves the epic first, so
     an absent one exits 3 exactly as before with no lock file created; the verb resolves
-    again inside the hold, since a move-epic may land while it waits."""
+    again inside the hold, since a move-epic may land while it waits.
+
+    require_exists=False is for import-node, whose whole purpose is the node that does not
+    exist yet. It still takes the lock -- a concurrent import of the same epic must
+    serialise -- it just does not demand the node be there first. Every other caller keeps
+    the default, so their behaviour is unchanged.
+    """
     if kind != "epic":
         return contextlib.nullcontext()
-    resolve_node_path(args.state_root, args, "epic")
+    if require_exists:
+        resolve_node_path(args.state_root, args, "epic")
     return epic_node_lock(args.state_root, args.epic)
 
 
@@ -6092,9 +6157,6 @@ def _list_issues(args) -> int:
     for r in rows:
         sys.stdout.write(_fmt_row(r) + "\n")
     return 0
-
-
-STATUS_FOR_DIR = {"planned": "backlog", "active": "in-progress", "archived": "done"}
 
 
 def move_epic(state_root: str, epic_key: str, to_status: str) -> str:
