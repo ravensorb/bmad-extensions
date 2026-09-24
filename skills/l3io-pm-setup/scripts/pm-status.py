@@ -3,7 +3,7 @@
 # requires-python = ">=3.11"
 # dependencies = ["ruamel.yaml>=0.18"]
 # ///
-# pm-status-version: 2.5.1   (machine-readable marker; `self-install` compares this across copies — keep at top)
+# pm-status-version: 2.5.2   (machine-readable marker; `self-install` compares this across copies — keep at top)
 """
 pm-status.py — deterministic, atomic, round-trip-safe writer for the l3io-pm
 sharded state tree, and the reader behind its progress report.
@@ -21,8 +21,9 @@ deterministic operation:
   * `verify` is a hard read-back gate the orchestrator can branch on (exit code).
 
 BMad standardizes on `uv run`; the PEP-723 header above lets `uv` provision
-ruamel.yaml automatically. A plain `python3 pm-status.py ...` also works wherever
-ruamel.yaml is already importable.
+ruamel.yaml automatically. Always invoke via `uv run pm-status.py ...` — running
+under `python3` directly bypasses the provisioning and fails with
+ModuleNotFoundError anywhere ruamel.yaml is not already installed globally.
 
 Subcommands
 -----------
@@ -252,7 +253,7 @@ except ModuleNotFoundError:  # pragma: no cover - environment guard
     )
     sys.exit(2)
 
-PM_STATUS_VERSION = "2.5.1"  # keep in sync with the top-of-file `# pm-status-version:` marker
+PM_STATUS_VERSION = "2.5.2"  # keep in sync with the top-of-file `# pm-status-version:` marker
 
 VALID_STORY_STATUS = {"backlog", "ready-for-dev", "in-progress", "review", "done"}
 VALID_SPRINT_STATUS = {"backlog", "in-progress", "done"}
