@@ -8,7 +8,7 @@ Full reference for the PM orchestration module — four skills that cover the de
 |-------|------|
 | `l3io-pm-plan` | Validates readiness, elaborates thin stories, estimates, builds the dependency graph, and writes a phased execution plan |
 | `l3io-pm-execute` | Runs the plan — full, single epic, or single sprint. Includes the pre-execution architecture gate, the per-story dev loop, and sprint/epic closure |
-| `l3io-pm-help` | Reads project state and recommends the exact next l3io-pm action. `progress` renders the plan-aware progress tree |
+| `l3io-pm-help` | Reads project state and recommends the exact next l3io-pm action. `progress` forwards to `/l3io-util-doctor stats` for the plan-aware progress tree |
 | `l3io-pm-sync` | Bidirectional sync between l3io-pm state and GitHub Issues — `setup`, `push`, `pull`, `sync`, `status` |
 
 `l3io-pm-execute` is **one skill in two modes**, not two skills. In normal mode it orchestrates epics; for each sprint it dispatches a *headless* subagent invocation of itself. There is no separate sprint-execute or epic-execute skill.
@@ -21,9 +21,10 @@ Skills resolve config at activation through BMad core's resolver:
 uv run --python 3.11 {project-root}/_bmad/scripts/resolve_config.py --project-root {project-root}
 ```
 
-The full contract is each skill's `references/config-resolution.md`. Module setup runs only
-when you pass `setup`, `configure`, or `install` — an absent `modules.l3io-pm` section just
-means you have no overrides, which is the normal state.
+The full contract is each skill's `references/config-resolution.md`. Module setup is not
+routed through any of these four skills — `/l3io-pm-setup` is the module's setup entry point.
+An absent `modules.l3io-pm` section just means you have no overrides, which is the normal
+state.
 
 ### Config files
 
@@ -325,19 +326,27 @@ execute.
 | Invocation | What it does |
 |---|---|
 | *(none)* | Health snapshot plus a next-action recommendation |
-| `progress` | Plan-aware progress tree, delegated to `pm-status.py report`. See [Progress Reporting](#progress-reporting) |
+| `progress` | Forwards to `/l3io-util-doctor stats` for the plan-aware progress tree. See [Progress Reporting](#progress-reporting) |
 | `list plan` | Enumerates every plan snapshot, classifies each as unstarted / in progress / complete against current state, and prints the YAML to repoint `plan-output-meta.yaml` |
-| `setup` / `configure` / `install` | Loads `assets/module-setup.md` — the only module-setup trigger |
 
-`progress` and `list plan` still run config resolution and the layout gate first, then skip the
-recommendation sections. The gate therefore applies to every mode: a legacy tree short-circuits
-all three to the same migration recommendation, because the progress report and the epic status
-probes only understand the sharded layout.
+`setup`, `configure`, and `install` are not recognized arguments — module setup is not routed
+through this skill. `/l3io-pm-setup` is the module's setup entry point.
+
+`list plan` still runs config resolution and the layout gate first, then skips the
+recommendation sections; a legacy tree short-circuits it to the migration recommendation,
+because the epic status probes only understand the sharded layout. `progress` runs neither
+step — it is a pure forwarder to `/l3io-util-doctor stats`, whose own layout check
+(`steps/stats.md` Step ST1) reproduces both branches of this skill's gate that mattered: the
+multi-layout `BLOCK` (matching the Critical severity `l3io-util-doctor`'s health-check
+Check 2b uses) and the repointed-`implementation_artifacts` orphan check (matching this
+skill's `step-02-detect-layout.md`) — instead of duplicating either check here.
 
 ### The layout gate
 
-Before any recommendation, in every mode, it **counts** rather than stops at the first hit —
-sharded `state/`, a legacy per-epic `_bmad/state/`, and a legacy flat `sprint-status.yaml`:
+Before any recommendation, in every mode that still reads state directly here (the default
+flow and `list plan` — `progress` no longer does, see above), it **counts** rather than stops
+at the first hit — sharded `state/`, a legacy per-epic `_bmad/state/`, and a legacy flat
+`sprint-status.yaml`:
 
 | Layouts found | Outcome |
 |---|---|
@@ -352,21 +361,18 @@ sharded `state/`, a legacy per-epic `_bmad/state/`, and a legacy flat `sprint-st
 `BLOCKED`, not an invitation to start fresh. Only when both probes come back empty does the
 first-run recommendation become reachable.
 
-### Presence versus staleness
+### Presence, and no staleness check
 
-Two independent checks on the installed `pm-status.py`, treated differently:
+**Presence** is a file-exists test on the installed `pm-status.py`, checked by every mode that
+reads state directly here — the default recommendation flow and `list plan`. When absent, the
+state read falls back to parsing each `epic.yaml` directly. `progress` no longer performs this
+check itself: it forwards to `/l3io-util-doctor stats`, which self-installs `pm-status.py` at
+its own activation and handles absence there instead.
 
-- **Presence** is a file-exists test. When absent, every `pm-status.py` call becomes
-  conditional: the state read falls back to parsing each `epic.yaml` directly, and `progress`
-  refuses outright, because dwell times and phase roll-ups cannot be derived from `epic.yaml`.
-- **Staleness** compares the installed copy's `--version` against this skill's own
-  `module.yaml` — derived, so there is no hardcoded minimum to drift. An unreadable or
-  pre-`--version` copy counts as stale rather than current.
-
-The distinction is behavioural: presence gates *whether* the helper is called; staleness does
-not. A stale copy is used exactly like a current one, and the only effect is a warning
-**prepended** to whatever recommendation was already chosen — because a subcommand the installed
-copy lacks fails as an opaque argparse error rather than a clear one.
+l3io-pm-help does **not** check staleness. `module.yaml` lives only at the module's home
+(`l3io-pm-setup/assets/module.yaml`), not at this skill's own root, and reading a sibling
+skill's path from here would be the cross-skill path read this package avoids elsewhere. So
+presence is the only signal this skill reports; it never guesses at version freshness.
 
 ### What it reads, and never writes
 
@@ -395,9 +401,10 @@ touch the network.
 | `pull` | Reads mapped issue state and marks stories `done` whose issue closed as completed |
 | `sync` | `push` in full, then `pull` in full — never interleaved, so creations land before the re-read |
 
-Note that `setup` here selects the sync-setup mode, **not** shared module setup; only
-`configure` and `install` load `assets/module-setup.md`. This is the one PM skill where `setup`
-means something else.
+Note that `setup` here selects the sync-setup mode, **not** shared module setup — this is the
+one PM skill where `setup` means something else. `configure` and `install` are not recognized
+arguments here either: module setup is not routed through this skill; `/l3io-pm-setup` is the
+module's setup entry point.
 
 ### Platform detection and auth
 
@@ -668,12 +675,15 @@ step files name no CRITICAL tier for legacy `bmad-ux-review`.
 | `add-test-run` | `--state-root --story KEY --command CMD --exit-code N` — appends `{command, exit_code}` to `completion_evidence.test_runs` and derives `completion_evidence.tests_passing` from the **last run of each distinct command** (the full history is kept in `test_runs`, so a failing run you then fixed is superseded by its passing re-run) |
 | `sync-story-doc` | `--artifacts-root A --story KEY --status S [--quiet]` — writes `status:` into the story markdown's frontmatter (ruamel round-trip: key order and comments survive). Runs after a `set-status` that already succeeded, so it is deliberately incapable of failing its caller: a missing story file, missing frontmatter, or an unterminated frontmatter block each warn on stderr and return 0. Only an invalid `--status` or a malformed story key — both caller errors detectable before any state was touched — return 2 |
 | `story-doc-init` | `--state-root --artifacts-root A --story KEY` — creates the story markdown skeleton from its state node if absent; the only writer of that skeleton. |
+| `import-node` | `--state-root S` + (`--story KEY` \| `--epic ID [--sprint ID]`) `--status S` + optional `--title`, `--classification`, `--origin {inferred}`, `--origin-note`, `--no-events`, `--session-id` — creates a missing state node from a migration record; idempotent by SKIP (an existing node is left exactly as-is, no event appended); exit 3 when a sprint or story's parent epic is absent. |
 | `estimate-story` | `--state-root --story KEY --classification {simple,standard,complex}` |
 | `estimate-rollup` | `--state-root --epic ID [--sprint ID]` — sums children, widens by the closure band |
 | `show` | `--state-root --epic ID [--sprint ID]` — computed roll-up to stdout, never a committed file. Prints the children's actuals plus a `spend/` breakout by story / closure / orchestration |
 | `report` | `--state-root` + optional `--plan <plan-output-meta.yaml>` `--format {tree,json,md}` `--out FILE` `--status planned,active,archived` `--all` `--watch SECS` — walks every epic; addresses none individually. Read-only unless `--out` is given. `--status` narrows the **display** only (default `planned,active`); totals, phase denominators, and the spend breakout always cover every epic. Every format carries a **Spend** section attributing actual spend to story / closure / orchestration, plus a stalled-dispatch section (`--stall-minutes`, default 15) |
 | `dispatch` | `--state-root --event {open,close} --agent NAME` + optional `--epic`/`--sprint`/`--story`/`--session-id` — records a subagent dispatch open/close into `events.jsonl`; feeds `report`'s stalled-dispatch flags |
-| `set-lock`, `clear-lock`, `check-lock` | `--state-root --epic ID` (epics only) |
+| `set-lock`, `check-lock` | `--state-root --epic ID --session-id ID` (epics only) — `--session-id` is **required** on both; `set-lock` also takes optional `--ttl-minutes N` (default 30) |
+| `clear-lock` | `--state-root --epic ID` (epics only) — takes no `--session-id` |
+| `notice` | `--state-root --key KEY` — records a one-time-ever advisory notice in `{state-root}/.notices.yaml` under flock, keyed on `KEY` alone. Not session-scoped: there is no cross-invocation session identifier available (`{session_id}` is bound fresh per skill invocation and no `notice` caller is ever a dispatched subagent that could inherit one), so a per-session key would never repeat — this fires at most once **ever** per project, per key, which is correct for an advisory whose trigger condition (an absent config section) is itself a permanent state until the project is configured. Exit `0` = not yet emitted for `KEY` (and now recorded); exit `1` = already emitted — permanently, for that key; exit `2` = a usage error (blank `--key`) **or** an unexpected failure while recording (lock/I/O) — deliberately never `1`, so a crash can never be mistaken for the harmless "already said" outcome and silently swallowed. Advisory only on the READ side: a damaged or unparseable `.notices.yaml` is treated as empty rather than blocking the caller, but a failure actually writing it is reported, not treated as success. No pruning — a project's set of distinct notice keys stays small by construction |
 | `move-epic` | `--state-root --epic ID --to {planned,active,archived}` |
 | `archive-epic` | `--state-root --epic ID` — alias for `move-epic --to archived`; does not accept `--to` itself |
 | `append-issue` | `--state-root` (preferred) or `--file` (compatibility; must equal `<state-root>/issues.yaml`). `--key` is optional: omitted, the key is allocated as max(`next[epic]`, highest suffix in either issue file + 1); given, it is canonicalized, must match `--epic`, and exits 2 if it exists in either file. `--allow-duplicate` forces a content duplicate. `--kind {defect,spec-change,spec-proposal}` (default `defect`, written only when not the default) with `--ref` — required for the spec kinds, and a commit SHA for `spec-change`; `promote-issue` refuses spec items (they are confirmed or rejected in `/l3io-util-doctor triage`). |
@@ -686,10 +696,10 @@ step files name no CRITICAL tier for legacy `bmad-ux-review`.
 | `calibration show` | `--state-root [--format {text,json}]` |
 | `calibration redrive` | `--state-root` — rebuilds `scope` and `fix` from the story nodes on disk, replacing rather than appending. Use after a defect has skewed a batch of samples: a stored sample is a bare ratio, but the nodes still hold every input `derive_story_sample` needs, so the samples can simply be derived again instead of discarded and waited for. `closure`, `orchestration` and `token_mix` derive from other inputs and are left untouched; the previous file is kept as `pm-calibration.yaml.pre-redrive` |
 | `rates` | optional `--model ID` (all models if omitted) `--token-rates JSON` — prints the effective per-model token rate table (read-only); an unknown `--model` exits 2 rather than guessing a default |
-| `adr-reserve` | `--state-root --epic ID --slug SLUG` + optional `--count N` (default 1) and `--adr-dir D` (the one ADR home to scan; default `<git top-level>/docs/adr`) — reserves `N` sequential ADR numbers under a lock in `{state-root}/adr-register.yaml` and prints one zero-padded number per line. The first number is the larger of the register's `next` and the highest ADR number already on disk — in `--adr-dir` and in the old per-epic home `epic-*/arch/` — plus one (ADR-0005); outside a git work tree without `--adr-dir` it scans the old home only, with a stderr warning. Called once per batch before any ADR subagent is dispatched (`step-04-arch-gate.md` §6), so parallel agents are handed distinct numbers instead of each deriving one from a directory listing that only shows who has finished |
+| `adr-reserve` | `--state-root --epic ID --slug SLUG` + optional `--count N` (default 1) and `--adr-dir D` (the one ADR home to scan; default `<git top-level>/docs/adr`) — reserves `N` sequential ADR numbers under a lock in `{state-root}/adr-register.yaml` and prints one zero-padded number per line. The first number is the larger of the register's `next` and the highest ADR number already on disk — in `--adr-dir` and in the old per-epic home `epic-*/arch/` — plus one (ADR-0005); outside a git work tree without `--adr-dir` the one ADR home cannot be located, so it refuses (exit 2, nothing on stdout, register untouched) rather than allocate from a scan that never saw `docs/adr/`. Called once per batch before any ADR subagent is dispatched (`step-04-arch-gate.md` §6), so parallel agents are handed distinct numbers instead of each deriving one from a directory listing that only shows who has finished |
 | `usage` | **no argument resolves this session's own transcript** from `$CLAUDE_CODE_SESSION_ID` (every record carries a `sessionId`; the file is named for it). Otherwise one or more transcript `.jsonl` files **or directories**, whose identity is verified before anything is summed — a file with no `sessionId`, one belonging to another session, or one mixing sessions is **refused with exit 2** rather than guessed at; `--claude-session ID` sets the expected session (this is the Claude session uuid, *not* the l3io run `--session-id`), and `--allow-unidentified` overrides deliberately and labels the output UNVERIFIED. Plus optional `--model ID` `--token-rates JSON` `--format text\|json` — sums a session transcript's real per-class token usage and prints the `--tokens-*` flags to paste into `set-actual` (read-only). Use it instead of reading `usage` fields by hand: it deduplicates the many records a single streaming message writes (a real transcript held 2,482 assistant records for 953 distinct ids), reads only the flat `cache_creation_input_tokens` rather than adding the nested `cache_creation` mapping that repeats the same tokens, and counts `isSidechain` subagent turns rather than dropping them. Reports `files`/`records`/`unique`/`sidechain` so the read is checkable. **Identity is not scope**: a session transcript spans everything that session ever did, so a bare total is the session's, not a node's — one observed file totalled ~66× the sprint being closed. Scope it with `--story`/`--sprint`/`--epic` plus `--state-root` (the window is read back from that node's `dispatch_open`/`dispatch_close` pair, first open to last close so fix iterations are included), or `--since`/`--until` directly. Unscoped, the command still prints the total but labels it and **withholds the `--tokens-*` flags**, because those flags are what gets pasted into `set-actual`. Subagent turns live in `<session-id>/subagents/agent-*.jsonl`, not the parent file, and are resolved automatically |
 
-Exit codes: `0` success · `2` usage error · `3` node not found · `4` verification failure · `5` epic locked by another session.
+Exit codes: `0` success · `1` notice already emitted for this key (`notice` only) · `2` usage error, or for `notice` an unexpected recording failure · `3` node not found · `4` verification failure · `5` epic locked by another session.
 
 `verify --scope epic` checks **structural integrity** (every sprint directory has a `sprint.yaml`; every back-reference matches its directory — a *missing* back-reference fails exactly like a mismatched one). It deliberately does not check completion, since an in-progress epic legitimately holds unfinished stories. `verify --scope story|sprint` checks **completion** of one node. Activation runs the epic scope only.
 
@@ -794,7 +804,7 @@ Every planning point and closeout — story, sprint, epic, retrospective — rec
 
 Enforcement is at write time, not by convention: under `--runtime claude`, `set-actual` and `verify` **reject** an `N/A` tokens value. (`man_hours` and `hitl_hours` have no runtime exemption at all — they must be real numbers on every runtime.)
 
-**Runtime-aware capture**, detected via `CLAUDECODE=1`:
+**Runtime-aware capture**, detected via `$CLAUDE_CODE_SESSION_ID` being set in the environment (the same signal `pm-status.py` reads as `CLAUDE_SESSION_ENV`, and the same one the `usage` subcommand resolves this session's transcript from — see above):
 
 - **Under Claude** — tokens are read **exactly** from the session transcript `usage` fields, split into the four classes, scoped by session id across the orchestrator and all subagent transcripts, and passed as `--tokens-input`/`--tokens-output`/`--tokens-cache-write`/`--tokens-cache-read` (in thousands) with `--model`; `set-actual` derives `cost` from them. Never estimated.
 - **Under other runtimes** (e.g. Copilot) — read the runtime's usage source if one exists; otherwise pass `--tokens-na` to record both `tokens_k` and `cost` as **`N/A`**. Never guessed or back-filled. `N/A` under a non-Claude runtime is expected behavior, not an error.
@@ -914,8 +924,8 @@ Dependency declarations and actual invocations do not currently agree in both di
 
 | Skill | Declared | Invoked |
 |---|---|---|
-| `bmad-qa-generate-e2e-tests` | Required in `marketplace.json`, CLAUDE.md, README, getting-started, and `l3io-pm-execute/module.yaml` | **Never** — the dev loop is develop → code review → fix → done |
-| legacy `bmad-create-story` | **Absent** from `l3io-pm-execute/module.yaml` | Yes — sprint step-02 story prep, and plan step-03 elaboration (when installed; else the in-package agent) |
-| `bmad-sprint-planning intent=readiness` (legacy `bmad-check-implementation-readiness`) | Optional in `l3io-pm-plan/module.yaml` only | Yes — plan step-02 readiness check |
+| `bmad-qa-generate-e2e-tests` | Required in `marketplace.json`, CLAUDE.md, README, getting-started, `l3io-pm-setup/assets/module.yaml`'s post-install notes, and `l3io-util-doctor/assets/bmad-dependencies.json` | **Never** — the dev loop is develop → code review → fix → done |
+| legacy `bmad-create-story` | **Absent** from `l3io-pm-setup/assets/module.yaml`'s post-install notes (it documents the in-package-agent fallback instead) | Yes — sprint step-02 story prep, and plan step-03 elaboration (when installed; else the in-package agent) |
+| `bmad-sprint-planning intent=readiness` (legacy `bmad-check-implementation-readiness`) | Declared in `l3io-util-doctor/assets/bmad-dependencies.json` (module.yaml's dependency declarations consolidated there and into `l3io-pm-setup/assets/module.yaml` when per-skill `module.yaml` files were removed) | Yes — plan step-02 readiness check |
 
 The `tests/` directories in the artifact layout are real but are not written by a QA phase. Treat the QA dependency as aspirational until a step actually calls it.

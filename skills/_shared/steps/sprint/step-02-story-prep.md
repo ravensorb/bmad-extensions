@@ -14,7 +14,7 @@ gives a `DOCS`/`CONFIG` story its `Files in scope` block.
 ## 2. Technical AC gate
 
 ```bash
-python3 {pm_status} show --state-root {pm_state_root} --epic {epic_key}
+uv run {pm_status} show --state-root {pm_state_root} --epic {epic_key}
 ```
 
 Read `{pm_state_root}/{active|planned|archived}/epic-{epic_nnn}/epic.yaml` (wherever
@@ -83,7 +83,7 @@ Make sure every story in `{thin_story_keys}` has a document before the spawn. `s
 creates a missing one from its state node and never touches an existing one:
 
 ```bash
-python3 {pm_status} story-doc-init --state-root {pm_state_root} \
+uv run {pm_status} story-doc-init --state-root {pm_state_root} \
   --artifacts-root {implementation_artifacts} --story {story_key}
 ```
 
@@ -95,7 +95,10 @@ sprint goes from five cold reads to one. If `{thin_story_keys}` exceeds 8, split
 of at most 8 — past that a single agent's attention per story starts to thin, which is the
 thing being bought here.
 
-**Resolve the enricher.** Same shape as the dev loop's implementer.
+**Resolve the enricher.** Same shape as the dev loop's implementer: BMad 6.12.0 still **ships**
+`bmad-create-story`, deprecated to a shim with its full body retained — it is frozen, not gone.
+Where it is installed it is still what runs; where it is absent the prompt below is the whole
+instruction anyway.
 
 ```bash
 ls {project-root}/.claude/skills/bmad-create-story/SKILL.md 2>/dev/null \
@@ -104,8 +107,8 @@ ls {project-root}/.claude/skills/bmad-create-story/SKILL.md 2>/dev/null \
   || ls ~/.claude/commands/bmad-create-story.md 2>/dev/null
 ```
 
-A path printed → `{enrich_agent}` = the legacy `bmad-create-story`. Nothing printed →
-`{enrich_agent}` = `l3io-story-enrich`, dispatched as a general subagent. The instruction below is unchanged either
+If a path printed, bind `{enrich_agent}` = the legacy `bmad-create-story` and spawn that skill. <!-- l3io-deprecation-exempt: phase-3 — replaced by a bmad-build overlay; see docs/superpowers/specs/2026-09-20-l3io-customization-layer-design.md §5 Phase 3 -->
+If nothing printed, bind `{enrich_agent}` = `l3io-story-enrich` and dispatch it as a general subagent. The instruction below is unchanged either
 way, including the batching rule: **one spawn for the whole sprint, not one per story.**
 
 Bracket the spawn with `dispatch --event open` / `--event close`, same
@@ -240,7 +243,7 @@ looks up the cold-start base band (or the calibrated per-metric scope ratio once
 what `estimate-story` actually applies. See `references/metrics-contract.md` §6.
 
 ```bash
-python3 {pm_status} estimate-story \
+uv run {pm_status} estimate-story \
   --state-root {pm_state_root} \
   --story {story_key} \
   --classification {simple|standard|complex} \
@@ -257,7 +260,7 @@ python3 {pm_status} estimate-story \
 For each story in `{story_keys}` with `status: backlog`:
 
 ```bash
-python3 {pm_status} set-status \
+uv run {pm_status} set-status \
   --state-root {pm_state_root} \
   --story {story_key} \
   --status ready-for-dev
@@ -267,7 +270,7 @@ Keep the story document in step with the state — the state YAML is what the ma
 this file is what a reviewer opens, and they have not agreed until now:
 
 ```bash
-python3 {pm_status} sync-story-doc --artifacts-root {implementation_artifacts} \
+uv run {pm_status} sync-story-doc --artifacts-root {implementation_artifacts} \
   --story {story_key} --status ready-for-dev
 ```
 

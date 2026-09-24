@@ -150,7 +150,7 @@ cohort mean; that is exactly what the metrics migration (below) quarantines.
 **`fix_iterations` must be on the node BEFORE `set-actual` runs.** The sample is derived
 inside `set-actual`, so evidence written afterwards is invisible to it:
 `provenance: exact` becomes unreachable, neither `fix` cohort ever fills, and `F` = 1.25
-freezes. `steps/sprint/step-03-dev-loop.md` §4 writes the completion evidence first for
+freezes. `l3io-pm-execute/steps/sprint/step-03-dev-loop.md` §4 writes the completion evidence first for
 exactly this reason.
 
 `derive_story_sample` returns `None` — no sample at all — when the node has no `estimate` or
@@ -384,7 +384,7 @@ transparently the first time any project touches its calibration file after upgr
 also exposed directly:
 
 ```bash
-python3 {pm_status} calibration migrate-metrics --state-root {pm_state_root} [--format {text,json}]
+uv run {pm_status} calibration migrate-metrics --state-root {pm_state_root} [--format {text,json}]
 ```
 
 **Never runs from a read-only command.** `calibration show`, `estimate-story`, and

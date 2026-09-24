@@ -12,8 +12,8 @@ functional ACs only), elaboration (the enricher adds the technical ACs), and
 ## 1. Read the open backlog
 
 ```bash
-python3 {pm_status} list-issues --state-root {pm_state_root} --status backlog --format json
-python3 {pm_status} list-issues --state-root {pm_state_root} --status scheduled --format json
+uv run {pm_status} list-issues --state-root {pm_state_root} --status backlog --format json
+uv run {pm_status} list-issues --state-root {pm_state_root} --status scheduled --format json
 ```
 
 If the first list is empty, print `Backlog intake: no untriaged items.` and continue to the
@@ -35,7 +35,7 @@ In flight: BL-E001-002 → E003-S02-004
 
 List candidate targets: for each epic under `{pm_state_root}/planned/` and
 `{pm_state_root}/active/`, the sprints whose `sprint.yaml` has `status: backlog` (read the
-files directly, or use `python3 {pm_status} show --state-root {pm_state_root} --epic {key}`).
+files directly, or use `uv run {pm_status} show --state-root {pm_state_root} --epic {key}`).
 Then ask:
 
 ```
@@ -50,7 +50,7 @@ On `skip`, continue to the next step.
 For each request (several items folded into one story need a `--title`):
 
 ```bash
-python3 {pm_status} promote-issue --state-root {pm_state_root} \
+uv run {pm_status} promote-issue --state-root {pm_state_root} \
   --artifacts-root {implementation_artifacts} \
   --key {BL key} [--key {BL key} ...] --epic {nnn} --sprint {nn} \
   --classification {simple|standard|complex} [--title "{story title}"] \

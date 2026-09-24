@@ -1,6 +1,6 @@
 {
   "verified_against": "6.12.0",
-  "verified_on": "2026-09-12",
+  "verified_on": "2026-09-20",
   "skills": [
     { "name": "bmad-code-review", "status": "required", "module": "bmm" },
     { "name": "bmad-retrospective", "status": "required", "module": "bmm" },
@@ -16,7 +16,7 @@
     { "name": "bmad-agent-architect", "status": "optional", "module": "bmm" },
     { "name": "bmad-architecture", "status": "optional", "module": "bmm",
       "fallback": "bmad-architect",
-      "reason": "nothing dispatches it — its only references are bmad-customize overlay documentation (l3io-arch-review's module.yaml, SKILL.md and assets/customize-architect.md), which is exactly 'referenced, present, self-skips when absent'. It is declared at all so check 17 has a target for the stale bmad-architect token those docs fall back from" },
+      "reason": "nothing dispatches it — its only references are bmad-customize overlay documentation (l3io-arch-review's module.yaml, SKILL.md and assets/customize-architect.md), which is exactly 'referenced, present, self-skips when absent'. It is declared at all so check 16 has a target for the stale bmad-architect token those docs fall back from" },
     { "name": "bmad-ux", "status": "optional", "module": "bmm",
       "fallback": "bmad-ux-review" },
     { "name": "bmad-help", "status": "optional", "module": "core" },
@@ -24,13 +24,20 @@
     { "name": "bmad-brainstorming", "status": "optional", "module": "core" },
     { "name": "bmad-forge-idea", "status": "optional", "module": "core" },
     { "name": "bmad-create-epics-and-stories", "status": "optional", "module": "bmm" },
+    { "name": "bmad-build", "status": "optional", "module": "bmm",
+      "reason": "BMad's official implementation path since 6.12.0. Not dispatched yet; declared so check 16 resolves the token and so Phase 3's overlay has a declared target" },
+    { "name": "bmad-build-auto", "status": "optional", "module": "bmm",
+      "reason": "unattended variant of bmad-build; declared for the same reason" },
 
-    { "name": "bmad-create-story", "status": "removed", "removed_in": "6.12.0",
-      "replaced_by": "l3io-story-enrich" },
-    { "name": "bmad-dev-story", "status": "removed", "removed_in": "6.12.0",
-      "replaced_by": "l3io-dev-implement" },
-    { "name": "bmad-review-adversarial-general", "status": "removed", "removed_in": "6.12.0",
-      "replaced_by": "bmad-review" },
+    { "name": "bmad-create-story", "status": "deprecated", "deprecated_in": "6.12.0",
+      "replaced_by": "bmad-build",
+      "reason": "ships in 6.12.0 with metadata.lifecycle: shim and its full body retained. Verified against _bmad/_config/skill-manifest.csv on 2026-09-20. ADR-0006 said 'deprecated to shims'; this inventory said 'removed', and the data was wrong, not the ADR" },
+    { "name": "bmad-dev-story", "status": "deprecated", "deprecated_in": "6.12.0",
+      "replaced_by": "bmad-build",
+      "reason": "ships in 6.12.0 with metadata.lifecycle: shim and its full body retained" },
+    { "name": "bmad-review-adversarial-general", "status": "deprecated", "deprecated_in": "6.12.0",
+      "replaced_by": "bmad-review",
+      "reason": "ships in 6.12.0; merged into bmad-review's lens registry" },
     { "name": "bmad-check-implementation-readiness", "status": "removed", "removed_in": "6.12.0",
       "replaced_by": "bmad-sprint-planning" },
     { "name": "bmad-ux-review", "status": "removed", "removed_in": "6.12.0",
@@ -45,6 +52,8 @@
     { "name": "bmad-l3io-extensions", "status": "not-a-skill",
       "reason": "this package's own name" },
     { "name": "bmad-deps", "status": "not-a-skill",
-      "reason": "this package's own runtime verifier script, scripts/bmad-deps.py — not a BMad skill. Declared so check 17, which walks every bmad-* token under skills/, does not trip on steps/check-deps.md naming the script it runs" }
+      "reason": "this package's own runtime verifier script, scripts/bmad-deps.py — not a BMad skill. Declared so check 16, which walks every bmad-* token under skills/, does not trip on steps/check-deps.md naming the script it runs" },
+    { "name": "bmad-flat", "status": "not-a-skill",
+      "reason": "fixture directory for read-bmad-flat.py tests, not a BMad skill. Named for the layout it exercises (flat sprint-status.yaml)" }
   ]
 }

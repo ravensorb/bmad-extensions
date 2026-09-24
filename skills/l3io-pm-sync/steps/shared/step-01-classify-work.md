@@ -61,10 +61,10 @@ into the first: a malformed `{skip_phases}` string would silently disable a gate
 | UX review | run | skip | skip | run | `{skip_phases}` + installed check + UI-facing stories |
 | Sprint architectural drift | run | skip | run | run | `{skip_phases}` + installed check |
 | Issue triage | run | run | run | run | always runs |
-| Story technical-AC gate | run | skip | skip | run | `{work_type}` at `steps/sprint/step-02-story-prep.md` |
-| Epic arch gate | run | skip | skip | run | `{work_type}` at `steps/execute/step-04-arch-gate.md` |
-| Epic architectural drift | run | skip | skip | run | `{work_type}` at `steps/closure/epic-closure.md` |
-| Epic security review (`l3io-sec`) | run | skip | skip | run | `{work_type}` at `steps/closure/epic-closure.md` + installed check |
+| Story technical-AC gate | run | skip | skip | run | `{work_type}` at `l3io-pm-execute/steps/sprint/step-02-story-prep.md` |
+| Epic arch gate | run | skip | skip | run | `{work_type}` at `l3io-pm-execute/steps/execute/step-04-arch-gate.md` |
+| Epic architectural drift | run | skip | skip | run | `{work_type}` at `l3io-pm-execute/steps/closure/epic-closure.md` |
+| Epic security review (`l3io-sec`) | run | skip | skip | run | `{work_type}` at `l3io-pm-execute/steps/closure/epic-closure.md` + installed check |
 
 Bind `{skip_phases}` = comma-separated list of the `{skip_phases}`-enforced phase names that
 this `{work_type}` column marks `skip` (empty if none). Rows whose *Enforced by* is a step

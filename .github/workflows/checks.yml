@@ -8,13 +8,23 @@ jobs:
   shared-scripts:
     runs-on: ubuntu-latest
     steps:
-    - uses: actions/checkout@v4
-    - uses: actions/setup-node@v4
+    - uses: actions/checkout@v7
+    - uses: actions/setup-node@v7
       with:
         node-version: '24'
-    - uses: actions/setup-python@v5
-      with:
-        python-version: '3.11'
+        cache: npm
+    - uses: astral-sh/setup-uv@v10.2.0
+    # No actions/setup-python step: every Python entry point below is a PEP-723 script
+    # invoked through `uv run`, which reads each script's own `requires-python` header and
+    # provisions a matching interpreter itself (downloading a managed CPython if the runner's
+    # system Python doesn't satisfy it). setup-uv above installs uv; that is the only Python
+    # toolchain this workflow needs.
+    # Every `npm run check:*` gate below imports from node_modules (the YAML, shell and CSV
+    # parsers the checkers use instead of hand-rolled ones), so the install has to come first:
+    # a gate that ran before it would fail on ERR_MODULE_NOT_FOUND. See
+    # docs/adr/0007-ci-installs-npm-dependencies.md.
+    - name: Install check-tooling dependencies
+      run: npm ci
     - name: Verify shared-script payload copies are in sync
       run: npm run check:scripts
     - name: Verify documentation matches the code it describes
@@ -25,13 +35,16 @@ jobs:
       run: npm run check:version
     - name: Verify per-skill payload manifests match the payload
       run: npm run check:manifest
+    - name: Verify module structure — one module.yaml per module, correctly homed
+      run: npm run check:module
     - name: pm-status.py unit tests
-      run: |
-        python3 -m pip install --quiet 'ruamel.yaml>=0.18'
-        python3 skills/_shared/tests/test-pm-status.py
-    - uses: astral-sh/setup-uv@v5
+      run: uv run skills/_shared/tests/test-pm-status.py
     - name: write-module-config.py unit tests
       run: uv run skills/_shared/tests/test-write-module-config.py
+    - name: merge-help-csv.py unit tests
+      run: uv run skills/_shared/tests/test-merge-help-csv.py
+    - name: merge-config.py wrapper unit tests
+      run: uv run skills/_shared/tests/test-merge-config-wrapper.py
     - name: drift-report.py unit tests
       run: uv run --with pyyaml skills/l3io-pm-sync/scripts/tests/test-drift-report.py
     - name: spec-align.py unit tests
@@ -42,3 +55,5 @@ jobs:
       run: uv run -q --with 'ruamel.yaml>=0.18' python3 skills/l3io-util-doctor/scripts/tests/test-audit-backlog.py
     - name: bmad-deps.py unit tests
       run: uv run -q --with 'ruamel.yaml>=0.18' python3 skills/l3io-util-doctor/scripts/tests/test-bmad-deps.py
+    - name: detect-layout.py unit tests
+      run: uv run skills/l3io-util-doctor/scripts/tests/test-detect-layout.py

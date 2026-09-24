@@ -6,27 +6,41 @@
 // GENERATED — never hand-edit them.
 //
 // Shared files:
-//   pm-status.py → scripts/ in the PM execution skills (pm-execute, pm-plan, pm-sync), which
-//   also self-install it to {project-root}/_bmad/scripts/
-//   pm-status.py (no tests) → scripts/ in any OTHER skill that invokes {pm_status} and
-//   must be able to self-install/heal it — currently l3io-util-doctor only
+//   pm-status.py → scripts/ in exactly ONE skill per module that self-installs it to
+//   {project-root}/_bmad/scripts/pm-status.py: `l3io-pm-setup` for the l3io-pm module, and
+//   `l3io-util-doctor` for the (standalone) l3io-util module. Task 11A cut this from four
+//   payload copies to two — pm-execute, pm-plan, and pm-sync used to each carry their own
+//   copy and self-install identical bytes to the identical destination; now they read
+//   `{skill-root}/../l3io-pm-setup/scripts/pm-status.py` at activation
+//   (`steps/shared/step-00-activate.md` §2) instead, because `.claude-plugin/marketplace.json`
+//   installs the whole `l3io-pm` plugin — all five of its skills — as one unit, so
+//   `l3io-pm-setup` is guaranteed to land beside them. `/l3io-pm-setup` itself stays optional:
+//   nothing about that read requires the setup skill to ever have been *run*, only installed.
+//   check:module (`checkPmStatusSingleton`) guards against a second copy reappearing inside
+//   one module.
 //   spec-align.py → scripts/ in l3io-pm-execute (arch gate, story prep, closures) and
 //   l3io-util-doctor (health Checks 15-19, triage's spec pass, migrate-adrs); shared because
 //   it has two consumers (ADR-0001), run from each skill's own copy, never self-installed
 //   status-files.md / metrics-contract.md → references/ in PM skills
-//   write-module-config.py → scripts/, config-resolution.md → references/,
-//   module-setup.md → assets/ in EVERY l3io skill
+//   config-resolution.md → references/ in EVERY l3io skill -- every skill resolves config
+//   merge-config.py / merge-help-csv.py / write-module-config.py / module-setup.md →
+//   scripts/ and assets/ in each module's HOME only (the *-setup skill for a multi-skill
+//   module, the skill itself for a standalone one) -- only the module home performs setup.
+//   merge-config.py / merge-help-csv.py are the two scripts BMad's module validator
+//   requires by name; see their own docstrings for why they are not the scaffolder's
+//   versions.
 //
 // Not shared, deliberately: resolve_config.py, resolve_customization.py and memlog.py are
 // installed by BMad core at {project-root}/_bmad/scripts/ and are never bundled by a skill.
 // Vendoring them shipped a stale duplicate of a core script that nothing invoked.
 //
-// Also not shared, deliberately: test-pm-status.py and test-write-module-config.py. A
-// consumer never runs a skill's shipped tests, CI runs both suites straight from
-// skills/_shared/tests/ (.github/workflows/checks.yml), and shipping them into every
-// consumer's install was ~842 KB of dead payload — the same category this package removed
-// when it stopped vendoring BMad core scripts. Do not add a test file back to any of the
-// manifests below; if a script gets a test, the test's only home is skills/_shared/tests/.
+// Also not shared, deliberately: test-pm-status.py, test-write-module-config.py,
+// test-merge-help-csv.py and test-merge-config-wrapper.py. A consumer never runs a skill's
+// shipped tests, CI runs every suite straight from skills/_shared/tests/
+// (.github/workflows/checks.yml), and shipping them into every consumer's install was
+// ~842 KB of dead payload — the same category this package removed when it stopped
+// vendoring BMad core scripts. Do not add a test file back to any of the manifests below;
+// if a script gets a test, the test's only home is skills/_shared/tests/.
 //
 // Usage:
 //   node scripts/sync-shared-scripts.mjs           # write the per-skill payload copies
@@ -60,12 +74,40 @@ const specAlignFiles = [
   { src: path.join(sharedDir, "spec-align.py"), rel: path.join("scripts", "spec-align.py") },
 ];
 
-// Files every l3io skill ships, regardless of module: the config contract, the setup
-// procedure that points at it, and the script that setup runs.
+// Files every l3io skill ships, regardless of module: the config contract every skill
+// resolves. Setup itself -- module-setup.md and the script that writes its config -- is a
+// module-home concern; see moduleHomeFiles below.
 const allSkillFiles = [
-  { src: path.join(sharedDir, "write-module-config.py"), rel: path.join("scripts", "write-module-config.py") },
   { src: path.join(sharedDir, "config-resolution.md"), rel: path.join("references", "config-resolution.md") },
+];
+
+// The two merge scripts BMad's validator requires, module-setup.md, and the config writer
+// setup runs, belong in each module's HOME -- the setup skill for multi-skill modules, the
+// skill itself for standalone ones. Syncing them into every operational skill would ship
+// four copies of a procedure only one of them runs.
+const moduleHomeDirs = [
+  "l3io-pm-setup", "l3io-util-doctor", "l3io-sec-redteam", "l3io-arch-review",
+].map((name) => path.join(repoRoot, "skills", name));
+
+const moduleHomeFiles = [
+  { src: path.join(sharedDir, "merge-config.py"), rel: path.join("scripts", "merge-config.py") },
+  { src: path.join(sharedDir, "merge-help-csv.py"), rel: path.join("scripts", "merge-help-csv.py") },
+  { src: path.join(sharedDir, "write-module-config.py"), rel: path.join("scripts", "write-module-config.py") },
   { src: path.join(sharedDir, "module-setup.md"), rel: path.join("assets", "module-setup.md") },
+];
+
+// status-files.md ALONE, for a skill that needs the state-layout contract but not the metrics
+// or calibration ones. l3io-util-doctor is that skill: migrate-state, split-status,
+// layout-cleanup, health-check and stats all decide what a correct state tree looks like, and
+// six of its runtime directives -- SKILL.md:186 among them, calling it "the canonical
+// contract" -- told the reader to open `references/status-files.md` in a skill that did not
+// ship it. Shipping it is the fix rather than repointing, because a doctor install does not
+// imply a PM install: l3io-util is its own module, and a pointer at another module's file is
+// a pointer at nothing for anyone who installed only this one. Making it a sync target is
+// also what makes the fix stick -- `check:scripts` now fails if the copy goes missing or
+// stale, which no amount of prose would have done (repo CLAUDE.md §3).
+const stateContractOnly = [
+  { src: path.join(sharedDir, "status-files.md"), rel: path.join("references", "status-files.md") },
 ];
 
 const pmRefFiles = [
@@ -76,11 +118,13 @@ const pmRefFiles = [
   { src: path.join(sharedDir, "calibration-model.md"), rel: path.join("references", "calibration-model.md") },
 ];
 
-// The real rule for who ships pm-status.py: any skill that invokes {pm_status} needs a copy
-// to self-install/heal it from — not "execution skills only". l3io-util-doctor invokes
-// {pm_status} in eight files and is the documented post-upgrade entry point, but shipped no
-// copy and had no self-install; that gap let its installed script go stale silently. See
-// newUtilDoctorDirs below.
+// The rule for who SHIPS a pm-status.py payload copy (Task 11A, superseding the note this
+// replaced): exactly one skill per module -- the module's home, since a home is guaranteed to
+// be co-installed with every operational skill in that module. A skill that merely INVOKES
+// {pm_status} does not need its own copy; it can read a sibling module-home's copy instead
+// (pm-execute/pm-plan/pm-sync do, from l3io-pm-setup). l3io-util-doctor is its own,
+// standalone module with no sibling *-setup to read from, so it remains a shipper too --
+// see newUtilDoctorDirs below.
 // Legacy slots kept for backward compat shape; new skills use newPmPlanDirs / newPmExecuteDirs groups below.
 const pmScriptDirs = [];
 
@@ -99,29 +143,38 @@ const newPmSyncDirs = [
   path.join(repoRoot, "skills", "l3io-pm-sync"),
 ];
 
-// Skills that invoke {pm_status} but are not PM execution skills: they need pm-status.py to
-// self-install/heal from, but not its test suite. Currently: l3io-util-doctor, the documented
-// post-upgrade entry point (see docs/upgrading.md).
+// l3io-pm's module home: the ONE l3io-pm skill that carries pm-status.py (Task 11A). Guaranteed
+// to be installed alongside pm-execute/pm-plan/pm-sync because the marketplace manifest
+// installs the whole l3io-pm plugin as one unit — see the sync-groups comment above.
+const newPmSetupDirs = [
+  path.join(repoRoot, "skills", "l3io-pm-setup"),
+];
+
+// Skills that invoke {pm_status} but are not part of the l3io-pm module: they need
+// pm-status.py to self-install/heal from, but not its test suite. Currently: l3io-util-doctor,
+// the documented post-upgrade entry point (see docs/upgrading.md), a different, standalone
+// module with no sibling *-setup skill to read from.
 const newUtilDoctorDirs = [
   path.join(repoRoot, "skills", "l3io-util-doctor"),
 ];
 
-// Every skill in the package — the four l3io modules' skills all resolve config and all
-// carry the same setup procedure.
-const allSkillDirs = [
-  "l3io-arch-review",
-  "l3io-pm-execute",
-  "l3io-pm-help",
-  "l3io-pm-plan",
-  "l3io-pm-sync",
-  "l3io-sec-redteam",
-  "l3io-util-doctor",
-  // NOTE: skills/l3io-util-cleanup is deliberately absent. It is a deprecated forwarder that
-  // resolves no config and reads no state — it prints a rename notice and delegates to
-  // l3io-util-doctor. Syncing the shared payload into it would bundle a config-resolution
-  // reference and write-module-config.py that nothing there invokes, which is the same dead
-  // payload this package removed when it stopped vendoring BMad core scripts.
-].map((name) => path.join(repoRoot, "skills", name));
+// Every skill in the package — the four l3io modules' skills all resolve config, so all of
+// them carry config-resolution.md (allSkillFiles above); the setup procedure itself is a
+// module-home concern (moduleHomeFiles). Derived from skills/ itself, never hand-enumerated:
+// a hand-kept list here drifted silently once already (l3io-pm-setup was absent from it and
+// so absent from the check:scripts comparison too, even though it needed the same config
+// contract as every other skill). Same derivation scripts/check-docs.mjs's derivedCounts()
+// uses (withFileTypes + isDirectory()) — a skill directory is a *directory* under skills/
+// whose name starts with "l3io-" (_shared is excluded by the prefix). Fix round 1, F-8: an
+// earlier version used checkSkillNames()'s derivation instead, which reads plain
+// fs.readdirSync() with no isDirectory() filter — harmless while every "l3io-*" entry under
+// skills/ happens to be a directory, but a stray file (e.g. a dropped "l3io-notes.md") would
+// have been treated as a skill directory and handed to fs.mkdirSync/fs.copyFileSync below.
+const allSkillDirs = fs.readdirSync(path.join(repoRoot, "skills"), { withFileTypes: true })
+  .filter((e) => e.isDirectory() && e.name.startsWith("l3io-"))
+  .map((e) => e.name)
+  .sort()
+  .map((name) => path.join(repoRoot, "skills", name));
 
 // Shared step files: source path → relative dest path within each skill's steps/ dir
 const sharedStepFiles = [
@@ -185,18 +238,23 @@ const syncGroups = [
   { files: planStepFiles, dirs: newPmPlanDirs, skipMissing: true },
   { files: executeStepFiles, dirs: newPmExecuteDirs, skipMissing: true },
   { files: syncStepFiles, dirs: newPmSyncDirs, skipMissing: true },
-  // pm-status.py into new skills that ship it (plan + execute)
-  { files: pmScriptFiles, dirs: [...newPmPlanDirs, ...newPmExecuteDirs], skipMissing: true },
-  // pm-status.py and status-files.md into l3io-pm-sync
-  { files: pmScriptFiles, dirs: newPmSyncDirs, skipMissing: true },
+  // pm-status.py into l3io-pm's module home ONLY (Task 11A) -- pm-execute/pm-plan/pm-sync
+  // read it from there at activation (`{skill-root}/../l3io-pm-setup/scripts/pm-status.py`,
+  // step-00-activate.md §2) instead of each carrying its own copy.
+  { files: pmScriptFiles, dirs: newPmSetupDirs, skipMissing: true },
   // status-files.md into new PM skills (plan + execute)
   { files: pmRefFiles, dirs: [...newPmPlanDirs, ...newPmExecuteDirs], skipMissing: true },
   { files: pmRefFiles, dirs: newPmSyncDirs, skipMissing: true },
   // pm-status.py (no tests) into l3io-util-doctor — it invokes {pm_status} and self-installs
   // it at activation but is not a PM execution skill; see pmStatusOnlyFiles above.
   { files: pmStatusOnlyFiles, dirs: newUtilDoctorDirs },
+  // status-files.md (state layout only, no metrics/calibration) into l3io-util-doctor --
+  // see stateContractOnly above for why it ships rather than being repointed.
+  { files: stateContractOnly, dirs: newUtilDoctorDirs },
   // spec-align.py into its two consumers
   { files: specAlignFiles, dirs: [...newPmExecuteDirs, ...newUtilDoctorDirs] },
+  // The two BMad-validator-required merge scripts, into each module's home only.
+  { files: moduleHomeFiles, dirs: moduleHomeDirs },
 ];
 
 // Every repo-relative path this script writes, derived from syncGroups itself so
@@ -215,9 +273,83 @@ export const PAYLOAD_TARGETS = syncGroups.flatMap(({ files, dirs, skipMissing })
   ),
 );
 
+// Orphan detection: the drift check above compares synced copies against their sources, but
+// it walks syncGroups' own dirs -- it can never notice a copy sitting in a skill NO group
+// targets for that rel path. That is exactly the shape Task 11 exposed: narrowing
+// moduleHomeFiles to four module homes left module-setup.md and write-module-config.py
+// physically present in four other skills until something ran `git rm` on them by hand --
+// skip that step and every one of check:scripts/check:docs/check:manifest/check:version/
+// check:module stays green while eight dead files still ship.
+//
+// For every rel path any group delivers, the allowed set is the UNION of that group's `dirs`
+// across every group naming the same rel -- never a hand-kept list, so a group that legitimately
+// widens or narrows its own targets is picked up automatically. Any other real skill directory
+// under skills/ that happens to contain a file at that rel path is an orphan: bytes this script
+// does not own, but that still ship.
+function findOrphans() {
+  const allowedByRel = new Map(); // rel -> Set<absolute skill dir>
+  for (const { files, dirs } of syncGroups) {
+    for (const { rel } of files) {
+      if (!allowedByRel.has(rel)) allowedByRel.set(rel, new Set());
+      for (const dir of dirs) allowedByRel.get(rel).add(dir);
+    }
+  }
+
+  // Every real skill directory -- not just the ones a group already names, since an orphan
+  // is by definition a directory no group named for that rel path. Same derivation as
+  // allSkillDirs above (readdirSync + isDirectory + "l3io-" prefix; _shared is excluded by
+  // the prefix, matching every other scope-derivation in this file).
+  const everySkillDir = fs.readdirSync(path.join(repoRoot, "skills"), { withFileTypes: true })
+    .filter((e) => e.isDirectory() && e.name.startsWith("l3io-"))
+    .map((e) => path.join(repoRoot, "skills", e.name));
+
+  const orphans = [];
+  for (const [rel, allowedDirs] of allowedByRel) {
+    for (const skillDir of everySkillDir) {
+      if (allowedDirs.has(skillDir)) continue;
+      const candidate = path.join(skillDir, rel);
+      if (fs.existsSync(candidate)) orphans.push(path.relative(repoRoot, candidate));
+    }
+  }
+  return orphans.sort();
+}
+
 // Guard: importing this module (e.g. from write-payload-manifest.mjs) must not perform a
 // sync. The body below only runs when this file is executed directly as the entry point.
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
+  // `--dump-deliveries`: print who ships what, as JSON, and exit without writing anything.
+  //
+  // scripts/check-docs.mjs's check 24 needs the source -> (destination path, destination
+  // skills) mapping, and must get it for the tree IT is checking -- which, under
+  // CHECK_DOCS_ROOT, is a temp copy of the repo and not this process's cwd. Importing this
+  // module would derive the mapping from the REAL repo (repoRoot is process.cwd()), and
+  // re-parsing syncGroups out of this file's text would be a second, hand-written derivation
+  // of the thing this file already states -- exactly the drift repo CLAUDE.md §4 forbids. So
+  // the checker spawns the COPY's own sync script and reads this.
+  if (process.argv.includes("--dump-deliveries")) {
+    const deliveries = new Map();   // "<src rel>\0<dest rel>" -> Set<skill name>
+    for (const { files, dirs, skipMissing } of syncGroups) {
+      for (const { src, rel } of files) {
+        if (!fs.existsSync(src)) continue;
+        for (const skillDir of dirs) {
+          if (skipMissing && !fs.existsSync(skillDir)) continue;
+          const key = `${path.relative(repoRoot, src)}\0${rel}`;
+          if (!deliveries.has(key)) deliveries.set(key, new Set());
+          deliveries.get(key).add(path.basename(skillDir));
+        }
+      }
+    }
+    console.log(JSON.stringify([...deliveries].map(([key, skills]) => {
+      const [source, dest] = key.split("\0");
+      return {
+        source: source.split(path.sep).join("/"),
+        dest: dest.split(path.sep).join("/"),
+        skills: [...skills].sort(),
+      };
+    })));
+    process.exit(0);
+  }
+
   let drift = 0;
   let written = 0;
 
@@ -252,13 +384,28 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
     }
   }
 
+  const orphans = findOrphans();
+  for (const orphan of orphans) {
+    console.error(`ORPHAN: ${orphan} exists but no sync group targets this skill for this file`);
+  }
+
   if (check) {
-    if (drift > 0) {
-      console.error(`\n${drift} shared-script copy/copies out of sync — run: npm run sync:scripts`);
+    if (drift > 0 || orphans.length > 0) {
+      if (drift > 0) {
+        console.error(`\n${drift} shared-script copy/copies out of sync — run: npm run sync:scripts`);
+      }
+      if (orphans.length > 0) {
+        console.error(`\n${orphans.length} orphaned shared-script copy/copies found — delete them ` +
+          `(git rm) or, if the file legitimately belongs there now, add that skill to the owning ` +
+          `sync group in ${path.basename(import.meta.url)}.`);
+      }
       process.exit(1);
     }
-    console.log("Shared-script payload copies are in sync with skills/_shared/.");
+    console.log("Shared-script payload copies are in sync with skills/_shared/, with no orphans.");
   } else {
     console.log(`Shared-script sync complete (${written} file(s) written).`);
+    if (orphans.length > 0) {
+      console.log(`${orphans.length} orphaned copy/copies found — sync does not delete; remove them by hand.`);
+    }
   }
 }

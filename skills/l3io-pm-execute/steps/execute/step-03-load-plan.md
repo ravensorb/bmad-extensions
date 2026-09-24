@@ -168,7 +168,7 @@ Bind `{execution_phases}` = resolved ordered list of (phase, [epic_keys], parall
 For each phase beyond phase 1, verify that all `dependencies` listed in the phase have `status: done`:
 
 ```bash
-python3 {pm_status} show --state-root {pm_state_root} --epic {dep_key}
+uv run {pm_status} show --state-root {pm_state_root} --epic {dep_key}
 ```
 
 Check `status=done` in the output (the epic may currently sit under `active/` or `archived/` —

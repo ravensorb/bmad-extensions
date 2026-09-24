@@ -9,7 +9,7 @@ special case here, since detection and auth are cheap, stateless, and idempotent
 ## 1. Detect platform from the git remote
 
 ```bash
-python3 {skill-root}/scripts/detect-platform.py {project-root}
+uv run {skill-root}/scripts/detect-platform.py {project-root}
 ```
 
 The script takes the project root as its only argument — no flags. It reads `origin` (then

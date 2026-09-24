@@ -60,28 +60,105 @@ def tearDownModule():
                              f"cleanup: {', '.join(leaked[:5])}")
 
 
-class TestParseYamlConfig(unittest.TestCase):
-    def test_parses_key_value_pairs(self):
-        with tempfile.NamedTemporaryFile(mode="w", suffix=".yaml", delete=False) as f:
-            f.write("user_name: Alice\ncommunication_language: English\n")
-            path = Path(f.name)
-            self.addCleanup(path.unlink, missing_ok=True)
-        result = m.parse_yaml_config(path)
-        self.assertEqual(result["user_name"], "Alice")
-        self.assertEqual(result["communication_language"], "English")
+# A stand-in for BMad core's resolver, at the path config-resolution.md §2 fixes it to. It is a
+# real script run as a real subprocess, so these tests drive the same code path a real project
+# does -- argv, exit code, stdout, JSON parse -- rather than a patched-out function whose
+# contract only this test believes in.
+#
+# Built from escaped-newline literals rather than a `"""..."""` block: a triple-quoted string
+# puts its own `# /// script` / `# ///` lines at column 0 of THIS file's real source text, which
+# a PEP 723 metadata scanner reads no differently than this file's own header above -- it does
+# not know Python string-literal syntax, only line patterns. That reads as two metadata blocks
+# in one script and `uv run test-init-sanctum.py` (this test, run directly, as CI runs it)
+# refuses with "multiple PEP 723 metadata blocks" before a single test executes. Escaped `\n`
+# keeps the header text identical once written to the stub file on disk, while every line of
+# this file's own source stays indented past column 0 and inside quotes, so it cannot itself
+# match `^# ///`. `test_a_failing_resolver_warns` below already uses this form for the same
+# reason.
+_STUB_RESOLVER = (
+    "#!/usr/bin/env python3\n"
+    "# /// script\n"
+    "# requires-python = \">=3.9\"\n"
+    "# ///\n"
+    "import json, sys\n"
+    "print(json.dumps({\"core\": {\"user_name\": \"Alice\", \"communication_language\": \"Welsh\"}}))\n"
+)
 
-    def test_missing_file_returns_empty(self):
-        result = m.parse_yaml_config(Path("/nonexistent/config.yaml"))
-        self.assertEqual(result, {})
 
-    def test_ignores_comments(self):
-        with tempfile.NamedTemporaryFile(mode="w", suffix=".yaml", delete=False) as f:
-            f.write("# comment\nkey: value\n")
-            path = Path(f.name)
-            self.addCleanup(path.unlink, missing_ok=True)
-        result = m.parse_yaml_config(path)
-        self.assertNotIn("# comment", result)
-        self.assertEqual(result["key"], "value")
+def _install_stub_resolver(project_root: Path, body: str = _STUB_RESOLVER) -> Path:
+    resolver = project_root / m.RESOLVER_REL
+    resolver.parent.mkdir(parents=True, exist_ok=True)
+    resolver.write_text(body)
+    resolver.chmod(0o755)
+    return resolver
+
+
+class TestResolveCoreConfig(unittest.TestCase):
+    """The config contract: four TOML layers via BMad core's resolver, never a config.yaml.
+
+    The script used to read `_bmad/config.yaml` and `_bmad/config.user.yaml` through a
+    hand-written line-splitter. Neither file has existed since the TOML migration, so the read
+    was a permanent no-op and every sanctum silently took the hardcoded defaults. These tests
+    pin the replacement, INCLUDING that a config.yaml is not consulted.
+    """
+
+    def test_reads_the_resolver_output(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            project_root = Path(tmp)
+            _install_stub_resolver(project_root)
+            warnings = []
+            config = m.resolve_core_config(project_root, warnings)
+            self.assertEqual(config.get("user_name"), "Alice")
+            self.assertEqual(config.get("communication_language"), "Welsh")
+            self.assertEqual(warnings, [])
+
+    def test_accepts_a_bare_core_subtree(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            project_root = Path(tmp)
+            _install_stub_resolver(project_root, _STUB_RESOLVER.replace(
+                '{"core": {"user_name": "Alice", "communication_language": "Welsh"}}',
+                '{"user_name": "Bob", "communication_language": "Welsh"}'))
+            warnings = []
+            self.assertEqual(m.resolve_core_config(project_root, warnings).get("user_name"), "Bob")
+            self.assertEqual(warnings, [])
+
+    def test_missing_resolver_warns_rather_than_defaulting_in_silence(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            warnings = []
+            config = m.resolve_core_config(Path(tmp), warnings)
+            self.assertEqual(config, {})
+            self.assertEqual(len(warnings), 1)
+            self.assertIn("config resolver is not installed", warnings[0])
+
+    def test_a_failing_resolver_warns(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            project_root = Path(tmp)
+            _install_stub_resolver(project_root, "#!/usr/bin/env python3\n"
+                                   "# /// script\n# requires-python = \">=3.9\"\n# ///\n"
+                                   "import sys\nsys.stderr.write('boom\\n')\nsys.exit(1)\n")
+            warnings = []
+            self.assertEqual(m.resolve_core_config(project_root, warnings), {})
+            self.assertEqual(len(warnings), 1)
+            self.assertIn("could not resolve config", warnings[0])
+
+    def test_a_config_yaml_is_not_a_config_source(self):
+        """The regression itself: a `_bmad/config.yaml` on disk must change nothing."""
+        with tempfile.TemporaryDirectory() as tmp:
+            project_root = Path(tmp)
+            (project_root / "_bmad").mkdir(parents=True)
+            (project_root / "_bmad" / "config.yaml").write_text("user_name: Mallory\n")
+            (project_root / "_bmad" / "config.user.yaml").write_text("user_name: Mallory\n")
+            _install_stub_resolver(project_root)
+            warnings = []
+            config = m.resolve_core_config(project_root, warnings)
+            self.assertEqual(config.get("user_name"), "Alice",
+                             "config.yaml must not be read; the resolver is the only source")
+
+    def test_the_hand_rolled_yaml_reader_is_gone(self):
+        """Global rule 1: no hand-written parser. Re-adding one must fail here."""
+        self.assertFalse(hasattr(m, "parse_yaml_config"),
+                         "parse_yaml_config was removed with the config.yaml read; a "
+                         "hand-written YAML reader must not come back")
 
 
 class TestParseFrontmatter(unittest.TestCase):
@@ -157,9 +234,10 @@ class TestSanctumCreation(unittest.TestCase):
                 "---\nname: scope-mapping\ncode: SM\ndescription: Maps attack surface\n---\n\n# Body\n"
             )
 
-            # Minimal project config supplying a substitution value
+            # Project config, supplied the one documented way: BMad core's resolver at its
+            # fixed path, run as a real subprocess.
             (project_root / "_bmad").mkdir(parents=True)
-            (project_root / "_bmad" / "config.yaml").write_text("user_name: Alice\n")
+            _install_stub_resolver(project_root)
 
             sanctum = project_root / "_bmad" / "memory" / m.SKILL_NAME
             self.assertFalse(sanctum.exists(), "sanctum must not exist before main() runs")
@@ -180,6 +258,8 @@ class TestSanctumCreation(unittest.TestCase):
             # main() reports the run it actually performed
             result = json.loads(stdout.getvalue())
             self.assertEqual(result["status"], "created")
+            self.assertEqual(result["warnings"], [],
+                             "a resolvable config must produce no personalisation warning")
             self.assertIn("INDEX.md", result["created"])
             self.assertIn("references/scope-mapping.md", result["created"])
 

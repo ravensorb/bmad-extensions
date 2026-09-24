@@ -76,8 +76,18 @@ class Base(unittest.TestCase):
         self.err = proc.stderr
         return proc.returncode, proc.stdout
 
-    def _tree(self, names, layout="skills", version="6.12.0", shims=None):
-        """Build a project root whose .claude/<layout>/ contains `names`."""
+    def _tree(self, names, layout="skills", version="6.12.0", shims=None, manifest_rows=None,
+              bmb_version=None):
+        """Build a project root whose .claude/<layout>/ contains `names`.
+
+        `manifest_rows` is a list of data-row strings (no header) for
+        `_bmad/_config/skill-manifest.csv`; the header `canonicalId,name,description,module,path`
+        is always written when rows are given. `None` (the default) omits the file entirely, so
+        a fixture that never mentions the manifest models a project without it.
+
+        `bmb_version`, when given, adds a `bmb` module entry carrying that version -- the field
+        baseline_drift compares against assets/bmad-baseline.json's `bmb_version`.
+        """
         root = tempfile.mkdtemp()
         self.addCleanup(shutil.rmtree, root, True)
         for n in names:
@@ -94,9 +104,29 @@ class Base(unittest.TestCase):
         text = f"installation:\n  version: {version}\n"
         if shims is not None:  # omitted entirely for a pre-6.12 manifest, which has no such key
             text += f"  installShims: {'true' if shims else 'false'}\n"
-        text += "modules:\n  - name: core\n  - name: bmm\nides:\n  - claude-code\n"
+        text += "modules:\n  - name: core\n  - name: bmm\n"
+        if bmb_version is not None:
+            text += f"  - name: bmb\n    version: {bmb_version}\n"
+        text += "ides:\n  - claude-code\n"
         pathlib.Path(mf, "manifest.yaml").write_text(text, encoding="utf-8")
+        if manifest_rows is not None:
+            csv_text = "canonicalId,name,description,module,path\n"
+            csv_text += "".join(f"{row}\n" for row in manifest_rows)
+            pathlib.Path(mf, "skill-manifest.csv").write_text(csv_text, encoding="utf-8")
         return root
+
+    def _baseline(self, core_version=None, bmb_version=None):
+        """A throwaway baseline file with only the given fields set."""
+        data = {}
+        if core_version is not None:
+            data["core_version"] = core_version
+        if bmb_version is not None:
+            data["bmb_version"] = bmb_version
+        d = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, d, True)
+        p = os.path.join(d, "baseline.json")
+        pathlib.Path(p).write_text(json.dumps(data), encoding="utf-8")
+        return p
 
     def _inv(self, skills):
         """A throwaway inventory file holding exactly `skills`."""
@@ -237,7 +267,7 @@ class TestInventoryShape(Base):
         self.assertNotIn("self-skips", out)       # ...and never reports it as optional
 
     def test_top_level_array_inventory_exits_2(self):
-        # The one malformed shape that slips past both this script's JSON parse and check 17.
+        # The one malformed shape that slips past both this script's JSON parse and check 16.
         inv = self._raw_inv('[{"name": "a-one", "status": "required"}]')
         root = self._tree(["a-one"])
         code, _ = self.run_cli(["verify", "--project-root", root, "--inventory", inv])
@@ -293,7 +323,9 @@ class TestJson(Base):
         self.assertEqual(code, 0, self.err)
         data = json.loads(out)
         self.assertEqual(set(data), {"bmad_version", "shims_installed", "modules", "resolved",
-                                     "missing_required", "optional_absent", "shims_in_use"})
+                                     "missing_required", "optional_absent", "shims_in_use",
+                                     "deprecated_absent", "shipped_skills",
+                                     "status_contradictions", "baseline_drift"})
         self.assertEqual(data["bmad_version"], "6.12.0")
         self.assertEqual(data["modules"], ["core", "bmm"])
         self.assertEqual([r["name"] for r in data["resolved"]], ["a-one"])
@@ -379,6 +411,262 @@ class TestShims(Base):
         self.assertIn("shim     a-old", out)
         self.assertIn("a-one replaces it", out)
         self.assertNotIn("MISSING", out)
+
+    def test_deprecated_skill_on_disk_is_reported_as_shim_in_use(self):
+        # Ruling (task-2-shims): a deprecated entry that resolves must land in shims_in_use,
+        # exactly like a removed one, not fall through to the required/optional branch and be
+        # reported as ordinary `resolved`.
+        inv = self._inv([{"name": "a-one", "status": "required"},
+                         {"name": "a-shim", "status": "deprecated", "deprecated_in": "6.12.0",
+                          "replaced_by": "a-one"}])
+        root = self._tree(["a-one", "a-shim"])
+        code, out = self.run_cli(["verify", "--project-root", root, "--inventory", inv,
+                                  "--format", "json"])
+        self.assertEqual(code, 0, self.err)
+        data = json.loads(out)
+        self.assertEqual([s["name"] for s in data["shims_in_use"]], ["a-shim"])
+        self.assertEqual(data["shims_in_use"][0]["replaced_by"], "a-one")
+        self.assertEqual(data["deprecated_absent"], [])
+        self.assertNotIn("a-shim", [r["name"] for r in data["resolved"]])
+        # text form too
+        code, out = self.run_cli(["verify", "--project-root", root, "--inventory", inv])
+        self.assertEqual(code, 0, self.err)
+        self.assertIn("shim     a-shim", out)
+        self.assertIn("a-one replaces it", out)
+
+    def test_deprecated_skill_absent_is_not_reported_as_optional(self):
+        # Ruling (task-2-shims), second half: a non-resolving deprecated entry must not be
+        # mislabelled "optional -- its phase self-skips" (false: the skill did not self-skip,
+        # it is simply not installed on this project). It gets its own bucket instead.
+        inv = self._inv([{"name": "a-one", "status": "required"},
+                         {"name": "a-shim", "status": "deprecated", "deprecated_in": "6.12.0",
+                          "replaced_by": "a-one"}])
+        root = self._tree(["a-one"])
+        code, out = self.run_cli(["verify", "--project-root", root, "--inventory", inv,
+                                  "--format", "json"])
+        self.assertEqual(code, 0, self.err)
+        data = json.loads(out)
+        self.assertEqual(data["shims_in_use"], [])
+        self.assertEqual(data["optional_absent"], [])
+        self.assertEqual(data["deprecated_absent"], [{"name": "a-shim", "replaced_by": "a-one"}])
+        code, out = self.run_cli(["verify", "--project-root", root, "--inventory", inv])
+        self.assertEqual(code, 0, self.err)
+        self.assertNotIn("self-skips", out)
+        self.assertIn("gone     a-shim", out)
+
+    def test_reencoded_shim_entries_still_appear_in_shims_in_use(self):
+        # The exact regression the ruling names: bmad-create-story, bmad-dev-story and
+        # bmad-review-adversarial-general were re-encoded from removed to deprecated. If
+        # verify() fell through to the required/optional branch for `deprecated`, this list
+        # would silently become empty while check-deps still exited 0.
+        deprecated_names = [e["name"] for e in self.real_inventory()
+                            if e.get("status") == "deprecated"]
+        self.assertEqual(set(deprecated_names),
+                         {"bmad-create-story", "bmad-dev-story",
+                          "bmad-review-adversarial-general"})
+        # Also install every required skill (by its preferred name) so this case isolates the
+        # shim bucket rather than tripping missing_required for unrelated reasons.
+        root = self._tree(deprecated_names + self.required_preferred())
+        code, out = self.run_cli(["verify", "--project-root", root, "--format", "json"])
+        self.assertEqual(code, 0, self.err)
+        data = json.loads(out)
+        self.assertEqual(set(s["name"] for s in data["shims_in_use"]), set(deprecated_names))
+        self.assertEqual(data["deprecated_absent"], [])
+
+
+class TestContradictions(Base):
+    """status_contradictions: the inventory is an annotation over a set derived from BMad's own
+    skill-manifest.csv, not the set itself. These cases attack both contradiction directions and
+    the unknown-manifest case, since a check that reports "no contradictions" because it could
+    not read the manifest would be a false green of the exact kind this feature exists to catch.
+    """
+
+    def test_removed_entry_that_still_ships_is_a_contradiction(self):
+        root = self._tree(["bmad-dev-story"],
+                          manifest_rows=["bmad-dev-story,Dev Story,desc,bmm,path"])
+        inv = self._inv([{"name": "bmad-dev-story", "status": "removed",
+                          "removed_in": "6.12.0", "replaced_by": "bmad-build"}])
+        code, out = self.run_cli(["verify", "--project-root", root, "--inventory", inv,
+                                  "--format", "json"])
+        data = json.loads(out)
+        self.assertEqual(code, 0, self.err)
+        self.assertEqual(
+            data["status_contradictions"],
+            [{"name": "bmad-dev-story", "declared": "removed", "manifest": "ships"}])
+
+    def test_contradiction_exits_5_under_strict(self):
+        root = self._tree(["bmad-dev-story"],
+                          manifest_rows=["bmad-dev-story,Dev Story,desc,bmm,path"])
+        inv = self._inv([{"name": "bmad-dev-story", "status": "removed",
+                          "removed_in": "6.12.0", "replaced_by": "bmad-build"}])
+        code, _ = self.run_cli(["verify", "--project-root", root, "--inventory", inv,
+                                "--strict"])
+        self.assertEqual(code, 5)
+
+    def test_no_contradiction_does_not_exit_5_under_strict(self):
+        # --strict must not change the exit code when status_contradictions is empty -- it is a
+        # gate on the finding, not an unconditional stricter mode.
+        root = self._tree(["a-one"], manifest_rows=["a-one,A One,desc,bmm,path"])
+        inv = self._inv([{"name": "a-one", "status": "required"}])
+        code, _ = self.run_cli(["verify", "--project-root", root, "--inventory", inv,
+                                "--strict"])
+        self.assertEqual(code, 0, self.err)
+
+    def test_required_entry_absent_from_manifest_is_a_contradiction(self):
+        # The other direction: the inventory claims BMad ships it, but the manifest disagrees.
+        root = self._tree(["a-one"], manifest_rows=["b-two,B Two,desc,bmm,path"])
+        inv = self._inv([{"name": "a-one", "status": "required"}])
+        code, out = self.run_cli(["verify", "--project-root", root, "--inventory", inv,
+                                  "--format", "json"])
+        data = json.loads(out)
+        self.assertEqual(code, 0, self.err)
+        self.assertEqual(
+            data["status_contradictions"],
+            [{"name": "a-one", "declared": "required", "manifest": "absent"}])
+        # text form names the contradiction too
+        code, out = self.run_cli(["verify", "--project-root", root, "--inventory", inv])
+        self.assertEqual(code, 0, self.err)
+        self.assertIn("CONTRADICTION", out)
+        self.assertIn("a-one", out)
+
+    def test_absent_manifest_reports_null_not_contradictions(self):
+        root = self._tree(["bmad-dev-story"], manifest_rows=None)
+        inv = self._inv([{"name": "bmad-dev-story", "status": "removed",
+                          "removed_in": "6.12.0", "replaced_by": "bmad-build"}])
+        code, out = self.run_cli(["verify", "--project-root", root, "--inventory", inv,
+                                  "--format", "json"])
+        data = json.loads(out)
+        self.assertEqual(code, 0, self.err)
+        self.assertIsNone(data["shipped_skills"])
+        self.assertEqual(data["status_contradictions"], [])
+
+    def test_shipped_skills_reported_when_manifest_present(self):
+        root = self._tree(["a-one"],
+                          manifest_rows=["a-one,A One,desc,bmm,path",
+                                         "b-two,B Two,desc,bmm,path"])
+        inv = self._inv([{"name": "a-one", "status": "required"}])
+        code, out = self.run_cli(["verify", "--project-root", root, "--inventory", inv,
+                                  "--format", "json"])
+        data = json.loads(out)
+        self.assertEqual(code, 0, self.err)
+        self.assertEqual(data["shipped_skills"], ["a-one", "b-two"])
+
+    def test_not_a_skill_and_deprecated_are_never_contradictions(self):
+        # not-a-skill is skipped outright regardless of manifest membership; deprecated is a
+        # shipped status, so it must NOT be reported absent when the manifest agrees it ships,
+        # and must be silently fine when it does not ship either -- deprecated means "BMad may
+        # or may not still ship this", so absence is not a contradiction... except the spec's
+        # SHIPPED_STATUSES treats deprecated as "should be in the manifest". Model that: a
+        # deprecated entry the manifest still ships is not a contradiction.
+        root = self._tree(["a-not", "a-dep"],
+                          manifest_rows=["a-dep,A Dep,desc,bmm,path"])
+        inv = self._inv([{"name": "a-not", "status": "not-a-skill", "reason": "x"},
+                         {"name": "a-dep", "status": "deprecated", "deprecated_in": "6.12.0",
+                          "replaced_by": "a-one"}])
+        code, out = self.run_cli(["verify", "--project-root", root, "--inventory", inv,
+                                  "--format", "json"])
+        data = json.loads(out)
+        self.assertEqual(code, 0, self.err)
+        self.assertEqual(data["status_contradictions"], [])
+
+
+class TestBaselineDrift(Base):
+    """baseline_drift: a WARNING signal comparing the installed manifest against the pinned
+    assets/bmad-baseline.json (ADR-0006). Must never affect the exit code, under --strict or
+    otherwise -- BMad moving on is normal; being unaware of it is the defect this exists to
+    surface."""
+
+    def test_matching_baseline_reports_no_drift(self):
+        inv = self._inv([{"name": "a-one", "status": "required"}])
+        root = self._tree(["a-one"], version="6.12.0", bmb_version="v2.2.2")
+        baseline = self._baseline(core_version="6.12.0", bmb_version="v2.2.2")
+        code, out = self.run_cli(["verify", "--project-root", root, "--inventory", inv,
+                                  "--baseline", baseline, "--format", "json"])
+        self.assertEqual(code, 0, self.err)
+        self.assertEqual(json.loads(out)["baseline_drift"], [])
+
+    def test_core_version_drift_is_reported_without_failing(self):
+        inv = self._inv([{"name": "a-one", "status": "required"}])
+        root = self._tree(["a-one"], version="6.13.0", bmb_version="v2.2.2")
+        baseline = self._baseline(core_version="6.12.0", bmb_version="v2.2.2")
+        code, out = self.run_cli(["verify", "--project-root", root, "--inventory", inv,
+                                  "--baseline", baseline, "--format", "json"])
+        self.assertEqual(code, 0, self.err)
+        self.assertEqual(json.loads(out)["baseline_drift"],
+                         [{"field": "core_version", "expected": "6.12.0", "found": "6.13.0"}])
+        # text form carries a BASELINE line naming both the pinned and installed values
+        code, out = self.run_cli(["verify", "--project-root", root, "--inventory", inv,
+                                  "--baseline", baseline])
+        self.assertEqual(code, 0, self.err)
+        self.assertIn("BASELINE", out)
+        self.assertIn("6.12.0", out)
+        self.assertIn("6.13.0", out)
+
+    def test_bmb_version_drift_is_reported_without_failing(self):
+        inv = self._inv([{"name": "a-one", "status": "required"}])
+        root = self._tree(["a-one"], version="6.12.0", bmb_version="v3.0.0")
+        baseline = self._baseline(core_version="6.12.0", bmb_version="v2.2.2")
+        code, out = self.run_cli(["verify", "--project-root", root, "--inventory", inv,
+                                  "--baseline", baseline, "--format", "json"])
+        self.assertEqual(code, 0, self.err)
+        self.assertEqual(json.loads(out)["baseline_drift"],
+                         [{"field": "bmb_version", "expected": "v2.2.2", "found": "v3.0.0"}])
+
+    def test_no_baseline_line_in_text_output_when_matching(self):
+        inv = self._inv([{"name": "a-one", "status": "required"}])
+        root = self._tree(["a-one"], version="6.12.0", bmb_version="v2.2.2")
+        baseline = self._baseline(core_version="6.12.0", bmb_version="v2.2.2")
+        code, out = self.run_cli(["verify", "--project-root", root, "--inventory", inv,
+                                  "--baseline", baseline])
+        self.assertEqual(code, 0, self.err)
+        self.assertNotIn("BASELINE", out)
+
+    def test_missing_baseline_file_yields_no_drift_not_a_crash(self):
+        # A missing baseline means "nothing to compare against", not agreement -- and never a
+        # crash, since the pinned file is packaging state, not something a caller controls.
+        inv = self._inv([{"name": "a-one", "status": "required"}])
+        root = self._tree(["a-one"], version="6.13.0", bmb_version="v3.0.0")
+        code, out = self.run_cli(["verify", "--project-root", root, "--inventory", inv,
+                                  "--baseline", os.path.join(root, "no-such-baseline.json"),
+                                  "--format", "json"])
+        self.assertEqual(code, 0, self.err)
+        self.assertEqual(json.loads(out)["baseline_drift"], [])
+
+    def test_drift_does_not_trigger_strict_exit(self):
+        # --strict gates status_contradictions only. Drift alone must never turn it into exit 5.
+        inv = self._inv([{"name": "a-one", "status": "required"}])
+        root = self._tree(["a-one"], version="6.13.0", bmb_version="v3.0.0",
+                          manifest_rows=["a-one,A One,desc,bmm,path"])
+        baseline = self._baseline(core_version="6.12.0", bmb_version="v2.2.2")
+        code, out = self.run_cli(["verify", "--project-root", root, "--inventory", inv,
+                                  "--baseline", baseline, "--strict", "--format", "json"])
+        self.assertEqual(code, 0, self.err)
+        data = json.loads(out)
+        self.assertTrue(data["baseline_drift"])
+        self.assertEqual(data["status_contradictions"], [])
+
+    def test_contradiction_still_exits_5_under_strict_alongside_drift(self):
+        # Drift and a real contradiction can co-occur; the contradiction must still be the one
+        # that decides the exit code, unaffected by drift being present too.
+        root = self._tree(["bmad-dev-story"], version="6.13.0", bmb_version="v3.0.0",
+                          manifest_rows=["bmad-dev-story,Dev Story,desc,bmm,path"])
+        inv = self._inv([{"name": "bmad-dev-story", "status": "removed",
+                          "removed_in": "6.12.0", "replaced_by": "bmad-build"}])
+        baseline = self._baseline(core_version="6.12.0", bmb_version="v2.2.2")
+        code, out = self.run_cli(["verify", "--project-root", root, "--inventory", inv,
+                                  "--baseline", baseline, "--strict", "--format", "json"])
+        self.assertEqual(code, 5)
+        data = json.loads(out)
+        self.assertTrue(data["baseline_drift"])
+        self.assertTrue(data["status_contradictions"])
+
+    def test_default_baseline_matches_this_repos_pinned_values(self):
+        # The shipped bmad-baseline.json must actually describe this repo's baseline pair --
+        # a stale default would make every real (non-fixture) run report phantom drift.
+        default_baseline = json.loads(
+            pathlib.Path(SKILL_ROOT, "assets", "bmad-baseline.json").read_text(encoding="utf-8"))
+        self.assertEqual(default_baseline["core_version"], "6.12.0")
+        self.assertEqual(default_baseline["bmb_version"], "v2.2.2")
 
 
 if __name__ == "__main__":

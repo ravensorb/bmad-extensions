@@ -12,8 +12,9 @@ every node path from its key, so a wrongly-padded directory or file is silently 
 key lookup rather than merely out of order. That is what this mode checks for.
 
 If you want a rename applied rather than just reported, the two-digit legacy epic form is
-fixed by `steps/rename-epic-dirs.md` (Rename Epic Dirs Mode) (`rename-epic-dirs`) — this mode does
-not duplicate that rename logic itself.
+fixed by the `rename-epic-dirs` inline action inside `steps/health-check.md` (Health Check 10
+detects it, Step HC6 performs it) — this mode does not duplicate that rename logic itself, and
+there is no standalone keyword for it.
 
 **Naming convention checked:**
 
@@ -83,7 +84,9 @@ Path                                              Issue
 ...
 ================================================================
 {N} naming issue(s) found. Report only — this mode does not rename or move anything.
-Two-digit epic-{nn}/ directories: fix with `/l3io-util-doctor rename-epic-dirs`.
+Two-digit epic-{nn}/ directories: fix by running `/l3io-util-doctor` — Health Check 10
+detects them and its `rename-epic-dirs` inline action renames them. There is no
+standalone keyword for it.
 Other naming issues need manual correction — they usually mean a file was created or edited
 outside pm-status.py.
 ```

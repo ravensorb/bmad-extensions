@@ -119,7 +119,7 @@ If no: print `Harvest cancelled — report only, no changes made.` and exit.
 **Step H6 — Merge into the backlog**
 
 Append one item per `new` marker to the top-level `backlog:` list of `{status_backlog}`, following
-the consolidated backlog schema (the PM skills' `references/status-files.md` is the schema source of
+the consolidated backlog schema (`references/status-files.md` is the schema source of
 truth).
 
 **When `{project-root}/_bmad/scripts/pm-status.py` is present, use it — this is the only correct

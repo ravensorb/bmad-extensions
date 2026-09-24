@@ -24,7 +24,7 @@ For each epic directory, read `epic.yaml` and extract:
 
 List its `sprint-*/` subdirectories; for each, read `sprint.yaml` (`key`, `status`, `estimate`)
 and its story `.yaml` files excluding `sprint.yaml` (`key`, `status`, `classification`,
-`estimate`, `depends_on`). `python3 {pm_status} show --state-root {pm_state_root} --epic {epic_key}`
+`estimate`, `depends_on`). `uv run {pm_status} show --state-root {pm_state_root} --epic {epic_key}`
 gives the same sprint/story enumeration as a computed roll-up if you prefer reading that over
 walking the directory by hand.
 

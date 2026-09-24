@@ -1,6 +1,6 @@
 ---
 name: l3io-pm-sync
-description: Bidirectional sync between l3io-pm state and GitHub Issues. Modes: setup, push, pull, sync, status (default).
+description: "Bidirectional sync between l3io-pm state and GitHub Issues. Modes: setup, push, pull, sync, status (default)."
 ---
 
 # l3io-pm-sync
@@ -14,15 +14,15 @@ Communicate all responses in `{communication_language}`.
 
 ## On Activation
 
-Run: `python3 {project-root}/_bmad/scripts/resolve_customization.py --skill {skill-root} --key workflow`
+Run: `uv run {project-root}/_bmad/scripts/resolve_customization.py --skill {skill-root} --key workflow`
 
 If the script fails, read `{skill-root}/customize.toml` directly.
 
-Load `{skill-root}/assets/module-setup.md` first **only** when the user passes `configure` or
-`install`. Note that `setup` is *not* a module-setup trigger in this skill — it selects the
-`setup` mode below, which configures GitHub sync. Config is resolved in step-00-activate per
-`{skill-root}/references/config-resolution.md`; an absent `modules.l3io-pm` section means the
-module has no overrides, not that it needs setup.
+`configure` and `install` are not recognized arguments here — `/l3io-pm-setup` is the
+module's setup entry point. `setup` is not a module-setup trigger in this skill either — it
+selects the `setup` mode below, which configures GitHub sync, a different thing. Config is
+resolved in step-00-activate per `{skill-root}/references/config-resolution.md`; an absent
+`modules.l3io-pm` section means the module has no overrides, not that it needs setup.
 
 ## Execution
 
@@ -37,6 +37,12 @@ Parse the invocation argument to determine mode:
 | `sync` | `sync` | Bidirectional sync (push then pull) |
 
 Bind `{sync_mode}` = parsed mode.
+
+Do not add the once-per-project `/l3io-pm-setup` pointer (`config-resolution.md` §5) here:
+`notice` is keyed on the notice key alone, not on a session, so nothing here technically
+prevents wiring it in — this is a placement choice, not a guard this skill fails. The pointer
+belongs where a user is about to run PM work and could act on it; this skill only syncs to
+GitHub. It is wired into `l3io-pm-execute`/`l3io-pm-plan` only.
 
 Load and execute in order:
 

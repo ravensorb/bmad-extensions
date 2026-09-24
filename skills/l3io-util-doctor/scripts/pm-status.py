@@ -42,6 +42,12 @@ Subcommands
   story-doc-init --state-root S  --artifacts-root R  --story KEY
                 (creates the story document skeleton from the state node when absent;
                 an existing document is left untouched, exit 0 "exists")
+  import-node   --state-root S  (--story KEY | --epic ID [--sprint ID])  --status S
+                [--title T] [--classification C] [--origin {inferred}] [--origin-note N]
+                [--no-events] [--session-id ID]
+                (creates a missing state node from a migration record; idempotent by
+                SKIP -- an existing node is left untouched and no event is appended;
+                exit 3 when a sprint or story's parent epic is absent)
   set-actual    --state-root S   --node {story,sprint,epic}  (--story KEY | --epic ID [--sprint ID])
                 [--elapsed-hours H] [--man-hours H] [--hitl-hours H]
                 [--tokens-input K] [--tokens-output K] [--tokens-cache-write K] [--tokens-cache-read K]
@@ -208,10 +214,20 @@ Subcommands
   adr-reserve   --state-root S  --epic ID  --slug SLUG  [--count N]
                 (reserves N sequential ADR numbers under a lock, before dispatch;
                 prints one zero-padded number per line; see adr_register_path)
+  notice        --state-root S  --key KEY
+                (records a one-time-ever advisory notice in {state-root}/.notices.yaml
+                under flock, keyed on KEY alone -- there is no session concept that
+                outlives one skill invocation, so this is scoped to the project, not a
+                session; exit 0 = not yet emitted for KEY (and now recorded), exit 1 =
+                already emitted, exit 2 = usage error OR an unexpected recording failure
+                (never conflated with exit 1); advisory only -- a damaged notices file
+                never blocks the caller, but a failed write is reported, not silently
+                treated as success)
 
-Exit codes: 0 = success/verified, 2 = usage error, 3 = node not found,
-4 = verification failure (missing/invalid field), 5 = epic locked. Errors go
-to stderr; machine output (verify summaries) goes to stdout.
+Exit codes: 0 = success/verified, 1 = notice already emitted for this key
+(notice only), 2 = usage error or, for notice only, an unexpected recording failure,
+3 = node not found, 4 = verification failure (missing/invalid field), 5 = epic locked.
+Errors go to stderr; machine output (verify summaries) goes to stdout.
 """
 from __future__ import annotations
 
@@ -327,11 +343,17 @@ def _atomic_create(path: str, text: str) -> bool:
 # State roots whose .gitignore this process has already checked (_ensure_lock_ignore).
 _LOCK_IGNORE_CHECKED = set()
 _LOCK_IGNORE_LINE = "*.lock"
+NOTICES_FILENAME = ".notices.yaml"  # the one-time-ever advisory ledger, keyed on --key
+                                     # alone (cmd_notice below) -- no pruning: a project's
+                                     # set of distinct notice keys stays small by construction
+# Every filename pm-status.py writes at a state root that must never reach git: the
+# per-family lock sidecars (one glob covers all of them) and the notices ledger.
+_GITIGNORE_PATTERNS = (_LOCK_IGNORE_LINE, NOTICES_FILENAME)
 
 
-def _lock_rule_present(text: str) -> bool:
-    """True when git reads `text` (a .gitignore) as ignoring every `*.lock`: some line is
-    exactly `*.lock` and no LATER line is exactly `!*.lock`. Parsed as git parses it: split
+def _lock_rule_present(text: str, pattern: str = _LOCK_IGNORE_LINE) -> bool:
+    """True when git reads `text` (a .gitignore) as ignoring every `pattern`: some line is
+    exactly `pattern` and no LATER line is exactly `!pattern`. Parsed as git parses it: split
     on "\\n" only -- never str.splitlines(), which also breaks on U+0085 and other characters
     git keeps inside a line -- and strip exactly one trailing "\\r", then trailing spaces,
     since leading spaces are part of the pattern. The caller decodes with utf-8-sig, so a
@@ -341,34 +363,45 @@ def _lock_rule_present(text: str) -> bool:
     for raw in text.split("\n"):
         line = raw[:-1] if raw.endswith("\r") else raw
         line = line.rstrip(" ")
-        if line == _LOCK_IGNORE_LINE:
+        if line == pattern:
             present = True
-        elif line == "!" + _LOCK_IGNORE_LINE:
+        elif line == "!" + pattern:
             present = False
     return present
 
 
+def _missing_ignore_patterns(text: str):
+    """Which of `_GITIGNORE_PATTERNS` git does NOT currently read `text` as ignoring."""
+    return [p for p in _GITIGNORE_PATTERNS if not _lock_rule_present(text, p)]
+
+
 def _ensure_lock_ignore(state_root: str) -> None:
-    """Make `{state_root}/.gitignore` carry `*.lock`, so no lock file is ever committed.
+    """Make `{state_root}/.gitignore` carry every pattern in `_GITIGNORE_PATTERNS` --
+    `*.lock` and `.notices.yaml` -- so neither a lock file nor the notices ledger is ever
+    committed.
 
-    Every lock file this script creates is an empty flock target -- the four in the state
-    root and the per-node `.yaml.lock` sidecars below it -- and the sprint-closure
-    checkpoint stages the whole state tree. A `*.lock` pattern matches files only, never
-    the state-root directory, so step-00-activate's `git check-ignore` gate still passes.
+    Every lock file this script creates is an empty flock target -- the several families in
+    the state root and the per-node `.yaml.lock` sidecars below it -- and the sprint-closure
+    checkpoint stages the whole state tree; `.notices.yaml` is the one non-lock file this
+    script writes at the state root that is equally advisory and equally not for git. Neither
+    pattern matches the state-root directory itself, so step-00-activate's `git check-ignore`
+    gate still passes.
 
-    Called on EVERY lock acquisition inside a state root, not only when a lock file is first
-    created: a project whose lock files already exist gets the rule on its next lock. A bare
-    `append-issue --file` outside one (no status folders, no --state-root) is skipped, so it
-    never writes a .gitignore into a repo root (_file_lock). Memoized per process, so
-    each state root is checked at most once. Absent file -> created (no-clobber
-    _atomic_create) with one comment line and the rule. Present -> READ first, and only when
-    the rule is missing (as git reads it, _lock_rule_present) is it opened for append and
-    flocked, then re-checked under the flock so two processes cannot both append it; a
-    read-only .gitignore that already has the rule is never opened for writing. The line is
-    appended after a newline when the file lacks a trailing one; existing content is never
-    rewritten or reordered. Best-effort: this runs inside the lock path, so an OSError or an
-    undecodable file warns once on stderr and returns -- it never raises and never fails the
-    verb."""
+    Called on EVERY lock acquisition inside a state root, not only when a pattern's file is
+    first written: a project whose lock files already exist, or that adopts a newer
+    pm-status.py that adds a pattern, gets the missing rule(s) on its next lock. A bare
+    `append-issue --file` outside a state root (no status folders, no --state-root) is
+    skipped, so it never writes a .gitignore into a repo root (_file_lock). Memoized per
+    process, so each state root is checked at most once. Absent file -> created (no-clobber
+    _atomic_create) with one comment line and every pattern. Present -> READ first, and only
+    when at least one pattern is missing (as git reads it, _lock_rule_present) is it opened
+    for append and flocked, then re-checked under the flock so two processes cannot both
+    append it -- only the still-missing patterns are written, so an already-satisfied pattern
+    is never duplicated; a read-only .gitignore that already has every pattern is never opened
+    for writing. Missing lines are appended after a newline when the file lacks a trailing
+    one; existing content is never rewritten or reordered. Best-effort: this runs inside the
+    lock path, so an OSError or an undecodable file warns once on stderr and returns -- it
+    never raises and never fails the verb."""
     root = os.path.realpath(state_root or ".")
     if root in _LOCK_IGNORE_CHECKED:
         return
@@ -376,10 +409,11 @@ def _ensure_lock_ignore(state_root: str) -> None:
     path = os.path.join(root, ".gitignore")
     try:
         if not os.path.lexists(path) and _atomic_create(
-                path, f"# pm-status.py lock files -- never commit\n{_LOCK_IGNORE_LINE}\n"):
+                path, "# pm-status.py state files -- never commit\n" +
+                      "".join(f"{p}\n" for p in _GITIGNORE_PATTERNS)):
             return
         with open(path, "rb") as fh:                # read first: needs no write access
-            if _lock_rule_present(fh.read().decode("utf-8-sig")):
+            if not _missing_ignore_patterns(fh.read().decode("utf-8-sig")):
                 return
         try:
             import fcntl
@@ -391,17 +425,18 @@ def _ensure_lock_ignore(state_root: str) -> None:
             try:
                 fh.seek(0)
                 text = fh.read().decode("utf-8-sig")   # re-check under the flock; BOM skipped
-                if _lock_rule_present(text):
+                missing = _missing_ignore_patterns(text)
+                if not missing:
                     return
                 sep = "" if not text or text.endswith("\n") else "\n"
-                fh.write(f"{sep}{_LOCK_IGNORE_LINE}\n".encode("utf-8"))
+                fh.write((sep + "".join(f"{p}\n" for p in missing)).encode("utf-8"))
                 fh.flush()
             finally:
                 if fcntl is not None:
                     fcntl.flock(fh, fcntl.LOCK_UN)
     except (OSError, UnicodeDecodeError) as e:
-        sys.stderr.write(f"pm-status.py: warning -- could not add {_LOCK_IGNORE_LINE} to "
-                         f"{path}: {e}\n")
+        sys.stderr.write(f"pm-status.py: warning -- could not add "
+                         f"{', '.join(_GITIGNORE_PATTERNS)} to {path}: {e}\n")
 
 
 def _state_root_of_node(path: str):
@@ -447,6 +482,12 @@ def _flock_write_or_plain(use_flock: bool, y: YAML, data, path: str) -> None:
 # Sharded layout resolution — the ONLY place that knows where nodes live on disk
 # --------------------------------------------------------------------------- #
 STATUS_DIRS = ("active", "planned", "archived")  # active first: hottest path
+
+# Layout knowledge belongs in the resolver section with everything else that knows
+# where a node lives. DIR_FOR_STATUS is DERIVED, never written out a second time --
+# two hand-kept halves of one mapping is how they drift apart.
+STATUS_FOR_DIR = {"planned": "backlog", "active": "in-progress", "archived": "done"}
+DIR_FOR_STATUS = {status: folder for folder, status in STATUS_FOR_DIR.items()}
 
 
 def epic_dirname(epic_key: str) -> str:
@@ -567,6 +608,58 @@ def resolve_node_path(state_root: str, args, kind: str):
     return p, label
 
 
+def ensure_node_path(state_root: str, args, kind: str, status: str):
+    """Resolve a node kind + keys to (path, label), CREATING the directory when absent.
+
+    The counterpart to resolve_node_path() for the one case that function cannot serve:
+    a node that does not exist yet. It is the ONLY function that creates a state
+    directory, and it lives here -- in the section that is the only place a key becomes
+    a location -- on purpose. A mkdir in a subcommand body is exactly how that invariant
+    breaks; check 26 in check-docs.mjs fails the build if one appears.
+
+    A NEW epic is placed by its status, per the placement rule. An epic that already has
+    a directory is left where it is: relocating on a status change is move-epic's job,
+    which uses `git mv` so history survives. Sprints and stories require their epic's
+    directory to exist and exit 3 when it does not.
+    """
+    if kind == "epic" and status not in DIR_FOR_STATUS:
+        _die_usage(
+            f"cannot place a new epic with status {status!r} -- "
+            f"expected one of {sorted(DIR_FOR_STATUS)}"
+        )
+    if kind == "epic":
+        if not args.epic:
+            _die_usage("--epic is required for an epic node")
+        d = find_epic_dir(state_root, args.epic)
+        if d is None:
+            d = os.path.join(state_root, DIR_FOR_STATUS[status], epic_dirname(args.epic))
+        os.makedirs(d, exist_ok=True)
+        return os.path.join(d, "epic.yaml"), f"epic {args.epic}"
+
+    if kind == "sprint":
+        if not (args.epic and args.sprint):
+            _die_usage("--epic and --sprint are required for a sprint node")
+        d = find_epic_dir(state_root, args.epic)
+        if d is None:
+            _die_notfound(f"epic {args.epic} (create it before its sprints)")
+        sd = os.path.join(d, sprint_dirname(args.sprint))
+        os.makedirs(sd, exist_ok=True)
+        return os.path.join(sd, "sprint.yaml"), f"epic {args.epic} sprint {args.sprint}"
+
+    if kind == "story":
+        if not args.story:
+            _die_usage("--story is required for a story node")
+        epic_key, sprint_key, _ = parse_story_key(args.story)
+        d = find_epic_dir(state_root, epic_key)
+        if d is None:
+            _die_notfound(f"epic {epic_key} (create it before its stories)")
+        sd = os.path.join(d, sprint_dirname(sprint_key))
+        os.makedirs(sd, exist_ok=True)
+        return os.path.join(sd, f"{args.story}.yaml"), f"story {args.story}"
+
+    _die_usage(f"unknown node kind: {kind}")
+
+
 def _load_checked(state_root: str, args, kind: str):
     """Resolve, load, and validate back-references. Exits 3 (missing) or 4 (misplaced)."""
     path, label = resolve_node_path(state_root, args, kind)
@@ -596,14 +689,21 @@ def _infer_kind(args) -> str:
     _die_usage("specify --story, or --epic [--sprint]")
 
 
-def _epic_write_lock(args, kind):
+def _epic_write_lock(args, kind, require_exists: bool = True):
     """epic_node_lock around a node verb's read-modify-write when the node is an epic; no
     lock for a sprint or story, whose files are not epic.yaml. Resolves the epic first, so
     an absent one exits 3 exactly as before with no lock file created; the verb resolves
-    again inside the hold, since a move-epic may land while it waits."""
+    again inside the hold, since a move-epic may land while it waits.
+
+    require_exists=False is for import-node, whose whole purpose is the node that does not
+    exist yet. It still takes the lock -- a concurrent import of the same epic must
+    serialise -- it just does not demand the node be there first. Every other caller keeps
+    the default, so their behaviour is unchanged.
+    """
     if kind != "epic":
         return contextlib.nullcontext()
-    resolve_node_path(args.state_root, args, "epic")
+    if require_exists:
+        resolve_node_path(args.state_root, args, "epic")
     return epic_node_lock(args.state_root, args.epic)
 
 
@@ -1032,6 +1132,26 @@ def adr_register_lock(state_root: str):
     this is exactly the register two parallel adr-reserve calls must not race on.
     """
     with _file_lock(adr_register_path(state_root) + ".lock", _ADR_LOCK, state_root):
+        yield
+
+
+def notices_path(state_root: str) -> str:
+    return os.path.join(state_root, NOTICES_FILENAME)
+
+
+_NOTICES_LOCK = {"depth": 0, "fh": None}
+
+
+@contextlib.contextmanager
+def notices_lock(state_root: str):
+    """Hold an exclusive lock over a whole notices read-modify-write cycle.
+
+    Same reasoning as calibration_lock and adr_register_lock: load -> mutate -> save is
+    not atomic, and two concurrent callers -- e.g. `l3io-pm-execute` and `l3io-pm-plan`
+    invoked around the same time in one project -- must not both decide the same key has
+    not been shown yet and each write their own "now recorded" copy, silently dropping one.
+    """
+    with _file_lock(notices_path(state_root) + ".lock", _NOTICES_LOCK, state_root):
         yield
 
 
@@ -2508,6 +2628,17 @@ def _git_toplevel(path: str):
     return top if r.returncode == 0 and top else None
 
 
+class AdrHomeUnresolved(Exception):
+    """The one ADR home (ADR-0005) could not be located, so the disk scan is impossible.
+
+    Raised rather than warned-and-continued. `adr-reserve` is the only thing standing
+    between two agents and one ADR number, so a number allocated from a scan that never
+    happened is worse than no number at all: the caller reads exit 0 and a four-digit
+    string off stdout and has no way to tell it apart from a real allocation. The old
+    behaviour printed `0001` next to a stderr warning nobody captured.
+    """
+
+
 def highest_adr_on_disk(state_root: str, adr_dir: str = "") -> int:
     """Highest ADR number already written, in the one home and in the old one (ADR-0005).
 
@@ -2515,7 +2646,12 @@ def highest_adr_on_disk(state_root: str, adr_dir: str = "") -> int:
     from colliding with a file that already exists: a hand-written ADR, a Mode C ADR, or
     an ADR in a project that has not run `migrate-adrs`. The one home is `adr_dir` when
     given (step files pass {project-root}/docs/adr, since a BMad project need not be the
-    repository root), else <git top-level of the state root>/docs/adr."""
+    repository root), else <git top-level of the state root>/docs/adr.
+
+    Raises AdrHomeUnresolved when neither is available. The default is deliberately NOT
+    widened to some guess (the state root's parent, the cwd): scanning the wrong tree
+    reports "highest is 0" just as confidently as scanning an empty right one.
+    """
     impl = os.path.dirname(os.path.abspath(state_root))
     hi = 0
     for arch in glob.glob(os.path.join(impl, "epic-*", "arch")):
@@ -2526,11 +2662,13 @@ def highest_adr_on_disk(state_root: str, adr_dir: str = "") -> int:
     if not adr_dir:
         top = _git_toplevel(state_root if os.path.isdir(state_root) else impl)
         if top is None:
-            sys.stderr.write(f"pm-status.py: adr-reserve: {state_root} is not inside a git work "
-                             f"tree -- scanned only the old ADR home (epic-*/arch/); pass "
-                             f"--adr-dir to scan docs/adr too\n")
-        else:
-            adr_dir = os.path.join(top, "docs", "adr")
+            raise AdrHomeUnresolved(
+                f"{state_root} is not inside a git work tree, so the one ADR home "
+                f"(<git top-level>/docs/adr) cannot be located, and the old home "
+                f"(epic-*/arch/) alone does not say what numbers docs/adr already "
+                f"holds. Pass --adr-dir DIR naming the project's ADR directory "
+                f"(normally {{project-root}}/docs/adr) and retry.")
+        adr_dir = os.path.join(top, "docs", "adr")
     if adr_dir and os.path.isdir(adr_dir):
         for name in os.listdir(adr_dir):
             m = _ADR_DOC_NAME.match(name)
@@ -2576,7 +2714,15 @@ def cmd_adr_reserve(args) -> int:
             start = 1
         if start < 1:
             start = 1
-        start = max(start, highest_adr_on_disk(args.state_root, args.adr_dir) + 1)
+        # Refuse rather than guess. Every other failure in this function returns 2
+        # before a number is printed, and so does this one: a caller capturing stdout
+        # cannot tell a guessed 0001 from a scanned one.
+        try:
+            on_disk = highest_adr_on_disk(args.state_root, args.adr_dir)
+        except AdrHomeUnresolved as exc:
+            sys.stderr.write(f"pm-status.py: adr-reserve: refusing to allocate -- {exc}\n")
+            return 2
+        start = max(start, on_disk + 1)
         numbers = list(range(start, start + args.count))
         for n in numbers:
             entry = CommentedMap()
@@ -2588,6 +2734,62 @@ def cmd_adr_reserve(args) -> int:
         reg["next"] = start + args.count
         _atomic_dump(yaml, reg, adr_register_path(args.state_root))
     sys.stdout.write("\n".join(f"{n:04d}" for n in numbers) + "\n")
+    return 0
+
+
+def cmd_notice(args) -> int:
+    """Record a one-time-ever advisory notice for this project. Exit 0 = emit it now (and
+    record it), exit 1 = already emitted for this key, exit 2 = usage error OR an unexpected
+    failure while recording (lock/I/O). 2 is deliberately overloaded with "usage error"
+    rather than given a new number of its own: a caller that treats any nonzero exit as "do
+    not print the pointer" already handles it correctly either way, and the one distinction
+    that matters -- 1 means "already said, all is well" -- stays unambiguous. A crash must
+    never surface as 1: a caller told "already emitted" says nothing further and moves on,
+    so a masked crash would silently and permanently suppress the pointer with nothing to
+    show for it.
+
+    Scope is the KEY ALONE, not a session: there is no notion of "session" that outlives one
+    skill invocation (`{session_id}` in `step-00-activate.md` is bound fresh per invocation
+    and no caller of `notice` is ever a dispatched subagent that could inherit one), so a
+    per-session key would never repeat and this would fire every single invocation -- exactly
+    the nagging it exists to prevent. A key is recorded at most once, ever, per project: once
+    a key has fired, it never fires again for that `--state-root`, which is correct for an
+    advisory whose content is static ("this exists, configure it if you want") and whose
+    trigger condition (`modules.l3io-pm` being absent) is itself a valid permanent state, not
+    a transient one to keep re-flagging.
+
+    An absent or unparseable notices file means nothing has been emitted yet -- a notice is
+    advisory only, so a damaged file must never block the caller's real work; it is simply
+    treated as empty and rewritten clean on this call. That tolerance covers a bad READ only:
+    a failure while actually recording (the lock, or the write itself) is a real failure and
+    is reported as one, not folded into "already emitted" or silently swallowed as success.
+    """
+    key = (args.key or "").strip()
+    if not key:
+        sys.stderr.write("notice: --key must be non-empty\n")
+        return 2
+    path = notices_path(args.state_root)
+    try:
+        os.makedirs(args.state_root, exist_ok=True)
+        with notices_lock(args.state_root):
+            # _load returns (yaml_instance, data) -- data is None when the file is absent
+            # or fails to parse the way _load's caller expects. Reuse the returned YAML
+            # instance for the dump so round-trip settings (width, indent, quote style)
+            # match.
+            try:
+                y, data = _load(path)
+            except Exception:
+                y, data = _yaml(), None
+            keys = data.get("keys") if isinstance(data, dict) else None
+            if not isinstance(keys, list):
+                keys = []
+            if key in keys:
+                return 1
+            keys.append(key)
+            _atomic_dump(y, {"keys": keys}, path)
+    except Exception as e:
+        sys.stderr.write(f"notice: could not record the notice at {path}: {e}\n")
+        return 2
     return 0
 
 
@@ -3688,6 +3890,74 @@ def cmd_set_status(args) -> int:
     if kind == "story" and args.status == "done":
         _resolve_story_items(args.state_root, node, args.story,
                              getattr(args, "session_id", None))
+    return 0
+
+
+def cmd_import_node(args) -> int:
+    """Create a state node from a migration record. The counterpart to set-status for a
+    node that does not exist yet.
+
+    This is cmd_set_status with ONE step swapped -- ensure_node_path() where set-status
+    calls _load_checked() -- because _load_checked exits 3 on a missing node, which is
+    correct for set-status and fatal for this verb. set-status itself is untouched: it
+    must never create anything.
+
+    Idempotent by SKIP, not by overwrite. A migration retried after a partial run must
+    not clobber a node a later step already edited, so an existing file is left exactly
+    as it is and reported.
+    """
+    from ruamel.yaml.scalarstring import SingleQuotedScalarString as SQ
+
+    kind = _infer_kind(args)
+    valid = {
+        "story": VALID_STORY_STATUS,
+        "sprint": VALID_SPRINT_STATUS,
+        "epic": VALID_EPIC_STATUS,
+    }[kind]
+    if args.status not in valid:
+        _die_usage(
+            f"invalid {kind} status '{args.status}' -- expected one of {sorted(valid)}")
+
+    with _epic_write_lock(args, kind, require_exists=False):
+        path, label = ensure_node_path(args.state_root, args, kind, args.status)
+        if os.path.exists(path):
+            sys.stdout.write(f"SKIP import-node {label} -- already exists\n")
+            return 0
+
+        node = {}
+        if kind == "epic":
+            node["key"] = SQ(args.epic)
+            node["title"] = args.title or ""
+            node["goal"] = ""
+        elif kind == "sprint":
+            node["key"] = SQ(args.sprint)
+            node["epic"] = SQ(args.epic)
+            node["title"] = args.title or ""
+        else:
+            epic_key, sprint_key, _ = parse_story_key(args.story)
+            node["key"] = SQ(args.story)
+            node["epic"] = SQ(epic_key)
+            node["sprint"] = SQ(sprint_key)
+            node["title"] = args.title or ""
+            node["classification"] = args.classification or "unknown"
+
+        node["status"] = args.status
+        node["updated_at"] = _now_iso()
+        if args.origin:
+            node["origin"] = args.origin
+            node["origin_note"] = args.origin_note or ""
+
+        save_node(_yaml(), node, path, getattr(args, "flock", False))
+
+        if not getattr(args, "no_events", False):
+            payload = {
+                "ts": _now_iso(), "event": "import", "from": None, "to": args.status,
+                "session": getattr(args, "session_id", None),
+            }
+            payload.update(_event_keys(kind, args))
+            append_event(args.state_root, payload)
+
+    sys.stdout.write(f"OK import-node {label} -> {args.status}\n")
     return 0
 
 
@@ -5964,9 +6234,6 @@ def _list_issues(args) -> int:
     return 0
 
 
-STATUS_FOR_DIR = {"planned": "backlog", "active": "in-progress", "archived": "done"}
-
-
 def move_epic(state_root: str, epic_key: str, to_status: str) -> str:
     """Move an epic directory between status folders, preferring `git mv`.
 
@@ -6364,6 +6631,23 @@ def build_parser() -> argparse.ArgumentParser:
     di.add_argument("--story", required=True)
     di.set_defaults(func=cmd_story_doc_init)
 
+    imp = sub.add_parser("import-node",
+                         help="create a state node from a migration record")
+    imp.add_argument("--state-root", required=True)
+    imp.add_argument("--epic")
+    imp.add_argument("--sprint")
+    imp.add_argument("--story")
+    imp.add_argument("--status", required=True)
+    imp.add_argument("--title", default="")
+    imp.add_argument("--classification", default="unknown")
+    imp.add_argument("--origin", choices=["inferred"],
+                     help="mark the node as reconstructed rather than read")
+    imp.add_argument("--origin-note", default="",
+                     help="why the node was inferred; recorded beside --origin")
+    imp.add_argument("--no-events", action="store_true")
+    imp.add_argument("--session-id")
+    imp.set_defaults(func=cmd_import_node)
+
     a = sub.add_parser("set-actual", help="write a validated actual block")
     a.add_argument("--state-root", required=True, help="path to {implementation_artifacts}/state")
     a.add_argument("--node", required=True, choices=["story", "sprint", "epic"])
@@ -6678,6 +6962,12 @@ def build_parser() -> argparse.ArgumentParser:
     ar.add_argument("--adr-dir", dest="adr_dir", default="",
                     help="the one ADR home to scan (default: <git top-level>/docs/adr)")
     ar.set_defaults(func=cmd_adr_reserve)
+
+    nt = sub.add_parser("notice",
+                        help="record a one-time-ever advisory notice; exit 1 if already shown")
+    nt.add_argument("--state-root", required=True)
+    nt.add_argument("--key", required=True)
+    nt.set_defaults(func=cmd_notice)
 
     p.add_argument("--version", action="version", version=f"pm-status.py {PM_STATUS_VERSION}")
     return p

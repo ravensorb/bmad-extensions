@@ -1149,7 +1149,7 @@ sections they patched rather than the whole epic."
 - [ ] **Step 1: Fix the directives**
 
 ```bash
-cd /home/ravenwolf.org/sanderson/source/git/ravensorb/bmad/bmad-extensions
+cd <repo root>
 # Shared source first -- per-skill copies are regenerated, never hand-edited.
 sed -i 's|`skills/_shared/status-files\.md`|`references/status-files.md`|g' \
   skills/_shared/steps/shared/step-estimate.md

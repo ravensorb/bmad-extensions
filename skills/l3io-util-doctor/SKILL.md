@@ -14,9 +14,8 @@ Migration and housekeeping utilities for BMad artifacts.
 Modes (pass as argument to skip directly to that mode):
 
 **Diagnostic (read-only)**
-- **`check` / `status`:** Read-only health check — same diagnostic scan as the default but prints the findings table and exits without prompting to make changes.
-- **`stats`:** Plan-aware progress dashboard — phase → epic → sprint → story hierarchy with per-status dwell times and stuck-item flags (via `pm-status.py report`), plus backlog size by severity, last closed sprint/epic, and calibration state. Scope it by asking — "what's active", "what's queued", "everything" — which maps to `--status`; counting always covers every epic regardless. No files changed.
-- **`backlog`:** Lists all items in the `backlog:` list of `{pm_state_root}/issues.yaml` in a readable table grouped by severity. No files changed.
+- **`check` / `status`:** Read-only health check — same diagnostic scan as the default but prints the findings table and exits without prompting to make changes. The full set of findings, their severities, and their remedies is defined in `steps/health-check.md`, not repeated here.
+- **`stats`** (aliases **`backlog`**, **`issues`**): Plan-aware progress dashboard — phase → epic → sprint → story hierarchy with per-status dwell times and stuck-item flags (via `pm-status.py report`), plus backlog size by severity, the per-item backlog table from `{pm_state_root}/issues.yaml` grouped by severity, last closed sprint/epic, and calibration state. Scope it by asking — "what's active", "what's queued", "everything" — which maps to `--status`; counting always covers every epic regardless. No files changed.
 - **`check-deps`:** Verifies every BMad skill this package dispatches resolves in this project, reports deprecated shims still in use, and names optional dependencies whose phases will self-skip. No files changed.
 
 **One-time migrations (run in this order)**
@@ -27,7 +26,6 @@ Modes (pass as argument to skip directly to that mode):
 - **`migrate-adrs`:** Moves ADRs from the old per-epic home (`{implementation_artifacts}/epic-*/arch/`) to `{project-root}/docs/adr/`, renumbering a colliding one only inside its own epic's artifacts; plans first, confirms, commits once.
 
 **Ongoing maintenance (safe to repeat)**
-- **`normalize`:** Convenience shortcut — runs `reconcile-status` then `sort-status` in one confirmed pass. Use for routine maintenance instead of running two commands separately.
 - **`reconcile-status`:** *(legacy-only)* Audits the three split status files for placement and structure issues: epics in the wrong file for their `status`, nested per-epic `backlog:` arrays that should be flattened into the consolidated top-level list, stale backlog items whose status is no longer `backlog`, and empty epic shells in the backlog file. Dry-run first; confirms before writing. Safe to run at any time.
 - **`sort-status`:** Validates state file and directory naming against the zero-padded convention (`epic-{nnn}/`, `sprint-{nn}/`, `E{nnn}-S{nn}-{nnn}.yaml`). Ordering itself can no longer drift under the sharded layout — directory listing order is correct order — so this mode no longer reorders anything. It reports misnamed entries, which would sort incorrectly and break key resolution.
 - **`layout-cleanup`:** Runs only the artifact layout reorganization (the original default behavior) — reorganizes flat artifact outputs into the structured epic/sprint folder hierarchy, reconciles references, verifies state consistency.
@@ -39,9 +37,7 @@ Modes (pass as argument to skip directly to that mode):
 - **`update-ai-rules`:** Scans for AI system instruction files in the project (`CLAUDE.md`, `.github/copilot-instructions.md`, `GEMINI.md`, `AGENTS.md`, `.cursorrules`, and others) and rewrites any reference to a legacy state layout (flat `sprint-status*.yaml`, the three-file split, or `_bmad/state/`) to describe the current sharded state tree. For files that already exist: updates existing references. For the currently running AI system's file if it does not exist: creates it with a state layout section. Never creates files for other AI systems. Also auto-invoked after a successful `split-status` run. Safe to run repeatedly.
 
 **Setup & housekeeping**
-- **`clean-legacy`:** Removes migration backup files and directories left behind by one-time migration commands — `.yaml.legacy` files, `.v1` calibration backups, the pre-migration `_bmad/state.legacy/` directory and `_bmad/pm-calibration.yaml.legacy` file, and the `_bmad/migration-backup/` directory `migrate-state` Stage F's default "move" option relocates everything into. Dry-run first; confirms before deleting. Safe to run once migrations have been verified.
-- **`rename-active`:** Renames `sprint-status-active.yaml` → `sprint-status.yaml`. Rarely needed directly — the health check detects and runs this automatically when the old naming is found.
-- **`rename-epic-dirs`:** Renames legacy two-digit `epic-{nn}/` artifact directories to the current three-digit `epic-{nnn}/` form. Rarely needed directly — the health check detects and runs this automatically when the old naming is found.
+- **`clean-legacy`:** Removes migration backup files and directories left behind by one-time migration commands — `.yaml.legacy` files, the `{pm_calibration_file}.v1` calibration schema backup in the state root, the pre-migration `_bmad/state.legacy/` directory and `_bmad/pm-calibration.yaml.legacy` file, and the `_bmad/migration-backup/` directory `migrate-state` Stage F's default "move" option relocates everything into. Dry-run first; confirms before deleting. Safe to run once migrations have been verified.
 
 **One-time use (layout cleanup):** Designed to be run once per project. Running again after a successful cleanup produces zero moves (everything already placed) or conflicts (for new flat files added since the first run).
 
@@ -54,45 +50,54 @@ Modes (pass as argument to skip directly to that mode):
 
 **Load exactly one mode file.** Every mode below lives in its own file under `steps/`, and
 only the one the argument selects is ever loaded. That is the point of the layout: this skill
-carries twenty procedures and a run needs one, so inlining them all charged every
-invocation for nineteen it would not execute. Read this file, match the keyword, load that
+carries sixteen procedures and a run needs one, so inlining them all charged every
+invocation for fifteen it would not execute. Read this file, match the keyword, load that
 one file, and follow it.
 
 **Recognized keywords** — if the user's argument exactly matches any of these, load that
 file and follow it:
 
-| Keyword | Load | Notes |
-|---|---|---|
-| `help` or `?` | — | Print the command list below and exit — no project scan. |
-| `check` or `status` | `steps/health-check.md` | read-only — scan only, no changes |
-| `stats` | `steps/stats.md` | read-only — plan-aware progress dashboard |
-| `backlog` | `steps/backlog.md` | read-only — list consolidated backlog items |
-| `check-deps` | `steps/check-deps.md` | read-only — verify BMad skill dependencies resolve |
-| `normalize` | `steps/normalize.md` | reconcile-status then sort-status in one confirmed pass |
-| `layout-cleanup` | `steps/layout-cleanup.md` | layout reorganization only |
-| `migrate-schema` | `steps/schema-migration.md` | legacy-only bridge |
-| `split-status` | `steps/split-status.md` | legacy-only bridge |
-| `harvest-debt` | `steps/harvest-debt.md` |  |
-| `reconcile-status` | `steps/reconcile-status.md` |  |
-| `sort-status` | `steps/sort-status.md` |  |
-| `redrive` | `steps/redrive.md` | rebuild calibration `scope`/`fix` from story nodes |
-| `triage` | `steps/triage.md` | audit the backlog and resolve findings already fixed — confirms every write |
-| `migrate-adrs` | `steps/migrate-adrs.md` | move ADRs from the old per-epic home to `docs/adr/` — confirms before writing |
-| `rename-active` | `steps/rename-active.md` |  |
-| `rename-epic-dirs` | `steps/rename-epic-dirs.md` |  |
-| `update-ai-rules` | `steps/update-ai-rules.md` |  |
-| `clean-legacy` | `steps/clean-legacy.md` | remove migration backup files |
-| `migrate-state` | `steps/migrate-state.md` | makes a legacy project usable by the PM skills again |
-| `bootstrap-state` | `steps/bootstrap-state.md` | create state nodes from story .md artifacts (legacy `bmad-create-story` workflow) |
-| `setup`, `configure`, `install` | `assets/module-setup.md` | then continue to `steps/health-check.md` |
+The **Menu** column records whether that keyword carries its own row in
+`assets/module-help.csv`, and is the source of truth for that decision — it is not kept
+anywhere else; `check:module` rule 9 reads this column and fails on a keyword that is
+neither registered nor excluded here, so an unrecognized value fails rather than quietly
+excluding a mode. `registered` means it has a row whose `action` column is the keyword.
+`default` means it is served by the module's bare-invocation row — the one with an empty
+`action`, which is BMad's convention for a default invocation. `health-check` means it
+deliberately does not: Step HC6 of `steps/health-check.md` already proposes it and fixes its place in the
+execution order, so a global menu entry would invite running a migration or a repair
+*without* the diagnosis that decides whether it is needed. `not-a-capability` is help output
+or module setup.
+
+| Keyword | Load | Menu | Notes |
+|---|---|---|---|
+| `help` or `?` | — | not-a-capability | Print the command list below and exit — no project scan. |
+| `check` or `status` | `steps/health-check.md` | default | read-only — scan only, no changes |
+| `stats`, `backlog` or `issues` | `steps/stats.md` | registered | read-only — plan-aware progress dashboard plus the per-item backlog table |
+| `check-deps` | `steps/check-deps.md` | registered | read-only — verify BMad skill dependencies resolve |
+| `layout-cleanup` | `steps/layout-cleanup.md` | health-check | layout reorganization only |
+| `migrate-schema` | `steps/schema-migration.md` | health-check | legacy-only bridge |
+| `split-status` | `steps/split-status.md` | health-check | legacy-only bridge |
+| `harvest-debt` | `steps/harvest-debt.md` | health-check |  |
+| `reconcile-status` | `steps/reconcile-status.md` | health-check |  |
+| `sort-status` | `steps/sort-status.md` | health-check |  |
+| `redrive` | `steps/redrive.md` | health-check | rebuild calibration `scope`/`fix` from story nodes |
+| `triage` | `steps/triage.md` | health-check | audit the backlog and resolve findings already fixed — confirms every write |
+| `migrate-adrs` | `steps/migrate-adrs.md` | health-check | move ADRs from the old per-epic home to `docs/adr/` — confirms before writing |
+| `update-ai-rules` | `steps/update-ai-rules.md` | health-check |  |
+| `clean-legacy` | `steps/clean-legacy.md` | health-check | remove migration backup files |
+| `migrate-state` | `steps/migrate-state.md` | health-check | prose around `migrate-engine.py` — confirms before and interprets after the eight-step migration run |
+| `bootstrap-state` | `steps/bootstrap-state.md` | health-check | prose around `migrate-engine.py` with `read-artifacts.py` — creates state nodes from story `.md` files without overwriting existing nodes |
+| `setup`, `configure`, `install` | `assets/module-setup.md` | not-a-capability | then continue to `steps/health-check.md` |
 
 **Everything else** (no argument, unrecognized text, or a natural-language description) →
 load `steps/health-check.md`.
 
-A mode file may direct you to another mode's file — `normalize` runs reconcile-status then
-sort-status, and the health check proposes fixes by naming the modes that apply. Load each as
-you reach it; do not pre-load the set. One proposed action, `untrack-locks`, is not a mode and
-has no file: `steps/health-check.md` runs it inline.
+A mode file may direct you to another mode's file — the health check proposes fixes by
+naming the modes that apply. Load each as you reach it; do not pre-load the set. Three
+proposed actions are **not** modes and have no file — `rename-active`, `rename-epic-dirs` and
+`untrack-locks`: each is a single rename or `git rm --cached` with no caller outside the check
+that detects it, and `steps/health-check.md` runs all three inline.
 
 **Help output** — when `help` or `?` is passed, print exactly this and exit:
 
@@ -105,7 +110,7 @@ Diagnostic (read-only)
   (no argument)      Project health check — scan and propose all needed actions
   check / status     Read-only health check — report findings, no changes
   stats              Plan-aware progress dashboard — phase/epic/sprint/story + backlog
-  backlog            List issues.yaml backlog items grouped by severity
+  backlog / issues   Aliases for stats; always print the per-item backlog table
   check-deps         Verify BMad skill dependencies resolve in this project
 
 One-time migrations (run in this order)
@@ -118,7 +123,6 @@ One-time migrations (run in this order)
   migrate-adrs       Move ADRs from epic-*/arch/ to docs/adr/, the one ADR home
 
 Ongoing maintenance (safe to repeat)
-  normalize          Reconcile then sort all status files in one pass
   reconcile-status   (legacy-only) Fix misplaced epics, nested backlogs, stale items
   sort-status        Validate zero-padded naming (epic-{nnn}/, sprint-{nn}/, story keys)
   layout-cleanup     Reorganize flat artifact files into epic/sprint folder structure
@@ -133,10 +137,6 @@ Setup & housekeeping
   setup              Register l3io-util module config for this project
   clean-legacy       Remove .legacy/.v1 migration backup files and the state.legacy/ and
                      migration-backup/ backup directories after confirmation
-  rename-active      (Rarely needed) Rename sprint-status-active.yaml → sprint-status.yaml;
-                     the health check detects and runs this automatically when needed.
-  rename-epic-dirs   (Rarely needed) Rename legacy epic-{nn}/ dirs to epic-{nnn}/; the health
-                     check detects and runs this automatically when needed.
 
 Run without arguments to let the health check decide what's needed.
 ```

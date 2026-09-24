@@ -10,7 +10,7 @@ incurred, and the `clean` fix cohort silently never filled. `NUMERIC_NODE_FIELDS
 `pm-status.py` now coerces this field on every write, so the defect cannot recur, but samples
 already recorded under it stay wrong until rebuilt. This mode rebuilds them.
 
-**What it does.** Wraps `python3 {pm_status} calibration redrive --state-root {pm_state_root}`
+**What it does.** Wraps `uv run {pm_status} calibration redrive --state-root {pm_state_root}`
 (`redrive_story_samples` in `pm-status.py`). It:
 
 1. Backs up the current `{pm_calibration_file}` to `pm-calibration.yaml.pre-redrive` — **only**
@@ -72,7 +72,7 @@ If `n`: print `Redrive cancelled — no changes made.` and exit.
 **Step RD3 — Run the redrive**
 
 ```bash
-python3 {pm_status} calibration redrive --state-root {pm_state_root}
+uv run {pm_status} calibration redrive --state-root {pm_state_root}
 ```
 
 Relay its stdout exactly — it already reports the backup filename (when a backup was

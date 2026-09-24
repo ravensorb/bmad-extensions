@@ -72,24 +72,40 @@ For each file in the findings list, read the full content. For each flagged refe
 
 Read 3 lines of surrounding context before choosing the replacement strategy. Write the updated content to disk.
 
-**Step AR5 — Create AGENTS.md**
+**Step AR5 — Create the current runtime's instruction file**
 
-If `{to_create}` is non-empty (no instruction file of any kind exists in the project), create `{project-root}/AGENTS.md` and write a minimal section covering the PM state file layout. Always target `AGENTS.md` regardless of which AI system is running — it is the universal canonical instruction file; harness-specific files (CLAUDE.md, .github/copilot-instructions.md, etc.) can point at it.
+For each entry in `{to_create}` — the list AR1 built, and only that list — create the file at
+the path the *Supported AI instruction file locations* table gives for that AI system, and
+write a minimal section covering the PM state file layout. `{to_create}` holds at most one
+entry: AR1 adds the current runtime's file, and only when that file does not already exist.
+So on Claude the file created is `{project-root}/CLAUDE.md`, on Copilot
+`{project-root}/.github/copilot-instructions.md`, on Gemini `{project-root}/GEMINI.md`, and
+`{project-root}/AGENTS.md` only when the runtime is a generic agent.
+
+**Never create an instruction file for an AI system that is not the one running.** This step
+used to say "always target `AGENTS.md` regardless of which AI system is running", which
+contradicted this mode's own summary, `SKILL.md`, and the `{to_create}` list AR1 actually
+builds. It also restated the gate as "no instruction file of any kind exists in the project",
+which is a different predicate: on a repo holding `AGENTS.md` but no `CLAUDE.md`, running
+under Claude, AR1 queues `CLAUDE.md` while that gate would have written `AGENTS.md` — a file
+for another AI system, already present, and possibly already rewritten by AR4 in the same run.
+The gate is AR1's: `{to_create}` non-empty. If `{to_create}` is empty there is nothing to
+create here, whatever other instruction files do or do not exist.
 
 ````markdown
 ## l3io-pm State Layout
 
 This project uses l3io-pm for sprint and epic management. State lives under `{pm_state_root}` as a sharded YAML tree — one file per node, never a flat list:
 
-- `{pm_state_root}active/epic-{nnn}/epic.yaml`
-- `{pm_state_root}active/epic-{nnn}/sprint-{nn}/sprint.yaml`
-- `{pm_state_root}active/epic-{nnn}/sprint-{nn}/{story-key}.yaml`
-- `{pm_state_root}planned/` and `{pm_state_root}archived/` — same shape
+- `{pm_state_root}/active/epic-{nnn}/epic.yaml`
+- `{pm_state_root}/active/epic-{nnn}/sprint-{nn}/sprint.yaml`
+- `{pm_state_root}/active/epic-{nnn}/sprint-{nn}/{story-key}.yaml`
+- `{pm_state_root}/planned/` and `{pm_state_root}/archived/` — same shape
 
 Never edit state files directly. Use `/l3io-util-doctor` for diagnostics and housekeeping.
 ````
 
-Adapt the heading style and surrounding content to match the existing file format for that AI system.
+Adapt the heading style and surrounding content to match the conventions of the file being created for that AI system.
 
 **Step AR6 — Verify and report**
 

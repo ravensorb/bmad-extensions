@@ -71,7 +71,11 @@ You can install all four modules or only the ones you need:
 | **l3io-util** | Project state diagnostics, the progress dashboard, and legacy layout migration |
 | **l3io-arch** | Engineering-standards architecture guardrails and review (new-project design, review audits, and ADR-recorded decisions) |
 
-All four modules are installed by the same `npx bmad-method install` command. Each module handles its own first-run configuration — no separate setup step required.
+All four modules are installed by the same `npx bmad-method install` command. No module
+configures itself on first use — every setting has a default, so installing is enough to run.
+`l3io-pm`, the only multi-skill module, has a dedicated `/l3io-pm-setup` skill for when you do
+want to change a setting; the other three self-register from their own single skill on an
+explicit `configure` request.
 
 ## Install
 
@@ -124,29 +128,46 @@ No module needs configuring to work — every setting has a default. Run a modul
 
 ### l3io-pm
 
-No explicit setup step. The skills resolve config at activation via `_bmad/scripts/resolve_config.py` and use sensible defaults when `modules.l3io-pm` is absent — which is the normal state for a fresh install.
+`l3io-pm` is the only multi-skill module, so it has a dedicated `/l3io-pm-setup` skill. Run it
+only when you want to record a project-level setting; every PM skill resolves config at
+activation via `_bmad/scripts/resolve_config.py` and uses sensible defaults when
+`modules.l3io-pm` is absent — which is the normal state for a fresh install, not a trigger for
+setup to run automatically.
 
-Key settings (with defaults):
+Key settings (with defaults) — the two `/l3io-pm-setup` collects and writes:
 
-- `output_folder` — default: `{project-root}/_bmad-output`
 - `implementation_artifacts` — default: `{output_folder}/implementation-artifacts`
 - `planning_artifacts` — default: `{output_folder}/planning-artifacts`
+
+`output_folder` (default `{project-root}/_bmad-output`) is **not** one of them. It is a core
+setting (`core.output_folder`) that the BMad installer owns, and `/l3io-pm-setup` deliberately
+refuses to collect or write it — asking again invites an answer that silently loses on the next
+install. Change it through BMad's own config, not through this module's setup.
+
+Both paths resolve from `modules.l3io-pm` for **all four** l3io modules: there is one artifact
+tree, and `l3io-pm` owns the path to it.
 
 See [l3io-pm reference](l3io-pm-reference.md) for the full config schema.
 
 ### l3io-sec
 
-No explicit setup step. The first time you invoke `/l3io-sec-redteam` it initializes its sanctum and, if no `l3io-sec` section exists in config, runs module registration automatically.
+`/l3io-sec-redteam` is a standalone (single-skill) module and self-registers when you
+explicitly ask it to `setup`, `configure`, or `install` — an absent `l3io-sec` config section
+is normal, not a trigger. The first time you invoke it, it also initializes its sanctum.
 
 For WebSearch to work, ensure the `WebSearch` tool is allowed in your Claude Code permissions.
 
 ### l3io-util
 
-No explicit setup step. The first time `/l3io-util-doctor` runs it registers the module automatically before performing cleanup.
+`/l3io-util-doctor` is a standalone (single-skill) module and self-registers only when you
+explicitly pass `setup`, `configure`, or `install` — an absent `l3io-util` config section is
+normal, not a trigger. With no argument it runs its health check directly.
 
 ### l3io-arch
 
-No explicit setup step. The first time you invoke `/l3io-arch-review` it registers the module automatically (if no `l3io-arch` section exists in config), then runs. The standards themselves live in the skill's `references/standards-*.md` files — a universal `standards-core.md` plus per-stack overlays that load automatically based on the detected stack. To apply the standards automatically inside core `bmad-architecture` and `bmad-code-review`, run `/bmad-customize` in your project and add the overlays documented in the skill's `assets/customize-architect.md`.
+`/l3io-arch-review` is a standalone (single-skill) module and self-registers only when you
+explicitly pass `setup`, `configure`, or `install` — an absent `l3io-arch` config section is
+normal, not a trigger. The standards themselves live in the skill's `references/standards-*.md` files — a universal `standards-core.md` plus per-stack overlays that load automatically based on the detected stack. To apply the standards automatically inside core `bmad-architecture` and `bmad-code-review`, run `/bmad-customize` in your project and add the overlays documented in the skill's `assets/customize-architect.md`.
 
 See [l3io-arch reference](l3io-arch-reference.md) for the standards catalog, the three modes, and the customization wiring.
 
@@ -277,9 +298,9 @@ A full epic run is long. Three ways to see where it is, all read-only.
 /l3io-pm-help progress
 ```
 
-Renders the plan-aware tree — which phase, which epic, which sprint, and which stories are in
-flight, with how long each has sat in its current status and a `⚠ stuck` marker past the
-threshold (4h for a story in `review` or `in-progress`):
+Forwards to `/l3io-util-doctor stats`, which renders the plan-aware tree — which phase, which
+epic, which sprint, and which stories are in flight, with how long each has sat in its current
+status and a `⚠ stuck` marker past the threshold (4h for a story in `review` or `in-progress`):
 
 ```
 PLAN plan-2026-08-17-v2.yaml   readiness=green
@@ -363,8 +384,9 @@ Two modes worth knowing:
 /l3io-util-doctor stats            # plan-aware progress dashboard, read-only
 ```
 
-> `/l3io-util-cleanup` was renamed to `/l3io-util-doctor` in 2.1.0. The old name still works
-> and forwards, but is deprecated.
+> `/l3io-util-cleanup` was renamed to `/l3io-util-doctor` in 2.1.0. The old name's deprecated
+> forwarder has been removed on `main` and ships in the next release; it is still present in
+> 2.5.1, the current release — see [Upgrading](upgrading.md).
 
 To split a legacy single `sprint-status.yaml` into the active/backlog/archived three-file layout as a one-time explicit migration (the original is preserved as `sprint-status.yaml.legacy`):
 

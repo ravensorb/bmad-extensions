@@ -4,7 +4,8 @@ Invoked with `migrate-schema` argument. Upgrades an existing `sprint-status.yaml
 
 **Two field types are not mechanically defaultable, and this mode must not invent them:**
 
-- **`cost` is derived, never entered** — `cost = tokens_k × the model's per-class rates` (the l3io-pm metrics contract; the PM skills carry it as `references/metrics-contract.md` §2). `set-actual`/`set-estimate` reject a `--cost*` flag outright, and `verify` recomputes it and fails on a mismatch. So `cost_low`/`cost_high` are **never added to an estimate block** by this migration: nothing verifies an estimate, and a placeholder is worse than an absence. The old `'$0.00'` default was doubly wrong — a currency-prefixed *string* where every writer produces an unquoted float.
+- **`cost` is derived, never entered** — `cost = tokens_k × the model's per-class rates` (the l3io-pm metrics contract; the PM skills carry it as `l3io-pm-execute/references/metrics-contract.md` §2, which a
+`l3io-util` install does not ship). `set-actual`/`set-estimate` reject a `--cost*` flag outright, and `verify` recomputes it and fails on a mismatch. So `cost_low`/`cost_high` are **never added to an estimate block** by this migration: nothing verifies an estimate, and a placeholder is worse than an absence. The old `'$0.00'` default was doubly wrong — a currency-prefixed *string* where every writer produces an unquoted float.
 - **`tokens_k` and `cost` on an `actual` block default to the `'N/A'` sentinel, not `0`.** A legacy flat file has no token data. `0` claims a measurement that was never taken, and calibration would consume it as a real sample and drive the learned ratio toward zero; `'N/A'` is skipped by calibration and passes `verify --runtime other`, which is the honest state of a legacy migration.
 
 ### Default Values for Missing Fields

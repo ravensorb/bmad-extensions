@@ -1,0 +1,40 @@
+# This repository is a MULTI-MODULE marketplace, not one module. This file says so, in the
+# one place BMad 6.12.0's installer looks first.
+#
+# It declares NO `code:` and NO `name:`, deliberately. Read
+# `docs/bmad-module-yaml-discovery.md` before changing anything here.
+#
+# Mechanism (bmad-method 6.12.0, tools/installer/project-root.js):
+#   - `searchRootAll(root)` (line 109) collects candidate module.yaml files in a fixed
+#     priority order, and `<root>/skills/module.yaml` (line 112) is the FIRST thing it checks.
+#   - For a LOCAL `--custom-source` install, `resolveInstalledModuleYaml` takes the
+#     `_resolutionCache` branch (lines 171-181) and calls `searchRoot(mod.localPath)`, which
+#     returns `all[0]` (line 149) with NO matching on the requested module's code. Every
+#     plugin in the repo shares one `localPath` (ui.js:1212, `sourceResult.rootDir`), so all
+#     four of our modules resolve to that same first candidate.
+#   - `manifest-generator.js:560` then uses that file's `code:` as the TOML section key for
+#     EVERY module, and `:608` emits one `[agents.<code>]` per (module x agent) pair with no
+#     dedupe. Two modules with install answers produced `[modules.l3io-pm]` twice; an `agents:`
+#     array in whichever file won produced `[agents.redteam]` four times. TOML forbids both,
+#     `tomllib` rejects the file, and `resolve_config.py` exits 1 -- so every l3io skill AND
+#     every BMad core skill halts at activation.
+#
+# With no `code:` here, `codeByModuleName` stays unset and the section key falls back to the
+# module's own name (`manifest-generator.js:560`, `|| moduleName`), which for these modules IS
+# the code -- so each module's answers land under its own `[modules.<code>]`. With no `agents:`
+# here, no agent block is emitted more than once.
+#
+# It is inert everywhere else:
+#   - `PluginResolver._tryRootModuleFiles` (strategy 1) requires module.yaml AND
+#     module-help.csv at the skills' common parent. There is no `skills/module-help.csv`, and
+#     there must never be one -- it would collapse all four plugins into a single module.
+#     `check:module` rule 1 enforces both halves.
+#   - The URL-source branch (project-root.js:190-212) matches candidates by `code`/`name`;
+#     this file has neither, so it is skipped and each module resolves to its own
+#     `skills/<skill>/module.yaml`.
+#   - `version-resolver.js` prefers the nearest `package.json`, and falls back to
+#     `.claude-plugin/marketplace.json`; it never needs a version from here.
+#
+# When BMad's local branch learns to match by code the way its URL branch already does, this
+# file becomes dead weight rather than wrong -- it matches no module either way.
+multi_module_marketplace: true

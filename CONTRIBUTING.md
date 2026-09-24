@@ -47,21 +47,48 @@ that lives in its own skill and is edited in place.
 
 ### The gates
 
-All five must pass before you open a pull request. CI runs every one of them.
+All six must pass before you open a pull request. CI runs every one of them.
+
+**Run `npm ci` first.** The checkers have npm dependencies — they parse YAML, CSV and shell
+with libraries rather than hand-written readers (see
+`docs/adr/0007-ci-installs-npm-dependencies.md`), so a gate run without `node_modules/` fails
+on `ERR_MODULE_NOT_FOUND`. CI installs before any gate, and so should you.
 
 | Command | What it protects |
 |---|---|
 | `npm run check:scripts` | Per-skill payload copies match their `_shared/` source |
 | `npm run check:manifest` | Every `payload-manifest.json` hash matches the file it names |
-| `npm run check:docs` | Documentation matches the code it describes — fifteen checks, including that every documented CLI subcommand exists and every `<file>.md §N` cross-reference resolves |
+| `npm run check:docs` | Documentation matches the code it describes — twenty-six checks, including that every documented CLI subcommand exists and every `<file>.md §N` cross-reference resolves |
 | `npm run check:version` | `pm-status.py`'s version marker, its `PM_STATUS_VERSION`, and `package.json` agree |
-| `npm run test:scripts` | The `check-docs` self-tests |
+| `npm run check:module` | One `module.yaml` per module code, correctly homed, with its required payload; every plugin in `marketplace.json` resolving to an authored `PluginResolver` strategy rather than BMad's silent synthesized fallback; every mode keyword a `SKILL.md` documents either registered in `module-help.csv` or marked excluded in that table's own **Menu** column; and every `module.yaml` agent roster entry agreeing with its skill's `customize.toml` `[agent]` block |
+| `npm run test:scripts` | The `check-docs` and `check-module` self-tests |
 
 The Python suites are run by CI directly and are worth running locally when you touch them —
 see `.github/workflows/checks.yml` for the exact invocations. Note that the Python helpers run
 through `uv`, which provisions their dependencies from an inline PEP 723 header, so
 `test-spec-align.py` needs its documented `--with` flags; a bare `uv run --script` fails with
 `ModuleNotFoundError` and is a mis-invocation rather than a failure.
+
+### Pinning GitHub Actions
+
+Every `uses:` in `.github/workflows/*.yml` is on the same version in both workflow files, and
+verified — not just reasoned about — to run under `nektos/act` locally as well as on GitHub.
+
+- **First-party, tag-stable publishers** (`actions/checkout`, `actions/setup-node`,
+  `astral-sh/setup-uv`) are pinned by a rolling major tag (`@v7`), *when that publisher actually
+  maintains one* — confirm with `git ls-remote https://github.com/<owner>/<repo>.git refs/tags/vN`
+  before assuming it. `astral-sh/setup-uv` does not: it has no `vN` major tag or branch at all,
+  only exact release tags, so it is pinned to the full version (`@v10.2.0`) instead.
+- **Everything else** — third-party actions, or a first-party one with no major tag — is pinned
+  to an exact release tag if the project cuts one, otherwise a commit SHA. Never a floating
+  branch (`@master`, `@main`): that runs whatever upstream most recently pushed, with no review
+  on this side, in whichever job references it. This is why `reviewdog/action-detect-secrets`
+  is pinned to `@v0.31.0` rather than `@master`.
+
+`actions/setup-python` was removed from `checks.yml`: every Python entry point in that workflow
+is a PEP-723 script run through `uv run`, which reads each script's own `requires-python` header
+and provisions a matching interpreter itself — `astral-sh/setup-uv` is the only Python toolchain
+step the workflow needs.
 
 ### Never bump versions by hand
 

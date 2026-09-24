@@ -9,9 +9,11 @@
     "sync:scripts": "node scripts/sync-shared-scripts.mjs",
     "check:scripts": "node scripts/sync-shared-scripts.mjs --check",
     "check:docs": "node scripts/check-docs.mjs",
+    "check:module": "node scripts/check-module.mjs",
     "check:version": "node scripts/check-pm-status-version.mjs",
     "check:manifest": "node scripts/write-payload-manifest.mjs --check",
     "test:scripts": "node --test scripts/tests/*.test.mjs",
+    "smoke:install": "bash scripts/smoke-install.sh",
     "postbump": "node scripts/sync-bmad-versions.mjs && node scripts/sync-shared-scripts.mjs && node scripts/write-payload-manifest.mjs && git add -u",
     "release": "commit-and-tag-version",
     "release:patch": "commit-and-tag-version --release-as patch",
@@ -24,6 +26,10 @@
   },
   "devDependencies": {
     "commit-and-tag-version": "latest",
-    "conventional-changelog-cli": "latest"
+    "conventional-changelog-cli": "latest",
+    "csv-parse": "^7.0.2",
+    "mvdan-sh": "^0.10.1",
+    "smol-toml": "^1.9.0",
+    "yaml": "^2.9.1"
   }
 }

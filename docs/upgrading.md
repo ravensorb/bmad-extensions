@@ -86,26 +86,59 @@ it, or any manual `pm-status.py` write, against an epic another session is activ
 ## Lock files leave git
 
 `pm-status.py`'s lock files are empty flock targets: `epic-NNN.lock`, `issues.yaml.lock`,
-`pm-calibration.yaml.lock` and `adr-register.yaml.lock` in `{implementation_artifacts}/state/`,
-plus a `.yaml.lock` sidecar beside some node files. The sprint-closure checkpoint used to commit
-them. `pm-status.py` now keeps `*.lock` in `state/.gitignore`, so an existing project sees two
-things after upgrading. Both are expected:
+`pm-calibration.yaml.lock`, `adr-register.yaml.lock` and `.notices.yaml.lock` in
+`{implementation_artifacts}/state/`, plus a `.yaml.lock` sidecar beside some node files. The
+sprint-closure checkpoint used to commit them. `pm-status.py` now keeps both `*.lock` and the
+`.notices.yaml` advisory ledger (§ notice) in `state/.gitignore`, so an existing project sees
+two things after upgrading. Both are expected:
 
 - **A new `state/.gitignore`.** The first `pm-status.py` command that takes a lock inside the
   state root writes it,
   and the checkpoint commits it with the rest of `state/`. If a `.gitignore` is already there,
-  it keeps its lines and gains one `*.lock` line.
+  it keeps its lines and gains whichever of the `*.lock` and `.notices.yaml` lines it is
+  missing — an already-current file gains nothing.
 - **A commit that deletes the tracked `*.lock` files from git.** The next sprint-closure
   checkpoint untracks them. `/l3io-util-doctor`'s health check does the same (Check 14) and
   stages the removal for you to commit. The files stay on disk; only the index entries go.
 
-The activation gate that refuses a gitignored `state/` is unaffected, because `*.lock` matches
-files, never the directory.
+The activation gate that refuses a gitignored `state/` is unaffected, because neither `*.lock`
+nor `.notices.yaml` matches the directory itself.
 
 ## Version notes
 
 Find your starting version and read forward. `npx bmad-method install` upgrades across any
 number of these at once, but the migrations must still run.
+
+### → the next release (merged to `main`, not yet tagged)
+
+> **These changes are not in a release yet.** They are merged to `main`; the current release
+> is 2.5.1. Because the set includes a breaking change, this repo's Conventional Commits
+> release rules will cut the next one as 3.0.0 — but no 3.0.0 exists, so if you are on 2.5.1
+> you have none of what follows and nothing to migrate yet.
+
+**Doctor modes removed.** `/l3io-util-doctor` keyword removals — if a script, alias, or
+habit invokes one of these, switch it to the replacement named here.
+
+| Removed keyword | Use instead |
+|---|---|
+| `normalize` | `sort-status` (naming report) and, on a legacy split layout, `reconcile-status` — `normalize` only ran those two, and on a migrated project it ran nothing but `sort-status` |
+| `backlog` | `stats` — `backlog` and `issues` are now aliases for it, so the keyword still works; the per-item table it printed is a section of the `stats` dashboard, from the same single `list-issues --all` call |
+| `rename-active` | `/l3io-util-doctor` — Health Check 1 detects the old filename and renames it inline. There was never a reason to invoke it alone: a renamed flat file is still a legacy layout |
+| `rename-epic-dirs` | `/l3io-util-doctor` — Health Check 10 detects two-digit `epic-{nn}/` artifact directories and renames them inline |
+| `overlay` | nothing yet — the mode is held back until `assets/overlays/` ships overlay TOML (Phase 3 of the customization-layer design). All three actions reported "nothing ships yet" by construction; the contract is kept at `skills/l3io-util-doctor/assets/overlays/overlay-mode.md` |
+
+**`l3io-util-cleanup` removed.**
+
+`/l3io-util-cleanup` was a deprecated forwarder from 2.1.0 onward and has been removed on
+`main`. Use `/l3io-util-doctor` with the same arguments — every mode name is unchanged.
+
+**Module setup no longer routes through `l3io-pm-execute`, `l3io-pm-plan`, `l3io-pm-help`,
+or `l3io-pm-sync`.** Those four skills previously loaded `assets/module-setup.md` when you
+passed `setup`, `configure`, or `install`; they no longer carry that file at all — only the
+module's home skill, `l3io-pm-setup`, does. If a team script, alias, or habit invoked module
+setup through one of the other four skills, switch it to `/l3io-pm-setup`. `l3io-pm-sync`'s
+own `setup` mode (GitHub sync setup) is unaffected — it was always a different thing from
+module setup.
 
 ### → 2.1.1
 
@@ -139,12 +172,13 @@ cuts token use substantially with no change to which phases run.
 **`l3io-util-cleanup` was renamed to `l3io-util-doctor`.** "Cleanup" described about three of
 its sixteen modes, while the default behavior is a diagnose-report-repair health check.
 
-Backward compatible — no action required. `/l3io-util-cleanup` still works: it prints a rename
-notice and forwards. Update any scripts, aliases, or team docs that invoke the old name; it is
-deprecated and will be removed in a future major release.
+Backward compatible at the time — no action required. `/l3io-util-cleanup` printed a rename
+notice and forwarded. Update any scripts, aliases, or team docs that invoke the old name; it
+was deprecated, and has since been removed on `main` ahead of the next release (see above).
 
-**New: progress reporting.** `/l3io-pm-help progress` and `/l3io-util-doctor stats` render a
-plan-aware tree — which phase, epic, sprint, and stories are in flight. Nothing to migrate, but
+**New: progress reporting.** `/l3io-pm-help progress` (which forwards to
+`/l3io-util-doctor stats`) and `/l3io-util-doctor stats` itself render a plan-aware tree —
+which phase, epic, sprint, and stories are in flight. Nothing to migrate, but
 one thing to know: per-status dwell times display with a `~` prefix until
 `{implementation_artifacts}/state/events.jsonl` accumulates transitions. Before then they are
 derived from `updated_at` and are approximate. The log starts recording on your next
@@ -189,10 +223,10 @@ If your sanctum lived at `_bmad/memory/l3io-sec-agent-redteam/`, the current pat
 
 ### From before 1.0.20
 
-Status files were named `sprint-status-active.yaml`. `/l3io-util-doctor` detects this and runs
-`rename-active` automatically as the first step of the sequence — you do not need to invoke it
-yourself, and invoking it alone is not enough, because a renamed flat file is still a legacy
-layout.
+Status files were named `sprint-status-active.yaml`. `/l3io-util-doctor` detects this (Check 1)
+and renames it inline as the first step of the sequence. There is no `rename-active` keyword to
+invoke — and there was never a reason to invoke it alone, because a renamed flat file is still
+a legacy layout.
 
 ## Verifying the upgrade
 
@@ -213,7 +247,7 @@ Every one-time migration preserves what it replaced:
 | `*.yaml.legacy` | `split-status`, `migrate-state` |
 | `_bmad/state.legacy/` | `migrate-state` (per-epic → sharded) |
 | `_bmad/pm-calibration.yaml.legacy` | `migrate-state` |
-| `pm-calibration.yaml.v1` | first calibration write after a v1 → v2 schema migration |
+| `{implementation_artifacts}/state/pm-calibration.yaml.v1` | first calibration write after a v1 → v2 schema migration (written beside the live calibration file, not under `_bmad/`) |
 | `_bmad/migration-backup/` | `migrate-state` Stage F, when you pick its default "move" option |
 
 Nothing deletes these automatically. Once you have verified the result, remove them with:
@@ -228,5 +262,5 @@ It dry-runs first and confirms before deleting.
 
 | Deprecated | Since | Replacement | Removal |
 |---|---|---|---|
-| `/l3io-util-cleanup` | 2.1.0 | `/l3io-util-doctor` | a future major release |
+| `/l3io-util-cleanup` | 2.1.0 | `/l3io-util-doctor` | removed on `main`; ships in the next release (not in 2.5.1) |
 | `migrate-schema`, `split-status`, `reconcile-status` | — | legacy-only bridging modes; no longer reachable once `migrate-state` has run | when 1.x migration support is dropped |

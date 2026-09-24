@@ -1,0 +1,3048 @@
+# l3io Customization Layer — Phases 1–2 Implementation Plan
+
+> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+
+**Goal:** Make the package tell the truth about its BMad dependencies, conform to BMad's documented module contract, and reorganize its skills so the customization layer of Phase 3 has a home.
+
+**Architecture:** Two sequential phases over one subsystem. Phase 1 changes data and guards only — no file moves — and is independently shippable. Phase 2 relocates module metadata, adds the two merge scripts BMad's validator requires, creates one setup skill, retires a dead skill and a now-vestigial guard, and splits a monolithic skill into a router. Every task ends with the repository's own gates green.
+
+**Tech Stack:** Node ≥20 (`node --test`, ESM `.mjs`), Python ≥3.11 via `uv run` (PEP-723 inline deps, `unittest`), JSON inventory, TOML config, YAML state (`ruamel.yaml`).
+
+**Spec:** `docs/superpowers/specs/2026-09-20-l3io-customization-layer-design.md`
+
+## Global Constraints
+
+- Conventional Commits required; **every commit needs DCO sign-off** (`git commit -s`).
+- Commit message footers, verbatim:
+  `Co-Authored-By: Claude Opus 5 (1M context) <noreply@anthropic.com>`
+  `Claude-Session: https://claude.ai/code/session_014DuCKCCF5scofVSPGvvn97`
+- **Never `git add -A` or `git add .`** — stage explicit paths only. Other sessions share this checkout.
+- **Never hand-edit** `skills/<skill>/scripts/*` payload copies or `payload-manifest.json`. Edit `skills/_shared/`, then `npm run sync:scripts`, then `node scripts/write-payload-manifest.mjs`.
+- `npm run sync:scripts` does **not** regenerate manifests. Run `write-payload-manifest.mjs` separately.
+- **Never move `pm-status.py`'s version backwards.** No task here touches it.
+- Historical records are **never** edited to match today: `CHANGELOG.md` and everything under `docs/superpowers/plans/` and `docs/superpowers/specs/` except this plan's own spec. `check:docs` excludes them deliberately.
+- The gates that must be green at the end of every task:
+  `npm run check:docs` · `npm run check:scripts` · `npm run check:manifest` ·
+  `npm run check:version` · `npm run test:scripts` (the check-docs self-tests), and from
+  Task 6A onward **`npm run check:module`**.
+- **Conformance baseline.** Every claim in the spec about BMad was read from
+  **core 6.12.0 / bmb v2.2.2** on 2026-09-20. Task 5A pins that, and Task 6A guards the
+  structure mechanically. If the installed BMad changes mid-implementation, stop and re-read
+  the contract before continuing — do not assume the finding still holds.
+- ADR numbers come from `pm-status.py adr-reserve`, never hand-picked (ADR-0005).
+- **Use the existing test harnesses; do not add new ones.** `scripts/tests/check-docs.test.mjs`
+  provides `fixture(t)` (copies the whole repo to a temp dir), `run(root, args = [])` (returns
+  a `spawnSync` result — assert on `r.status` and **`r.stderr`**, since failures print to
+  stderr) and `write(root, rel, text, append = false)`. `skills/_shared/tests/test-pm-status.py`
+  provides `Base` with `self.d` (scratch dir) and `self.run_main(argv) -> (code, stdout)`,
+  in-process. Because `fixture()` copies the real tree, mjs tests **mutate the real inventory**
+  in the copy rather than writing a synthetic one.
+
+---
+
+# Phase 1 — Truth
+
+No file moves. Shippable on its own.
+
+### Task 0: Invoke Python helpers the way BMad does
+
+BMad's convention is **100% `uv run`** — ~99 call sites across its skills, zero `python3`, and
+every core script carries a PEP-723 header. This package inverts that for its own helper:
+
+```
+91  python3 {pm_status}
+ 6  uv run {pm_status}
+```
+
+And `{pm_status}` is not the only one. **~121 call sites across 28 canonical files** invoke a
+PEP-723 script with `python3`:
+
+| Invocation | Sites | Header |
+|---|---|---|
+| `python3 {pm_status}` | 91 | `ruamel.yaml>=0.18` |
+| `python3 {project-root}/_bmad/scripts/pm-status.py` | 4 | same, literal path form |
+| `python3 {skill-root}/scripts/sync-state.py` | 14 | `pyyaml` |
+| `python3 {skill-root}/scripts/drift-report.py` | 4 | `pyyaml` |
+| `python3 {project-root}/_bmad/scripts/resolve_customization.py` | 4 | **BMad's own core script** |
+| `python3 {skill-root}/scripts/init-sanctum.py` | 2 | PEP-723 |
+| `python3 {skill-root}/scripts/detect-platform.py` | 2 | PEP-723 |
+
+Every one of those scripts carries a PEP-723 header, so `python3` bypasses it in all ~121
+cases. The `resolve_customization.py` row is the starkest: BMad invokes its own script with
+`uv run` at all 43 of its call sites, and this package calls the same file with `python3`.
+
+It works today only because `ruamel.yaml 0.19.1` **and** `pyyaml 6.0.1` happen to sit in the
+ambient interpreter — verified by running each script both ways. On a machine without them the
+call sites fail; with an ambient `ruamel.yaml 0.17` they run at the wrong version instead of uv
+provisioning `>=0.18` from the header. The package's own activation step already
+does it correctly (`step-00-activate.md:82` uses `uv run`), and CLAUDE.md already *claims* uv —
+so this aligns reality with three things that already agree.
+
+**Files:** 28 canonical files. **Not all are in `_shared/`** — every `SKILL.md` is hand-written,
+and `l3io-util-doctor` owns its own `steps/` and `assets/`:
+- Modify: `skills/_shared/**` — 20 files (these regenerate the PM skills' copies)
+- Modify: `skills/l3io-util-doctor/steps/{redrive,bootstrap-state,stats}.md`,
+  `assets/migrate-state.md` — **not sync targets**
+- Modify: `skills/{l3io-pm-help,l3io-pm-sync,l3io-sec-redteam,l3io-arch-review}/SKILL.md`
+
+**Do not hand-edit** `skills/l3io-pm-{execute,plan,sync}/steps/**`,
+`skills/l3io-pm-*/references/{metrics-contract,calibration-model}.md`, or any other sync
+target — `npm run sync:scripts` regenerates them from `_shared/` and would discard the edit.
+- Modify: `scripts/check-docs.mjs` (new check), `scripts/tests/check-docs.test.mjs`
+- Modify: `CLAUDE.md`
+
+**Interfaces:**
+- Consumes: nothing.
+- Produces: `check:docs` check **17** — `pep723-invocation` — failing when a runtime directive
+  under `skills/` invokes a PEP-723 script with `python3`. (Check 17 is free: Task 7 renumbers
+  the old 17 to 16 when it deletes check 16. Sequence matters — do this task's renumber
+  **after** Task 7, or keep it at 18 and renumber once in Task 16.)
+
+- [ ] **Step 1: Write the failing test**
+
+```javascript
+test("check: a PEP-723 helper invoked with python3 is caught", (t) => {
+  const root = fixture(t);
+  write(root, "skills/l3io-pm-execute/steps/bad-invocation.md",
+    "```bash\npython3 {pm_status} set-status --state-root x\n```\n");
+  const r = run(root);
+  assert.equal(r.status, 1);
+  assert.match(r.stderr, /invokes a PEP-723 script with python3/);
+});
+
+test("check: uv run of the same helper passes", (t) => {
+  const root = fixture(t);
+  write(root, "skills/l3io-pm-execute/steps/good-invocation.md",
+    "```bash\nuv run {pm_status} set-status --state-root x\n```\n");
+  const r = run(root);
+  assert.equal(r.status, 0, r.stderr);
+});
+
+test("check: the documented python3 fallback line is allowed", (t) => {
+  const root = fixture(t);
+  write(root, "skills/l3io-pm-execute/steps/fallback.md",
+    "If `uv` is unavailable, use `python3` instead.\n");
+  const r = run(root);
+  assert.equal(r.status, 0, r.stderr);
+});
+```
+
+The third test is the one that matters: `step-00-activate.md:86` documents `python3` as an
+explicit fallback, and a check that forbade the word would forbid its own escape hatch.
+
+- [ ] **Step 2: Run to verify it fails**
+
+Run: `npm run test:scripts`
+Expected: FAIL — the first test exits 0; nothing checks invocation style.
+
+- [ ] **Step 3: Implement the check**
+
+Match `python3` immediately followed by a `{...}` helper token or a `*.py` path, walking
+`skills/` rather than consulting a list of files:
+
+```javascript
+const PY_INVOKE_RE = /(?<![\w-])python3\s+(?:"?\{(pm_status|spec_align)\}|\S*\.py)(?![\w-])/;
+```
+
+Skip a line that also carries `uv` unavailable / `fallback`, so the documented escape hatch
+survives. State that tolerance in a comment beside the regex, with the file and line it exists
+for — the same shape as check 17's `(c)` arm.
+
+- [ ] **Step 4: Run the tests to verify they pass**
+
+Run: `npm run test:scripts`
+Expected: PASS.
+
+- [ ] **Step 5: Confirm it fires on the real tree**
+
+Run: `npm run check:docs`
+Expected: **FAIL**, listing ~121 call sites across 28 files. That is the defect, not a bug in
+the check — the regex was tested against real and decoy lines before this task was written:
+
+| Line | Verdict |
+|---|---|
+| `python3 {pm_status} set-status …` | match |
+| `uv run {pm_status} set-status …` | pass |
+| ``If `uv` is unavailable, use `python3` instead.`` | pass — the documented fallback |
+| `python3 skills/_shared/tests/test-spec-align.py` | match |
+| `the option --use-python3 {pm_status} …` | pass — word boundary holds |
+| `uv run scripts/check.py --flag` | pass |
+
+- [ ] **Step 6: Convert the call sites**
+
+Derive the set by walking, not from the list above — a generated copy fixed by hand would be
+overwritten by the next sync, and a canonical file missed by hand would survive it:
+
+```bash
+# canonical files only: _shared, doctor's own content, and the hand-written SKILL.mds
+grep -rlE 'python3 (\{pm_status\}|[^ ]*\.py)' --include='*.md' \
+  skills/_shared/ skills/l3io-util-doctor/ \
+  skills/l3io-pm-help/SKILL.md skills/l3io-pm-sync/SKILL.md \
+  skills/l3io-sec-redteam/SKILL.md skills/l3io-arch-review/SKILL.md
+
+# then, per file -- covers the token form and every {…}/path.py form.
+# NOTE the '#' delimiter: a '|' delimiter breaks on the alternation inside the pattern.
+# This exact expression was run against real and decoy lines before being written here.
+sed -i -E 's#(^|[^A-Za-z0-9_-])python3 (\{pm_status\})#\1uv run \2#g; s#(^|[^A-Za-z0-9_-])python3 (\{[a-z-]+\}/[^ ]*\.py)#\1uv run \2#g' <file>
+```
+
+Verified output on the seven-case sample — four real call sites converted, the documented
+fallback sentence, an already-`uv run` line, and a `--use-python3` decoy all left untouched.
+
+**Review every hunk** — `sed` cannot tell a directive from prose describing one. Leave
+`step-00-activate.md:86`'s fallback sentence untouched.
+
+`{spec_align}` needs no change: `python3 {spec_align}` has **zero** occurrences, and
+`spec-align.py` is already invoked correctly as `uv run {skill-root}/scripts/spec-align.py`.
+(`{spec_alignment}` is an unrelated config boolean — do not touch it.)
+
+After editing, `npm run sync:scripts` regenerates the per-skill copies under
+`l3io-pm-{execute,plan,sync}/`; those are **not** edited by hand.
+
+- [ ] **Step 7: Prove it actually still runs**
+
+```bash
+for f in skills/_shared/pm-status.py skills/l3io-pm-sync/scripts/sync-state.py \
+         skills/l3io-pm-sync/scripts/drift-report.py; do
+  printf "%-50s " "$(basename $f)"
+  uv run "$f" --help >/dev/null 2>&1 && echo "uv ok" || echo "UV FAILS"
+done
+```
+
+Cover both dependency families — `ruamel.yaml` for `pm-status.py`, `pyyaml` for the sync
+scripts — since each was separately masked by an ambient install. uv provisioning them from the
+headers rather than inheriting them is the failure this task removes.
+
+- [ ] **Step 8: Correct CLAUDE.md**
+
+CLAUDE.md says the helper is "run via `uv run`; deps auto-provisioned from its PEP-723 header."
+That was true of 6 call sites out of 97. It is now true of all of them — no wording change
+needed, but confirm it rather than assuming.
+
+- [ ] **Step 9: Sync, regenerate, verify**
+
+```bash
+npm run sync:scripts && node scripts/write-payload-manifest.mjs
+npm run check:docs && npm run check:scripts && npm run check:manifest && npm run test:scripts
+uv run skills/_shared/tests/test-pm-status.py
+```
+Expected: all exit 0.
+
+- [ ] **Step 10: Commit**
+
+```bash
+git add scripts/check-docs.mjs scripts/tests/check-docs.test.mjs CLAUDE.md \
+        skills/_shared/ skills/l3io-*/steps/ skills/*/payload-manifest.json
+git commit -s -m "fix(infra): invoke PEP-723 helpers with uv, as BMad does
+
+BMad uses uv run for every script -- ~99 call sites, zero python3. This
+package used python3 for 91 of 97 {pm_status} calls, bypassing the
+PEP-723 header. It worked only because ruamel.yaml happened to be in the
+ambient interpreter; without it, 91 call sites fail, and with an ambient
+0.17 they run at the wrong version instead of uv provisioning >=0.18.
+
+Activation already used uv run and CLAUDE.md already claimed it, so this
+aligns reality with what three places already said. A new check fails on
+python3 invocation of a PEP-723 script, while preserving the documented
+'if uv is unavailable' fallback.
+
+Co-Authored-By: Claude Opus 5 (1M context) <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_014DuCKCCF5scofVSPGvvn97"
+```
+
+---
+
+### Task 0B: Derive the skill and module counts, not just the check count
+
+Task 0's fix round added check 19, which derives the *check* count. Every other hand-written
+count in the docs is still unguarded — and two of them go stale **inside this plan**:
+
+| Claim | Now | After Task 6 | After Task 9 | Guarded? |
+|---|---|---|---|---|
+| total skills | 8 | **7** | 8 | no |
+| `l3io-pm` skills | 4 | 4 | **5** | no |
+| modules | 4 | 4 | 4 | no |
+| doctor modes | 20 | 20 | 21 at T14 | **yes — check 15** |
+
+"twenty modes" has never gone stale because check 15 derives it. "seventeen checks" did go
+stale because nothing compared it to anything. This task closes the remaining gap **before**
+the tasks that invalidate the numbers run, so those tasks fail loudly instead of leaving prose
+wrong.
+
+**Files:**
+- Modify: `scripts/check-docs.mjs` — new check 20, `derived-counts`
+- Modify: `scripts/tests/check-docs.test.mjs`
+
+**Interfaces:**
+- Consumes: `NUMBER_WORDS` and the claim-table shape from `checkDoctorModeCount()` (check 15).
+- Produces: `check:docs` check **20**. Check 19 counts checks dynamically, so it absorbs this
+  automatically — confirm that rather than assuming it.
+
+- [ ] **Step 1: Write the failing tests**
+
+```javascript
+test("check 20: a stale total-skill count is caught", (t) => {
+  const root = fixture(t);
+  const p = path.join(root, "docs", "getting-started.md");
+  const before = fs.readFileSync(p, "utf8");
+  fs.writeFileSync(p, before.replace("New to the eight skills?", "New to the nine skills?"));
+  const r = run(root);
+  assert.equal(r.status, 1);
+  assert.match(r.stderr, /says "nine" skill\(s\), but the package has 8/);
+});
+
+test("check 20: a stale module count is caught", (t) => {
+  const root = fixture(t);
+  const p = path.join(root, "CLAUDE.md");
+  const before = fs.readFileSync(p, "utf8");
+  fs.writeFileSync(p, before.replace("package with four modules:", "package with five modules:"));
+  const r = run(root);
+  assert.equal(r.status, 1);
+  assert.match(r.stderr, /says "five" module\(s\), but the package has 4/);
+});
+
+test("check 20: scope attack — adding a skill directory must break the count claims", (t) => {
+  const root = fixture(t);
+  write(root, "skills/l3io-newthing/SKILL.md", "---\nname: l3io-newthing\ndescription: d\n---\n");
+  const r = run(root);
+  assert.equal(r.status, 1);
+  assert.match(r.stderr, /skill\(s\), but the package has 9/);
+});
+
+test("check 20: a reworded claim sentence fails loudly rather than passing", (t) => {
+  const root = fixture(t);
+  const p = path.join(root, "docs", "l3io-pm-reference.md");
+  const before = fs.readFileSync(p, "utf8");
+  fs.writeFileSync(p, before.replace(/four skills that cover the delivery lifecycle/,
+    "several skills covering the lifecycle"));
+  const r = run(root);
+  assert.equal(r.status, 1);
+  assert.match(r.stderr, /claim was not found — has the sentence been reworded/);
+});
+```
+
+The third test attacks the **scope** (does the derivation see a new skill directory it was
+never told about?); the fourth attacks the **claim table** (a reworded sentence must fail, not
+silently stop being checked — check 15 already behaves this way, and that behaviour is what
+makes an enumerated claim list safe).
+
+- [ ] **Step 2: Run to verify they fail**
+
+Run: `npm run test:scripts`
+Expected: FAIL — no check 20 exists.
+
+- [ ] **Step 3: Implement the derivations**
+
+```javascript
+function derivedCounts() {
+  const dirs = fs.readdirSync(path.join(repoRoot, "skills"), { withFileTypes: true })
+    .filter((e) => e.isDirectory() && e.name.startsWith("l3io-"))
+    .map((e) => e.name);
+  // module.yaml lives at the skill root today and moves to assets/ in Task 7 -- read BOTH so
+  // this check survives that relocation instead of silently counting zero afterwards.
+  const codeOf = (skill) => {
+    for (const rel of [`skills/${skill}/module.yaml`, `skills/${skill}/assets/module.yaml`]) {
+      if (!exists(rel)) continue;
+      const m = read(rel).match(/^code:\s*(\S+)/m);
+      if (m) return m[1];
+    }
+    return null;
+  };
+  const codes = dirs.map(codeOf).filter(Boolean);
+  return {
+    skills: dirs.length,
+    modules: new Set(codes).size,
+    pmSkills: codes.filter((c) => c === "l3io-pm").length,
+  };
+}
+```
+
+- [ ] **Step 4: Implement the claim table**
+
+Claim sentences read from the live docs — use these regexes verbatim. Note `Eight` is
+capitalised at the start of its sentence, so match the number word case-insensitively:
+
+```javascript
+const COUNT_CLAIMS = [
+  ["docs/skills-and-sequence.md", /([A-Za-z-]+) skills across ([a-z-]+) modules/, ["skills", "modules"]],
+  ["docs/getting-started.md",     /New to the ([a-z-]+) skills\?/,                ["skills"]],
+  ["docs/getting-started.md",     /You can install all ([a-z-]+) modules/,        ["modules"]],
+  ["docs/getting-started.md",     /All ([a-z-]+) modules are installed/,          ["modules"]],
+  ["docs/getting-started.md",     /installs all ([a-z-]+) skills and registers the ([a-z-]+) modules/, ["skills", "modules"]],
+  ["docs/l3io-pm-reference.md",   /([a-z-]+) skills that cover the delivery lifecycle/, ["pmSkills"]],
+  ["docs/l3io-pm-reference.md",   /All ([a-z-]+) modules read the artifact paths/, ["modules"]],
+  ["CLAUDE.md",                   /package with ([a-z-]+) modules:/,              ["modules"]],
+];
+```
+
+A claim whose regex does not match must **fail** with "the claim was not found — has the
+sentence been reworded? check 20 must be updated with it", exactly as check 15 does. Silently
+skipping an unmatched claim is how an enumerated list rots.
+
+Deliberately **not** claimed: `skills-and-sequence.md:6` "Two of the four modules mostly run
+*inside*" — the "Two" there is a judgement about usage, not a derivable count. Match only its
+`four modules`.
+
+- [ ] **Step 5: Run the tests to verify they pass**
+
+Run: `npm run test:scripts`
+Expected: PASS.
+
+- [ ] **Step 6: Verify against the live tree**
+
+```bash
+npm run check:docs -- -v 2>&1 | grep -E 'derived-counts|docs-check-count'
+```
+Expected: both report, and `check:docs` exits 0 — today's counts (8 skills, 4 modules, 4
+l3io-pm skills) match every claim.
+
+- [ ] **Step 7: Commit**
+
+Stage `scripts/check-docs.mjs` and `scripts/tests/check-docs.test.mjs` by explicit path, then
+commit with sign-off:
+
+```
+feat(infra): derive the skill and module counts too
+
+check 19 derives the check count; every other count in the docs was
+still hand-written. Two go stale inside this plan: total skills (8 -> 7
+at Task 6, back to 8 at Task 9) and l3io-pm's skills (4 -> 5 at Task 9).
+
+Adding the guard BEFORE those tasks means they fail loudly instead of
+leaving the prose wrong -- the difference between how "twenty modes"
+has stayed correct and how "seventeen checks" did not.
+```
+
+---
+
+### Task 1: Teach the inventory a `deprecated` status
+
+A skill BMad still ships but has frozen is neither `required` nor `removed`. Today it is forced into `removed`, which is false and which suppresses the preference check in Task 3.
+
+**Files:**
+- Modify: `scripts/check-docs.mjs:1157` (`DEP_STATUSES`) and `checkBmadDependencyInventory()` field validation, ~`:1180`
+- Modify: `skills/l3io-util-doctor/scripts/bmad-deps.py:60` (`STATUSES`)
+- Test: `scripts/tests/check-docs.test.mjs`
+
+**Interfaces:**
+- Consumes: nothing.
+- Produces: the string `"deprecated"` as a valid inventory `status`, requiring fields `deprecated_in` (string) and `replaced_by` (string). Tasks 2–4 depend on this.
+
+- [ ] **Step 1: Write the failing test**
+
+Append to `scripts/tests/check-docs.test.mjs`:
+
+```javascript
+const INVENTORY = path.join("skills", "l3io-util-doctor", "assets", "bmad-dependencies.json");
+
+function setStatus(root, name, patch) {
+  const p = path.join(root, INVENTORY);
+  const inv = JSON.parse(fs.readFileSync(p, "utf8"));
+  const e = inv.skills.find((x) => x.name === name);
+  assert.ok(e, `${name} must exist in the inventory fixture`);
+  Object.assign(e, patch);
+  fs.writeFileSync(p, JSON.stringify(inv, null, 2));
+  return p;
+}
+
+test("check 17 accepts a deprecated entry carrying deprecated_in and replaced_by", (t) => {
+  const root = fixture(t);
+  setStatus(root, "bmad-create-story",
+    { status: "deprecated", deprecated_in: "6.12.0", replaced_by: "bmad-build",
+      removed_in: undefined });
+  const r = run(root);
+  assert.equal(r.status, 0, r.stderr);
+});
+
+test("check 17 rejects a deprecated entry missing deprecated_in", (t) => {
+  const root = fixture(t);
+  setStatus(root, "bmad-create-story",
+    { status: "deprecated", replaced_by: "bmad-build", deprecated_in: undefined,
+      removed_in: undefined });
+  const r = run(root);
+  assert.equal(r.status, 1);
+  assert.match(r.stderr, /is deprecated but lacks replaced_by\/deprecated_in/);
+});
+```
+
+`fixture()` copies the whole repo, so these mutate the real inventory in the copy. `setStatus`
+is a new local helper in this file — add it beside the existing ones, do not create a second
+harness.
+
+- [ ] **Step 2: Run the test to verify it fails**
+
+Run: `npm run test:scripts`
+Expected: FAIL — the first test exits 1 because `deprecated` is an unknown status.
+
+- [ ] **Step 3: Add the status to `check-docs.mjs`**
+
+```javascript
+const DEP_STATUSES = ["required", "optional", "deprecated", "removed", "not-a-skill"];
+```
+
+and in the per-entry validation chain, immediately before the `removed` arm:
+
+```javascript
+    } else if (e.status === "deprecated" && !(e.replaced_by && e.deprecated_in)) {
+      failures.push(`${DEP_INVENTORY}: '${e.name}' is deprecated but lacks replaced_by/deprecated_in`);
+```
+
+- [ ] **Step 4: Add the status to `bmad-deps.py`**
+
+```python
+STATUSES = ("required", "optional", "deprecated", "removed", "not-a-skill")
+```
+
+- [ ] **Step 5: Run the tests to verify they pass**
+
+Run: `npm run test:scripts && npm run check:docs`
+Expected: PASS, exit 0 both.
+
+- [ ] **Step 6: Commit**
+
+```bash
+git add scripts/check-docs.mjs scripts/tests/check-docs.test.mjs \
+        skills/l3io-util-doctor/scripts/bmad-deps.py
+git commit -s -m "feat(l3io-util): add a deprecated dependency status distinct from removed
+
+A skill BMad still ships but has frozen is neither required nor removed.
+Forcing it into removed is false and suppresses the preference check.
+
+Co-Authored-By: Claude Opus 5 (1M context) <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_014DuCKCCF5scofVSPGvvn97"
+```
+
+---
+
+### Task 2: Correct the three wrong statuses and declare `bmad-build`
+
+**Files:**
+- Modify: `skills/l3io-util-doctor/assets/bmad-dependencies.json`
+- Modify: `skills/_shared/steps/sprint/step-03-dev-loop.md:73`
+- Modify: `skills/_shared/steps/sprint/step-02-story-prep.md` (the "Resolve the enricher" prose)
+
+**Interfaces:**
+- Consumes: `"deprecated"` status from Task 1.
+- Produces: inventory entries `bmad-build` and `bmad-build-auto` with `status: "optional"`, `module: "bmm"`.
+
+- [ ] **Step 1: Re-encode the three entries**
+
+Replace the three `removed` entries for `bmad-create-story`, `bmad-dev-story` and
+`bmad-review-adversarial-general` with:
+
+```json
+    { "name": "bmad-create-story", "status": "deprecated", "deprecated_in": "6.12.0",
+      "replaced_by": "bmad-build",
+      "reason": "ships in 6.12.0 with metadata.lifecycle: shim and its full body retained. Verified against _bmad/_config/skill-manifest.csv on 2026-09-20. ADR-0006 said 'deprecated to shims'; this inventory said 'removed', and the data was wrong, not the ADR" },
+    { "name": "bmad-dev-story", "status": "deprecated", "deprecated_in": "6.12.0",
+      "replaced_by": "bmad-build",
+      "reason": "ships in 6.12.0 with metadata.lifecycle: shim and its full body retained" },
+    { "name": "bmad-review-adversarial-general", "status": "deprecated", "deprecated_in": "6.12.0",
+      "replaced_by": "bmad-review",
+      "reason": "ships in 6.12.0; merged into bmad-review's lens registry" },
+```
+
+Leave `bmad-check-implementation-readiness`, `bmad-ux-review` and `bmad-architect` as
+`removed` — verified absent from the manifest.
+
+- [ ] **Step 2: Declare the replacement path**
+
+Add to the optional block:
+
+```json
+    { "name": "bmad-build", "status": "optional", "module": "bmm",
+      "reason": "BMad's official implementation path since 6.12.0. Not dispatched yet; declared so check 17 resolves the token and so Phase 3's overlay has a declared target" },
+    { "name": "bmad-build-auto", "status": "optional", "module": "bmm",
+      "reason": "unattended variant of bmad-build; declared for the same reason" },
+```
+
+- [ ] **Step 3: Update `verified_against` / `verified_on`**
+
+```json
+  "verified_against": "6.12.0",
+  "verified_on": "2026-09-20",
+```
+
+- [ ] **Step 4: Fix the false prose**
+
+In `skills/_shared/steps/sprint/step-03-dev-loop.md`, replace:
+
+> **Resolve the implementer.** The legacy `bmad-dev-story` skill is gone from BMad ≥6.12.0; where it is installed
+> it is still what runs, and where it is absent the prompt below is the whole instruction anyway.
+
+with:
+
+> **Resolve the implementer.** BMad 6.12.0 still **ships** `bmad-dev-story`, deprecated to a shim
+> (`metadata: lifecycle: shim`) with its full body retained — it is frozen, not gone. Where it is
+> installed it is still what runs; where it is absent the prompt below is the whole instruction
+> anyway. Phase 3 replaces this probe with a `bmad-build` overlay.
+
+Apply the equivalent correction to the enricher prose in `step-02-story-prep.md`: it must not
+claim the skill is gone.
+
+- [ ] **Step 5: Sync the payload copies and regenerate manifests**
+
+```bash
+npm run sync:scripts
+node scripts/write-payload-manifest.mjs
+```
+
+- [ ] **Step 6: Verify all gates**
+
+Run: `npm run check:docs && npm run check:scripts && npm run check:manifest && npm run test:scripts`
+Expected: all exit 0.
+
+- [ ] **Step 7: Commit**
+
+```bash
+git add skills/l3io-util-doctor/assets/bmad-dependencies.json \
+        skills/_shared/steps/sprint/step-03-dev-loop.md \
+        skills/_shared/steps/sprint/step-02-story-prep.md \
+        skills/l3io-pm-execute/steps/sprint/ skills/l3io-pm-plan/steps/ skills/l3io-pm-sync/steps/ \
+        skills/*/payload-manifest.json
+git commit -s -m "fix(l3io-util): three dependencies are deprecated, not removed
+
+Verified against _bmad/_config/skill-manifest.csv: 6.12.0 ships
+bmad-create-story, bmad-dev-story and bmad-review-adversarial-general.
+ADR-0006 said 'deprecated to shims'; the inventory said 'removed'.
+
+Also declares bmad-build/bmad-build-auto, which had zero references.
+
+Co-Authored-By: Claude Opus 5 (1M context) <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_014DuCKCCF5scofVSPGvvn97"
+```
+
+---
+
+### Task 3: Make check 17 fail on *preference*, not just mention
+
+Today check 17 excuses a removed-skill mention when the line carries an `ls .claude/` probe. Both the dev-loop and story-prep directives carry exactly that, so a directive that **prefers** a frozen skill passes. Deprecated entries need the opposite treatment: the probe is fine, but a line that *binds the deprecated name as the chosen agent* must fail once a replacement exists.
+
+**Files:**
+- Modify: `scripts/check-docs.mjs`, `checkBmadDependencyInventory()`
+- Test: `scripts/tests/check-docs.test.mjs`
+
+**Interfaces:**
+- Consumes: `"deprecated"` status and `replaced_by` from Task 1.
+- Produces: a failure whenever a `skills/**` line matches `PREFERENCE_RE` against a `deprecated` name.
+
+- [ ] **Step 1: Write the failing test**
+
+```javascript
+test("check 17 fails when a directive prefers a deprecated skill", (t) => {
+  const root = fixture(t);
+  setStatus(root, "bmad-dev-story",
+    { status: "deprecated", deprecated_in: "6.12.0", replaced_by: "bmad-build",
+      removed_in: undefined });
+  write(root, "skills/l3io-pm-execute/steps/scope-attack.md",
+    "bind `{dev_agent}` = the legacy `bmad-dev-story` and spawn that skill\n");
+  const r = run(root);
+  assert.equal(r.status, 1);
+  assert.match(r.stderr, /prefers deprecated skill 'bmad-dev-story'/);
+});
+
+test("check 17 still allows a bare existence probe of a deprecated skill", (t) => {
+  const root = fixture(t);
+  setStatus(root, "bmad-dev-story",
+    { status: "deprecated", deprecated_in: "6.12.0", replaced_by: "bmad-build",
+      removed_in: undefined });
+  write(root, "skills/l3io-pm-execute/steps/probe-only.md",
+    "ls {project-root}/.claude/skills/bmad-dev-story/SKILL.md 2>/dev/null\n");
+  const r = run(root);
+  assert.equal(r.status, 0, r.stderr);
+});
+```
+
+The first test writes into a **new file in an existing skill**, following the suite's existing
+"scope attack" convention — it proves the check walks `skills/` rather than consulting a list
+of known files.
+
+- [ ] **Step 2: Run the test to verify it fails**
+
+Run: `npm run test:scripts`
+Expected: FAIL — the first test exits 0 because nothing checks deprecated preference yet.
+
+- [ ] **Step 3: Implement the preference check**
+
+Add beside the other module-level constants near `:1157`:
+
+```javascript
+// A line that BINDS a name as the chosen agent, as opposed to merely probing for it.
+// Anchored on the binding verbs the step files actually use, so a probe or a prose
+// mention cannot trip it.
+const PREFERENCE_RE = /\b(?:bind|prefer(?:red|s)?|spawn|invoke|dispatch)\b/i;
+```
+
+and inside the per-token loop, immediately after the `if (e.status !== "removed") continue;`
+arm is evaluated, insert a preceding arm:
+
+```javascript
+        if (e.status === "deprecated") {
+          const line = lines[i];
+          const isProbe = /(?:^|[^\w-])ls\s+\S*\.claude\//.test(line);
+          if (!isProbe && PREFERENCE_RE.test(line)) {
+            failures.push(`${rel}:${i + 1}: prefers deprecated skill '${name}' — replaced by ` +
+              `'${e.replaced_by}' in ${e.deprecated_in}. Preferring a frozen skill is how this ` +
+              `package stopped running its own replacement.\n` +
+              `      context: ${line.trim().slice(0, 110)}`);
+          }
+          continue;
+        }
+```
+
+- [ ] **Step 4: Run the tests to verify they pass**
+
+Run: `npm run test:scripts`
+Expected: PASS.
+
+- [ ] **Step 5: Confirm the check now fires on the real tree**
+
+Run: `npm run check:docs`
+Expected: **FAIL**, naming `step-03-dev-loop.md` and `step-02-story-prep.md` for binding
+`bmad-dev-story` / `bmad-create-story`.
+
+This failure is correct and expected — it is the defect the check was written to find. Phase 3
+removes the preference. Until then, record the exemption explicitly rather than weakening the
+check: add to each offending line's directive an inline marker the check honours.
+
+- [ ] **Step 6: Add the temporary, visible exemption**
+
+Extend the deprecated arm to honour an explicit marker:
+
+```javascript
+          const exempt = /bmad-deprecation-exempt:\s*phase-3/.test(line);
+          if (!isProbe && !exempt && PREFERENCE_RE.test(line)) {
+```
+
+and add the marker to the two binding lines in `skills/_shared/steps/sprint/step-03-dev-loop.md`
+and `step-02-story-prep.md`, e.g.:
+
+> If a path printed, bind `{dev_agent}` = the legacy `bmad-dev-story` and spawn that skill.
+> <!-- bmad-deprecation-exempt: phase-3 — replaced by a bmad-build overlay; see
+> docs/superpowers/specs/2026-09-20-l3io-customization-layer-design.md §5 Phase 3 -->
+
+An exemption that must be written down, names its removal condition, and is greppable is the
+point; a check that silently tolerates the case is not.
+
+- [ ] **Step 7: Re-sync, regenerate, verify**
+
+```bash
+npm run sync:scripts && node scripts/write-payload-manifest.mjs
+npm run check:docs && npm run test:scripts && npm run check:manifest
+```
+Expected: all exit 0.
+
+- [ ] **Step 8: Commit**
+
+```bash
+git add scripts/check-docs.mjs scripts/tests/check-docs.test.mjs \
+        skills/_shared/steps/sprint/ skills/l3io-pm-execute/steps/sprint/ \
+        skills/l3io-pm-plan/steps/ skills/l3io-pm-sync/steps/ skills/*/payload-manifest.json
+git commit -s -m "feat(infra): check 17 fails when a directive prefers a deprecated skill
+
+Check 17 guarded names, not preference: an ls probe on the same line
+excused the mention, and the dev-loop and story-prep directives both
+carry one. A directive that binds a frozen skill as the chosen agent
+now fails unless it carries a dated, greppable exemption marker.
+
+Co-Authored-By: Claude Opus 5 (1M context) <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_014DuCKCCF5scofVSPGvvn97"
+```
+
+---
+
+### Task 4: Derive shipped-ness from BMad's own manifest
+
+The inventory is a hand-kept list that drifted. `_bmad/_config/skill-manifest.csv` is BMad's own declaration of what it ships, is installed, and is machine-readable. The inventory becomes an annotation over a derived set.
+
+**Files:**
+- Modify: `skills/l3io-util-doctor/scripts/bmad-deps.py`
+- Test: `skills/l3io-util-doctor/scripts/tests/test-bmad-deps.py`
+
+**Interfaces:**
+- Consumes: `"deprecated"` status from Task 1.
+- Produces:
+  - `load_shipped_skills(project_root: Path) -> set[str] | None` — canonical ids from column 1 of `_bmad/_config/skill-manifest.csv`; `None` when the file is absent or unreadable.
+  - JSON key `status_contradictions: list[dict]`, each `{name, declared, manifest}` where `manifest` is `"ships"` or `"absent"`.
+  - Exit code **5** when `status_contradictions` is non-empty and `--strict` is passed; exit unchanged otherwise.
+
+- [ ] **Step 1: Write the failing test**
+
+```python
+    def test_removed_entry_that_still_ships_is_a_contradiction(self):
+        root = self._tree(["bmad-dev-story"],
+                          manifest_rows=["bmad-dev-story,Dev Story,desc,bmm,path"])
+        self._inv([{"name": "bmad-dev-story", "status": "removed",
+                    "removed_in": "6.12.0", "replaced_by": "bmad-build"}])
+        code, out = self.run_cli(["verify", "--project-root", root, "--format", "json"])
+        data = json.loads(out)
+        self.assertEqual(code, 0)
+        self.assertEqual(
+            data["status_contradictions"],
+            [{"name": "bmad-dev-story", "declared": "removed", "manifest": "ships"}])
+
+    def test_contradiction_exits_5_under_strict(self):
+        root = self._tree(["bmad-dev-story"],
+                          manifest_rows=["bmad-dev-story,Dev Story,desc,bmm,path"])
+        self._inv([{"name": "bmad-dev-story", "status": "removed",
+                    "removed_in": "6.12.0", "replaced_by": "bmad-build"}])
+        code, _ = self.run_cli(["verify", "--project-root", root, "--strict"])
+        self.assertEqual(code, 5)
+
+    def test_absent_manifest_reports_null_not_contradictions(self):
+        root = self._tree(["bmad-dev-story"], manifest_rows=None)
+        self._inv([{"name": "bmad-dev-story", "status": "removed",
+                    "removed_in": "6.12.0", "replaced_by": "bmad-build"}])
+        code, out = self.run_cli(["verify", "--project-root", root, "--format", "json"])
+        data = json.loads(out)
+        self.assertEqual(code, 0)
+        self.assertIsNone(data["shipped_skills"])
+        self.assertEqual(data["status_contradictions"], [])
+```
+
+Adjust the exact `run_cli` / `_inv` call shapes to whatever those methods actually take — read
+them at `:72` and `:101` first. The point is to extend the existing harness, not add one.
+
+The real helpers in `test-bmad-deps.py` are `run_cli(self, args)` (`:72`),
+`_tree(self, names, layout="skills", version="6.12.0", shims=None)` (`:79`) which builds the
+temp project and already writes `manifest.yaml` with a version, `_inv(self, skills)` (`:101`)
+and `_raw_inv(self, text)` (`:105`).
+
+Extend `_tree` with a `manifest_rows=None` parameter writing
+`_bmad/_config/skill-manifest.csv` (header `canonicalId,name,description,module,path`), and
+omitting the file when `None`. It already owns the `_bmad/_config/` directory for
+`manifest.yaml`, so this is one more write in a method that is already the project builder.
+
+- [ ] **Step 2: Run the test to verify it fails**
+
+Run: `uv run -q --with 'ruamel.yaml>=0.18' python3 skills/l3io-util-doctor/scripts/tests/test-bmad-deps.py`
+Expected: FAIL with `KeyError: 'status_contradictions'`.
+
+- [ ] **Step 3: Implement manifest reading**
+
+```python
+def load_shipped_skills(project_root: Path) -> set[str] | None:
+    """Canonical skill ids BMad declares it ships, from its own manifest.
+
+    Returns None when the manifest is absent or unreadable -- the inventory is then
+    unverifiable, which is reported as unknown rather than as agreement.
+    """
+    path = Path(project_root) / "_bmad" / "_config" / "skill-manifest.csv"
+    try:
+        with path.open(encoding="utf-8", newline="") as fh:
+            rows = csv.reader(fh)
+            header = next(rows, None)
+            if not header or header[0].strip() != "canonicalId":
+                return None
+            return {r[0].strip() for r in rows if r and r[0].strip()}
+    except (OSError, csv.Error):
+        return None
+```
+
+Add `import csv` at the top.
+
+- [ ] **Step 4: Implement contradiction detection**
+
+In the verify path, after the inventory is loaded:
+
+```python
+SHIPPED_STATUSES = {"required", "optional", "deprecated"}
+
+def find_contradictions(entries, shipped):
+    """Inventory claims that BMad's manifest disagrees with. Empty when shipped is None."""
+    if shipped is None:
+        return []
+    out = []
+    for e in entries:
+        status = e.get("status")
+        name = e.get("name")
+        if status == "not-a-skill" or not name:
+            continue
+        in_manifest = name in shipped
+        if status == "removed" and in_manifest:
+            out.append({"name": name, "declared": status, "manifest": "ships"})
+        elif status in SHIPPED_STATUSES and not in_manifest:
+            out.append({"name": name, "declared": status, "manifest": "absent"})
+    return out
+```
+
+Add `shipped_skills` (sorted list or `None`) and `status_contradictions` to the JSON payload,
+and print a `CONTRADICTION` line per entry in text format. Add a `--strict` flag; when set and
+contradictions exist, return 5.
+
+- [ ] **Step 5: Run the tests to verify they pass**
+
+Run: `uv run -q --with 'ruamel.yaml>=0.18' python3 skills/l3io-util-doctor/scripts/tests/test-bmad-deps.py`
+Expected: PASS.
+
+- [ ] **Step 6: Verify against the real install**
+
+Run: `skills/l3io-util-doctor/scripts/bmad-deps.py verify --project-root . --format json | python3 -c 'import json,sys; print(json.load(sys.stdin)["status_contradictions"])'`
+Expected: `[]` — Task 2 already corrected the three entries. A non-empty result means Task 2 is incomplete.
+
+- [ ] **Step 7: Document the new exit code and flag**
+
+Update the module docstring: `--strict`, exit 5, and the two new JSON keys.
+
+- [ ] **Step 8: Add `--strict` to CI**
+
+In `.github/workflows/checks.yml`, the `bmad-deps.py unit tests` step stays as-is. Do **not**
+add a repo-level `--strict` run: CI has no `_bmad/` install (it is gitignored), so the manifest
+is absent there and the check would be vacuous. Record that in the docstring instead:
+
+```
+Note: CI cannot run --strict. _bmad/ is gitignored, so the manifest is absent and
+load_shipped_skills() returns None. Contradiction detection is a runtime check, run
+by /l3io-util-doctor check-deps against a real install -- the same division of labour
+as the probe-path check.
+```
+
+- [ ] **Step 9: Commit**
+
+```bash
+git add skills/l3io-util-doctor/scripts/bmad-deps.py \
+        skills/l3io-util-doctor/scripts/tests/test-bmad-deps.py
+git commit -s -m "feat(l3io-util): derive dependency truth from BMad's own manifest
+
+The inventory was a hand-kept list and it drifted -- three entries said
+removed for skills 6.12.0 ships. _bmad/_config/skill-manifest.csv is
+BMad's declaration of what it ships, installed and machine-readable.
+The inventory is now an annotation over a derived set, and a claim that
+contradicts the manifest is reported (exit 5 under --strict).
+
+Derive the scope from the source of truth; never enumerate it by hand.
+
+Co-Authored-By: Claude Opus 5 (1M context) <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_014DuCKCCF5scofVSPGvvn97"
+```
+
+---
+
+### Task 5: Detect the layout collision instead of configuring around it
+
+The spec's original plan here — declare `implementation_artifacts` as a module variable — was
+**wrong at the design level**. `skills/_shared/module-setup.md` and
+`references/config-resolution.md` §5 both record that an absent `modules.<code>` section is
+*correct*: no l3io module declares a `variables:` block, deliberately, because *"treating its
+absence as a first-run made every invocation detour into setup."* Declaring a variable would
+give setup something to collect and reverse that decision.
+
+The real risk from spec §1.4 is narrower: a project holding **both** a flat `sprint-status.yaml`
+and a sharded `state/` tree, where `bmad-build` writes one and l3io reads the other. That is
+detectable with one deterministic test.
+
+**Files:**
+- Modify: `skills/l3io-util-doctor/steps/health-check.md`
+- Modify: `skills/l3io-util-doctor/SKILL.md` (finding table row)
+
+**Interfaces:**
+- Consumes: nothing.
+- Produces: a health-check finding `layout-collision`, severity high, whose remedy is
+  `migrate-state`.
+
+- [ ] **Step 1: Add the detection to the health check**
+
+In `steps/health-check.md`, alongside the existing layout scans:
+
+```bash
+# layout-collision: bmad-build writes the flat file, l3io reads the sharded tree.
+# Both present means two writers on one artifact root, and neither sees the other.
+flat="{implementation_artifacts}/sprint-status.yaml"
+sharded="{implementation_artifacts}/state"
+if [ -f "$flat" ] && [ -d "$sharded" ]; then
+  echo "layout-collision: both $flat and $sharded/ exist"
+fi
+```
+
+Report it as **high** severity with this remedy text:
+
+> Both layouts are present. `bmad-build` writes `sprint-status.yaml` only when it already
+> exists (`step-03-implement.md:27`), so deleting or migrating the flat file stops the second
+> writer. Run `migrate-state` — it preserves the original as `sprint-status.yaml.legacy`,
+> which is not matched by that existence gate.
+
+- [ ] **Step 2: Register the finding**
+
+Add a row to the finding table in `SKILL.md` so the health check's stated findings match what
+it emits. This does **not** add a mode, so check 15 (`doctor-mode-count`) is unaffected —
+confirm that rather than assuming it.
+
+- [ ] **Step 3: Verify**
+
+```bash
+npm run check:docs -- -v 2>&1 | grep doctor-mode-count
+npm run check:docs && npm run check:scripts && npm run check:manifest
+```
+Expected: mode count unchanged; all gates exit 0.
+
+- [ ] **Step 3b: Make the detection testable, not just prose**
+
+A shell snippet inside a step file cannot be tested. Put the decision in a tiny helper the
+health check calls, `skills/l3io-util-doctor/scripts/detect-layout.py`, with
+`skills/l3io-util-doctor/scripts/tests/test-detect-layout.py`:
+
+```python
+class TestLayoutCollision(unittest.TestCase):
+    def detect(self, **files):
+        d = tempfile.mkdtemp(); self.addCleanup(shutil.rmtree, d, True)
+        if files.get("flat"): Path(d, "sprint-status.yaml").touch()
+        if files.get("legacy"): Path(d, "sprint-status.yaml.legacy").touch()
+        if files.get("sharded"): Path(d, "state").mkdir()
+        r = subprocess.run(["uv", "run", str(SCRIPT), "--artifacts", d],
+                           capture_output=True, text=True)
+        return r.returncode, r.stdout
+
+    def test_both_layouts_is_a_collision(self):
+        code, out = self.detect(flat=True, sharded=True)
+        self.assertEqual(code, 1)
+        self.assertIn("layout-collision", out)
+
+    def test_post_migrate_legacy_rename_is_clean(self):
+        code, _ = self.detect(legacy=True, sharded=True)
+        self.assertEqual(code, 0)
+
+    def test_sharded_only_is_clean(self):
+        self.assertEqual(self.detect(sharded=True)[0], 0)
+
+    def test_flat_only_is_not_a_collision(self):
+        self.assertEqual(self.detect(flat=True)[0], 0)
+```
+
+The second test is the load-bearing one: it proves `migrate-state`'s `.legacy` rename actually
+resolves the finding, rather than leaving a permanent warning. Add the suite to CI.
+
+- [ ] **Step 4: Prove the detection by hand as well**
+
+```bash
+d=$(mktemp -d); mkdir -p "$d/state"; touch "$d/sprint-status.yaml"
+[ -f "$d/sprint-status.yaml" ] && [ -d "$d/state" ] && echo "detects collision"
+rm -f "$d/sprint-status.yaml"; touch "$d/sprint-status.yaml.legacy"
+[ -f "$d/sprint-status.yaml" ] && [ -d "$d/state" ] && echo "FALSE POSITIVE" || echo "post-migrate is clean"
+rm -rf "$d"
+```
+Expected: `detects collision` then `post-migrate is clean`. The second line is the one that
+matters — it proves `migrate-state`'s `.legacy` rename actually resolves the finding.
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add skills/l3io-util-doctor/steps/health-check.md skills/l3io-util-doctor/SKILL.md \
+        skills/*/payload-manifest.json
+git commit -s -m "feat(l3io-util): detect a project holding both state layouts
+
+bmad-build writes flat sprint-status.yaml; l3io reads the sharded tree.
+Both present means two writers on one artifact root and neither sees
+the other.
+
+Detection, not configuration: declaring an implementation_artifacts
+variable would give setup something to collect and reverse the recorded
+decision that an absent module section is correct.
+
+Co-Authored-By: Claude Opus 5 (1M context) <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_014DuCKCCF5scofVSPGvvn97"
+```
+
+---
+
+### Task 5A: Pin the conformance baseline and build the install smoke test
+
+ADR-0006's Context records that the 6.12 defects "were found only by installing BMad by hand
+and looking." Everything in this plan was likewise read from one install at one moment, and
+**no repository gate can see any of it** — `_bmad/` is gitignored, so CI has no BMad at all.
+This task makes the baseline explicit and gives the phase boundaries something real to run.
+
+**Files:**
+- Create: `scripts/smoke-install.sh`
+- Create: `skills/l3io-util-doctor/assets/bmad-baseline.json`
+- Modify: `skills/l3io-util-doctor/scripts/bmad-deps.py`
+- Modify: `package.json` (`smoke:install` script)
+
+**Interfaces:**
+- Consumes: `load_shipped_skills()` from Task 4.
+- Produces:
+  - `bmad-baseline.json` — `{core_version, bmb_version, validator_sha256, verified_on}`.
+  - `bmad-deps.py` emits `baseline_drift: {field, expected, found}[]` — non-empty when the
+    installed versions differ from the pinned ones. **A warning, never a failure**: BMad moving
+    on is normal; being unaware of it is the defect.
+  - `scripts/smoke-install.sh [workdir]` — exit 0 when every assertion holds.
+
+- [ ] **Step 1: Record the baseline**
+
+```json
+{
+  "core_version": "6.12.0",
+  "bmb_version": "v2.2.2",
+  "validator_sha256": "<sha256 of .claude/skills/bmad-module-builder/scripts/validate-module.py>",
+  "verified_on": "2026-09-20",
+  "why": "Every claim this package makes about BMad's module contract, config surface and skill inventory was read from this install. bmb v2.2.2 and core 6.12.0 disagree about config (YAML vs TOML), so the pair matters, not either alone."
+}
+```
+
+Compute the hash with:
+`sha256sum .claude/skills/bmad-module-builder/scripts/validate-module.py`
+
+- [ ] **Step 2: Report drift from `bmad-deps.py`**
+
+Compare `installation.version` and the `bmb` module version from `_bmad/_config/manifest.yaml`
+against the baseline; add `baseline_drift` to the JSON payload and a `BASELINE` line to text
+output. Exit code is **unchanged** — drift is information, not failure.
+
+- [ ] **Step 3: Write the smoke test**
+
+```bash
+#!/usr/bin/env bash
+# Install BMad + this package into a throwaway directory and assert the module contract
+# holds against a REAL install. CI cannot do this (no network guarantee, and _bmad/ is
+# gitignored), so it runs at phase boundaries by hand. See ADR-0006: the 6.12 defects were
+# found only by installing by hand and looking.
+set -euo pipefail
+
+work="${1:-$(mktemp -d)}"
+pkg="$(cd "$(dirname "$0")/.." && pwd)"
+echo "smoke: workdir $work"
+cd "$work"
+
+npx --yes bmad-method install --yes --modules bmm --tools claude-code
+
+fail=0
+check() { if eval "$2"; then echo "  ok   $1"; else echo "  FAIL $1"; fail=1; fi; }
+
+echo "== baseline =="
+check "core version matches the pinned baseline" \
+  "grep -q \"version: $(jq -r .core_version "$pkg/skills/l3io-util-doctor/assets/bmad-baseline.json")\" _bmad/_config/manifest.yaml"
+
+echo "== module contract =="
+for m in l3io-pm-setup l3io-util-doctor l3io-sec-redteam l3io-arch-review; do
+  cp -r "$pkg/skills/$m" ".claude/skills/$m"
+done
+check "validate-module.py passes for the package" \
+  "uv run .claude/skills/bmad-module-builder/scripts/validate-module.py .claude/skills 2>/dev/null | grep -q '\"status\": \"pass\"'"
+
+echo "== install experience =="
+check "no modules.l3io-pm section exists (absence is correct)" \
+  "! grep -q 'modules.l3io-pm' _bmad/custom/config.toml 2>/dev/null"
+check "the help index exists and the installer owns it" \
+  "test -f _bmad/_config/bmad-help.csv"
+
+echo "== dependency truth =="
+check "no inventory claim contradicts the manifest" \
+  "uv run -q --with 'ruamel.yaml>=0.18' python3 '$pkg/skills/l3io-util-doctor/scripts/bmad-deps.py' verify --project-root . --format json | jq -e '.status_contradictions == []' >/dev/null"
+
+[ "$fail" -eq 0 ] && echo "smoke: PASS" || { echo "smoke: FAIL"; exit 1; }
+```
+
+Make it executable and add `"smoke:install": "bash scripts/smoke-install.sh"` to
+`package.json`. Do **not** add it to `.github/workflows/checks.yml`: it needs network and a
+full BMad install, and a flaky gate gets switched off, which is worse than an honest manual one.
+
+- [ ] **Step 4: Run it**
+
+Run: `npm run smoke:install`
+Expected: `smoke: PASS`.
+
+A failure here is a real finding about the plan, not about the script — read it before
+changing anything.
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add scripts/smoke-install.sh package.json \
+        skills/l3io-util-doctor/assets/bmad-baseline.json \
+        skills/l3io-util-doctor/scripts/bmad-deps.py
+git commit -s -m "feat(infra): pin the BMad conformance baseline and smoke-test the install
+
+Every claim this package makes about BMad's contract was read from one
+install at one moment, and no repository gate can see any of it --
+_bmad/ is gitignored, so CI has no BMad at all. ADR-0006 records that
+the 6.12 defects were found only by installing by hand and looking.
+
+bmad-baseline.json pins core 6.12.0 / bmb v2.2.2 plus the validator's
+hash; bmad-deps.py warns on drift without failing. smoke-install.sh
+asserts the contract against a real install at phase boundaries.
+
+Co-Authored-By: Claude Opus 5 (1M context) <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_014DuCKCCF5scofVSPGvvn97"
+```
+
+---
+
+**Phase 1 is complete and shippable here.** All gates green, no file has moved, and
+`npm run smoke:install` exits 0 with its module-contract assertion reported **PENDING**.
+
+*Corrected during execution.* This criterion originally read "`npm run smoke:install` passes",
+which the plan's own sequencing makes unreachable: that assertion depends on
+`assets/module.yaml` and a `*-setup` directory, which Tasks 7 and 9 create. Rather than accept
+a smoke test that always shows one failure — which trains people to ignore it, the same defect
+Task 5 was corrected for — the assertion is state-derived: it reports PENDING while no
+`skills/*/assets/module.yaml` exists, and becomes a real failing-if-broken assertion by itself
+once Phase 2 lands. No marker to remember to remove.
+
+---
+
+# Phase 2 — Conform and reorganize
+
+Ordering is load-bearing: Task 6 changes `l3io-util`'s skill count, which decides its module
+shape in Task 7, and Task 6A's check is red until Task 7 makes it green.
+
+**Before starting, re-establish the baseline.** Everything below was derived from one BMad
+install read on 2026-09-20. Run:
+
+```bash
+uv run -q --with 'ruamel.yaml>=0.18' python3 \
+  skills/l3io-util-doctor/scripts/bmad-deps.py verify --project-root . --format json \
+  | jq '{baseline_drift, status_contradictions}'
+npm run smoke:install
+```
+
+`baseline_drift` non-empty means BMad moved since the spec was written. **Stop and re-read
+the contract** — §2's claims about `merge-config.py`, the validator's presence-only checks and
+the YAML/TOML split are all version-specific. Do not carry on assuming they still hold.
+
+### Task 6: Retire `l3io-util-cleanup`
+
+Deprecated forwarder since 2.1.0, zero uses in the scan window, still consuming skill-listing budget. Retiring it drops `l3io-util` to one skill, which makes it a standalone module in Task 7.
+
+**Files:**
+- Delete: `skills/l3io-util-cleanup/` (SKILL.md, customize.toml, module.yaml)
+- Delete: `.claude/commands/l3io-util-cleanup.md` if present
+- Modify: `docs/upgrading.md`, `README.md`, `docs/getting-started.md`, `docs/l3io-util-reference.md`, `docs/skills-and-sequence.md`, `CLAUDE.md`, `scripts/sync-shared-scripts.mjs` (the explanatory NOTE), `.claude-plugin/marketplace.json`
+
+**Interfaces:**
+- Consumes: nothing.
+- Produces: `l3io-util` contains exactly one skill, `l3io-util-doctor`.
+
+- [ ] **Step 1: Record the mapping in `docs/upgrading.md` first**
+
+```markdown
+### `l3io-util-cleanup` removed in <next-version>
+
+`/l3io-util-cleanup` was a deprecated forwarder from 2.1.0 onward and is now removed.
+Use `/l3io-util-doctor` with the same arguments — every mode name is unchanged.
+```
+
+Check 1 explicitly permits naming a removed skill when mapping it to its replacement, so this
+doc is allowed to say the old name.
+
+- [ ] **Step 2: Remove the skill and every live reference**
+
+```bash
+git rm -r skills/l3io-util-cleanup
+git rm -f .claude/commands/l3io-util-cleanup.md 2>/dev/null || true
+```
+
+Then edit `README.md`, `docs/getting-started.md`, `docs/l3io-util-reference.md`,
+`docs/skills-and-sequence.md` and `CLAUDE.md` to drop the skill.
+
+For `.claude-plugin/marketplace.json`, the file is keyed by **module**, and each module carries
+a `skills` array of paths — remove the entry from `l3io-util`'s array, not a top-level one:
+
+```bash
+jq '(.plugins[] | select(.name=="l3io-util") | .skills) |=
+    map(select(. != "./skills/l3io-util-cleanup"))' \
+  .claude-plugin/marketplace.json > /tmp/mp.$$ && mv /tmp/mp.$$ .claude-plugin/marketplace.json
+``` **Do not touch** `CHANGELOG.md` or anything under `docs/superpowers/plans/` or
+`docs/superpowers/specs/` — historical records.
+
+- [ ] **Step 3: Remove the now-stale NOTE in the sync script**
+
+In `scripts/sync-shared-scripts.mjs`, delete the `allSkillDirs` NOTE explaining why
+`l3io-util-cleanup` is excluded. Leaving a comment about a directory that no longer exists is
+the same class of stale prose this work is removing.
+
+- [ ] **Step 4: Verify the gates catch any reference you missed**
+
+Run: `npm run check:docs`
+Expected: exit 0. A failure here names a live doc still pointing at the removed skill —
+fix it rather than exempting it.
+
+- [ ] **Step 5: Confirm the doctor mode count still agrees**
+
+Run: `npm run check:docs -- -v 2>&1 | grep doctor-mode-count`
+Expected: the count check passes; retiring the forwarder does not change doctor's own modes.
+
+- [ ] **Step 6: Regenerate manifests and commit**
+
+```bash
+node scripts/write-payload-manifest.mjs
+git add docs/upgrading.md README.md docs/getting-started.md docs/l3io-util-reference.md \
+        docs/skills-and-sequence.md CLAUDE.md .claude-plugin/marketplace.json \
+        scripts/sync-shared-scripts.mjs skills/*/payload-manifest.json
+git commit -s -m "feat(l3io-util)!: remove the deprecated l3io-util-cleanup forwarder
+
+Deprecated since 2.1.0 and unused. docs/upgrading.md carries the
+mapping to /l3io-util-doctor, whose mode names are unchanged.
+
+This drops l3io-util to a single skill, which makes it a standalone
+BMad module under the documented contract.
+
+BREAKING CHANGE: /l3io-util-cleanup no longer exists. Use /l3io-util-doctor.
+
+Co-Authored-By: Claude Opus 5 (1M context) <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_014DuCKCCF5scofVSPGvvn97"
+```
+
+---
+
+### Task 6A: Add `check:module` — the mechanical guard for the new invariant
+
+Without this, Phase 2 buys conformance with **no gate to keep it**. `validate-module.py` lives
+in `_bmad/`, which is gitignored, so it can never run in CI — meaning the module structure could
+regress silently exactly as the dependency inventory did. That is the failure this whole change
+exists to fix; repeating it while fixing it is not acceptable.
+
+This is TDD across Tasks 6A and 7: the check is written **first** and fails on today's layout;
+Task 7 is what makes it pass.
+
+**Files:**
+- Create: `scripts/check-module.mjs`
+- Create: `scripts/tests/check-module.test.mjs`
+- Modify: `package.json`, `.github/workflows/checks.yml`
+
+**Interfaces:**
+- Consumes: nothing.
+- Produces: `npm run check:module` — exit 0 when every assertion holds, 1 with a per-failure
+  report otherwise. Assertions, derived by walking `skills/` rather than from a hand-kept list:
+  1. No `module.yaml` at any skill root.
+  2. Every `skills/*/assets/module.yaml` carries non-empty `code`, `name`, `description`.
+  3. Exactly **one** `assets/module.yaml` per distinct `code`.
+  4. Each module home holds `assets/module-setup.md`, `assets/module-help.csv`,
+     `scripts/merge-config.py`, `scripts/merge-help-csv.py`.
+  5. Every module home is either a `*-setup` directory or the module's only skill.
+
+- [ ] **Step 1: Write the failing tests**
+
+```javascript
+test("check:module rejects a module.yaml at a skill root", (t) => {
+  const root = fixture(t);
+  write(root, "skills/l3io-pm-execute/module.yaml", "code: l3io-pm\n");
+  const r = run(root);
+  assert.equal(r.status, 1);
+  assert.match(r.stderr, /module\.yaml at a skill root/);
+});
+
+test("check:module rejects two assets/module.yaml sharing one code", (t) => {
+  const root = fixture(t);
+  write(root, "skills/a/assets/module.yaml", "code: dup\nname: A\ndescription: d\n");
+  write(root, "skills/b/assets/module.yaml", "code: dup\nname: B\ndescription: d\n");
+  const r = run(root);
+  assert.equal(r.status, 1);
+  assert.match(r.stderr, /code 'dup' is declared by 2 module\.yaml files/);
+});
+
+test("check:module rejects a module home missing a merge script", (t) => {
+  const root = fixture(t);
+  write(root, "skills/solo/assets/module.yaml", "code: solo\nname: S\ndescription: d\n");
+  write(root, "skills/solo/assets/module-setup.md", "x\n");
+  write(root, "skills/solo/assets/module-help.csv", "skill,module,description\n");
+  write(root, "skills/solo/scripts/merge-config.py", "x\n");
+  // merge-help-csv.py deliberately absent
+  const r = run(root);
+  assert.equal(r.status, 1);
+  assert.match(r.stderr, /missing scripts\/merge-help-csv\.py/);
+});
+
+test("check:module passes on a well-formed standalone module", (t) => {
+  const root = fixture(t);
+  writeModuleHome(root, "solo", "solo");
+  const r = run(root);
+  assert.equal(r.status, 0, r.stderr);
+});
+```
+
+`check-module.test.mjs` is a new file, so define its helpers by copying the shape of
+`check-docs.test.mjs`: a `fixture(t)` that makes a temp dir with an **empty** `skills/` tree
+(not a repo copy — these tests build modules from nothing), a `run(root, args = [])` that
+spawns `check-module.mjs` with `CHECK_MODULE_ROOT=root`, and a `write(root, rel, text)`. Add
+`writeModuleHome(root, dir, code)` laying down all five required files. Assert on `r.status`
+and `r.stderr`, matching the sibling suite. **Plant the violation
+against the scope, not only the rule**: the second test proves the check finds a duplicate
+`code` it was never told to look for, because it derives codes by walking rather than from a
+list.
+
+- [ ] **Step 2: Run to verify they fail**
+
+Run: `node --test scripts/tests/check-module.test.mjs`
+Expected: FAIL — `Cannot find module .../check-module.mjs`.
+
+- [ ] **Step 3: Implement `check-module.mjs`**
+
+Mirror `check-docs.mjs`'s shape: a `failures` array, `read`/`exists` helpers, a `-v` flag, and
+exit 1 when `failures` is non-empty. Parse `module.yaml` with the same tolerant
+line-scanner `checkModuleYamlAgreement()` used — copy it across **before** Task 7 deletes it,
+so the parsing behaviour is preserved rather than re-derived.
+
+Honour `CHECK_MODULE_ROOT` (like `CHECK_DOCS_ROOT`) so the tests can point it at a fixture.
+
+- [ ] **Step 4: Run the tests to verify they pass**
+
+Run: `node --test scripts/tests/check-module.test.mjs`
+Expected: PASS.
+
+- [ ] **Step 5: Confirm it fails on the real tree — this is the point**
+
+Run: `npm run check:module`
+Expected: **FAIL**, reporting a `module.yaml` at each of the eight skill roots and four codes
+with no `assets/module.yaml`.
+
+That failure is the specification for Task 7. Do not fix it here, and do not weaken the check
+to make it green.
+
+- [ ] **Step 6: Wire it up, but do not let it block yet**
+
+Add `"check:module": "node scripts/check-module.mjs"` and
+`"test:scripts": "node --test scripts/tests/*.test.mjs"` already globs the new test file.
+
+Add to `.github/workflows/checks.yml` **after** Task 7 lands, not now — a gate that is red on
+`main` teaches people to ignore red gates. Record that ordering in the task's commit message so
+the follow-up is not forgotten; Task 7 Step 7 adds the CI step.
+
+- [ ] **Step 7: Commit**
+
+```bash
+git add scripts/check-module.mjs scripts/tests/check-module.test.mjs package.json
+git commit -s -m "feat(infra): add check:module, the guard Phase 2's invariant needs
+
+validate-module.py lives in _bmad/, which is gitignored, so it can
+never run in CI -- module structure could regress silently exactly as
+the dependency inventory did. check:module asserts the same structural
+facts from the repo alone.
+
+Scope is derived by walking skills/, never from a hand-kept list, and
+the tests plant a violation against the scope as well as the rule.
+
+Currently RED on this tree by design: it is the specification for the
+relocation that follows, which also adds it to CI.
+
+Co-Authored-By: Claude Opus 5 (1M context) <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_014DuCKCCF5scofVSPGvvn97"
+```
+
+---
+
+### Task 7: Relocate `module.yaml` to each module's home and retire check 16
+
+BMad's validator reads `assets/module.yaml` — from the setup skill for multi-skill modules (`validate-module.py:178`) and from the skill itself for standalone ones (`:139`). One per **module**, not one per skill.
+
+**Files:**
+- Create: `skills/l3io-pm-setup/assets/module.yaml` (from `skills/l3io-pm-execute/module.yaml`)
+- Move: `skills/l3io-util-doctor/module.yaml` → `skills/l3io-util-doctor/assets/module.yaml`
+- Move: `skills/l3io-sec-redteam/module.yaml` → `skills/l3io-sec-redteam/assets/module.yaml`
+- Move: `skills/l3io-arch-review/module.yaml` → `skills/l3io-arch-review/assets/module.yaml`
+- Delete: `module.yaml` from `l3io-pm-execute`, `l3io-pm-plan`, `l3io-pm-help`, `l3io-pm-sync`
+- Modify: `scripts/check-docs.mjs` — remove `checkModuleYamlAgreement()`, its call at `:1262`, `MODULE_SHARED_FIELDS`, and the header comment for check 16; renumber 17 → 16 in the header and in `CLAUDE.md`
+- Modify: `scripts/check-docs.mjs` — check 17's source list reads `skills/*/module.yaml`; update to `skills/*/assets/module.yaml`
+
+**Interfaces:**
+- Consumes: Task 6's single-skill `l3io-util`.
+- Produces: exactly four `assets/module.yaml` files, one per module code. `skills/l3io-pm-setup/` exists as a directory (its `SKILL.md` arrives in Task 9).
+
+- [ ] **Step 1: Write the failing test for the source-list change**
+
+```javascript
+test("check 17 scans assets/module.yaml, not a skill-root module.yaml", (t) => {
+  const root = fixture(t);
+  write(root, "skills/l3io-pm-setup/assets/module.yaml",
+    "code: l3io-pm\nname: X\ndescription: mentions bmad-nonexistent\n");
+  const r = run(root);
+  assert.equal(r.status, 1);
+  assert.match(r.stderr, /names 'bmad-nonexistent', not declared/);
+});
+```
+
+- [ ] **Step 2: Run to verify it fails**
+
+Run: `npm run test:scripts`
+Expected: FAIL — exit 0, because the scanner only looks at `skills/*/module.yaml`.
+
+- [ ] **Step 3: Move the files**
+
+```bash
+mkdir -p skills/l3io-pm-setup/assets
+git mv skills/l3io-pm-execute/module.yaml skills/l3io-pm-setup/assets/module.yaml
+git rm skills/l3io-pm-plan/module.yaml skills/l3io-pm-help/module.yaml skills/l3io-pm-sync/module.yaml
+for s in l3io-util-doctor l3io-sec-redteam l3io-arch-review; do
+  mkdir -p "skills/$s/assets"
+  git mv "skills/$s/module.yaml" "skills/$s/assets/module.yaml"
+done
+```
+
+- [ ] **Step 4: Update check 17's source list**
+
+```javascript
+  for (const entry of fs.readdirSync(path.join(repoRoot, "skills"), { withFileTypes: true })) {
+    if (!entry.isDirectory()) continue;
+    const rel = `skills/${entry.name}/assets/module.yaml`;
+    if (exists(rel)) sources.push(rel);
+  }
+```
+
+- [ ] **Step 5: Delete check 16 — including its four tests**
+
+`scripts/tests/check-docs.test.mjs` contains four tests whose names begin `check 16:`, one of
+them the scope-attack case. Deleting the function without them leaves four tests calling into
+nothing:
+
+```bash
+grep -n 'check 16:' scripts/tests/check-docs.test.mjs
+```
+
+Delete those four test blocks in the same commit. Task 6A's `check-module.test.mjs` carries
+the replacement coverage, including its own scope-attack case, so the protection moves rather
+than disappearing — confirm that before deleting, not after.
+
+Then remove `MODULE_SHARED_FIELDS`, the whole `checkModuleYamlAgreement()` function, its call, and
+its header-comment entry. Renumber the header list so `bmad-dependency-inventory` becomes 16,
+and update every `check:docs runs seventeen checks` / numbered reference in `CLAUDE.md`,
+`README.md` and `docs/` to sixteen.
+
+Check 16 guarded *sibling* `module.yaml` files sharing a `code:`. After this task each module
+has exactly one, so it can never fire again. A guard that cannot fire reads as protection that
+is not there.
+
+- [ ] **Step 6: Verify — `check:module` must now go green**
+
+```bash
+npm run check:module
+npm run test:scripts && npm run check:docs -- -v
+```
+Expected: `check:module` exits 0 (it was red after Task 6A — this relocation is what fixes it);
+verbose `check:docs` lists sixteen checks and no `module-yaml-agreement`.
+
+- [ ] **Step 7: Add `check:module` to CI, now that it is green**
+
+In `.github/workflows/checks.yml`, after the `check:docs` step:
+
+```yaml
+    - name: Verify the module structure BMad's validator requires
+      run: npm run check:module
+```
+
+This is the step that stops the conformance regressing. Adding it only once green keeps `main`
+honest.
+
+- [ ] **Step 8: Commit**
+
+```bash
+git add -u skills/ scripts/check-docs.mjs scripts/tests/check-docs.test.mjs \
+        .github/workflows/checks.yml \
+        CLAUDE.md README.md docs/
+git add skills/l3io-pm-setup/assets/module.yaml
+git commit -s -m "refactor(infra)!: one module.yaml per module, under assets/
+
+BMad's validator reads assets/module.yaml -- from the setup skill for
+multi-skill modules, from the skill itself for standalone ones. The
+package shipped one per skill at the skill root, which is why
+validate-module.py detected no module at all.
+
+Retires check 16 (module-yaml-agreement) in the same change: it guarded
+sibling module.yaml files sharing a code, and there are no siblings
+left. A guard that can no longer fire is worse than no guard.
+
+Co-Authored-By: Claude Opus 5 (1M context) <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_014DuCKCCF5scofVSPGvvn97"
+```
+
+---
+
+### Task 8: Add the two merge scripts BMad's validator requires
+
+`validate-module.py:137–165` checks these by **presence only** — it never reads them. So they can satisfy the documented contract while writing TOML, which is what core 6.12 actually reads.
+
+**Files:**
+- Create: `skills/_shared/merge-config.py`
+- Create: `skills/_shared/merge-help-csv.py`
+- Test: `skills/_shared/tests/test-merge-help-csv.py`
+- Modify: `scripts/sync-shared-scripts.mjs`
+
+**Interfaces:**
+- Consumes: `write-module-config.py`'s existing layer logic.
+- Produces:
+  - `merge-config.py --project-root R --module-yaml Y --answers J` — thin wrapper delegating to `write_module_config.main()`; writes **TOML** to `_bmad/custom/config.toml` / `config.user.toml`.
+  - `merge-help-csv.py --project-root R --module-help-csv C --module-code M` — anti-zombie merge into `_bmad/_config/bmad-help.csv`.
+
+- [ ] **Step 1: Write the failing test for the help merger**
+
+```python
+    def test_replaces_only_this_modules_rows(self):
+        root = self.make_project(existing_help=[   # local helper; new test file
+            "skill,module,description",
+            "bmad-help,core,Core help",
+            "l3io-old,l3io-pm,Stale row",
+        ])
+        self.run_merge(root, module_code="l3io-pm", rows=[
+            "l3io-pm-execute,l3io-pm,Run the plan"])
+        text = (root / "_bmad" / "_config" / "bmad-help.csv").read_text()
+        self.assertIn("bmad-help,core,Core help", text)
+        self.assertIn("l3io-pm-execute,l3io-pm,Run the plan", text)
+        self.assertNotIn("l3io-old", text)
+```
+
+- [ ] **Step 2: Run to verify it fails**
+
+Run: `uv run skills/_shared/tests/test-merge-help-csv.py`
+Expected: FAIL — file not found.
+
+- [ ] **Step 3: Write `merge-config.py`**
+
+```python
+#!/usr/bin/env -S uv run --quiet --script
+# /// script
+# requires-python = ">=3.11"
+# dependencies = ["tomlkit>=0.13", "ruamel.yaml>=0.18"]
+# ///
+"""
+merge-config.py -- the name BMad's module validator requires; the behaviour core needs.
+
+bmad-module-builder's scaffolder emits a merge-config.py that writes _bmad/config.yaml
+and _bmad/config.user.yaml, and deletes per-module config.yaml files. Core 6.12's
+config_utils.load_central_config reads TOML ONLY:
+
+    _bmad/config.toml -> config.user.toml -> custom/config.toml -> custom/config.user.toml
+
+so the scaffolder's writer would make every l3io setting invisible and would delete
+installer-generated files that exist. validate-module.py checks this file's PRESENCE
+only (lines 137-165) and never reads it, so conforming to the name while keeping the
+correct target satisfies the documented contract without breaking config resolution.
+
+See ADR-0007 and docs/superpowers/specs/2026-09-20-l3io-customization-layer-design.md §2.
+"""
+import runpy
+import sys
+from pathlib import Path
+
+if __name__ == "__main__":
+    target = Path(__file__).with_name("write-module-config.py")
+    sys.argv[0] = str(target)
+    runpy.run_path(str(target), run_name="__main__")
+```
+
+- [ ] **Step 4: Write `merge-help-csv.py`**
+
+```python
+#!/usr/bin/env -S uv run --quiet --script
+# /// script
+# requires-python = ">=3.11"
+# ///
+"""
+merge-help-csv.py -- register a module's capabilities in BMad's help index.
+
+Targets {project-root}/_bmad/_config/bmad-help.csv, which is the file the help system
+actually reads. bmb's scaffolder targets _bmad/module-help.csv, which does not exist in
+a core 6.12 install. See ADR-0007.
+
+Anti-zombie: every row belonging to --module-code is dropped before the module's current
+rows are appended, so a capability removed from the module cannot survive as a stale row.
+Other modules' rows keep their original order.
+"""
+import argparse
+import csv
+import sys
+from pathlib import Path
+
+HELP_REL = ("_bmad", "_config", "bmad-help.csv")
+MODULE_COLUMN = 1
+
+
+def reject_unresolved(label: str, value: str) -> str:
+    if "{project-root}" in value:
+        sys.stderr.write(
+            f"error: {label} contains an unresolved {{project-root}} token: {value}\n"
+            "Resolve it to a real path before invoking this script.\n")
+        raise SystemExit(2)
+    return value
+
+
+def merge(target: Path, module_code: str, rows: list[list[str]]) -> None:
+    header, kept = None, []
+    if target.exists():
+        with target.open(encoding="utf-8", newline="") as fh:
+            all_rows = list(csv.reader(fh))
+        if all_rows:
+            header, body = all_rows[0], all_rows[1:]
+            kept = [r for r in body
+                    if len(r) <= MODULE_COLUMN or r[MODULE_COLUMN].strip() != module_code]
+    if header is None:
+        header = ["skill", "module", "description"]
+    target.parent.mkdir(parents=True, exist_ok=True)
+    with target.open("w", encoding="utf-8", newline="") as fh:
+        writer = csv.writer(fh)
+        writer.writerow(header)
+        writer.writerows(kept)
+        writer.writerows(rows)
+
+
+def main() -> int:
+    p = argparse.ArgumentParser(description="Merge a module's help rows into bmad-help.csv.")
+    p.add_argument("--project-root", required=True)
+    p.add_argument("--module-help-csv", required=True,
+                   help="the module's own assets/module-help.csv")
+    p.add_argument("--module-code", required=True)
+    args = p.parse_args()
+
+    root = Path(reject_unresolved("--project-root", args.project_root))
+    source = Path(reject_unresolved("--module-help-csv", args.module_help_csv))
+
+    with source.open(encoding="utf-8", newline="") as fh:
+        rows = [r for r in csv.reader(fh) if r]
+    if rows and rows[0] and rows[0][0].strip() == "skill":
+        rows = rows[1:]
+
+    merge(root.joinpath(*HELP_REL), args.module_code, rows)
+    print(f"merged {len(rows)} help row(s) for {args.module_code}")
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
+```
+
+- [ ] **Step 5: Run the test to verify it passes**
+
+Run: `uv run skills/_shared/tests/test-merge-help-csv.py`
+Expected: PASS.
+
+- [ ] **Step 5b: Test the `merge-config.py` wrapper too**
+
+The wrapper delegates through `runpy`, so it needs its own test — a wrapper that silently
+swallowed a failure would be worse than no wrapper. Add to
+`skills/_shared/tests/test-merge-config-wrapper.py`:
+
+```python
+class TestWrapperDelegation(unittest.TestCase):
+    SCRIPT = Path(__file__).resolve().parents[1] / "merge-config.py"
+
+    def run_wrapper(self, *args):
+        return subprocess.run(["uv", "run", str(self.SCRIPT), *args],
+                              capture_output=True, text=True)
+
+    def test_missing_required_arg_propagates_argparse_exit_2(self):
+        r = self.run_wrapper()
+        self.assertEqual(r.returncode, 2, r.stderr)
+
+    def test_unresolved_project_root_token_is_rejected(self):
+        r = self.run_wrapper("--project-root", "{project-root}",
+                             "--module-yaml", "x", "--answers", "y")
+        self.assertNotEqual(r.returncode, 0)
+
+    def test_delegates_to_write_module_config(self):
+        r = self.run_wrapper("--help")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertIn("custom/config.toml", r.stdout + r.stderr)
+```
+
+Verified behaviour this rests on: `runpy.run_path(..., run_name="__main__")` propagates exit
+codes — measured at 2 from argparse and 3 from an explicit failure. Add the suite to
+`.github/workflows/checks.yml` beside the other Python steps.
+
+- [ ] **Step 5a: Record that the installer, not setup, owns help assembly**
+
+`skills/_shared/module-setup.md` states setup must **not** write a help CSV — *"the installer
+assembles `_bmad/_config/bmad-help.csv` from each module's own `module-help.csv` at install
+time."* `merge-help-csv.py` exists to satisfy `validate-module.py`'s presence check and to give
+a user a way to re-register by hand after an interrupted install. **Do not call it from
+`module-setup.md`**, or the file gets two writers.
+
+Add that sentence to the script's own docstring, so the next reader finds the constraint in the
+file rather than in a plan.
+
+- [ ] **Step 6: Add both to the sync scope — module homes only**
+
+In `scripts/sync-shared-scripts.mjs`, add a new group whose destinations are the **four module
+homes** (`l3io-pm-setup`, `l3io-util-doctor`, `l3io-sec-redteam`, `l3io-arch-review`):
+
+```javascript
+// The two merge scripts BMad's validator requires, and module-setup.md, belong in each
+// module's HOME -- the setup skill for multi-skill modules, the skill itself for
+// standalone ones. Syncing them into every operational skill would ship four copies of a
+// procedure only one of them runs.
+const moduleHomeDirs = [
+  "l3io-pm-setup", "l3io-util-doctor", "l3io-sec-redteam", "l3io-arch-review",
+].map((name) => path.join(repoRoot, "skills", name));
+
+const moduleHomeFiles = [
+  { src: path.join(sharedDir, "merge-config.py"), rel: path.join("scripts", "merge-config.py") },
+  { src: path.join(sharedDir, "merge-help-csv.py"), rel: path.join("scripts", "merge-help-csv.py") },
+];
+```
+
+- [ ] **Step 7: Add the new test to CI**
+
+In `.github/workflows/checks.yml`, after the `write-module-config.py unit tests` step:
+
+```yaml
+    - name: merge-help-csv.py unit tests
+      run: uv run skills/_shared/tests/test-merge-help-csv.py
+```
+
+- [ ] **Step 8: Sync, regenerate, verify**
+
+```bash
+npm run sync:scripts && node scripts/write-payload-manifest.mjs
+npm run check:scripts && npm run check:manifest && npm run check:docs
+```
+Expected: all exit 0.
+
+- [ ] **Step 9: Commit**
+
+```bash
+git add skills/_shared/merge-config.py skills/_shared/merge-help-csv.py \
+        skills/_shared/tests/test-merge-help-csv.py scripts/sync-shared-scripts.mjs \
+        .github/workflows/checks.yml skills/*/scripts/ skills/*/payload-manifest.json
+git commit -s -m "feat(infra): add merge-config.py and merge-help-csv.py
+
+The names BMad's module validator requires, with the behaviour core
+needs. The scaffolder's merge-config.py writes _bmad/config.yaml, which
+core 6.12's TOML-only resolver never reads, and deletes per-module
+config.yaml files that exist here. validate-module.py checks presence
+only, so the name conforms while the target stays correct.
+
+Co-Authored-By: Claude Opus 5 (1M context) <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_014DuCKCCF5scofVSPGvvn97"
+```
+
+---
+
+### Task 8A: Guard the Shared Files table against the sync groups
+
+*Added during execution.* `CLAUDE.md`'s **Shared Files** table documents the canonical-source →
+per-skill-destination mapping, and **nothing mechanical reads it**. It has now drifted in three
+consecutive tasks, and Tasks 11 and 11A both change sync groups again — so by Task 16 it would
+be a hand-reconciliation of four tasks' worth of drift. That is the manual reconciliation this
+plan exists to eliminate, and it is the failure CLAUDE.md's own "Enforce rules mechanically"
+section documents: a rule that lives only in prose gets violated invisibly.
+
+**Files:**
+- Modify: `scripts/check-docs.mjs` — new check 20, `shared-files-table`
+- Modify: `scripts/tests/check-docs.test.mjs`
+- Modify: `CLAUDE.md` — add the rows currently missing
+
+**Interfaces:**
+- Consumes: `sync-shared-scripts.mjs`'s sync groups, read as the source of truth.
+- Produces: `check:docs` check **20**. Check 18 (`docs-check-count`) derives the count
+  dynamically and will absorb it, but its two prose claim sites go "nineteen" → "twenty" —
+  the check will tell you if you miss them.
+
+**Scope, stated honestly.** This check compares the **file set** in both directions: every
+`skills/_shared/*` source named by a sync group has a table row, and every table row names a
+real `_shared` source. It does **not** verify the destination column — that each row's stated
+per-skill destination matches the group's actual targets. Say so in the check's header comment.
+A guard that overstates its reach is worse than none, and the destination column remains
+hand-maintained until someone derives it too.
+
+- [ ] **Step 1: Write the failing tests**
+
+```javascript
+test("check 20: a _shared file in a sync group with no table row is caught", (t) => {
+  const root = fixture(t);
+  write(root, "skills/_shared/brand-new-thing.md", "x\n");
+  const p = path.join(root, "scripts", "sync-shared-scripts.mjs");
+  const before = fs.readFileSync(p, "utf8");
+  fs.writeFileSync(p, before.replace(
+    'const moduleHomeFiles = [',
+    'const moduleHomeFiles = [\n  { src: path.join(sharedDir, "brand-new-thing.md"), rel: path.join("assets", "brand-new-thing.md") },'));
+  const r = run(root);
+  assert.equal(r.status, 1);
+  assert.match(r.stderr, /brand-new-thing\.md is synced but has no row/);
+});
+
+test("check 20: a table row naming a nonexistent _shared source is caught", (t) => {
+  const root = fixture(t);
+  const p = path.join(root, "CLAUDE.md");
+  const before = fs.readFileSync(p, "utf8");
+  fs.writeFileSync(p, before.replace(
+    "| `skills/_shared/pm-status.py` |",
+    "| `skills/_shared/ghost.py` | `scripts/ghost.py` | nobody |\n| `skills/_shared/pm-status.py` |"));
+  const r = run(root);
+  assert.equal(r.status, 1);
+  assert.match(r.stderr, /ghost\.py.*no such file/);
+});
+
+test("check 20: the real tree passes", (t) => {
+  const root = fixture(t);
+  const r = run(root);
+  assert.equal(r.status, 0, r.stderr);
+});
+```
+
+The third test is the one that fails first — the table is stale today, so it fails until Step 3
+adds the missing rows. That is the point: the check proves the table was wrong before it proves
+it is right.
+
+- [ ] **Step 2: Run to verify they fail**
+
+Run: `npm run test:scripts`
+Expected: FAIL — no check 20.
+
+- [ ] **Step 3: Implement, then fix the table**
+
+Parse the sync sources out of `sync-shared-scripts.mjs` by reading the file and matching
+`path.join(sharedDir, "…")` occurrences — the same tolerant-text approach the other checks use,
+rather than importing the module (importing would run its side effects). Parse the table rows
+out of `CLAUDE.md` by matching lines beginning `` | `skills/_shared/ ``.
+
+Then add the missing rows to `CLAUDE.md` — at minimum `merge-config.py` and `merge-help-csv.py`
+from Task 8 — until the real tree passes.
+
+- [ ] **Step 4: Verify**
+
+```bash
+npm run test:scripts
+npm run check:docs -- -v 2>&1 | grep -E 'shared-files-table|docs-check-count'
+```
+Expected: both pass; `docs-check-count` reports 20 checks and its two prose sites now say
+"twenty".
+
+- [ ] **Step 5: Commit**
+
+Stage `scripts/check-docs.mjs`, `scripts/tests/check-docs.test.mjs` and `CLAUDE.md` by explicit
+path, sign off, and say in the message that the table drifted three times in three tasks before
+anything checked it.
+
+---
+
+### Task 9: Create `l3io-pm-setup`, the one setup skill
+
+Only `l3io-pm` is multi-skill. `l3io-util`, `l3io-sec` and `l3io-arch` are standalone after Task 6 and self-register as they do today.
+
+**Files:**
+- Create: `skills/l3io-pm-setup/SKILL.md`, `skills/l3io-pm-setup/customize.toml`
+- Present already: `skills/l3io-pm-setup/assets/module.yaml` (Task 7), `scripts/merge-*.py` (Task 8)
+- Create: `skills/l3io-pm-setup/assets/module-help.csv` (consolidated from the four PM skills)
+- Create: `.claude/commands/l3io-pm-setup.md` symlink → `../../skills/l3io-pm-setup/SKILL.md`
+- Modify: `.claude-plugin/marketplace.json`
+
+**Interfaces:**
+- Consumes: `assets/module.yaml`, `scripts/merge-config.py`, `scripts/merge-help-csv.py`.
+- Produces: skill `l3io-pm-setup`, invoked as `/l3io-pm-setup`; `customize.toml` root key `[workflow]`.
+
+- [ ] **Step 1: Write `SKILL.md`**
+
+```markdown
+---
+name: l3io-pm-setup
+description: Sets up the LiquidLogicLabs PM module in a project. Use when the user requests to 'install l3io-pm', 'configure l3io-pm', or 'setup l3io-pm'.
+---
+
+# l3io-pm-setup — Module Setup
+
+## Overview
+
+Records the `l3io-pm` module's project-level settings in the BMad central config, and
+registers its capabilities for the help system.
+
+**This runs only when asked.** `l3io-pm` declares no required settings, so a correct install
+has no `[modules.l3io-pm]` section at all and every PM skill works without one. An absent
+section is **not** a first-run — see `references/config-resolution.md` §5. Nothing here is
+triggered automatically.
+
+## On Activation
+
+1. Read `./assets/module.yaml` for module identity (`code`, `name`, `module_version`) and any
+   declared `variables:`.
+2. Resolve `{project-root}` to a real absolute path. The merge scripts reject an unresolved
+   `{project-root}` token in a path argument, because writing to a literal `{project-root}/`
+   directory under the skill folder is silent and hard to notice.
+3. Follow `./assets/module-setup.md` — the canonical procedure, shared across every l3io
+   module. It states what setup writes and, just as importantly, what it must not.
+
+## What this writes
+
+Only the two human-authored config layers, which the installer never regenerates:
+
+- `{project-root}/_bmad/custom/config.toml` — team-scoped, committed
+- `{project-root}/_bmad/custom/config.user.toml` — user-scoped, gitignored
+
+```bash
+uv run ./scripts/merge-config.py \
+  --project-root "{resolved-project-root}" \
+  --module-yaml  "./assets/module.yaml" \
+  --answers      "{answers-json-path}"
+```
+
+## What this does not write
+
+`_bmad/_config/bmad-help.csv` — **the installer assembles it** from each module's own
+`assets/module-help.csv` at install time. `./scripts/merge-help-csv.py` exists for the module
+contract and for manual re-registration after an interrupted install; this skill does not call
+it, because two writers on one file is how that file drifts.
+
+## Completion
+
+Report which layers were written and which keys landed in each, then print the module greeting
+from `assets/module.yaml`.
+```
+
+- [ ] **Step 2: Write `customize.toml`**
+
+Root key `[workflow]` — it is a workflow/utility skill, not a memory agent. Using `[agent]`
+means overrides are ignored silently.
+
+```toml
+[workflow]
+activation_steps_prepend = []
+activation_steps_append = []
+persistent_facts = []
+on_complete = ""
+```
+
+- [ ] **Step 3: Consolidate the help CSV**
+
+Merge the four PM skills' `assets/module-help.csv` rows into
+`skills/l3io-pm-setup/assets/module-help.csv`, then delete the four originals. Keep one row per
+distinct capability; check menu codes are unique.
+
+- [ ] **Step 4: Create the command symlink and register in the marketplace**
+
+```bash
+ln -s ../../skills/l3io-pm-setup/SKILL.md .claude/commands/l3io-pm-setup.md
+```
+
+Add `l3io-pm-setup` to the **`l3io-pm` plugin's `skills` array** in
+`.claude-plugin/marketplace.json` — the file lists modules at the top level, each with its own
+skill paths:
+
+```bash
+jq '(.plugins[] | select(.name=="l3io-pm") | .skills) += ["./skills/l3io-pm-setup"]' \
+  .claude-plugin/marketplace.json > /tmp/mp.$$ && mv /tmp/mp.$$ .claude-plugin/marketplace.json
+```
+
+- [ ] **Step 5: Run BMad's validator**
+
+Run: `uv run .claude/skills/bmad-module-builder/scripts/validate-module.py skills/`
+Expected: `"status": "pass"`, with `setup_skill: "l3io-pm-setup"` in `info`.
+
+If it still fails, read the finding rather than guessing: it names the exact missing file.
+
+- [ ] **Step 6: Validate the three standalone modules**
+
+```bash
+for s in l3io-util-doctor l3io-sec-redteam l3io-arch-review; do
+  echo "== $s =="; uv run .claude/skills/bmad-module-builder/scripts/validate-module.py "skills/$s"
+done
+```
+Expected: `"status": "pass"` and `"standalone": true` for each.
+
+- [ ] **Step 7: Verify every gate**
+
+Run: `npm run check:docs && npm run check:scripts && npm run check:manifest && npm run check:module && npm run test:scripts`
+Expected: all exit 0. `check:docs` check 1 (skill-names) now resolves `l3io-pm-setup`, and
+`check:module` sees `l3io-pm-setup` as the `l3io-pm` module home rather than a bare skill.
+
+- [ ] **Step 8: Commit**
+
+```bash
+git add skills/l3io-pm-setup/ .claude/commands/l3io-pm-setup.md \
+        .claude-plugin/marketplace.json skills/*/payload-manifest.json
+git add -u skills/
+git commit -s -m "feat(l3io-pm): add l3io-pm-setup, the module's setup skill
+
+l3io-pm is the only multi-skill module, so it is the only one needing a
+dedicated setup skill under BMad's documented contract. l3io-util,
+l3io-sec and l3io-arch are single-skill and self-register.
+
+validate-module.py now passes for all four modules.
+
+Co-Authored-By: Claude Opus 5 (1M context) <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_014DuCKCCF5scofVSPGvvn97"
+```
+
+---
+
+### Task 10: Emit the setup pointer at most once per session
+
+A naive config-presence check would be **wrong**: `[modules.l3io-pm]` is absent in a *correct*
+install, so checking it on every activation prints a pointer on every invocation of all four PM
+skills — the detour `config-resolution.md` §5 removed. The pointer is bounded to once per
+session and never runs setup.
+
+**Files:**
+- Modify: `skills/_shared/pm-status.py` — new `notice` subcommand
+- Modify: `skills/_shared/tests/test-pm-status.py`
+- Modify: `skills/_shared/config-resolution.md` §5
+- Modify: `skills/l3io-pm-execute/SKILL.md`, `skills/l3io-pm-plan/SKILL.md` — **these two only**
+- Modify: `.gitignore`
+
+**Interfaces:**
+- Consumes: `{session_id}`, which `steps/shared/step-00-activate.md:224` binds. That file says
+  **"Only an orchestrator generates one"**, and only `l3io-pm-execute` and `l3io-pm-plan` load
+  it. `l3io-pm-help` merely *references* it (`:109`, `:151`) and `l3io-pm-sync` does not touch
+  it, so **neither has a session identity and neither emits the pointer.** Scoping to the
+  orchestrators needs no new machinery and puts the pointer where a user is about to start
+  work rather than where they are reading status.
+- Produces: `pm-status.py notice --state-root S --session-id SESS --key KEY` — exit **0** =
+  not yet emitted this session (and now recorded); exit **1** = already emitted; exit **2** =
+  usage error. Records in `{state_root}/.notices.yaml` under flock, pruned to the 20 most
+  recent session ids.
+
+- [ ] **Step 1: Write the failing test**
+
+```python
+class TestNotice(Base):
+    """Base gives us self.d (scratch dir) and self.run_main(argv) -> (code, stdout)."""
+
+    def notice(self, session, key="setup-pointer"):
+        return self.run_main(["notice", "--state-root", self.d,
+                              "--session-id", session, "--key", key])
+
+    def test_emitted_once_per_session(self):
+        code, out = self.notice("S1")
+        self.assertEqual(code, 0, out)
+        code, out = self.notice("S1")
+        self.assertEqual(code, 1, out)
+
+    def test_scoped_per_session_and_per_key(self):
+        self.notice("S1", "a")
+        self.assertEqual(self.notice("S2", "a")[0], 0)   # different session
+        self.assertEqual(self.notice("S1", "b")[0], 0)   # different key
+
+    def test_blank_session_or_key_is_a_usage_error(self):
+        self.assertEqual(self.run_main(
+            ["notice", "--state-root", self.d, "--session-id", "  ",
+             "--key", "setup-pointer"])[0], 2)
+
+    def test_prunes_to_twenty_sessions(self):
+        for i in range(25):
+            self.notice(f"S{i}")
+        _, data = pm._load(os.path.join(self.d, ".notices.yaml"))   # returns (yaml, data)
+        self.assertLessEqual(len(data["sessions"]), 20)
+        self.assertIn("S24", data["sessions"])
+        self.assertNotIn("S0", data["sessions"])
+
+    def test_damaged_file_does_not_block_the_caller(self):
+        with open(os.path.join(self.d, ".notices.yaml"), "w", encoding="utf-8") as fh:
+            fh.write("{ not: valid: yaml\n")
+        self.assertEqual(self.notice("S1")[0], 0)
+```
+
+`Base` and `run_main` already exist in this file (`test-pm-status.py:70`), and `pm` is the
+module imported at the top. In the pruning test, read the file with whatever YAML loader
+`pm-status.py` itself exposes rather than importing a second one.
+
+- [ ] **Step 2: Run to verify it fails**
+
+Run: `uv run skills/_shared/tests/test-pm-status.py -k notice`
+Expected: FAIL — `invalid choice: 'notice'`.
+
+- [ ] **Step 3: Implement the subcommand**
+
+Model it on the existing `set-lock` / `check-lock` pair — same flock discipline, same
+`--session-id` semantics, no TTL:
+
+```python
+NOTICES_FILENAME = ".notices.yaml"
+NOTICES_KEEP = 20
+_NOTICES_LOCK = {"depth": 0, "fh": None}
+
+
+def notices_path(state_root: str) -> str:
+    return os.path.join(state_root, NOTICES_FILENAME)
+
+
+@contextlib.contextmanager
+def notices_lock(state_root: str):
+    """Hold an exclusive lock over a whole notices read-modify-write cycle.
+
+    Same reasoning as calibration_lock and adr_register_lock: load -> mutate -> save is
+    not atomic, and two parallel orchestrators in one session must not both decide the
+    notice has not been shown.
+    """
+    with _file_lock(notices_path(state_root) + ".lock", _NOTICES_LOCK, state_root):
+        yield
+
+
+def cmd_notice(args) -> int:
+    """Record a one-per-session notice. 0 = emit it now, 1 = already emitted.
+
+    Absent or unparseable file means nothing has been emitted yet -- a notice is
+    advisory, so a damaged file must never block the caller's real work.
+    """
+    session = (args.session_id or "").strip()
+    key = (args.key or "").strip()
+    if not session or not key:
+        sys.stderr.write("notice: --session-id and --key must be non-empty\n")
+        return 2
+    os.makedirs(args.state_root, exist_ok=True)
+    path = notices_path(args.state_root)
+    with notices_lock(args.state_root):
+        # _load returns (yaml_instance, data) -- data is None when the file is absent.
+        # Reuse the returned instance for the dump so round-trip settings match.
+        try:
+            y, data = _load(path)
+        except Exception:
+            y, data = _yaml(), None
+        sessions = data.get("sessions") if isinstance(data, dict) else None
+        if not isinstance(sessions, dict):
+            sessions = {}
+        emitted = sessions.get(session)
+        if not isinstance(emitted, list):
+            emitted = []
+        if key in emitted:
+            return 1
+        emitted.append(key)
+        sessions[session] = emitted
+        # Insertion order is emission order; keep the newest NOTICES_KEEP.
+        for stale in list(sessions)[:-NOTICES_KEEP]:
+            del sessions[stale]
+        _atomic_dump(y, {"sessions": sessions}, path)
+    return 0
+```
+
+**These are the real helpers** — `_file_lock`, `_load`, `_atomic_dump`, `_yaml`, and the
+`_XXX_LOCK = {"depth": 0, "fh": None}` module-level dict — copied from `calibration_lock`
+(`pm-status.py:1011`) and `adr_register_lock` (`:1027`), which solve the identical
+read-modify-write race on a single shared file under the state root. Do not invent new ones.
+
+**Two signatures to get right**, both verified against the source:
+
+- `_load(path)` returns a **tuple** `(yaml_instance, data)` (`:269`), and `data` is `None`
+  when the file is absent — *not* a bare dict. `data = _load(path) or {}` would bind the
+  tuple, which is truthy, and the next `.get()` raises `AttributeError`.
+- `_atomic_dump(y, data, path)` (`:277`) takes the YAML instance **first**. Pass the one
+  `_load` returned rather than a fresh `_yaml()`, so round-trip settings match.
+
+`contextlib`, `sys` and `os` are already imported; nothing new is needed.
+
+Wire it into the parser with `--state-root` (required), `--session-id` (required),
+`--key` (required), and add `notice` to the subcommand list. Checks 4 (`cli-surface`) and 10
+(`cli-docstring`) fail if the docstring or the reference omits it — let them catch it.
+
+- [ ] **Step 4: Run the tests to verify they pass**
+
+Run: `uv run skills/_shared/tests/test-pm-status.py -k notice`
+Expected: PASS.
+
+- [ ] **Step 5: Update the module docstring and the CLI reference**
+
+Check 10 (`cli-docstring`) fails if `pm-status.py`'s own docstring omits a subcommand the
+parser defines, and check 4 (`cli-surface`) fails if the documented surface and the real one
+disagree in *either* direction. Add `notice` to the docstring **and** to
+`skills/_shared/references/` CLI documentation. These two checks are the mechanical guard —
+let them catch the omission rather than trusting memory.
+
+- [ ] **Step 6: Keep the notices file out of git — the way this script already does it**
+
+**Do not add a pattern to this repository's `.gitignore`.** `{implementation_artifacts}` is
+consumer-configurable, so a hardcoded `_bmad-output/**` pattern here protects nothing in a
+consumer's repo — which is the only place the file is ever written.
+
+`pm-status.py` already solves this: `_ensure_lock_ignore(state_root)` (`:350`) writes
+`{state_root}/.gitignore` carrying `*.lock`, and is called on every lock acquisition. Since
+`notices_lock` goes through `_file_lock`, the **lock** file is already covered. The data file
+is not.
+
+Extend that mechanism rather than adding a second one: generalise `_ensure_lock_ignore` to
+ensure both `*.lock` and `.notices.yaml`, reusing `_lock_rule_present`'s git-accurate parsing
+(split on `\n` only — never `str.splitlines()`, which also breaks on U+0085 — strip one
+trailing `\r`, then trailing spaces). Add a test asserting a consumer state root ends up
+ignoring both, and that an existing `!` negation is still honoured.
+
+`step-00-activate.md`'s `git check-ignore` gate must still pass: the patterns match files, never
+the state-root directory.
+
+- [ ] **Step 7: Write the directive in `config-resolution.md` §5**
+
+> **When `modules.l3io-pm` is absent.** This is the normal, correct state — it is **not** a
+> first-run and must never trigger setup. Do not branch on it. Once per session, at most, a PM
+> skill may mention that `/l3io-pm-setup` exists:
+>
+> ```bash
+> python3 {pm_status} notice --state-root {pm_state_root} \
+>   --session-id {session_id} --key setup-pointer && \
+>   echo "l3io-pm has no project settings. /l3io-pm-setup configures it if you want to."
+> ```
+>
+> Exit 1 means it was already said this session — say nothing. Never halt on it: the module
+> works without settings, which is why none are declared.
+
+- [ ] **Step 8: Apply to the two orchestrator SKILL.md files**
+
+`l3io-pm-execute` and `l3io-pm-plan` only. Add the pointer after config resolution and after
+`step-00-activate.md` has bound `{session_id}`, before any state read. It is advisory and
+non-blocking: nothing changes behaviour based on the exit code beyond whether it prints.
+
+**Do not add it to `l3io-pm-help` or `l3io-pm-sync`** — they have no `{session_id}`, so the
+guard could not bound anything and the pointer would fire on every invocation, which is the
+behaviour §5 removed. Say so in a one-line comment in each of those two files, so the next
+reader does not "fix" the inconsistency.
+
+- [ ] **Step 9: Sync, regenerate, verify**
+
+```bash
+npm run sync:scripts && node scripts/write-payload-manifest.mjs
+npm run check:docs && npm run check:scripts && npm run check:manifest && npm run check:version
+uv run skills/_shared/tests/test-pm-status.py
+```
+Expected: all exit 0. `check:version` matters here — `pm-status.py` changed, and its marker,
+`PM_STATUS_VERSION` and `package.json` must still agree. **Do not hand-edit the version.**
+
+- [ ] **Step 10: Commit**
+
+```bash
+git add skills/_shared/pm-status.py skills/_shared/tests/test-pm-status.py \
+        skills/_shared/config-resolution.md skills/_shared/references/ \
+        skills/l3io-pm-*/SKILL.md .gitignore \
+        skills/*/scripts/pm-status.py skills/*/references/ skills/*/payload-manifest.json
+git commit -s -m "feat(l3io-pm): mention the setup skill at most once per session
+
+An absent modules.l3io-pm section is correct, not a first-run --
+config-resolution.md §5 and module-setup.md both say so, because
+treating absence as a first-run made every invocation detour into
+setup. A per-invocation check would have re-created exactly that.
+
+pm-status.py notice follows the existing set-lock/check-lock session-id
+pattern: exit 0 emit and record, exit 1 already said. Advisory only --
+nothing halts, because the module works without settings.
+
+Co-Authored-By: Claude Opus 5 (1M context) <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_014DuCKCCF5scofVSPGvvn97"
+```
+
+---
+
+### Task 11: Narrow the shared-sync scope to module homes
+
+`assets/module-setup.md` and `write-module-config.py` currently sync into **all 8** skills. Only the four module homes run them. This removes shipped payload.
+
+**Files:**
+- Modify: `scripts/sync-shared-scripts.mjs` — `allSkillDirs` / `allSkillFiles`
+- Delete: the stale copies the narrowed sync leaves behind
+
+**Interfaces:**
+- Consumes: `moduleHomeDirs` from Task 8.
+- Produces: `module-setup.md` + all three config/merge scripts present in exactly four skills; `config-resolution.md` still in all skills that resolve config.
+
+- [ ] **Step 1: Move `module-setup.md` and `write-module-config.py` into the module-home group**
+
+Remove them from `allSkillFiles`; add to `moduleHomeFiles`. Leave `config-resolution.md` in
+`allSkillFiles` — every skill resolves config, only module homes perform setup.
+
+- [ ] **Step 2: Delete the copies that are no longer synced**
+
+```bash
+git rm skills/l3io-pm-execute/assets/module-setup.md \
+       skills/l3io-pm-plan/assets/module-setup.md \
+       skills/l3io-pm-help/assets/module-setup.md \
+       skills/l3io-pm-sync/assets/module-setup.md \
+       skills/l3io-pm-execute/scripts/write-module-config.py \
+       skills/l3io-pm-plan/scripts/write-module-config.py \
+       skills/l3io-pm-help/scripts/write-module-config.py \
+       skills/l3io-pm-sync/scripts/write-module-config.py
+```
+
+- [ ] **Step 3: Verify the sync check agrees**
+
+Run: `npm run sync:scripts && npm run check:scripts`
+Expected: exit 0, and no file reappears in the four PM operational skills.
+
+- [ ] **Step 4: Regenerate manifests and confirm payload shrank**
+
+```bash
+node scripts/write-payload-manifest.mjs
+npm run check:manifest
+du -sh skills/l3io-pm-execute
+```
+Expected: `check:manifest` exits 0.
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add scripts/sync-shared-scripts.mjs skills/*/payload-manifest.json
+git add -u skills/
+git commit -s -m "refactor(infra): sync setup payload to module homes only
+
+module-setup.md and write-module-config.py shipped into all 8 skills
+while only the 4 module homes run them -- the same dead-payload shape
+this package removed when it stopped vendoring BMad core scripts.
+
+Co-Authored-By: Claude Opus 5 (1M context) <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_014DuCKCCF5scofVSPGvvn97"
+```
+
+---
+
+### Task 11A: One `pm-status.py` payload per module
+
+`pm-status.py` is 327 KB and ships **four times** — 1.31 MB, of which three copies are in
+`l3io-pm` skills that self-install *the same bytes to the same destination*
+(`{project-root}/_bmad/scripts/pm-status.py`). One runtime copy per project was always the
+design (ADR-0001); four payload copies are how each skill could self-install independently.
+
+Precedent already exists for the other half: `l3io-pm-help/SKILL.md:52` states it *"only reads,
+it does not self-install"* and carries no copy. This task extends that to `l3io-pm-plan` and
+`l3io-pm-sync`, leaving `l3io-pm-setup` as the module's installer.
+
+**This changes install ordering**: `l3io-pm` skills stop working on a bare checkout until
+`/l3io-pm-setup` has run once. That is BMad's documented multi-skill model — *"To install this
+module in any project, run the setup skill"* — and it makes the setup skill load-bearing rather
+than a formality. The failure has to be excellent, which is what Step 3 is about.
+
+**Files:**
+- Modify: `scripts/sync-shared-scripts.mjs` — `pmStatusOnlyFiles` destinations
+- Delete: `skills/l3io-pm-{execute,plan,sync}/scripts/pm-status.py`
+- Create: `skills/l3io-pm-setup/scripts/pm-status.py` (generated by sync, never by hand)
+- Modify: `skills/_shared/steps/shared/step-00-activate.md` §2
+- Test: `scripts/tests/check-module.test.mjs`
+
+**Interfaces:**
+- Consumes: `l3io-pm-setup` (Task 9), `check:module` (Task 6A).
+- Produces: exactly **two** payload copies — `l3io-pm-setup/scripts/pm-status.py` and
+  `l3io-util-doctor/scripts/pm-status.py` — one per module that self-installs. Saves ~654 KB.
+
+- [ ] **Step 1: Write the failing test**
+
+Add to `check-module.test.mjs`, so the invariant is guarded and not just done once:
+
+```javascript
+test("check:module rejects a second pm-status.py payload within one module", (t) => {
+  const root = fixture(t);
+  writeModuleHome(root, "l3io-pm-setup", "l3io-pm");
+  write(root, "skills/l3io-pm-setup/scripts/pm-status.py", "# x\n");
+  write(root, "skills/l3io-pm-execute/scripts/pm-status.py", "# x\n");
+  const r = run(root);
+  assert.equal(r.status, 1);
+  assert.match(r.stderr, /pm-status\.py appears 2 times for module 'l3io-pm'/);
+});
+```
+
+Add the corresponding assertion to `check-module.mjs`: at most one `scripts/pm-status.py` per
+distinct module `code`, derived by walking `skills/` — never from a list of expected paths.
+
+- [ ] **Step 2: Run to verify it fails**
+
+Run: `node --test scripts/tests/check-module.test.mjs`
+Expected: FAIL — no such assertion yet.
+
+- [ ] **Step 3: Make the missing-helper failure excellent**
+
+In `step-00-activate.md` §2, replace the unconditional self-install for the three
+non-installing PM skills with:
+
+```bash
+test -f {project-root}/_bmad/scripts/pm-status.py
+```
+
+When absent, halt with exactly:
+
+```
+BLOCKED: l3io-pm's status helper is not installed in this project.
+Run /l3io-pm-setup once — it installs {project-root}/_bmad/scripts/pm-status.py
+and records the module's settings. Everything here resumes afterwards.
+```
+
+`l3io-pm-setup` keeps the existing `uv run {skill-root}/scripts/pm-status.py self-install`
+(already `uv run` at `:82`, and Task 0 leaves it that way). `l3io-util-doctor` keeps its
+activation-time self-install unchanged — it is the documented post-upgrade entry point and
+belongs to a different module.
+
+- [ ] **Step 4: Narrow the sync group and delete the copies**
+
+```bash
+git rm skills/l3io-pm-execute/scripts/pm-status.py \
+       skills/l3io-pm-plan/scripts/pm-status.py \
+       skills/l3io-pm-sync/scripts/pm-status.py
+```
+
+Point `pmStatusOnlyFiles` at `l3io-pm-setup` and `l3io-util-doctor` only.
+
+- [ ] **Step 5: Run the tests to verify they pass**
+
+```bash
+node --test scripts/tests/check-module.test.mjs
+npm run check:module
+```
+Expected: both exit 0.
+
+- [ ] **Step 6: Prove the blocked path end to end**
+
+```bash
+d=$(mktemp -d); mkdir -p "$d/_bmad/scripts"
+test -f "$d/_bmad/scripts/pm-status.py" && echo "UNEXPECTED" || echo "absent -> orchestrator must BLOCK"
+uv run skills/_shared/pm-status.py self-install --dest "$d/_bmad/scripts/pm-status.py"
+test -f "$d/_bmad/scripts/pm-status.py" && echo "present -> orchestrator proceeds"
+uv run "$d/_bmad/scripts/pm-status.py" --help >/dev/null && echo "installed copy is runnable"
+rm -rf "$d"
+```
+Expected: all four lines as written. The last one matters most — it proves the installed copy
+runs standalone via its own shebang, which is what every `{pm_status}` call depends on.
+
+- [ ] **Step 7: Confirm the payload actually shrank**
+
+```bash
+npm run sync:scripts && node scripts/write-payload-manifest.mjs
+find skills -name pm-status.py -not -path '*/_shared/*' | wc -l   # expect 2
+npm run check:scripts && npm run check:manifest && npm run check:docs
+```
+Expected: `2`, and all gates exit 0.
+
+- [ ] **Step 8: Commit**
+
+```bash
+git add scripts/sync-shared-scripts.mjs scripts/check-module.mjs \
+        scripts/tests/check-module.test.mjs skills/_shared/steps/shared/step-00-activate.md \
+        skills/*/payload-manifest.json
+git add -u skills/
+git commit -s -m "refactor(l3io-pm): ship one pm-status.py payload per module
+
+327 KB shipped four times, three of them in l3io-pm skills that
+self-install identical bytes to the same destination. One runtime copy
+per project was always the design (ADR-0001); four payload copies were
+only so each skill could install independently.
+
+l3io-pm-help already read without self-installing (SKILL.md:52). This
+extends that to plan and sync, leaving l3io-pm-setup as the module's
+installer -- BMad's documented multi-skill model. l3io-util-doctor is a
+different module and keeps its own activation-time self-install.
+
+Saves ~654 KB. check:module now guards the invariant.
+
+Co-Authored-By: Claude Opus 5 (1M context) <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_014DuCKCCF5scofVSPGvvn97"
+```
+
+---
+
+### Task 12: Split `l3io-pm-help` into a router plus `steps/`
+
+19,997 B with zero `steps/` files, against `l3io-util-doctor`'s 19,914 B across 20. CLAUDE.md's Module Layout rule was written about exactly this failure.
+
+**Files:**
+- Modify: `skills/l3io-pm-help/SKILL.md` → router
+- Create: `skills/l3io-pm-help/steps/step-01-config.md`, `step-02-detect-layout.md`, `step-03-read-state.md`, `step-04-health-snapshot.md`, `step-05-recommend.md`, `mode-progress.md`, `mode-list-plan.md`
+
+**Interfaces:**
+- Consumes: nothing.
+- Produces: `SKILL.md` under 6,000 B carrying overview, the keyword/mode table and safety rules; each mode body in its own file loaded only when selected.
+
+- [ ] **Step 1: Carve the existing sections into `steps/` verbatim**
+
+Map, from the current headings:
+
+| Current section | New file |
+|---|---|
+| `### 1. Load paths from config` (`:32`) | `steps/step-01-config.md` |
+| `### 2. Detect state layout` (`:100`) | `steps/step-02-detect-layout.md` |
+| `### 3. Read state files` (`:174`) | `steps/step-03-read-state.md` |
+| `### 4. Build health snapshot` (`:203`) | `steps/step-04-health-snapshot.md` |
+| `### 5. Recommend next action` (`:234`) | `steps/step-05-recommend.md` |
+| `### Progress Mode` (`:261`) | `steps/mode-progress.md` |
+| `### List Plan Mode` (`:327`) | `steps/mode-list-plan.md` |
+
+Move the text unchanged in this step — behaviour changes belong in Task 13, not here.
+
+- [ ] **Step 2: Rewrite `SKILL.md` as a router**
+
+Mirror `l3io-util-doctor/SKILL.md`'s shape — keyword table, load-on-match, nothing inlined:
+
+```markdown
+# l3io-pm-help — Next-Action Recommendation
+
+## Overview
+
+Reads project state and recommends the exact next l3io-pm action.
+
+**Default behavior (no argument or unrecognized text):** run `steps/step-01-config.md` through
+`steps/step-05-recommend.md` in order and report the recommendation.
+
+**Recognized keywords** — if the user's argument exactly matches one of these, load that file
+and follow it instead of the default sequence:
+
+| Keyword | Load | Notes |
+|---|---|---|
+| `progress` | `steps/mode-progress.md` | read-only — forwards to `/l3io-util-doctor stats` |
+| `list-plan` or `plan` | `steps/mode-list-plan.md` | read-only — plan phases and their epics |
+| `help` or `?` | — | print this table and exit; no project scan |
+
+## On Activation
+
+Resolve config per `references/config-resolution.md`, then route. Load **only** the file the
+argument selects: every step file read is paid for on every later turn of the session, and the
+default path does not need the mode files.
+```
+
+Keep the existing frontmatter `description` except for the `progress` wording, which Task 13
+changes. `SKILL.md` must end well under 6,000 B — everything else moved in Step 1.
+
+- [ ] **Step 3: Fix cross-references**
+
+Any `§N` reference into the moved sections must resolve — `check:docs` check 3 (section-refs)
+enforces this, and check 9 (authoring-paths) forbids pointing at `skills/_shared/`.
+
+- [ ] **Step 4: Verify size and gates**
+
+```bash
+wc -c skills/l3io-pm-help/SKILL.md
+npm run check:docs && npm run check:scripts && npm run check:manifest
+```
+Expected: `SKILL.md` under 6,000 B; all gates exit 0.
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add skills/l3io-pm-help/ skills/*/payload-manifest.json
+git commit -s -m "refactor(l3io-pm): split l3io-pm-help into a router and steps/
+
+19,997 B with zero steps/ files, against the doctor's 19,914 B across
+20. Every invocation paid for six procedures it would not run -- the
+failure CLAUDE.md's Module Layout rule was written about.
+
+Co-Authored-By: Claude Opus 5 (1M context) <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_014DuCKCCF5scofVSPGvvn97"
+```
+
+---
+
+### Task 13: `pm-help progress` forwards to `doctor stats`
+
+Both render a plan-aware phase→epic→sprint→story tree from `pm-status.py report`. `doctor stats` is the richer implementation (dwell times, stuck-item flags, backlog by severity, calibration state).
+
+**Files:**
+- Modify: `skills/l3io-pm-help/steps/mode-progress.md`
+- Modify: `skills/l3io-pm-help/SKILL.md` (routing table + description)
+- Modify: `docs/l3io-util-reference.md`, `docs/skills-and-sequence.md`
+
+**Interfaces:**
+- Consumes: Task 12's `steps/` layout.
+- Produces: `mode-progress.md` contains only a forwarding directive; the tree-rendering prose is deleted, not duplicated.
+
+- [ ] **Step 1: Replace the body with a forwarder**
+
+```markdown
+# Progress Mode — forwards to `/l3io-util-doctor stats`
+
+`stats` is the one plan-aware progress view. It renders the same phase → epic → sprint →
+story tree from `pm-status.py report`, and additionally reports per-status dwell time,
+stuck-item flags, backlog size by severity and calibration state.
+
+Invoke `skill:l3io-util-doctor` with `stats`, passing through any scope argument the user
+gave (`active`, `queued`, `everything`). Report its output unchanged; add no second summary.
+
+If `l3io-util-doctor` is not installed, say so in one line and stop — do not re-implement
+the tree here. That duplication is what this forwarder removed.
+```
+
+- [ ] **Step 2: Update the skill description**
+
+`l3io-pm-help`'s frontmatter currently advertises `progress` as its own tree. Reword so it
+names the forward, keeping the `progress` keyword working.
+
+- [ ] **Step 3: Verify the docs agree**
+
+Run: `npm run check:docs`
+Expected: exit 0 — check 1 resolves `l3io-util-doctor`, check 15 (doctor-mode-count) is
+unaffected because `stats` already existed.
+
+- [ ] **Step 4: Commit**
+
+```bash
+git add skills/l3io-pm-help/ docs/l3io-util-reference.md docs/skills-and-sequence.md \
+        skills/*/payload-manifest.json
+git commit -s -m "refactor(l3io-pm): pm-help progress forwards to doctor stats
+
+Two modules rendered the same tree from pm-status.py report. doctor
+stats is the richer one; pm-help now forwards rather than duplicating.
+
+Co-Authored-By: Claude Opus 5 (1M context) <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_014DuCKCCF5scofVSPGvvn97"
+```
+
+---
+
+### Task 14: Scaffold the overlay owner
+
+Phase 3 produces overlay TOML for `bmad-build`, `bmad-review` and the story skills, and no skill has that job. This task creates the home and its contract; the overlay **content** is Phase 3.
+
+**Files:**
+- Create: `skills/l3io-util-doctor/steps/overlay.md`
+- Modify: `skills/l3io-util-doctor/SKILL.md` — routing table + mode count
+- Create: `skills/l3io-util-doctor/assets/overlays/README.md`
+
+**Interfaces:**
+- Consumes: nothing.
+- Produces: `/l3io-util-doctor overlay` — three actions: `list` (what is customizable, via
+  `list_customizable_skills.py`), `diff` (staged overlay vs current merge), `verify` (via
+  `resolve_customization.py --key workflow`). It **stages** overlay files and never writes
+  `_bmad/custom/` itself.
+
+- [ ] **Step 1: Write `steps/overlay.md`**
+
+```markdown
+# overlay — generate, diff and verify BMad customization overlays
+
+## What this mode may not do
+
+**It never writes `{project-root}/_bmad/custom/`.** BMad Builder is explicit: *"There is no
+supported pattern for modules to write into `_bmad/custom/`"* — that space belongs to the end
+user. This mode stages a file and hands the user one command. If that constraint is ever
+lifted upstream, change it here and record it in an ADR; do not quietly start writing.
+
+## Actions
+
+| Action | Effect |
+|---|---|
+| `list` (default) | what is customizable in this install, and which overlays l3io ships |
+| `diff` | staged overlay vs the currently resolved merge, per skill |
+| `verify` | assert a placed overlay actually merged |
+
+## list
+
+```bash
+uv run {project-root}/.claude/skills/bmad-customize/scripts/list_customizable_skills.py \
+  --project-root {project-root}
+```
+
+Report each skill's name, the root key it takes (`agent` or `workflow`), and whether l3io
+ships an overlay for it. A skill whose `customize.toml` does not expose what an overlay needs
+is reported as such — never invent a field.
+
+## diff
+
+For each overlay under `assets/overlays/`, render it to
+`{implementation_artifacts}/l3io/overlays/<skill>.toml` and show it against the resolved
+merge. Then print exactly one placement command per staged file:
+
+    cp {implementation_artifacts}/l3io/overlays/<skill>.toml {project-root}/_bmad/custom/<skill>.toml
+
+State plainly that the team layer is committed and the `.user.toml` layer is gitignored, so
+the user is choosing scope by choosing the filename.
+
+## verify
+
+```bash
+uv run {project-root}/_bmad/scripts/resolve_customization.py \
+  --skill {skill-install-path} --project-root {project-root} --key workflow
+```
+
+Compare the resolved output against what the overlay intended. Report per overlay: placed and
+merged / placed but not merged / not placed. "Placed but not merged" is the interesting one —
+it usually means the root key is wrong (`[agent]` where `[workflow]` was needed), which BMad
+ignores **silently**.
+
+## Phase 3
+
+This mode ships with no overlay content. `assets/overlays/` is created empty with a README
+stating that the overlays themselves — the `l3io-spec-alignment` review layer, the lens
+exports, `implementation_handoff`, `persistent_facts`, `on_complete` — are Phase 3 of
+`docs/superpowers/specs/2026-09-20-l3io-customization-layer-design.md`.
+```
+
+- [ ] **Step 2: Register the mode**
+
+Add a routing-table row. Check 15 (`doctor-mode-count`) counts modes from the `steps/`
+directory **and** the routing table — both must agree, and the stated count in `SKILL.md` and
+`CLAUDE.md` must be updated from twenty to twenty-one.
+
+- [ ] **Step 3: Verify the mode count check**
+
+Run: `npm run check:docs -- -v 2>&1 | grep doctor-mode-count`
+Expected: passes at twenty-one.
+
+- [ ] **Step 4: Verify all gates**
+
+Run: `npm run check:docs && npm run check:scripts && npm run check:manifest && npm run test:scripts`
+Expected: all exit 0.
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add skills/l3io-util-doctor/ CLAUDE.md skills/*/payload-manifest.json
+git commit -s -m "feat(l3io-util): add the overlay mode, owner of the BMad customization layer
+
+Phase 3 produces overlay TOML for bmad-build and bmad-review, and no
+skill had that job. Generates to a staging path, diffs against the
+current merge and verifies with resolve_customization.py -- it never
+writes _bmad/custom/, which BMad reserves for end users.
+
+Co-Authored-By: Claude Opus 5 (1M context) <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_014DuCKCCF5scofVSPGvvn97"
+```
+
+---
+
+### Task 15: Correct CLAUDE.md's false pointer to the artifact schema
+
+**This task replaces a larger one that was solving a problem that does not exist.** Spec §4.5
+claimed the story/issue/sprint schemas are "scattered across `pm-execute`/`pm-plan` steps and
+`_shared/status-files.md` with no single owner." Measured, that is false:
+
+| Marker | `_shared/status-files.md` | `pm-execute/SKILL.md` | `pm-plan/SKILL.md` |
+|---|---|---|---|
+| `estimate:` | 3 | **0** | **0** |
+| `actual:` | 3 | **0** | **0** |
+| `completion_evidence` | 2 | **0** | **0** |
+| `resolves:` | 3 | **0** | **0** |
+| `status:` | 8 | **0** | **0** |
+
+The PM `SKILL.md` files are 40 and 53 lines — thin routers containing no schema at all. The
+contract **already has one home**, `skills/_shared/status-files.md`, synced to all four PM
+skills and the doctor. Consolidating it would move nothing.
+
+What is actually wrong is one sentence in CLAUDE.md:
+
+> For the fields the skills write (stories, sprints, epics, backlog items), see the full
+> annotated schema in each skill's `SKILL.md`.
+
+There is no schema in any skill's `SKILL.md`. A reader following that pointer finds a 40-line
+router and concludes the schema is undocumented.
+
+**Files:**
+- Modify: `CLAUDE.md`
+
+**Interfaces:**
+- Consumes: nothing.
+- Produces: nothing. Documentation correction only.
+
+- [ ] **Step 1: Prove the claim before changing it**
+
+```bash
+for f in skills/l3io-pm-execute/SKILL.md skills/l3io-pm-plan/SKILL.md; do
+  printf "%s: %s lines, %s schema markers\n" "$f" "$(grep -c . "$f")" \
+    "$(grep -cE 'completion_evidence|estimate:|actual:|resolves:' "$f")"
+done
+grep -cE 'completion_evidence|estimate:|actual:|resolves:' skills/_shared/status-files.md
+```
+Expected: 0 markers in both `SKILL.md` files, non-zero in `status-files.md`. If that is *not*
+what you see, the premise has changed — stop and re-read before editing.
+
+- [ ] **Step 2: Fix the sentence**
+
+> For the fields the skills write (stories, sprints, epics, backlog items), see the annotated
+> schema in `references/status-files.md`, which every PM skill and `l3io-util-doctor` carry.
+
+Point at the **installed** path, never `skills/_shared/` — check 9 (`authoring-paths`) fails on
+the latter, and a consumer has no `_shared/`.
+
+- [ ] **Step 3: Verify**
+
+Run: `npm run check:docs`
+Expected: exit 0, including check 9.
+
+- [ ] **Step 4: Commit**
+
+```bash
+git add CLAUDE.md
+git commit -s -m "docs: point at where the artifact schema actually lives
+
+CLAUDE.md sent readers to 'each skill's SKILL.md' for the annotated
+schema. Those files are 40 and 53 lines and contain zero schema markers;
+every one lives in _shared/status-files.md, already synced to all four
+PM skills and the doctor.
+
+Replaces a planned consolidation task: the contract already had one
+home, so there was nothing to consolidate -- only a false pointer.
+
+Co-Authored-By: Claude Opus 5 (1M context) <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_014DuCKCCF5scofVSPGvvn97"
+```
+
+---
+
+### Task 16: Record ADR-0007 and update `CLAUDE.md`
+
+**Files:**
+- Create: `docs/adr/0007-<slug>.md`
+- Modify: `docs/adr/0006-bmad-dependency-inventory.md` (amendment note)
+- Modify: `CLAUDE.md`
+
+**Interfaces:**
+- Consumes: every preceding task.
+- Produces: ADR-0007, accepted, covering the module packaging shape, the TOML-writer deviation and check 16's retirement.
+
+- [ ] **Step 1: Reserve the number**
+
+```bash
+uv run _bmad/scripts/pm-status.py adr-reserve --epic E000 --slug module-packaging-shape
+```
+
+Use whatever number it returns; do not hand-pick. If the register is absent it starts from
+max(register, files on disk) + 1.
+
+- [ ] **Step 2: Write the ADR**
+
+Sections `Status` / `Context` / `Decision` / `Consequences`, matching ADR-0006's shape. Context
+must carry the evidence: `validate-module.py:61` and `:178`, `config_utils.load_central_config`
+reading TOML only, bmb's `merge-config.py` writing `_bmad/config.yaml` and deleting per-module
+files, and the presence-only check at `:137–165`. Decision records the mixed module shape,
+the once-per-session pointer, the TOML writer under the required name, and check 16's retirement with its
+reason.
+
+- [ ] **Step 3: Amend ADR-0006**
+
+Add, without rewriting history:
+
+```markdown
+## Amendment — 2026-09-20
+
+ADR-0006 said correctly that bmad-create-story and bmad-dev-story "were deprecated to
+shims". The inventory it governs encoded them as `removed`, and three of six removed
+entries were wrong. A `deprecated` status now exists, and shipped-ness is derived from
+`_bmad/_config/skill-manifest.csv` rather than asserted by hand. See ADR-0007 and
+docs/superpowers/specs/2026-09-20-l3io-customization-layer-design.md.
+```
+
+- [ ] **Step 4: Update `CLAUDE.md`**
+
+Update: the Skill Directory table (remove `l3io-util-cleanup`, add `l3io-pm-setup`); the
+Shared Files sync table (module homes, the two merge scripts, `artifact-contract.md`); the
+check count (seventeen → sixteen) and check 16's description; the ADR line in Repository
+Purpose; the doctor mode count (twenty → twenty-one); the Dependencies section (`deprecated`
+status, `bmad-build`); and the Module Layout note, which must now say that setup lives in each
+module's home rather than "embedded in each operational skill".
+
+- [ ] **Step 5: Verify every gate one final time**
+
+Includes `test-merge-help-csv.py` and the four validator runs added by Tasks 8–9.
+
+```bash
+npm run check:docs && npm run check:scripts && npm run check:manifest \
+  && npm run check:version && npm run check:module && npm run test:scripts
+npm run smoke:install
+uv run .claude/skills/bmad-module-builder/scripts/validate-module.py skills/
+for s in l3io-util-doctor l3io-sec-redteam l3io-arch-review; do
+  uv run .claude/skills/bmad-module-builder/scripts/validate-module.py "skills/$s"
+done
+uv run skills/_shared/tests/test-pm-status.py
+uv run skills/_shared/tests/test-write-module-config.py
+uv run skills/_shared/tests/test-merge-help-csv.py
+uv run -q --with 'ruamel.yaml>=0.18' python3 skills/l3io-util-doctor/scripts/tests/test-bmad-deps.py
+```
+Expected: every command exits 0; all four validator runs report `"status": "pass"`.
+
+- [ ] **Step 6: Commit**
+
+```bash
+git add docs/adr/ CLAUDE.md
+git commit -s -m "docs(l3io): record ADR-0007, module packaging shape
+
+Records the mixed standalone/multi-skill shape, the once-per-session
+    pointer, the
+deliberate TOML-writer deviation from bmb's scaffolder, and check 16's
+retirement. Amends ADR-0006, whose prose was right and whose data drifted.
+
+Co-Authored-By: Claude Opus 5 (1M context) <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_014DuCKCCF5scofVSPGvvn97"
+```
+
+---
+
+## Out of scope
+
+Phase 3 (overlay content: the `l3io-spec-alignment` review layer, lens exports,
+`implementation_handoff`, `persistent_facts`, `on_complete`, and retiring the preference probe)
+is specified in §5 of the spec and is **not** implemented by this plan. Task 3's exemption
+markers and Task 14's overlay mode are the seams it plugs into.
+
+## Validation coverage — every task, and how it is proved
+
+No task ships on inspection alone. "Gates" means the five repo checks plus `check:module`.
+
+| Task | Automated test | Additional proof |
+|---|---|---|
+| 0 uv invocation | `check-docs.test.mjs` ×3 (incl. the fallback tolerance) | clean-env `uv run` proves provisioning, not ambient luck |
+| 1 `deprecated` status | `check-docs.test.mjs` ×2 | gates |
+| 2 correct three entries | Task 4's contradiction check asserts `[]` | gates |
+| 3 preference check | `check-docs.test.mjs` ×2 (incl. scope attack) | must go red on the real tree first |
+| 4 derive from manifest | `test-bmad-deps.py` ×3 | live run against this install |
+| 5 layout collision | `test-detect-layout.py` ×4 | fixture walk-through |
+| 5A baseline + smoke | — | `smoke:install` against a real BMad install |
+| 6 retire cleanup | `check:docs` catches any live doc reference | mode-count check |
+| 6A `check:module` | `check-module.test.mjs` ×4 (incl. scope attack) | must be red until Task 7 |
+| 7 relocate module.yaml | `check-docs.test.mjs` ×1 + `check:module` goes green | `validate-module.py` |
+| 8 merge scripts | `test-merge-help-csv.py`, `test-merge-config-wrapper.py` ×3 | exit-code propagation measured |
+| 9 `l3io-pm-setup` | — | `validate-module.py` pass ×4 modules |
+| 10 once-per-session notice | `test-pm-status.py::TestNotice` ×5 | `check:version` invariant |
+| 11 narrow sync scope | `check:scripts` | payload size before/after |
+| 11A one payload per module | `check-module.test.mjs` ×1 | install/block path proved end to end |
+| 12 split `pm-help` | routing assertions (below) | `SKILL.md` under 6,000 B |
+| 13 `progress` forwards | routing assertions (below) | `check:docs` |
+| 14 overlay mode | `doctor-mode-count` check at 21 | gates |
+| 15 fix CLAUDE.md schema pointer | `check:docs` check 9 (authoring-paths) | measured proof in Step 1 |
+| 16 ADR + CLAUDE.md | full gate sweep + `smoke:install` | `validate-module.py` ×4 |
+
+**Tasks 12 and 13 need the routing assertions written.** Splitting a skill into `steps/` is
+exactly where a mode can silently stop being reachable, and no existing gate would notice. Add
+to `scripts/tests/check-docs.test.mjs`:
+
+```javascript
+test("every l3io-pm-help routing-table target exists", (t) => {
+  const root = fixture(t);
+  const skill = fs.readFileSync(
+    path.join(root, "skills", "l3io-pm-help", "SKILL.md"), "utf8");
+  const targets = [...skill.matchAll(/`(steps\/[a-z0-9-]+\.md)`/g)].map((m) => m[1]);
+  assert.ok(targets.length >= 7, `expected the split modes, found ${targets.length}`);
+  for (const rel of targets) {
+    assert.ok(fs.existsSync(path.join(root, "skills", "l3io-pm-help", rel)),
+      `routing table points at missing ${rel}`);
+  }
+});
+
+test("pm-help progress forwards rather than re-implementing the tree", (t) => {
+  const root = fixture(t);
+  const body = fs.readFileSync(
+    path.join(root, "skills", "l3io-pm-help", "steps", "mode-progress.md"), "utf8");
+  assert.match(body, /l3io-util-doctor/);
+  assert.ok(!/pm-status\.py report/.test(body),
+    "mode-progress must forward, not render the tree itself");
+});
+```
+
+Derived by scanning the routing table rather than from a hand-listed set of modes, so adding a
+mode without a file fails without anyone remembering to update the test.
+
+## What cannot run in CI, and why
+
+`_bmad/` is gitignored, so CI has no BMad install. Two things therefore run at phase boundaries
+by hand, not as gates:
+
+- `validate-module.py` — BMad's own validator. `check:module` covers its structural half from
+  the repository alone, which is why that task exists.
+- `npm run smoke:install` — real install behaviour. Run at Phase 1 exit, Phase 2 entry and
+  Phase 2 exit, never deferred past merge.
+
+Left for a consuming project, unchanged: `/l3io-util-doctor check-deps` verifies **probe
+paths** against a real install, which no repository check can see.
+
+### Task 17: Replace the hand-rolled parsers with maintained libraries
+
+*Added during execution, on an explicit user instruction: "Always use libraries of hand rolled."*
+
+Four hand-rolled parsers exist in `scripts/`, and the code states the reason plainly at
+`check-module.mjs:195`: *"this repo has no npm dependency and CI never runs `npm install` before
+these checks … so a real CSV library is not reachable here without also wiring up a package
+install step."* That constraint was never a decision — it accreted. It is also not uniformly
+applied: the Python half of this repo uses `ruamel.yaml`, `pyyaml` and others freely through
+`uv`. Global rule 1 forbids hand-rolling parsers; global rule 2 requires testing a constraint
+before accepting it, and this one obliges us to maintain a YAML parser, a CSV parser and a shell
+lexer.
+
+**Files:**
+- Modify: `package.json`, `package-lock.json` (devDependencies only — nothing here ships)
+- Modify: `.github/workflows/checks.yml` (add `npm ci`)
+- Modify: `scripts/check-module.mjs` (`parseModuleYaml`, `splitCsvLine`)
+- Modify: `scripts/check-docs.mjs` (`COMMAND_SPLIT_RE` + check 17; `SKILL_FRONTMATTER_PARSER`)
+- Modify: `scripts/tests/check-docs.test.mjs`, `scripts/tests/check-module.test.mjs`
+- Modify: `CLAUDE.md`, `scripts/CLAUDE.md` (any claim that the gates are dependency-free)
+
+**The four:**
+
+| Where | What it hand-rolls | Replace with |
+|---|---|---|
+| `check-module.mjs:82` `parseModuleYaml()` | a YAML subset parser | `yaml` |
+| `check-module.mjs:202` `splitCsvLine()` | a CSV field splitter | `csv-parse` |
+| `check-docs.mjs:1350` `COMMAND_SPLIT_RE` | a quote-unaware shell lexer | `shell-quote` |
+| `check-docs.mjs:1669` `SKILL_FRONTMATTER_PARSER` | correct already (ruamel via `uv`), but pays a subprocess | `yaml`, in process |
+
+**Known defects this closes**, all measured earlier in this plan and none fixable by a better
+regex: `uv run A.py & python3 B.py` inside quotes false-greens; `--with` inside a quoted string
+false-greens; `timeout`/`env`/`sudo` wrappers false-red; a command inside a quoted YAML scalar
+false-reds; `uv  run` with two spaces false-reds; `echo "a;b" ; python3 x.py` is masked because
+the splitter is quote-unaware. Expressing the rule over a real argv list removes the whole class
+rather than one member of it.
+
+**Constraints:** `check:module` must keep honouring `CHECK_MODULE_ROOT`; check 17 keeps its
+markdown-only `PY_FALLBACK_QUALIFIER` scoping; check 21 keeps its `name`/`description` rules and
+its fail-closed behaviour; every existing test must keep passing unchanged unless its expectation
+was itself wrong, in which case say so explicitly.
+
+**Verification:** replay the recorded bypass and false-red strings against the rebuilt check 17
+and report a table. Corpus differ: run old and new over every scanned file and report where the
+verdicts differ, with a justification per difference. Confirm CI installs before any gate runs.

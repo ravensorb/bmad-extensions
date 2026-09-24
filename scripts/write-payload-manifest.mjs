@@ -49,11 +49,26 @@ for (const target of PAYLOAD_TARGETS) {
 
 let totalFiles = 0;
 let drift = 0;
+let missing = 0;
 for (const [skill, files] of [...bySkill.entries()].sort(([a], [b]) => a.localeCompare(b))) {
+  // Task 11A fix round 1, L-2: a manifest-listed payload file that is missing on disk (e.g.
+  // deleted by hand, or a sync group narrowed without a matching `git rm`) used to crash this
+  // whole process with a raw Node ENOENT stack trace -- exit non-zero either way, so CI was
+  // never unsafe, but the operator saw a crash instead of a diagnosis naming the missing path.
+  // Skip a missing file here (in both --check and generation mode) and let the loop below
+  // report it by name instead of throwing.
+  let skillHasMissingFile = false;
   for (const relPath of Object.keys(files)) {
     const abs = path.join(root, "skills", skill, relPath);
+    if (!fs.existsSync(abs)) {
+      console.error(`MISSING FILE: skills/${skill}/${relPath} is listed as a payload target but does not exist on disk`);
+      missing += 1;
+      skillHasMissingFile = true;
+      continue;
+    }
     files[relPath] = createHash("sha256").update(fs.readFileSync(abs)).digest("hex");
   }
+  if (skillHasMissingFile) continue;
   const manifestRel = `skills/${skill}/payload-manifest.json`;
   const manifestPath = path.join(root, manifestRel);
   // Compare (and write) the whole rendered document, not just the hash map: the `version`
@@ -98,6 +113,13 @@ for (const [skill, files] of [...bySkill.entries()].sort(([a], [b]) => a.localeC
 
   fs.writeFileSync(manifestPath, rendered);
   console.log(`${manifestRel}: ${count} file(s) at ${version}`);
+}
+
+if (missing > 0) {
+  console.error(`\n${missing} payload file(s) listed as a target but missing on disk — fix ` +
+    `the tree (restore the file or narrow the sync group in sync-shared-scripts.mjs), then ` +
+    `re-run.`);
+  process.exit(1);
 }
 
 if (check) {

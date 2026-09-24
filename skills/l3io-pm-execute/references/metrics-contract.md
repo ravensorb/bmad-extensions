@@ -68,7 +68,8 @@ self-report of how long the dev/review subagents ran (that is `elapsed_hours`), 
 this number **before** reading the node's own `estimate.man_hours` (or any report that shows
 it) — reading the estimate first anchors the re-assessment toward it. This requirement is
 agent discipline, "specified, not mechanized" (§9) — no script enforces the read order. The
-closure step files (`steps/sprint/step-04-sprint-closure.md`, `steps/execute/step-06-epic-closure.md`)
+closure step files (`l3io-pm-execute/steps/sprint/step-04-sprint-closure.md`,
+`l3io-pm-execute/steps/execute/step-06-epic-closure.md`)
 place the re-assessment as their first step for exactly this reason.
 
 **`hitl_hours` is new and observable.** It is the human's own supervisory attention — reading
@@ -348,11 +349,11 @@ into `set-actual`:
 
 ```bash
 # a story's own spend — the window comes from its dispatch bracket
-python3 {pm_status} usage --state-root {pm_state_root} --story {story_key} --model {model}
+uv run {pm_status} usage --state-root {pm_state_root} --story {story_key} --model {model}
 
 # a sprint's, an epic's, or an explicit window
-python3 {pm_status} usage --state-root {pm_state_root} --epic {epic_key} --sprint {sprint_num} ...
-python3 {pm_status} usage --since ISO --until ISO ...
+uv run {pm_status} usage --state-root {pm_state_root} --epic {epic_key} --sprint {sprint_num} ...
+uv run {pm_status} usage --since ISO --until ISO ...
 ```
 
 **Identity is not scope, and both are required.** Verifying that a file is your transcript says
@@ -424,13 +425,13 @@ that flow.
 
 ```bash
 # story estimate — single-value aliases
-python3 {pm_status} set-estimate --state-root {pm_state_root} \
+uv run {pm_status} set-estimate --state-root {pm_state_root} \
   --story E001-S01-003 \
   --man-hours 6 --hitl-hours 0.8 --elapsed-hours 1.5 --tokens-k 320 \
   --confidence high
 
 # sprint or epic estimate — ranges
-python3 {pm_status} set-estimate --state-root {pm_state_root} \
+uv run {pm_status} set-estimate --state-root {pm_state_root} \
   --epic E001 [--sprint S01] \
   --man-hours-low 12 --man-hours-high 18 \
   --hitl-hours-low 1.5 --hitl-hours-high 2.5 \
@@ -439,7 +440,7 @@ python3 {pm_status} set-estimate --state-root {pm_state_root} \
   --confidence high
 
 # actual — same metric flags at every level; tokens are per-class, cost is derived
-python3 {pm_status} set-actual --state-root {pm_state_root} \
+uv run {pm_status} set-actual --state-root {pm_state_root} \
   --node {story|sprint|epic} (--story KEY | --epic ID [--sprint ID]) \
   --runtime {runtime} \
   --elapsed-hours 3.2 --man-hours 15 --hitl-hours 1.8 \
@@ -447,7 +448,7 @@ python3 {pm_status} set-actual --state-root {pm_state_root} \
   --model claude-sonnet-5
 
 # orchestration block — sprint/epic only, never story; --man-hours 0 always (AI-only overhead)
-python3 {pm_status} set-actual --state-root {pm_state_root} \
+uv run {pm_status} set-actual --state-root {pm_state_root} \
   --node {sprint|epic} --epic ID [--sprint ID] --block orchestration \
   --runtime {runtime} \
   --elapsed-hours 0.6 --man-hours 0 --hitl-hours 0.1 \
@@ -544,7 +545,7 @@ of one node**:
 - `completion_evidence` present (story scope only)
 
 ```bash
-python3 {pm_status} verify --state-root {pm_state_root} \
+uv run {pm_status} verify --state-root {pm_state_root} \
   --scope {story|sprint} (--story KEY | --epic ID --sprint ID) \
   --runtime {runtime} [--require-tokens] [--token-rates JSON]
 ```
@@ -625,7 +626,8 @@ actual comparable at all, and it is what `derive_closure_sample` and
 > identically zero and, after three closes, trains the closure band to contribute nothing to
 > every future estimate. `set-actual` refuses a zero residual for this reason (§8), and the
 > closure step files
-> (`steps/sprint/step-04-sprint-closure.md` §3, `steps/execute/step-06-epic-closure.md` §3)
+> (`l3io-pm-execute/steps/sprint/step-04-sprint-closure.md` §3,
+> `l3io-pm-execute/steps/execute/step-06-epic-closure.md` §3)
 > state the sum-plus-closure rule per metric.
 
 `man_hours` is the one exception, and it is not a sum in the first place: it is the
@@ -682,7 +684,7 @@ a second table that can drift out of sync. It has **no `cost` row** — see "Pri
 below. `estimate-story` reads it directly:
 
 ```bash
-python3 {pm_status} estimate-story --state-root {pm_state_root} \
+uv run {pm_status} estimate-story --state-root {pm_state_root} \
   --story {story_key} --classification {simple|standard|complex} \
   [--confidence {low|medium|high}] [--model ID] [--token-rates JSON]
 ```
@@ -771,8 +773,8 @@ requiring ≥3 usable samples (`MIN_SAMPLES`), and it never appears in `CALIBRAT
 orchestration band:
 
 ```bash
-python3 {pm_status} estimate-rollup --state-root {pm_state_root} --epic {epic_key} --sprint {sprint_key} [--model ID] [--token-rates JSON]
-python3 {pm_status} estimate-rollup --state-root {pm_state_root} --epic {epic_key} [--model ID] [--token-rates JSON]
+uv run {pm_status} estimate-rollup --state-root {pm_state_root} --epic {epic_key} --sprint {sprint_key} [--model ID] [--token-rates JSON]
+uv run {pm_status} estimate-rollup --state-root {pm_state_root} --epic {epic_key} [--model ID] [--token-rates JSON]
 ```
 
 For each calibrated metric:
@@ -900,7 +902,7 @@ covers this classification), but `scope.complex.man_hours` already active at rat
 **Estimate.** The model supplies only the classification:
 
 ```bash
-python3 {pm_status} estimate-story --state-root {pm_state_root} \
+uv run {pm_status} estimate-story --state-root {pm_state_root} \
   --story E001-S01-003 --classification complex
 # OK estimate-story E001-S01-003 class=complex scope_ratios[man_hours=1.1 hitl_hours=1.0 elapsed_hours=1.0 tokens_k=1.0] fix_factor=1.25
 ```
@@ -936,17 +938,17 @@ Compute hours (6.1) and human-attention hours (0.9) are read from the run itself
 token classes (say totaling 171K) are read from the transcript `usage` fields:
 
 ```bash
-python3 {pm_status} set-actual --state-root {pm_state_root} \
+uv run {pm_status} set-actual --state-root {pm_state_root} \
   --node story --story E001-S01-003 --runtime claude \
   --elapsed-hours 6.1 --man-hours 18.2 --hitl-hours 0.9 \
   --tokens-input 26 --tokens-output 9 --tokens-cache-write 51 --tokens-cache-read 85 \
   --model claude-opus-5
 # OK set-actual E001-S01-003 ['cost', 'elapsed_hours', 'hitl_hours', 'man_hours', 'model', 'tokens_k'] [scope+4 metrics, provenance=backout, class=complex]
 
-python3 {pm_status} set-status --state-root {pm_state_root} \
+uv run {pm_status} set-status --state-root {pm_state_root} \
   --story E001-S01-003 --status done
 
-python3 {pm_status} verify --state-root {pm_state_root} \
+uv run {pm_status} verify --state-root {pm_state_root} \
   --scope story --story E001-S01-003 --runtime claude
 # PASS E001-S01-003
 ```

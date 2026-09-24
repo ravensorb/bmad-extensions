@@ -2,10 +2,13 @@
   "version": "2.5.2",
   "generated_from": "skills/_shared/",
   "files": {
+    "references/config-resolution.md": "d6cee2910b327fbfa5eab90de57e04fd1229aca1d065d149a1ab12d66a13bb7c",
+    "scripts/pm-status.py": "56cad68b04e395c60faec0c8d7da79dbf01ff2effcb3511202731b4350277858",
+    "references/status-files.md": "5072a5e3747a3fe0456f4996f5c0df915822386580e992130372868a5d5fe790",
+    "scripts/spec-align.py": "54e660827d75571f4757d74375cf5a48591bf39167359cc6def06aa82792ab9e",
+    "scripts/merge-config.py": "22f51eed631c64134d352c236917e0a98ec5b5fe5d0810394f4615905c6ef7dc",
+    "scripts/merge-help-csv.py": "44cae89d74a247395cc851970e28b65605e958efa04b632209f9bd5ecbc70d69",
     "scripts/write-module-config.py": "fdc0e81cda51221599907b9023a096b0570e096b7d921fb0c1db2050afa7a80f",
-    "references/config-resolution.md": "db1ac9c41bb785c786663c1207f03b19451b399bb9577ef761216b5392182fd7",
-    "assets/module-setup.md": "6a183e230bb6e86ee8dcb4e9c4804dd9f99883de02e4fca4031f3500848a4048",
-    "scripts/pm-status.py": "58304be3eff53054ce0e1fcee5ada0960ef42accca0294de510a946b3a091b8d",
-    "scripts/spec-align.py": "54e660827d75571f4757d74375cf5a48591bf39167359cc6def06aa82792ab9e"
+    "assets/module-setup.md": "c4ffc5f603867c37c28446600f4a0ff62d30f92a121aac595523b9da75c3cc9a"
   }
 }

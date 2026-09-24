@@ -22,8 +22,17 @@ yourself and do not continue.
 
 `modules.l3io-pm` being absent is **not** a first-run and **not** an error — it means the
 module has no project-level overrides, which is the normal state. Bind the defaults below
-and continue. Load `{skill-root}/assets/module-setup.md` only when the user explicitly
-passes `setup`, `configure`, or `install`.
+and continue. This skill never loads module setup, regardless of argument —
+`/l3io-pm-setup` is the module's setup entry point.
+
+Bind `{l3io_pm_section_absent}` = `true` when `modules.l3io-pm` is absent from the resolved
+JSON, else `false`. This reuses the same resolved JSON already read above — it is not a second
+resolve. It exists solely for the once-per-project setup-pointer check in `l3io-pm-execute` and
+`l3io-pm-plan` (`config-resolution.md` §5) — not once per session: there is no cross-invocation
+session identifier available, so a session-keyed check would fire on every invocation instead.
+The pointer's only useful message is "you have not configured this," so it must say nothing
+once a section exists. This flag is never a trigger for setup itself — no argument to this
+skill triggers module setup; `/l3io-pm-setup` is the module's setup entry point.
 
 Extract and bind from the resolved JSON:
 - `{communication_language}` — `core.communication_language` (default `English`)
@@ -65,6 +74,44 @@ Extract and bind from the resolved JSON:
 
 ## 2. Install pm-status.py
 
+`pm-status.py` ships once per module, not once per skill. For `l3io-pm` it lives at
+`l3io-pm-setup/scripts/pm-status.py` — the module's home — not here in this skill's own
+`scripts/`. That is a module-home read, not the cross-skill path read `l3io-pm-help/SKILL.md`
+says it avoids for its own, unrelated staleness question: `.claude-plugin/marketplace.json`
+declares the whole `l3io-pm` plugin — all five of its skills, including `l3io-pm-setup` — as
+one unit, and BMad's installer resolves and copies that unit as siblings under
+`.claude/skills/`. `/l3io-pm-setup` itself stays **optional**: nothing here requires the setup
+skill to ever have been *run*, only installed beside this one.
+
+**That co-installation is conditional, not absolute — say so plainly.** BMad's installer only
+carries a skill into `.claude/skills/` and `_bmad/_config/skill-manifest.csv` when its
+`SKILL.md` frontmatter strict-YAML-parses and its `name:` equals its directory name; a skill
+that fails either test is silently dropped from the plugin, with no install-time warning. This
+happened for real: `l3io-pm-sync/SKILL.md`'s unquoted `Modes: …` line broke the parse and a
+real install shipped only four of `l3io-pm`'s five skills until it was quoted (Task 11A fix
+round 1; `check:docs`'s `skill-frontmatter` check now guards this mechanically going forward,
+but a project on an older, unpatched copy of this package could still hit it).
+
+First confirm the sibling payload is actually on disk — the manifest states the intent, but
+only this on-disk check states the fact, whether the cause is the installer dropping the
+skill or someone hand-copying a single skill directory out of the plugin (or shipping a
+partial checkout). Either way the failure must name the missing piece rather than fail
+silently or opaquely inside `uv run`:
+
+```bash
+test -f {skill-root}/../l3io-pm-setup/scripts/pm-status.py
+```
+
+If absent, halt:
+```
+BLOCKED: l3io-pm-setup/scripts/pm-status.py is missing beside this skill.
+Check {project-root}/_bmad/_config/skill-manifest.csv for an l3io-pm-setup row: if it is
+missing, the installer rejected that skill (a SKILL.md frontmatter or naming defect) and
+reinstalling the l3io-pm plugin will reproduce the same result until that is fixed upstream.
+If the row IS present, a skill directory was likely hand-copied or the checkout is partial —
+reinstalling the l3io-pm plugin resolves that case.
+```
+
 Self-install compares the installed copy's **bytes** against this one and reinstalls on any
 difference, so a project pinned to a stale copy heals itself on the next run. It skips only a
 byte-identical copy, and refuses to overwrite a strictly newer one. Pass `--force` to
@@ -79,7 +126,7 @@ command needs a current `{pm_status}` to succeed — which this section guarante
 which layout branch section 3 takes.
 
 ```bash
-uv run {skill-root}/scripts/pm-status.py self-install \
+uv run {skill-root}/../l3io-pm-setup/scripts/pm-status.py self-install \
   --dest {project-root}/_bmad/scripts/pm-status.py
 ```
 
@@ -209,7 +256,7 @@ If `{active_epic_keys}` is non-empty AND this skill is `l3io-pm-execute` or `l3i
 run for each epic key in scope:
 
 ```bash
-python3 {pm_status} verify --state-root {pm_state_root} --epic {epic_key} --scope epic
+uv run {pm_status} verify --state-root {pm_state_root} --epic {epic_key} --scope epic
 ```
 
 A FAIL result means the epic's files are corrupted. Halt with:

@@ -81,7 +81,7 @@ on them, exactly as sprint closure §6 does:
   A `check-dispositions` exit 2 blocks closure.
 - MINOR: append each to the issues file:
   ```bash
-  python3 {pm_status} append-issue --file {pm_issues_file} \
+  uv run {pm_status} append-issue --file {pm_issues_file} \
     --epic {epic_nnn} --sprint "" \
     --title "{finding_text}" \
     --source "epic-arch-review ({finding_id})" \
@@ -162,7 +162,7 @@ Sprint closure already runs redteam per sprint (`sprint-closure.md` §4), but a 
 surface map is the narrowest one it ever builds; an epic-wide analysis is where entry
 points, trust boundaries, and auth checkpoints spanning multiple sprints' changes actually
 come into view. Give it a starting set, not a fence — the same distinction sprint closure
-draws, for the same reason (redteam's own method, `references/scope-mapping.md`, builds its
+draws, for the same reason (redteam's own method, `l3io-sec-redteam/references/scope-mapping.md`, builds its
 surface map from what's actually implemented, and "a scope with no entry points or no trust
 boundaries is incomplete — expand until the picture is coherent"). Pass:
 
@@ -180,14 +180,14 @@ boundaries is incomplete — expand until the picture is coherent"). Pass:
 Cost discipline takes the form of accountability, not a fence: start from the seed artifacts,
 widen only with a reason, and report what it widened to and why.
 
-**Findings use redteam's own severity vocabulary** (`references/findings-report.md`), not the
+**Findings use redteam's own severity vocabulary** (`l3io-sec-redteam/references/findings-report.md`), not the
 arch reviewer's BLOCKER/MAJOR/MINOR:
 - CRITICAL/HIGH: must be resolved before closure completes (fix loop, max
   `{max_fix_iterations}` iterations) or recorded as an accepted ADR that justifies leaving it.
 - MEDIUM: fix in place, or record an accepted ADR that justifies leaving it.
 - LOW: append each to the issues file:
   ```bash
-  python3 {pm_status} append-issue --file {pm_issues_file} \
+  uv run {pm_status} append-issue --file {pm_issues_file} \
     --epic {epic_nnn} --sprint "" \
     --title "{finding_text}" \
     --source "epic-redteam ({finding_id})" \
@@ -204,7 +204,7 @@ Review for any that should be promoted to Medium/High given the full epic contex
 For any promoted item, change its severity in place — never remove and re-append it:
 
 ```bash
-python3 {pm_status} update-issue --state-root {pm_state_root} --key {BL key} \
+uv run {pm_status} update-issue --state-root {pm_state_root} --key {BL key} \
   --severity {Medium|High|Critical} --note "{why, given the full epic}" --cause cli
 ```
 
@@ -239,12 +239,12 @@ Epic closure runs once per epic, after all of its sprints have finished, so it i
 with sibling sprints for stdout — render unconditionally:
 
 ```bash
-python3 {pm_status} report \
+uv run {pm_status} report \
   --state-root {pm_state_root} \
   --plan {planning_artifacts}/plan-output-meta.yaml \
   --format tree
 
-python3 {pm_status} report \
+uv run {pm_status} report \
   --state-root {pm_state_root} \
   --plan {planning_artifacts}/plan-output-meta.yaml \
   --format md --out {implementation_artifacts}/progress-report.md

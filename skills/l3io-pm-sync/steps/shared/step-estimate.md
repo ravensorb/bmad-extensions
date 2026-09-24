@@ -40,7 +40,8 @@ estimate block.
 For each story in the selected set — **whether or not it already carries an `estimate`
 block**. `estimate-story` overwrites unconditionally (`node["estimate"] = est`), which is
 exactly what re-estimation needs; there is no "needs re-estimation" flag to test and none is
-required. Note this is deliberately the opposite of `steps/sprint/step-02-story-prep.md` §4,
+required. Note this is deliberately the opposite of
+`l3io-pm-execute/steps/sprint/step-02-story-prep.md` §4,
 which skips a story that is already estimated: prep is priming a story about to be built, and
 re-estimation is re-pricing one that has not started. Both are right for their caller.
 
@@ -50,7 +51,7 @@ source), applies the calibrated per-metric scope ratio and the classification's 
 (cold-start priors when either is not yet active), and writes the estimate block.
 
 ```bash
-python3 {pm_status} estimate-story \
+uv run {pm_status} estimate-story \
   --state-root {pm_state_root} \
   --story {story_key} \
   --classification {simple|standard|complex} \
@@ -84,11 +85,11 @@ estimates:
 
 ```bash
 # each sprint in scope
-python3 {pm_status} estimate-rollup --state-root {pm_state_root} --epic {epic_key} --sprint {sprint_key} \
+uv run {pm_status} estimate-rollup --state-root {pm_state_root} --epic {epic_key} --sprint {sprint_key} \
   --model {model} [--token-rates '{token_rates_json}']
 
 # each epic in scope, after all its sprints are rolled up
-python3 {pm_status} estimate-rollup --state-root {pm_state_root} --epic {epic_key} \
+uv run {pm_status} estimate-rollup --state-root {pm_state_root} --epic {epic_key} \
   --model {model} [--token-rates '{token_rates_json}']
 ```
 

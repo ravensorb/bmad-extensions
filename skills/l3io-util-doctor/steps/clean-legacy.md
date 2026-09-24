@@ -1,8 +1,9 @@
 ## Clean Legacy Mode
 
 Invoked with `clean-legacy` argument. Removes migration backup files *and directories* left
-behind by one-time migration commands: `.yaml.legacy` files, `.v1` calibration backups, the
-pre-migration `state.legacy/` directory and `pm-calibration.yaml.legacy` file `migrate-state`
+behind by one-time migration commands: `.yaml.legacy` files, the `.v1` calibration
+schema backup in the state root, the pre-migration `state.legacy/` directory and
+`pm-calibration.yaml.legacy` file `migrate-state`
 Stage D leaves at their original `_bmad/` location, and the `migration-backup/` directory
 Stage F's default "move" option relocates everything into. Dry-run first; confirms before
 deleting. Safe to run once migrations have been verified.
@@ -16,8 +17,13 @@ Load config (same as layout cleanup). Scan for:
    `sprint-status.yaml.legacy`, `sprint-status-backlog.yaml.legacy`,
    `sprint-status-archived.yaml.legacy`) — `migrate-state` Stage D's per-file backups,
    present here when the F2 backup disposal chose "K" (keep in place) or has not run yet.
-2. `*.yaml.v1` files in `{project-root}/_bmad/` (e.g., `pm-calibration.yaml.v1`) —
-   `migrate-schema`'s field-upgrade backups.
+2. `{pm_calibration_file}.v1` (i.e. `{pm_state_root}/pm-calibration.yaml.v1`) — the
+   calibration schema v1 → v2 backup. **Derive this path from `{pm_calibration_file}`, never
+   type a second literal**: `pm-status.py`'s `migrate_calibration` writes it as
+   `calibration_path(state_root) + ".v1"`, so it always lands beside the live calibration
+   file in the state root and follows it if that location ever moves. `migrate-schema` does
+   not produce it — it writes no backup at all. Scan `{pm_state_root}/` for `*.yaml.v1` so a
+   backup from any future calibration schema bump is swept by the same pass.
 3. `{project-root}/_bmad/pm-calibration.yaml.legacy` (file) — `migrate-state` Stage D's
    pre-migration calibration backup, at its original location.
 4. `{project-root}/_bmad/state.legacy/` (directory) — `migrate-state` Stage D's whole-tree
@@ -45,7 +51,7 @@ CLEAN LEGACY DRY RUN
 File / Directory                                         Size     Contents
 ----------------------------------------------------------------
 {implementation_artifacts}/sprint-status.yaml.legacy      {size}   —
-{project-root}/_bmad/pm-calibration.yaml.v1                {size}   —
+{pm_state_root}/pm-calibration.yaml.v1                    {size}   —
 {project-root}/_bmad/pm-calibration.yaml.legacy             {size}   —
 {project-root}/_bmad/state.legacy/                          {size}   DIR — {n} files (epic-001/, epic-002/, ...)
 {project-root}/_bmad/migration-backup/                       {size}   DIR — {n} files (sprint-status.yaml.legacy, state.legacy/, pm-calibration.yaml.legacy)

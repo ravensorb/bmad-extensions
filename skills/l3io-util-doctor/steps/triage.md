@@ -14,7 +14,21 @@ Load config (same as layout cleanup), then bind:
 - `{triage_session}` — `triage-{UTC timestamp, e.g. 20260910T153000Z}`; pass it as
   `--session-id` and `--cause triage` on every write below
 
-If `{pm_issues_file}` does not exist, print `Backlog is empty — nothing to triage.` and exit.
+**Precondition — `{pm_state_root}`, not `{pm_issues_file}`.** If `{pm_state_root}` does not
+exist, print `No state tree — nothing to triage.` and exit. Do **not** gate on
+`{pm_issues_file}`: `audit-issues` runs its story-node walk over an empty store whenever the
+state root exists (`pm-status.py cmd_audit_issues` takes no lock and reads no issue file in
+that branch), and findings **1b** (a `resolves:` key naming neither issue file) and **1h** (two
+live stories claiming one key) are reported from story nodes alone. Those are exactly the
+findings Health Check 13 flags `triage` for, so exiting here would have refused the case the
+detector raised. `issues-resolved.yaml` can also exist without `issues.yaml`, which makes
+findings `1a` and `1j` reachable too.
+
+When both issue files are absent the backlog passes are not skipped — they run and come back
+empty on their own: `list-issues --all` returns `{"open": [], "resolved": []}` at exit 0 and
+creates no lock file, `audit-backlog.py` prints `audit-backlog: no open items`, T3b's two
+`--kind` queries are empty so it skips itself, and T4's `needs-review` count is zero. Report
+the T2 findings and let T7 print zeroes for the rest.
 
 ### Step T2 — Integrity
 

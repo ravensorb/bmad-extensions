@@ -17,7 +17,7 @@ execution engine, on your behalf, at points where their judgement is needed.
 | `l3io-sec-redteam` | "What would an adversary do with this?" | **Automatic** at closure; directly for ad-hoc reviews |
 | `l3io-pm-help` | "What should I do next? Where is everything?" | Any time you are unsure. Read-only |
 | `l3io-pm-sync` | "Keep GitHub Issues in step with this state" | Opt-in, when your team lives in Issues |
-| `l3io-util-cleanup` | — | Deprecated. Forwards to `l3io-util-doctor` |
+| `l3io-pm-setup` | "Record l3io-pm's project-level settings" | Only when you explicitly run `/l3io-pm-setup`, `configure`, or `install` |
 
 ## Why each one exists
 
@@ -96,8 +96,9 @@ and the work is code-bearing. Reach for it directly for an ad-hoc review of some
 
 ### `l3io-pm-help` — the read-only oracle
 
-Reads the project and tells you the single next action. It also renders the progress tree and,
-with `list plan`, enumerates plan snapshots so you can see whether the pointer is stale.
+Reads the project and tells you the single next action. With `progress` it forwards to
+`/l3io-util-doctor stats` for the progress tree rather than rendering its own copy, and with
+`list plan` it enumerates plan snapshots so you can see whether the pointer is stale.
 
 It exists because the honest answer to "what now?" depends on state most people should not have
 to hold in their heads: whether a plan exists, whether readiness is green, whether an epic holds
@@ -115,6 +116,18 @@ marks stories done whose issue closed as completed, `sync` does both. GitHub onl
 
 It is opt-in and orthogonal. Nothing else depends on it, and skipping it costs you nothing but
 the mirror.
+
+### `l3io-pm-setup` — the module's setup skill
+
+`l3io-pm` is the only multi-skill module in this package, so it is the only one with a
+dedicated setup skill; `l3io-util`, `l3io-sec`, and `l3io-arch` each self-register from their
+own single skill instead. Records `l3io-pm`'s project-level settings (`implementation_artifacts`,
+`planning_artifacts`, and any other declared `module.yaml` variables) in the two human-authored
+BMad config layers.
+
+It never runs implicitly. `l3io-pm` declares no required settings, so an absent
+`[modules.l3io-pm]` section is normal, not a first-run trigger — every PM skill works without
+one. Run it only when you explicitly ask to install, configure, or reconfigure `l3io-pm`.
 
 ## What runs automatically inside execution
 

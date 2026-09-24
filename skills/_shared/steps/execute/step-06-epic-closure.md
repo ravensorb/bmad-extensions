@@ -31,7 +31,7 @@ Execute the full closure workflow from that file. It returns a closure report wi
 ## 3. Sprint actuals **plus this epic's own closure spend** → write epic actual
 
 ```bash
-python3 {pm_status} show --state-root {pm_state_root} --epic {epic_key}
+uv run {pm_status} show --state-root {pm_state_root} --epic {epic_key}
 ```
 
 **The epic actual is the sum of its sprints plus what closing the epic itself cost — never
@@ -69,7 +69,7 @@ Under `--runtime claude`, pass the summed token classes with `--model`; `set-act
 observable.
 
 ```bash
-python3 {pm_status} set-actual \
+uv run {pm_status} set-actual \
   --state-root {pm_state_root} \
   --node epic --epic {epic_key} \
   --runtime {runtime} \
@@ -96,7 +96,7 @@ to any sprint. `--man-hours 0`: orchestration is AI-only overhead, so there is n
 human-developer counterfactual for it. Valid on a sprint or epic node only, never a story:
 
 ```bash
-python3 {pm_status} set-actual --state-root {pm_state_root} --node epic \
+uv run {pm_status} set-actual --state-root {pm_state_root} --node epic \
   --epic {epic_key} --block orchestration \
   --elapsed-hours {orch_elapsed} --man-hours 0 --hitl-hours {orch_hitl} \
   --tokens-input {orch_tokens_input} --tokens-output {orch_tokens_output} \
@@ -111,19 +111,19 @@ second call on the same node records nothing. See `references/metrics-contract.m
 ## 5. Write epic closed + retrospective fields
 
 ```bash
-python3 {pm_status} set-field \
+uv run {pm_status} set-field \
   --state-root {pm_state_root} \
   --epic {epic_key} \
   --field closed.date \
   --value {today_iso}
 
-python3 {pm_status} set-field \
+uv run {pm_status} set-field \
   --state-root {pm_state_root} \
   --epic {epic_key} \
   --field retrospective.summary \
   --value "{retrospective_summary}"
 
-python3 {pm_status} set-field \
+uv run {pm_status} set-field \
   --state-root {pm_state_root} \
   --epic {epic_key} \
   --field retrospective.learnings \
@@ -137,7 +137,7 @@ file) from `active/` to `archived/` in one step — nothing to delete afterward,
 directory itself relocates rather than being copied:
 
 ```bash
-python3 {pm_status} archive-epic --state-root {pm_state_root} --epic {epic_key}
+uv run {pm_status} archive-epic --state-root {pm_state_root} --epic {epic_key}
 ```
 
 ## 7. Clear ownership lock
@@ -146,7 +146,7 @@ python3 {pm_status} archive-epic --state-root {pm_state_root} --epic {epic_key}
 archived epic's file doesn't carry a stale lock forward:
 
 ```bash
-python3 {pm_status} clear-lock --state-root {pm_state_root} --epic {epic_key}
+uv run {pm_status} clear-lock --state-root {pm_state_root} --epic {epic_key}
 ```
 
 ## 8. Calibration

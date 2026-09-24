@@ -1,6 +1,10 @@
-#!/usr/bin/env python3
+#!/usr/bin/env -S uv run --quiet --script
+# /// script
+# requires-python = ">=3.11"
+# dependencies = ["ruamel.yaml>=0.18"]
+# ///
 """
-Tests for pm-status.py — run with: python3 test-pm-status.py  (or `uv run`).
+Tests for pm-status.py — run with: uv run test-pm-status.py
 Exercises the sharded split-directory layout resolution, key-based node addressing
 (set-status/set-actual/set-estimate/set-field/verify), epic directory moves
 (move-epic/archive-epic), the unconverted --file-based commands (locks,
@@ -15,7 +19,8 @@ import shutil
 import sys
 import tempfile
 import unittest
-from contextlib import redirect_stderr, redirect_stdout
+from contextlib import contextmanager, redirect_stderr, redirect_stdout
+from unittest import mock
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 SCRIPT = os.path.join(os.path.dirname(HERE), "pm-status.py")
@@ -234,6 +239,237 @@ class TestLockCommands(Base):
                                     "--session-id", "sess-xyz"])
         self.assertEqual(code, 5)
         self.assertIn("sess-abc", out)
+
+
+class TestNotice(Base):
+    """notice: a one-time-ever advisory pointer, keyed on --key alone. Base gives us self.d
+    (scratch dir) and self.run_main(argv) -> (code, stdout).
+
+    No session dimension: `{session_id}` (step-00-activate.md) is bound fresh per skill
+    invocation and no caller of `notice` is ever a dispatched subagent that could inherit
+    one from a parent, so no two `notice` calls ever share one -- a per-session key would
+    never repeat, firing on every invocation instead of once. The guarantee is therefore
+    "once per project, until whatever the key represents is no longer true" (here: until
+    `modules.l3io-pm` is configured), not "once per session".
+    """
+
+    def notice(self, key="setup-pointer"):
+        return self.run_main(["notice", "--state-root", self.d, "--key", key])
+
+    def test_emitted_once_ever(self):
+        code, out = self.notice()
+        self.assertEqual(code, 0, out)
+        code, out = self.notice()
+        self.assertEqual(code, 1, out)
+        # And it stays suppressed -- this is not a one-shot-then-forgotten guard.
+        self.assertEqual(self.notice()[0], 1)
+
+    def test_scoped_per_key(self):
+        self.notice("a")
+        self.assertEqual(self.notice("a")[0], 1)   # same key, second call: suppressed
+        self.assertEqual(self.notice("b")[0], 0)   # different key: independent
+
+    def test_blank_key_is_a_usage_error(self):
+        self.assertEqual(self.run_main(
+            ["notice", "--state-root", self.d, "--key", "  "])[0], 2)
+
+    def test_damaged_file_does_not_block_the_caller(self):
+        with open(os.path.join(self.d, ".notices.yaml"), "w", encoding="utf-8") as fh:
+            fh.write("{ not: valid: yaml\n")
+        self.assertEqual(self.notice()[0], 0)
+
+    def test_write_failure_is_reported_distinctly_not_as_already_emitted(self):
+        """A bad READ is tolerated (test_damaged_file_does_not_block_the_caller above), but
+        a failure actually recording the notice is a real failure, not "already said" (1)
+        and not silent success (0) -- a caller told 1 says nothing further, so a masked
+        crash there would silently and permanently suppress the pointer."""
+        os.mkdir(os.path.join(self.d, ".notices.yaml"))   # a directory where the file goes
+        code, out = self.notice()
+        self.assertEqual(code, 2, out)
+        os.rmdir(os.path.join(self.d, ".notices.yaml"))
+        # Once the obstruction is gone, the key is still genuinely unrecorded -- the earlier
+        # failure must not have left a stale lock or a false "emitted" record.
+        self.assertEqual(self.notice()[0], 0)
+
+
+class TestConcurrentNoticeDistinctKeys(unittest.TestCase):
+    """SMOKE coverage for the lost-update property (kept alongside the deterministic
+    TestNoticeReadHappensAfterTheLock below, which is the assertion that must hold -- this
+    test costs little and a real regression here would still be worth seeing fail).
+
+    notice's load->check->append->save must run under ONE lock (notices_lock), mirroring
+    TestConcurrentSampling/TestConcurrentAdrReservation below. Locking only the write would
+    let two parallel calls each read the same pre-write `keys` list and save their own key
+    into it -- a lost update, silently dropping whichever key's writer read first, the same
+    collision class every sibling lock family below exists to close.
+
+    N distinct --key values racing together: every process reads and rewrites the SAME
+    growing `keys` list for the whole run, exactly the shape TestConcurrentSampling and
+    TestConcurrentAdrReservation already use to make their races land reliably. This test
+    pins the lost-update property; TestConcurrentNoticeSameKey below pins the OTHER property
+    that matters under the key-only scope -- exclusivity on a single repeated key -- which
+    needs a pre-populated ledger to race reliably (see its docstring).
+
+    Real subprocesses, not threads: `_file_lock`'s reentrancy counter (`_NOTICES_LOCK`) is
+    per-process state, so threads sharing one process would pass this test vacuously even
+    with the lock removed.
+    """
+
+    N = 24
+
+    def setUp(self):
+        self.d = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, self.d, True)
+        self.root = os.path.join(self.d, "state")
+        os.makedirs(self.root)
+
+    def test_concurrent_notices_for_distinct_keys_lose_none(self):
+        import subprocess
+        procs = [subprocess.Popen(
+            [sys.executable, SCRIPT, "notice", "--state-root", self.root, "--key", f"key-{i}"],
+            stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+            for i in range(self.N)]
+        codes = []
+        for p in procs:
+            _, err = p.communicate(timeout=120)
+            codes.append(p.returncode)
+        self.assertEqual(codes, [0] * self.N,
+                         f"every distinct key is new, so every caller must exit 0; got {codes}")
+        _, data = pm._load(os.path.join(self.root, ".notices.yaml"))
+        recorded = set(data["keys"]) if data else set()
+        expected = {f"key-{i}" for i in range(self.N)}
+        self.assertEqual(recorded, expected,
+                         f"lost update(s) under concurrency: missing {expected - recorded}")
+
+
+class TestConcurrentNoticeSameKey(unittest.TestCase):
+    """SMOKE coverage, kept alongside the deterministic TestNoticeReadHappensAfterTheLock
+    below (the assertion that must hold). This test is real -- every failure it produces is a
+    genuine double-emit -- but it INFERS the lock from a timing window wide enough to lose a
+    race, rather than asserting the lock's ordering directly. That makes it a tuned constant,
+    not a fixed property: re-review measured a smooth, continuous detection-rate curve against
+    PRESEED (0/10, 1/10, 5/10, 6/10, 8/10, 8/10 at 0/40/100/250/500/1000), not a cliff, so
+    whatever value ships here will eventually sit wherever 40 sits today if the critical
+    section this preseed exists to lengthen ever gets cheaper (faster ruamel, a faster box, a
+    cheaper loader) -- at which point this test keeps reporting OK while checking nothing.
+    Exclusivity on a single repeated key is still a real property worth this smoke coverage:
+    two concurrent callers (e.g. l3io-pm-execute and l3io-pm-plan invoked around the same time
+    in an unconfigured project) racing on the SAME key must never both be told "emit it".
+
+    An EMPTY ledger's critical section is too short-lived for process-launch jitter alone to
+    ever overlap it -- confirmed empirically: a same-key race against an empty ledger never
+    reproduced a double exit-0, even at N=250. Pre-seeding the ledger with many prior keys
+    widens the window enough (real ruamel parse + dump work over a bigger file) for the race
+    to land reliably; confirmed empirically against THIS flat `{keys: [...]}` shape: a
+    500-entry preseed at N=16 detects the lock's removal in the large majority of rounds
+    (measured 8/10 by re-review, 8/8 in an earlier smaller sample here) with zero false
+    positives against the shipped, locked code in every round either measurement ran.
+    """
+
+    N = 16
+    PRESEED = 500
+
+    def setUp(self):
+        self.d = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, self.d, True)
+        self.root = os.path.join(self.d, "state")
+        os.makedirs(self.root)
+        y = pm._yaml()
+        with open(os.path.join(self.root, ".notices.yaml"), "w", encoding="utf-8") as fh:
+            y.dump({"keys": [f"prior-key-{i}" for i in range(self.PRESEED)]}, fh)
+
+    def test_concurrent_notices_for_one_key_fire_exactly_once(self):
+        import subprocess
+        procs = [subprocess.Popen(
+            [sys.executable, SCRIPT, "notice", "--state-root", self.root,
+             "--key", "setup-pointer"],
+            stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+            for _ in range(self.N)]
+        codes = []
+        for p in procs:
+            p.communicate(timeout=120)
+            codes.append(p.returncode)
+        self.assertEqual(codes.count(0), 1,
+                         f"exactly one concurrent caller must be told to emit; got {codes}")
+        self.assertEqual(codes.count(1), self.N - 1,
+                         f"every other caller must see 'already emitted'; got {codes}")
+        _, data = pm._load(os.path.join(self.root, ".notices.yaml"))
+        self.assertIn("setup-pointer", data["keys"])
+        self.assertEqual(len(data["keys"]), self.PRESEED + 1,
+                         "no lost or duplicated entries under concurrency")
+
+
+class TestNoticeReadHappensAfterTheLock(Base):
+    """THE assertion that must hold: notice reads the ledger AFTER acquiring the lock, not
+    before. Were the read to happen first, two concurrent callers could both see "not yet
+    emitted" and both be told to emit -- the exact double-emit / lost-update bug
+    notices_lock exists to prevent, and the one the smoke tests above can only infer.
+
+    This asserts that ordering DIRECTLY and in-process, with no timing of any kind: wrap
+    `notices_lock` and `_load` so each records when it runs, drive the real CLI through
+    run_main, and compare the recorded sequence against the one correct order. Nothing here
+    depends on how long a subprocess takes to boot, on machine load, or on how wide the
+    critical section happens to be -- so unlike the smoke tests, there is no constant here
+    that can quietly stop discriminating on a faster or a busier machine.
+
+    That is why this test is in-process at all. An earlier version held the lock and slept a
+    fixed margin while a real `notice` subprocess raced it. Measured, that margin carried
+    only 2.3-2.6x headroom over subprocess boot-to-ledger-read on an idle box (176-213 ms
+    boot vs a 0.5 s margin), and under ordinary CI CPU contention boot rose to a 1231 ms
+    median -- past the margin -- taking detection of a planted read-before-lock bug to 0/10
+    while the test still reported OK. A timing margin here can only ever fail toward FALSE
+    GREEN (flock blocks a correct implementation unconditionally, so it cannot false-red),
+    which is the dangerous direction. Polling /proc/locks for the child's blocked waiter is
+    the other exact answer and self-adapting, but Linux-only; this one is portable.
+
+    The wrappers are this test's one liability -- they name internals -- so it is built to
+    FAIL LOUDLY rather than pass vacuously if those internals move:
+
+    - `mock.patch.object` raises AttributeError if `notices_lock` or `_load` is renamed
+      away, so a rename ERRORS this test rather than silently unhooking it.
+    - the assertion is on the EXACT sequence, never merely on the absence of a bad one. If a
+      wrapper stops firing (the lock inlined, the read routed through some other helper) the
+      recorded list comes back short or empty and the comparison fails. "No bad order was
+      observed" over an empty list is precisely the false green this test must not be able
+      to produce.
+    - every `_load` call is recorded, unfiltered by path, so an extra or unexpected read
+      breaks the comparison too instead of being folded into the expected one.
+    """
+
+    EXPECTED = ["lock-acquired", "read", "lock-released"]
+
+    def test_the_ledger_read_is_recorded_between_lock_acquire_and_release(self):
+        events = []
+        real_lock, real_load = pm.notices_lock, pm._load
+
+        @contextmanager
+        def recording_lock(state_root):
+            with real_lock(state_root):          # the real flock, really taken
+                events.append("lock-acquired")
+                try:
+                    yield
+                finally:
+                    events.append("lock-released")
+
+        def recording_load(path):
+            events.append("read")
+            return real_load(path)
+
+        with mock.patch.object(pm, "notices_lock", recording_lock), \
+                mock.patch.object(pm, "_load", recording_load):
+            code, out = self.run_main(
+                ["notice", "--state-root", self.d, "--key", "setup-pointer"])
+
+        # A first notice on a fresh state root must emit -- if it did not, the run under
+        # observation was not the read-decide-write path this test means to have watched.
+        self.assertEqual(code, 0, out)
+        self.assertEqual(
+            events, self.EXPECTED,
+            f"the ledger read must happen INSIDE the lock. Expected {self.EXPECTED}, got "
+            f"{events}. A 'read' before 'lock-acquired' is the double-emit bug itself; a "
+            f"missing or extra entry means a wrapper did not fire as expected and this "
+            f"test is no longer asserting the property -- check whether notices_lock or "
+            f"_load was renamed or bypassed in cmd_notice.")
 
 
 class TestSetLockMutualExclusion(Base):
@@ -8586,11 +8822,12 @@ class TestEventWriteFailure(IssueBase):
 
 
 class TestLockFilesIgnored(IssueBase):
-    """Lock files must never be committed. Every lock acquisition inside a state root ensures
-    {state_root}/.gitignore carries `*.lock` (a bare `append-issue --file` outside one is
-    skipped) -- on every acquisition, not only when a lock file is first created, so a
-    project whose lock files already exist is covered on its next lock. Best-effort: a
-    failure warns on stderr and never fails the verb."""
+    """Lock files, and the notices ledger, must never be committed. Every lock acquisition
+    inside a state root ensures {state_root}/.gitignore carries BOTH `*.lock` and
+    `.notices.yaml` (a bare `append-issue --file` outside one is skipped) -- on every
+    acquisition, not only when a pattern's file is first created, so a project whose lock
+    files already exist is covered on its next lock. Best-effort: a failure warns on stderr
+    and never fails the verb."""
 
     STORY = "E001-S01-001"
 
@@ -8622,13 +8859,17 @@ class TestLockFilesIgnored(IssueBase):
         code, _, err = self.append("A")
         self.assertEqual(code, 0, err)
         self.assertTrue(os.path.exists(self.issues + ".lock"), "premise: a lock was taken")
-        self.assertIn("*.lock", self.gi_lines())
+        lines = self.gi_lines()
+        self.assertIn("*.lock", lines)
+        self.assertIn(".notices.yaml", lines)
 
     def test_epic_lock_creates_gitignore(self):
         code, _, err = self.run_all(["set-lock", "--state-root", self.root, "--epic", "E001",
                                      "--session-id", "s1", "--ttl-minutes", "30"])
         self.assertEqual(code, 0, err)
-        self.assertIn("*.lock", self.gi_lines())
+        lines = self.gi_lines()
+        self.assertIn("*.lock", lines)
+        self.assertIn(".notices.yaml", lines)
 
     def test_second_lock_leaves_bytes_unchanged(self):
         self.append("A")
@@ -8644,24 +8885,37 @@ class TestLockFilesIgnored(IssueBase):
         with open(self.gi, "wb") as fh:
             fh.write(b"# team rules\nscratch/\n*.tmp")       # no trailing newline
         self.append("A")
-        self.assertEqual(self.gi_bytes(), b"# team rules\nscratch/\n*.tmp\n*.lock\n")
+        self.assertEqual(self.gi_bytes(),
+                         b"# team rules\nscratch/\n*.tmp\n*.lock\n.notices.yaml\n")
         pm._LOCK_IGNORE_CHECKED.clear()
         self.append("B")
-        self.assertEqual(self.gi_bytes(), b"# team rules\nscratch/\n*.tmp\n*.lock\n")
+        self.assertEqual(self.gi_bytes(),
+                         b"# team rules\nscratch/\n*.tmp\n*.lock\n.notices.yaml\n")
 
-    def test_existing_gitignore_with_the_line_is_untouched(self):
-        original = b"*.lock\n# local\nnotes/\n"
+    def test_existing_gitignore_with_both_lines_is_untouched(self):
+        original = b"*.lock\n.notices.yaml\n# local\nnotes/\n"
         with open(self.gi, "wb") as fh:
             fh.write(original)
         self.append("A")
         self.assertEqual(self.gi_bytes(), original)
 
+    def test_existing_gitignore_missing_one_pattern_gets_only_that_one_appended(self):
+        """A consumer already on an older pm-status.py has `*.lock` alone. Upgrading must
+        add the newly-required `.notices.yaml` without touching the line already there."""
+        original = b"*.lock\n# local\nnotes/\n"
+        with open(self.gi, "wb") as fh:
+            fh.write(original)
+        self.append("A")
+        self.assertEqual(self.gi_bytes(), b"*.lock\n# local\nnotes/\n.notices.yaml\n")
+
     def test_unwritable_target_warns_and_the_verb_still_succeeds(self):
         os.mkdir(self.gi)                         # a directory where the file should be
         code, _, err = self.append("A")
         self.assertEqual(code, 0, err)
-        self.assertIn(f"pm-status.py: warning -- could not add *.lock to {self.gi}: ", err)
-        self.assertEqual(err.count("could not add *.lock"), 1, err)
+        self.assertIn(
+            f"pm-status.py: warning -- could not add *.lock, .notices.yaml to {self.gi}: ",
+            err)
+        self.assertEqual(err.count("could not add"), 1, err)
         self.assertEqual(self.open_keys(), ["BL-E001-001"], "the verb's state must be written")
 
     def test_undecodable_gitignore_warns_and_is_left_alone(self):
@@ -8670,7 +8924,9 @@ class TestLockFilesIgnored(IssueBase):
             fh.write(original)
         code, _, err = self.append("A")
         self.assertEqual(code, 0, err)
-        self.assertIn(f"pm-status.py: warning -- could not add *.lock to {self.gi}: ", err)
+        self.assertIn(
+            f"pm-status.py: warning -- could not add *.lock, .notices.yaml to {self.gi}: ",
+            err)
         self.assertEqual(self.gi_bytes(), original)
         self.assertEqual(self.open_keys(), ["BL-E001-001"])
 
@@ -8679,7 +8935,9 @@ class TestLockFilesIgnored(IssueBase):
         code, _, err = self.add_test_run()
         self.assertEqual(code, 0, err)
         self.assertTrue(os.path.exists(story + ".lock"), "premise: the sidecar was taken")
-        self.assertIn("*.lock", self.gi_lines())
+        lines = self.gi_lines()
+        self.assertIn("*.lock", lines)
+        self.assertIn(".notices.yaml", lines)
         for d in (os.path.dirname(story), os.path.join(self.root, "active", "epic-001"),
                   os.path.join(self.root, "active")):
             self.assertFalse(os.path.exists(os.path.join(d, ".gitignore")),
@@ -8696,7 +8954,19 @@ class TestLockFilesIgnored(IssueBase):
     # -- "rule present" must mean what git means ---------------------------------------- #
     # git splits .gitignore on "\n" only, keeps leading spaces, drops trailing spaces (and a
     # trailing "\r"), and lets a later `!*.lock` undo the rule. Each case goes through a verb.
-    def assert_after_lock(self, before, after):
+    #
+    # `before`/`after` below describe the *.lock-only expectation, as they did before
+    # `.notices.yaml` existed. By default this helper pre-satisfies `.notices.yaml` in
+    # `before` (appending it, and to `after` at the same offset) so each case keeps
+    # exercising *.lock's parsing in isolation; the two-pattern append itself is covered
+    # separately below (test_both_patterns_appended_together_from_scratch etc). Every
+    # caller here only ever appends at the very end, so `after` always starts with `before`.
+    def assert_after_lock(self, before, after, notices_presatisfied=True):
+        assert after.startswith(before), "callers must only append, never rewrite, `before`"
+        delta = after[len(before):]
+        if notices_presatisfied:
+            before = before + b".notices.yaml\n"
+            after = before + delta
         with open(self.gi, "wb") as fh:
             fh.write(before)
         code, _, err = self.append("A")
@@ -8736,16 +9006,37 @@ class TestLockFilesIgnored(IssueBase):
     def test_a_narrower_negation_is_left_as_the_user_wrote_it(self):
         self.assert_after_lock(b"*.lock\n!keep.lock\n", b"*.lock\n!keep.lock\n")
 
+    def test_a_narrower_negation_on_notices_is_left_as_the_user_wrote_it(self):
+        """The mirror of the *.lock narrower-negation case, for the newer pattern: a
+        negation that does not match `.notices.yaml` exactly must not be treated as
+        undoing it, so the rule is still missing and gets (re-)appended."""
+        self.assert_after_lock(
+            b".notices.yaml\n!keep.notices.yaml\n",
+            b".notices.yaml\n!keep.notices.yaml\n*.lock\n",
+            notices_presatisfied=False)
+
+    def test_both_patterns_appended_together_from_scratch(self):
+        """A consumer state root with neither pattern yet ends up ignoring both, in one
+        append, in `_GITIGNORE_PATTERNS` order."""
+        self.assert_after_lock(b"# team rules\nnotes/\n",
+                               b"# team rules\nnotes/\n*.lock\n.notices.yaml\n",
+                               notices_presatisfied=False)
+
+    def test_a_later_full_negation_of_notices_undoes_it_too(self):
+        self.assert_after_lock(b".notices.yaml\n!.notices.yaml\n",
+                               b".notices.yaml\n!.notices.yaml\n*.lock\n.notices.yaml\n",
+                               notices_presatisfied=False)
+
     def test_read_only_gitignore_that_has_the_rule_does_not_warn(self):
         with open(self.gi, "wb") as fh:
-            fh.write(b"*.lock\n")
+            fh.write(b"*.lock\n.notices.yaml\n")
         os.chmod(self.gi, 0o444)
         if os.access(self.gi, os.W_OK):
             self.skipTest("chmod does not bind (running as root)")
         code, _, err = self.append("A")
         self.assertEqual(code, 0, err)
         self.assertNotIn("could not add", err)
-        self.assertEqual(self.gi_bytes(), b"*.lock\n")
+        self.assertEqual(self.gi_bytes(), b"*.lock\n.notices.yaml\n")
 
     # -- never outside a state root ------------------------------------------------------ #
     def append_file(self, path):
@@ -9103,12 +9394,48 @@ class TestAdrReserveScansDisk(unittest.TestCase):
         self.assertEqual((code, out), (0, ["0008"]), err)
         self.assertNotIn("not inside a git work tree", err)
 
-    def test_outside_git_warns_and_scans_old_home_only(self):
+    def test_outside_git_without_adr_dir_refuses_rather_than_guessing(self):
+        """The regression this guards: a warning on stderr, `0001` on stdout, exit 0.
+
+        A caller capturing stdout -- which is the documented way to use this
+        subcommand, and the only thing stopping two ADRs sharing one number --
+        got a confidently wrong allocation with a success code. docs/adr/0007
+        below is real and unreachable without git or --adr-dir, so the number
+        that WOULD have been printed collides with a file already on disk.
+        """
         self.touch("docs", "adr", "0007-x.md")      # unreachable without git or --adr-dir
         self.touch("impl", "epic-002", "arch", "adr-0002-y.md")
         code, out, err = self.reserve()
-        self.assertEqual((code, out), (0, ["0003"]))
+        self.assertEqual(code, 2, f"expected a refusal, got exit {code} and {out!r}")
+        self.assertEqual(out, [], "a refusal must print no number at all")
+        self.assertIn("--adr-dir", err, "the refusal must name what to pass")
         self.assertIn("not inside a git work tree", err)
+        # And it refused BEFORE mutating: no reservation was recorded.
+        self.assertFalse(os.path.exists(pm.adr_register_path(self.root)),
+                         "a refused reservation must not write the register")
+
+    def test_refusal_does_not_consume_a_number_from_an_existing_register(self):
+        """The register must survive a refusal unchanged -- a burnt `next` would
+        leave a permanent gap, and a recorded `reserved` entry would name an
+        agent that was never handed anything."""
+        with open(pm.adr_register_path(self.root), "w", encoding="utf-8") as fh:
+            fh.write("next: 5\nreserved: []\n")
+        before = open(pm.adr_register_path(self.root), encoding="utf-8").read()
+        code, out, err = self.reserve()
+        self.assertEqual((code, out), (2, []), err)
+        self.assertEqual(open(pm.adr_register_path(self.root), encoding="utf-8").read(), before)
+
+    def test_a_normal_allocation_still_returns_the_right_number(self):
+        """The other direction: when it CAN scan, nothing about the allocation
+        changed -- max(register next, highest on disk) + 1, exit 0, one line."""
+        with open(pm.adr_register_path(self.root), "w", encoding="utf-8") as fh:
+            fh.write("next: 3\nreserved: []\n")
+        self.touch("docs", "adr", "0009-x.md")
+        self.touch("impl", "epic-002", "arch", "adr-0002-y.md")
+        code, out, err = self.reserve("--adr-dir", os.path.join(self.d, "docs", "adr"))
+        self.assertEqual((code, out), (0, ["0010"]), err)
+        self.assertEqual(err, "")
+        self.assertEqual(pm.load_adr_register(self.root)[1]["next"], 11)
 
     def test_concurrent_reservations_skip_a_hand_written_adr(self):
         import subprocess
@@ -9125,6 +9452,191 @@ class TestAdrReserveScansDisk(unittest.TestCase):
             self.assertEqual(p.returncode, 0, err.decode())
             numbers.extend(out.decode().split())
         self.assertEqual(sorted(numbers), [f"{n:04d}" for n in range(4, 12)])
+
+
+class TestEnsureNodePath(Base):
+    class _Args:
+        def __init__(self, **kw):
+            self.epic = kw.get("epic")
+            self.sprint = kw.get("sprint")
+            self.story = kw.get("story")
+            self.state_root = kw.get("state_root")
+
+    def test_dir_for_status_is_the_inverse_of_status_for_dir(self):
+        for folder, status in pm.STATUS_FOR_DIR.items():
+            self.assertEqual(pm.DIR_FOR_STATUS[status], folder)
+        self.assertEqual(len(pm.DIR_FOR_STATUS), len(pm.STATUS_FOR_DIR))
+
+    def test_new_epic_lands_in_the_folder_named_for_its_status(self):
+        a = self._Args(epic="E001", state_root=self.d)
+        path, label = pm.ensure_node_path(self.d, a, "epic", "in-progress")
+        self.assertEqual(path, os.path.join(self.d, "active", "epic-001", "epic.yaml"))
+        self.assertTrue(os.path.isdir(os.path.dirname(path)))
+        self.assertEqual(label, "epic E001")
+
+    def test_backlog_epic_lands_in_planned(self):
+        a = self._Args(epic="E002", state_root=self.d)
+        path, _ = pm.ensure_node_path(self.d, a, "epic", "backlog")
+        self.assertEqual(path, os.path.join(self.d, "planned", "epic-002", "epic.yaml"))
+
+    def test_done_epic_lands_in_archived(self):
+        a = self._Args(epic="E003", state_root=self.d)
+        path, _ = pm.ensure_node_path(self.d, a, "epic", "done")
+        self.assertEqual(path, os.path.join(self.d, "archived", "epic-003", "epic.yaml"))
+
+    def test_existing_epic_dir_is_reused_not_relocated(self):
+        a = self._Args(epic="E001", state_root=self.d)
+        pm.ensure_node_path(self.d, a, "epic", "backlog")          # creates planned/
+        path, _ = pm.ensure_node_path(self.d, a, "epic", "done")   # must NOT create archived/
+        self.assertEqual(path, os.path.join(self.d, "planned", "epic-001", "epic.yaml"))
+        self.assertFalse(os.path.isdir(os.path.join(self.d, "archived", "epic-001")))
+
+    def test_sprint_dir_is_created_under_its_epic(self):
+        a = self._Args(epic="E001", sprint="S02", state_root=self.d)
+        pm.ensure_node_path(self.d, a, "epic", "backlog")
+        path, label = pm.ensure_node_path(self.d, a, "sprint", "in-progress")
+        self.assertEqual(
+            path, os.path.join(self.d, "planned", "epic-001", "sprint-02", "sprint.yaml"))
+        self.assertTrue(os.path.isdir(os.path.dirname(path)))
+        self.assertEqual(label, "epic E001 sprint S02")
+
+    def test_story_path_is_created_under_its_sprint(self):
+        a = self._Args(epic="E001", story="E001-S02-003", state_root=self.d)
+        pm.ensure_node_path(self.d, a, "epic", "backlog")
+        path, _ = pm.ensure_node_path(self.d, a, "story", "ready-for-dev")
+        self.assertEqual(
+            path,
+            os.path.join(self.d, "planned", "epic-001", "sprint-02", "E001-S02-003.yaml"))
+
+    def test_sprint_without_an_epic_dir_exits_3(self):
+        a = self._Args(epic="E404", sprint="S01", state_root=self.d)
+        with self.assertRaises(SystemExit) as cm:
+            pm.ensure_node_path(self.d, a, "sprint", "backlog")
+        self.assertEqual(cm.exception.code, 3)
+
+    def test_unknown_status_exits_2(self):
+        a = self._Args(epic="E001", state_root=self.d)
+        with self.assertRaises(SystemExit) as cm:
+            pm.ensure_node_path(self.d, a, "epic", "nonsense")
+        self.assertEqual(cm.exception.code, 2)
+
+
+class TestImportNode(Base):
+    def _events(self):
+        p = os.path.join(self.d, "events.jsonl")
+        if not os.path.exists(p):
+            return []
+        with open(p, encoding="utf-8") as fh:
+            return [json.loads(line) for line in fh if line.strip()]
+
+    def test_creates_an_epic_and_its_directory(self):
+        code, out = self.run_main([
+            "import-node", "--state-root", self.d, "--epic", "E001",
+            "--status", "backlog", "--title", "First epic"])
+        self.assertEqual(code, 0, out)
+        path = os.path.join(self.d, "planned", "epic-001", "epic.yaml")
+        self.assertTrue(os.path.exists(path))
+        _, node = pm.load_node(path)
+        self.assertEqual(node["key"], "E001")
+        self.assertEqual(node["status"], "backlog")
+        self.assertEqual(node["title"], "First epic")
+
+    def test_creates_a_sprint_with_its_epic_backreference(self):
+        self.run_main(["import-node", "--state-root", self.d, "--epic", "E001",
+                       "--status", "backlog", "--title", "E"])
+        code, out = self.run_main([
+            "import-node", "--state-root", self.d, "--epic", "E001", "--sprint", "S01",
+            "--status", "in-progress", "--title", "Sprint one"])
+        self.assertEqual(code, 0, out)
+        _, node = pm.load_node(
+            os.path.join(self.d, "planned", "epic-001", "sprint-01", "sprint.yaml"))
+        self.assertEqual(node["epic"], "E001")
+        self.assertEqual(node["key"], "S01")
+
+    def test_creates_a_story_with_both_backreferences(self):
+        self.run_main(["import-node", "--state-root", self.d, "--epic", "E001",
+                       "--status", "backlog", "--title", "E"])
+        code, out = self.run_main([
+            "import-node", "--state-root", self.d, "--story", "E001-S01-002",
+            "--status", "done", "--title", "A story", "--classification", "feature"])
+        self.assertEqual(code, 0, out)
+        _, node = pm.load_node(
+            os.path.join(self.d, "planned", "epic-001", "sprint-01", "E001-S01-002.yaml"))
+        self.assertEqual(node["epic"], "E001")
+        self.assertEqual(node["sprint"], "S01")
+        self.assertEqual(node["classification"], "feature")
+
+    def test_the_new_node_passes_check_backrefs(self):
+        self.run_main(["import-node", "--state-root", self.d, "--epic", "E001",
+                       "--status", "backlog", "--title", "E"])
+        self.run_main(["import-node", "--state-root", self.d, "--story", "E001-S01-002",
+                       "--status", "done", "--title", "S"])
+        code, out = self.run_main([
+            "set-status", "--state-root", self.d, "--story", "E001-S01-002",
+            "--status", "review"])
+        self.assertEqual(code, 0, out)
+
+    def test_origin_is_written_when_given_and_absent_otherwise(self):
+        self.run_main(["import-node", "--state-root", self.d, "--epic", "E001",
+                       "--status", "backlog", "--title", "E"])
+        self.run_main(["import-node", "--state-root", self.d, "--epic", "E002",
+                       "--status", "backlog", "--title", "E2",
+                       "--origin", "inferred", "--origin-note", "from transitions"])
+        _, plain = pm.load_node(os.path.join(self.d, "planned", "epic-001", "epic.yaml"))
+        _, marked = pm.load_node(os.path.join(self.d, "planned", "epic-002", "epic.yaml"))
+        self.assertNotIn("origin", plain)
+        self.assertEqual(marked["origin"], "inferred")
+        self.assertEqual(marked["origin_note"], "from transitions")
+
+    def test_invalid_status_for_kind_exits_2(self):
+        code, _ = self.run_main([
+            "import-node", "--state-root", self.d, "--epic", "E001",
+            "--status", "ready-for-dev", "--title", "E"])
+        self.assertEqual(code, 2)
+
+    def test_sprint_without_its_epic_exits_3(self):
+        code, _ = self.run_main([
+            "import-node", "--state-root", self.d, "--epic", "E404", "--sprint", "S01",
+            "--status", "backlog", "--title", "orphan"])
+        self.assertEqual(code, 3)
+
+    def test_existing_node_is_skipped_not_overwritten(self):
+        self.run_main(["import-node", "--state-root", self.d, "--epic", "E001",
+                       "--status", "backlog", "--title", "Original"])
+        code, out = self.run_main([
+            "import-node", "--state-root", self.d, "--epic", "E001",
+            "--status", "done", "--title", "Clobber"])
+        self.assertEqual(code, 0, out)
+        self.assertIn("SKIP", out)
+        _, node = pm.load_node(os.path.join(self.d, "planned", "epic-001", "epic.yaml"))
+        self.assertEqual(node["title"], "Original")
+        self.assertEqual(node["status"], "backlog")
+
+    def test_an_event_is_appended(self):
+        self.run_main(["import-node", "--state-root", self.d, "--epic", "E001",
+                       "--status", "backlog", "--title", "E"])
+        evs = [e for e in self._events() if e.get("event") == "import"]
+        self.assertEqual(len(evs), 1)
+        self.assertEqual(evs[0]["to"], "backlog")
+        self.assertIsNone(evs[0]["from"])
+
+    def test_no_events_flag_suppresses_the_append(self):
+        self.run_main(["import-node", "--state-root", self.d, "--epic", "E001",
+                       "--status", "backlog", "--title", "E", "--no-events"])
+        self.assertEqual([e for e in self._events() if e.get("event") == "import"], [])
+
+    def test_a_skip_appends_no_event(self):
+        self.run_main(["import-node", "--state-root", self.d, "--epic", "E001",
+                       "--status", "backlog", "--title", "E"])
+        self.run_main(["import-node", "--state-root", self.d, "--epic", "E001",
+                       "--status", "backlog", "--title", "E"])
+        self.assertEqual(len([e for e in self._events() if e.get("event") == "import"]), 1)
+
+    def test_set_status_still_refuses_a_missing_node(self):
+        """import-node must not have loosened set-status."""
+        code, _ = self.run_main([
+            "set-status", "--state-root", self.d, "--epic", "E999", "--status", "done"])
+        self.assertEqual(code, 3)
 
 
 if __name__ == "__main__":

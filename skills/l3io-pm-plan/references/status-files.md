@@ -4,7 +4,9 @@ Communicate all responses in `{communication_language}`.
 
 This file is the single source of truth for **where** epic/sprint/story/backlog state lives
 on disk and **how** to read or write it. It is a **deep reference, consulted on demand** — do
-not load it at activation. `steps/shared/step-00-digest.md` carries the operative digest
+not load it at activation. The PM skills' `l3io-pm-execute/steps/shared/step-00-digest.md`
+(each of `l3io-pm-execute`, `l3io-pm-plan` and `l3io-pm-sync` carries its own copy; a
+`l3io-util` install has none) carries the operative digest
 every run needs (keys, subcommand signatures, exit codes) plus a routing table naming the
 section to read for each case that genuinely needs this file: a `verify` failure (§7), a
 per-file schema question (§4), a migration or legacy layout (§10), `depends_on` (§11), or an
@@ -433,8 +435,13 @@ the flag was opt-in and no step file ever passed it, no project ever produced a 
 event log is unconditional so it cannot be silently skipped.
 
 `set-actual` also derives and appends a calibration sample as a side effect of a successful
-write (`--no-calibrate` suppresses it) — see `references/calibration-model.md` for what it
-computes and why a failed derivation only warns rather than failing the actuals write.
+write (`--no-calibrate` suppresses it). What it computes, and why a failed derivation only
+warns rather than failing the actuals write, is specified in the calibration model —
+`l3io-pm-execute/references/calibration-model.md`, which ships with the PM skills
+(`l3io-pm-execute`, `l3io-pm-plan`, `l3io-pm-sync`) and not with every skill that carries
+this contract. Do not go looking for it here
+unless your own `references/` has it; `pm-status.py` performs the whole loop itself, so
+nothing on a normal run needs to read it.
 
 `show --state-root {pm_state_root} --epic E001 [--sprint S01]` renders a computed roll-up
 (status, story counts by status, summed actuals) from the child files on disk. It replaces
@@ -506,6 +513,12 @@ sharding gives each epic its own directory, and nothing below the epic level nee
   (deleting a flock file is racy) — do not delete one while a run may be active.
 - `issues.yaml.lock`, `pm-calibration.yaml.lock`, `adr-register.yaml.lock` — the sidecars for
   the three shared-append targets below, likewise created empty and never deleted.
+- `.notices.yaml.lock` — the sidecar for `.notices.yaml` (`notices_lock`), the one-time-ever
+  advisory ledger `pm-status.py notice` reads/writes, keyed on `--key` alone (not a session —
+  there is no cross-invocation session identifier available), for the
+  `l3io-pm-execute`/`l3io-pm-plan` setup-pointer (`config-resolution.md` §5). Same shape as
+  the three above: whole read-modify-write cycle under one lock, likewise created empty and
+  never deleted.
 - `spec-sync.lock` — the spec-edit lease written by `spec-align.py lease` (JSON: `owner`,
   `acquired_at`, `expires_at`), not an empty flock target: an epic closure's spec sync holds it
   across an agent's turns. It is a `*.lock`, so the same ignore rule keeps it out of git.
@@ -515,16 +528,18 @@ sharding gives each epic its own directory, and nothing below the epic level nee
   empty. For an epic node this sidecar is redundant with `epic_node_lock` (a different file,
   so it cannot self-deadlock against it).
 
-**None of these is ever committed.** `pm-status.py` keeps `*.lock` in `{state_root}/.gitignore`.
-Every lock acquisition inside a state root checks that file, at most once per process per state
-root. A bare `append-issue --file` outside one (no status folders, no `--state-root`) is
-skipped, so it never writes a `.gitignore` into a repo root. If the file
-is absent it is created with the line; if it lacks the line, the line is appended, and the lines
-already there are never rewritten or reordered. The check is best-effort: a failure warns on
-stderr and never fails the verb. `*.lock` matches files only, so the activation gate's
-`git check-ignore` on the state-root directory (`steps/shared/step-00-activate.md`) still
-passes. Lock files a project committed before this rule existed are untracked, and left on
-disk, by the sprint-closure checkpoint (`steps/sprint/step-04-sprint-closure.md` §9) and by
+**None of these is ever committed.** `pm-status.py` keeps both `*.lock` and `.notices.yaml`
+in `{state_root}/.gitignore` — the same `_ensure_lock_ignore` mechanism covers both patterns,
+not two separate ones. Every lock acquisition inside a state root checks that file, at most
+once per process per state root. A bare `append-issue --file` outside one (no status folders,
+no `--state-root`) is skipped, so it never writes a `.gitignore` into a repo root. Any pattern
+absent from the file is appended (patterns already present are left alone, never rewritten or
+reordered); an absent file is created with both. The check is best-effort: a failure warns on
+stderr and never fails the verb. Neither pattern matches a directory, so the activation gate's
+`git check-ignore` on the state-root directory (the PM skills'
+`l3io-pm-execute/steps/shared/step-00-activate.md`) still passes. Lock files a project
+committed before this rule existed are untracked, and left on disk, by the sprint-closure
+checkpoint (`l3io-pm-execute/steps/sprint/step-04-sprint-closure.md` §9) and by
 `/l3io-util-doctor`'s health check (Check 14). Old `epic.yaml.lock` files
 left inside an epic directory by a pre-relocation `pm-status.py` are no longer the epic lock;
 the same filename is reused only as the redundant `--flock` sidecar (above), so removing one
@@ -533,7 +548,7 @@ is harmless.
 `pm-calibration.yaml`, `issues.yaml`, and `adr-register.yaml` are the three shared-append
 targets sharding does not shard, because all three are inherently cross-epic aggregates.
 Every `set-actual` across every epic and every parallel subagent may append a calibration
-sample to the first (`references/calibration-model.md`); every `append-issue` call across
+sample to the first (specified by the calibration model — see above); every `append-issue` call across
 every epic and every parallel subagent appends to the second, first allocating the item's key
 from it (§3); every `adr-reserve` call across every parallel arch-gate agent allocates a block
 of ADR numbers from the third (§1, §6). All three therefore run their **whole
@@ -550,8 +565,11 @@ flock. Contrast this with per-epic node files: `sprint.yaml` and story `.yaml` s
 flock, because sharding gives each epic its own directory; `epic.yaml` now does, per above.
 The first number `adr-reserve` hands out is the larger of the register's `next` and the
 highest ADR number already on disk — in `--adr-dir` and in the old per-epic home
-`epic-*/arch/` — plus one (ADR-0005); outside a git work tree without `--adr-dir` it scans
-the old home only, with a stderr warning.
+`epic-*/arch/` — plus one (ADR-0005). Outside a git work tree and with no `--adr-dir`, the
+one ADR home cannot be located at all, so `adr-reserve` **refuses** (exit 2, nothing on stdout,
+register untouched) and names `--adr-dir` in the message. It does not fall back to the old home
+and print a number: a caller reads the number off stdout, and an allocation made without seeing
+`docs/adr/` is exactly the collision the register exists to prevent.
 
 `issues-resolved.yaml` shares `issues_lock` with `issues.yaml` — every issue verb loads and
 saves both under one hold. **The epic lock is always the outer lock; nothing takes it in

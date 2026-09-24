@@ -28,7 +28,7 @@ Execute it fully. It returns: issues found (with severities), retrospective text
 ## 3. Story actuals **plus this sprint's own closure spend** → write sprint actual
 
 ```bash
-python3 {pm_status} show --state-root {pm_state_root} --epic {epic_key} --sprint {sprint_num}
+uv run {pm_status} show --state-root {pm_state_root} --epic {epic_key} --sprint {sprint_num}
 ```
 
 **The sprint actual is the sum of its children plus what closing the sprint itself cost —
@@ -67,7 +67,7 @@ Under `--runtime claude`, pass the summed token classes with `--model`; `set-act
 observable.
 
 ```bash
-python3 {pm_status} set-actual \
+uv run {pm_status} set-actual \
   --state-root {pm_state_root} \
   --node sprint \
   --epic {epic_key} \
@@ -97,7 +97,7 @@ is no human-developer counterfactual for it. Valid on a sprint or epic node only
 story:
 
 ```bash
-python3 {pm_status} set-actual --state-root {pm_state_root} --node sprint \
+uv run {pm_status} set-actual --state-root {pm_state_root} --node sprint \
   --epic {epic_key} --sprint {sprint_num} --block orchestration \
   --elapsed-hours {orch_elapsed} --man-hours 0 --hitl-hours {orch_hitl} \
   --tokens-input {orch_tokens_input} --tokens-output {orch_tokens_output} \
@@ -112,25 +112,25 @@ second call on the same node records nothing. See `references/metrics-contract.m
 ## 5. Write sprint closed + retrospective
 
 ```bash
-python3 {pm_status} set-field \
+uv run {pm_status} set-field \
   --state-root {pm_state_root} \
   --epic {epic_key} --sprint {sprint_num} \
   --field closed.date \
   --value {today_iso}
 
-python3 {pm_status} set-field \
+uv run {pm_status} set-field \
   --state-root {pm_state_root} \
   --epic {epic_key} --sprint {sprint_num} \
   --field retrospective.summary \
   --value "{retrospective_summary}"
 
-python3 {pm_status} set-field \
+uv run {pm_status} set-field \
   --state-root {pm_state_root} \
   --epic {epic_key} --sprint {sprint_num} \
   --field retrospective.velocity \
   --value {stories_done}
 
-python3 {pm_status} set-field \
+uv run {pm_status} set-field \
   --state-root {pm_state_root} \
   --epic {epic_key} --sprint {sprint_num} \
   --field retrospective.carry_over \
@@ -140,7 +140,7 @@ python3 {pm_status} set-field \
 ## 6. Mark sprint done
 
 ```bash
-python3 {pm_status} set-status \
+uv run {pm_status} set-status \
   --state-root {pm_state_root} \
   --epic {epic_key} \
   --sprint {sprint_num} \
@@ -174,7 +174,7 @@ output would interleave with sibling epics and is suppressed by design — see �
 `step-05-epic-loop.md`. When it is `true`:
 
 ```bash
-python3 {pm_status} report \
+uv run {pm_status} report \
   --state-root {pm_state_root} \
   --plan {planning_artifacts}/plan-output-meta.yaml \
   --format tree
@@ -185,7 +185,7 @@ Regenerating per story transition instead would churn git on every status move a
 subagents in contention over one file:
 
 ```bash
-python3 {pm_status} report \
+uv run {pm_status} report \
   --state-root {pm_state_root} \
   --plan {planning_artifacts}/plan-output-meta.yaml \
   --format md --out {implementation_artifacts}/progress-report.md

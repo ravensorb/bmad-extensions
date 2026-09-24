@@ -18,6 +18,11 @@ Does `{implementation_artifacts}/sprint-status-active.yaml` exist?
 - Yes → flag `rename-active` · Priority: Critical (must run before any other status-file action)
 - No → ✓
 
+`rename-active` is an **inline action with no mode file** — Step HC6 performs it. It is a
+single rename of a legacy flat file, so it can only fire on a project that still has
+`sprint-status-active.yaml`; there is nothing for it to do on a migrated one, and it had no
+caller outside this check.
+
 **Check 2 — Status file layout**
 Do `sprint-status-backlog.yaml` OR `sprint-status-archived.yaml` exist in `{implementation_artifacts}/`?
 - Neither exists, but `sprint-status.yaml` is present with content that includes done or backlog epics → flag `split-status` · Priority: High
@@ -28,11 +33,41 @@ Do `sprint-status-backlog.yaml` OR `sprint-status-archived.yaml` exist in `{impl
 Count which of the three state layouts are present: sharded (`{pm_state_root}` i.e.
 `{implementation_artifacts}/state/` exists), legacy per-epic (`{project-root}/_bmad/state/`
 exists), legacy flat (`sprint-status*.yaml` exists in `{implementation_artifacts}/`).
-- Only sharded present, or none present (new project) → ✓
-- Exactly one legacy layout present, sharded absent → flag `migrate-state` · Priority: High
-  (runs after `split-status` if both are flagged)
-- More than one layout present → flag `migrate-state` · Priority: Critical — an interrupted
-  migration left state in two places; do not run any other action until this is resolved
+
+The flat-plus-sharded pair specifically — `bmad-build` writes the flat file only when it
+already exists (bmm's `step-03-implement.md:27`), while this package's PM skills read and
+write the sharded tree under the same artifact root — is a deterministic, unit-tested
+predicate rather than a judgment call, so check it with the script first, before falling back
+to the general three-layout count below for every other combination:
+
+```bash
+uv run {skill-root}/scripts/detect-layout.py --artifacts {implementation_artifacts}
+```
+
+- Exit 1 (prints `layout-collision: both <flat> and <sharded>/ exist`) → flag `migrate-state` ·
+  Priority: **Critical** — do not run any other action until this is resolved · remedy:
+  > Both layouts are present. `bmad-build` writes `sprint-status.yaml` only when it already
+  > exists (`step-03-implement.md:27`), so deleting or migrating the flat file stops the second
+  > writer. Run `migrate-state` — it preserves the original as `sprint-status.yaml.legacy`,
+  > which is not matched by that existence gate.
+  Stop here — this pair alone already puts the check at its ceiling severity.
+- Exit 0 → the flat file and the sharded tree are not both present (this also covers the
+  post-`migrate-state` case, where the flat file has been renamed to `sprint-status.yaml.legacy`
+  and so no longer matches). Continue to the general count, which still catches the legacy
+  per-epic layout overlapping with either of the other two:
+  - Only sharded present, or none present (new project) → ✓
+  - Exactly one legacy layout present, sharded absent → flag `migrate-state` · Priority: High
+    (runs after `split-status` if both are flagged)
+  - More than one layout present (legacy per-epic alongside the sharded tree, or alongside the
+    flat file — the flat-plus-sharded pair was already ruled out above) → flag `migrate-state`
+    · Priority: Critical — an interrupted migration left state in two places; do not run any
+    other action until this is resolved
+
+This Critical, multi-layout condition is duplicated (severity and outcome, not the
+flat-plus-sharded script check above) in `steps/stats.md` Step ST1, which BLOCKs rather than
+walking the tree when it fires — `stats` is a read-only single mode with no findings table to
+report into, so it has its own copy rather than loading this file. Keep both in sync if the
+condition or severity changes.
 
 **Check 2c — Artifact-only stories (no state YAML)**
 If `{pm_state_root}` exists (sharded layout is present) or the artifact tree has story `.md`
@@ -91,7 +126,7 @@ Only runs if the split layout is present. Parse all three split files and check:
 - No issues → ✓
 
 **Check 9 — Migration backup files**
-Scan `{implementation_artifacts}/` for `*.yaml.legacy` files (e.g., `sprint-status.yaml.legacy`); `{project-root}/_bmad/` for `*.yaml.v1` calibration backups (e.g., `pm-calibration.yaml.v1`) and for `pm-calibration.yaml.legacy`; and `{project-root}/_bmad/` for the `state.legacy/` and `migration-backup/` backup directories left by `migrate-state` (see Clean Legacy Mode's Step CL1 for exactly what each holds).
+Scan `{implementation_artifacts}/` for `*.yaml.legacy` files (e.g., `sprint-status.yaml.legacy`); `{pm_state_root}/` for `*.yaml.v1` calibration backups — that is `{pm_calibration_file}.v1`, the path `pm-status.py`'s calibration v1 → v2 migration derives as `calibration_path(state_root) + ".v1"`, so it is beside the live calibration file, **not** under `{project-root}/_bmad/`; `{project-root}/_bmad/` for `pm-calibration.yaml.legacy`; and `{project-root}/_bmad/` for the `state.legacy/` and `migration-backup/` backup directories left by `migrate-state` (see Clean Legacy Mode's Step CL1 for exactly what each holds and which scan root each lives in).
 - Any found → flag `clean-legacy` · Priority: Low · note count (files and directories separately)
 - None → ✓
 
@@ -104,6 +139,8 @@ Scan the top level of `{implementation_artifacts}/` for directories matching `ep
   counterpart or be found by Check 11's drift diff.
 - None → ✓
 
+`rename-epic-dirs` is an **inline action with no mode file** — Step HC6 performs it.
+
 **Check 11 — State/artifact drift**
 `{pm_state_root}` = `{implementation_artifacts}/state` (see `references/status-files.md`,
 the canonical state-layout contract, for the full sharded schema this check reads). For each
@@ -113,6 +150,7 @@ checked — a `planned/` epic legitimately has state and no artifacts yet (stori
 planning), so that asymmetry is not drift:
 
 ```bash
+# check26:allow reason: state/artifact mirror check; pending pm-status.py exists verb
 diff <(ls {pm_state_root}/{active,archived}/epic-{nnn}/sprint-{nn}/*.yaml 2>/dev/null \
         | xargs -n1 basename | sed 's/.yaml//' | grep -v '^sprint$') \
      <(ls {implementation_artifacts}/epic-{nnn}/sprint-{nn}/stories/*.md 2>/dev/null \
@@ -174,7 +212,11 @@ PY
 
 **Check 13 — Backlog integrity and audit**
 If `{pm_state_root}` exists — not gated on `{pm_issues_file}`, because `audit-issues` still
-walks story nodes (1d/1h/1j-class findings) even with no issues file present:
+walks story nodes with no issues file present. The findings reachable in that case are **1b**
+(a `resolves:` key that names neither issue file) and **1h** (two live stories claiming one
+key); both are read from story nodes alone. `1d` needs an open item and `1j` a resolved one,
+so neither can fire without an issue file — do not expect them here. `triage` shares this
+precondition (`steps/triage.md` Step T1) and will act on whatever this check reports.
 
 ```bash
 uv run {pm_status} audit-issues --state-root {pm_state_root} --format json; echo "exit=$?"
@@ -288,6 +330,7 @@ Check                           Status                         Action
 ----------------------------------------------------------------
 Status file naming              ⚠ sprint-status-active.yaml    rename-active
 Status file layout              ✓ Split layout in use          —
+State layout migration          ⚠ Both layouts present          migrate-state
 Artifact-only stories           ⚠ 2 story artifact(s), no state bootstrap-state
 Status file schema              ✓ All fields current           —
 Status placement & backlog      ⚠ 1 misplaced epic, 3 nested  reconcile-status
@@ -350,8 +393,8 @@ If `n`: print "Exiting — no changes made." and exit.
 
 Run each approved action in this fixed priority sequence (skip any that were not flagged):
 
-1. `rename-active`
-2. `rename-epic-dirs`
+1. `rename-active` (inline — see below)
+2. `rename-epic-dirs` (inline — see below)
 3. `migrate-schema`
 4. `split-status`
 5. `migrate-state`
@@ -390,6 +433,39 @@ Each action runs its full mode implementation from its own section. **Suppress t
 **`triage` keeps its own confirmations here.** The rule above does not apply to it: every triage action resolves or rewrites backlog items, which the HC5 yes did not see item by item. It runs right after `harvest-debt`, so markers harvested in the same run are audited too.
 
 **`migrate-adrs` keeps its own confirmation too** — it moves files and commits.
+
+**`rename-active` (Check 1) has no mode file — run it here, inline.** It is one rename of a
+legacy flat file. Re-check the precondition first rather than trusting Check 1's earlier
+result, because an action run before this one may have changed the tree:
+
+- If `{implementation_artifacts}/sprint-status-active.yaml` does not exist → nothing to
+  rename; skip.
+- If `{implementation_artifacts}/sprint-status.yaml` already exists → **conflict**. Do not
+  rename and do not overwrite; print
+  `Conflict: sprint-status.yaml already exists at {implementation_artifacts}. Cannot rename
+  sprint-status-active.yaml — resolve manually (remove or merge the existing file first).`
+  and treat this action as failed, per the stop-on-failure rule above.
+
+Otherwise print the one-line dry run
+(`Will rename: {implementation_artifacts}/sprint-status-active.yaml →
+{implementation_artifacts}/sprint-status.yaml — content unchanged, filename only`), rename,
+then re-parse `sprint-status.yaml` as YAML. If it does not parse, rename it back to
+`sprint-status-active.yaml` and report
+`FAILED — sprint-status.yaml is not valid YAML after rename. Restored. Parse error: {error}`.
+
+**`rename-epic-dirs` (Check 10) has no mode file — run it here, inline.** It renames legacy
+two-digit `epic-{nn}/` **artifact** directories to the three-digit `epic-{nnn}/` form, so each
+matches its epic key `E{nnn}` and its `state/{status}/epic-{nnn}/` counterpart — the
+identical-path-suffix property Check 11's drift diff depends on. Contents are never touched.
+
+Re-scan the top level of `{implementation_artifacts}/` for `epic-[0-9][0-9]` directories. For
+each, compute the three-digit destination by zero-padding the epic number; if that destination
+already exists, record a **conflict** and skip it — never overwrite, never merge. Print the
+rename map and the conflict count as this action's dry run, then rename each non-conflicting
+directory and re-scan to confirm no two-digit directory remains except the recorded conflicts.
+
+Report renamed and conflict counts. A remaining conflict needs manual resolution (merge or
+remove one side) before Check 11's drift comparison can be trusted for that epic.
 
 **`untrack-locks` (Check 14) has no mode file — run it here, inline.** First make sure
 `{pm_state_root}/.gitignore` contains a `*.lock` line: create the file with that line if it is

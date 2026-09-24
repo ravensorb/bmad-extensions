@@ -35,7 +35,13 @@ Behavior:
 Triggered when invoked interactively and no sanctum exists at `{project-root}/_bmad/memory/l3io-sec-redteam/`.
 
 Behavior:
-1. Run `python3 {skill-root}/scripts/init-sanctum.py {project-root} {skill-root}` to create the sanctum
+1. Run `uv run {skill-root}/scripts/init-sanctum.py {project-root} {skill-root}` to create the sanctum.
+   It personalizes `BOND.md`/`PERSONA.md`/`INDEX.md` from `core.user_name` and
+   `core.communication_language`, resolved through BMad core's
+   `_bmad/scripts/resolve_config.py` — the four TOML layers, never a `config.yaml`. A
+   caller that already resolved config can pass `--user-name` / `--communication-language`
+   and skip the second resolver run. If the resolver is absent the sanctum is still
+   created, with defaults and a **warning** in the output — never a silent default
 2. First run is signalled by a missing sanctum, not by config — the module works unconfigured
 3. Load `references/first-breath.md` — the agent comes to life for the first time
 
