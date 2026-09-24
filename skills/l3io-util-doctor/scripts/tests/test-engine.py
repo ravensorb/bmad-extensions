@@ -128,5 +128,136 @@ class TestGatherAndPlan(unittest.TestCase):
         self.assertIn("epics", text)
 
 
+REPO = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(HERE))))
+PM_STATUS = os.path.join(REPO, "skills", "_shared", "pm-status.py")
+
+
+class TestGate(unittest.TestCase):
+    def test_non_empty_source_with_empty_plan_BLOCKS(self):
+        """THE live defect, as a test. A BMad-schema file read by the l3io reader
+        yields zero records over a non-empty source: the run must refuse."""
+        p, d = _copy("bmad-flat")
+        self.addCleanup(shutil.rmtree, d, ignore_errors=True)
+        plan = eng.build_plan(eng.gather("l3io-flat", p, p))   # wrong reader on purpose
+        self.assertEqual(plan["counts"], {"epic": 0, "sprint": 0, "story": 0})
+        msg = eng.gate("l3io-flat", plan, p, p)
+        self.assertIsNotNone(msg)
+        self.assertIn("BLOCKED", msg)
+
+    def test_empty_source_with_empty_plan_is_allowed(self):
+        d = Path(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, d, ignore_errors=True)
+        (d / "sprint-status.yaml").write_text("", encoding="utf-8")
+        self.assertIsNone(eng.gate("l3io-flat", eng.build_plan([]), d, d))
+
+    def test_a_good_plan_passes(self):
+        p, d = _copy("l3io-flat")
+        self.addCleanup(shutil.rmtree, d, ignore_errors=True)
+        plan = eng.build_plan(eng.gather("l3io-flat", p, p))
+        self.assertIsNone(eng.gate("l3io-flat", plan, p, p))
+
+    def test_validation_problems_block(self):
+        p, d = _copy("l3io-flat")
+        self.addCleanup(shutil.rmtree, d, ignore_errors=True)
+        plan = eng.build_plan([
+            {"kind": "epic", "key": "", "status": "backlog", "title": "", "source": "x"}])
+        self.assertIn("BLOCKED", eng.gate("l3io-flat", plan, p, p))
+
+
+class TestWriteVerifyDispose(unittest.TestCase):
+    def _run(self, fixture, layout):
+        p, d = _copy(fixture)
+        self.addCleanup(shutil.rmtree, d, ignore_errors=True)
+        state = Path(d) / "state"
+        plan = eng.build_plan(eng.gather(layout, p, p))
+        written, errors = eng.write(plan, state, PM_STATUS)
+        return p, d, state, plan, written, errors
+
+    def test_write_creates_every_node(self):
+        _, _, state, plan, written, errors = self._run("l3io-flat", "l3io-flat")
+        self.assertEqual(errors, [])
+        self.assertEqual(written, len(plan["records"]))
+        self.assertTrue((state / "active" / "epic-001" / "epic.yaml").exists())
+        self.assertTrue((state / "planned" / "epic-002" / "epic.yaml").exists())
+        self.assertTrue(
+            (state / "active" / "epic-001" / "sprint-01" / "E001-S01-001.yaml").exists())
+
+    def test_verify_against_plan_passes_after_a_good_write(self):
+        _, _, state, plan, _, _ = self._run("l3io-flat", "l3io-flat")
+        self.assertEqual(eng.verify_against_plan(plan, state), [])
+
+    def test_verify_catches_a_node_corrupted_on_disk(self):
+        """Proves verification compares against the PLAN, not against itself."""
+        _, _, state, plan, _, _ = self._run("l3io-flat", "l3io-flat")
+        (state / "active" / "epic-001" / "epic.yaml").write_text(
+            "key: 'E001'\nstatus: backlog\n", encoding="utf-8")
+        problems = eng.verify_against_plan(plan, state)
+        self.assertTrue(any("E001" in p for p in problems), problems)
+
+    def test_verify_catches_a_missing_node(self):
+        _, _, state, plan, _, _ = self._run("l3io-flat", "l3io-flat")
+        (state / "planned" / "epic-002" / "epic.yaml").unlink()
+        self.assertTrue(any("E002" in p for p in eng.verify_against_plan(plan, state)))
+
+    def test_inferred_nodes_keep_their_origin_through_the_write(self):
+        p, d, state, plan, _, errors = self._run("artifacts", "artifacts")
+        self.assertEqual(errors, [])
+        from ruamel.yaml import YAML
+        node = YAML(typ="safe").load(
+            (state / "active" / "epic-001" / "sprint-01" / "sprint.yaml")
+            .read_text(encoding="utf-8"))
+        self.assertEqual(node["origin"], "inferred")
+
+    def test_dispose_renames_and_never_deletes(self):
+        p, d, state, plan, _, _ = self._run("l3io-flat", "l3io-flat")
+        moved = eng.dispose("l3io-flat", p, p)
+        self.assertEqual(moved, [str(p / "sprint-status.yaml")])
+        self.assertFalse((p / "sprint-status.yaml").exists())
+        self.assertTrue((p / "sprint-status.yaml.legacy").exists())
+
+    def test_dispose_retires_nothing_for_the_artifacts_layout(self):
+        p, d, state, plan, _, _ = self._run("artifacts", "artifacts")
+        self.assertEqual(eng.dispose("artifacts", p, p), [])
+        self.assertTrue(
+            (p / "epic-001" / "sprint-01" / "stories" / "E001-S01-001.md").exists())
+
+    def test_the_source_survives_a_blocked_run(self):
+        p, d = _copy("bmad-flat")
+        self.addCleanup(shutil.rmtree, d, ignore_errors=True)
+        before = (p / "sprint-status.yaml").read_text(encoding="utf-8")
+        plan = eng.build_plan(eng.gather("l3io-flat", p, p))
+        self.assertIsNotNone(eng.gate("l3io-flat", plan, p, p))
+        self.assertEqual((p / "sprint-status.yaml").read_text(encoding="utf-8"), before)
+        self.assertFalse((p / "sprint-status.yaml.legacy").exists())
+
+    def test_apply_is_idempotent(self):
+        p, d, state, plan, written1, _ = self._run("l3io-flat", "l3io-flat")
+        written2, errors2 = eng.write(plan, state, PM_STATUS)
+        self.assertEqual(errors2, [])
+        self.assertEqual(written2, 0, "a second apply must write nothing")
+
+    def test_cli_apply_end_to_end(self):
+        p, d = _copy("l3io-flat")
+        self.addCleanup(shutil.rmtree, d, ignore_errors=True)
+        state = Path(d) / "state"
+        code = eng.main([
+            "--artifacts", str(p), "--project-root", str(p), "--apply",
+            "--state-root", str(state), "--pm-status", PM_STATUS, "--dispose"])
+        self.assertEqual(code, 0)
+        self.assertTrue((state / "active" / "epic-001" / "epic.yaml").exists())
+        self.assertTrue((p / "sprint-status.yaml.legacy").exists())
+
+    def test_cli_apply_on_a_bmad_project_migrates_it_rather_than_blocking(self):
+        """detect() picks the right reader, so the BMad project is CONVERTED."""
+        p, d = _copy("bmad-flat")
+        self.addCleanup(shutil.rmtree, d, ignore_errors=True)
+        state = Path(d) / "state"
+        code = eng.main([
+            "--artifacts", str(p), "--project-root", str(p), "--apply",
+            "--state-root", str(state), "--pm-status", PM_STATUS])
+        self.assertEqual(code, 0)
+        self.assertTrue((state / "active" / "epic-001" / "epic.yaml").exists())
+
+
 if __name__ == "__main__":
     unittest.main()

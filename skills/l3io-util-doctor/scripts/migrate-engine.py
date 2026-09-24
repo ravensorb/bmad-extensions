@@ -167,13 +167,176 @@ def render_plan(layout: str, plan: dict) -> str:
     return "\n".join(lines) + "\n"
 
 
+def gate(layout: str, plan: dict, artifacts_dir: Path, project_root: Path):
+    """The pre-write gate. Returns a refusal message, or None to proceed.
+
+    Two refusals, both BEFORE anything is written:
+
+      1. The source holds content and the plan is EMPTY. This is the general form of the
+         live defect -- a BMad-schema sprint-status.yaml read as if it were ours yields
+         zero records, and the old prose then deleted the source while reporting success.
+         The gate does not care WHY the parse produced nothing, which is exactly what
+         makes it worth more than fixing any single cause.
+      2. Any record failed validation. A plan that cannot be written correctly must not
+         be half-written.
+    """
+    total = sum(plan["counts"].values())
+    if total == 0 and not source_is_empty(layout, artifacts_dir, project_root):
+        return (
+            "BLOCKED: the source holds content but the plan is empty -- nothing would "
+            f"be migrated.\n  layout detected: {layout}\n"
+            "  Nothing has been written and the source is untouched.\n"
+            "  A flat sprint-status.yaml carrying BMad's `development_status:` mapping "
+            "is the common cause;\n  run `detect-layout.py --classify` to confirm which "
+            "schema is present."
+        )
+    if plan["problems"]:
+        listed = "\n".join(f"    - {p}" for p in plan["problems"][:10])
+        more = "" if len(plan["problems"]) <= 10 else \
+            f"\n    ... and {len(plan['problems']) - 10} more"
+        return (
+            f"BLOCKED: {len(plan['problems'])} record(s) failed validation.\n"
+            f"{listed}{more}\n  Nothing has been written and the source is untouched."
+        )
+    return None
+
+
+def _node_argv(rec: dict) -> list:
+    """The node-addressing flags for one record. Keys are E001 / E001-S01 / E001-S01-002."""
+    kind, key = rec["kind"], rec["key"]
+    if kind == "epic":
+        return ["--epic", key]
+    if kind == "sprint":
+        epic_key, sprint_num = key.split("-S")
+        return ["--epic", epic_key, "--sprint", f"S{sprint_num}"]
+    return ["--story", key]
+
+
+def write(plan: dict, state_root: Path, pm_status: str):
+    """Write every planned record with `pm-status.py import-node`.
+
+    Every node goes through the one writer verb -- never a direct file write -- so each
+    lands under the same epic write lock, event log and status validation as any other
+    state write. Returns (written_count, errors); a SKIP is not counted as written, which
+    is what makes a retried migration idempotent.
+    """
+    import subprocess
+
+    written, errors = 0, []
+    for rec in plan["records"]:
+        argv = ["uv", "run", pm_status, "import-node",
+                "--state-root", str(state_root),
+                "--status", rec["status"], "--title", rec.get("title", "")]
+        argv += _node_argv(rec)
+        if rec.get("origin"):
+            argv += ["--origin", rec["origin"],
+                     "--origin-note", rec.get("origin_note", "")]
+
+        proc = subprocess.run(argv, capture_output=True, text=True)
+        if proc.returncode != 0:
+            errors.append(
+                f"{rec['kind']} {rec['key']}: exit {proc.returncode} -- "
+                f"{proc.stderr.strip()}")
+        elif not proc.stdout.startswith("SKIP"):
+            written += 1
+    return written, errors
+
+
+def _node_relpath(rec: dict):
+    """(epic_key, path-relative-to-the-epic-directory) for one record."""
+    kind, key = rec["kind"], rec["key"]
+    if kind == "epic":
+        return key, "epic.yaml"
+    if kind == "sprint":
+        epic_key, sprint_num = key.split("-S")
+        return epic_key, os.path.join(f"sprint-{int(sprint_num):02d}", "sprint.yaml")
+    epic_key, sprint_part, _ = key.split("-", 2)
+    return epic_key, os.path.join(f"sprint-{int(sprint_part[1:]):02d}", f"{key}.yaml")
+
+
+def verify_against_plan(plan: dict, state_root: Path) -> list:
+    """Read the tree back and compare it to THE PLAN, not to itself.
+
+    Stage E of the old prose checked its result against the set it had just produced, so
+    an empty set verified clean. This reads each planned record's node off disk and
+    compares key and status, so a node that was never written, or was written wrong, is
+    reported.
+    """
+    from ruamel.yaml import YAML
+
+    problems = []
+    root = Path(state_root)
+    for rec in plan["records"]:
+        epic_key, rel = _node_relpath(rec)
+        epic_dirname = f"epic-{int(epic_key[1:]):03d}"
+
+        found = None
+        for folder in ("active", "planned", "archived"):
+            cand = root / folder / epic_dirname / rel
+            if cand.is_file():
+                found = cand
+                break
+        if found is None:
+            problems.append(f"{rec['kind']} {rec['key']}: planned but not found on disk")
+            continue
+        try:
+            node = YAML(typ="safe").load(found.read_text(encoding="utf-8"))
+        except Exception as exc:
+            problems.append(f"{rec['kind']} {rec['key']}: unreadable on disk -- {exc}")
+            continue
+        if not isinstance(node, dict):
+            problems.append(f"{rec['kind']} {rec['key']}: not a mapping on disk")
+            continue
+        if str(node.get("status")) != rec["status"]:
+            problems.append(
+                f"{rec['kind']} {rec['key']}: status on disk {node.get('status')!r} "
+                f"!= planned {rec['status']!r}")
+    return problems
+
+
+def dispose(layout: str, artifacts_dir: Path, project_root: Path) -> list:
+    """Rename the source aside. NEVER deletes.
+
+    The old Stage F `rm -f`'d the source. A rename to `.legacy` is recoverable by a human
+    with no backup to find, and detect-layout.py deliberately does not match the `.legacy`
+    name, so a migrated project reads clean afterwards.
+
+    The 'artifacts' layout has no source to retire: story .md files are artifacts, and
+    artifacts are never moved.
+    """
+    art, root = Path(artifacts_dir), Path(project_root)
+    if layout in ("l3io-flat", "bmad-flat"):
+        candidates = [art / "sprint-status.yaml"]
+    elif layout == "split":
+        candidates = [art / n for n in _split.SPLIT_FILES]
+    elif layout == "per-epic":
+        candidates = sorted((root / "_bmad" / "state").glob("*.yaml"))
+    else:
+        candidates = []
+
+    moved = []
+    for p in candidates:
+        if p.is_file():
+            p.rename(p.with_suffix(p.suffix + ".legacy"))
+            moved.append(str(p))
+    return moved
+
+
 def main(argv=None) -> int:
     parser = argparse.ArgumentParser(description="the doctor's migration engine")
     parser.add_argument("--artifacts", required=True)
     parser.add_argument("--project-root", required=True)
     parser.add_argument("--plan", action="store_true", help="read-only: show the plan")
     parser.add_argument("--format", choices=["json", "text"], default="text")
+    parser.add_argument("--apply", action="store_true", help="write the plan")
+    parser.add_argument("--state-root", help="required with --apply")
+    parser.add_argument("--pm-status", help="path to pm-status.py; required with --apply")
+    parser.add_argument("--dispose", action="store_true",
+                        help="rename the source aside after a verified write")
     args = parser.parse_args(argv)
+
+    if args.apply and not (args.state_root and args.pm_status):
+        parser.error("--apply requires --state-root and --pm-status")
 
     art, root = Path(args.artifacts), Path(args.project_root)
     layout = detect(art, root)
@@ -182,11 +345,38 @@ def main(argv=None) -> int:
         return 0
 
     plan = build_plan(gather(layout, art, root))
-    if args.format == "json":
-        json.dump({"layout": layout, **plan}, sys.stdout, indent=2)
-        sys.stdout.write("\n")
-    else:
-        sys.stdout.write(render_plan(layout, plan))
+
+    if not args.apply:
+        if args.format == "json":
+            json.dump({"layout": layout, **plan}, sys.stdout, indent=2)
+            sys.stdout.write("\n")
+        else:
+            sys.stdout.write(render_plan(layout, plan))
+        return 0
+
+    refusal = gate(layout, plan, art, root)
+    if refusal:
+        sys.stderr.write(refusal + "\n")
+        return 1
+
+    written, errors = write(plan, Path(args.state_root), args.pm_status)
+    if errors:
+        sys.stderr.write("FAILED during write -- source untouched:\n")
+        for e in errors:
+            sys.stderr.write(f"  {e}\n")
+        return 1
+
+    problems = verify_against_plan(plan, Path(args.state_root))
+    if problems:
+        sys.stderr.write("FAILED verification against the plan -- source untouched:\n")
+        for p in problems:
+            sys.stderr.write(f"  {p}\n")
+        return 1
+
+    sys.stdout.write(f"OK wrote {written} node(s); verified against the plan.\n")
+    if args.dispose:
+        for p in dispose(layout, art, root):
+            sys.stdout.write(f"  retired {p} -> {p}.legacy\n")
     return 0
 
 
