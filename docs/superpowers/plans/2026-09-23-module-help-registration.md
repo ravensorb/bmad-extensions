@@ -8,7 +8,7 @@
 
 **Tech Stack:** CSV (parsed with `csv-parse`), `scripts/check-module.mjs`, `scripts/tests/check-module.test.mjs`.
 
-**Source:** BMad's own module-builder validation workflow, `.claude/skills/bmad-module-builder/references/validate-module.md` §3 "Quality Assessment". Step 2 (`validate-module.py`) passes for all four modules and cannot see any of this. Full assessment: `/tmp/claude-1384001609/module-builder-step3.md`.
+**Source:** BMad's own module-builder validation workflow, `.claude/skills/bmad-module-builder/references/validate-module.md` §3 "Quality Assessment". Step 2 (`validate-module.py`) passes for all four modules and cannot see any of this. Full assessment: `<scratch>/module-builder-step3.md`.
 
 ## Global Constraints
 
@@ -26,7 +26,7 @@
 
 ## Phase 0 — Cleanup (do these first)
 
-Added after a full audit of all 21 `l3io-util-doctor` modes (`/tmp/claude-1384001609/doctor-mode-audit.md`) and a correction to the Step 3 assessment. Registration is **last** because Phase 0 changes what there is to register — Task 5 was going to register `normalize`, which Task 0C deletes.
+Added after a full audit of all 21 `l3io-util-doctor` modes (`<scratch>/doctor-mode-audit.md`) and a correction to the Step 3 assessment. Registration is **last** because Phase 0 changes what there is to register — Task 5 was going to register `normalize`, which Task 0C deletes.
 
 ---
 
@@ -370,7 +370,7 @@ Four corrections that all span every CSV, so they share one review surface.
 
 - [ ] **Step 0a: Fix `action: run`, which three skills do not recognise**
 
-`l3io-util-doctor`, `l3io-sec-redteam` and `l3io-arch-review` all carry `action: run`. Check each skill's activation section: none parses the word `run` (the doctor reaches its default only by falling through its catch-all). BMad's convention for a default invocation is an **empty** `action` — confirm that against `src/core-skills/module-help.csv` and `src/bmm-skills/module-help.csv` in the unpacked `bmad-method` tarball at `/tmp/claude-1384001609/package/`, then apply whatever those files actually do.
+`l3io-util-doctor`, `l3io-sec-redteam` and `l3io-arch-review` all carry `action: run`. Check each skill's activation section: none parses the word `run` (the doctor reaches its default only by falling through its catch-all). BMad's convention for a default invocation is an **empty** `action` — confirm that against `src/core-skills/module-help.csv` and `src/bmm-skills/module-help.csv` in the unpacked `bmad-method` tarball at `<scratch>/package/`, then apply whatever those files actually do.
 
 - [ ] **Step 0b: Settle one `phase` vocabulary for the package**
 
@@ -481,8 +481,8 @@ git add scripts/check-module.mjs scripts/tests/check-module.test.mjs
 - [ ] **Step 1: Re-verify the installer claim before relying on it**
 
 ```bash
-grep -n 'agent\.code\|agents\.\${' /tmp/claude-1384001609/package/tools/installer/core/manifest-generator.js
-grep -n 'agent' /tmp/claude-1384001609/package/tools/installer/lib/project-root.js
+grep -n 'agent\.code\|agents\.\${' <scratch>/package/tools/installer/core/manifest-generator.js
+grep -n 'agent' <scratch>/package/tools/installer/lib/project-root.js
 ```
 Expected: `code` used only to build `[agents.<code>]`; no agent handling in `project-root.js`. If either shows a directory resolution, **stop** — `code` must then be renamed to `l3io-sec-redteam` and this task changes shape.
 

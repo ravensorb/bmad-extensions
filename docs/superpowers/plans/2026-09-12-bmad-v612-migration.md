@@ -500,7 +500,7 @@ Line 35's cell, same four-way shape for `superpowers:requesting-code-review` (no
 This repo has BMad 6.11.0, so `.claude/commands/` is the live layout here; the scratch 6.12.0 install at `/tmp/.../inst-default` has the other. Confirm both resolve:
 
 ```bash
-ls /tmp/claude-1384001609/-home-ravenwolf-org-sanderson-source-git-ravensorb-bmad-bmad-extensions/376bf285-127b-4966-8786-165d42efbae8/scratchpad/inst-default/.claude/skills/bmad-agent-architect/SKILL.md
+ls <scratch>/inst-default/.claude/skills/bmad-agent-architect/SKILL.md
 ```
 Expected: the path prints (proving the new layout is what 6.12.0 produces).
 

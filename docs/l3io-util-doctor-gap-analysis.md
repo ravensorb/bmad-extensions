@@ -6,9 +6,9 @@
 > row stale — the live contracts remain `CLAUDE.md` and the skill's own `references/`.
 
 
-Repo: `/home/ravenwolf.org/sanderson/source/git/ravensorb/bmad/bmad-extensions`, `main`, HEAD `47effcd`, clean.
+Repo: `<repo root>`, `main`, HEAD `47effcd`, clean.
 No files were changed. Every claim below carries file:line evidence, re-derived from the tree at
-this commit — the `/tmp/claude-1384001609/doctor-mode-audit.md` mode list was **not** used.
+this commit — the `<scratch>/doctor-mode-audit.md` mode list was **not** used.
 
 ## 0. Current mode set, re-derived from `SKILL.md`
 
