@@ -86,8 +86,8 @@ or module setup.
 | `migrate-adrs` | `steps/migrate-adrs.md` | health-check | move ADRs from the old per-epic home to `docs/adr/` — confirms before writing |
 | `update-ai-rules` | `steps/update-ai-rules.md` | health-check |  |
 | `clean-legacy` | `steps/clean-legacy.md` | health-check | remove migration backup files |
-| `migrate-state` | `steps/migrate-state.md` | health-check | makes a legacy project usable by the PM skills again |
-| `bootstrap-state` | `steps/bootstrap-state.md` | health-check | create state nodes from story .md artifacts (legacy `bmad-create-story` workflow) |
+| `migrate-state` | `steps/migrate-state.md` | health-check | prose around `migrate-engine.py` — confirms before and interprets after the eight-step migration run |
+| `bootstrap-state` | `steps/bootstrap-state.md` | health-check | prose around `migrate-engine.py` with `read-artifacts.py` — creates state nodes from story `.md` files without overwriting existing nodes |
 | `setup`, `configure`, `install` | `assets/module-setup.md` | not-a-capability | then continue to `steps/health-check.md` |
 
 **Everything else** (no argument, unrecognized text, or a natural-language description) →

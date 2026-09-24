@@ -50,8 +50,8 @@ Key settings (with defaults):
 |---------|--------------|
 | `migrate-schema` | Upgrades an existing `sprint-status.yaml` to the current field schema — adds missing fields with zero/empty defaults, never overwrites existing values. |
 | `split-status` | Splits a single `sprint-status.yaml` into the three-file layout (`sprint-status.yaml` active / `sprint-status-backlog.yaml` / `sprint-status-archived.yaml`). One-way; original preserved as `sprint-status.yaml.legacy`. |
-| `migrate-state` | Makes a legacy project usable by the PM skills again — migrates a legacy state layout (flat `sprint-status.yaml`, or legacy per-epic `_bmad/state/`) to the sharded state tree. |
-| `bootstrap-state` | Creates state nodes from story `.md` artifacts — for projects whose stories were created via the legacy `bmad-create-story` without going through `l3io-pm-plan`. |
+| `migrate-state` | Makes a legacy project usable by the PM skills again — migrates a legacy state layout (flat `sprint-status.yaml`, or legacy per-epic `_bmad/state/`) to the sharded state tree. The source is renamed to `.legacy`, never deleted. A migration that would move nothing is refused rather than run. |
+| `bootstrap-state` | Creates state nodes from story `.md` artifacts — for projects whose stories were created via the legacy `bmad-create-story` without going through `l3io-pm-plan`. Bootstrapped sprints and epics are marked `origin: inferred`. Never overwrites existing state nodes; safe to repeat. |
 | `migrate-adrs` | Moves ADRs from the old per-epic home (`{implementation_artifacts}/epic-*/arch/`) to `{project-root}/docs/adr/`, the one ADR home (ADR-0005). Renumbers a colliding ADR only inside its own epic's artifacts. Plans first, confirms, then commits once. |
 
 ### Ongoing maintenance (safe to repeat)
@@ -110,8 +110,10 @@ in the [l3io-pm reference](l3io-pm-reference.md), which documents the whole CLI.
 | `resolve-issue` | `triage` | Closes an item that is already fixed, with a `--resolution` and a `--ref`. |
 | `repair-issue` | `triage` | `unschedule`, `reopen`, `link` and `reseed` repairs for the findings the audit reports. |
 | `append-issue` | `migrate-state` | Files a migration finding into the backlog rather than dropping it. |
+| `import-node` | `migrate-state`, `bootstrap-state` | Creates a missing state node from a migration record; idempotent by skip (an existing node is left exactly as-is, no event appended). |
 | `verify` | `migrate-state`, `bootstrap-state` | Reads a migrated or bootstrapped node back and confirms it landed. |
 | `set-status` | `migrate-state`, `bootstrap-state` | The single atomic status write; these modes never edit a state YAML by hand. |
+| `set-field` | `bootstrap-state` | Sets an arbitrary field on an existing node; refuses `completion_evidence.tests_passing` and other derived fields outright (exit 2). Used to fill `title` on bootstrapped epics. |
 | `clear-lock` | `stats` | The stale-lock remedy `stats` prints per affected epic. |
 | `calibration` | `redrive` | `redrive` rebuilds the `scope` and `fix` components through it. |
 | `dispatch` | `triage` | Opens and closes the dispatch record for a subagent the mode fans out to. |
