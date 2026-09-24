@@ -9521,5 +9521,123 @@ class TestEnsureNodePath(Base):
         self.assertEqual(cm.exception.code, 2)
 
 
+class TestImportNode(Base):
+    def _events(self):
+        p = os.path.join(self.d, "events.jsonl")
+        if not os.path.exists(p):
+            return []
+        with open(p, encoding="utf-8") as fh:
+            return [json.loads(line) for line in fh if line.strip()]
+
+    def test_creates_an_epic_and_its_directory(self):
+        code, out = self.run_main([
+            "import-node", "--state-root", self.d, "--epic", "E001",
+            "--status", "backlog", "--title", "First epic"])
+        self.assertEqual(code, 0, out)
+        path = os.path.join(self.d, "planned", "epic-001", "epic.yaml")
+        self.assertTrue(os.path.exists(path))
+        _, node = pm.load_node(path)
+        self.assertEqual(node["key"], "E001")
+        self.assertEqual(node["status"], "backlog")
+        self.assertEqual(node["title"], "First epic")
+
+    def test_creates_a_sprint_with_its_epic_backreference(self):
+        self.run_main(["import-node", "--state-root", self.d, "--epic", "E001",
+                       "--status", "backlog", "--title", "E"])
+        code, out = self.run_main([
+            "import-node", "--state-root", self.d, "--epic", "E001", "--sprint", "S01",
+            "--status", "in-progress", "--title", "Sprint one"])
+        self.assertEqual(code, 0, out)
+        _, node = pm.load_node(
+            os.path.join(self.d, "planned", "epic-001", "sprint-01", "sprint.yaml"))
+        self.assertEqual(node["epic"], "E001")
+        self.assertEqual(node["key"], "S01")
+
+    def test_creates_a_story_with_both_backreferences(self):
+        self.run_main(["import-node", "--state-root", self.d, "--epic", "E001",
+                       "--status", "backlog", "--title", "E"])
+        code, out = self.run_main([
+            "import-node", "--state-root", self.d, "--story", "E001-S01-002",
+            "--status", "done", "--title", "A story", "--classification", "feature"])
+        self.assertEqual(code, 0, out)
+        _, node = pm.load_node(
+            os.path.join(self.d, "planned", "epic-001", "sprint-01", "E001-S01-002.yaml"))
+        self.assertEqual(node["epic"], "E001")
+        self.assertEqual(node["sprint"], "S01")
+        self.assertEqual(node["classification"], "feature")
+
+    def test_the_new_node_passes_check_backrefs(self):
+        self.run_main(["import-node", "--state-root", self.d, "--epic", "E001",
+                       "--status", "backlog", "--title", "E"])
+        self.run_main(["import-node", "--state-root", self.d, "--story", "E001-S01-002",
+                       "--status", "done", "--title", "S"])
+        code, out = self.run_main([
+            "set-status", "--state-root", self.d, "--story", "E001-S01-002",
+            "--status", "review"])
+        self.assertEqual(code, 0, out)
+
+    def test_origin_is_written_when_given_and_absent_otherwise(self):
+        self.run_main(["import-node", "--state-root", self.d, "--epic", "E001",
+                       "--status", "backlog", "--title", "E"])
+        self.run_main(["import-node", "--state-root", self.d, "--epic", "E002",
+                       "--status", "backlog", "--title", "E2",
+                       "--origin", "inferred", "--origin-note", "from transitions"])
+        _, plain = pm.load_node(os.path.join(self.d, "planned", "epic-001", "epic.yaml"))
+        _, marked = pm.load_node(os.path.join(self.d, "planned", "epic-002", "epic.yaml"))
+        self.assertNotIn("origin", plain)
+        self.assertEqual(marked["origin"], "inferred")
+        self.assertEqual(marked["origin_note"], "from transitions")
+
+    def test_invalid_status_for_kind_exits_2(self):
+        code, _ = self.run_main([
+            "import-node", "--state-root", self.d, "--epic", "E001",
+            "--status", "ready-for-dev", "--title", "E"])
+        self.assertEqual(code, 2)
+
+    def test_sprint_without_its_epic_exits_3(self):
+        code, _ = self.run_main([
+            "import-node", "--state-root", self.d, "--epic", "E404", "--sprint", "S01",
+            "--status", "backlog", "--title", "orphan"])
+        self.assertEqual(code, 3)
+
+    def test_existing_node_is_skipped_not_overwritten(self):
+        self.run_main(["import-node", "--state-root", self.d, "--epic", "E001",
+                       "--status", "backlog", "--title", "Original"])
+        code, out = self.run_main([
+            "import-node", "--state-root", self.d, "--epic", "E001",
+            "--status", "done", "--title", "Clobber"])
+        self.assertEqual(code, 0, out)
+        self.assertIn("SKIP", out)
+        _, node = pm.load_node(os.path.join(self.d, "planned", "epic-001", "epic.yaml"))
+        self.assertEqual(node["title"], "Original")
+        self.assertEqual(node["status"], "backlog")
+
+    def test_an_event_is_appended(self):
+        self.run_main(["import-node", "--state-root", self.d, "--epic", "E001",
+                       "--status", "backlog", "--title", "E"])
+        evs = [e for e in self._events() if e.get("event") == "import"]
+        self.assertEqual(len(evs), 1)
+        self.assertEqual(evs[0]["to"], "backlog")
+        self.assertIsNone(evs[0]["from"])
+
+    def test_no_events_flag_suppresses_the_append(self):
+        self.run_main(["import-node", "--state-root", self.d, "--epic", "E001",
+                       "--status", "backlog", "--title", "E", "--no-events"])
+        self.assertEqual([e for e in self._events() if e.get("event") == "import"], [])
+
+    def test_a_skip_appends_no_event(self):
+        self.run_main(["import-node", "--state-root", self.d, "--epic", "E001",
+                       "--status", "backlog", "--title", "E"])
+        self.run_main(["import-node", "--state-root", self.d, "--epic", "E001",
+                       "--status", "backlog", "--title", "E"])
+        self.assertEqual(len([e for e in self._events() if e.get("event") == "import"]), 1)
+
+    def test_set_status_still_refuses_a_missing_node(self):
+        """import-node must not have loosened set-status."""
+        code, _ = self.run_main([
+            "set-status", "--state-root", self.d, "--epic", "E999", "--status", "done"])
+        self.assertEqual(code, 3)
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

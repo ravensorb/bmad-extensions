@@ -41,6 +41,12 @@ Subcommands
   story-doc-init --state-root S  --artifacts-root R  --story KEY
                 (creates the story document skeleton from the state node when absent;
                 an existing document is left untouched, exit 0 "exists")
+  import-node   --state-root S  (--story KEY | --epic ID [--sprint ID])  --status S
+                [--title T] [--classification C] [--origin {inferred}] [--origin-note N]
+                [--no-events] [--session-id ID]
+                (creates a missing state node from a migration record; idempotent by
+                SKIP -- an existing node is left untouched and no event is appended;
+                exit 3 when a sprint or story's parent epic is absent)
   set-actual    --state-root S   --node {story,sprint,epic}  (--story KEY | --epic ID [--sprint ID])
                 [--elapsed-hours H] [--man-hours H] [--hitl-hours H]
                 [--tokens-input K] [--tokens-output K] [--tokens-cache-write K] [--tokens-cache-read K]
@@ -3886,6 +3892,74 @@ def cmd_set_status(args) -> int:
     return 0
 
 
+def cmd_import_node(args) -> int:
+    """Create a state node from a migration record. The counterpart to set-status for a
+    node that does not exist yet.
+
+    This is cmd_set_status with ONE step swapped -- ensure_node_path() where set-status
+    calls _load_checked() -- because _load_checked exits 3 on a missing node, which is
+    correct for set-status and fatal for this verb. set-status itself is untouched: it
+    must never create anything.
+
+    Idempotent by SKIP, not by overwrite. A migration retried after a partial run must
+    not clobber a node a later step already edited, so an existing file is left exactly
+    as it is and reported.
+    """
+    from ruamel.yaml.scalarstring import SingleQuotedScalarString as SQ
+
+    kind = _infer_kind(args)
+    valid = {
+        "story": VALID_STORY_STATUS,
+        "sprint": VALID_SPRINT_STATUS,
+        "epic": VALID_EPIC_STATUS,
+    }[kind]
+    if args.status not in valid:
+        _die_usage(
+            f"invalid {kind} status '{args.status}' -- expected one of {sorted(valid)}")
+
+    with _epic_write_lock(args, kind, require_exists=False):
+        path, label = ensure_node_path(args.state_root, args, kind, args.status)
+        if os.path.exists(path):
+            sys.stdout.write(f"SKIP import-node {label} -- already exists\n")
+            return 0
+
+        node = {}
+        if kind == "epic":
+            node["key"] = SQ(args.epic)
+            node["title"] = args.title or ""
+            node["goal"] = ""
+        elif kind == "sprint":
+            node["key"] = SQ(args.sprint)
+            node["epic"] = SQ(args.epic)
+            node["title"] = args.title or ""
+        else:
+            epic_key, sprint_key, _ = parse_story_key(args.story)
+            node["key"] = SQ(args.story)
+            node["epic"] = SQ(epic_key)
+            node["sprint"] = SQ(sprint_key)
+            node["title"] = args.title or ""
+            node["classification"] = args.classification or "unknown"
+
+        node["status"] = args.status
+        node["updated_at"] = _now_iso()
+        if args.origin:
+            node["origin"] = args.origin
+            node["origin_note"] = args.origin_note or ""
+
+        save_node(_yaml(), node, path, getattr(args, "flock", False))
+
+        if not getattr(args, "no_events", False):
+            payload = {
+                "ts": _now_iso(), "event": "import", "from": None, "to": args.status,
+                "session": getattr(args, "session_id", None),
+            }
+            payload.update(_event_keys(kind, args))
+            append_event(args.state_root, payload)
+
+    sys.stdout.write(f"OK import-node {label} -> {args.status}\n")
+    return 0
+
+
 def story_doc_path(artifacts_root: str, story_key: str) -> str:
     """E{nnn}-S{nn}-{nnn} -> {artifacts}/epic-{nnn}/sprint-{nn}/stories/{key}.md
 
@@ -6555,6 +6629,23 @@ def build_parser() -> argparse.ArgumentParser:
                     help="implementation_artifacts root (NOT the state root)")
     di.add_argument("--story", required=True)
     di.set_defaults(func=cmd_story_doc_init)
+
+    imp = sub.add_parser("import-node",
+                         help="create a state node from a migration record")
+    imp.add_argument("--state-root", required=True)
+    imp.add_argument("--epic")
+    imp.add_argument("--sprint")
+    imp.add_argument("--story")
+    imp.add_argument("--status", required=True)
+    imp.add_argument("--title", default="")
+    imp.add_argument("--classification", default="unknown")
+    imp.add_argument("--origin", choices=["inferred"],
+                     help="mark the node as reconstructed rather than read")
+    imp.add_argument("--origin-note", default="",
+                     help="why the node was inferred; recorded beside --origin")
+    imp.add_argument("--no-events", action="store_true")
+    imp.add_argument("--session-id")
+    imp.set_defaults(func=cmd_import_node)
 
     a = sub.add_parser("set-actual", help="write a validated actual block")
     a.add_argument("--state-root", required=True, help="path to {implementation_artifacts}/state")
