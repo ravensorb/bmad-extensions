@@ -21,6 +21,16 @@ would otherwise hit with no clue why:
 `pm-status.py is missing at {project-root}/_bmad/scripts/pm-status.py. Run /l3io-util-doctor
 first to install it — this report read epic.yaml directly instead.`
 
+**Second follow-up, checked after the absent-warning above:** if `{pm_status_stale}` is `yes`,
+prepend a stale warning after the absent warning (or first if no absent warning fired):
+`pm-status.py at {project-root}/_bmad/scripts/pm-status.py is stale — the installed copy is
+behind the shipped version. Run /l3io-util-doctor to refresh it (its activation self-install
+picks up the current copy).`
+
+If `{pm_status_stale}` is `unknown`, prepend:
+`Note: l3io-util-doctor is not installed here, so pm-status.py freshness could not be checked.
+It is a required module of this extension — see docs/l3io-util-reference.md.`
+
 One of the strings above is also inlined elsewhere so that path does not need to load this
 file: this `pm_status_present` warning in `steps/mode-list-plan.md`. Keep both copies in
 sync if it changes. (The stale-lock recommendation used to be inlined a second time, in

@@ -26,11 +26,19 @@ Then check whether `{pm_status}` is actually on disk and bind `{pm_status_presen
 [ -f {project-root}/_bmad/scripts/pm-status.py ] && echo present || echo absent
 ```
 
-**No staleness check.** This skill has no `module.yaml` of its own to compare against — that
-file lives only at each module's home (`skills/l3io-pm-setup/assets/module.yaml`), and reading
-a sibling skill's path from here would be the cross-skill path read this package avoids
-elsewhere. Presence is the only signal l3io-pm-help can honestly report; it does not guess at
-version freshness.
+When `{pm_status_present}` is `present`, also check whether it is current. The doctor owns
+this comparison (its `module_version` is the source of truth for the shipped version at this
+extension level). Invoke `skill:l3io-util-doctor` with `check-pm-status`, capture its exit
+code, and bind `{pm_status_stale}`:
+
+- Exit 0 → `no` (current)
+- Exit 3 → `yes` (stale)
+- Exit 4 → `no` (absent — already caught above; treat here as `no` to avoid double warning)
+
+If `l3io-util-doctor` is not installed here, bind `{pm_status_stale}` to `unknown` and
+continue. `l3io-util-doctor` is a required module of this extension (see `CLAUDE.md`
+Dependencies), so `unknown` is an install anomaly the report should surface, not a normal
+state.
 
 **Never invoke `{pm_status}` when it is absent.** On a fresh install nothing has
 self-installed it yet, so every `{pm_status}` call below is conditional: when

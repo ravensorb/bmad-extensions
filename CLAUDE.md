@@ -9,7 +9,7 @@ Architecture decisions are recorded in `docs/adr/` — ADR-0001: `pm-status.py` 
 ## Module Layout
 
 `l3io-util-doctor` routes: `SKILL.md` carries the overview, the keyword table, safety rules
-and the state layout, and each of its sixteen modes lives in its own `steps/` file loaded
+and the state layout, and each of its seventeen modes lives in its own `steps/` file loaded
 only when its keyword selects it. Add a mode as a file plus a table row — never inline. The
 modes were inlined once and `SKILL.md` reached 96,980 B, so every invocation paid for fifteen
 procedures it would not run.
