@@ -3127,3 +3127,36 @@ test('check 26: python comments and docstrings in .py files are skipped', () => 
   assert.ok(!violations.some(v => v.includes('fake-skill/scripts/thing.py')),
     'python comments and docstrings must be skipped')
 })
+
+test('check 26: description-only prose without active verb is exempt', () => {
+  const { violations } = resolverInvariant({
+    extraSources: [{
+      file: 'skills/fake-skill/steps/prose.md',
+      text: 'The layout is `{pm_state_root}/planned/epic-{nnn}/epic.yaml` -- pure prose.',
+    }],
+  })
+  assert.ok(!violations.some(v => v.includes('prose.md')),
+    'prose without a filesystem verb must be exempt')
+})
+
+test('check 26: active verb with state path is caught', () => {
+  const { violations } = resolverInvariant({
+    extraSources: [{
+      file: 'skills/fake-skill/steps/directive.md',
+      text: 'ls -d {pm_state_root}/planned/epic-{nnn}/',
+    }],
+  })
+  assert.ok(violations.some(v => v.includes('directive.md')),
+    'active verb with state path must be flagged')
+})
+
+test('check 26: check26:allow marker on preceding line suppresses the flag', () => {
+  const { violations } = resolverInvariant({
+    extraSources: [{
+      file: 'skills/fake-skill/steps/suppressed.md',
+      text: '# check26:allow reason: existence probe pending exists verb\nls -d {pm_state_root}/planned/epic-{nnn}/',
+    }],
+  })
+  assert.ok(!violations.some(v => v.includes('suppressed.md')),
+    'marker on preceding line must suppress the flag')
+})

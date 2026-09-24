@@ -150,6 +150,7 @@ checked — a `planned/` epic legitimately has state and no artifacts yet (stori
 planning), so that asymmetry is not drift:
 
 ```bash
+# check26:allow reason: state/artifact mirror check; pending pm-status.py exists verb
 diff <(ls {pm_state_root}/{active,archived}/epic-{nnn}/sprint-{nn}/*.yaml 2>/dev/null \
         | xargs -n1 basename | sed 's/.yaml//' | grep -v '^sprint$') \
      <(ls {implementation_artifacts}/epic-{nnn}/sprint-{nn}/stories/*.md 2>/dev/null \

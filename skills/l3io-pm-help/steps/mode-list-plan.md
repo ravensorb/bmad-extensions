@@ -43,6 +43,7 @@ Collect the full set of epic keys referenced across all phases of this snapshot.
 For each epic key `E{nnn}` (where `epic-{nnn}` is the zero-padded directory name), probe state:
 
 ```bash
+# check26:allow reason: state-existence probe; pending pm-status.py exists verb
 ls -d {pm_state_root}/planned/epic-{nnn}/ \
       {pm_state_root}/active/epic-{nnn}/  \
       {pm_state_root}/archived/epic-{nnn}/ 2>/dev/null
