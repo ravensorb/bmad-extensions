@@ -272,6 +272,18 @@ never as "absent (optional — its phase self-skips)". See ADR-0006's amendment.
 
 Optional — UX review: the legacy `bmad-ux-review` is preferred when installed, because it is purpose-built for review; `bmad-ux`'s opt-in Reviewer Gate is used only when the legacy `bmad-ux-review` is absent. UX review phases skip gracefully when neither is present. (`bmad-testarch-atdd` was previously listed here, but no step file ever invoked it; its gating machinery has been removed.)
 
+Required intra-package: `l3io-util` (this package's utilities module — provides
+`l3io-util-doctor`). `l3io-pm-help` forwards `progress` to `/l3io-util-doctor stats` and calls
+`skill:l3io-util-doctor check-pm-status` at activation to check whether the installed
+pm-status.py is current. Both would fail without the doctor installed. The dependency is
+declared in `skills/l3io-pm-setup/assets/module.yaml`'s `dependencies:` list — the field
+BMad's installer captures at `tools/installer/modules/official-modules.js:207`
+(`moduleInfo.dependencies = config.dependencies || []`) but does not currently enforce (no
+picker validation, no install-order gate as of 6.12). The declaration is future-proof for
+when BMad grows enforcement, and documents the intent today. The marketplace bundle in
+`.claude-plugin/marketplace.json` ships all four LiquidLogicLabs modules together, so a
+standard install carries `l3io-util`; installs that manually strip it are unsupported.
+
 Optional intra-package: `l3io-arch-review` (this package's `l3io-arch` module) — enables the
 epic architecture gate and drives the story technical-AC gate's checklist, and can wire the
 standards into core `bmad-architecture` via `bmad-customize`. Both gates self-skip (the story
@@ -279,3 +291,5 @@ gate falls back to a built-in checklist) when `l3io-arch-review` is absent.
 
 Run `/l3io-util-doctor check-deps` in a target project to see exactly what resolved there — the
 declared inventory lives at `skills/l3io-util-doctor/assets/bmad-dependencies.json`.
+Run `/l3io-util-doctor check-pm-status` to verify the installed pm-status.py is current
+against the shipped version at this extension level.

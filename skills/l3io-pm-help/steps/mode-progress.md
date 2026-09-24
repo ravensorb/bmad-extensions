@@ -9,5 +9,7 @@ state.
 Invoke `skill:l3io-util-doctor` with `stats`, passing through any scope argument the user
 gave (`active`, `queued`, `everything`). Report its output unchanged; add no second summary.
 
-If `l3io-util-doctor` is not installed, say so in one line and stop — do not re-implement
-the tree here. That duplication is what this forwarder removed.
+`l3io-util-doctor` is a required module of this extension (see `CLAUDE.md` Dependencies), so
+a missing doctor is an install anomaly rather than an expected condition. If the invocation
+fails with "skill not found," report the install error and suggest `/l3io-util-doctor
+check-deps` (which itself needs the doctor — the user needs to reinstall the module).
