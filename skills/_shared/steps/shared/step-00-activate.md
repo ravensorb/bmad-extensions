@@ -170,6 +170,45 @@ tokens/cost. Guessing `claude` without transcript access, or `codex` without rea
 files, would either block every write (exit 2 on `--tokens-na`) or invite a fabricated number,
 and both are worse than an honest N/A.
 
+## 2.5. Verify the l3io-util-doctor sibling module is installed
+
+`l3io-util-doctor` is a required intra-package module (CLAUDE.md "Dependencies") — the PM
+skills forward migrations, health checks, and the plan-aware progress dashboard to it, and
+`l3io-pm-help` invokes `check-pm-status` on every activation. A standard install carries the
+whole marketplace bundle so this is only false when someone has manually stripped the module.
+
+The check probes both the 6.12 and pre-6.12 skill layouts, project-root first then user home,
+matching `bmad-deps.py`'s resolve() (which cannot help here because it *is* the doctor):
+
+```bash
+if   [ -f "{project-root}/.claude/skills/l3io-util-doctor/SKILL.md" ] \
+  || [ -f "{project-root}/.claude/commands/l3io-util-doctor.md" ] \
+  || [ -f "$HOME/.claude/skills/l3io-util-doctor/SKILL.md" ] \
+  || [ -f "$HOME/.claude/commands/l3io-util-doctor.md" ]; then
+  doctor=present
+else
+  doctor=absent
+fi
+```
+
+**Warn but do not block.** This skill can complete without the doctor for its own core path;
+the failure is deferred to whichever specific step tries to forward to it (`migrate-state`,
+`bootstrap-state`, `check-pm-status`). Surfacing the warning up front turns "skill not found"
+into a diagnosable install anomaly instead of a downstream mystery.
+
+When `doctor=absent`, print exactly once at activation (do not repeat later):
+
+```
+⚠️  l3io-util-doctor is not installed — this is a required module of the LiquidLogicLabs
+    extension. The marketplace bundle in .claude-plugin/marketplace.json ships it alongside
+    l3io-pm, so this state is an install anomaly. Some steps below (state-layout migrations,
+    the progress dashboard, and `check-pm-status`) will fail if reached. Reinstall
+    the extension with `--modules ...,l3io-util,...` or reinstall the plugin bundle whole to
+    restore it.
+```
+
+Continue to section 3 either way.
+
 ## 3. Detect state layout
 
 Count how many of these three layouts are present — do **not** stop at the first match:
