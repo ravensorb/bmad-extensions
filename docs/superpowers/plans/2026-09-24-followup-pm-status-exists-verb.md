@@ -1,7 +1,7 @@
 # Follow-up: `pm-status.py exists` verb
 
 **Date:** 2026-09-24  
-**Tracking:** 5 `check26:allow` markers added in the final-fix wave for
+**Tracking:** 2 `check26:allow` markers added in the final-fix wave for
 `2026-09-24-l3io-util-doctor-redesign`; this file is what those markers point to.
 
 ## Background
