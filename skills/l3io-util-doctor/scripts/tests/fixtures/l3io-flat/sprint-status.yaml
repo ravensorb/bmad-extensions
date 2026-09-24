@@ -1,0 +1,28 @@
+# Legacy flat layout: one epics: list, sprints and stories nested inside it.
+epics:
+  - key: 'E001'
+    title: Authentication
+    status: in-progress
+    sprints:
+      - key: 'S01'
+        title: Login flow
+        status: done
+        stories:
+          - key: 'E001-S01-001'
+            title: Password login
+            status: done
+            classification: feature
+          - key: 'E001-S01-002'
+            title: Session cookies
+            status: review
+      - key: 'S02'
+        title: OAuth
+        status: in-progress
+        stories:
+          - key: 'E001-S02-001'
+            title: Google provider
+            status: ready-for-dev
+  - key: 'E002'
+    title: Reporting
+    status: backlog
+    sprints: []
