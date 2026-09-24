@@ -3852,6 +3852,14 @@ function checkDoctorModeKeywords() {
 //     state-path assembly. Any artifact-path template written on a line that also
 //     happens to carry a state-context token would be a false positive; none exist in the
 //     current tree.
+//
+// CATEGORICAL EXEMPTIONS: SKILL.md (skill overview docs describe layout, not direct it),
+// test-*.py / *.test.mjs files (tests legitimately assemble paths for fixtures), Python
+// comments (# on line start), and lines inside triple-quoted docstrings in .py files.
+// Each closes a class of legitimate false positives the plan's regex over-caught.
+// Step files that use `ls -d {pm_state_root}/…/epic-{nnn}/` are NOT exempted — they
+// are real invariant violations that would be closed by adding an existence-check verb
+// to pm-status.py, tracked separately.
 
 const RESOLVER_START_MARKER =
   'Sharded layout resolution — the ONLY place that knows where nodes live'
@@ -3869,6 +3877,17 @@ const STATE_CONTEXT_RE = /\b(?:state|planned|active|archived|state_root|pm_state
 function isStatusFilesContract(file) {
   return file === 'skills/_shared/status-files.md' ||
     file.endsWith('/references/status-files.md')
+}
+
+// Categorical exemptions for the (b) half of resolverInvariant: file types where state-path
+// templates are legitimate and not state-path assembly.
+function isCategoricallyExempt(file) {
+  // SKILL.md: skill overview docs describe the state layout, they do not direct assembly.
+  if (/\/SKILL\.md$/.test(file)) return true
+  // Test files: legitimately build paths to populate fixtures; not runtime assembly.
+  if (/(?:^|\/)test[-_].*\.py$/.test(file)) return true
+  if (file.endsWith('.test.mjs')) return true
+  return false
 }
 
 // Walk every file under `skills/` whose name ends in one of `exts`, returning repo-relative
@@ -3901,9 +3920,15 @@ export function resolverInvariant(opts = {}) {
   if (start < 0 || end < 0) {
     violations.push(`${pmPath}: resolver section markers not found — cannot judge scope`)
   } else {
+    let pmInDocstring = false
     pmLines.forEach((line, i) => {
       const n = i + 1
       if (n > start + 1 && n < end + 1) return    // inside the resolver section — allowed
+      // Track triple-quoted docstrings; skip lines that start inside or cross a boundary.
+      const tripleCount = (line.match(/"""|'''/g) || []).length
+      const wasPmInDocstring = pmInDocstring
+      if (tripleCount % 2 === 1) pmInDocstring = !pmInDocstring
+      if (wasPmInDocstring || tripleCount > 0) return
       if (line.trimStart().startsWith('#')) return  // pure comment line, not code
       if (STATE_PATH_RE.test(line) && STATE_CONTEXT_RE.test(line)) {
         violations.push(
@@ -3921,7 +3946,19 @@ export function resolverInvariant(opts = {}) {
     if (file === pmPath || file.endsWith('/scripts/pm-status.py')) continue
     scannedFiles.push(file)
     if (isStatusFilesContract(file)) continue
+    if (isCategoricallyExempt(file)) continue
+    const isPy = file.endsWith('.py')
+    let inDocstring = false
     text.split('\n').forEach((line, i) => {
+      if (isPy) {
+        // Track triple-quoted docstring boundaries (heuristic: odd count of triple-quotes
+        // on the line toggles state). Skip lines that start inside or cross a boundary.
+        const tripleCount = (line.match(/"""|'''/g) || []).length
+        const wasInDocstring = inDocstring
+        if (tripleCount % 2 === 1) inDocstring = !inDocstring
+        if (wasInDocstring || tripleCount > 0) return
+        if (line.trimStart().startsWith('#')) return  // python comment
+      }
       if (STATE_PATH_RE.test(line) && STATE_CONTEXT_RE.test(line)) {
         violations.push(`${file}:${i + 1} assembles a state path: ${line.trim()}`)
       }

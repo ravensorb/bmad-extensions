@@ -3094,3 +3094,36 @@ test('check 26: a planted pm-status.py violation outside the resolver section is
   assert.ok(violations.some(v => v.includes('pm-status.py:4000')),
     `expected the planted pm-status violation, got: ${JSON.stringify(violations)}`)
 })
+
+test('check 26: SKILL.md is exempt', () => {
+  const { violations } = resolverInvariant({
+    extraSources: [{
+      file: 'skills/fake-skill/SKILL.md',
+      text: 'The state layout is `{pm_state_root}/planned/epic-{nnn}/`.',
+    }],
+  })
+  assert.ok(!violations.some(v => v.includes('fake-skill/SKILL.md')),
+    'SKILL.md files must be exempt from check 26')
+})
+
+test('check 26: test-*.py files are exempt', () => {
+  const { violations } = resolverInvariant({
+    extraSources: [{
+      file: 'skills/fake-skill/scripts/tests/test-something.py',
+      text: 'p = os.path.join(state_root, "planned", "epic-{nnn}")',
+    }],
+  })
+  assert.ok(!violations.some(v => v.includes('test-something.py')),
+    'test-*.py files must be exempt from check 26')
+})
+
+test('check 26: python comments and docstrings in .py files are skipped', () => {
+  const { violations } = resolverInvariant({
+    extraSources: [{
+      file: 'skills/fake-skill/scripts/thing.py',
+      text: '# example: state_root/planned/epic-{nnn}/epic.yaml\n"""example: state_root/active/epic-{nnn}/"""\nx = 1',
+    }],
+  })
+  assert.ok(!violations.some(v => v.includes('fake-skill/scripts/thing.py')),
+    'python comments and docstrings must be skipped')
+})
