@@ -62,13 +62,17 @@ Node.js is **not** needed to use the skills — only to develop this package its
 
 ## Module Selection
 
-You can install all four modules or only the ones you need:
+You can install all four modules or only the ones you need — but `l3io-util` is required
+whenever `l3io-pm` is installed (it provides the doctor that PM skills forward to for
+migrations, the progress dashboard, and the `check-pm-status` mode). Declared in
+`skills/l3io-pm-setup/assets/module.yaml`'s `dependencies:` list; the marketplace bundle
+ships all four together so a standard install always carries `l3io-util`.
 
 | Module | Install if you want |
 |--------|---------------------|
 | **l3io-pm** | Sprint and epic orchestration |
+| **l3io-util** | **Required with `l3io-pm`.** Project state diagnostics, the progress dashboard, legacy layout migration, and the `check-pm-status` mode. |
 | **l3io-sec** | Adversarial security review (standalone or automatic inside l3io-pm closure) |
-| **l3io-util** | Project state diagnostics, the progress dashboard, and legacy layout migration |
 | **l3io-arch** | Engineering-standards architecture guardrails and review (new-project design, review audits, and ADR-recorded decisions) |
 
 All four modules are installed by the same `npx bmad-method install` command. No module

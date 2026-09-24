@@ -248,7 +248,7 @@ Every one-time migration preserves what it replaced:
 | `_bmad/state.legacy/` | `migrate-state` (per-epic → sharded) |
 | `_bmad/pm-calibration.yaml.legacy` | `migrate-state` |
 | `{implementation_artifacts}/state/pm-calibration.yaml.v1` | first calibration write after a v1 → v2 schema migration (written beside the live calibration file, not under `_bmad/`) |
-| `_bmad/migration-backup/` | `migrate-state` Stage F, when you pick its default "move" option |
+| `_bmad/migration-backup/` | pre-2.5 `migrate-state` (Stage F's "move" option). The current engine renames sources to `*.yaml.legacy` in place, not to a backup directory — you will only see this if your project was migrated under an older release. |
 
 Nothing deletes these automatically. Once you have verified the result, remove them with:
 
