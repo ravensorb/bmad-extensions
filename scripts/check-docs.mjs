@@ -79,6 +79,11 @@
 //                    resolves to a file it carries. Read check 25's own block for the two
 //                    invocation forms it cannot see
 //
+//  26. resolver-invariant  state paths are assembled only in pm-status.py's resolver section —
+//                    two halves (inside pm-status.py; across all of skills/), scope derived from
+//                    the tree, with the canonical status-files.md contract exempt. See the block
+//                    above resolverInvariant() for the KNOWN GAP.
+//
 // ---------------------------------------------------------------------------------------
 // KNOWN GAPS — check 4's reach over skills/
 //
@@ -195,6 +200,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
+import { fileURLToPath } from "node:url";
 import YAML from "yaml";
 import sh from "mvdan-sh";
 
@@ -202,6 +208,9 @@ import sh from "mvdan-sh";
 // runs it against a temp copy with a planted violation.
 const repoRoot = process.env.CHECK_DOCS_ROOT ? path.resolve(process.env.CHECK_DOCS_ROOT) : process.cwd();
 const verbose = process.argv.includes("-v") || process.argv.includes("--verbose");
+// isMain guards the bottom-of-file check invocations so importing this module (e.g. to call
+// resolverInvariant() directly in a unit test) does not run the full suite.
+const isMain = process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url);
 const failures = [];
 const notes = [];
 
@@ -2236,7 +2245,7 @@ function checkAdrHome() {
 const NUMBER_WORDS = ["zero", "one", "two", "three", "four", "five", "six", "seven", "eight",
   "nine", "ten", "eleven", "twelve", "thirteen", "fourteen", "fifteen", "sixteen",
   "seventeen", "eighteen", "nineteen", "twenty", "twenty-one", "twenty-two", "twenty-three",
-  "twenty-four", "twenty-five"];
+  "twenty-four", "twenty-five", "twenty-six"];
 const DOCTOR_DIR = "skills/l3io-util-doctor";
 
 function checkDoctorModeCount() {
@@ -3809,6 +3818,115 @@ function checkDoctorModeKeywords() {
   }
 }
 
+// ---------------------------------------------------------------------------
+// 26. State paths are assembled ONLY in pm-status.py's resolver section.
+//
+// CLAUDE.md states pm-status.py "is the only place that resolves a key to a file
+// location". Two doctor procedures were standing exceptions: bootstrap-state.md at SIX
+// sites (with its own inline ruamel write_node, bypassing the epic write lock, the event
+// log and status validation) and migrate-state.md at three. Both are now routed through
+// `import-node`; this check is what keeps them routed.
+//
+// TWO HALVES, and the second is the load-bearing one:
+//   (a) inside pm-status.py -- assembly appears only between the resolver section's
+//       marker comments. The markers are matched by TEXT, not line number, so the bounds
+//       survive edits above them.
+//   (b) across skills/ -- no file assembles a state path at all.
+//
+// SCOPE IS DERIVED from the tree (every .md and .py under skills/), never enumerated. A
+// guard scoped to the two known offenders would have passed over any third one and
+// reported success -- the same shape as the vacuous Stage E gate it exists to prevent.
+//
+// EXEMPTIONS, derived rather than listed by hand: skills/_shared/status-files.md is the
+// canonical state-layout contract and has to describe the layout; its synced
+// references/status-files.md copies are the same bytes, so they are exempt by the same
+// rule rather than by a second entry.
+//
+// KNOWN GAP: this matches literal `epic-`/`sprint-` assembly adjacent to a path separator
+// or a state-root token. It does NOT catch a path built from a variable whose value is
+// "epic-" assigned elsewhere. That is a FALSE-NEGATIVE direction, stated here rather than
+// left for a reader to discover.
+
+const RESOLVER_START_MARKER =
+  'Sharded layout resolution — the ONLY place that knows where nodes live'
+const RESOLVER_END_MARKER =
+  'computed roll-ups — sprint/epic aggregates over per-story child files'
+
+const STATE_PATH_RE =
+  /(?:mkdir\s+-p\s+|["'`(]|\/)\s*\{?[\w.\-/{}]*\}?\/?(?:epic-\{?n{2,3}\}?|epic-\{int|sprint-\{?n{1,2}\}?)/
+
+function isStatusFilesContract(file) {
+  return file === 'skills/_shared/status-files.md' ||
+    file.endsWith('/references/status-files.md')
+}
+
+// Walk every file under `skills/` whose name ends in one of `exts`, returning repo-relative
+// posix paths. Used by resolverInvariant() to derive scope from the tree.
+function walkSkillFiles(exts) {
+  const out = []
+  const walk = (rel) => {
+    for (const entry of fs.readdirSync(path.join(repoRoot, rel), { withFileTypes: true })) {
+      const child = path.posix.join(rel, entry.name)
+      if (entry.isDirectory()) walk(child)
+      else if (exts.some((e) => entry.name.endsWith(e))) out.push(child)
+    }
+  }
+  walk('skills')
+  return out
+}
+
+export function resolverInvariant(opts = {}) {
+  const violations = []
+  const scannedFiles = []
+
+  // (a) pm-status.py: state-path assembly must appear only inside the resolver section.
+  const pmPath = 'skills/_shared/pm-status.py'
+  const pmLines = read(pmPath).split('\n')
+  if (opts.plantInPmStatus) {
+    pmLines.splice(opts.plantInPmStatus.line - 1, 0, opts.plantInPmStatus.text)
+  }
+  const start = pmLines.findIndex((l) => l.includes(RESOLVER_START_MARKER))
+  const end = pmLines.findIndex((l) => l.includes(RESOLVER_END_MARKER))
+  if (start < 0 || end < 0) {
+    violations.push(`${pmPath}: resolver section markers not found — cannot judge scope`)
+  } else {
+    pmLines.forEach((line, i) => {
+      const n = i + 1
+      if (n > start + 1 && n < end + 1) return    // inside the resolver section — allowed
+      if (line.trimStart().startsWith('#')) return  // pure comment line, not code
+      if (STATE_PATH_RE.test(line)) {
+        violations.push(
+          `${pmPath}:${n} assembles a state path outside the resolver section: ${line.trim()}`)
+      }
+    })
+  }
+
+  // (b) skills/: no file assembles a state path. Scope derived by walking the tree.
+  const sources = [
+    ...walkSkillFiles(['.md', '.py']).map((f) => ({ file: f, text: read(f) })),
+    ...(opts.extraSources || []),
+  ]
+  for (const { file, text } of sources) {
+    if (file === pmPath || file.endsWith('/scripts/pm-status.py')) continue
+    scannedFiles.push(file)
+    if (isStatusFilesContract(file)) continue
+    text.split('\n').forEach((line, i) => {
+      if (STATE_PATH_RE.test(line)) {
+        violations.push(`${file}:${i + 1} assembles a state path: ${line.trim()}`)
+      }
+    })
+  }
+
+  return { violations, scannedFiles }
+}
+
+function checkResolverInvariant() {
+  const { violations } = resolverInvariant()
+  for (const v of violations) failures.push(`[check 26] ${v}`)
+  if (verbose) console.log(`  resolver-invariant: ${violations.length} violation(s)`)
+}
+
+if (isMain) {
 checkSkillNames();
 checkGatingTables();
 checkSectionRefs();
@@ -3834,6 +3952,7 @@ checkReadmeRepoLayout();
 checkMarketplaceDependencies();
 checkSharedPointerResolution();
 checkDoctorModeKeywords();
+checkResolverInvariant();
 
 for (const note of notes) if (verbose) console.log(`  note: ${note}`);
 
@@ -3846,3 +3965,4 @@ if (failures.length > 0) {
 }
 
 console.log("Documentation checks passed: skill names, gating tables, and section references all resolve.");
+}

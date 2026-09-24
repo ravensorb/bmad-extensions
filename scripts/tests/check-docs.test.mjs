@@ -9,6 +9,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { resolverInvariant } from "../check-docs.mjs";
 
 const REPO = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..");
 const CHECK = path.join(REPO, "scripts", "check-docs.mjs");
@@ -352,7 +353,7 @@ function claudeModeWord(root) {
 const NUMBER_WORDS = ["zero", "one", "two", "three", "four", "five", "six", "seven", "eight",
   "nine", "ten", "eleven", "twelve", "thirteen", "fourteen", "fifteen", "sixteen",
   "seventeen", "eighteen", "nineteen", "twenty", "twenty-one", "twenty-two", "twenty-three",
-  "twenty-four", "twenty-five"];
+  "twenty-four", "twenty-five", "twenty-six"];
 
 test("check 15: a stated count one below the real one is caught", (t) => {
   const root = fixture(t);
@@ -3049,3 +3050,47 @@ test("check 25: a cross-skill qualified mode-file pointer is not a doctor pointe
   const r = run(root);
   assert.equal(r.status, 0, r.stderr + r.stdout);
 });
+
+// ---- check 26 (resolver-invariant) ----
+// These four tests import resolverInvariant() directly rather than spawning a subprocess,
+// so they run against the real repo tree (not a fixture copy).
+
+test('check 26: scope is derived from the tree, not enumerated', () => {
+  const { scannedFiles } = resolverInvariant()
+  assert.ok(scannedFiles.length > 20,
+    `expected the scan to reach the whole skills tree, saw ${scannedFiles.length}`)
+  assert.ok(scannedFiles.some(f => f.includes('l3io-util-doctor')),
+    'the doctor must be in scope')
+  assert.ok(scannedFiles.some(f => f.includes('l3io-pm-execute')),
+    'every skill must be in scope, not only the doctor')
+})
+
+test('check 26: a planted markdown violation is caught', () => {
+  const { violations } = resolverInvariant({
+    extraSources: [{
+      file: 'skills/fake-skill/steps/planted.md',
+      text: 'mkdir -p {pm_state_root}/{status_dir}/epic-{nnn}/',
+    }],
+  })
+  assert.ok(violations.some(v => v.includes('planted.md')),
+    `expected the planted violation to be caught, got: ${JSON.stringify(violations)}`)
+})
+
+test('check 26: the canonical contract is exempt', () => {
+  const { violations } = resolverInvariant({
+    extraSources: [{
+      file: 'skills/_shared/status-files.md',
+      text: 'state/{planned,active,archived}/epic-{nnn}/sprint-{nn}/',
+    }],
+  })
+  assert.ok(!violations.some(v => v.includes('_shared/status-files.md')),
+    'the canonical contract must not be reported')
+})
+
+test('check 26: a planted pm-status.py violation outside the resolver section is caught', () => {
+  const { violations } = resolverInvariant({
+    plantInPmStatus: { line: 4000, text: '    d = os.path.join(root, "epic-{nnn}")' },
+  })
+  assert.ok(violations.some(v => v.includes('pm-status.py:4000')),
+    `expected the planted pm-status violation, got: ${JSON.stringify(violations)}`)
+})
