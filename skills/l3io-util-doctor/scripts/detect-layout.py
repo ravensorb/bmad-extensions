@@ -1,6 +1,7 @@
 #!/usr/bin/env -S uv run --quiet --script
 # /// script
 # requires-python = ">=3.11"
+# dependencies = ["ruamel.yaml>=0.18"]
 # ///
 """
 detect-layout.py -- detect a project holding both state layouts at once. Read-only.
@@ -30,12 +31,48 @@ Exit 0 -- no collision: only one layout present, neither present, or the flat fi
           already been migrated to its `.legacy` form.
 Exit 1 -- both a flat sprint-status.yaml and a sharded state/ tree exist under DIR; prints a
           `layout-collision: ...` line naming both paths.
+Exit 3 -- --classify only: the flat sprint-status.yaml carries BMad's `development_status:`
+          mapping, not this package's `epics:` list. Deleting or migrating it as if it were
+          ours would destroy the file bmad-sprint-planning, bmad-build and bmad-retrospective
+          all read. argparse owns exit 2, which is why this is 3.
 """
 from __future__ import annotations
 
 import argparse
 import sys
 from pathlib import Path
+
+
+def classify_flat(path: Path) -> str:
+    """Classify a flat sprint-status.yaml by its top-level schema.
+
+    BMad's own file (bmad-sprint-planning/sprint-status-template.yaml) is a
+    `development_status:` MAPPING of node-id -> status. This package's legacy flat
+    file is an `epics:` LIST. They share this filename and default directory, so the
+    discriminator must be the schema, never the path.
+
+    Returns 'bmad', 'l3io', 'empty', or 'unreadable'. Never raises.
+    """
+    from ruamel.yaml import YAML
+    from ruamel.yaml.error import YAMLError
+
+    try:
+        text = path.read_text(encoding="utf-8")
+    except OSError:
+        return "unreadable"
+    if not text.strip():
+        return "empty"
+    try:
+        data = YAML(typ="safe").load(text)
+    except YAMLError:
+        return "unreadable"
+    if not isinstance(data, dict):
+        return "unreadable"
+    if isinstance(data.get("development_status"), dict):
+        return "bmad"
+    if isinstance(data.get("epics"), list):
+        return "l3io"
+    return "unreadable"
 
 
 def detect(artifacts: Path) -> tuple[int, str]:
@@ -53,7 +90,20 @@ def main(argv: list[str] | None = None) -> int:
         "--artifacts", required=True,
         help="{implementation_artifacts} directory to check for the flat file and state/ tree",
     )
+    parser.add_argument(
+        "--classify", action="store_true",
+        help="classify the flat sprint-status.yaml by schema instead of checking for a collision",
+    )
     args = parser.parse_args(argv)
+
+    if args.classify:
+        flat = Path(args.artifacts) / "sprint-status.yaml"
+        if not flat.is_file():
+            sys.stdout.write("flat-schema: absent\n")
+            return 0
+        schema = classify_flat(flat)
+        sys.stdout.write(f"flat-schema: {schema}\n")
+        return 3 if schema == "bmad" else 0
 
     code, message = detect(Path(args.artifacts))
     if message:

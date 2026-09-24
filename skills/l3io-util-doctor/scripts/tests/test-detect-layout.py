@@ -1,4 +1,8 @@
 #!/usr/bin/env python3
+# /// script
+# requires-python = ">=3.11"
+# dependencies = ["ruamel.yaml>=0.18"]
+# ///
 """
 Tests for detect-layout.py. Run with:
   uv run skills/l3io-util-doctor/scripts/tests/test-detect-layout.py
@@ -12,6 +16,13 @@ import subprocess
 import tempfile
 import unittest
 from pathlib import Path
+
+import importlib.util
+_HERE = os.path.dirname(os.path.abspath(__file__))
+_SPEC = importlib.util.spec_from_file_location(
+    "detect_layout", os.path.join(os.path.dirname(_HERE), "detect-layout.py"))
+mod = importlib.util.module_from_spec(_SPEC)
+_SPEC.loader.exec_module(mod)
 
 
 # -- temp-dir leak guard ---------------------------------------------------------------- #
@@ -97,6 +108,41 @@ class TestLayoutCollision(unittest.TestCase):
         code, out, _ = self.detect()
         self.assertEqual(code, 0)
         self.assertEqual(out, "")
+
+
+class TestClassifyFlat(unittest.TestCase):
+    def _write(self, text):
+        d = Path(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, d, ignore_errors=True)
+        p = d / "sprint-status.yaml"
+        p.write_text(text, encoding="utf-8")
+        return p
+
+    def test_bmad_mapping_is_bmad(self):
+        p = self._write(
+            "development_status:\n"
+            "  epic-1: backlog\n"
+            "  1-1-user-authentication: done\n"
+        )
+        self.assertEqual(mod.classify_flat(p), "bmad")
+
+    def test_l3io_list_is_l3io(self):
+        p = self._write("epics:\n  - key: 'E001'\n    status: backlog\n")
+        self.assertEqual(mod.classify_flat(p), "l3io")
+
+    def test_empty_file_is_empty(self):
+        self.assertEqual(mod.classify_flat(self._write("")), "empty")
+
+    def test_unparseable_is_unreadable(self):
+        self.assertEqual(mod.classify_flat(self._write("a: [1,\n")), "unreadable")
+
+    def test_neither_key_is_unreadable(self):
+        self.assertEqual(mod.classify_flat(self._write("other: 1\n")), "unreadable")
+
+    def test_classify_cli_exits_3_on_bmad(self):
+        p = self._write("development_status:\n  epic-1: backlog\n")
+        code = mod.main(["--artifacts", str(p.parent), "--classify"])
+        self.assertEqual(code, 3)
 
 
 if __name__ == "__main__":
