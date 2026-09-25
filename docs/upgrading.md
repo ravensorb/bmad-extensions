@@ -112,9 +112,43 @@ number of these at once, but the migrations must still run.
 ### → the next release (merged to `main`, not yet tagged)
 
 > **These changes are not in a release yet.** They are merged to `main`; the current release
-> is 2.5.1. Because the set includes a breaking change, this repo's Conventional Commits
-> release rules will cut the next one as 3.0.0 — but no 3.0.0 exists, so if you are on 2.5.1
-> you have none of what follows and nothing to migrate yet.
+> is 3.0.0. The next cut is **3.0.1** — released as a patch rather than a minor bump because
+> the additive shipments here (list-epics/list-stories read verbs, extras carry-through in
+> migrations, additive bootstrap on partial state) are low-risk refinements on top of the
+> 3.0.0 architecture rather than a new-shape release.
+
+**No consumer-side migration is required.** All four items below are additive.
+
+**Two new read-only `pm-status.py` verbs — `list-epics` and `list-stories`.** Read-only
+enumeration of the state tree that lets a caller stop assembling state paths in shell.
+`list-epics --state-root S [--format keys|json]` prints every epic with its status bucket;
+`list-stories --state-root S --epic E [--sprint S] [--format keys|json]` prints story keys
+under an epic, optionally scoped to one sprint. Absent-vs-empty is distinguished by exit code
+(3 vs. 0 empty output). The full verb tables in `docs/l3io-pm-reference.md` and
+`docs/l3io-util-reference.md` list them; no other changes to existing verbs.
+
+**`migrate-state` and `bootstrap-state` preserve more source fields.** Both modes now
+carry `goal` and `superseded_by` through the migration and land them on the created state
+node via `pm-status.py set-field` after `import-node`. Three structured fields — `depends_on`,
+`estimate`, `actual` — do NOT yet have typed writers, so the engine prints a `WARN` to stderr
+naming the record, the field, and the value being skipped. Previously these fields were
+dropped silently on migration; now the loss is visible. The three typed writers are tracked
+by `docs/superpowers/plans/2026-09-24-followup-migration-extras-typed-writers.md`.
+
+**`bootstrap-state` now runs additively on a project with partial sharded state.** A project
+that has state nodes for some stories and orphan `.md` files for others can now use
+`bootstrap-state` to fill in the missing state without touching the existing nodes. The
+reader (`read-artifacts.py`) skips story files whose key already has a state node, and only
+surfaces inferred sprint/epic records for keys the state tree does not already carry. The
+plan lists only the genuinely new work, so `verify_against_plan` passes and existing state
+is byte-preserved.
+
+**Internal only — `check 26` (resolver-invariant) exemption reads a body marker, not a
+filename.** The one derived exemption for the check now looks for
+`<!-- resolver-invariant: canonical-contract -->` in the file body instead of comparing
+filenames. Contributors and per-skill maintainers only; no user-visible behavior change.
+
+### → 3.0.0
 
 **Doctor modes removed.** `/l3io-util-doctor` keyword removals — if a script, alias, or
 habit invokes one of these, switch it to the replacement named here.
