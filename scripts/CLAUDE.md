@@ -150,6 +150,7 @@ npm run sync:scripts    # regenerate payload copies from skills/_shared/ source
 npm run check:scripts   # verify payload copies match source (CI also runs this)
 npm run check:docs      # verify docs match the code they describe (CI + release gate)
 npm run check:manifest  # verify per-skill payload-manifest.json matches the payload (CI + release gate)
+npm run check:lock      # verify package.json and package-lock.json agree (CI + release gate)
 node scripts/write-payload-manifest.mjs   # regenerate the manifests after editing a payload file
 ```
 
@@ -157,4 +158,6 @@ node scripts/write-payload-manifest.mjs   # regenerate the manifests after editi
 
 The `postbump` hook auto-syncs the new version into `.claude-plugin/marketplace.json` and all `module.yaml` files — do not manually bump those files.
 
-> **Release gate**: a `prerelease` hook refuses to release when payload copies have drifted from `skills/_shared/` or a `payload-manifest.json` is stale (runs `sync-shared-scripts.mjs --check` and `write-payload-manifest.mjs --check` for every `release:*` alias, not just `release`). `postbump` now stages with `git add -A skills/` so newly added skill files are included rather than silently dropped.
+> **Release gate**: a `prerelease` hook refuses to release when payload copies have drifted from `skills/_shared/`, a `payload-manifest.json` is stale, or `package-lock.json` no longer matches `package.json` (runs `sync-shared-scripts.mjs --check`, `write-payload-manifest.mjs --check`, `check-docs.mjs`, `check-pm-status-version.mjs`, and `npm ls --package-lock-only` for every `release:*` alias, not just `release`). `postbump` now stages with `git add -A skills/` so newly added skill files are included rather than silently dropped.
+
+**Lock-drift is the same shape as manifest-drift, and it bit us the same way.** In 2026-09 the check-tooling devDependencies (`csv-parse`, `mvdan-sh`, `smol-toml`) were added to `package.json` and a `yaml` patch was bumped, but `package-lock.json` was never regenerated. CI's `npm ci` refused to install and every push from 2.5.2 through 3.0.1 died at that step — before any gate could run — so main was red for a week and nobody noticed until someone thought to look. `check:lock` runs `npm ls --package-lock-only --all --depth=0`, which is instantaneous, network-free, and prints `Missing: X from lock file` per drifted dep. It runs in CI as its own step *before* `npm ci` (so a red run names the drift cleanly rather than burying it under `npm ci`'s usage output) and in the release gate (so a release refuses to cut with drift, the same discipline as payload manifests). The class this closes is *the check is on CI and CI keeps dying before it reaches the check* — a green gate somewhere earlier that has to hold for the check to matter.
