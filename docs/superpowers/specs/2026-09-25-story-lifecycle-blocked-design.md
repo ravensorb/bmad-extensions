@@ -226,17 +226,29 @@ generation**, and the exclusion is visible to the operator:
   unpoisoned by real time in blocked — they measure counterfactual effort and
   human attention respectively.
 
-**Amendment — dispatch-scoping of the block scan (2026-09-25, both sides shipped
-the simpler shape).** The design above says the exclusion fires "when the node's
+**Amendment — dispatch-scoping of the block scan (2026-09-25, resolved later
+the same day).** The design above says the exclusion fires "when the node's
 event log shows any `block_open` for this story **since its most recent
 `dispatch_open`**." Both this package and its sibling (`avanade-bmad-extension`,
-peer alignment on 2026-09-25) instead shipped `_total_blocked_hours` scanning
+peer alignment on 2026-09-25) initially shipped `_total_blocked_hours` scanning
 **all** `block_close` events on the story, not filtered to since-most-recent-
 dispatch-open. Real correctness gap for the multi-session-story case: a story
-blocked in Session 1 and completed cleanly in Session 2 gets Session 2's
+blocked in Session 1 and completed cleanly in Session 2 would get Session 2's
 `elapsed_hours` incorrectly excluded from calibration.
 
-The two teams agreed to accept the imprecision and defer the filter:
+**Resolved on my side.** After the initial defer + amend agreement, this side
+landed the dispatch-open scoping (`_total_blocked_hours` now filters
+`block_close` events to those after the story's most recent `dispatch_open`;
+absence of any `dispatch_open` for the story falls back to counting all events,
+so the safety-first bias survives for stories that predate dispatch bracketing).
+Index-based (not timestamp-based) boundary because `events.jsonl` is append-only
+and its index reflects chronology reliably even under clock skew. The upgrade
+path spelled out below held: ~10 lines of code + 4 tests, no cross-package
+coordination needed. Peer's side still carries the simpler shape as of the
+amendment date; they can adopt the same filter unilaterally when convenient.
+
+The original rationale for accepting the defer is preserved here so the peer's
+side reading this document sees the same reasoning:
 
 - **Bias direction is safety-first.** Over-exclude rather than under-exclude —
   the whole point of the mechanism is to keep human-wait time out of the scope
@@ -244,13 +256,25 @@ The two teams agreed to accept the imprecision and defer the filter:
 - **Rare in current workflow.** Multi-session stories with blocks in an earlier
   session that resolved cleanly in a later one are not the common shape.
 - **Unilateral upgrade path preserved.** Filtering `block_close` events to those
-  after the most recent `dispatch_open` ts is ~10 lines of code + one test on
-  either side; the fields consumed by the filter (`block_close.ts`,
-  `dispatch_open.ts`) are the same on both sides, so a future upgrade doesn't
-  break interop or need a coordinated release.
-- **Trigger to revisit:** evidence of a real multi-session-blocked story where
-  the exclusion bit a user's calibration ratio in a way that mattered. Filed as
-  a "revisit-if-warranted" follow-up, not a scheduled task on either side.
+  after the most recent `dispatch_open` is ~10 lines of code + one test on
+  either side; the fields consumed by the filter are the same on both sides, so
+  the upgrade doesn't break interop or need a coordinated release.
+
+**Amendment — `cmd_import_node` blocked_reason gate (2026-09-25).** Similarly
+resolved on this side: `import-node --story --status blocked` now requires
+`--reason "<why>"`, stores `blocked_reason` on the created node, and emits a
+paired `block_open` event so a future `set-status` transitioning off blocked
+can derive `duration_hours` the same way a `set-status`-created block does.
+`completion_evidence.blocks_seen` is NOT bumped by import-node — the counter
+records our own events, and import-node predates our history for a migrated
+node. Rejects `--reason` on non-blocked story imports and on sprint/epic imports
+outright.
+
+This closes the class the earlier coordination round named as an open follow-up
+(a migration source that reports a story at `status: blocked` would land the
+status but no reason on record). No migration source in the current tree
+produces blocked-status records yet — this is defensive completeness for
+future sources.
 
 **`completion_evidence.blocks_seen: int` for O(1) closure observability.**
 Closure walks story nodes at close time; a per-story `block_open` event scan

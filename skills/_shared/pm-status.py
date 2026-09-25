@@ -51,6 +51,9 @@ Subcommands
                 an existing document is left untouched, exit 0 "exists")
   import-node   --state-root S  (--story KEY | --epic ID [--sprint ID])  --status S
                 [--title T] [--classification C] [--origin {inferred}] [--origin-note N]
+                [--reason R]   (REQUIRED when --story ... --status blocked; stored as
+                                blocked_reason and in the paired block_open event; rejected
+                                on any other kind or status)
                 [--no-events] [--session-id ID]
                 (creates a missing state node from a migration record; idempotent by
                 SKIP -- an existing node is left untouched and no event is appended;
@@ -4157,12 +4160,26 @@ def cmd_set_status(args) -> int:
 
 
 def _total_blocked_hours(state_root: str, story_key: str) -> float:
-    """Sum `duration_hours` across every closed block for this story.
+    """Sum `duration_hours` across every closed block for this story SINCE its
+    most recent `dispatch_open`.
 
-    A story with any nonzero blocked time cannot produce an `elapsed_hours`
-    calibration sample -- wall-clock during blocked time includes human wait,
-    which would poison the scope ratio for future stories. The exclusion is
-    per-metric, not per-sample: other metrics stay recorded.
+    A story with any nonzero blocked time in the current dispatch cycle cannot
+    produce an `elapsed_hours` calibration sample -- wall-clock during blocked
+    time includes human wait, which would poison the scope ratio for future
+    stories. The exclusion is per-metric, not per-sample: other metrics stay
+    recorded.
+
+    Scoping to the most recent dispatch cycle avoids the multi-session
+    over-exclusion the design's §5 amendment named: a story blocked in Session 1
+    and completed cleanly in Session 2 must not get Session 2's `elapsed_hours`
+    excluded because of Session 1's blocks. Index-based (not timestamp-based)
+    boundary because events.jsonl is append-only and its order reflects
+    chronology reliably even under clock skew.
+
+    Fallback: when the story has no `dispatch_open` on record -- either because
+    the log was truncated, or because the story predates dispatch bracketing --
+    the scan reverts to counting all `block_close` events. That preserves the
+    safety-first bias for stories where the dispatch bracket isn't available.
 
     Returns 0.0 on a missing log, an empty story key, or an unreadable line
     within the log -- lenient enough that a torn write does not silently fail
@@ -4173,23 +4190,44 @@ def _total_blocked_hours(state_root: str, story_key: str) -> float:
     p = events_path(state_root)
     if not os.path.exists(p):
         return 0.0
-    total = 0.0
     try:
         with open(p, encoding="utf-8") as fh:
-            for line in fh:
-                line = line.strip()
-                if not line:
-                    continue
-                try:
-                    rec = json.loads(line)
-                except json.JSONDecodeError:
-                    continue
-                if rec.get("event") == "block_close" and rec.get("story") == story_key:
-                    d = rec.get("duration_hours")
-                    if isinstance(d, (int, float)):
-                        total += float(d)
+            lines = fh.readlines()
     except OSError:
         return 0.0
+    parsed = []      # (line_index, event, story, duration_hours-or-None)
+    for i, line in enumerate(lines):
+        line = line.strip()
+        if not line:
+            continue
+        try:
+            rec = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        story = rec.get("story")
+        if story != story_key:
+            continue
+        ev = rec.get("event")
+        if ev not in ("dispatch_open", "block_close"):
+            continue
+        parsed.append((i, ev, rec.get("duration_hours")))
+    if not parsed:
+        return 0.0
+    # Find the LATEST dispatch_open index for this story; sum block_close
+    # durations after it. If there is no dispatch_open at all, sum everything
+    # (safety-first fallback for stories that predate dispatch bracketing).
+    last_open_idx = -1
+    for i, ev, _ in parsed:
+        if ev == "dispatch_open":
+            last_open_idx = i
+    total = 0.0
+    for i, ev, d in parsed:
+        if ev != "block_close":
+            continue
+        if last_open_idx >= 0 and i < last_open_idx:
+            continue
+        if isinstance(d, (int, float)):
+            total += float(d)
     return round(total, 3)
 
 
@@ -4252,6 +4290,21 @@ def cmd_import_node(args) -> int:
         _die_usage(
             f"invalid {kind} status '{args.status}' -- expected one of {sorted(valid)}")
 
+    # blocked_reason gate: a story imported at `status: blocked` must carry a --reason
+    # the same way set-status does. Migration sources that carry blocked state (bmad-loop
+    # is the shape) preserve the reason on the record; a source that reports blocked but
+    # cannot preserve the reason is a broken source, not an acceptable import shape.
+    # Sprints and epics don't have `blocked` in their status enum, so the guard is
+    # story-only by construction.
+    reason = str(getattr(args, "reason", "") or "").strip()
+    if kind == "story" and args.status == "blocked" and not reason:
+        _die_usage("--status blocked requires --reason \"<why>\" -- a blocked story with no "
+                   "reason on record is what this flag exists to prevent")
+    if kind != "story" and reason:
+        _die_usage("--reason is a story-only flag; sprint/epic status sets have no blocked")
+    if kind == "story" and args.status != "blocked" and reason:
+        _die_usage("--reason is only valid with --status blocked")
+
     with _epic_write_lock(args, kind, require_exists=False):
         path, label = ensure_node_path(args.state_root, args, kind, args.status)
         if os.path.exists(path):
@@ -4280,6 +4333,12 @@ def cmd_import_node(args) -> int:
         if args.origin:
             node["origin"] = args.origin
             node["origin_note"] = args.origin_note or ""
+        if kind == "story" and args.status == "blocked":
+            node["blocked_reason"] = reason
+            # completion_evidence.blocks_seen is a counter of OUR events, not the
+            # source's history -- import-node predates our history for a migrated node,
+            # so the counter starts at 0. A subsequent set-status --status blocked would
+            # bump it. Not adding it here.
 
         save_node(_yaml(), node, path, getattr(args, "flock", False))
 
@@ -4290,6 +4349,15 @@ def cmd_import_node(args) -> int:
             }
             payload.update(_event_keys(kind, args))
             append_event(args.state_root, payload)
+            # For a story imported at blocked, emit a paired block_open so a future
+            # set-status transitioning off blocked can derive duration the same way
+            # a set-status-created block does. Without this, _block_duration_since_
+            # last_open would return None and block_close would land without duration.
+            if kind == "story" and args.status == "blocked":
+                bp = {"ts": _now_iso(), "event": "block_open",
+                      "story": args.story, "reason": reason,
+                      "session": getattr(args, "session_id", None)}
+                append_event(args.state_root, bp)
 
     sys.stdout.write(f"OK import-node {label} -> {args.status}\n")
     return 0
@@ -7052,6 +7120,11 @@ def build_parser() -> argparse.ArgumentParser:
                      help="mark the node as reconstructed rather than read")
     imp.add_argument("--origin-note", default="",
                      help="why the node was inferred; recorded beside --origin")
+    imp.add_argument("--reason", default="",
+                     help="required when importing a story at --status blocked; "
+                          "recorded on the node as blocked_reason and in the paired "
+                          "block_open event so a future exit-from-blocked can derive "
+                          "duration. Rejected on any other kind or status.")
     imp.add_argument("--no-events", action="store_true")
     imp.add_argument("--session-id")
     imp.set_defaults(func=cmd_import_node)

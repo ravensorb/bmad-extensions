@@ -9638,6 +9638,80 @@ class TestImportNode(Base):
             "set-status", "--state-root", self.d, "--epic", "E999", "--status", "done"])
         self.assertEqual(code, 3)
 
+    # ---- import-node --status blocked (2026-09-25) -----------------------------
+
+    def test_import_node_story_blocked_without_reason_exits_2(self):
+        """A migration source that reports a story at status: blocked without a reason
+        is a broken source shape -- name it at the boundary rather than land silent."""
+        self.run_main(["import-node", "--state-root", self.d, "--epic", "E001",
+                       "--status", "backlog", "--title", "E"])
+        buf = io.StringIO()
+        with redirect_stderr(buf):
+            code, _ = self.run_main([
+                "import-node", "--state-root", self.d, "--story", "E001-S01-002",
+                "--status", "blocked", "--title", "S"])
+        self.assertEqual(code, 2)
+        self.assertIn("--status blocked requires --reason", buf.getvalue())
+
+    def test_import_node_story_blocked_writes_blocked_reason(self):
+        self.run_main(["import-node", "--state-root", self.d, "--epic", "E001",
+                       "--status", "backlog", "--title", "E"])
+        code, out = self.run_main([
+            "import-node", "--state-root", self.d, "--story", "E001-S01-002",
+            "--status", "blocked", "--title", "S", "--reason", "external decision X"])
+        self.assertEqual(code, 0, out)
+        _, node = pm.load_node(
+            os.path.join(self.d, "planned", "epic-001", "sprint-01", "E001-S01-002.yaml"))
+        self.assertEqual(node.get("blocked_reason"), "external decision X")
+
+    def test_import_node_story_blocked_emits_a_block_open_event(self):
+        """A paired block_open is emitted so a future set-status transitioning off
+        blocked can derive duration_hours the same way a set-status-created block does."""
+        self.run_main(["import-node", "--state-root", self.d, "--epic", "E001",
+                       "--status", "backlog", "--title", "E"])
+        self.run_main([
+            "import-node", "--state-root", self.d, "--story", "E001-S01-002",
+            "--status", "blocked", "--title", "S", "--reason", "wait"])
+        opens = [e for e in self._events() if e.get("event") == "block_open"]
+        self.assertEqual(len(opens), 1)
+        self.assertEqual(opens[0]["story"], "E001-S01-002")
+        self.assertEqual(opens[0]["reason"], "wait")
+
+    def test_import_node_reason_on_non_blocked_status_exits_2(self):
+        """--reason is only valid with --status blocked on a story import."""
+        self.run_main(["import-node", "--state-root", self.d, "--epic", "E001",
+                       "--status", "backlog", "--title", "E"])
+        buf = io.StringIO()
+        with redirect_stderr(buf):
+            code, _ = self.run_main([
+                "import-node", "--state-root", self.d, "--story", "E001-S01-002",
+                "--status", "done", "--title", "S", "--reason", "why"])
+        self.assertEqual(code, 2)
+        self.assertIn("--reason is only valid with --status blocked", buf.getvalue())
+
+    def test_import_node_reason_on_sprint_or_epic_exits_2(self):
+        """--reason is a story-only flag; sprint/epic status sets have no blocked."""
+        buf = io.StringIO()
+        with redirect_stderr(buf):
+            code, _ = self.run_main([
+                "import-node", "--state-root", self.d, "--epic", "E001",
+                "--status", "backlog", "--title", "E", "--reason", "spurious"])
+        self.assertEqual(code, 2)
+        self.assertIn("story-only", buf.getvalue())
+
+    def test_import_node_blocked_does_not_bump_blocks_seen(self):
+        """The counter records OUR events, not the source's history. import-node
+        predates our history for a migrated node -- the counter starts at 0."""
+        self.run_main(["import-node", "--state-root", self.d, "--epic", "E001",
+                       "--status", "backlog", "--title", "E"])
+        self.run_main([
+            "import-node", "--state-root", self.d, "--story", "E001-S01-002",
+            "--status", "blocked", "--title", "S", "--reason", "wait"])
+        _, node = pm.load_node(
+            os.path.join(self.d, "planned", "epic-001", "sprint-01", "E001-S01-002.yaml"))
+        ce = node.get("completion_evidence") or {}
+        self.assertNotIn("blocks_seen", ce)
+
 
 class TestListEpics(Base):
     """Read-only enumeration of every epic in the state tree with its bucket.
@@ -10162,6 +10236,64 @@ class TestBlockedCalibration(Base):
                                  "duration_hours": 1.0}) + "\n")
             fh.write("{\"event\": \"block_close\", torn")
         self.assertEqual(pm._total_blocked_hours(self.d, "E001-S01-002"), 1.0)
+
+    def test_total_blocked_hours_scoped_to_since_last_dispatch_open(self):
+        """The multi-session case named in §5 amendment: a story blocked in Session 1 and
+        completed cleanly in Session 2 must not get Session 2's elapsed_hours excluded.
+        The scan starts at the most recent dispatch_open, so Session 1's block_close is
+        outside the window."""
+        events = os.path.join(self.d, "events.jsonl")
+        with open(events, "w") as fh:
+            # Session 1: dispatch_open, blocked, block_close, dispatch_close.
+            for rec in [
+                {"event": "dispatch_open", "story": "E001-S01-002"},
+                {"event": "block_close", "story": "E001-S01-002", "duration_hours": 4.0},
+                {"event": "dispatch_close", "story": "E001-S01-002"},
+                # Session 2: dispatch_open, no blocks, clean run.
+                {"event": "dispatch_open", "story": "E001-S01-002"},
+            ]:
+                fh.write(json.dumps(rec) + "\n")
+        self.assertEqual(pm._total_blocked_hours(self.d, "E001-S01-002"), 0.0,
+                         "Session 2 has no blocks; Session 1's 4h must NOT carry over")
+
+    def test_total_blocked_hours_only_current_dispatch_cycle_counted(self):
+        """The current-cycle block IS counted; the prior-cycle block is not."""
+        events = os.path.join(self.d, "events.jsonl")
+        with open(events, "w") as fh:
+            for rec in [
+                {"event": "dispatch_open", "story": "E001-S01-002"},
+                {"event": "block_close", "story": "E001-S01-002", "duration_hours": 4.0},
+                {"event": "dispatch_close", "story": "E001-S01-002"},
+                {"event": "dispatch_open", "story": "E001-S01-002"},
+                {"event": "block_close", "story": "E001-S01-002", "duration_hours": 1.5},
+            ]:
+                fh.write(json.dumps(rec) + "\n")
+        self.assertEqual(pm._total_blocked_hours(self.d, "E001-S01-002"), 1.5,
+                         "only the block after the latest dispatch_open counts")
+
+    def test_total_blocked_hours_no_dispatch_open_falls_back_to_all(self):
+        """Backward-compat for stories that predate dispatch bracketing: no dispatch_open
+        on record means the safety-first bias applies -- sum everything."""
+        events = os.path.join(self.d, "events.jsonl")
+        with open(events, "w") as fh:
+            fh.write(json.dumps({"event": "block_close", "story": "E001-S01-002",
+                                 "duration_hours": 2.0}) + "\n")
+            fh.write(json.dumps({"event": "block_close", "story": "E001-S01-002",
+                                 "duration_hours": 3.0}) + "\n")
+        self.assertEqual(pm._total_blocked_hours(self.d, "E001-S01-002"), 5.0)
+
+    def test_total_blocked_hours_dispatch_open_from_other_story_does_not_move_boundary(self):
+        """The boundary is per-story: another story's dispatch_open does not reset ours."""
+        events = os.path.join(self.d, "events.jsonl")
+        with open(events, "w") as fh:
+            for rec in [
+                {"event": "dispatch_open", "story": "E001-S01-002"},
+                {"event": "block_close", "story": "E001-S01-002", "duration_hours": 4.0},
+                {"event": "dispatch_open", "story": "E001-S01-999"},  # unrelated story
+            ]:
+                fh.write(json.dumps(rec) + "\n")
+        self.assertEqual(pm._total_blocked_hours(self.d, "E001-S01-002"), 4.0,
+                         "the unrelated story's dispatch_open must not reset our window")
 
     # ---- Calibration exclusion via derive_story_sample ------------------------------
 
