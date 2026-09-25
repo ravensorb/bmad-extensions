@@ -244,6 +244,12 @@ BLOCKED: sprint {sprint_num} of {epic_key} — {N} story/ies blocked pending ext
 resolution (see closure-report.md §Blocked stories)
 ```
 
+**When both conditions apply — blocked stories AND unresolved Critical/High/Medium findings —
+`BLOCKED:` wins over `FAILED:`.** The remedy differs: an unresolved finding is fixed by
+another fix-loop iteration; a blocked story is fixed by resolving the external condition,
+which no local iteration can produce. `BLOCKED:` is the more actionable exit because it names
+what the operator has to do next.
+
 If no stories are blocked, closure proceeds normally under the usual DONE/FAILED exit.
 
 ## 9. Closure summary

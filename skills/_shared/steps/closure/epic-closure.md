@@ -237,6 +237,13 @@ the epic. If N > 0:
   closure-report.md §Blocked stories)
   ```
 
+**When both conditions apply — blocked stories AND unresolved
+Critical/High/Medium findings — `BLOCKED:` wins over `FAILED:`.** The remedies
+differ: unresolved findings are fixed by another fix-loop iteration; blocked
+stories are fixed by resolving the external condition, which no local iteration
+can produce. `BLOCKED:` is the more actionable exit because it names what the
+operator has to do next.
+
 Epic closure does not attempt to resolve blocks — the resolution happens outside
 the loop when the external condition changes. When that happens, the operator
 transitions each blocked story to `in-progress`, and the epic can complete on a
