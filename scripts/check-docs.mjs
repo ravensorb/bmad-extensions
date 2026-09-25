@@ -2305,7 +2305,7 @@ function checkDoctorModeCount() {
 // ---------------------------------------------------------------------------
 const DEP_INVENTORY = "skills/l3io-util-doctor/assets/bmad-dependencies.json";
 const BMAD_TOKEN_RE = /(?<![\w-])bmad-[a-z0-9-]+/g;
-const DEP_STATUSES = ["required", "optional", "deprecated", "removed", "not-a-skill"];
+const DEP_STATUSES = ["required", "optional", "related", "deprecated", "removed", "not-a-skill"];
 
 // A line that BINDS a name as the chosen agent, as opposed to merely probing for it.
 // Three independent signals, each observed on its own — a line needs only one to count as a

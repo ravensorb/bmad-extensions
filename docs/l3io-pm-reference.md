@@ -463,6 +463,55 @@ not. Sprint, epic and backlog mappings are reported but never auto-transitioned;
 issue state to those statuses is defined. `missing_local` entries are reported and left intact
 unless you confirm removal, which clears the mapping irreversibly.
 
+## Relationship to bmad-loop
+
+`bmad-loop` is a separate third-party BMad module — an unattended per-story orchestrator that
+drives `bmad-build-auto` (BMad's autonomous dev primitive, formerly `bmad-dev-auto`). It ships
+three skills of its own: `bmad-loop-setup`, `bmad-loop-sweep`, `bmad-loop-resolve`. When a
+project has bmad-loop installed alongside this package, `l3io-util-doctor check-deps` reports
+each of them under `related_present`, and `l3io-pm-help`'s recommendation appends a one-paragraph
+overlap note (`skills/l3io-pm-help/steps/step-05-recommend.md`).
+
+**The two overlap. Neither replaces the other.** Both drive an unattended dev loop over a queue
+of stories, and both write status back to disk. The tables below name what each covers so a
+user does not have to reason about it from the outside.
+
+| Concern | `l3io-pm-execute` | `bmad-loop` |
+|---|---|---|
+| Scope of one run | Whole epic (all sprints, all stories), or a plan phase spanning multiple epics | One story per invocation |
+| Story queue | Sharded state tree under `{implementation_artifacts}/state/` — this package's own layout | `sprint-status.yaml` (base BMad's legacy flat layout) OR a typed `stories.yaml` (bmad-loop's own shape) |
+| Parallelism | Up to `max_parallel_subagents` (default 4) epics per phase; sprints within an epic are always sequential so calibration feeds forward | Strictly sequential — `max_parallel` is clamped to 1 in current versions |
+| Review | A separate `bmad-code-review` step per story, plus a fix loop capped at `max_fix_iterations` (default 3), plus sprint- and epic-level closure reviews that block on any Critical/High/Medium finding | Review integrated inside `bmad-build-auto`'s single unattended pass; halt/blocked terminal states surface externally |
+| Deferred work | `state/issues.yaml` and `state/issues-resolved.yaml`, keyed `BL-E{nnn}-{nnn}`, with lifecycle managed by `pm-status.py` | `deferred-work.md` ledger, triaged by `bmad-loop sweep` |
+| Estimation | Bottom-up roll-up per story, sprint, epic across five metrics with calibrated ratios per component (scope / closure / fix / orchestration) | None — bmad-loop does not model estimates |
+| Cross-story orchestration | Dependency-aware phased planning across epics (`l3io-pm-plan`) — bmad-loop's readme explicitly excludes this scope | None — bmad-loop's readme states it does not choose the next story, repeat across a backlog, coordinate epics, or run a retrospective |
+| Status vocabulary | `backlog / ready-for-dev / in-progress / review / done` (no `blocked`) | `draft / ready-for-dev / in-progress / in-review / done / blocked` |
+
+**Interoperation today.** The two state trees are independent. A project can run `l3io-pm-execute`
+without bmad-loop (that is the default). A project can run bmad-loop without this package (bmad-loop
+consumes base BMad's `bmad-build-auto` directly and needs nothing from us). A project with both
+installed can use either flow at any time; neither reads the other's tracking file.
+
+**When to reach for which.**
+
+- **`l3io-pm-execute`** — an epic with multiple sprints, or a plan phase spanning multiple epics,
+  where you want dependency-aware execution, calibrated estimates that learn, closure-level
+  quality gates across the whole scope, and a fix loop that iterates a story with explicit
+  review discipline. Reach here for the "run the plan" case.
+- **`bmad-loop`** — a single story you want to hand off unattended, with `bmad-build-auto`'s
+  integrated review, in a project that either doesn't need epic-level orchestration yet or is
+  outside this package's flow. Reach here for the "just build this one thing" case.
+
+**Not yet built (deferred as follow-ups).**
+
+- A plan exporter in `l3io-pm-plan` that writes a bmad-loop-compatible `stories.yaml` alongside
+  the normal plan output.
+- An opt-in mode for `l3io-pm-execute` that dispatches to `bmad-build-auto` instead of the
+  current `bmad-dev-story`+separate-review chain, when the user prefers `bmad-build-auto`'s
+  integrated pass. Non-trivial — status vocabularies, commit discipline, and calibration
+  timing would all need adaptation. Neither is on the roadmap; both are named here so a future
+  contributor knows the space has been considered.
+
 ## Headless Dispatch
 
 Step-05 spawns each sprint with an authoritative context block:

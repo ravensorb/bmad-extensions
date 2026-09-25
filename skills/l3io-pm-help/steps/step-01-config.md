@@ -40,6 +40,18 @@ continue. `l3io-util-doctor` is a required module of this extension (see `CLAUDE
 Dependencies), so `unknown` is an install anomaly the report should surface, not a normal
 state.
 
+Also — when `l3io-util-doctor` IS installed here — run its dependency inventory to see whether
+this project has adjacent tooling worth naming in the report. `check-deps` reports skills we
+detect but do not dispatch (bmad-loop is the shape) in its `related_present` array:
+
+```bash
+skill:l3io-util-doctor check-deps --format json
+```
+
+Bind `{related_installed}` to the comma-joined list of `related_present[*].name` in that JSON
+output, or the empty string when the array is empty or the doctor is absent. Step-05 uses this
+to decide whether to append the overlap note.
+
 **Never invoke `{pm_status}` when it is absent.** On a fresh install nothing has
 self-installed it yet, so every `{pm_status}` call below is conditional: when
 `{pm_status_present}` is `absent`, read each `epic.yaml` directly instead (it is plain YAML).

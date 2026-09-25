@@ -51,6 +51,12 @@ a manifest parsing to no `installation` key is a successful read and the run pro
                     separately from `optional_absent` on purpose: a deprecated entry is not
                     optional, so "absent (optional -- its phase self-skips)" would be false for
                     it. This bucket is informational only and never affects the exit code.
+  related_present   [{name, path, note}] -- related entries resolving somewhere. These are
+                    third-party skills we do NOT dispatch (bmad-loop is the shape) but detect
+                    for user-awareness: when present, l3io-pm-help surfaces an overlap note so
+                    users understand how the two flows fit together. Absent related skills are
+                    silent by design (they are not our tooling; missing them is the default),
+                    so there is no counterpart `related_absent` field.
   shipped_skills    sorted canonical ids from _bmad/_config/skill-manifest.csv column 1, or null
                     when that file is absent or unreadable -- the inventory is then unverifiable
                     against BMad's own declaration, which is reported as unknown, not agreement.
@@ -91,7 +97,22 @@ DEFAULT_BASELINE = pathlib.Path(__file__).resolve().parent.parent / "assets" / "
 
 # The only statuses this script knows how to act on. Anything else is a broken inventory, not
 # a skill to be treated leniently -- see check_inventory().
-STATUSES = ("required", "optional", "deprecated", "removed", "not-a-skill")
+#
+# The five states carry distinct semantics:
+#
+#   required     -- we dispatch this; a missing one is a broken install, exit 3.
+#   optional     -- we dispatch this in some phase; a missing one makes that phase self-skip.
+#   related      -- we do NOT dispatch this. It is adjacent tooling users may have installed
+#                   alongside us (bmad-loop is the shape); when present, we surface an
+#                   informational note so users understand how the two flows fit together;
+#                   when absent, that's the default, not a warning. Never counted as missing.
+#   deprecated   -- BMad still ships this as a shim; if present here, we surface that its
+#                   replacement is the newer name.
+#   removed      -- BMad no longer ships this; if present anyway, we still surface it, since
+#                   a stale install may carry it (the doctor's clean-legacy mode is the fix).
+#   not-a-skill  -- token that looks like `bmad-*` but is not a skill (fixture directories,
+#                   this script's own name, etc.); declared so check 16 doesn't trip on it.
+STATUSES = ("required", "optional", "related", "deprecated", "removed", "not-a-skill")
 
 
 def resolve(name: str, project_root: str) -> str | None:
@@ -182,7 +203,11 @@ def load_shipped_skills(project_root: str) -> set[str] | None:
 
 
 # Statuses that claim a skill belongs in BMad's manifest -- "removed" makes the opposite claim
-# and is checked separately in find_contradictions().
+# and is checked separately in find_contradictions(). "related" is deliberately absent: a
+# related skill ships through its OWN package's installer (bmad-loop is the shape) and may
+# or may not appear in BMad's skill-manifest.csv depending on whether BMad's own installer
+# had a chance to see it. Either state is fine -- the manifest and the inventory are not
+# claiming the same thing about a related skill, so there is no contradiction to find.
 SHIPPED_STATUSES = {"required", "optional", "deprecated"}
 
 
@@ -267,7 +292,8 @@ def verify(args: argparse.Namespace) -> int:
         return 4
     version, shims, modules, module_versions = man
 
-    resolved, missing, shims_in_use, warnings, deprecated_absent = [], [], [], [], []
+    resolved, missing, shims_in_use, warnings, deprecated_absent, related_present = \
+        [], [], [], [], [], []
     for e in inv["skills"]:  # a non-empty list of dicts; validated by check_inventory
         status = e.get("status")
         name = e.get("name")
@@ -286,6 +312,15 @@ def verify(args: argparse.Namespace) -> int:
                                      "replaced_by": e.get("replaced_by")})
             elif status == "deprecated":
                 deprecated_absent.append({"name": name, "replaced_by": e.get("replaced_by")})
+            continue
+        if status == "related":
+            # Adjacent tooling we do NOT dispatch. Present -> surface as informational so
+            # callers can enable relationship-aware behaviour (e.g. l3io-pm-help mentioning
+            # bmad-loop's overlap). Absent -> silent: not our tooling, not a warning.
+            hit = resolve(name, args.project_root)
+            if hit:
+                related_present.append({"name": name, "path": hit,
+                                        "note": e.get("note", "")})
             continue
         hit, used = resolve(name, args.project_root), name
         if hit is None and e.get("fallback"):
@@ -308,6 +343,7 @@ def verify(args: argparse.Namespace) -> int:
                           "missing_required": missing, "optional_absent": warnings,
                           "shims_in_use": shims_in_use,
                           "deprecated_absent": deprecated_absent,
+                          "related_present": related_present,
                           "shipped_skills": shipped_skills,
                           "status_contradictions": contradictions,
                           "baseline_drift": baseline_drift}, indent=2))
@@ -318,6 +354,9 @@ def verify(args: argparse.Namespace) -> int:
             print(f"  ok       {r['name']}{note}")
         for n in warnings:
             print(f"  absent   {n} (optional — its phase self-skips)")
+        for r in related_present:
+            note = f" — {r['note']}" if r.get("note") else ""
+            print(f"  related  {r['name']} is installed alongside this package{note}")
         for s in shims_in_use:
             print(f"  shim     {s['name']} is a deprecated shim; {s['replaced_by']} replaces it")
         for d in deprecated_absent:

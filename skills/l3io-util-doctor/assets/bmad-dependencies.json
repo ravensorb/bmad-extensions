@@ -29,6 +29,16 @@
     { "name": "bmad-build-auto", "status": "optional", "module": "bmm",
       "reason": "unattended variant of bmad-build; declared for the same reason" },
 
+    { "name": "bmad-loop", "status": "related", "module": "bmad-loop",
+      "note": "unattended per-story orchestrator around bmad-build-auto; l3io-pm-execute is our own epic-level orchestrator — the two overlap. See docs/l3io-pm-reference.md §Relationship to bmad-loop.",
+      "reason": "third-party orchestrator that ships with its own installer path; when present, l3io-pm-help surfaces the overlap. Never dispatched from this package." },
+    { "name": "bmad-loop-setup", "status": "related", "module": "bmad-loop",
+      "note": "bmad-loop's setup skill; presence implies bmad-loop is installed on this project." },
+    { "name": "bmad-loop-sweep", "status": "related", "module": "bmad-loop",
+      "note": "bmad-loop's deferred-work sweep; unrelated to our own issues.yaml / triage flow." },
+    { "name": "bmad-loop-resolve", "status": "related", "module": "bmad-loop",
+      "note": "bmad-loop's interactive escalation resolver for its CRITICAL halts." },
+
     { "name": "bmad-create-story", "status": "deprecated", "deprecated_in": "6.12.0",
       "replaced_by": "bmad-build",
       "reason": "ships in 6.12.0 with metadata.lifecycle: shim and its full body retained. Verified against _bmad/_config/skill-manifest.csv on 2026-09-20. ADR-0006 said 'deprecated to shims'; this inventory said 'removed', and the data was wrong, not the ADR" },

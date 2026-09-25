@@ -31,6 +31,22 @@ If `{pm_status_stale}` is `unknown`, prepend:
 `Note: l3io-util-doctor is not installed here, so pm-status.py freshness could not be checked.
 It is a required module of this extension — see docs/l3io-util-reference.md.`
 
+**Third follow-up, checked after the pm-status warnings:** if `check-deps`'s JSON output at
+activation reported any entry under `related_present` (bmad-loop, bmad-loop-setup,
+bmad-loop-sweep, bmad-loop-resolve, or bmad-build-auto not in a role we dispatch), append one
+paragraph after the recommendation, verbatim:
+
+`Note: bmad-loop is installed alongside l3io-pm. Both drive an unattended dev loop.
+l3io-pm-execute covers epic + sprint orchestration with phased parallel execution,
+calibrated estimates, and quality-gated closure across multiple stories; bmad-loop is a
+lighter single-loop pass around bmad-build-auto with an integrated review. The two state
+trees are independent, so you can run either without the other. See
+docs/l3io-pm-reference.md §Relationship to bmad-loop for when to use which.`
+
+The `related_present` list is derived from `l3io-util-doctor check-deps --format json` at
+activation and passed through in `{related_installed}`. When the doctor is absent this note is
+omitted (the `pm_status_stale` unknown branch already tells the user the doctor is missing).
+
 One of the strings above is also inlined elsewhere so that path does not need to load this
 file: this `pm_status_present` warning in `steps/mode-list-plan.md`. Keep both copies in
 sync if it changes. (The stale-lock recommendation used to be inlined a second time, in

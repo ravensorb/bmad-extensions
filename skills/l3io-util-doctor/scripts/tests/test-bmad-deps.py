@@ -183,6 +183,65 @@ class TestPresence(Base):
         self.assertIn("absent   a-opt", out)
         self.assertIn("self-skips", out)
 
+    def test_related_present_surfaces_as_related_row(self):
+        """A `related` skill we detect but do not dispatch. Absence is silent; presence
+        is surfaced so callers (l3io-pm-help) can enable relationship-aware behaviour."""
+        inv = self._inv([{"name": "a-one", "status": "required"},
+                         {"name": "a-rel", "status": "related", "note": "adjacent tooling"}])
+        root = self._tree(["a-one", "a-rel"])
+        code, out = self.run_cli(["verify", "--project-root", root, "--inventory", inv])
+        self.assertEqual(code, 0, self.err)
+        self.assertIn("related  a-rel", out)
+        self.assertIn("adjacent tooling", out,
+                      "the entry's optional `note` field must reach the output")
+        self.assertNotIn("self-skips", out,
+                         "related skills must not use the optional 'phase self-skips' phrasing")
+
+    def test_related_absent_is_silent(self):
+        """The default state for a related skill is 'not installed', because it is not our
+        tooling. A missing related skill is not a warning and must not show up in the report,
+        the way a missing optional does."""
+        inv = self._inv([{"name": "a-one", "status": "required"},
+                         {"name": "a-rel", "status": "related"}])
+        root = self._tree(["a-one"])  # a-rel deliberately absent
+        code, out = self.run_cli(["verify", "--project-root", root, "--inventory", inv])
+        self.assertEqual(code, 0, self.err)
+        self.assertNotIn("a-rel", out)
+        self.assertNotIn("absent", out)
+
+    def test_related_json_lands_in_related_present_bucket(self):
+        inv = self._inv([{"name": "a-one", "status": "required"},
+                         {"name": "a-rel", "status": "related", "note": "for callers"}])
+        root = self._tree(["a-one", "a-rel"])
+        code, out = self.run_cli(["verify", "--project-root", root, "--inventory", inv,
+                                  "--format", "json"])
+        self.assertEqual(code, 0, self.err)
+        data = json.loads(out)
+        self.assertEqual(len(data["related_present"]), 1)
+        self.assertEqual(data["related_present"][0]["name"], "a-rel")
+        self.assertEqual(data["related_present"][0]["note"], "for callers")
+        self.assertTrue(data["related_present"][0]["path"].endswith("SKILL.md"))
+        # `resolved` is for skills we dispatch; a related skill must not appear there.
+        self.assertEqual([r["name"] for r in data["resolved"]], ["a-one"])
+
+    def test_related_absent_from_bmad_manifest_is_not_a_contradiction(self):
+        """A related skill ships via ITS OWN installer (bmad-loop is the shape), not BMad's,
+        so its absence from BMad's skill-manifest.csv is normal, not a contradiction."""
+        inv = self._inv([{"name": "a-one", "status": "required"},
+                         {"name": "a-rel", "status": "related"}])
+        root = self._tree(["a-one", "a-rel"], version="6.12.0")
+        # Seed a manifest that lists a-one but NOT a-rel.
+        manifest = os.path.join(root, "_bmad", "_config", "skill-manifest.csv")
+        os.makedirs(os.path.dirname(manifest), exist_ok=True)
+        with open(manifest, "w") as fh:
+            fh.write("canonicalId,other\na-one,x\n")
+        code, out = self.run_cli(["verify", "--project-root", root, "--inventory", inv,
+                                  "--strict", "--format", "json"])
+        self.assertEqual(code, 0, self.err)
+        data = json.loads(out)
+        self.assertEqual(data["status_contradictions"], [],
+                         "a related skill not listed in the manifest is not a contradiction")
+
 
 class TestLayouts(Base):
     """Both install layouts, under both roots. Probing only one silently mis-detects on one
@@ -324,7 +383,7 @@ class TestJson(Base):
         data = json.loads(out)
         self.assertEqual(set(data), {"bmad_version", "shims_installed", "modules", "resolved",
                                      "missing_required", "optional_absent", "shims_in_use",
-                                     "deprecated_absent", "shipped_skills",
+                                     "deprecated_absent", "related_present", "shipped_skills",
                                      "status_contradictions", "baseline_drift"})
         self.assertEqual(data["bmad_version"], "6.12.0")
         self.assertEqual(data["modules"], ["core", "bmm"])
