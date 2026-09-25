@@ -3076,15 +3076,44 @@ test('check 26: a planted markdown violation is caught', () => {
     `expected the planted violation to be caught, got: ${JSON.stringify(violations)}`)
 })
 
-test('check 26: the canonical contract is exempt', () => {
+test('check 26: the canonical contract is exempt via its body marker', () => {
   const { violations } = resolverInvariant({
     extraSources: [{
       file: 'skills/_shared/status-files.md',
-      text: 'state/{planned,active,archived}/epic-{nnn}/sprint-{nn}/',
+      text: '<!-- resolver-invariant: canonical-contract -->\nstate/{planned,active,archived}/epic-{nnn}/sprint-{nn}/',
     }],
   })
   assert.ok(!violations.some(v => v.includes('_shared/status-files.md')),
     'the canonical contract must not be reported')
+})
+
+test('check 26: a status-files.md-shaped path WITHOUT the body marker is caught', () => {
+  // The whole point of the body-marker rule is that the exemption follows the CONTENT, not
+  // the filename. A file that happens to sit at the old canonical path but does not opt in
+  // as canonical-contract must be treated like any other doc.
+  const { violations } = resolverInvariant({
+    extraSources: [{
+      file: 'skills/_shared/status-files.md',
+      text: 'mkdir -p {pm_state_root}/{status_dir}/epic-{nnn}/',
+    }],
+  })
+  assert.ok(violations.some(v => v.includes('_shared/status-files.md')),
+    'a file with no canonical-contract marker must be judged, even at the shared path')
+})
+
+test('check 26: the exemption follows the marker across a rename', () => {
+  // If we ever rename the contract file, the exemption must move with the file, not stay
+  // behind at the old name (where an unrelated document could inherit it). This test plants
+  // the marker at a totally different path and confirms the check exempts it.
+  const { violations } = resolverInvariant({
+    extraSources: [{
+      file: 'skills/_shared/some-other-name.md',
+      text: '<!-- resolver-invariant: canonical-contract -->\n' +
+        'state/{planned,active,archived}/epic-{nnn}/sprint-{nn}/',
+    }],
+  })
+  assert.ok(!violations.some(v => v.includes('some-other-name.md')),
+    'a file that opts in as canonical-contract must be exempt regardless of its filename')
 })
 
 test('check 26: a planted pm-status.py violation outside the resolver section is caught', () => {

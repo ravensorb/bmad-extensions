@@ -3893,9 +3893,15 @@ const ACTIVE_VERB_RE = /\b(?:mkdir|ls|rm|cp|mv|touch|open|Path|makedirs|rmtree|m
 // Every marker requires a reason after the colon.
 const CHECK26_ALLOW_RE = /check26:allow(?:\s+reason:\s*\S+)?/
 
-function isStatusFilesContract(file) {
-  return file === 'skills/_shared/status-files.md' ||
-    file.endsWith('/references/status-files.md')
+// The one derived exemption for the (b) half: the file that quotes the state layout because
+// it IS the layout contract. Read from a body marker rather than a filename comparison, so
+// renaming or moving the contract does not silently transfer the exemption to whatever else
+// takes the old name -- and only files that actually opt in as canonical-contract get out
+// of the check, no matter where they live.
+const RESOLVER_INVARIANT_CANONICAL_MARKER = /<!--\s*resolver-invariant:\s*canonical-contract\s*-->/
+
+function isStatusFilesContract(text) {
+  return RESOLVER_INVARIANT_CANONICAL_MARKER.test(text)
 }
 
 // Categorical exemptions for the (b) half of resolverInvariant: file types where state-path
@@ -3965,7 +3971,7 @@ export function resolverInvariant(opts = {}) {
   for (const { file, text } of sources) {
     if (file === pmPath || file.endsWith('/scripts/pm-status.py')) continue
     scannedFiles.push(file)
-    if (isStatusFilesContract(file)) continue
+    if (isStatusFilesContract(text)) continue
     if (isCategoricallyExempt(file)) continue
     const isPy = file.endsWith('.py')
     let inDocstring = false

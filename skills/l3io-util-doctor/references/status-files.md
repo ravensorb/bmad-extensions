@@ -1,3 +1,4 @@
+<!-- resolver-invariant: canonical-contract -->
 # Status File Layout Contract (sharded state tree)
 
 Communicate all responses in `{communication_language}`.
