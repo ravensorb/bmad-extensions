@@ -370,6 +370,62 @@ class TestWriteVerifyDispose(unittest.TestCase):
         self.assertTrue((state / "active" / "epic-001" / "epic.yaml").exists())
         self.assertTrue((p / "sprint-status.yaml.legacy").exists())
 
+    def test_additive_bootstrap_on_partial_sharded_state(self):
+        """A project with sharded state for SOME stories, plus artifact .md files
+        for others, must bootstrap only the missing ones and leave existing state
+        untouched. Passing --state-root to gather() scopes the plan to the orphan
+        set; verify passes because nothing planned collides with the pre-existing
+        nodes. This is the additive-bootstrap use case, end-to-end."""
+        from ruamel.yaml import YAML
+
+        p, d = _copy("artifacts")
+        self.addCleanup(shutil.rmtree, d, ignore_errors=True)
+        state = Path(d) / "state"
+
+        # Pre-populate state for E001-S01-001 with a status that DIFFERS from what
+        # the artifact frontmatter says. Without additive scoping, verify would
+        # trip on this drift; with it, the reader skips this story entirely and
+        # the pre-existing node is left exactly as-is.
+        existing_sprint = state / "active" / "epic-001" / "sprint-01"
+        existing_sprint.mkdir(parents=True)
+        (state / "active" / "epic-001" / "epic.yaml").write_text(
+            "key: 'E001'\nstatus: in-progress\ntitle: 'Existing epic'\n",
+            encoding="utf-8")
+        (existing_sprint / "sprint.yaml").write_text(
+            "key: 'S01'\nepic: 'E001'\nstatus: in-progress\ntitle: 'Existing sprint'\n",
+            encoding="utf-8")
+        (existing_sprint / "E001-S01-001.yaml").write_text(
+            "key: 'E001-S01-001'\nepic: 'E001'\nsprint: 'S01'\n"
+            "status: backlog\ntitle: 'Pre-existing, do not touch'\n",
+            encoding="utf-8")
+
+        # Plan with state_root -- scoped to orphans only.
+        plan = eng.build_plan(eng.gather("artifacts", p, p, state))
+        planned_keys = {r["key"] for r in plan["records"]}
+        self.assertNotIn("E001-S01-001", planned_keys,
+                         "the tracked story must be skipped by the plan")
+        self.assertNotIn("E001", planned_keys,
+                         "the tracked epic must not be re-inferred")
+        self.assertNotIn("E001-S01", planned_keys,
+                         "the tracked sprint must not be re-inferred")
+        self.assertIn("E001-S01-002", planned_keys,
+                      "the orphan story must be in the plan")
+
+        # Apply: writes the orphans, existing state is untouched.
+        written, errors = eng.write(plan, state, PM_STATUS)
+        self.assertEqual(errors, [])
+        self.assertGreater(written, 0, "at least one orphan was expected")
+
+        # The pre-existing node is byte-preserved -- the migration did not touch it.
+        existing = YAML(typ="safe").load(
+            (existing_sprint / "E001-S01-001.yaml").read_text(encoding="utf-8"))
+        self.assertEqual(existing["title"], "Pre-existing, do not touch")
+        self.assertEqual(existing["status"], "backlog",
+                         "existing state must NOT be overwritten with the frontmatter's status")
+
+        # Verify passes because it compares the plan (orphans only) not the full tree.
+        self.assertEqual(eng.verify_against_plan(plan, state), [])
+
     def test_cli_apply_on_a_bmad_project_migrates_it_rather_than_blocking(self):
         """detect() picks the right reader, so the BMad project is CONVERTED."""
         p, d = _copy("bmad-flat")

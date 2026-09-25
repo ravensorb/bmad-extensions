@@ -87,11 +87,55 @@ def _roll_up(child_statuses: list) -> str:
     return "in-progress"
 
 
-def read(artifacts_dir: Path) -> list:
-    """Derive records from a tree of story artifacts."""
+def _state_paths(state_root):
+    """Return the sets of story, sprint and epic keys already present in the sharded
+    state tree. Empty sets when state_root is None or absent."""
+    story_keys, sprint_keys, epic_keys = set(), set(), set()
+    if state_root is None:
+        return story_keys, sprint_keys, epic_keys
+    root = Path(state_root)
+    if not root.is_dir():
+        return story_keys, sprint_keys, epic_keys
+    for folder in ("active", "planned", "archived"):
+        fdir = root / folder
+        if not fdir.is_dir():
+            continue
+        for edir in fdir.iterdir():
+            m = _EPIC_DIR.match(edir.name) if edir.is_dir() else None
+            if not m:
+                continue
+            ekey = f"E{int(m.group(1)):03d}"
+            epic_keys.add(ekey)
+            for sdir in edir.iterdir():
+                m2 = _SPRINT_DIR.match(sdir.name) if sdir.is_dir() else None
+                if not m2:
+                    continue
+                skey = f"{ekey}-S{int(m2.group(1)):02d}"
+                sprint_keys.add(skey)
+                for yf in sdir.glob("E*-*.yaml"):
+                    story_keys.add(yf.stem)
+    return story_keys, sprint_keys, epic_keys
+
+
+def read(artifacts_dir: Path, state_root: Path = None) -> list:
+    """Derive records from a tree of story artifacts.
+
+    When `state_root` is given, story files whose key already has a state node are
+    skipped, and inferred sprint/epic records are only emitted for keys the state tree
+    does not carry. This is what makes an additive bootstrap safe on a project that
+    already has partial sharded state: the plan lists only the genuinely new work,
+    and existing state is left untouched.
+
+    import-node's SKIP-if-exists would already prevent the existing nodes from being
+    overwritten, but the PLAN would misrepresent the scope of the change -- and
+    verify_against_plan would fail on any drift between the inferred status and the
+    existing node's status even though the drift is not the migration's business.
+    """
     root = Path(artifacts_dir)
     if not root.is_dir():
         return []
+
+    already_stories, already_sprints, already_epics = _state_paths(state_root)
 
     stories = []
     grouped = {}
@@ -121,6 +165,8 @@ def read(artifacts_dir: Path) -> list:
                 status = str(meta.get("status", "")).strip()
                 if not key or status not in sr.VALID_STATUS["story"]:
                     continue
+                if key in already_stories:
+                    continue
                 stories.append(sr.make_record(
                     "story", key, status, str(meta.get("title", "")),
                     str(md.relative_to(root)),
@@ -135,15 +181,18 @@ def read(artifacts_dir: Path) -> list:
     by_epic = {}
     for (epic_key, sprint_key), statuses in sorted(grouped.items()):
         status = _roll_up(statuses)
-        sprints.append(sr.make_record(
-            "sprint", sprint_key, status, f"Sprint {sprint_key.split('-S')[1]}",
-            f"{len(statuses)} story file(s) under {sprint_key}",
-            origin="inferred",
-            origin_note="derived from the story artifacts in this sprint directory"))
+        if sprint_key not in already_sprints:
+            sprints.append(sr.make_record(
+                "sprint", sprint_key, status, f"Sprint {sprint_key.split('-S')[1]}",
+                f"{len(statuses)} story file(s) under {sprint_key}",
+                origin="inferred",
+                origin_note="derived from the story artifacts in this sprint directory"))
         by_epic.setdefault(epic_key, []).append(status)
 
     epics = []
     for epic_key, sprint_statuses in sorted(by_epic.items()):
+        if epic_key in already_epics:
+            continue
         epics.append(sr.make_record(
             "epic", epic_key, _roll_up(sprint_statuses), "",
             f"{len(sprint_statuses)} sprint directory/ies under {epic_key}",
@@ -157,6 +206,10 @@ def main(argv=None) -> int:
     parser = argparse.ArgumentParser(description="derive records from story artifacts")
     parser.add_argument("--dir", required=True,
                         help="the implementation_artifacts directory")
+    parser.add_argument("--state-root", default="",
+                        help="optional sharded state root; when given, story files whose "
+                             "key already has a state node are skipped -- for additive "
+                             "bootstrap on a project with partial sharded state")
     parser.add_argument("--format", choices=["json"], default="json")
     args = parser.parse_args(argv)
 
@@ -164,7 +217,8 @@ def main(argv=None) -> int:
     if not d.is_dir():
         sys.stderr.write(f"read-artifacts.py: no such directory: {d}\n")
         return 1
-    json.dump(read(d), sys.stdout, indent=2)
+    state = Path(args.state_root) if args.state_root else None
+    json.dump(read(d, state), sys.stdout, indent=2)
     sys.stdout.write("\n")
     return 0
 

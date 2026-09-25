@@ -22,14 +22,24 @@ Resolve `{implementation_artifacts}` and `{project-root}` as every other mode do
 ### Step BS2 — Show what would be created
 
 ```bash
-uv run {engine} --artifacts {implementation_artifacts} --project-root {project-root} --plan
+uv run {engine} --artifacts {implementation_artifacts} --project-root {project-root} \
+  --state-root {pm_state_root} --plan
 ```
 
-Read-only. If the detected layout is not `artifacts`, this project already has a status
-file — stop and tell the user to run `migrate-state` instead, which handles that source.
+Read-only. Passing `--state-root` in `--plan` mode is what makes the plan **additive**:
+any story whose key already has a state node is skipped, and inferred sprint/epic
+records are only listed when the state tree does not already carry them. So a project
+with partial sharded state — some stories tracked, others newly written by hand — sees a
+plan that names only the genuinely new work.
+
+If the detected layout is not `artifacts`, this project already has a legacy status file
+— stop and tell the user to run `migrate-state` instead, which handles that source.
 
 If it reports `No migratable source layout found`, there are no story files under
 `{implementation_artifacts}/epic-XX/sprint-YY/stories/`. Say so and stop.
+
+If the plan lists zero records but story files exist, every story already has a state
+node — nothing to bootstrap. Say so and stop.
 
 ### Step BS3 — Explain the inference
 

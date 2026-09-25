@@ -124,5 +124,92 @@ class TestReadArtifacts(unittest.TestCase):
         self.assertLess(kinds.index("sprint"), kinds.index("story"))
 
 
+class TestReadArtifactsAdditive(unittest.TestCase):
+    """The additive-bootstrap case: story .md files coexist with an existing sharded
+    state tree. The reader must skip already-tracked stories, and only surface
+    inferred sprints/epics for the keys the state tree does not already carry.
+
+    Without this scoping, a plan on a partial-state project would list every story
+    -- including the tracked ones -- and verify_against_plan would fail on any drift
+    between the existing status and the inferred one, blocking a bootstrap that
+    ought to be additive."""
+
+    def _tmpdir(self):
+        d = Path(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, d, ignore_errors=True)
+        return d
+
+    def _seed_state(self, root: Path, *keys):
+        """Write empty state files at the given (bucket, epic_key[, sprint_key[, story_key]])
+        tuples so the reader sees them as already-tracked."""
+        for entry in keys:
+            bucket, epic_key = entry[0], entry[1]
+            edir = root / bucket / f"epic-{int(epic_key[1:]):03d}"
+            edir.mkdir(parents=True, exist_ok=True)
+            (edir / "epic.yaml").write_text("key: 'E001'\n", encoding="utf-8")
+            if len(entry) >= 3:
+                sprint_key = entry[2]
+                snum = int(sprint_key.split("-S")[1])
+                sdir = edir / f"sprint-{snum:02d}"
+                sdir.mkdir(parents=True, exist_ok=True)
+                (sdir / "sprint.yaml").write_text(f"key: '{sprint_key}'\n",
+                                                  encoding="utf-8")
+                if len(entry) >= 4:
+                    story_key = entry[3]
+                    (sdir / f"{story_key}.yaml").write_text(
+                        f"key: '{story_key}'\n", encoding="utf-8")
+
+    def test_no_state_root_emits_every_story(self):
+        """Baseline: without --state-root, the reader emits everything (unchanged)."""
+        self.assertEqual(len(rd.read(FIXTURE)), 6)   # 1 epic + 2 sprints + 3 stories
+
+    def test_state_root_pointing_at_empty_state_emits_every_story(self):
+        empty_state = self._tmpdir()
+        (empty_state / "active").mkdir()
+        self.assertEqual(len(rd.read(FIXTURE, empty_state)), 6)
+
+    def test_a_tracked_story_is_skipped(self):
+        state = self._tmpdir()
+        self._seed_state(state, ("active", "E001", "E001-S01", "E001-S01-001"))
+        recs = rd.read(FIXTURE, state)
+        story_keys = {r["key"] for r in recs if r["kind"] == "story"}
+        self.assertNotIn("E001-S01-001", story_keys)
+        self.assertIn("E001-S01-002", story_keys)      # not yet tracked, still present
+
+    def test_a_tracked_sprint_suppresses_its_inferred_sprint_record(self):
+        """When the state has a sprint node, the reader must not emit an
+        inferred one alongside -- the existing state's status is the truth."""
+        state = self._tmpdir()
+        self._seed_state(state, ("active", "E001", "E001-S01"))
+        recs = rd.read(FIXTURE, state)
+        sprint_keys = {r["key"] for r in recs if r["kind"] == "sprint"}
+        self.assertNotIn("E001-S01", sprint_keys)
+        self.assertIn("E001-S02", sprint_keys)         # not tracked yet, still inferred
+
+    def test_a_tracked_epic_suppresses_its_inferred_epic_record(self):
+        state = self._tmpdir()
+        self._seed_state(state, ("active", "E001"))
+        recs = rd.read(FIXTURE, state)
+        epic_keys = {r["key"] for r in recs if r["kind"] == "epic"}
+        self.assertEqual(epic_keys, set())
+
+    def test_fully_tracked_project_emits_zero_records(self):
+        """If every story in the artifact tree has a state node, the reader
+        emits nothing -- caller says 'nothing to bootstrap' and stops."""
+        state = self._tmpdir()
+        self._seed_state(state,
+                         ("active", "E001", "E001-S01", "E001-S01-001"),
+                         ("active", "E001", "E001-S01", "E001-S01-002"),
+                         ("active", "E001", "E001-S02", "E001-S02-001"))
+        self.assertEqual(rd.read(FIXTURE, state), [])
+
+    def test_state_root_scans_every_status_bucket(self):
+        """A story tracked under archived/ is just as skipped as one under active/."""
+        state = self._tmpdir()
+        self._seed_state(state, ("archived", "E001", "E001-S01", "E001-S01-001"))
+        story_keys = {r["key"] for r in rd.read(FIXTURE, state) if r["kind"] == "story"}
+        self.assertNotIn("E001-S01-001", story_keys)
+
+
 if __name__ == "__main__":
     unittest.main()

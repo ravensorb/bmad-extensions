@@ -52,11 +52,11 @@ _artifacts = _load("read_artifacts", "read-artifacts.py")
 # directories on disk, so a deleted fixture fails the suite rather than shrinking the
 # corpus silently.
 READERS = {
-    "l3io-flat": lambda art, root: _l3io.read(art / "sprint-status.yaml"),
-    "bmad-flat": lambda art, root: _bmad.read(art / "sprint-status.yaml"),
-    "per-epic": lambda art, root: _per_epic.read(root / "_bmad" / "state"),
-    "split": lambda art, root: _split.read(art),
-    "artifacts": lambda art, root: _artifacts.read(art),
+    "l3io-flat": lambda art, root, state: _l3io.read(art / "sprint-status.yaml"),
+    "bmad-flat": lambda art, root, state: _bmad.read(art / "sprint-status.yaml"),
+    "per-epic": lambda art, root, state: _per_epic.read(root / "_bmad" / "state"),
+    "split": lambda art, root, state: _split.read(art),
+    "artifacts": lambda art, root, state: _artifacts.read(art, state),
 }
 
 _KIND_ORDER = ("epic", "sprint", "story")
@@ -94,12 +94,19 @@ def detect(artifacts_dir: Path, project_root: Path) -> str:
     return "none"
 
 
-def gather(layout: str, artifacts_dir: Path, project_root: Path) -> list:
-    """Run the reader for `layout`. An unknown layout yields zero records."""
+def gather(layout: str, artifacts_dir: Path, project_root: Path,
+           state_root: Path = None) -> list:
+    """Run the reader for `layout`. An unknown layout yields zero records.
+
+    `state_root` is consumed by the artifacts reader when given, so an additive
+    bootstrap on a project with partial sharded state emits records only for the
+    orphan stories. The legacy-source readers ignore it -- they always parse
+    their own source in full."""
     reader = READERS.get(layout)
     if reader is None:
         return []
-    return sr.dedupe(reader(Path(artifacts_dir), Path(project_root)))
+    return sr.dedupe(reader(Path(artifacts_dir), Path(project_root),
+                            Path(state_root) if state_root else None))
 
 
 def source_is_empty(layout: str, artifacts_dir: Path, project_root: Path) -> bool:
@@ -392,7 +399,12 @@ def main(argv=None) -> int:
         sys.stdout.write("No migratable source layout found -- nothing to do.\n")
         return 0
 
-    plan = build_plan(gather(layout, art, root))
+    # For the artifacts reader, the state root -- when we know it -- lets us skip
+    # already-tracked stories so the plan lists only genuinely new work. In --plan
+    # mode without --state-root we degrade to "show everything", the pre-existing
+    # behaviour; --apply always has --state-root by the check above.
+    state_for_reader = args.state_root if args.state_root else None
+    plan = build_plan(gather(layout, art, root, state_for_reader))
 
     if not args.apply:
         if args.format == "json":
