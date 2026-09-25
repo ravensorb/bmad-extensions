@@ -230,6 +230,53 @@ class TestWriteVerifyDispose(unittest.TestCase):
         self.assertEqual((p / "sprint-status.yaml").read_text(encoding="utf-8"), before)
         self.assertFalse((p / "sprint-status.yaml.legacy").exists())
 
+    def test_partial_write_failure_leaves_valid_records_on_disk_and_source_untouched(self):
+        """A mid-plan write failure must not roll back valid records already written, and
+        it must never trigger disposal of the source.
+
+        The vacuous-truth trap the peer surfaced: a one-record fixture proves
+        "records before the failing one survive" trivially (there are zero of them).
+        This fixture has THREE records -- two valid + one poisoned with an invalid status
+        that import-node rejects -- so the survivor set is a real property, not an empty one.
+        """
+        p, d = _copy("l3io-flat")
+        self.addCleanup(shutil.rmtree, d, ignore_errors=True)
+        source_before = (p / "sprint-status.yaml").read_text(encoding="utf-8")
+        state = Path(d) / "state"
+
+        # Craft a plan with a valid epic, an invalid epic, and another valid epic.
+        # import-node returns exit 2 for an invalid status; the loop must keep going.
+        poisoned_plan = eng.build_plan([
+            {"kind": "epic", "key": "E001", "status": "in-progress", "title": "first"},
+            {"kind": "epic", "key": "E002", "status": "not-a-real-status", "title": "bad"},
+            {"kind": "epic", "key": "E003", "status": "done", "title": "third"},
+        ])
+        written, errors = eng.write(poisoned_plan, state, PM_STATUS)
+
+        # The valid records land; the poisoned one is reported.
+        self.assertEqual(written, 2, f"expected 2 successful writes, got {written}")
+        self.assertEqual(len(errors), 1, f"expected 1 error, got {errors}")
+        self.assertIn("E002", errors[0])
+        self.assertTrue((state / "active" / "epic-001" / "epic.yaml").exists(),
+                        "valid record BEFORE the failure must survive")
+        self.assertTrue((state / "archived" / "epic-003" / "epic.yaml").exists(),
+                        "valid record AFTER the failure must survive -- write does not "
+                        "abort the loop on the first error")
+        self.assertFalse((state / "planned" / "epic-002" / "epic.yaml").exists(),
+                         "the poisoned record must NOT have landed on disk")
+
+        # The source is untouched -- caller sees errors and never invokes dispose.
+        self.assertEqual((p / "sprint-status.yaml").read_text(encoding="utf-8"),
+                         source_before,
+                         "source file must be byte-identical after a failed write")
+        self.assertFalse((p / "sprint-status.yaml.legacy").exists(),
+                         "dispose must never have run")
+
+        # verify_against_plan sees the missing node -- proves the caller's gate works.
+        problems = eng.verify_against_plan(poisoned_plan, state)
+        self.assertTrue(any("E002" in prob for prob in problems),
+                        f"verify must catch the missing E002, got: {problems}")
+
     def test_apply_is_idempotent(self):
         p, d, state, plan, written1, _ = self._run("l3io-flat", "l3io-flat")
         written2, errors2 = eng.write(plan, state, PM_STATUS)
