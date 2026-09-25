@@ -226,6 +226,32 @@ generation**, and the exclusion is visible to the operator:
   unpoisoned by real time in blocked — they measure counterfactual effort and
   human attention respectively.
 
+**Amendment — dispatch-scoping of the block scan (2026-09-25, both sides shipped
+the simpler shape).** The design above says the exclusion fires "when the node's
+event log shows any `block_open` for this story **since its most recent
+`dispatch_open`**." Both this package and its sibling (`avanade-bmad-extension`,
+peer alignment on 2026-09-25) instead shipped `_total_blocked_hours` scanning
+**all** `block_close` events on the story, not filtered to since-most-recent-
+dispatch-open. Real correctness gap for the multi-session-story case: a story
+blocked in Session 1 and completed cleanly in Session 2 gets Session 2's
+`elapsed_hours` incorrectly excluded from calibration.
+
+The two teams agreed to accept the imprecision and defer the filter:
+
+- **Bias direction is safety-first.** Over-exclude rather than under-exclude —
+  the whole point of the mechanism is to keep human-wait time out of the scope
+  ratio, and over-exclusion errs on that side.
+- **Rare in current workflow.** Multi-session stories with blocks in an earlier
+  session that resolved cleanly in a later one are not the common shape.
+- **Unilateral upgrade path preserved.** Filtering `block_close` events to those
+  after the most recent `dispatch_open` ts is ~10 lines of code + one test on
+  either side; the fields consumed by the filter (`block_close.ts`,
+  `dispatch_open.ts`) are the same on both sides, so a future upgrade doesn't
+  break interop or need a coordinated release.
+- **Trigger to revisit:** evidence of a real multi-session-blocked story where
+  the exclusion bit a user's calibration ratio in a way that mattered. Filed as
+  a "revisit-if-warranted" follow-up, not a scheduled task on either side.
+
 **`completion_evidence.blocks_seen: int` for O(1) closure observability.**
 Closure walks story nodes at close time; a per-story `block_open` event scan
 is O(n) per story. Adding a small counter on the node:
