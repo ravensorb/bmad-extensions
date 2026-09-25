@@ -3,7 +3,7 @@
   "generated_from": "skills/_shared/",
   "files": {
     "references/config-resolution.md": "d6cee2910b327fbfa5eab90de57e04fd1229aca1d065d149a1ab12d66a13bb7c",
-    "scripts/pm-status.py": "4c2869a33ece0dd3980afd9732fce865e29006d0ccc987041395d394ffdc1e92",
+    "scripts/pm-status.py": "bb55d90e45c30c10c4357cc25c07c3ae99e0d15fac69963adbaa49e61e946c66",
     "references/status-files.md": "5072a5e3747a3fe0456f4996f5c0df915822386580e992130372868a5d5fe790",
     "scripts/spec-align.py": "54e660827d75571f4757d74375cf5a48591bf39167359cc6def06aa82792ab9e",
     "scripts/merge-config.py": "22f51eed631c64134d352c236917e0a98ec5b5fe5d0810394f4615905c6ef7dc",

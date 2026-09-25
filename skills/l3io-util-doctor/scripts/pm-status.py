@@ -98,6 +98,13 @@ Subcommands
                 [--require-tokens] [--runtime {claude,other}]
                 (--scope epic checks structural/back-reference integrity across the
                 epic's whole subtree; --scope story/sprint check completion of one node)
+  list-epics    --state-root S  [--format keys|json]
+                (read-only; empty/absent state -> empty output, exit 0; keys default
+                prints one E{nnn} per line, sorted; json prints [{key, bucket, status}, ...]
+                with bucket in active/planned/archived order)
+  list-stories  --state-root S  --epic E  [--sprint S]  [--format keys|json]
+                (read-only; absent epic exits 3; absent sprint -> empty output, exit 0;
+                filters out sprint.yaml/epic.yaml and any non-story .yaml files)
   show          --state-root S  --epic ID  [--sprint ID]
   report        --state-root S  [--plan P] [--format tree|json|md] [--out F]
                 [--all] [--watch SECS]
@@ -522,6 +529,63 @@ def find_epic_dir(state_root: str, epic_key: str):
         if os.path.isdir(p):
             return p
     return None
+
+
+def iter_epic_dirs(state_root: str):
+    """Yield (bucket, epic_key, epic_dir_path) for every epic directory in the state tree.
+
+    Missing state root yields nothing. Order: bucket in STATUS_DIRS order (active,
+    planned, archived), key sorted within each bucket. Non-conforming entries
+    (a directory that does not match epic-{nnn}, a regular file with that name) are
+    skipped silently -- they are not this enumerator's concern.
+
+    The one enumerator behind list-epics; also the enumerator a future caller uses to
+    answer "does this epic exist and in which bucket?" without probing filesystem paths.
+    """
+    if not os.path.isdir(state_root):
+        return
+    for bucket in STATUS_DIRS:
+        bucket_dir = os.path.join(state_root, bucket)
+        if not os.path.isdir(bucket_dir):
+            continue
+        for name in sorted(os.listdir(bucket_dir)):
+            if not name.startswith("epic-"):
+                continue
+            p = os.path.join(bucket_dir, name)
+            if not os.path.isdir(p):
+                continue
+            suffix = name[len("epic-"):]
+            if not (suffix.isdigit() and len(suffix) == 3):
+                continue
+            yield bucket, f"E{suffix}", p
+
+
+def iter_story_files(state_root: str, epic_key: str, sprint_key=None):
+    """Yield (story_key, story_file_path) for every story node file under an epic,
+    optionally scoped to one sprint.
+
+    A missing epic yields nothing (callers check find_epic_dir separately when they
+    want to distinguish absent from empty). Files that are not stories -- sprint.yaml,
+    epic.yaml, a .yaml.lock sidecar, anything whose name does not parse as
+    E{nnn}-S{nn}-{nnn} -- are filtered out here so callers do not have to.
+    """
+    d = find_epic_dir(state_root, epic_key)
+    if d is None:
+        return
+    target_sprint_dir = sprint_dirname(sprint_key) if sprint_key is not None else None
+    for sd_path in list_sprint_dirs(state_root, epic_key):
+        sd_name = os.path.basename(sd_path)
+        if target_sprint_dir is not None and sd_name != target_sprint_dir:
+            continue
+        for name in sorted(os.listdir(sd_path)):
+            if not name.endswith(".yaml"):
+                continue
+            story_key = name[:-len(".yaml")]
+            try:
+                parse_story_key(story_key)
+            except ValueError:
+                continue
+            yield story_key, os.path.join(sd_path, name)
 
 
 def epic_file(state_root: str, epic_key: str):
@@ -6320,6 +6384,54 @@ def cmd_move_epic(args) -> int:
     return 0
 
 
+def cmd_list_epics(args) -> int:
+    """Enumerate every epic in the state tree with its status bucket.
+
+    Read-only. A missing state root prints nothing and exits 0 -- the shape of a
+    project with no state yet, which is the same silent shape the old
+    `ls -d ... 2>/dev/null` probe gave callers.
+
+    --format keys (default): one E{nnn} per line, sorted, buckets flattened. Cheap.
+    --format json: a list of {key, bucket, status}, sorted by (bucket, key) with
+    STATUS_DIRS order preserved so active/planned/archived is a stable read.
+    """
+    rows = list(iter_epic_dirs(args.state_root))
+    if args.format == "json":
+        out = [{"key": k, "bucket": b, "status": STATUS_FOR_DIR[b]} for b, k, _ in rows]
+        sys.stdout.write(json.dumps(out) + "\n")
+    else:
+        for _b, k, _p in rows:
+            sys.stdout.write(f"{k}\n")
+    return 0
+
+
+def cmd_list_stories(args) -> int:
+    """Enumerate story keys for an epic, optionally scoped to one sprint.
+
+    Read-only. A missing epic exits 3 -- absent-vs-empty matters for the caller,
+    and the resolver already distinguishes them. A sprint that does not exist
+    yields nothing and exits 0: a project can ask about a sprint it has not
+    created yet, and the answer is not an error, it is an empty list.
+
+    Filters out sprint.yaml/epic.yaml and anything whose name does not parse as
+    a story key -- callers get story keys, no post-processing required.
+    """
+    if find_epic_dir(args.state_root, args.epic) is None:
+        _die_notfound(f"epic {args.epic}")
+    sprint = args.sprint if args.sprint else None
+    rows = list(iter_story_files(args.state_root, args.epic, sprint))
+    if args.format == "json":
+        out = []
+        for k, _p in rows:
+            _e, sk, _ = parse_story_key(k)
+            out.append({"key": k, "sprint": sk})
+        sys.stdout.write(json.dumps(out) + "\n")
+    else:
+        for k, _p in rows:
+            sys.stdout.write(f"{k}\n")
+    return 0
+
+
 def cmd_show(args) -> int:
     """Render a computed sprint or epic roll-up. Exits 3 if the epic (or,
     when --sprint is given, that sprint within it) does not resolve — an
@@ -6687,6 +6799,20 @@ def build_parser() -> argparse.ArgumentParser:
     v.add_argument("--token-rates", dest="token_rates", default="",
                    help="JSON object of per-model rate overrides")
     v.set_defaults(func=cmd_verify)
+
+    le = sub.add_parser("list-epics",
+                        help="list every epic key in the state tree with its status bucket")
+    le.add_argument("--state-root", required=True)
+    le.add_argument("--format", choices=["keys", "json"], default="keys")
+    le.set_defaults(func=cmd_list_epics)
+
+    ls_ = sub.add_parser("list-stories",
+                         help="list story keys for an epic, optionally scoped to one sprint")
+    ls_.add_argument("--state-root", required=True)
+    ls_.add_argument("--epic", required=True)
+    ls_.add_argument("--sprint", default="")
+    ls_.add_argument("--format", choices=["keys", "json"], default="keys")
+    ls_.set_defaults(func=cmd_list_stories)
 
     sh = sub.add_parser("show", help="render a computed sprint or epic roll-up")
     sh.add_argument("--state-root", required=True)

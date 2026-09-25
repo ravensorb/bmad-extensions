@@ -40,14 +40,21 @@ For each snapshot file, read it and extract:
 
 Collect the full set of epic keys referenced across all phases of this snapshot.
 
-For each epic key `E{nnn}` (where `epic-{nnn}` is the zero-padded directory name), probe state:
+When `{pm_status_present}` is `present`, read every epic's status bucket in one call, then
+index the result:
 
 ```bash
-# check26:allow reason: state-existence probe; pending pm-status.py exists verb
-ls -d {pm_state_root}/planned/epic-{nnn}/ \
-      {pm_state_root}/active/epic-{nnn}/  \
-      {pm_state_root}/archived/epic-{nnn}/ 2>/dev/null
+uv run {pm_status} list-epics --state-root {pm_state_root} --format json
 ```
+
+The output is a JSON list of `{key, bucket, status}` objects. Build a map from `key` to
+`bucket`; an epic key from the plan that is not in the map has no state directory yet.
+An empty state (fresh project, `{pm_state_root}` absent) returns `[]` — every epic classifies
+as `planned` for the purposes below.
+
+When `{pm_status_present}` is `absent`, skip the probe entirely and treat the map as empty —
+every epic classifies as `planned`. The absent-warning at the end of this mode tells the user
+what to run to make future calls precise.
 
 Classify the plan using the statuses of all its epics:
 

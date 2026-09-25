@@ -106,6 +106,8 @@ in the [l3io-pm reference](l3io-pm-reference.md), which documents the whole CLI.
 | Subcommand | Used by | For |
 |---|---|---|
 | `report` | `stats` | The state walk behind the progress dashboard — the tree, dwell times and stuck flags are rendered from its output rather than duplicated here. |
+| `list-epics` | health check (state/artifact drift, check 11) | Enumerates every epic in the state tree with its bucket, so the drift check walks only `active/`+`archived/` without probing paths. |
+| `list-stories` | health check (state/artifact drift, check 11) | Lists story keys for an epic (or one of its sprints), pre-filtered to real story files, so the drift check can diff state stories against artifact stories without building state paths in shell. |
 | `list-issues` | `stats`, `triage` | Reads the backlog, whole (`--all`) or filtered by `--kind` for the spec pass. |
 | `audit-issues` | `triage`, the health check | The backlog integrity audit whose findings `triage` then resolves. |
 | `resolve-issue` | `triage` | Closes an item that is already fixed, with a `--resolution` and a `--ref`. |

@@ -9639,5 +9639,186 @@ class TestImportNode(Base):
         self.assertEqual(code, 3)
 
 
+class TestListEpics(Base):
+    """Read-only enumeration of every epic in the state tree with its bucket.
+
+    The verb exists so callers stop probing filesystem paths per epic
+    (`ls -d {state}/{planned,active,archived}/epic-{nnn}/` in a loop) to answer
+    "does this epic exist and where?". These tests pin the read-only shape:
+    the state tree is not touched, an empty tree is empty output not an error,
+    and the bucket ordering is stable so a downstream index is deterministic.
+    """
+    def _import(self, *argv):
+        code, out = self.run_main(["import-node", "--state-root", self.d, *argv])
+        self.assertEqual(code, 0, out)
+
+    def test_empty_state_prints_nothing(self):
+        code, out = self.run_main(["list-epics", "--state-root", self.d])
+        self.assertEqual(code, 0)
+        self.assertEqual(out, "")
+
+    def test_absent_state_root_prints_nothing(self):
+        """An unrun project shape -- the state root does not exist yet -- is not an error."""
+        missing = os.path.join(self.d, "no-such-state")
+        code, out = self.run_main(["list-epics", "--state-root", missing])
+        self.assertEqual(code, 0)
+        self.assertEqual(out, "")
+
+    def test_one_epic_per_bucket_keys_format(self):
+        self._import("--epic", "E001", "--status", "backlog", "--title", "one")
+        self._import("--epic", "E002", "--status", "in-progress", "--title", "two")
+        self._import("--epic", "E003", "--status", "done", "--title", "three")
+        code, out = self.run_main(["list-epics", "--state-root", self.d])
+        self.assertEqual(code, 0)
+        self.assertEqual(out.split(), ["E002", "E001", "E003"])  # active, planned, archived
+
+    def test_json_format_carries_bucket_and_status(self):
+        self._import("--epic", "E001", "--status", "backlog", "--title", "one")
+        self._import("--epic", "E002", "--status", "in-progress", "--title", "two")
+        self._import("--epic", "E003", "--status", "done", "--title", "three")
+        code, out = self.run_main(["list-epics", "--state-root", self.d, "--format", "json"])
+        self.assertEqual(code, 0, out)
+        rows = json.loads(out)
+        by_key = {r["key"]: r for r in rows}
+        self.assertEqual(by_key["E001"], {"key": "E001", "bucket": "planned", "status": "backlog"})
+        self.assertEqual(by_key["E002"], {"key": "E002", "bucket": "active", "status": "in-progress"})
+        self.assertEqual(by_key["E003"], {"key": "E003", "bucket": "archived", "status": "done"})
+        # STATUS_DIRS order: active, planned, archived
+        self.assertEqual([r["bucket"] for r in rows], ["active", "planned", "archived"])
+
+    def test_keys_within_a_bucket_are_sorted(self):
+        for k in ("E003", "E001", "E002"):
+            self._import("--epic", k, "--status", "backlog", "--title", k)
+        code, out = self.run_main(["list-epics", "--state-root", self.d])
+        self.assertEqual(out.split(), ["E001", "E002", "E003"])
+
+    def test_non_epic_entries_in_a_bucket_are_ignored(self):
+        """A regular file, or a directory not matching epic-{nnn}, must not appear."""
+        self._import("--epic", "E001", "--status", "backlog", "--title", "e1")
+        planned = os.path.join(self.d, "planned")
+        # A stray file that happens to sit under planned/ (a .gitignore, an editor swap file):
+        with open(os.path.join(planned, ".gitignore"), "w") as fh:
+            fh.write("*.lock\n")
+        # A directory that is not zero-padded to three digits:
+        os.makedirs(os.path.join(planned, "epic-42"))
+        # A directory whose suffix is not a number:
+        os.makedirs(os.path.join(planned, "epic-legacy"))
+        code, out = self.run_main(["list-epics", "--state-root", self.d])
+        self.assertEqual(out.split(), ["E001"])
+
+    def test_read_only_leaves_the_tree_untouched(self):
+        """A read verb must not mutate: no lock files, no event lines, no directory creates."""
+        self._import("--epic", "E001", "--status", "in-progress", "--title", "one")
+        before = sorted(os.walk(self.d))
+        events_before = os.path.getsize(os.path.join(self.d, "events.jsonl"))
+        self.run_main(["list-epics", "--state-root", self.d, "--format", "json"])
+        after = sorted(os.walk(self.d))
+        events_after = os.path.getsize(os.path.join(self.d, "events.jsonl"))
+        self.assertEqual(before, after)
+        self.assertEqual(events_before, events_after)
+
+
+class TestListStories(Base):
+    """Read-only enumeration of story node files under an epic, optionally scoped
+    to one sprint.
+
+    The verb replaces `ls .../sprint-{nn}/*.yaml | grep -v '^sprint$'` in the drift
+    check -- with the filtering and the story-key parse inside pm-status.py rather
+    than downstream in shell.
+    """
+    def _import(self, *argv):
+        code, out = self.run_main(["import-node", "--state-root", self.d, *argv])
+        self.assertEqual(code, 0, out)
+
+    def _seed(self):
+        """Two sprints in E001, four stories total. Also an unrelated E002 to prove filtering."""
+        self._import("--epic", "E001", "--status", "in-progress", "--title", "e1")
+        self._import("--story", "E001-S01-001", "--status", "done", "--title", "s1")
+        self._import("--story", "E001-S01-002", "--status", "review", "--title", "s2")
+        self._import("--story", "E001-S02-001", "--status", "ready-for-dev", "--title", "s3")
+        self._import("--story", "E001-S02-002", "--status", "backlog", "--title", "s4")
+        self._import("--epic", "E002", "--status", "backlog", "--title", "e2")
+        self._import("--story", "E002-S01-001", "--status", "backlog", "--title", "other")
+
+    def test_absent_epic_exits_3(self):
+        code, _ = self.run_main([
+            "list-stories", "--state-root", self.d, "--epic", "E999"])
+        self.assertEqual(code, 3)
+
+    def test_absent_sprint_prints_nothing(self):
+        """A sprint that has not been created yet is not an error."""
+        self._import("--epic", "E001", "--status", "in-progress", "--title", "e1")
+        code, out = self.run_main([
+            "list-stories", "--state-root", self.d, "--epic", "E001", "--sprint", "S99"])
+        self.assertEqual(code, 0)
+        self.assertEqual(out, "")
+
+    def test_one_sprint_scope_keys_format(self):
+        self._seed()
+        code, out = self.run_main([
+            "list-stories", "--state-root", self.d, "--epic", "E001", "--sprint", "S01"])
+        self.assertEqual(code, 0)
+        self.assertEqual(out.split(), ["E001-S01-001", "E001-S01-002"])
+
+    def test_all_sprints_when_sprint_omitted(self):
+        self._seed()
+        code, out = self.run_main([
+            "list-stories", "--state-root", self.d, "--epic", "E001"])
+        self.assertEqual(code, 0)
+        self.assertEqual(out.split(), [
+            "E001-S01-001", "E001-S01-002", "E001-S02-001", "E001-S02-002"])
+
+    def test_json_format_carries_sprint(self):
+        self._seed()
+        code, out = self.run_main([
+            "list-stories", "--state-root", self.d, "--epic", "E001",
+            "--sprint", "S02", "--format", "json"])
+        self.assertEqual(code, 0, out)
+        self.assertEqual(json.loads(out), [
+            {"key": "E001-S02-001", "sprint": "S02"},
+            {"key": "E001-S02-002", "sprint": "S02"},
+        ])
+
+    def test_sprint_yaml_and_epic_yaml_are_filtered(self):
+        """The drift-check use case fails if sprint.yaml leaks through -- pinned here."""
+        self._import("--epic", "E001", "--status", "in-progress", "--title", "e1")
+        self._import("--epic", "E001", "--sprint", "S01",
+                     "--status", "in-progress", "--title", "sp1")
+        self._import("--story", "E001-S01-001", "--status", "done", "--title", "s1")
+        code, out = self.run_main([
+            "list-stories", "--state-root", self.d, "--epic", "E001", "--sprint", "S01"])
+        self.assertEqual(out.split(), ["E001-S01-001"])
+        self.assertNotIn("sprint", out)
+
+    def test_stories_of_a_different_epic_do_not_leak(self):
+        self._seed()
+        code, out = self.run_main([
+            "list-stories", "--state-root", self.d, "--epic", "E002"])
+        self.assertEqual(out.split(), ["E002-S01-001"])
+
+    def test_non_story_yaml_files_are_filtered(self):
+        """A .yaml file whose stem does not parse as E{nnn}-S{nn}-{nnn} must not appear."""
+        self._import("--epic", "E001", "--status", "in-progress", "--title", "e1")
+        self._import("--story", "E001-S01-001", "--status", "done", "--title", "s")
+        sprint_dir = os.path.join(self.d, "active", "epic-001", "sprint-01")
+        # A stray fixture / legacy file / editor swap:
+        with open(os.path.join(sprint_dir, "notes.yaml"), "w") as fh:
+            fh.write("# random\n")
+        code, out = self.run_main([
+            "list-stories", "--state-root", self.d, "--epic", "E001", "--sprint", "S01"])
+        self.assertEqual(out.split(), ["E001-S01-001"])
+
+    def test_read_only_leaves_the_tree_untouched(self):
+        self._seed()
+        before = sorted(os.walk(self.d))
+        events_before = os.path.getsize(os.path.join(self.d, "events.jsonl"))
+        self.run_main([
+            "list-stories", "--state-root", self.d, "--epic", "E001", "--format", "json"])
+        after = sorted(os.walk(self.d))
+        events_after = os.path.getsize(os.path.join(self.d, "events.jsonl"))
+        self.assertEqual(before, after)
+        self.assertEqual(events_before, events_after)
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

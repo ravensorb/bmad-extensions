@@ -143,23 +143,26 @@ Scan the top level of `{implementation_artifacts}/` for directories matching `ep
 
 **Check 11 — State/artifact drift**
 `{pm_state_root}` = `{implementation_artifacts}/state` (see `references/status-files.md`,
-the canonical state-layout contract, for the full sharded schema this check reads). For each
-sprint directory under `{pm_state_root}/{planned,active,archived}/epic-{nnn}/sprint-{nn}/`,
-compare story state files against story artifacts by basename. Only `active/` and `archived/` are
-checked — a `planned/` epic legitimately has state and no artifacts yet (stories are authored after
-planning), so that asymmetry is not drift:
+the canonical state-layout contract, for the full sharded schema this check reads). Enumerate
+every epic in `active/` and `archived/` (a `planned/` epic legitimately has state and no
+artifacts yet — stories are authored after planning, so that asymmetry is not drift), then
+for each of its sprints diff the state story keys against the artifact story files:
 
 ```bash
-# check26:allow reason: state/artifact mirror check; pending pm-status.py exists verb
-diff <(ls {pm_state_root}/{active,archived}/epic-{nnn}/sprint-{nn}/*.yaml 2>/dev/null \
-        | xargs -n1 basename | sed 's/.yaml//' | grep -v '^sprint$') \
-     <(ls {implementation_artifacts}/epic-{nnn}/sprint-{nn}/stories/*.md 2>/dev/null \
-        | xargs -n1 basename | sed 's/.md//')
+uv run {pm_status} list-epics --state-root {pm_state_root} --format json
+# → for each {key: E{nnn}, bucket} where bucket in (active, archived):
+uv run {pm_status} list-stories --state-root {pm_state_root} --epic E{nnn}
+# → for each sprint S{nn} the epic actually has (walk the returned keys):
+state_keys=$(uv run {pm_status} list-stories --state-root {pm_state_root} --epic E{nnn} --sprint S{nn})
+artifact_keys=$(ls {implementation_artifacts}/epic-{nnn}/sprint-{nn}/stories/*.md 2>/dev/null | xargs -n1 basename | sed 's/.md//' | sort)
+diff <(printf '%s\n' "$state_keys") <(printf '%s\n' "$artifact_keys")
 ```
 
-Lines starting `<` are state files with no story artifact; lines starting `>` are story
-artifacts with no state. Also flag any story or sprint file whose `epic:`/`sprint:`
-back-reference disagrees with the directory it was found in.
+`list-stories` prints one story key per line, already sorted and filtered to real story
+files (`sprint.yaml`/`epic.yaml` are excluded inside the verb). Lines starting `<` are
+state stories with no artifact; lines starting `>` are artifacts with no state. Also flag
+any story or sprint file whose `epic:`/`sprint:` back-reference disagrees with the
+directory it was found in.
 - Any mismatch found → flag for report · Priority: **Medium** · list the orphaned keys —
   report only, **never auto-correct**: an orphan on either side needs a human decision about
   which side is right (a dropped story file vs. an abandoned state node look identical from
