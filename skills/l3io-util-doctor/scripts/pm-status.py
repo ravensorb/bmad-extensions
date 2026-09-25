@@ -3389,6 +3389,7 @@ def _has_spend(spend: dict) -> bool:
 
 def rollup_sprint(state_root: str, epic_key: str, sprint_key: str) -> dict:
     by_status, totals, stories = {}, {}, []
+    blocked_details, cumulative_blocks = [], 0
     for p in list_story_files(state_root, epic_key, sprint_key):
         _, node = load_node(p)
         if node is None:
@@ -3396,7 +3397,16 @@ def rollup_sprint(state_root: str, epic_key: str, sprint_key: str) -> dict:
         st = str(node.get("status", "unknown"))
         by_status[st] = by_status.get(st, 0) + 1
         _accumulate_actuals(totals, node)
-        stories.append({"key": node.get("key", os.path.basename(p)), "status": st})
+        row = {"key": node.get("key", os.path.basename(p)), "status": st}
+        if st == "blocked":
+            row["blocked_reason"] = str(node.get("blocked_reason", "") or "")
+            blocked_details.append(
+                {"key": row["key"], "reason": row["blocked_reason"]})
+        # completion_evidence.blocks_seen counts events over the story's whole life,
+        # not current state; a story currently unblocked can still contribute here.
+        ce = node.get("completion_evidence") or {}
+        cumulative_blocks += int(ce.get("blocks_seen", 0) or 0)
+        stories.append(row)
     sp = sprint_file(state_root, epic_key, sprint_key)
     _, snode = load_node(sp) if sp else (None, None)
     return {
@@ -3404,6 +3414,9 @@ def rollup_sprint(state_root: str, epic_key: str, sprint_key: str) -> dict:
         "status": str((snode or {}).get("status", "unknown")),
         "story_count": len(stories),
         "by_status": by_status,
+        "blocked_stories": len(blocked_details),
+        "blocked_details": blocked_details,
+        "blocks_seen_cumulative": cumulative_blocks,
         "actual_totals": totals,
         "node_actual": _block_totals(snode, "actual"),
         "spend": _sprint_spend(totals, snode),
@@ -3414,6 +3427,8 @@ def rollup_sprint(state_root: str, epic_key: str, sprint_key: str) -> dict:
 def rollup_epic(state_root: str, epic_key: str) -> dict:
     by_status, totals, sprints, story_count = {}, {}, [], 0
     spend, sprint_actual_sum = _new_spend(), {}
+    blocked_stories_total, cumulative_blocks_total = 0, 0
+    blocked_details_all = []
     for sd in list_sprint_dirs(state_root, epic_key):
         skey = _sprint_key_from_dir(sd)
         r = rollup_sprint(state_root, epic_key, skey)
@@ -3425,6 +3440,10 @@ def rollup_epic(state_root: str, epic_key: str) -> dict:
             totals[k] = totals.get(k, 0.0) + v
         _merge_spend(spend, r["spend"])
         _add_totals(sprint_actual_sum, r["node_actual"])
+        blocked_stories_total += r.get("blocked_stories", 0)
+        cumulative_blocks_total += r.get("blocks_seen_cumulative", 0)
+        for detail in r.get("blocked_details", []):
+            blocked_details_all.append({**detail, "sprint": r["key"]})
     ep = epic_file(state_root, epic_key)
     _, enode = load_node(ep) if ep else (None, None)
     # The epic's OWN closure residual sits on top of its sprints' — one bucket,
@@ -3438,6 +3457,9 @@ def rollup_epic(state_root: str, epic_key: str) -> dict:
         "sprint_count": len(sprints),
         "story_count": story_count,
         "by_status": by_status,
+        "blocked_stories": blocked_stories_total,
+        "blocked_details": blocked_details_all,
+        "blocks_seen_cumulative": cumulative_blocks_total,
         "actual_totals": totals,
         "node_actual": _block_totals(enode, "actual"),
         "spend": spend,
@@ -3535,13 +3557,16 @@ def _build_sprint_detail(state_root: str, epic_key: str, sprint_key: str,
         by_status[st] = by_status.get(st, 0) + 1
         _accumulate_actuals(totals, node)
         d, ex = dwell_hours(node, events_index, now)
-        stories.append({"key": key, "status": st,
-                        "estimate": dict(node.get("estimate") or {}),
-                        "actual": dict(node.get("actual") or {}),
-                        "updated_at": node.get("updated_at"),
-                        "dwell_hours": None if d is None else round(d, 2),
-                        "dwell_exact": ex,
-                        "flags": compute_flags("story", key, st, d, ex)})
+        story_row = {"key": key, "status": st,
+                     "estimate": dict(node.get("estimate") or {}),
+                     "actual": dict(node.get("actual") or {}),
+                     "updated_at": node.get("updated_at"),
+                     "dwell_hours": None if d is None else round(d, 2),
+                     "dwell_exact": ex,
+                     "flags": compute_flags("story", key, st, d, ex)}
+        if st == "blocked":
+            story_row["blocked_reason"] = str(node.get("blocked_reason", "") or "")
+        stories.append(story_row)
 
     return {"key": sprint_key, "status": s_status, "story_count": len(stories),
             "by_status": by_status, "actual_totals": totals,
@@ -3782,13 +3807,53 @@ def _render_epic_tree(d: dict, out: list, indent: str = "  ") -> None:
                    f"(ttl {d['lock'].get('ttl_minutes')}m)")
     for sp in d["sprints"]:
         s_done = sp["by_status"].get("done", 0)
-        out.append(f"{indent}  {sp['key']:<6} {sp['status']:<12} "
+        # Cosmetic wart from the design (§13): a sprint whose stories are ALL
+        # blocked reads as "actively being worked" when its status is still
+        # in-progress. Surface it in the header, not as a status transition.
+        s_blocked = sp["by_status"].get("blocked", 0)
+        header_status = sp["status"]
+        if s_blocked and s_blocked == sp["story_count"] and sp["story_count"] > 0:
+            header_status = f"{sp['status']} (all {s_blocked} stories blocked)"
+        out.append(f"{indent}  {sp['key']:<6} {header_status:<20} "
                    f"{s_done}/{sp['story_count']}  {_dwell_str(sp)}{_stuck_suffix(sp)}")
         for st in sp["stories"]:
             if st["status"] == "done":
                 continue  # counts above carry finished work; the tree shows what is live
+            suffix = ""
+            if st["status"] == "blocked":
+                reason = st.get("blocked_reason", "")
+                suffix = f"  [blocked: {reason}]" if reason else "  [blocked]"
             out.append(f"{indent}    {st['key']:<20} {st['status']:<14} "
-                       f"{_dwell_str(st)}{_stuck_suffix(st)}")
+                       f"{_dwell_str(st)}{_stuck_suffix(st)}{suffix}")
+
+
+def _blocked_stories_from_model(model: dict) -> list:
+    """Every currently-blocked story in the model, with its reason and location.
+
+    Walks the model's phases + unplanned_epics rather than re-reading the tree
+    from disk. Used by both render_tree and render_md so their "Blocked stories"
+    sections agree on shape and content. The JSON emitter returns the whole
+    model already; callers reading JSON pick the same field paths directly.
+    """
+    out = []
+    for phase in model.get("phases") or []:
+        for d in phase.get("epics_detail") or []:
+            for sp in d.get("sprints") or []:
+                for st in sp.get("stories") or []:
+                    if st.get("status") == "blocked":
+                        out.append({
+                            "epic": d["key"], "sprint": sp["key"],
+                            "story": st["key"],
+                            "reason": st.get("blocked_reason", "")})
+    for d in model.get("unplanned_epics") or []:
+        for sp in d.get("sprints") or []:
+            for st in sp.get("stories") or []:
+                if st.get("status") == "blocked":
+                    out.append({
+                        "epic": d["key"], "sprint": sp["key"],
+                        "story": st["key"],
+                        "reason": st.get("blocked_reason", "")})
+    return out
 
 
 def render_tree(model: dict) -> str:
@@ -3848,6 +3913,15 @@ def render_tree(model: dict) -> str:
         for bucket in SPEND_BUCKETS:
             out.append(f"  {bucket:<14} {_fmt_actuals(spend.get(bucket) or {})}")
         out.append(f"  {'TOTAL':<14} {_fmt_actuals(model.get('spend_total') or {})}")
+
+    blocked = _blocked_stories_from_model(model)
+    if blocked:
+        out.append("")
+        out.append(f"Blocked stories ({len(blocked)}):")
+        for b in blocked:
+            where = f"{b['epic']}/{b['sprint']}/"
+            reason = b["reason"] or "(no reason recorded)"
+            out.append(f"  {where}{b['story']:<20}  {reason}")
 
     other = [f for f in model["flags"] if f["kind"] != "stuck"]
     if other:
@@ -3914,6 +3988,15 @@ def render_md(model: dict) -> str:
         body = ", ".join(f"{k}={v}" for k, v in sorted(counts.items())) or "none"
         out.append(f"| {level} | {body} |")
     out.append("")
+
+    blocked = _blocked_stories_from_model(model)
+    if blocked:
+        out += [f"## Blocked stories ({len(blocked)})", "",
+                "| Story | Epic | Sprint | Reason |", "|---|---|---|---|"]
+        for b in blocked:
+            reason = b["reason"] or "(no reason recorded)"
+            out.append(f"| {b['story']} | {b['epic']} | {b['sprint']} | {reason} |")
+        out.append("")
 
     spend = model.get("spend") or {}
     if _has_spend(spend):
@@ -6632,9 +6715,22 @@ def cmd_show(args) -> int:
         if not os.path.isdir(sd):
             _die_notfound(f"epic {args.epic} sprint {args.sprint}")
         r = rollup_sprint(args.state_root, args.epic, args.sprint)
-        sys.stdout.write(f"{args.epic}/{r['key']}  status={r['status']}  stories={r['story_count']}\n")
+        # Cosmetic wart named in the design (§13): a sprint whose stories are
+        # ALL blocked reads as "actively being worked" when its status is
+        # still in-progress. Surface it in the header rather than promote it to
+        # a status transition (that would need its own transition table).
+        header_status = r["status"]
+        n_blocked = r.get("blocked_stories", 0)
+        if n_blocked and n_blocked == r["story_count"] and r["story_count"] > 0:
+            header_status = f"{r['status']} (all {n_blocked} stories blocked)"
+        sys.stdout.write(f"{args.epic}/{r['key']}  status={header_status}  "
+                         f"stories={r['story_count']}\n")
         for s in r["stories"]:
-            sys.stdout.write(f"  {s['key']:<20} {s['status']}\n")
+            suffix = ""
+            if s["status"] == "blocked":
+                reason = s.get("blocked_reason", "")
+                suffix = f"  [blocked: {reason}]" if reason else "  [blocked]"
+            sys.stdout.write(f"  {s['key']:<20} {s['status']}{suffix}\n")
         sys.stdout.write(f"  actuals: {_fmt_actuals(r['actual_totals'])}\n")
         _write_spend(r["spend"])
         return 0
@@ -6645,6 +6741,11 @@ def cmd_show(args) -> int:
     for sp in r["sprints"]:
         sys.stdout.write(f"  {sp['key']:<8} status={sp['status']:<12} stories={sp['story_count']}\n")
     sys.stdout.write(f"  actuals: {_fmt_actuals(r['actual_totals'])}\n")
+    n_blocked = r.get("blocked_stories", 0)
+    if n_blocked > 0:
+        cumul = r.get("blocks_seen_cumulative", 0)
+        cumul_note = f", {cumul} cumulative block events" if cumul else ""
+        sys.stdout.write(f"  blocked_stories: {n_blocked}{cumul_note}\n")
     _write_spend(r["spend"])
     return 0
 

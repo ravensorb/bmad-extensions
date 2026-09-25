@@ -212,6 +212,36 @@ Count an item as promoted only when the command prints `OK update-issue … seve
 
 Output triage summary: count of issues by severity, count promoted.
 
+## 4a. Blocked stories — epic exit vocabulary
+
+Before writing the closure report, check every sprint for stories in
+`status: blocked`. Blocked stories block epic closure the same way an unresolved
+Critical/High/Medium finding does, and are surfaced with distinct vocabulary
+(`docs/superpowers/specs/2026-09-25-story-lifecycle-blocked-design.md` §7):
+
+```bash
+uv run {pm_status} show --state-root {pm_state_root} --epic {epic_key}
+```
+
+The `blocked_stories: N` line appears when the epic has any currently-blocked
+stories, with a `cumulative block events` count that surveys the whole life of
+the epic. If N > 0:
+
+- The closure report grows a `Blocked stories:` section listing key + sprint +
+  reason for every currently-blocked story.
+- The epic exit line is **`BLOCKED:`** (not `FAILED:`), matching
+  `steps/execute/step-05-epic-loop.md`'s phase-status vocabulary:
+
+  ```
+  BLOCKED: {epic_key} — {N} story/ies blocked pending external resolution (see
+  closure-report.md §Blocked stories)
+  ```
+
+Epic closure does not attempt to resolve blocks — the resolution happens outside
+the loop when the external condition changes. When that happens, the operator
+transitions each blocked story to `in-progress`, and the epic can complete on a
+subsequent run.
+
 ## 5. Closure report
 
 Write `{implementation_artifacts}/epic-{epic_nnn}/epic-closure/closure-report.md` containing:
@@ -219,6 +249,7 @@ Write `{implementation_artifacts}/epic-{epic_nnn}/epic-closure/closure-report.md
 - Estimate vs actual table (all five metrics)
 - Sprint velocity summary
 - Retrospective learnings
+- Blocked stories: key + sprint + reason (only when the count is > 0 — §4a)
 - Outstanding issues count (by severity)
 - ADRs produced (if any)
 - **Spec changes** (when `{spec_alignment}` is `true`):

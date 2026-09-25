@@ -10243,5 +10243,146 @@ class TestBlockedCalibration(Base):
         self.assertNotIn("WARN blocked story", err)
 
 
+class TestBlockedShowAndReport(Base):
+    """Stage 3: rollups carry blocked_stories/blocked_details/blocks_seen_cumulative;
+    show renders [blocked: reason] inline; render_tree/render_md grow a
+    'Blocked stories' section; sprint-of-all-blocked shows the cosmetic wart from
+    §13 as a header refinement rather than a status transition.
+
+    Design: docs/superpowers/specs/2026-09-25-story-lifecycle-blocked-design.md §7 §8 §13.
+    """
+
+    def _seed_epic_with_two_stories(self):
+        self.run_main(["import-node", "--state-root", self.d, "--epic", "E001",
+                       "--status", "in-progress", "--title", "e"])
+        for k in ("E001-S01-001", "E001-S01-002"):
+            self.run_main(["import-node", "--state-root", self.d, "--story", k,
+                           "--status", "in-progress", "--title", k])
+
+    def _block(self, story, reason):
+        code, _ = self.run_main(["set-status", "--state-root", self.d,
+                                 "--story", story, "--status", "blocked",
+                                 "--reason", reason])
+        self.assertEqual(code, 0)
+
+    # ---- rollup fields ------------------------------------------------------------
+
+    def test_rollup_sprint_reports_blocked_stories_and_details(self):
+        self._seed_epic_with_two_stories()
+        self._block("E001-S01-002", "spec question: token refresh jitter")
+        r = pm.rollup_sprint(self.d, "E001", "S01")
+        self.assertEqual(r["blocked_stories"], 1)
+        self.assertEqual(len(r["blocked_details"]), 1)
+        self.assertEqual(r["blocked_details"][0]["key"], "E001-S01-002")
+        self.assertEqual(r["blocked_details"][0]["reason"],
+                         "spec question: token refresh jitter")
+
+    def test_rollup_epic_aggregates_blocked_across_sprints_with_sprint_tag(self):
+        self._seed_epic_with_two_stories()
+        # add a second sprint with its own blocked story
+        self.run_main(["import-node", "--state-root", self.d, "--story", "E001-S02-001",
+                       "--status", "in-progress", "--title", "s3"])
+        self._block("E001-S01-002", "wait A")
+        self._block("E001-S02-001", "wait B")
+        r = pm.rollup_epic(self.d, "E001")
+        self.assertEqual(r["blocked_stories"], 2)
+        details = {d["key"]: d["sprint"] for d in r["blocked_details"]}
+        self.assertEqual(details, {"E001-S01-002": "S01", "E001-S02-001": "S02"})
+
+    def test_rollup_blocks_seen_cumulative_survives_exit(self):
+        """A story blocked-and-resumed still contributes to the cumulative event count."""
+        self._seed_epic_with_two_stories()
+        self._block("E001-S01-002", "one")
+        self.run_main(["set-status", "--state-root", self.d,
+                       "--story", "E001-S01-002", "--status", "in-progress"])
+        r = pm.rollup_sprint(self.d, "E001", "S01")
+        self.assertEqual(r["blocked_stories"], 0,
+                         "no currently-blocked stories, but the counter survives")
+        self.assertEqual(r["blocks_seen_cumulative"], 1)
+
+    # ---- cmd_show rendering -------------------------------------------------------
+
+    def test_show_sprint_renders_blocked_reason_inline(self):
+        self._seed_epic_with_two_stories()
+        self._block("E001-S01-002", "spec question: X")
+        code, out = self.run_main(["show", "--state-root", self.d,
+                                   "--epic", "E001", "--sprint", "S01"])
+        self.assertEqual(code, 0, out)
+        self.assertIn("E001-S01-002", out)
+        self.assertIn("[blocked: spec question: X]", out)
+
+    def test_show_sprint_renders_all_stories_blocked_wart(self):
+        """§13 cosmetic wart: a sprint whose stories are ALL blocked shows the
+        refinement in the header without changing sprint.status itself."""
+        self._seed_epic_with_two_stories()
+        self._block("E001-S01-001", "one")
+        self._block("E001-S01-002", "two")
+        code, out = self.run_main(["show", "--state-root", self.d,
+                                   "--epic", "E001", "--sprint", "S01"])
+        self.assertEqual(code, 0)
+        self.assertIn("(all 2 stories blocked)", out)
+
+    def test_show_epic_reports_blocked_stories_count(self):
+        self._seed_epic_with_two_stories()
+        self._block("E001-S01-002", "wait")
+        code, out = self.run_main(["show", "--state-root", self.d, "--epic", "E001"])
+        self.assertEqual(code, 0, out)
+        self.assertIn("blocked_stories: 1", out)
+
+    def test_show_epic_omits_blocked_line_when_zero(self):
+        """No `blocked_stories: 0` noise when nothing is blocked."""
+        self._seed_epic_with_two_stories()
+        code, out = self.run_main(["show", "--state-root", self.d, "--epic", "E001"])
+        self.assertEqual(code, 0, out)
+        self.assertNotIn("blocked_stories", out)
+
+    # ---- report renderers ---------------------------------------------------------
+
+    def test_report_tree_includes_blocked_stories_section(self):
+        self._seed_epic_with_two_stories()
+        self._block("E001-S01-002", "waiting on decision X")
+        code, out = self.run_main(["report", "--state-root", self.d, "--format", "tree"])
+        self.assertEqual(code, 0, out)
+        self.assertIn("Blocked stories (1):", out)
+        self.assertIn("waiting on decision X", out)
+
+    def test_report_md_includes_blocked_stories_table(self):
+        self._seed_epic_with_two_stories()
+        self._block("E001-S01-002", "waiting on decision Y")
+        code, out = self.run_main(["report", "--state-root", self.d, "--format", "md"])
+        self.assertEqual(code, 0, out)
+        self.assertIn("## Blocked stories (1)", out)
+        self.assertIn("waiting on decision Y", out)
+
+    def test_report_omits_blocked_section_when_none(self):
+        self._seed_epic_with_two_stories()
+        code, out = self.run_main(["report", "--state-root", self.d, "--format", "tree"])
+        self.assertEqual(code, 0)
+        self.assertNotIn("Blocked stories", out)
+
+    def test_report_json_carries_blocked_reason_in_the_model(self):
+        """JSON output is the model; the rendered sections do not appear as-is.
+        Blocked details are visible via `phases[*].epics_detail[*].sprints[*].stories[*]`
+        which now carry blocked_reason on blocked entries."""
+        self._seed_epic_with_two_stories()
+        self._block("E001-S01-002", "wait")
+        code, out = self.run_main(["report", "--state-root", self.d, "--format", "json"])
+        self.assertEqual(code, 0, out)
+        model = json.loads(out)
+        # walk every story regardless of phasing
+        found = None
+        scopes = list(model.get("phases") or [])
+        scopes.append({"epics_detail": model.get("unplanned_epics") or []})
+        for scope in scopes:
+            for d in scope.get("epics_detail") or []:
+                for sp in d.get("sprints") or []:
+                    for st in sp.get("stories") or []:
+                        if st["key"] == "E001-S01-002":
+                            found = st
+        self.assertIsNotNone(found)
+        self.assertEqual(found["status"], "blocked")
+        self.assertEqual(found["blocked_reason"], "wait")
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)
