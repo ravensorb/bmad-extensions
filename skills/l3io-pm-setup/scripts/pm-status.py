@@ -1790,8 +1790,16 @@ def _exit_code_or_fail(v) -> int:
         return 1
 
 
-def derive_story_sample(node):
+def derive_story_sample(node, blocked_hours: float = 0.0):
     """Compute a story's scope samples and its fix cohort. None when not derivable.
+
+    When `blocked_hours > 0`, `elapsed_hours` is deliberately absent from the
+    returned sample's `scope_ratios`: wall-clock during blocked time includes
+    human wait, and folding that into calibration would poison the scope ratio
+    for future stories. Other metrics are unaffected -- `man_hours`,
+    `hitl_hours` and `tokens_k` are assessed or counted, not measured against
+    a wall-clock, so blocked time does not poison them. Design:
+    docs/superpowers/specs/2026-09-25-story-lifecycle-blocked-design.md §5.
 
     THE SAMPLE MUST BE MEASURED AGAINST THE BASE BAND, NOT AGAINST THE LAST
     ESTIMATE. The estimate is `band_mid x scope_ratio_applied x fix_factor`, so a
@@ -1832,6 +1840,8 @@ def derive_story_sample(node):
 
     ratios = {}
     for metric in CALIBRATED_METRIC_FIELDS:
+        if metric == "elapsed_hours" and blocked_hours and blocked_hours > 0:
+            continue     # excluded per §5: wall-clock includes human wait time
         e_num, a_num = _estimate_metric(est, metric), _actual_metric(act, metric)
         if metric == "tokens_k":
             # Measure SCOPE against the fresh classes only -- on BOTH sides.
@@ -1932,9 +1942,19 @@ def record_story_sample(state_root: str, node, node_path: str = None, y=None) ->
     prior = _already_sampled(node)
     if prior:
         return f"sample already recorded at {prior} — skipped (replay)"
-    sample = derive_story_sample(node)
+    story_key = str(node.get("key", "") or "").strip()
+    blocked_hours = _total_blocked_hours(state_root, story_key)
+    sample = derive_story_sample(node, blocked_hours=blocked_hours)
     if sample is None:
         return "no sample (missing estimate or actual)"
+    if blocked_hours > 0:
+        # Inline duration lets an operator eyeball whether the exclusion was
+        # warranted -- a 5-minute block resolves quickly; a 6-day block obviously
+        # doesn't -- without cross-referencing the event log. Per §5 of the design.
+        sys.stderr.write(
+            f"pm-status.py: WARN blocked story {story_key} — elapsed_hours "
+            f"sample deferred (event log shows {blocked_hours:.1f}h in blocked); "
+            f"man_hours, hitl_hours, tokens_k still recorded\n")
     from ruamel.yaml.comments import CommentedMap
     with calibration_lock(state_root):
         y_cal, cal = load_calibration(state_root)
@@ -4012,6 +4032,16 @@ def cmd_set_status(args) -> int:
             elif leaving_blocked and "blocked_reason" in node:
                 # Current node reflects only current state; block history lives in the log.
                 del node["blocked_reason"]
+            if entering_blocked:
+                # completion_evidence.blocks_seen: O(1) counter for closure-side
+                # observability. Not used for cohort routing -- see §5 of the design.
+                # Not decremented on exit (this counts events, not current state).
+                from ruamel.yaml.comments import CommentedMap
+                ce = node.get("completion_evidence")
+                if not isinstance(ce, dict):
+                    ce = CommentedMap()
+                    node["completion_evidence"] = ce
+                ce["blocks_seen"] = int(ce.get("blocks_seen", 0) or 0) + 1
         else:
             leaving_blocked = entering_blocked = False
         save_node(y, node, path, getattr(args, "flock", False))
@@ -4041,6 +4071,43 @@ def cmd_set_status(args) -> int:
         _resolve_story_items(args.state_root, node, args.story,
                              getattr(args, "session_id", None))
     return 0
+
+
+def _total_blocked_hours(state_root: str, story_key: str) -> float:
+    """Sum `duration_hours` across every closed block for this story.
+
+    A story with any nonzero blocked time cannot produce an `elapsed_hours`
+    calibration sample -- wall-clock during blocked time includes human wait,
+    which would poison the scope ratio for future stories. The exclusion is
+    per-metric, not per-sample: other metrics stay recorded.
+
+    Returns 0.0 on a missing log, an empty story key, or an unreadable line
+    within the log -- lenient enough that a torn write does not silently fail
+    the calibration write path this feeds.
+    """
+    if not story_key:
+        return 0.0
+    p = events_path(state_root)
+    if not os.path.exists(p):
+        return 0.0
+    total = 0.0
+    try:
+        with open(p, encoding="utf-8") as fh:
+            for line in fh:
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    rec = json.loads(line)
+                except json.JSONDecodeError:
+                    continue
+                if rec.get("event") == "block_close" and rec.get("story") == story_key:
+                    d = rec.get("duration_hours")
+                    if isinstance(d, (int, float)):
+                        total += float(d)
+    except OSError:
+        return 0.0
+    return round(total, 3)
 
 
 def _block_duration_since_last_open(state_root: str, story_key: str):

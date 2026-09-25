@@ -54,7 +54,7 @@ metric fields of its own. The retrospective's numbers **are** its sprint's or ep
 
 | Metric | Meaning | Unit | Observable? |
 |---|---|---|---|
-| `elapsed_hours` | AI wall-clock time from dispatch to completion | hours (decimal) | Yes |
+| `elapsed_hours` | AI wall-clock time from dispatch to completion | hours (decimal) | Yes (deferred from calibration if the story spent any time `blocked` — see §5b) |
 | `man_hours` | **Counterfactual** — what a developer, working without AI assistance, would have needed to deliver this work | hours (decimal) | **No — re-assessed at closure, not observed** |
 | `hitl_hours` | Human attention actually spent supervising the run | hours (decimal) | Yes |
 | `tokens_k` | Total tokens consumed — a **mapping**, not a scalar (see below) | thousands (K) | Yes (Claude); N/A elsewhere |
@@ -488,6 +488,38 @@ only ever have reported one of its two values.
 Write the actual, the completion evidence, and the status transition as separate calls, then
 gate on `verify`. Story closeout additionally requires `completion_evidence` (written via
 `set-field`), which `verify --scope story` checks.
+
+### 4b. `elapsed_hours` deferral for blocked stories
+
+A story that spent any time in `blocked` status excludes `elapsed_hours` from its
+calibration sample. Design:
+`docs/superpowers/specs/2026-09-25-story-lifecycle-blocked-design.md` §5.
+
+The mechanism, at write time:
+
+- `set-actual` (on a story node, before it records the sample) calls
+  `_total_blocked_hours(state_root, story_key)`, which sums `duration_hours`
+  across every `block_close` event on that story in `events.jsonl`.
+- When the sum is `> 0`, `derive_story_sample` is called with
+  `blocked_hours` set to that sum, and it omits `elapsed_hours` from the
+  returned sample's `scope_ratios`. `record_story_sample` prints a WARN to
+  stderr with the inline duration:
+  `WARN blocked story E001-S01-002 — elapsed_hours sample deferred (event log
+  shows 6.5h in blocked); man_hours, hitl_hours, tokens_k still recorded`.
+- Other metrics (`man_hours`, `hitl_hours`, `tokens_k`) are unaffected —
+  assessed or counted, not measured against a wall-clock, so blocked time
+  does not poison them.
+- The `actual.elapsed_hours` on the node is still written and still visible;
+  the exclusion is per-metric on the CALIBRATION SAMPLE, not on the recorded
+  actual.
+
+Two observability counters accompany the exclusion:
+
+- Event log: each `block_open`/`block_close` pair records the block's duration,
+  reason, and (for `blocked → done`) resolution.
+- Story node: `completion_evidence.blocks_seen: int` is incremented on every
+  `block_open`. This is an O(1) counter for closure-side observability — not
+  used for cohort routing (fix cohort routing keeps its existing rule per §5).
 
 ## 5. Enforcement — what is actually checked, and where
 

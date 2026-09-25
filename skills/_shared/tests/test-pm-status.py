@@ -10062,5 +10062,186 @@ class TestBlockedStoryStatus(Base):
         self.assertEqual(len(self._events("block_close")), 2)
 
 
+class TestBlockedCalibration(Base):
+    """Stage 2: a story that spent any time blocked excludes elapsed_hours from
+    its calibration sample and emits WARN naming the {N.N}h in blocked. Other
+    metrics stay recorded. completion_evidence.blocks_seen is incremented on
+    every block_open regardless of the sample state.
+
+    Design: docs/superpowers/specs/2026-09-25-story-lifecycle-blocked-design.md §5.
+    """
+
+    def _seed(self, status="in-progress"):
+        self.run_main(["import-node", "--state-root", self.d, "--epic", "E001",
+                       "--status", "backlog", "--title", "e"])
+        self.run_main(["import-node", "--state-root", self.d,
+                       "--story", "E001-S01-002",
+                       "--status", status, "--title", "s"])
+
+    def _add_estimate(self, story="E001-S01-002"):
+        # A story sample requires estimate + actual. estimate-story with a
+        # classification is enough to seed both estimate and the fix_factor.
+        self.run_main(["estimate-story", "--state-root", self.d,
+                       "--story", story, "--classification", "standard"])
+
+    def _run_capturing_stderr(self, argv):
+        err = io.StringIO()
+        out = io.StringIO()
+        code = 0
+        try:
+            with redirect_stdout(out), redirect_stderr(err):
+                code = pm.main(argv)
+        except SystemExit as e:
+            code = e.code if isinstance(e.code, int) else 1
+        return code, out.getvalue(), err.getvalue()
+
+    # ---- blocks_seen counter -------------------------------------------------------
+
+    def test_blocks_seen_absent_by_default(self):
+        self._seed()
+        _, node = pm.load_node(pm.story_file(self.d, "E001-S01-002"))
+        self.assertNotIn("blocks_seen", (node.get("completion_evidence") or {}))
+
+    def test_blocks_seen_increments_on_each_block_open(self):
+        self._seed()
+        for _ in range(3):
+            self.run_main(["set-status", "--state-root", self.d,
+                           "--story", "E001-S01-002", "--status", "blocked",
+                           "--reason", "wait"])
+            self.run_main(["set-status", "--state-root", self.d,
+                           "--story", "E001-S01-002", "--status", "in-progress"])
+        _, node = pm.load_node(pm.story_file(self.d, "E001-S01-002"))
+        self.assertEqual(node["completion_evidence"]["blocks_seen"], 3)
+
+    def test_blocks_seen_survives_exit_from_blocked(self):
+        """Counter is monotonic; leaving blocked does NOT decrement it. It counts
+        events, not current state."""
+        self._seed()
+        self.run_main(["set-status", "--state-root", self.d,
+                       "--story", "E001-S01-002", "--status", "blocked",
+                       "--reason", "wait"])
+        self.run_main(["set-status", "--state-root", self.d,
+                       "--story", "E001-S01-002", "--status", "in-progress"])
+        _, node = pm.load_node(pm.story_file(self.d, "E001-S01-002"))
+        self.assertEqual(node["completion_evidence"]["blocks_seen"], 1)
+
+    def test_blocks_seen_is_not_written_when_never_blocked(self):
+        """A story that stays clean of blocked events does not accumulate an
+        empty completion_evidence.blocks_seen: 0 -- the field is absent unless
+        it has something to say."""
+        self._seed()
+        self.run_main(["set-status", "--state-root", self.d,
+                       "--story", "E001-S01-002", "--status", "review"])
+        _, node = pm.load_node(pm.story_file(self.d, "E001-S01-002"))
+        ce = node.get("completion_evidence") or {}
+        self.assertNotIn("blocks_seen", ce)
+
+    # ---- _total_blocked_hours helper ------------------------------------------------
+
+    def test_total_blocked_hours_is_zero_when_no_events(self):
+        self.assertEqual(pm._total_blocked_hours(self.d, "E001-S01-002"), 0.0)
+
+    def test_total_blocked_hours_sums_across_multiple_closes(self):
+        """A story blocked-resumed-blocked-resumed contributes both durations."""
+        # Craft events by hand -- realistic durations without waiting real hours.
+        events = os.path.join(self.d, "events.jsonl")
+        with open(events, "w") as fh:
+            for rec in [
+                {"event": "block_close", "story": "E001-S01-002", "duration_hours": 2.5},
+                {"event": "block_close", "story": "E001-S01-002", "duration_hours": 1.25},
+                {"event": "block_close", "story": "E001-OTHER", "duration_hours": 99.0},
+            ]:
+                fh.write(json.dumps(rec) + "\n")
+        self.assertEqual(pm._total_blocked_hours(self.d, "E001-S01-002"), 3.75)
+
+    def test_total_blocked_hours_survives_torn_line(self):
+        """A partially-written line in events.jsonl does not fail the calibration path."""
+        events = os.path.join(self.d, "events.jsonl")
+        with open(events, "w") as fh:
+            fh.write(json.dumps({"event": "block_close", "story": "E001-S01-002",
+                                 "duration_hours": 1.0}) + "\n")
+            fh.write("{\"event\": \"block_close\", torn")
+        self.assertEqual(pm._total_blocked_hours(self.d, "E001-S01-002"), 1.0)
+
+    # ---- Calibration exclusion via derive_story_sample ------------------------------
+
+    def test_derive_story_sample_keeps_elapsed_when_blocked_hours_is_zero(self):
+        """Baseline: without blocked time, elapsed_hours is one of the scope_ratios
+        that derive_story_sample emits."""
+        node = {
+            "key": "E001-S01-001", "classification": "standard",
+            "estimate": {"elapsed_hours": 2.0, "man_hours": 6.0, "hitl_hours": 1.0,
+                         "tokens_k": {"input": 10, "output": 5, "cache_write": 5,
+                                      "cache_read": 5, "total": 25},
+                         "fix_factor": 1.0, "scope_ratios": {"elapsed_hours": 1.0}},
+            "actual":   {"elapsed_hours": 2.0, "man_hours": 6.0, "hitl_hours": 1.0,
+                         "tokens_k": {"input": 10, "output": 5, "cache_write": 5,
+                                      "cache_read": 5, "total": 25}},
+            "completion_evidence": {"fix_iterations": 0},
+        }
+        sample = pm.derive_story_sample(node, blocked_hours=0.0)
+        self.assertIn("elapsed_hours", sample["scope_ratios"])
+
+    def test_derive_story_sample_drops_elapsed_when_blocked_hours_positive(self):
+        """The load-bearing property: blocked wall-clock includes human wait, and
+        folding that into calibration would poison scope. Other metrics remain."""
+        node = {
+            "key": "E001-S01-001", "classification": "standard",
+            "estimate": {"elapsed_hours": 2.0, "man_hours": 6.0, "hitl_hours": 1.0,
+                         "tokens_k": {"input": 10, "output": 5, "cache_write": 5,
+                                      "cache_read": 5, "total": 25},
+                         "fix_factor": 1.0, "scope_ratios": {"elapsed_hours": 1.0}},
+            "actual":   {"elapsed_hours": 12.0, "man_hours": 6.0, "hitl_hours": 1.0,
+                         "tokens_k": {"input": 10, "output": 5, "cache_write": 5,
+                                      "cache_read": 5, "total": 25}},
+            "completion_evidence": {"fix_iterations": 0},
+        }
+        sample = pm.derive_story_sample(node, blocked_hours=6.5)
+        self.assertNotIn("elapsed_hours", sample["scope_ratios"],
+                         "elapsed_hours must be dropped when the story spent time blocked")
+        for m in ("man_hours", "hitl_hours", "tokens_k"):
+            self.assertIn(m, sample["scope_ratios"],
+                          f"{m} must survive: blocked time does not poison it")
+
+    def test_record_story_sample_warns_with_inline_duration(self):
+        """WARN message shape checked verbatim -- operators eyeball the exclusion
+        without cross-referencing the event log."""
+        self._seed()
+        self._add_estimate()
+        # Simulate: block, resume, set-actual. The block_close duration lands
+        # via _block_duration_since_last_open; here we plant events by hand for
+        # a known duration so the WARN wording is deterministic.
+        events = os.path.join(self.d, "events.jsonl")
+        with open(events, "a") as fh:
+            fh.write(json.dumps({"event": "block_close", "story": "E001-S01-002",
+                                 "duration_hours": 6.5}) + "\n")
+        code, _out, err = self._run_capturing_stderr([
+            "set-actual", "--state-root", self.d, "--node", "story",
+            "--story", "E001-S01-002",
+            "--elapsed-hours", "1.8", "--man-hours", "7", "--hitl-hours", "0.5",
+            "--tokens-input", "300", "--tokens-output", "55",
+            "--tokens-cache-write", "10", "--tokens-cache-read", "10",
+            "--model", "claude-sonnet-5", "--runtime", "claude"])
+        self.assertEqual(code, 0, err)
+        self.assertIn("WARN blocked story E001-S01-002", err)
+        self.assertIn("6.5h in blocked", err)
+        self.assertIn("elapsed_hours sample deferred", err)
+        self.assertIn("man_hours, hitl_hours, tokens_k still recorded", err)
+
+    def test_record_story_sample_no_warn_when_never_blocked(self):
+        """A story with no blocked history writes its sample cleanly -- no WARN."""
+        self._seed()
+        self._add_estimate()
+        code, _out, err = self._run_capturing_stderr([
+            "set-actual", "--state-root", self.d, "--node", "story",
+            "--story", "E001-S01-002",
+            "--elapsed-hours", "1.8", "--man-hours", "7", "--hitl-hours", "0.5",
+            "--tokens-input", "300", "--tokens-output", "55",
+            "--tokens-cache-write", "10", "--tokens-cache-read", "10",
+            "--model", "claude-sonnet-5", "--runtime", "claude"])
+        self.assertEqual(code, 0, err)
+        self.assertNotIn("WARN blocked story", err)
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)
