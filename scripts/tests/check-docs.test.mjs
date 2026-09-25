@@ -1914,6 +1914,74 @@ test("check 4/skills: a correct invocation does not fire", (t) => {
   assert.equal(r.status, 0, r.stderr);
 });
 
+// ---- required companion flags per --status value ---------------------------
+// Rule: `set-status --status blocked` requires `--reason "R"`. The runtime already
+// enforces this (exit 2), but a step file that ships the wrong shape has already
+// failed by the time an operator runs it -- this check catches it at land time.
+
+test("check 4/skills: set-status --status blocked without --reason is caught", (t) => {
+  const root = fixture(t);
+  plantInvocation(root,
+    "uv run {pm_status} set-status --state-root {r} --story E001-S01-002 --status blocked");
+  const r = run(root);
+  assert.equal(r.status, 1, r.stdout);
+  assert.match(r.stderr,
+    /planted\.md:\d+: invokes 'set-status --status blocked' without --reason/);
+});
+
+test("check 4/skills: set-status --status blocked WITH --reason passes", (t) => {
+  const root = fixture(t);
+  plantInvocation(root,
+    "uv run {pm_status} set-status --state-root {r} --story E001-S01-002 " +
+    "--status blocked --reason \"waiting on decision X\"");
+  const r = run(root);
+  assert.equal(r.status, 0, r.stderr);
+});
+
+test("check 4/skills: set-status --status blocked --reason=<placeholder> passes", (t) => {
+  // Step files use `{binding}`s for values the run supplies; the check must treat a
+  // present-but-templated --reason as satisfying the requirement.
+  const root = fixture(t);
+  plantInvocation(root,
+    "uv run {pm_status} set-status --state-root {r} --story E001-S01-002 " +
+    "--status blocked --reason \"{block_reason}\"");
+  const r = run(root);
+  assert.equal(r.status, 0, r.stderr);
+});
+
+test("check 4/skills: set-status --status blocked --reason='' (empty) is caught", (t) => {
+  const root = fixture(t);
+  plantInvocation(root,
+    "uv run {pm_status} set-status --state-root {r} --story E001-S01-002 " +
+    "--status blocked --reason \"\"");
+  const r = run(root);
+  assert.equal(r.status, 1, r.stdout);
+  assert.match(r.stderr, /invokes 'set-status --status blocked' without --reason/);
+});
+
+test("check 4/skills: set-status --status in-progress does not require --reason", (t) => {
+  // The rule is scoped: it fires only on --status blocked. Other statuses transitioning
+  // through set-status are unaffected.
+  const root = fixture(t);
+  plantInvocation(root,
+    "uv run {pm_status} set-status --state-root {r} --story E001-S01-002 " +
+    "--status in-progress");
+  const r = run(root);
+  assert.equal(r.status, 0, r.stderr);
+});
+
+test("check 4/skills: other subcommands are unaffected by the set-status rule", (t) => {
+  // The map is scoped by subcommand too. verify --status is a filter, not the
+  // set-status --status, so the rule doesn't apply there. verify's --scope arg is what
+  // matters here; --status is not one of its flags at all, so this stays a passing
+  // baseline just for coverage of scope.
+  const root = fixture(t);
+  plantInvocation(root,
+    "uv run {pm_status} verify --state-root {r} --scope story --story E001-S01-002");
+  const r = run(root);
+  assert.equal(r.status, 0, r.stderr);
+});
+
 // The option union is read from add_argument(...) calls, which may register several spellings
 // in ONE call: `se.add_argument("--elapsed-hours", "--time-hours", dest="elapsed_hours")`.
 // A regex that captured only the first spelling missed three real flags (--time-hours,

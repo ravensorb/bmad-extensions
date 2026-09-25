@@ -219,8 +219,38 @@ uv run {pm_status} append-issue \
 `--key` is omitted — `append-issue` allocates `BL-{epic_key}-{nnn}` itself under a lock,
 from the highest existing number for this epic; never construct the number here.
 
+## 8. Blocked stories — closure exit vocabulary
+
+Before writing the closure summary, check for stories currently in `status: blocked`.
+These are distinct from failures: a blocked story has halted pending external
+intervention (spec question, missing dependency, decision needed), not because of a
+local defect. Iterating the fix loop against a blocked story does not help — the design
+(`docs/superpowers/specs/2026-09-25-story-lifecycle-blocked-design.md` §6) halts the fix
+loop per-story on blocked for exactly this reason.
+
+Enumerate the sprint's blocked stories:
+
+```bash
+uv run {pm_status} show --state-root {pm_state_root} --epic {epic_key} --sprint {sprint_num}
+```
+
+The output renders each blocked story inline as `[blocked: <reason>]`. If any are
+present, the closure report includes a `BLOCKED stories:` section listing key + reason,
+and the closure exit line is **`BLOCKED:`** (not `FAILED:`) — matching the phase-status
+vocabulary at `steps/execute/step-05-epic-loop.md:388`:
+
+```
+BLOCKED: sprint {sprint_num} of {epic_key} — {N} story/ies blocked pending external
+resolution (see closure-report.md §Blocked stories)
+```
+
+If no stories are blocked, closure proceeds normally under the usual DONE/FAILED exit.
+
+## 9. Closure summary
+
 Write closure summary to `{sprint_root}/closure/closure-report.md`:
 - Stories done, estimates vs actuals
+- Blocked stories: key + reason (only when the count is > 0)
 - Issues resolved: count by severity
 - Issues deferred: count by severity
 - Phases run vs skipped

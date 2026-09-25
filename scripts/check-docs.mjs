@@ -1264,6 +1264,20 @@ function* pmStatusCommands(rel) {
   }
 }
 
+// Required companion flags per (subcommand, --status value). When a prose invocation of
+// `<sub> --status <value>` is written, each entry here names a flag that must ALSO appear
+// on the same command with a nonempty value. The rule is portable across siblings: it
+// codifies "runtime exit-2 rules that reviewers cannot see at land time," so a step file
+// author who writes `set-status --status blocked` without --reason fails CI rather than
+// runtime. Sourced from the story-lifecycle blocked design doc §10 addendum.
+//
+// Extend by adding to the map; the enforcement code below is data-driven.
+const REQUIRED_FLAGS_PER_STATUS = {
+  "set-status": {
+    "blocked": ["--reason"],
+  },
+};
+
 function checkPmStatusInvocations() {
   const real = cliSubcommands();
   const flags = pmStatusLongOptions();
@@ -1271,6 +1285,7 @@ function checkPmStatusInvocations() {
   let checked = 0;
   let valuesChecked = 0;
   let unreadable = 0;
+  let requiredCompanionChecked = 0;
   // Reported under -v because it is the number a depth regression moves, and nothing else
   // would show it: an invocation truncated mid-command still counts as one `checked`
   // invocation while its remaining flags go unjudged. A shared join cap of 3 hid 230 of these.
@@ -1305,6 +1320,11 @@ function checkPmStatusInvocations() {
       const perSubcommand = Boolean(entry);
       const rest = argv.slice(at + 2);
       const free = [];   // non-option words that are not a preceding flag's value
+      // Accumulate flag -> value for the required-companion check below. A flag with no
+      // value is stored as "" so a later "was this seen?" check can distinguish absent
+      // (undefined) from present-but-empty (""). Value-less switches (store_true) map to
+      // undefined here on purpose -- the required-companion check judges only value-flags.
+      const seenFlags = new Map();
       for (let i = 0; i < rest.length; i += 1) {
         const token = rest[i];
         if (typeof token !== "string") continue;
@@ -1349,6 +1369,9 @@ function checkPmStatusInvocations() {
           const next = rest[i + 1];
           if (typeof next === "string" && !next.startsWith("--")) { value = next; i += 1; }
         }
+        // Record the flag (value = null for a switch/store_true, or the string given).
+        // Used below to check REQUIRED_FLAGS_PER_STATUS.
+        seenFlags.set(flag, value);
         if (takesValue && value === null) {
           offenders.push(`${rel}:${line}: invokes '${sub} ${flag}' with no value, but ` +
             `pm-status.py declares it as taking one`);
@@ -1361,6 +1384,25 @@ function checkPmStatusInvocations() {
         if (!choices.has(value)) {
           offenders.push(`${rel}:${line}: invokes '${sub} ${flag} ${value}', but ` +
             `pm-status.py accepts only ${[...choices].sort().join(" | ")} there`);
+        }
+      }
+
+      // Required companion flags per (subcommand, --status value). Data-driven off
+      // REQUIRED_FLAGS_PER_STATUS above; adds no new subcommand-specific code.
+      const perSubRules = REQUIRED_FLAGS_PER_STATUS[sub];
+      if (perSubRules) {
+        const statusValue = seenFlags.get("--status");
+        if (typeof statusValue === "string" && perSubRules[statusValue]) {
+          for (const companion of perSubRules[statusValue]) {
+            requiredCompanionChecked += 1;
+            const seenValue = seenFlags.get(companion);
+            const present = seenValue !== undefined && seenValue !== null && String(seenValue).trim() !== "";
+            if (!present) {
+              offenders.push(`${rel}:${line}: invokes '${sub} --status ${statusValue}' ` +
+                `without ${companion}, but pm-status.py requires ${companion} on that ` +
+                `status (would exit 2 at runtime)`);
+            }
+          }
         }
       }
 
@@ -1396,7 +1438,8 @@ function checkPmStatusInvocations() {
   }
   if (verbose) {
     console.log(`  pm-status-invocations: ${checked} invocation(s), ${flagsChecked} long ` +
-      `flag(s) and ${valuesChecked} flag/positional value(s) in skills/ checked ` +
+      `flag(s) and ${valuesChecked} flag/positional value(s) in skills/ checked, ` +
+      `${requiredCompanionChecked} required-companion rule application(s) ` +
       `(${unreadable} fragment(s) not readable as shell even after synopsis normalisation, ` +
       `skipped)`);
   }
