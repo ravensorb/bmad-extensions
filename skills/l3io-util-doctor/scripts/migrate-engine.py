@@ -213,12 +213,22 @@ def _node_argv(rec: dict) -> list:
 
 
 def write(plan: dict, state_root: Path, pm_status: str):
-    """Write every planned record with `pm-status.py import-node`.
+    """Write every planned record with `pm-status.py import-node`, then dispatch any
+    record `extras` through typed set-* verbs.
 
     Every node goes through the one writer verb -- never a direct file write -- so each
     lands under the same epic write lock, event log and status validation as any other
     state write. Returns (written_count, errors); a SKIP is not counted as written, which
     is what makes a retried migration idempotent.
+
+    After import-node lands the node, any fields the reader captured in the record's
+    `extras` are dispatched:
+      - scalar fields (goal, superseded_by) via `set-field`, so they land on disk.
+      - structured fields (depends_on, estimate, actual) print WARN to stderr naming
+        the record and the value -- pm-status.py does not yet expose the typed
+        set-* verbs those need, so silent loss becomes visible loss until the
+        follow-up lands. See docs/superpowers/plans/... for the write-side backfill.
+    A failed set-field is reported alongside import-node errors; the caller decides.
     """
     import subprocess
 
@@ -228,6 +238,8 @@ def write(plan: dict, state_root: Path, pm_status: str):
                 "--state-root", str(state_root),
                 "--status", rec["status"], "--title", rec.get("title", "")]
         argv += _node_argv(rec)
+        if rec.get("classification") and rec["kind"] == "story":
+            argv += ["--classification", rec["classification"]]
         if rec.get("origin"):
             argv += ["--origin", rec["origin"],
                      "--origin-note", rec.get("origin_note", "")]
@@ -237,9 +249,45 @@ def write(plan: dict, state_root: Path, pm_status: str):
             errors.append(
                 f"{rec['kind']} {rec['key']}: exit {proc.returncode} -- "
                 f"{proc.stderr.strip()}")
-        elif not proc.stdout.startswith("SKIP"):
+            continue
+        if not proc.stdout.startswith("SKIP"):
             written += 1
+
+        extras_errors = _apply_extras(rec, state_root, pm_status)
+        errors.extend(extras_errors)
     return written, errors
+
+
+def _apply_extras(rec: dict, state_root: Path, pm_status: str) -> list:
+    """Consume rec['extras'] with set-field for scalars and WARN for structured fields.
+
+    Returns any errors from set-field calls; the WARN branch never errors -- it prints
+    to stderr and moves on, because the goal is visibility, not gating."""
+    import subprocess
+
+    errors = []
+    extras = rec.get("extras") or {}
+    for field, value in extras.items():
+        if field in sr.SCALAR_EXTRAS_TO_SET_FIELD:
+            argv = ["uv", "run", pm_status, "set-field",
+                    "--state-root", str(state_root),
+                    "--field", field, "--value", str(value)]
+            argv += _node_argv(rec)
+            proc = subprocess.run(argv, capture_output=True, text=True)
+            if proc.returncode != 0:
+                errors.append(
+                    f"{rec['kind']} {rec['key']}: set-field {field}= failed -- "
+                    f"{proc.stderr.strip()}")
+        elif field in sr.STRUCTURED_EXTRAS_TO_WARN:
+            sys.stderr.write(
+                f"WARN {rec['kind']} {rec['key']}: skipping {field}={value!r} -- "
+                f"pm-status.py has no typed writer for this field yet; the value "
+                f"was in the source and is not being carried into state.\n")
+        else:
+            sys.stderr.write(
+                f"WARN {rec['kind']} {rec['key']}: unrecognised extra {field}={value!r} -- "
+                f"the reader captured a field the engine does not know how to route.\n")
+    return errors
 
 
 def _node_relpath(rec: dict):

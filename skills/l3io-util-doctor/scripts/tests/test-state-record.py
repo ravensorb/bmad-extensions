@@ -85,5 +85,67 @@ class TestDedupe(unittest.TestCase):
         self.assertEqual([r["key"] for r in sr.dedupe([a, b])], ["E002", "E001"])
 
 
+class TestClassification(unittest.TestCase):
+    def test_classification_absent_by_default(self):
+        r = sr.make_record("story", "E001-S01-001", "done", "T", "x:1")
+        self.assertNotIn("classification", r)
+
+    def test_classification_recorded_when_given(self):
+        r = sr.make_record("story", "E001-S01-001", "done", "T", "x:1",
+                           classification="feature")
+        self.assertEqual(r["classification"], "feature")
+
+    def test_empty_classification_is_not_recorded(self):
+        r = sr.make_record("story", "E001-S01-001", "done", "T", "x:1", classification="")
+        self.assertNotIn("classification", r)
+
+
+class TestExtras(unittest.TestCase):
+    def test_extras_absent_when_none_given(self):
+        r = sr.make_record("story", "E001-S01-001", "done", "T", "x:1")
+        self.assertNotIn("extras", r)
+
+    def test_empty_extras_dict_is_not_recorded(self):
+        r = sr.make_record("story", "E001-S01-001", "done", "T", "x:1", extras={})
+        self.assertNotIn("extras", r)
+
+    def test_extras_recorded_when_populated(self):
+        extras = {"goal": "ship it", "depends_on": ["E001-S01-002"]}
+        r = sr.make_record("epic", "E001", "backlog", "T", "x:1", extras=extras)
+        self.assertEqual(r["extras"], extras)
+
+    def test_collect_extras_picks_up_known_fields(self):
+        node = {
+            "key": "E001", "status": "done", "title": "T",  # typed surface
+            "goal": "ship", "depends_on": ["a"], "superseded_by": "E001-S01-999",
+            "estimate": {"man_hours": 5}, "actual": {"man_hours": 6},
+        }
+        extras = sr.collect_extras(node)
+        self.assertEqual(set(extras), set(sr.KNOWN_EXTRAS))
+
+    def test_collect_extras_ignores_typed_and_unknown_fields(self):
+        node = {"key": "E001", "status": "done", "title": "T", "classification": "feature",
+                "random_field": "value"}
+        self.assertEqual(sr.collect_extras(node), {})
+
+    def test_collect_extras_drops_empty_values(self):
+        node = {"goal": "", "depends_on": [], "estimate": {}, "actual": None,
+                "superseded_by": "keep"}
+        self.assertEqual(sr.collect_extras(node), {"superseded_by": "keep"})
+
+    def test_extras_count_boosts_richness_when_title_and_status_equal(self):
+        """A record with populated extras must beat an otherwise-identical shell.
+
+        This case matters if two sources ever supply the same key -- one with the
+        typed record, one with the extras -- so the merge does not lose the extras.
+        """
+        shell = sr.make_record("epic", "E001", "backlog", "same", "x:1")
+        rich = sr.make_record("epic", "E001", "backlog", "same", "x:2",
+                              extras={"goal": "kept"})
+        merged = sr.dedupe([shell, rich])
+        self.assertEqual(len(merged), 1)
+        self.assertEqual(merged[0]["extras"], {"goal": "kept"})
+
+
 if __name__ == "__main__":
     unittest.main()

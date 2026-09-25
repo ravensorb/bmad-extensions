@@ -5,10 +5,13 @@
 # ///
 """Tests for migrate-engine.py — run with: uv run test-engine.py"""
 import importlib.util
+import io
 import os
 import shutil
+import sys
 import tempfile
 import unittest
+from contextlib import redirect_stderr
 from pathlib import Path
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -282,6 +285,79 @@ class TestWriteVerifyDispose(unittest.TestCase):
         written2, errors2 = eng.write(plan, state, PM_STATUS)
         self.assertEqual(errors2, [])
         self.assertEqual(written2, 0, "a second apply must write nothing")
+
+    def test_scalar_extras_land_on_disk_via_set_field(self):
+        """The l3io-flat fixture carries `goal` on E001 and `superseded_by` on
+        E001-S01-002. Both are scalar strings and pm-status.py has typed
+        support via set-field. Both must land through the migration."""
+        from ruamel.yaml import YAML
+
+        _, _, state, _, _, errors = self._run("l3io-flat", "l3io-flat")
+        # Filter out any WARN-only lines that might come through errors -- WARN
+        # is stderr, not the errors list. set-field failures WOULD be here; none
+        # expected.
+        self.assertEqual(errors, [], f"set-field calls must not error: {errors}")
+
+        _, epic = None, YAML(typ="safe").load(
+            (state / "active" / "epic-001" / "epic.yaml").read_text(encoding="utf-8"))
+        self.assertEqual(epic.get("goal"),
+                         "All users can sign in with password + one federated provider.",
+                         "epic.goal must round-trip through the migration")
+
+        story = YAML(typ="safe").load(
+            (state / "active" / "epic-001" / "sprint-01" / "E001-S01-002.yaml")
+            .read_text(encoding="utf-8"))
+        self.assertEqual(story.get("superseded_by"), "E001-S01-999",
+                         "story.superseded_by must round-trip through the migration")
+
+    def test_classification_is_passed_to_import_node(self):
+        """import-node's typed --classification flag was accepted but the engine
+        never sent it, so every story landed with classification=unknown even
+        when the source had feature/etc. Pin the fix."""
+        from ruamel.yaml import YAML
+
+        _, _, state, _, _, _ = self._run("l3io-flat", "l3io-flat")
+        story = YAML(typ="safe").load(
+            (state / "active" / "epic-001" / "sprint-01" / "E001-S01-001.yaml")
+            .read_text(encoding="utf-8"))
+        self.assertEqual(story.get("classification"), "feature")
+
+    def test_structured_extras_emit_visible_WARN_rather_than_silent_loss(self):
+        """depends_on / estimate / actual have no typed set-* verb yet. The
+        migration must not drop them silently -- it must print WARN to stderr
+        naming the record, the field and the value. The value is what tells the
+        user what they lost; a bare `WARN: skipping depends_on` is not
+        actionable."""
+        p, d = _copy("l3io-flat")
+        self.addCleanup(shutil.rmtree, d, ignore_errors=True)
+        state = Path(d) / "state"
+        plan = eng.build_plan(eng.gather("l3io-flat", p, p))
+
+        buf = io.StringIO()
+        with redirect_stderr(buf):
+            eng.write(plan, state, PM_STATUS)
+        warns = [line for line in buf.getvalue().splitlines() if line.startswith("WARN")]
+
+        # depends_on on the story E001-S01-001, plus estimate + actual on E001-S02-001.
+        by_field = {}
+        for line in warns:
+            for field in ("depends_on", "estimate", "actual"):
+                if f" skipping {field}=" in line:
+                    by_field[field] = line
+
+        self.assertIn("depends_on", by_field, warns)
+        self.assertIn("E001-S01-001", by_field["depends_on"],
+                      "the WARN must name the record so users know what they lost")
+        self.assertIn("E001-S01-002", by_field["depends_on"],
+                      "the WARN must include the value being dropped, not just the field name")
+
+        self.assertIn("estimate", by_field, warns)
+        self.assertIn("E001-S02-001", by_field["estimate"])
+        self.assertIn("man_hours", by_field["estimate"],
+                      "the WARN must serialise the value contents")
+
+        self.assertIn("actual", by_field, warns)
+        self.assertIn("E001-S02-001", by_field["actual"])
 
     def test_cli_apply_end_to_end(self):
         p, d = _copy("l3io-flat")

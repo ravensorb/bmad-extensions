@@ -123,7 +123,9 @@ def read(artifacts_dir: Path) -> list:
                     continue
                 stories.append(sr.make_record(
                     "story", key, status, str(meta.get("title", "")),
-                    str(md.relative_to(root))))
+                    str(md.relative_to(root)),
+                    classification=str(meta.get("classification", "")).strip() or None,
+                    extras=sr.collect_extras(meta)))
                 grouped.setdefault((epic_key, sprint_key), []).append(status)
 
     if not stories:

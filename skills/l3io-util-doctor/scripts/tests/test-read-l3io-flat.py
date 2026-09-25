@@ -93,6 +93,33 @@ class TestReadL3ioFlat(unittest.TestCase):
         p = self._tmp("epics:\n  - title: nameless\n    status: backlog\n")
         self.assertEqual(rd.read(p), [])
 
+    def test_epic_goal_is_captured_as_an_extra(self):
+        """Fields import-node does not accept typed must ride through in `extras` so
+        the engine can dispatch them via set-field (or WARN)."""
+        by_key = {r["key"]: r for r in self.recs}
+        self.assertEqual(
+            by_key["E001"].get("extras", {}).get("goal"),
+            "All users can sign in with password + one federated provider.")
+
+    def test_story_classification_is_a_top_level_field_not_an_extra(self):
+        """import-node has a typed --classification flag, so the reader promotes
+        classification to a top-level record field rather than burying it in extras."""
+        by_key = {r["key"]: r for r in self.recs}
+        s = by_key["E001-S01-001"]
+        self.assertEqual(s.get("classification"), "feature")
+        self.assertNotIn("classification", s.get("extras", {}))
+
+    def test_story_extras_capture_depends_on_and_superseded_by(self):
+        by_key = {r["key"]: r for r in self.recs}
+        self.assertEqual(by_key["E001-S01-001"]["extras"]["depends_on"], ["E001-S01-002"])
+        self.assertEqual(by_key["E001-S01-002"]["extras"]["superseded_by"], "E001-S01-999")
+
+    def test_story_estimate_and_actual_blocks_are_captured(self):
+        by_key = {r["key"]: r for r in self.recs}
+        s = by_key["E001-S02-001"]
+        self.assertEqual(s["extras"]["estimate"], {"man_hours": 5, "tokens_k": 40})
+        self.assertEqual(s["extras"]["actual"], {"man_hours": 6})
+
 
 if __name__ == "__main__":
     unittest.main()

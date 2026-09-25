@@ -57,7 +57,8 @@ def _read_one(path: Path) -> list:
     name = path.name
     out = [sr.make_record(
         "epic", ekey, str(epic.get("status", "backlog")),
-        str(epic.get("title", "")), f"{name}:{ekey}")]
+        str(epic.get("title", "")), f"{name}:{ekey}",
+        extras=sr.collect_extras(epic))]
 
     for sprint in epic.get("sprints") or []:
         if not isinstance(sprint, dict):
@@ -67,7 +68,8 @@ def _read_one(path: Path) -> list:
             continue
         out.append(sr.make_record(
             "sprint", f"{ekey}-{skey}", str(sprint.get("status", "backlog")),
-            str(sprint.get("title", "")), f"{name}:{ekey}.sprints[{skey}]"))
+            str(sprint.get("title", "")), f"{name}:{ekey}.sprints[{skey}]",
+            extras=sr.collect_extras(sprint)))
         for story in sprint.get("stories") or []:
             if not isinstance(story, dict):
                 continue
@@ -77,7 +79,9 @@ def _read_one(path: Path) -> list:
             out.append(sr.make_record(
                 "story", stkey, str(story.get("status", "backlog")),
                 str(story.get("title", "")),
-                f"{name}:{ekey}.sprints[{skey}].stories[{stkey}]"))
+                f"{name}:{ekey}.sprints[{skey}].stories[{stkey}]",
+                classification=str(story.get("classification", "")).strip() or None,
+                extras=sr.collect_extras(story)))
     return out
 
 

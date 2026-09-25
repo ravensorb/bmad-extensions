@@ -39,9 +39,22 @@ _STATUS_RANK = {
 }
 
 
-def make_record(kind, key, status, title, source, origin=None, origin_note=None) -> dict:
+def make_record(kind, key, status, title, source, origin=None, origin_note=None,
+                classification=None, extras=None) -> dict:
     """Build a record. `origin` is omitted entirely unless given -- absent means
-    'read directly from the source', which is why no schema version bump is needed."""
+    'read directly from the source', which is why no schema version bump is needed.
+
+    `classification` is a top-level field because import-node has a typed flag
+    for it; the engine passes --classification when it is set. Only meaningful
+    for stories.
+
+    `extras` carries any fields the reader recognises from the source that are
+    NOT in import-node's typed argument surface (goal, depends_on, superseded_by,
+    estimate, actual). The engine's write() step consults it AFTER import-node
+    lands the node: scalar fields it can dispatch through set-field, structured
+    fields it cannot yet write are logged to stderr as visible skips rather than
+    dropped silently. Absent or empty means the source carried nothing beyond
+    the typed record (the common case for freshly-adopted BMad projects)."""
     rec = {
         "kind": kind,
         "key": key,
@@ -52,7 +65,46 @@ def make_record(kind, key, status, title, source, origin=None, origin_note=None)
     if origin is not None:
         rec["origin"] = origin
         rec["origin_note"] = origin_note or ""
+    if classification:
+        rec["classification"] = classification
+    if extras:
+        rec["extras"] = dict(extras)
     return rec
+
+
+# Fields the reader may surface in `extras` -- everything import-node's typed argument
+# surface does not cover. Two categories, and the engine handles them differently:
+#
+#   SCALAR_EXTRAS_TO_SET_FIELD -- a string value the engine can write via pm-status.py
+#   set-field after import-node lands the node. Preserved through the migration end-to-end.
+#
+#   STRUCTURED_EXTRAS_TO_WARN -- a list/mapping that would need a typed set-* call
+#   pm-status.py does not yet expose (a set-depends-on verb, a set-estimate that accepts
+#   a whole block, etc.). The engine emits WARN to stderr naming the field, the record
+#   key and the exact value being skipped -- visible data loss rather than silent.
+#
+# The unwritten-typed calls are the follow-up debt; the WARN converts the loss into
+# something users can act on now.
+SCALAR_EXTRAS_TO_SET_FIELD = ("goal", "superseded_by")
+STRUCTURED_EXTRAS_TO_WARN = ("depends_on", "estimate", "actual")
+KNOWN_EXTRAS = SCALAR_EXTRAS_TO_SET_FIELD + STRUCTURED_EXTRAS_TO_WARN
+
+
+def collect_extras(node: dict) -> dict:
+    """Extract the subset of `node`'s fields that belong in a record's `extras`.
+
+    Values that are empty (None, empty string, empty list, empty mapping) are
+    dropped -- an empty depends_on is not information worth carrying.
+    """
+    out = {}
+    for k in KNOWN_EXTRAS:
+        v = node.get(k)
+        if v is None:
+            continue
+        if isinstance(v, (str, list, dict)) and not v:
+            continue
+        out[k] = v
+    return out
 
 
 def validate(rec: dict) -> list:
@@ -76,10 +128,18 @@ def validate(rec: dict) -> list:
 
 
 def _richness(rec: dict) -> tuple:
-    """How much information a record carries. Higher wins a merge."""
+    """How much information a record carries. Higher wins a merge.
+
+    A later-lifecycle status is what makes a full record beat a shell (backlog
+    vs done). Title presence separates a stub from a real epic. Extras field
+    count is the third dimension so a shell with extras (from one source) does
+    not lose its data when it merges with a fuller record from another source
+    that happens to carry more title/status but no extras.
+    """
     return (
         1 if str(rec.get("title", "")).strip() else 0,
         _STATUS_RANK.get(rec.get("status"), -1),
+        len(rec.get("extras") or {}),
     )
 
 
