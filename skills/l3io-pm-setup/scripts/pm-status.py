@@ -28,10 +28,17 @@ ModuleNotFoundError anywhere ruamel.yaml is not already installed globally.
 Subcommands
 -----------
   set-status    --state-root S  (--story KEY | --epic ID [--sprint ID])  --status S
-                [--title T] [--flock] [--no-events] [--session-id ID]
-                (a story set to done resolves every key in its resolves: as fixed, ref
-                the story, printing `resolved BL-...` per NEW resolution and
-                `ok BL-... already resolved (...)` per key resolved before; a failure
+                [--title T] [--reason "R"] [--resolution "R"]
+                [--flock] [--no-events] [--session-id ID]
+                (story transitions gated per-pair via VALID_STORY_TRANSITIONS; sprint and
+                epic keep enum-only validation. --status blocked REQUIRES --reason and is
+                permitted only from in-progress or review; the reason lands on the node
+                as blocked_reason and a paired block_open event is appended. A subsequent
+                transition off blocked clears blocked_reason and appends block_close with
+                the derived duration_hours. blocked -> done additionally REQUIRES
+                --resolution. A story set to done resolves every key in its resolves:
+                as fixed, ref the story, printing `resolved BL-...` per NEW resolution
+                and `ok BL-... already resolved (...)` per key resolved before; a failure
                 there warns, naming /l3io-util-doctor triage, and still exits 0 -- ADR-0003)
   sync-story-doc --artifacts-root R  (NOT the state root)  --story KEY  --status S
                 [--quiet]
@@ -262,9 +269,38 @@ except ModuleNotFoundError:  # pragma: no cover - environment guard
 
 PM_STATUS_VERSION = "3.0.1"  # keep in sync with the top-of-file `# pm-status-version:` marker
 
-VALID_STORY_STATUS = {"backlog", "ready-for-dev", "in-progress", "review", "done"}
+VALID_STORY_STATUS = {"backlog", "ready-for-dev", "in-progress", "review", "done", "blocked"}
 VALID_SPRINT_STATUS = {"backlog", "in-progress", "done"}
 VALID_EPIC_STATUS = {"backlog", "in-progress", "done"}
+
+# Story transitions. Enforced per-story only; sprints and epics keep their existing
+# looser enum-only check because they compose from their children and their transitions
+# are driven by roll-ups, not by explicit set-status calls in the middle of a story lifecycle.
+# See docs/superpowers/specs/2026-09-25-story-lifecycle-blocked-design.md §3.
+#
+# The table gates two invariants: the blocked lifecycle (only entered from active work,
+# only exited back to work or done-with-resolution) and the terminality of done. Free
+# movement between non-blocked, non-done statuses stays allowed -- existing consumers
+# have long moved a story backwards after a fix, and forwards past review when the work
+# was small enough not to need one, and gating either would be scope creep against a
+# design whose stated goal was blocked's cleanliness.
+#
+# `blocked` can enter only from `in-progress` or `review` -- a story never picked up is
+# not blocked, it is just not ready, and its impediment belongs in state/issues.yaml.
+# `done` is terminal.
+VALID_STORY_TRANSITIONS = {
+    "backlog":       {"ready-for-dev", "in-progress", "review", "done"},
+    "ready-for-dev": {"backlog", "in-progress", "review", "done"},
+    "in-progress":   {"backlog", "ready-for-dev", "review", "done", "blocked"},
+    "review":        {"backlog", "ready-for-dev", "in-progress", "done", "blocked"},
+    "blocked":       {"in-progress", "done"},   # done requires --resolution
+    # done is "operationally reopenable" -- reopen paths, idempotent second-done, and
+    # the import-node-then-set-status ordering all move a done story to another non-
+    # blocked status. The one thing we still forbid is done -> blocked, so a story
+    # reopened for more work goes through in-progress before it can block, which keeps
+    # `blocked` entered only from active work rather than from history.
+    "done":          {"backlog", "ready-for-dev", "in-progress", "review", "done"},
+}
 METRIC_FIELDS = ("elapsed_hours", "man_hours", "hitl_hours", "tokens_k", "cost")
 
 # The subset of METRIC_FIELDS whose SCOPE ratio is learned. `cost` is derived
@@ -3932,15 +3968,52 @@ def cmd_set_status(args) -> int:
     if args.status not in valid:
         _die_usage(f"invalid {kind} status '{args.status}' — expected one of {sorted(valid)}")
 
+    # blocked-lifecycle argument guards (story only -- sprint/epic keep no --reason/--resolution).
+    reason = str(getattr(args, "reason", "") or "").strip()
+    resolution = str(getattr(args, "resolution", "") or "").strip()
+    if kind == "story" and args.status == "blocked" and not reason:
+        _die_usage("--status blocked requires --reason \"<why>\" -- a blocked story with no reason "
+                   "on record is what this flag exists to prevent")
+    if kind != "story" and (reason or resolution):
+        _die_usage("--reason and --resolution are story-only flags; sprints and epics compose "
+                   "from their children")
+    if kind == "story" and args.status != "blocked" and reason:
+        _die_usage("--reason is only valid with --status blocked; other transitions have no "
+                   "reason field to record")
+
     # An epic node is written under its epic_node_lock. The event append inside is a leaf
     # lock, and the done hook below (issues_lock) runs only for a story, outside any hold.
     with _epic_write_lock(args, kind):
         y, node, path, label = _load_checked(args.state_root, args, kind)
         prior = str(node.get("status", "")) or None
+
+        # Story transitions are per-pair, not per-target. See VALID_STORY_TRANSITIONS.
+        if kind == "story" and prior is not None:
+            allowed = VALID_STORY_TRANSITIONS.get(prior, set())
+            if args.status not in allowed:
+                _die_usage(
+                    f"invalid story transition {prior!r} -> {args.status!r}; from {prior!r} "
+                    f"allowed: {sorted(allowed) or ['(terminal)']}")
+            # blocked -> done is the one transition that requires --resolution: the story
+            # resolved by the same event that unblocked it (e.g. spec change removed the need).
+            if prior == "blocked" and args.status == "done" and not resolution:
+                _die_usage("blocked -> done requires --resolution \"<why the story is done "
+                           "rather than resumed>\"; use --status in-progress to resume")
+
         node["status"] = args.status
         node["updated_at"] = _now_iso()
         if args.title:
             node["title"] = args.title
+        if kind == "story":
+            leaving_blocked = prior == "blocked" and args.status != "blocked"
+            entering_blocked = args.status == "blocked" and prior != "blocked"
+            if args.status == "blocked":
+                node["blocked_reason"] = reason
+            elif leaving_blocked and "blocked_reason" in node:
+                # Current node reflects only current state; block history lives in the log.
+                del node["blocked_reason"]
+        else:
+            leaving_blocked = entering_blocked = False
         save_node(y, node, path, getattr(args, "flock", False))
 
         if not getattr(args, "no_events", False):
@@ -3949,12 +4022,59 @@ def cmd_set_status(args) -> int:
                        "session": getattr(args, "session_id", None)}
             payload.update(_event_keys(kind, args))
             append_event(args.state_root, payload)
+            if entering_blocked:
+                bp = {"ts": _now_iso(), "event": "block_open",
+                      "story": args.story, "reason": reason,
+                      "session": getattr(args, "session_id", None)}
+                append_event(args.state_root, bp)
+            if leaving_blocked:
+                dur = _block_duration_since_last_open(args.state_root, args.story)
+                bc = {"ts": _now_iso(), "event": "block_close",
+                      "story": args.story, "duration_hours": dur,
+                      "session": getattr(args, "session_id", None)}
+                if args.status == "done":
+                    bc["resolution"] = resolution
+                append_event(args.state_root, bc)
 
     sys.stdout.write(f"OK set-status {label} -> {args.status}\n")
     if kind == "story" and args.status == "done":
         _resolve_story_items(args.state_root, node, args.story,
                              getattr(args, "session_id", None))
     return 0
+
+
+def _block_duration_since_last_open(state_root: str, story_key: str):
+    """Hours since the most recent block_open event for `story_key`.
+
+    Returns None when no block_open is found on the story (a caller-side bug the WARN
+    downstream can surface without crashing). Reads the events log from the end.
+    """
+    p = events_path(state_root)
+    if not os.path.exists(p):
+        return None
+    try:
+        with open(p, encoding="utf-8") as fh:
+            lines = fh.readlines()
+    except OSError:
+        return None
+    for line in reversed(lines):
+        line = line.strip()
+        if not line:
+            continue
+        try:
+            rec = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        if rec.get("event") == "block_open" and rec.get("story") == story_key:
+            opened = _parse_iso(rec.get("ts"))
+            if opened is None:
+                return None
+            now = _parse_iso(_now_iso())
+            if now is None:
+                return None
+            delta = (now - opened).total_seconds() / 3600.0
+            return round(delta, 3)
+    return None
 
 
 def cmd_import_node(args) -> int:
@@ -6719,6 +6839,14 @@ def build_parser() -> argparse.ArgumentParser:
     node_args(s)
     s.add_argument("--status", required=True)
     s.add_argument("--title")
+    s.add_argument("--reason", default="",
+                   help="required when --status blocked; free-text why the story halted. "
+                        "Rejected on any other status (a --reason for review would only "
+                        "confuse the record).")
+    s.add_argument("--resolution", default="",
+                   help="required when a story transitions blocked -> done; free-text "
+                        "why the story shipped as-is rather than resumed (e.g. \"spec "
+                        "change removed the need for this story\").")
     s.add_argument("--flock", action="store_true", help="acquire exclusive flock before write")
     s.add_argument("--no-events", dest="no_events", action="store_true",
                    help="skip the events.jsonl append for this call")

@@ -9820,5 +9820,247 @@ class TestListStories(Base):
         self.assertEqual(events_before, events_after)
 
 
+class TestBlockedStoryStatus(Base):
+    """Stage 1 of the blocked story-lifecycle design lands the enum entry, the
+    transition table, --reason enforcement, blocked_reason on the node, and paired
+    block_open/block_close events. Each of those is the property of a real defect
+    the design was written to prevent -- a blocked story with no reason on record
+    (silent halt), a blocked -> done with no --resolution (invisible drop), a
+    blocked_reason surviving off blocked (state that doesn't reflect reality)."""
+
+    def _seed_story(self, key="E001-S01-002", status="in-progress"):
+        """Import an epic and a story at `status`; return the story path."""
+        self.run_main(["import-node", "--state-root", self.d, "--epic", "E001",
+                       "--status", "backlog", "--title", "e1"])
+        self.run_main(["import-node", "--state-root", self.d, "--story", key,
+                       "--status", status, "--title", "s1"])
+        return pm.story_file(self.d, key)
+
+    def _events(self, event_name=None):
+        p = os.path.join(self.d, "events.jsonl")
+        if not os.path.exists(p):
+            return []
+        with open(p, encoding="utf-8") as fh:
+            evs = [json.loads(line) for line in fh if line.strip()]
+        return [e for e in evs if event_name is None or e.get("event") == event_name]
+
+    # ---- Enum + argparse rejections -------------------------------------------------
+
+    def test_blocked_enum_is_accepted(self):
+        path = self._seed_story()
+        code, out = self.run_main(["set-status", "--state-root", self.d,
+                                   "--story", "E001-S01-002", "--status", "blocked",
+                                   "--reason", "Spec Q: token refresh jitter"])
+        self.assertEqual(code, 0, out)
+        _, node = pm.load_node(path)
+        self.assertEqual(node["status"], "blocked")
+
+    def test_blocked_without_reason_exits_2(self):
+        self._seed_story()
+        buf = io.StringIO()
+        with redirect_stderr(buf):
+            code, _ = self.run_main(["set-status", "--state-root", self.d,
+                                     "--story", "E001-S01-002", "--status", "blocked"])
+        self.assertEqual(code, 2)
+        self.assertIn("--status blocked requires --reason", buf.getvalue())
+
+    def test_reason_on_non_blocked_status_exits_2(self):
+        """--reason is only valid with --status blocked; other statuses reject it."""
+        self._seed_story()
+        buf = io.StringIO()
+        with redirect_stderr(buf):
+            code, _ = self.run_main(["set-status", "--state-root", self.d,
+                                     "--story", "E001-S01-002", "--status", "review",
+                                     "--reason", "spurious"])
+        self.assertEqual(code, 2)
+        self.assertIn("--reason is only valid with --status blocked", buf.getvalue())
+
+    def test_reason_on_sprint_or_epic_exits_2(self):
+        """--reason and --resolution are story-only flags."""
+        path = self._seed_story()
+        buf = io.StringIO()
+        with redirect_stderr(buf):
+            code, _ = self.run_main(["set-status", "--state-root", self.d,
+                                     "--epic", "E001", "--status", "in-progress",
+                                     "--reason", "why"])
+        self.assertEqual(code, 2)
+        self.assertIn("story-only", buf.getvalue())
+
+    # ---- Transition table ----------------------------------------------------------
+
+    def test_backlog_cannot_go_to_blocked(self):
+        """A story never picked up is not blocked, it is just not ready."""
+        self._seed_story(status="backlog")
+        buf = io.StringIO()
+        with redirect_stderr(buf):
+            code, _ = self.run_main(["set-status", "--state-root", self.d,
+                                     "--story", "E001-S01-002", "--status", "blocked",
+                                     "--reason", "external"])
+        self.assertEqual(code, 2)
+        self.assertIn("invalid story transition 'backlog' -> 'blocked'", buf.getvalue())
+
+    def test_ready_for_dev_cannot_go_to_blocked(self):
+        self._seed_story(status="ready-for-dev")
+        buf = io.StringIO()
+        with redirect_stderr(buf):
+            code, _ = self.run_main(["set-status", "--state-root", self.d,
+                                     "--story", "E001-S01-002", "--status", "blocked",
+                                     "--reason", "external"])
+        self.assertEqual(code, 2)
+        self.assertIn("invalid story transition", buf.getvalue())
+
+    def test_in_progress_can_go_to_blocked(self):
+        self._seed_story(status="in-progress")
+        code, out = self.run_main(["set-status", "--state-root", self.d,
+                                   "--story", "E001-S01-002", "--status", "blocked",
+                                   "--reason", "waiting on spec"])
+        self.assertEqual(code, 0, out)
+
+    def test_review_can_go_to_blocked(self):
+        self._seed_story(status="review")
+        code, out = self.run_main(["set-status", "--state-root", self.d,
+                                   "--story", "E001-S01-002", "--status", "blocked",
+                                   "--reason", "decision needed"])
+        self.assertEqual(code, 0, out)
+
+    def test_done_cannot_go_to_blocked_directly(self):
+        """A done story reopened for more work must first re-enter in-progress; keeps
+        `blocked` entered only from active work rather than from history."""
+        self._seed_story(status="review")
+        self.run_main(["set-status", "--state-root", self.d,
+                       "--story", "E001-S01-002", "--status", "done"])
+        buf = io.StringIO()
+        with redirect_stderr(buf):
+            code, _ = self.run_main(["set-status", "--state-root", self.d,
+                                     "--story", "E001-S01-002", "--status", "blocked",
+                                     "--reason", "reopen"])
+        self.assertEqual(code, 2)
+        self.assertIn("invalid story transition 'done' -> 'blocked'", buf.getvalue())
+
+    def test_blocked_can_exit_to_in_progress_with_no_resolution(self):
+        """The ordinary unblock: resume work, resolution field not applicable."""
+        self._seed_story(status="in-progress")
+        self.run_main(["set-status", "--state-root", self.d,
+                       "--story", "E001-S01-002", "--status", "blocked",
+                       "--reason", "wait"])
+        code, out = self.run_main(["set-status", "--state-root", self.d,
+                                   "--story", "E001-S01-002", "--status", "in-progress"])
+        self.assertEqual(code, 0, out)
+
+    def test_blocked_to_done_without_resolution_exits_2(self):
+        self._seed_story(status="in-progress")
+        self.run_main(["set-status", "--state-root", self.d,
+                       "--story", "E001-S01-002", "--status", "blocked",
+                       "--reason", "wait"])
+        buf = io.StringIO()
+        with redirect_stderr(buf):
+            code, _ = self.run_main(["set-status", "--state-root", self.d,
+                                     "--story", "E001-S01-002", "--status", "done"])
+        self.assertEqual(code, 2)
+        self.assertIn("blocked -> done requires --resolution", buf.getvalue())
+
+    def test_blocked_to_done_with_resolution_is_allowed(self):
+        """The rare path: the story was resolved by the same event that unblocked it."""
+        self._seed_story(status="in-progress")
+        self.run_main(["set-status", "--state-root", self.d,
+                       "--story", "E001-S01-002", "--status", "blocked",
+                       "--reason", "spec question"])
+        code, out = self.run_main(["set-status", "--state-root", self.d,
+                                   "--story", "E001-S01-002", "--status", "done",
+                                   "--resolution", "spec change removed the need"])
+        self.assertEqual(code, 0, out)
+
+    # ---- blocked_reason on the node ------------------------------------------------
+
+    def test_blocked_reason_is_written_to_the_node(self):
+        path = self._seed_story(status="in-progress")
+        self.run_main(["set-status", "--state-root", self.d,
+                       "--story", "E001-S01-002", "--status", "blocked",
+                       "--reason", "waiting on decision X"])
+        _, node = pm.load_node(path)
+        self.assertEqual(node.get("blocked_reason"), "waiting on decision X")
+
+    def test_blocked_reason_is_cleared_on_exit_from_blocked(self):
+        """Current node reflects current state; block history lives in the log."""
+        path = self._seed_story(status="in-progress")
+        self.run_main(["set-status", "--state-root", self.d,
+                       "--story", "E001-S01-002", "--status", "blocked",
+                       "--reason", "spec question"])
+        self.run_main(["set-status", "--state-root", self.d,
+                       "--story", "E001-S01-002", "--status", "in-progress"])
+        _, node = pm.load_node(path)
+        self.assertNotIn("blocked_reason", node)
+
+    # ---- Event log -----------------------------------------------------------------
+
+    def test_entering_blocked_appends_a_block_open_event(self):
+        self._seed_story(status="in-progress")
+        self.run_main(["set-status", "--state-root", self.d,
+                       "--story", "E001-S01-002", "--status", "blocked",
+                       "--reason", "spec question"])
+        opens = self._events("block_open")
+        self.assertEqual(len(opens), 1)
+        self.assertEqual(opens[0]["story"], "E001-S01-002")
+        self.assertEqual(opens[0]["reason"], "spec question")
+
+    def test_leaving_blocked_appends_a_block_close_with_duration(self):
+        self._seed_story(status="in-progress")
+        self.run_main(["set-status", "--state-root", self.d,
+                       "--story", "E001-S01-002", "--status", "blocked",
+                       "--reason", "wait"])
+        self.run_main(["set-status", "--state-root", self.d,
+                       "--story", "E001-S01-002", "--status", "in-progress"])
+        closes = self._events("block_close")
+        self.assertEqual(len(closes), 1)
+        self.assertIn("duration_hours", closes[0])
+        self.assertIsInstance(closes[0]["duration_hours"], (int, float))
+        self.assertGreaterEqual(closes[0]["duration_hours"], 0)
+
+    def test_block_close_on_blocked_to_done_carries_resolution(self):
+        self._seed_story(status="in-progress")
+        self.run_main(["set-status", "--state-root", self.d,
+                       "--story", "E001-S01-002", "--status", "blocked",
+                       "--reason", "spec"])
+        self.run_main(["set-status", "--state-root", self.d,
+                       "--story", "E001-S01-002", "--status", "done",
+                       "--resolution", "spec change made it moot"])
+        closes = self._events("block_close")
+        self.assertEqual(len(closes), 1)
+        self.assertEqual(closes[0].get("resolution"), "spec change made it moot")
+
+    def test_block_close_on_blocked_to_in_progress_has_no_resolution(self):
+        """Exit-to-active carries no resolution field."""
+        self._seed_story(status="in-progress")
+        self.run_main(["set-status", "--state-root", self.d,
+                       "--story", "E001-S01-002", "--status", "blocked",
+                       "--reason", "wait"])
+        self.run_main(["set-status", "--state-root", self.d,
+                       "--story", "E001-S01-002", "--status", "in-progress"])
+        closes = self._events("block_close")
+        self.assertNotIn("resolution", closes[0])
+
+    def test_no_events_flag_suppresses_the_block_open_too(self):
+        """--no-events is one gate over the whole call, not per-event-type."""
+        self._seed_story(status="in-progress")
+        self.run_main(["set-status", "--state-root", self.d,
+                       "--story", "E001-S01-002", "--status", "blocked",
+                       "--reason", "wait", "--no-events"])
+        self.assertEqual(self._events("block_open"), [])
+        self.assertEqual(self._events("status"), [])
+
+    def test_two_blocked_cycles_produce_two_open_close_pairs(self):
+        """Idempotence of the mechanism: a story that blocks-resumes-blocks-resumes writes
+        two paired events, not one open with two closes or vice versa."""
+        self._seed_story(status="in-progress")
+        for _ in range(2):
+            self.run_main(["set-status", "--state-root", self.d,
+                           "--story", "E001-S01-002", "--status", "blocked",
+                           "--reason", "wait"])
+            self.run_main(["set-status", "--state-root", self.d,
+                           "--story", "E001-S01-002", "--status", "in-progress"])
+        self.assertEqual(len(self._events("block_open")), 2)
+        self.assertEqual(len(self._events("block_close")), 2)
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

@@ -115,6 +115,35 @@ exits 2 on any invalid pair, naming both the current and requested statuses.
 Today set-status only validates the *target* against `VALID_STORY_STATUS`; the
 new gate is per-transition.
 
+**Amendment (2026-09-25, during Stage 1 implementation).** The strict linear
+diagram above is the DESIGN INTENT; the SHIPPED table is deliberately looser.
+Fourteen existing pm-status.py tests exercise transitions the strict table
+forbids (`backlog → done`, `ready-for-dev → done`, `done → done` for
+idempotence, `done → in-progress` for reopen paths driven by `repair-issue
+--action reopen`, `done → review` after `import-node`, and so on). These are
+long-standing, correct behaviours — reopen for more work, idempotent
+re-application, import-then-adjust flows — and forbidding them would either
+break existing consumers or force cosmetic waypoint transitions that add turn
+cost with no invariant gain.
+
+**The two invariants the shipped table actually gates:**
+
+1. **The blocked lifecycle is clean.** `blocked` can only be entered from
+   `in-progress` or `review`; can only be exited to `in-progress` or `done`
+   (the latter requiring `--resolution`). `backlog → blocked` and
+   `ready-for-dev → blocked` and `done → blocked` are refused. This
+   preserves the design's core: `blocked` names work that has *started* and
+   halted, never work that has never started or already finished.
+2. **`done → blocked` is refused specifically** so that a done story
+   reopened for more work must go through `done → in-progress → blocked`
+   rather than `done → blocked` directly. This keeps `blocked` entered only
+   from active work.
+
+**Free movement between non-blocked, non-done statuses is allowed.** So is
+`done → non-blocked` for reopen and idempotent noops. The design's linear
+diagram remains the *narrative* shape of the healthy path; the shipped table
+is the *gated* shape.
+
 ## 4. `pm-status.py` changes
 
 **Status enum.** `VALID_STORY_STATUS` grows one entry:
@@ -129,16 +158,18 @@ is a separate design decision, kept out of scope here — sprints and epics
 compose from their children, and a "sprint one of whose stories is blocked" is
 already visible as `blocked_stories > 0` in the roll-up.
 
-**Transition validator.** A new module-level constant:
+**Transition validator.** A new module-level constant. Note the amendment
+in §3 explaining why the shipped shape is looser than the diagram:
 
 ```python
 VALID_STORY_TRANSITIONS = {
-    "backlog":       {"ready-for-dev"},
-    "ready-for-dev": {"in-progress"},
-    "in-progress":   {"review", "blocked"},
-    "review":        {"done", "in-progress", "blocked"},
+    "backlog":       {"ready-for-dev", "in-progress", "review", "done"},
+    "ready-for-dev": {"backlog", "in-progress", "review", "done"},
+    "in-progress":   {"backlog", "ready-for-dev", "review", "done", "blocked"},
+    "review":        {"backlog", "ready-for-dev", "in-progress", "done", "blocked"},
     "blocked":       {"in-progress", "done"},   # done requires --resolution
-    "done":          set(),                     # terminal
+    "done":          {"backlog", "ready-for-dev", "in-progress", "review", "done"},
+    # done -> blocked deliberately forbidden: reopen must go through in-progress
 }
 ```
 

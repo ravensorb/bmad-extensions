@@ -91,6 +91,8 @@ Uses `{pm_status}` (bound in §2).
 ```
 set-status    --state-root S  (--story KEY | --epic ID [--sprint ID])  --status S
               [--title T] [--flock] [--no-events] [--session-id ID]
+              [--reason R]       (REQUIRED with --status blocked; rejected on others)
+              [--resolution R]   (REQUIRED on blocked -> done)
 set-actual    --state-root S  --node {story,sprint,epic}  (--story KEY | --epic ID [--sprint ID])
               [--block {actual,orchestration}]   (orchestration: sprint/epic only, never story)
               [--elapsed-hours H] [--man-hours H] [--hitl-hours H]
