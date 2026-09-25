@@ -2,6 +2,30 @@
 
 All notable changes to this project will be documented in this file. See [commit-and-tag-version](https://github.com/absolute-version/commit-and-tag-version) for commit guidelines.
 
+## [3.0.1](https://github.com/ravensorb/bmad-extensions/compare/3.0.0...3.0.1) (2026-09-25)
+
+
+### Features
+
+* **l3io-pm,l3io-util:** list-epics and list-stories read-only enumerators ([bc50c8c](https://github.com/ravensorb/bmad-extensions/commit/bc50c8cde16e3ab1faaae5dfc489c3ab82ff28a2))
+* **l3io-util:** additive bootstrap on partial sharded state ([618a43a](https://github.com/ravensorb/bmad-extensions/commit/618a43a360a10656818936841f1a00c0a705f302))
+* **l3io-util:** migration extras carry-through with skip-and-log ([66d29df](https://github.com/ravensorb/bmad-extensions/commit/66d29df1d43b0d793ff4d58cf3d7ed16753df40b))
+
+
+### Refactoring
+
+* **infra:** check 26 exemption reads a body marker, not a filename ([7f2b24e](https://github.com/ravensorb/bmad-extensions/commit/7f2b24eb0277fd7c4698ced1d09c7162c5b36eae))
+
+
+### Documentation
+
+* sync CLAUDE.md, upgrading.md and l3io-util reference for 3.0.1 ([640f564](https://github.com/ravensorb/bmad-extensions/commit/640f564a1a13290866011772d4fc050426034132))
+
+
+### Testing
+
+* **l3io-util:** pin partial-write survival with a real multi-record fixture ([cf7a6d8](https://github.com/ravensorb/bmad-extensions/commit/cf7a6d88d71c6380ffaa4e7ce4a3517dfea8dc67))
+
 ## [3.0.0](https://github.com/ravensorb/bmad-extensions/compare/2.5.2...3.0.0) (2026-09-24)
 
 
