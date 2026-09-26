@@ -1,6 +1,6 @@
 ---
 name: l3io-pm-plan
-description: Validate readiness, elaborate stories, estimate, build dependency graph, and produce an executable plan. Use /l3io-pm-plan for a full plan, /l3io-pm-plan estimate [E{nnn}|E{nnn}-S{nn}] to re-estimate only.
+description: Validate readiness, elaborate stories, estimate, build dependency graph, and produce an executable plan. Use when the user wants to plan across epics before execution, or to re-estimate existing ones. Use /l3io-pm-plan for a full plan, /l3io-pm-plan estimate [E{nnn}|E{nnn}-S{nn}] to re-estimate only.
 ---
 
 # l3io-pm-plan

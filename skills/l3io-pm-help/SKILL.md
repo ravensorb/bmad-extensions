@@ -1,6 +1,6 @@
 ---
 name: l3io-pm-help
-description: Read project state and recommend the exact next l3io-pm action. Use /l3io-pm-help progress to forward to /l3io-util-doctor stats for a plan-aware progress tree — which phase, epic, sprint, and stories are in flight.
+description: Read project state and recommend the exact next l3io-pm action. Use when the user asks what to do next, or is unsure which l3io-pm command applies. Use /l3io-pm-help progress to forward to /l3io-util-doctor stats for a plan-aware progress tree — which phase, epic, sprint, and stories are in flight.
 ---
 
 # l3io-pm-help

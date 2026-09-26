@@ -1,6 +1,6 @@
 ---
 name: l3io-pm-execute
-description: Run the l3io-pm plan — full, single epic, or single sprint. Reads plan-output-meta.yaml and executes epics in phase order, dispatching sprint subagents with full context injection.
+description: Run the l3io-pm plan — full, single epic, or single sprint. Use when the user wants to execute planned work, from elaboration and dev through code review, QA, the fix loop, and sprint and epic closure. Reads plan-output-meta.yaml and executes epics in phase order, dispatching sprint subagents with full context injection.
 ---
 
 # l3io-pm-execute

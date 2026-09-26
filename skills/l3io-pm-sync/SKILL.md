@@ -1,6 +1,6 @@
 ---
 name: l3io-pm-sync
-description: "Bidirectional sync between l3io-pm state and GitHub Issues. Modes: setup, push, pull, sync, status (default)."
+description: "Bidirectional sync between l3io-pm state and GitHub Issues. Use when the user wants to push epics, sprints and stories to GitHub Issues, pull status back, or check what has drifted between the two. Modes: setup, push, pull, sync, status (default)."
 ---
 
 # l3io-pm-sync
