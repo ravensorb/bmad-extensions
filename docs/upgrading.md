@@ -117,7 +117,46 @@ number of these at once, but the migrations must still run.
 > migrations, additive bootstrap on partial state) are low-risk refinements on top of the
 > 3.0.0 architecture rather than a new-shape release.
 
-**No consumer-side migration is required.** All four items below are additive.
+**No consumer-side migration is required, with one thing to know.** The items below are
+additive, but if you are coming from a **pre-3.0 backlog**, see "legacy `deferred` statuses"
+below — nothing breaks, and `triage` now offers a one-pass repair instead of several hundred
+findings you cannot act on.
+
+**`migrate-adrs` no longer renumbers an ADR you already migrated.** *If you ran, or were about
+to run, `migrate-adrs` on a project whose ADRs are already in `docs/adr/`, read this.* The
+collision test compared ADR numbers only, so a leftover copy under `epic-*/arch/` of an ADR
+already in `docs/adr/` was read as a competing decision and minted under a brand-new number,
+with that epic's artifacts rewritten to cite the invented one. On one real project all 14
+legacy ADRs were such leftovers, so the run would have created 14 duplicate ADRs and reported
+success. A same-number **and same-slug** file is now classified `duplicate`: never moved, never
+renumbered, only reported for you to diff and delete. `--apply` on an all-duplicate project is
+now a measured no-op — no commit, no number reserved. **Health Check 15 also stopped
+recommending the run**, which it previously did to exactly the projects it would harm.
+
+**Legacy `deferred` statuses now have a migration.** Pre-3.0, `deferred` was the resting state
+for a deliberately deferred item. `OPEN_ISSUE_STATUSES` is now `(backlog, scheduled)`, so every
+such item became an integrity finding (`audit-issues` id `1f`) whose repair text was the literal
+string "report only" — one real upgrade produced **453** of them, and `triage` completed having
+repaired none. Those items were never at risk; they were just unactionable. Fix them in one
+pass:
+
+```bash
+uv run {project-root}/_bmad/scripts/pm-status.py repair-issue \
+  --state-root {implementation_artifacts}/state --action normalize-status --all-legacy
+```
+
+`deferred` maps to `backlog` — open and unscheduled, which is what it meant. Nothing is closed
+and no `issues-resolved.yaml` is created. A status that is not a known legacy value is refused
+rather than guessed, and `triage` now offers this command itself when it sees more than a
+handful.
+
+**The backlog auditor resolves more source shapes, and the health check stops overstating.**
+`audit-backlog.py` now understands `closure review (E{nnn}-S{nn})` and a story key followed by
+free text, and searches artifact **bodies** rather than only filenames — on one real backlog that
+took traceable items from 0 to 49. Health Check 13 previously printed "0 candidates" whether it
+found nothing to fix or could not read the backlog at all; it now counts and reports
+`evidence: untraceable` separately. Expect the check to say more than it used to on a legacy
+backlog. That is the same state as before, described honestly.
 
 **Two new read-only `pm-status.py` verbs — `list-epics` and `list-stories`.** Read-only
 enumeration of the state tree that lets a caller stop assembling state paths in shell.
