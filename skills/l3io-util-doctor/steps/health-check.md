@@ -235,8 +235,16 @@ uv run {skill-root}/scripts/audit-backlog.py --pm-status {pm_status} \
   `findings` list on exit 4 is not "clean" — then continue with the remaining checks
 - any `fixed-candidate`, `obsolete-candidate`, or `duplicate-candidate` → flag `triage` ·
   Priority: **Medium** · note the count
+- **count the `needs-review` verdicts whose `evidence` is `untraceable` and report them
+  separately** — never fold them into a "0 candidates" line. Zero candidates over a backlog
+  the auditor could not trace is blindness, not a clean bill, and the two read identically
+  otherwise. Say:
+  `{n} of {total} item(s) could not be traced to an artifact (evidence: untraceable) — the
+  mechanical pass reached no verdict on them.` On a legacy backlog this is the normal result
+  and not a defect in the backlog; it means the items predate the pointer fields the auditor
+  reads
 - no `{pm_state_root}` yet → ✓
-- no findings and no candidates → ✓
+- no findings, no candidates, **and nothing untraceable** → ✓
 
 **Check 14 — Lock files tracked in git**
 `pm-status.py`'s lock files — `epic-NNN.lock`, `issues.yaml.lock`, `pm-calibration.yaml.lock`
@@ -268,8 +276,13 @@ Run only if `{implementation_artifacts}` exists.
 {spec_align} migrate-adrs --plan
 ```
 
-- `moves` non-empty → flag `migrate-adrs` · Priority: **Medium** · note the count, and how
-  many are a `collision`
+- `actionable` non-empty → flag `migrate-adrs` · Priority: **Medium** · note the count, and
+  how many are a `collision`
+- `duplicates` non-empty → report only, and **do not** propose `migrate-adrs` for them:
+  `{n} legacy ADR(s) are leftover duplicates of ADRs already in docs/adr/ (same number and
+  slug). migrate-adrs will not move them. Review with diff and delete by hand.`
+  Keying the recommendation on `moves` instead of `actionable` pointed already-migrated
+  projects — the ones a renumbering run harms — straight at it.
 - `register.lagging` is true → report
   `adr-register next {next} ≤ highest ADR on disk {highest_on_disk}`. This is report only:
   the next `adr-reserve` corrects it by itself

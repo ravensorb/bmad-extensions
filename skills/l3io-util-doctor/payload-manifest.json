@@ -3,9 +3,9 @@
   "generated_from": "skills/_shared/",
   "files": {
     "references/config-resolution.md": "d6cee2910b327fbfa5eab90de57e04fd1229aca1d065d149a1ab12d66a13bb7c",
-    "scripts/pm-status.py": "45c0ad18582631299a0533fff4052bd9e0f99a0d6c34c5fedbc84c52f325d5e9",
+    "scripts/pm-status.py": "2de0438442373eaefaf70d884b7acdd77c810abb37c16378eb7c4f4382a224c1",
     "references/status-files.md": "248a5ccd8066291168b724cf2c06a66f4c59bc7b28d6bb9e31fb7b31d1843928",
-    "scripts/spec-align.py": "54e660827d75571f4757d74375cf5a48591bf39167359cc6def06aa82792ab9e",
+    "scripts/spec-align.py": "b8bc6c4ed78a3c58d4c7ca7c18a6c90c3c0e85c21f37b306e2b4a8f2b072b11e",
     "scripts/merge-config.py": "22f51eed631c64134d352c236917e0a98ec5b5fe5d0810394f4615905c6ef7dc",
     "scripts/merge-help-csv.py": "44cae89d74a247395cc851970e28b65605e958efa04b632209f9bd5ecbc70d69",
     "scripts/write-module-config.py": "fdc0e81cda51221599907b9023a096b0570e096b7d921fb0c1db2050afa7a80f",
