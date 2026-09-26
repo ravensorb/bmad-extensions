@@ -2,6 +2,35 @@
 
 All notable changes to this project will be documented in this file. See [commit-and-tag-version](https://github.com/absolute-version/commit-and-tag-version) for commit guidelines.
 
+## [3.1.1](https://github.com/ravensorb/bmad-extensions/compare/3.1.0...3.1.1) (2026-09-26)
+
+
+### Features
+
+* **infra:** checks 28 and 29 close two holes CLAUDE.md documented in prose ([193dc04](https://github.com/ravensorb/bmad-extensions/commit/193dc0439c9d47bcd0550d344c3ca2875ad79843))
+* **l3io-arch:** author the docker, powershell and shell standards overlays ([2dd48f0](https://github.com/ravensorb/bmad-extensions/commit/2dd48f0dcfa73bbef7018808116fe4e2192ad961))
+* **l3io-pm,l3io-util:** set-depends-on, so migrations stop dropping dependencies ([55983cd](https://github.com/ravensorb/bmad-extensions/commit/55983cd6c442bad32a938beccd77706d9076de1e))
+* **l3io-pm:** epic-aware legacy migration, a deferred resolution, and import-actual ([2d6fc1c](https://github.com/ravensorb/bmad-extensions/commit/2d6fc1cbea3923a603407a00c96cc94961c31778))
+* **l3io-util:** typed writers for estimate and actual — migrations lose nothing ([bf7d939](https://github.com/ravensorb/bmad-extensions/commit/bf7d9399927984f6e203f137f65cffebd3194c98))
+
+
+### Fixes
+
+* **infra:** the doctor keyword set comes from the routing table, not any table ([b63d0c1](https://github.com/ravensorb/bmad-extensions/commit/b63d0c1b47a78dc65275f67fc078ec9d023954c2))
+* **l3io-pm:** normalize-status refuses when deferred and backlog coexist ([0949006](https://github.com/ravensorb/bmad-extensions/commit/09490068a0da8cb02184e0ea25a3c17bc0e3b913))
+
+
+### Refactoring
+
+* **l3io-arch:** scope the PowerShell standard to the major, not an LTS minor ([0eb0eca](https://github.com/ravensorb/bmad-extensions/commit/0eb0ecac760081945b4c2b6520193117fb2dd596))
+* **l3io-pm:** remove max_fix_iterations_non_code, the one removable knob ([0f809ee](https://github.com/ravensorb/bmad-extensions/commit/0f809eed498577f238f3bec18ec51bc9c7a2a9a8))
+
+
+### Documentation
+
+* full assessment of outstanding work, measured against the tree ([804b205](https://github.com/ravensorb/bmad-extensions/commit/804b205496a0519cd551f974fd8edcf1be07a02a))
+* record the evidence for the epic-aware issue migration ([37845ed](https://github.com/ravensorb/bmad-extensions/commit/37845edbd464bc101db7cd4e70bce82366161a48))
+
 ## [3.1.0](https://github.com/ravensorb/bmad-extensions/compare/3.0.2...3.1.0) (2026-09-26)
 
 
