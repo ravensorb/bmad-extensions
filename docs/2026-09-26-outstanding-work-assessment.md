@@ -6,8 +6,9 @@ Every open item in this repository, measured against the tree rather than recall
 what should happen to it. Four categories: **do**, **decide**, **retire**, and **already closed**.
 
 The headline: there is much less genuinely open work than the count of files suggests. Eighteen
-plan documents exist; **one** describes unfinished work. Four "knobs that do nothing" are real
-and removable. Three named gaps are deliberate non-goals that should stop being tracked.
+plan documents exist; **one** describes unfinished work. Of four "knobs that do nothing", only
+**one** is actually removable — see the correction in §3. Sixteen tracked items are deliberate
+non-goals that should stop being tracked at all.
 
 ---
 
@@ -88,12 +89,40 @@ and invites someone to tune it.
 | Knob | Where | Why inert | Recommendation |
 |---|---|---|---|
 | `max_fix_iterations_non_code` | 8 files, incl. `l3io-pm-execute/customize.toml` | **Doubly** inert: equal to `max_fix_iterations`, AND every phase with a fix loop is already skipped for DOCS/CONFIG | **Delete.** It is user-settable, so it actively misleads |
-| `field_rules`, `status_labels` | `l3io-pm-sync/assets/sync-config-template.yaml` | Reserved for conflict resolution that was never built | **Delete from the template**, keep the idea in the design doc |
-| `last_sync` | 5 files, incl. `drift-report.py` | Written by nothing | **Delete**, or write it — but decide |
+| `field_rules`, `status_labels` | `l3io-pm-sync/assets/sync-config-template.yaml` | Not consumed by any script **yet** | **KEEP.** Corrected — see below |
+| `last_sync` | 1 site: `sync-state.py:36` | Top-level key, written `None`, never updated | **KEEP.** Corrected — see below |
 | `granularity` | 18 files | Never varied; every project runs `"story"` | **Keep.** It lives in the calibration file, so removing it is a schema change, and the standing rule is no unapproved version bumps |
 
-`granularity` is the one to leave alone, and the reason is worth stating: the cost of removing it
-exceeds the cost of documenting it, which `limits.md` already does.
+### Correction — two of these should NOT be deleted
+
+The first draft of this assessment recommended deleting `field_rules`, `status_labels` and
+`last_sync`. That was wrong on both counts, and the error is worth recording because it came
+from a grep that conflated two different things.
+
+**`field_rules` / `status_labels` are a deliberate reserved interface, not debris.** The
+template says so at the point of use: *"not yet consumed by any script; they are reserved for
+a future field-authority/label-mapping feature."* A reader is warned in the file itself, so
+they mislead nobody, and `l3io-pm-sync` is documented as GitHub-only *today* — the phrasing in
+`docs/limits.md` and `l3io-pm-reference.md` treats GitLab, Azure DevOps and Jira as absent
+rather than rejected. Deleting a designed extension point because it is not wired yet is how
+you pay for it twice.
+
+**`last_sync` was a conflated grep.** There are two distinct things:
+
+| Field | Where | Status |
+|---|---|---|
+| `last_sync` | one site, `sync-state.py:36`, in the state-file scaffold | written `None`, never updated — genuinely inert |
+| `last_synced_at`, `last_synced_hash` | per-mapping entries; written at `sync-state.py:143-144`, read at `drift-report.py:351,361,374` | **load-bearing** — drift detection depends on them |
+
+The original "5 files incl. `drift-report.py`" count was the second family, not the first.
+Deleting on that evidence would have broken drift detection. The genuinely inert one is a
+single key in a `version: 1` state file, so removing it is a schema change — the same reason
+`granularity` stays.
+
+`granularity` is likewise left alone: the cost of removing it exceeds the cost of documenting
+it, which `limits.md` already does.
+
+**Net: Phase 1 is one deletion, not four.**
 
 ---
 
@@ -130,9 +159,8 @@ because nobody marked them closed.
 
 ## 6. Recommended plan
 
-**Phase 1 — retire (½ day, no risk).** Delete `max_fix_iterations_non_code`, the two reserved
-`sync-config` keys, and `last_sync`. Update `limits.md`'s "Knobs that exist but do nothing" to
-cover only `granularity`, with its reason. This shrinks the surface before anything is added to
+**Phase 1 — retire (small, no risk).** Delete `max_fix_iterations_non_code` only, and correct
+`limits.md` to distinguish inert-and-removable from inert-and-kept. This shrinks the surface before anything is added to
 it, and each deletion is independently revertible.
 
 **Phase 2 — typed writers (§1), 5 tasks.** The only item with active data loss. Do

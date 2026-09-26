@@ -77,9 +77,15 @@ For `{work_type}` = CODE or MIXED, `{skip_phases}` is empty unless an installed 
 | `{work_type}` | Binding |
 |---|---|
 | CODE, MIXED | `max_fix_iterations` (default 3) |
-| DOCS, CONFIG | `max_fix_iterations_non_code` (default 3) |
+| DOCS, CONFIG | `max_fix_iterations` (default 3) — same cap |
 
-Both come from the resolved `customize.toml` `[workflow]` table. This one integer is the cap for
+It comes from the resolved `customize.toml` `[workflow]` table.
+
+> There used to be a separate `max_fix_iterations_non_code`. It was doubly inert: it held the
+> same value, AND every phase containing a fix loop is already skipped for DOCS and CONFIG
+> work, so it had nothing to bound either way. It was removed rather than documented, because
+> it was user-settable in four `customize.toml` files and therefore invited tuning that could
+> not do anything. This one integer is the cap for
 **every** fix loop in the run — per-story in the dev loop, and at sprint and epic closure.
 A ten-iteration autonomous fix loop is proportionate to a broken API contract and wildly
 disproportionate to a typo, which is why it follows the work type.

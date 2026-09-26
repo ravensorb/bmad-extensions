@@ -74,7 +74,6 @@ Scalars override; arrays append. The root key is `[workflow]` for all four PM sk
 | `activation_steps_append` | `[]` | Extra steps to run after activation |
 | `persistent_facts` | `["file:{project-root}/project-context.md", "file:{project-root}/docs/project-context.md"]` | Files always loaded into skill context |
 | `max_fix_iterations` | `3` | Fix-loop cap for CODE and MIXED work. Each iteration is a turn multiplier inside an already-long session — see Fix loop below |
-| `max_fix_iterations_non_code` | `3` | Fix-loop cap for DOCS and CONFIG work. Currently inert: it equals `max_fix_iterations`, and every phase containing a fix loop is already skipped for those work types |
 | `max_turns_per_story` | `120` | Soft cap on the turns one story agent may take (every PM skill except `l3io-pm-help`). Self-monitored, not mechanically enforced |
 
 **`l3io-pm-execute`:**
@@ -271,9 +270,10 @@ Stories process in order; a story with `depends_on` waits until each referenced 
 Severity routing: **CRITICAL/HIGH** open the fix loop; **MEDIUM** is fixed in the current iteration before done; **LOW** defers to `issues.yaml` without re-development.
 
 `{max_fix_iterations}` is bound at `step-01-classify-work.md` §5 from `customize.toml`: 3 for
-CODE/MIXED, 3 for DOCS/CONFIG (`max_fix_iterations_non_code`). The DOCS/CONFIG value is currently
-inert here — this fix loop only fires off a code-review finding, and code review itself is
-skipped for DOCS/CONFIG (row above), so the loop never runs for those work types today.
+CODE/MIXED and DOCS/CONFIG alike — one value, since the separate `max_fix_iterations_non_code`
+was removed. It makes no difference for DOCS/CONFIG either way: this fix loop only fires off a
+code-review finding, and code review itself is skipped for those work types (row above), so the
+loop never runs for them today.
 
 Exceeding the `{max_fix_iterations}` cap emits `FAILED` for that story, leaves it at `status: review`, and continues to the next story.
 
