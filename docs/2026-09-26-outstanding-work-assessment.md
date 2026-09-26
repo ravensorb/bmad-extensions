@@ -184,3 +184,68 @@ placeholders that say what they are; promoting them is content work with no defe
 Phase 1 before Phase 2 deliberately. Every item in Phase 1 is surface that a reader of Phase 2's
 code would have to understand and dismiss. Removing dead knobs first is cheaper than carrying
 them through a change to the same files.
+
+---
+
+## 7. Addendum — the epic-aware issue migration (new, 2026-09-26)
+
+Added after `normalize-status` was found lossy and gated (`0949006`). The gate makes the current
+state safe; this is the real fix, **designed but not built**, and it needs one decision.
+
+### The problem
+
+`deferred` was a *disposition* — "we looked at this and decided not now". `OPEN_ISSUE_STATUSES`
+is `(backlog, scheduled)` and neither carries a decision, so **no mapping into an open status can
+preserve one**. Items behind a CLOSED epic are the sharp case: converting them to `backlog` makes
+them undecided findings behind an epic that has already closed.
+
+### Discriminator — settled: use the simple rule
+
+Measured on the reporting fixture, 520 open items:
+
+| Rule | Count |
+|---|---|
+| A — behind a CLOSED/archived epic | 518 |
+| B — archived epic **and** never scheduled | 518 |
+
+**Identical, and structurally so.** `status: scheduled` occurs **zero** times, and there is no
+scheduled-to field; `epic`/`sprint` are mandatory *provenance* (where a finding was filed), not
+destination. Rule B collapses into Rule A because nothing in this schema can say an issue *is*
+scheduled.
+
+**Take Rule A** — not because the data prefers it, but because the data cannot distinguish them
+and the more complex rule buys nothing measurable on the only real fixture. Revisit if a project
+ever populates `status: scheduled`. The 2 items not behind an archived epic belong to a `planned`
+epic, and Rule A correctly leaves them alone.
+
+### Resolution vocabulary — evidence, and the open decision
+
+From the same project's own resolution prose (free text, but the vocabulary word is
+parenthesised and therefore countable):
+
+| Value | In 291 resolved | In 520 open |
+|---|---|---|
+| `wontfix` | **26** | — |
+| `deferred` | **3** | 307 |
+| `obsolete` | **0** | — |
+
+Three things follow:
+
+- **`obsolete` is wrong.** Zero instances in 291 resolved items, and it asserts the finding
+  stopped mattering — which 307 still-open items contradict.
+- **`wontfix` has real local precedent**, 26 uses, with matching prose: *"TRIAGED (wontfix).
+  Accepted cost…"*. No enum change needed.
+- **`deferred` already appears as a RESOLUTION**, three times. So the concept has precedent in
+  the resolved file, not only as an open status.
+
+**The decision:** `wontfix` conflates "decided against" with "decided not now"; a new `deferred`
+resolution keeps them apart and makes the migration reversible, at the cost of growing
+`RESOLUTIONS = ("fixed", "wontfix", "duplicate", "obsolete")`.
+
+**Recommendation: add `deferred` to the vocabulary.** The migration would otherwise assert a
+decision the author never wrote, and this whole defect exists because a mapping asserted meaning
+it could not carry. Growing an enum additively is cheaper than repeating that mistake — and it is
+checkable afterwards: no finding behind a closed epic should remain in the open list.
+
+**Caveat, stated because it is load-bearing:** all of the above is **n=1**. One project's
+resolution prose is evidence of that project's habits, not of the vocabulary's correct shape.
