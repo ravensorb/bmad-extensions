@@ -3060,7 +3060,28 @@ test("check 25: scope attack — a stale keyword in a skills/ .py message is cau
 // SCOPE ATTACK on the valid set. If the keyword list were hand-kept here, renaming a live
 // keyword in SKILL.md's routing table would change nothing. It must instead turn every real
 // invocation of the old name red, because the table is the only source of truth for the set.
+// SCOPE ATTACK on where the set comes FROM. The row regex alone matches any SKILL.md table
+// row whose first cell is backticked tokens, so an unrelated table -- a removed-keyword
+// mapping -- silently added its first column to the valid set and stopped check 25 catching
+// a stale keyword. It shipped that way for one commit and CI caught it. The parser is now
+// bounded by the routing table's header row; this pins that.
+test("check 25: a second table in SKILL.md does not widen the valid keyword set", (t) => {
+  const root = fixture(t);
+  const skill = "skills/l3io-util-doctor/SKILL.md";
+  write(root, skill, read(root, skill) +
+    "\n\n## Removed\n\n| Removed keyword | Say instead |\n|---|---|\n" +
+    "| `no-such-mode` | something else |\n");
+  // The unrelated table must NOT make `no-such-mode` a valid keyword: an invocation of it
+  // still has to be caught.
+  write(root, "skills/l3io-util-doctor/scripts/probe-25b.py",
+    '#!/usr/bin/env python3\nprint("Run /l3io-util-doctor no-such-mode first.")\n');
+  const r = run(root);
+  assert.equal(r.status, 1, r.stdout);
+  assert.match(r.stderr, /probe-25b\.py:2: names \/l3io-util-doctor no-such-mode/);
+});
+
 test("check 25: scope attack — the valid set follows SKILL.md's routing table", (t) => {
+
   const root = fixture(t);
   const skill = "skills/l3io-util-doctor/SKILL.md";
   const text = read(root, skill);

@@ -15,13 +15,20 @@ Migration and housekeeping utilities for BMad artifacts.
 argument against this table *before* falling through to the health check. Print the
 replacement and stop; propose nothing.
 
-| Removed keyword | Say instead |
-|---|---|
-| `normalize` | `sort-status` for the naming report; on a legacy split layout also `reconcile-status`. Those two are all `normalize` ever ran |
-| `rename-active` | just `/l3io-util-doctor` — Health Check 1 detects the old filename and renames it inline |
-| `rename-epic-dirs` | just `/l3io-util-doctor` — Health Check 10 detects two-digit `epic-{nn}/` directories and renames them inline |
-| `overlay` | nothing yet — held back until `assets/overlays/` ships overlay TOML |
-| `cleanup` | the skill was renamed; use `/l3io-util-doctor` |
+- Removed **normalize** → `sort-status` for the naming report; on a legacy split layout
+  also `reconcile-status`. Those two are all it ever ran.
+- Removed **rename-active** → just `/l3io-util-doctor`; Health Check 1 detects the old
+  filename and renames it inline.
+- Removed **rename-epic-dirs** → just `/l3io-util-doctor`; Health Check 10 detects two-digit
+  `epic-{nn}/` directories and renames them inline.
+- Removed **overlay** → nothing yet; held back until `assets/overlays/` ships overlay TOML.
+- Removed **cleanup** → the skill was renamed; use `/l3io-util-doctor`.
+
+> Deliberately a list and **not a table**, and the removed names are bold rather than
+> code-formatted. `DOCTOR_ROUTING_ROW_RE` matches any SKILL.md table row whose first cell is
+> backticked tokens, so writing this as a table added all five to the keyword set check 25
+> derives — neutering the guard that catches a stale keyword. Its scope-attack test caught it.
+> Keep this shape.
 
 > Falling through meant someone typing a keyword that used to work got a health check and a
 > proposal to write files they never asked about — the argument silently ignored. `backlog`

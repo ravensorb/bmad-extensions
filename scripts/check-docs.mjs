@@ -518,11 +518,32 @@ function specAlignSubcommands() {
 // (checkDoctorModeKeywords), which is the check that owns reporting when the table itself
 // fails to parse. Returning {valid, rows} rather than baking the "did it parse" verdict in
 // here keeps that ownership in one place instead of two checks each deciding it their own way.
+const DOCTOR_ROUTING_HEADER_RE = /^\|\s*Keyword\s*\|.*\|\s*$/m;
+
 function doctorRoutingTable() {
   const skill = read(`${DOCTOR_DIR}/SKILL.md`);
   const valid = new Set();
   let rows = 0;
-  for (const row of skill.matchAll(DOCTOR_ROUTING_ROW_RE)) {
+
+  // SCOPED to the routing table, not to every table row in the file. The row regex alone
+  // matches any row whose first cell is backticked tokens, so an unrelated table -- a
+  // removed-keyword mapping, say -- silently ADDS its first column to the valid set and
+  // stops check 25 catching a stale keyword. That happened, and check 25's own scope-attack
+  // test is what caught it. The bound is derived from the table's header row, the only one
+  // in the file, rather than from a line number or a hand-kept list.
+  const header = skill.match(DOCTOR_ROUTING_HEADER_RE);
+  if (!header) return { valid, rows };
+  const after = skill.slice(header.index + header[0].length);
+  // slice(1): the header match ends before its newline, so split leaves an empty fragment
+  // first -- which is not a table row and ended the scan immediately.
+  const lines = after.split("\n").slice(1);
+  let body = [];
+  for (const line of lines) {
+    if (/^\|\s*-{2,}/.test(line)) continue;          // the |---|---| separator
+    if (!line.startsWith("|")) break;                // first non-row line ends the table
+    body.push(line);
+  }
+  for (const row of body.join("\n").matchAll(DOCTOR_ROUTING_ROW_RE)) {
     rows++;
     for (const k of row[1].matchAll(/`([^`]+)`/g)) valid.add(k[1].trim());
   }
