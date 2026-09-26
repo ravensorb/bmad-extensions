@@ -5461,6 +5461,13 @@ _BL_KEY_RE = re.compile(r"^BL-E(\d+)-(\d+)$")
 ISSUES_FILENAME = "issues.yaml"
 RESOLVED_FILENAME = "issues-resolved.yaml"
 OPEN_ISSUE_STATUSES = ("backlog", "scheduled")
+# Statuses the PRE-3.0 schema used for an open item, mapped to their current equivalent.
+# `deferred` was that schema's resting state for a deliberate deferral -- open, unscheduled --
+# which is exactly `backlog` now. A project upgrading with a legacy backlog otherwise gets one
+# undifferentiated 1f per item (453 on a real one) whose repair text is "report only", so
+# triage reports everything and can act on nothing. Mapping to a RESOLVED state instead would
+# be a judgement, not a migration, so it is deliberately not done here.
+LEGACY_OPEN_STATUSES = {"deferred": "backlog"}
 RESOLUTIONS = ("fixed", "wontfix", "duplicate", "obsolete")
 # A backlog item's kind. `defect` is the default and is never written, so every file written
 # before kinds existed still reads as all defects. The spec kinds come from spec-align.py's
@@ -6284,7 +6291,11 @@ def _audit_findings(state_root, store) -> list:
         except PMError:
             continue            # 1i (reported above): an ambiguous key is never evaluated
         st = str(it.get("status", ""))
-        if st not in OPEN_ISSUE_STATUSES:
+        if st in LEGACY_OPEN_STATUSES:
+            add("1f", k, f"open item has legacy status {st!r} (pre-3.0 resting state)",
+                f"run: pm-status.py repair-issue --state-root S --key {k} "
+                f"--action normalize-status  # -> {LEGACY_OPEN_STATUSES[st]}")
+        elif st not in OPEN_ISSUE_STATUSES:
             add("1f", k, f"open item has status {st!r}", "report only")
         kind = it.get("kind")
         if kind is not None and str(kind) not in ISSUE_KINDS:
@@ -6410,8 +6421,43 @@ def cmd_repair_issue(args) -> int:
     return _run_core(lambda: _repair_issue(args))
 
 
+def _normalize_all_legacy(args) -> int:
+    """Normalize every legacy open status in one pass, under one lock.
+
+    Measured on a real upgrade: 452 items. One-at-a-time that is 452 subprocesses, each
+    taking the issues lock, inside a triage step that confirms per item -- reported back as
+    impractical, and it is. Batching adds no judgement: the mapping is mechanical, and the
+    same LEGACY_OPEN_STATUSES membership test gates each item exactly as the single-key path
+    does, so anything unrecognised is left alone rather than swept along.
+    """
+    open_path = issues_paths(args.state_root)[0]
+    with issues_lock(open_path):
+        store = IssueStore(open_path)
+        changed = []
+        for it in (store.open.get("backlog") or []):
+            was = str(it.get("status", ""))
+            if was in LEGACY_OPEN_STATUSES:
+                it["status"] = LEGACY_OPEN_STATUSES[was]
+                changed.append((it, was))
+        if not changed:
+            sys.stdout.write("OK normalize-status --all-legacy: no legacy status found\n")
+            return 0
+        store.save_open()
+        for it, was in changed:
+            _issue_event(store.state_root, "issue_status_normalized", it, args.session_id,
+                         args.cause, note=f"{was} -> {it['status']}")
+    sys.stdout.write(f"OK normalize-status --all-legacy: {len(changed)} item(s) normalized\n")
+    return 0
+
+
 def _repair_issue(args) -> int:
     from ruamel.yaml.comments import CommentedMap
+    if getattr(args, "all_legacy", False):
+        if args.action != "normalize-status":
+            raise PMError(2, "--all-legacy applies only to --action normalize-status")
+        return _normalize_all_legacy(args)
+    if not args.key:
+        raise PMError(2, "--key is required, or --all-legacy with --action normalize-status")
     k = canonical_bl_key(args.key)
     if k is None:
         raise PMError(2, f"--key {args.key!r} is not a backlog key")
@@ -6462,6 +6508,24 @@ def _repair_issue(args) -> int:
             _issue_event(store.state_root, "issue_scheduled", it, args.session_id, args.cause,
                          story=args.story, via="repair-link")
             msg = f"{k} scheduled to {args.story}"
+        elif act == "normalize-status":
+            # Gated like every other action: only a status this schema once used, and only
+            # to its documented equivalent. An unrecognised status has no safe mapping, so
+            # it stays 1f/report-only rather than being guessed into backlog.
+            opens = store.open_items(k)
+            if len(opens) != 1:
+                raise PMError(2, f"normalize-status: {k} does not resolve to one open item")
+            it = opens[0]
+            was = str(it.get("status", ""))
+            if was not in LEGACY_OPEN_STATUSES:
+                raise PMError(2, f"normalize-status: {k} has status {was!r}, which is not a "
+                                 f"known legacy status ({', '.join(sorted(LEGACY_OPEN_STATUSES))})"
+                                 f" -- audit finding 1f does not hold in its legacy form")
+            it["status"] = LEGACY_OPEN_STATUSES[was]
+            store.save_open()
+            _issue_event(store.state_root, "issue_status_normalized", it, args.session_id,
+                         args.cause)
+            msg = f"{k} {was} -> {it['status']} (legacy status normalized)"
         elif act == "reseed":
             if not any(f["id"] == "1e" and (f["epic"] == epic or f["key"] == "next")
                        for f in findings):
@@ -7357,9 +7421,13 @@ def build_parser() -> argparse.ArgumentParser:
 
     rp = sub.add_parser("repair-issue", help="structural repair gated on an audit-issues finding")
     rp.add_argument("--state-root", required=True)
-    rp.add_argument("--key", required=True, help="the item; for reseed, any key of the epic")
-    rp.add_argument("--action", required=True, choices=["unschedule", "link", "reseed", "reopen"])
+    rp.add_argument("--key", default=None,
+                    help="the item; for reseed, any key of the epic; omit with --all-legacy")
+    rp.add_argument("--action", required=True,
+                    choices=["unschedule", "link", "reseed", "reopen", "normalize-status"])
     rp.add_argument("--story", default=None, help="with --action link")
+    rp.add_argument("--all-legacy", dest="all_legacy", action="store_true",
+                    help="with --action normalize-status: every legacy status in one pass")
     rp.add_argument("--session-id", dest="session_id", default=None)
     rp.add_argument("--cause", default="cli", choices=["cli", "triage", "plan-intake"])
     rp.set_defaults(func=cmd_repair_issue)

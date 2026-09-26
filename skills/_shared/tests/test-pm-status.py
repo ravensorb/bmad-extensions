@@ -8236,7 +8236,100 @@ class TestRepairIssue(TestAuditIssues):
     def ids(self):
         return {(f["id"], f["key"]) for f in self.audit()[1]}
 
+    def test_legacy_deferred_is_named_as_such_with_an_actionable_repair(self):
+        """Pre-3.0, `deferred` WAS the resting state for a deliberate deferral. Since
+        OPEN_ISSUE_STATUSES narrowed to (backlog, scheduled), every one of them became an
+        undifferentiated 1f with repair "report only" -- 453 of them on a real project,
+        so triage produced 453 findings and zero applicable repairs and completed having
+        done nothing, with no indication the cause was a schema migration."""
+        self.append("A")
+        self.edit_open(lambda d: d["backlog"][0].__setitem__("status", "deferred"))
+        f = [x for x in self.audit()[1] if x["id"] == "1f" and x["key"] == "BL-E001-001"]
+        self.assertEqual(len(f), 1, self.audit()[1])
+        self.assertIn("legacy", f[0]["detail"])
+        self.assertIn("normalize-status", f[0]["repair"],
+                      "a legacy status must name its repair, not say 'report only'")
+
+    def test_normalize_status_maps_legacy_deferred_to_backlog(self):
+        self.append("A")
+        self.edit_open(lambda d: d["backlog"][0].__setitem__("status", "deferred"))
+        code, _, err = self.repair("BL-E001-001", "normalize-status")
+        self.assertEqual(code, 0, err)
+        self.assertEqual(self.load_open()["backlog"][0]["status"], "backlog")
+        self.assertNotIn(("1f", "BL-E001-001"), self.ids())
+        self.assert_invariants()
+
+    def test_normalize_status_refuses_an_already_valid_status(self):
+        """The gate every repair action carries: refuse unless its finding holds."""
+        self.append("A")
+        code, _, _ = self.repair("BL-E001-001", "normalize-status")
+        self.assertEqual(code, 2)
+        self.assertEqual(self.load_open()["backlog"][0]["status"], "backlog")
+
+    def test_normalize_status_refuses_an_unknown_status(self):
+        """An unrecognised status is not a known legacy value, so there is no safe
+        mapping; it stays report-only rather than being guessed into backlog."""
+        self.append("A")
+        self.edit_open(lambda d: d["backlog"][0].__setitem__("status", "banana"))
+        code, _, _ = self.repair("BL-E001-001", "normalize-status")
+        self.assertEqual(code, 2)
+        self.assertEqual(self.load_open()["backlog"][0]["status"], "banana")
+        f = [x for x in self.audit()[1] if x["id"] == "1f"]
+        self.assertIn("report only", f[0]["repair"])
+
+    def test_all_legacy_normalizes_every_legacy_item_in_one_pass(self):
+        """452 items one-at-a-time is 452 subprocesses each taking the lock, inside a
+        per-item confirmation loop -- reported back from a real upgrade as impractical."""
+        for t in ("A", "B", "C"):
+            self.append(t)
+        self.edit_open(lambda d: [d["backlog"][0].__setitem__("status", "deferred"),
+                                  d["backlog"][2].__setitem__("status", "deferred")])
+        code, out, err = self.run_all(["repair-issue", "--state-root", self.root,
+                                       "--action", "normalize-status", "--all-legacy"])
+        self.assertEqual(code, 0, err)
+        self.assertIn("2 item(s) normalized", out)
+        self.assertEqual([str(i["status"]) for i in self.load_open()["backlog"]],
+                         ["backlog", "backlog", "backlog"])
+        self.assertEqual(len(self.events("issue_status_normalized")), 2)
+        self.assert_invariants()
+
+    def test_all_legacy_leaves_an_unrecognised_status_alone(self):
+        """Batching must not sweep along a status the single-key gate would refuse."""
+        self.append("A")
+        self.append("B")
+        self.edit_open(lambda d: [d["backlog"][0].__setitem__("status", "deferred"),
+                                  d["backlog"][1].__setitem__("status", "banana")])
+        code, out, err = self.run_all(["repair-issue", "--state-root", self.root,
+                                       "--action", "normalize-status", "--all-legacy"])
+        self.assertEqual(code, 0, err)
+        self.assertIn("1 item(s) normalized", out)
+        self.assertEqual([str(i["status"]) for i in self.load_open()["backlog"]],
+                         ["backlog", "banana"])
+
+    def test_all_legacy_with_nothing_to_do_is_a_clean_no_op(self):
+        self.append("A")
+        code, out, err = self.run_all(["repair-issue", "--state-root", self.root,
+                                       "--action", "normalize-status", "--all-legacy"])
+        self.assertEqual(code, 0, err)
+        self.assertIn("no legacy status found", out)
+        self.assertEqual(self.events("issue_status_normalized"), [])
+
+    def test_all_legacy_refuses_any_other_action(self):
+        self.append("A")
+        code, _, err = self.run_all(["repair-issue", "--state-root", self.root,
+                                     "--action", "unschedule", "--all-legacy"])
+        self.assertEqual(code, 2)
+        self.assertIn("normalize-status", err)
+
+    def test_key_is_still_required_without_all_legacy(self):
+        self.append("A")
+        code, _, err = self.run_all(["repair-issue", "--state-root", self.root,
+                                     "--action", "unschedule"])
+        self.assertEqual(code, 2)
+        self.assertIn("--key is required", err)
+
     def test_unschedule_clears_1b(self):
+
         self.append("A")
         self.promote()
         os.remove(pm.story_file(self.root, "E001-S02-001"))
