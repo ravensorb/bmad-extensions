@@ -184,11 +184,14 @@ under an epic, optionally scoped to one sprint. Absent-vs-empty is distinguished
 
 **`migrate-state` and `bootstrap-state` preserve more source fields.** Both modes now
 carry `goal` and `superseded_by` through the migration and land them on the created state
-node via `pm-status.py set-field` after `import-node`. Three structured fields — `depends_on`,
-`estimate`, `actual` — do NOT yet have typed writers, so the engine prints a `WARN` to stderr
-naming the record, the field, and the value being skipped. Previously these fields were
-dropped silently on migration; now the loss is visible. The three typed writers are tracked
-by `docs/superpowers/plans/2026-09-24-followup-migration-extras-typed-writers.md`.
+node via `pm-status.py set-field` after `import-node`. The three structured fields —
+`depends_on`, `estimate`, `actual` — **now have typed writers too**, so a migration carries
+them rather than warning about them: `set-depends-on` for the list, `set-estimate` for the
+mapping, and `set-actual --runtime other --tokens-na --no-calibrate` for an actual whose
+provenance is legacy. A legacy token total lands as the `N/A` sentinel rather than a
+fabricated four-class split, and a bulk import appends no calibration samples — run
+`pm-status.py calibration redrive` afterwards if you want them. An extra the reader captured
+but the engine cannot route still prints a `WARN` naming the record, field and value.
 
 **`bootstrap-state` now runs additively on a project with partial sharded state.** A project
 that has state nodes for some stories and orphan `.md` files for others can now use

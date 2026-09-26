@@ -322,12 +322,11 @@ class TestWriteVerifyDispose(unittest.TestCase):
             .read_text(encoding="utf-8"))
         self.assertEqual(story.get("classification"), "feature")
 
-    def test_structured_extras_emit_visible_WARN_rather_than_silent_loss(self):
-        """depends_on / estimate / actual have no typed set-* verb yet. The
-        migration must not drop them silently -- it must print WARN to stderr
-        naming the record, the field and the value. The value is what tells the
-        user what they lost; a bare `WARN: skipping depends_on` is not
-        actionable."""
+    def test_no_structured_extra_is_WARNed_any_more(self):
+        """Was test_structured_extras_emit_visible_WARN_rather_than_silent_loss. All three
+        structured fields now have typed writers, so a WARN for any of them would mean a
+        regression to dropping it. The unrecognised-extra WARN path is separate and still
+        tested below."""
         p, d = _copy("l3io-flat")
         self.addCleanup(shutil.rmtree, d, ignore_errors=True)
         state = Path(d) / "state"
@@ -336,26 +335,46 @@ class TestWriteVerifyDispose(unittest.TestCase):
         buf = io.StringIO()
         with redirect_stderr(buf):
             eng.write(plan, state, PM_STATUS)
-        warns = [line for line in buf.getvalue().splitlines() if line.startswith("WARN")]
+        warns = [l for l in buf.getvalue().splitlines() if l.startswith("WARN")]
 
-        # estimate + actual on E001-S02-001 still WARN. depends_on no longer does -- it has a
-        # typed writer now and lands on disk; see test_depends_on_lands_via_the_typed_writer.
-        by_field = {}
-        for line in warns:
-            for field in ("depends_on", "estimate", "actual"):
-                if f" skipping {field}=" in line:
-                    by_field[field] = line
+        for field in ("depends_on", "estimate", "actual"):
+            self.assertFalse([w for w in warns if f" skipping {field}=" in w],
+                             f"{field} has a typed writer; a WARN means it was dropped")
+        self.assertEqual(eng.sr.STRUCTURED_EXTRAS_TO_WARN, (),
+                         "nothing should be left in the WARN-only set")
 
-        self.assertNotIn("depends_on", by_field,
-                         "depends_on has a typed writer; WARNing it would mean it was dropped")
+    def test_an_unrecognised_extra_still_WARNs(self):
+        """The WARN path itself must survive: a field the reader captured but the engine
+        cannot route is still visible loss, not silent loss."""
+        rec = {"kind": "epic", "key": "E001", "extras": {"no_such_field": "v"}}
+        p, d = _copy("l3io-flat")
+        self.addCleanup(shutil.rmtree, d, ignore_errors=True)
+        state = Path(d) / "state"
+        eng.write(eng.build_plan(eng.gather("l3io-flat", p, p)), state, PM_STATUS)
+        buf = io.StringIO()
+        with redirect_stderr(buf):
+            eng._apply_extras(rec, state, PM_STATUS)
+        self.assertIn("unrecognised extra", buf.getvalue())
+        self.assertIn("no_such_field", buf.getvalue())
 
-        self.assertIn("estimate", by_field, warns)
-        self.assertIn("E001-S02-001", by_field["estimate"])
-        self.assertIn("man_hours", by_field["estimate"],
-                      "the WARN must serialise the value contents")
+    def test_actual_lands_via_set_actual_with_the_N_A_sentinel(self):
+        """The fixture carries `actual: {man_hours: 6}` on E001-S02-001. It must land, with
+        tokens as the N/A sentinel rather than a fabricated four-class split, and without
+        appending a calibration sample."""
+        from ruamel.yaml import YAML
 
-        self.assertIn("actual", by_field, warns)
-        self.assertIn("E001-S02-001", by_field["actual"])
+        _, _, state, _, _, errors = self._run("l3io-flat", "l3io-flat")
+        self.assertEqual(errors, [], f"set-actual must not error: {errors}")
+        p = state / "active" / "epic-001" / "sprint-02" / "E001-S02-001.yaml"
+        node = YAML(typ="safe").load(p.read_text(encoding="utf-8"))
+        self.assertIn("actual", node, "the actual must be carried into state")
+        self.assertEqual(str(node["actual"].get("man_hours")), "6")
+        self.assertEqual(str(node["actual"].get("tokens_k")), "N/A",
+                         "legacy tokens must be the sentinel, never 0 -- calibration would "
+                         "consume 0 as a real measurement")
+        cal = state / "pm-calibration.yaml"
+        self.assertFalse(cal.exists(),
+                         "a bulk import must not append calibration samples")
 
     def test_depends_on_lands_via_the_typed_writer(self):
         """Converted from a WARN assertion. The l3io-flat fixture carries
@@ -373,7 +392,41 @@ class TestWriteVerifyDispose(unittest.TestCase):
                               "nothing, because a later reader takes it for a scalar")
         self.assertEqual(node["depends_on"], ["E001-S01-002"])
 
+    def test_estimate_lands_via_set_estimate(self):
+        """Converted from a WARN assertion. The fixture carries a POINT estimate
+        (`man_hours: 5`, `tokens_k: 40`) on E001-S02-001. set-estimate has point flags as well
+        as range flags, so the mapping keys translate mechanically -- man_hours -> --man-hours
+        -- with no per-metric table to drift."""
+        from ruamel.yaml import YAML
+
+        _, _, state, _, _, errors = self._run("l3io-flat", "l3io-flat")
+        self.assertEqual(errors, [], f"set-estimate must not error: {errors}")
+        p = state / "active" / "epic-001" / "sprint-02" / "E001-S02-001.yaml"
+        node = YAML(typ="safe").load(p.read_text(encoding="utf-8"))
+        self.assertIn("estimate", node, "the estimate must be carried into state")
+        est = node["estimate"]
+        self.assertTrue(
+            any("man_hours" in str(k) for k in est),
+            f"man_hours must survive the translation; got {sorted(est)}")
+
+    def test_a_legacy_cost_in_an_estimate_is_dropped_with_a_note(self):
+        """cost is derived from tokens at capture and frozen; set-estimate rejects --cost*
+        outright. A legacy cost must be dropped visibly, not passed and not silently lost."""
+        rec = {"kind": "epic", "key": "E001",
+               "extras": {"estimate": {"man_hours": 5, "cost_low": "1.00"}}}
+        p, d = _copy("l3io-flat")
+        self.addCleanup(shutil.rmtree, d, ignore_errors=True)
+        state = Path(d) / "state"
+        eng.write(eng.build_plan(eng.gather("l3io-flat", p, p)), state, PM_STATUS)
+        buf = io.StringIO()
+        with redirect_stderr(buf):
+            errs = eng._apply_extras(rec, state, PM_STATUS)
+        self.assertEqual(errs, [], f"a dropped cost must not be an error: {errs}")
+        self.assertIn("cost_low", buf.getvalue())
+        self.assertIn("derived", buf.getvalue())
+
     def test_cli_apply_end_to_end(self):
+
 
         p, d = _copy("l3io-flat")
         self.addCleanup(shutil.rmtree, d, ignore_errors=True)

@@ -86,8 +86,8 @@ def make_record(kind, key, status, title, source, origin=None, origin_note=None,
 # The unwritten-typed calls are the follow-up debt; the WARN converts the loss into
 # something users can act on now.
 SCALAR_EXTRAS_TO_SET_FIELD = ("goal", "superseded_by")
-STRUCTURED_EXTRAS_TO_WARN = ("estimate", "actual")
-LIST_EXTRAS_TO_TYPED_WRITER = ("depends_on",)
+STRUCTURED_EXTRAS_TO_WARN = ()
+LIST_EXTRAS_TO_TYPED_WRITER = ("depends_on", "estimate", "actual")
 KNOWN_EXTRAS = (SCALAR_EXTRAS_TO_SET_FIELD + LIST_EXTRAS_TO_TYPED_WRITER
                 + STRUCTURED_EXTRAS_TO_WARN)
 

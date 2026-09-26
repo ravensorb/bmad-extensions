@@ -231,7 +231,9 @@ def write(plan: dict, state_root: Path, pm_status: str):
     After import-node lands the node, any fields the reader captured in the record's
     `extras` are dispatched:
       - scalar fields (goal, superseded_by) via `set-field`, so they land on disk.
-      - structured fields (depends_on, estimate, actual) print WARN to stderr naming
+      - structured fields (depends_on, estimate, actual) now have typed writers:
+      -   depends_on -> set-depends-on, estimate -> set-estimate, actual -> set-actual
+      -   (--runtime other --tokens-na --no-calibrate). An UNRECOGNISED extra still WARNs naming
         the record and the value -- pm-status.py does not yet expose the typed
         set-* verbs those need, so silent loss becomes visible loss until the
         follow-up lands. See docs/superpowers/plans/... for the write-side backfill.
@@ -298,6 +300,78 @@ def _apply_extras(rec: dict, state_root: Path, pm_status: str) -> list:
             if proc.returncode != 0:
                 errors.append(
                     f"{rec['kind']} {rec['key']}: set-depends-on failed -- "
+                    f"{proc.stderr.strip()}")
+        elif field == "estimate":
+            # The mapping's keys ARE set-estimate's flag names with underscores: man_hours ->
+            # --man-hours, tokens_k_min -> --tokens-k-min. Point values and ranges both have a
+            # flag, so the translation is mechanical and needs no per-metric table.
+            #
+            # cost is the exception and is DROPPED, not passed: it is derived from tokens at
+            # capture time and frozen, set-estimate rejects --cost* outright (exit 2), and a
+            # legacy cost is a number nobody can re-derive. Skipping it is the hard rule, not
+            # a shortcut.
+            if not isinstance(value, dict):
+                errors.append(f"{rec['kind']} {rec['key']}: estimate is "
+                              f"{type(value).__name__}, expected a mapping")
+                continue
+            argv = ["uv", "run", pm_status, "set-estimate",
+                    "--state-root", str(state_root)]
+            argv += _node_argv(rec)
+            dropped = []
+            for k, v in value.items():
+                if str(k).startswith("cost"):
+                    dropped.append(str(k))
+                    continue
+                argv += [f"--{str(k).replace('_', '-')}", str(v)]
+            if dropped:
+                sys.stderr.write(
+                    f"NOTE {rec['kind']} {rec['key']}: estimate {', '.join(dropped)} not "
+                    f"carried -- cost is derived from tokens at capture time, never stored "
+                    f"from a source.\n")
+            proc = subprocess.run(argv, capture_output=True, text=True)
+            if proc.returncode != 0:
+                errors.append(
+                    f"{rec['kind']} {rec['key']}: set-estimate failed -- "
+                    f"{proc.stderr.strip()}")
+        elif field == "actual":
+            # NO new verb. The follow-up sketch proposed `import-actual` on the import-node
+            # precedent, but that precedent does not transfer: set-status DIES on a missing
+            # node and cannot express creation at all, whereas set-actual CAN express a legacy
+            # actual exactly -- `--runtime other --tokens-na --no-calibrate`. Adding a verb
+            # that duplicates existing tested surface would be the cost without the reason.
+            #
+            #   --runtime other   a migrated actual has no Claude provenance to claim
+            #   --tokens-na       legacy data carries no four-class split, and the sentinel is
+            #                     the honest value -- 0 would be consumed by calibration as a
+            #                     real measurement and drive the learned ratio toward zero
+            #   --no-calibrate    a bulk import must not append hundreds of samples in one
+            #                     pass; `pm-status.py calibration redrive` rebuilds from the
+            #                     nodes afterwards if they are wanted
+            if not isinstance(value, dict):
+                errors.append(f"{rec['kind']} {rec['key']}: actual is "
+                              f"{type(value).__name__}, expected a mapping")
+                continue
+            argv = ["uv", "run", pm_status, "set-actual",
+                    "--state-root", str(state_root), "--node", rec["kind"],
+                    "--runtime", "other", "--tokens-na", "--no-calibrate"]
+            argv += _node_argv(rec)
+            dropped = []
+            for k, v in value.items():
+                key = str(k)
+                if key.startswith("cost") or key.startswith("tokens"):
+                    dropped.append(key)
+                    continue
+                argv += [f"--{key.replace('_', '-')}", str(v)]
+            if dropped:
+                sys.stderr.write(
+                    f"NOTE {rec['kind']} {rec['key']}: actual {', '.join(dropped)} not carried "
+                    f"-- cost is derived, and a legacy token total cannot be split into the "
+                    f"four classes set-actual requires, so tokens land as the N/A sentinel "
+                    f"rather than a fabricated split.\n")
+            proc = subprocess.run(argv, capture_output=True, text=True)
+            if proc.returncode != 0:
+                errors.append(
+                    f"{rec['kind']} {rec['key']}: set-actual failed -- "
                     f"{proc.stderr.strip()}")
         elif field in sr.STRUCTURED_EXTRAS_TO_WARN:
             sys.stderr.write(
