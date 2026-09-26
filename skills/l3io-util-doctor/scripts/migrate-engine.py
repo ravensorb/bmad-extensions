@@ -285,6 +285,20 @@ def _apply_extras(rec: dict, state_root: Path, pm_status: str) -> list:
                 errors.append(
                     f"{rec['kind']} {rec['key']}: set-field {field}= failed -- "
                     f"{proc.stderr.strip()}")
+        elif field == "depends_on":
+            # List-shaped, so it needs the list-shaped verb: routing it through set-field
+            # would store "['E001']" as a scalar, which a later reader takes for one.
+            items = value if isinstance(value, (list, tuple)) else [value]
+            argv = ["uv", "run", pm_status, "set-depends-on",
+                    "--state-root", str(state_root)]
+            argv += _node_argv(rec)
+            for item in items:
+                argv += ["--add", str(item)]
+            proc = subprocess.run(argv, capture_output=True, text=True)
+            if proc.returncode != 0:
+                errors.append(
+                    f"{rec['kind']} {rec['key']}: set-depends-on failed -- "
+                    f"{proc.stderr.strip()}")
         elif field in sr.STRUCTURED_EXTRAS_TO_WARN:
             sys.stderr.write(
                 f"WARN {rec['kind']} {rec['key']}: skipping {field}={value!r} -- "

@@ -9753,7 +9753,109 @@ class TestEnsureNodePath(Base):
         self.assertEqual(cm.exception.code, 2)
 
 
+class TestSetDependsOn(Base):
+    """`depends_on` is an epic-only list of epic keys (status-files.md §11). set-field takes a
+    single string, so writing a list through it would store '[E001]' as a scalar -- worse than
+    not writing it, because a later reader would treat it as one. Hence a list-shaped verb."""
+
+    def _epic(self, key, status="backlog"):
+        code, out = self.run_main(["import-node", "--state-root", self.d, "--epic", key,
+                                   "--status", status, "--title", key])
+        self.assertEqual(code, 0, out)
+
+    def _node(self, key):
+        return pm.load_node(pm.epic_file(self.d, key))[1]
+
+    def test_add_creates_the_list_when_absent(self):
+        self._epic("E002")
+        code, out = self.run_main(["set-depends-on", "--state-root", self.d,
+                                   "--epic", "E002", "--add", "E001"])
+        self.assertEqual(code, 0, out)
+        self.assertEqual(list(self._node("E002")["depends_on"]), ["E001"])
+
+    def test_several_adds_in_one_call(self):
+        self._epic("E003")
+        self.run_main(["set-depends-on", "--state-root", self.d, "--epic", "E003",
+                       "--add", "E001", "--add", "E002"])
+        self.assertEqual(list(self._node("E003")["depends_on"]), ["E001", "E002"])
+
+    def test_add_is_idempotent_and_preserves_order(self):
+        self._epic("E003")
+        self.run_main(["set-depends-on", "--state-root", self.d, "--epic", "E003",
+                       "--add", "E001", "--add", "E002"])
+        self.run_main(["set-depends-on", "--state-root", self.d, "--epic", "E003",
+                       "--add", "E002", "--add", "E001"])
+        self.assertEqual(list(self._node("E003")["depends_on"]), ["E001", "E002"],
+                         "a re-run must not duplicate or reorder")
+
+    def test_a_malformed_key_is_refused(self):
+        self._epic("E002")
+        code, _ = self.run_main(["set-depends-on", "--state-root", self.d,
+                                 "--epic", "E002", "--add", "not-an-epic"])
+        self.assertEqual(code, 2)
+        self.assertNotIn("depends_on", self._node("E002"))
+
+    def test_self_dependency_is_refused(self):
+        self._epic("E002")
+        code, _ = self.run_main(["set-depends-on", "--state-root", self.d,
+                                 "--epic", "E002", "--add", "E002"])
+        self.assertEqual(code, 2)
+
+    def test_a_missing_epic_exits_3(self):
+        code, _ = self.run_main(["set-depends-on", "--state-root", self.d,
+                                 "--epic", "E404", "--add", "E001"])
+        self.assertEqual(code, 3)
+
+    def test_a_story_node_takes_STORY_keys(self):
+        """status-files.md §11 puts depends_on on epic AND story nodes, with different key
+        shapes. Reading only that section's first sentence gives the epic case and loses the
+        story case -- which is the shape the migration fixtures actually carry."""
+        self._epic("E001")
+        self.run_main(["import-node", "--state-root", self.d, "--story", "E001-S01-001",
+                       "--status", "done", "--title", "S"])
+        code, out = self.run_main(["set-depends-on", "--state-root", self.d,
+                                   "--story", "E001-S01-001", "--add", "E001-S01-002"])
+        self.assertEqual(code, 0, out)
+        node = pm.load_node(pm.story_file(self.d, "E001-S01-001"))[1]
+        self.assertEqual(list(node["depends_on"]), ["E001-S01-002"])
+
+    def test_an_epic_key_on_a_story_node_is_refused(self):
+        self._epic("E001")
+        self.run_main(["import-node", "--state-root", self.d, "--story", "E001-S01-001",
+                       "--status", "done", "--title", "S"])
+        code, _ = self.run_main(["set-depends-on", "--state-root", self.d,
+                                 "--story", "E001-S01-001", "--add", "E002"])
+        self.assertEqual(code, 2)
+
+    def test_a_story_key_on_an_epic_node_is_refused(self):
+        self._epic("E002")
+        code, _ = self.run_main(["set-depends-on", "--state-root", self.d,
+                                 "--epic", "E002", "--add", "E001-S01-001"])
+        self.assertEqual(code, 2)
+
+    def test_a_sprint_node_is_refused(self):
+        self._epic("E001")
+        self.run_main(["import-node", "--state-root", self.d, "--epic", "E001",
+                       "--sprint", "S01", "--status", "backlog", "--title", "Sp"])
+        code, _ = self.run_main(["set-depends-on", "--state-root", self.d, "--epic", "E001",
+                                 "--sprint", "S01", "--add", "E002"])
+        self.assertEqual(code, 2)
+
+    def test_nothing_is_written_when_any_key_is_bad(self):
+
+        """All-or-nothing: a half-applied dependency list is worse than none."""
+        self._epic("E003")
+        self.run_main(["set-depends-on", "--state-root", self.d, "--epic", "E003",
+                       "--add", "E001"])
+        code, _ = self.run_main(["set-depends-on", "--state-root", self.d, "--epic", "E003",
+                                 "--add", "E002", "--add", "rubbish"])
+        self.assertEqual(code, 2)
+        self.assertEqual(list(self._node("E003")["depends_on"]), ["E001"],
+                         "the good key in a rejected call must not land")
+
+
 class TestImportNode(Base):
+
     def _events(self):
         p = os.path.join(self.d, "events.jsonl")
         if not os.path.exists(p):

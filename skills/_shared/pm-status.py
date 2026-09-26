@@ -83,6 +83,12 @@ Subcommands
                 cost is DERIVED from tokens x rates — --cost/--cost-low/--cost-high are
                 declared but always rejected; use estimate-story/estimate-rollup instead)
                 [--confidence {low,medium,high}] [--flock]
+  set-depends-on --state-root S  (--story KEY | --epic ID)  --add KEY [--add KEY ...]
+                (appends to depends_on, the one LIST-shaped field: epic keys on an epic
+                node, story keys on a story node -- status-files.md §11. set-field would
+                store a list as the string "['E001']", which a reader takes for a scalar.
+                Idempotent, order preserved, all-or-nothing: every key is validated
+                before anything is written. A sprint node has no depends_on: exit 2)
   set-field     --state-root S  (--story KEY | --epic ID [--sprint ID])  --field NAME --value V
                 (refuses any field in DERIVED_NODE_FIELDS, any sub-path of one
                 (<name>.x), or any parent path of one (completion_evidence, which would
@@ -4265,7 +4271,67 @@ def _block_duration_since_last_open(state_root: str, story_key: str):
     return None
 
 
+EPIC_KEY_RE = re.compile(r"^E\d{3}$")
+STORY_KEY_RE = re.compile(r"^E\d{3}-S\d{2}-\d{3}$")
+# status-files.md §11: `depends_on` lives on BOTH an epic node (epic keys) and a story node
+# (story keys). Reading only that section's first sentence gives the epic case and silently
+# loses the story case, which is the shape the migration fixtures actually carry.
+DEPENDS_ON_KEY_RE = {"epic": EPIC_KEY_RE, "story": STORY_KEY_RE}
+
+
+def cmd_set_depends_on(args) -> int:
+    """Append epic keys to an epic's `depends_on` list.
+
+    `depends_on` is epic-only and list-shaped (status-files.md §11). `set-field --value` takes a
+    single string, so routing a list through it would store "['E001']" as a scalar -- worse than
+    not writing it at all, because a later reader takes it for one. That is exactly why the
+    migration engine WARNed and skipped this field rather than flattening it.
+
+    All-or-nothing: every key is validated before anything is written, because a half-applied
+    dependency list is a worse artefact than an absent one -- l3io-pm-plan topologically sorts
+    on it, so a missing edge silently reorders a phase.
+    """
+    from ruamel.yaml.comments import CommentedSeq
+    from ruamel.yaml.scalarstring import SingleQuotedScalarString as SQ
+
+    kind = _infer_kind(args)
+    if kind not in DEPENDS_ON_KEY_RE:
+        _die_usage(f"depends_on lives on an epic or a story node, not a {kind} "
+                   f"(status-files.md §11)")
+    key_re = DEPENDS_ON_KEY_RE[kind]
+    self_key = args.epic if kind == "epic" else args.story
+
+    keys = list(args.add or [])
+    if not keys:
+        _die_usage("set-depends-on needs at least one --add KEY")
+    for k in keys:
+        if not key_re.match(k):
+            _die_usage(f"--add {k!r} is not a {kind} key (expected {key_re.pattern}); "
+                       f"nothing written")
+        if k == self_key:
+            _die_usage(f"--add {k!r} is the node itself -- it cannot depend on itself; "
+                       f"nothing written")
+
+    with _epic_write_lock(args, kind):
+        y, node, path, label = _load_checked(args.state_root, args, kind)
+        existing = node.get("depends_on")
+        if not isinstance(existing, list):
+            existing = CommentedSeq()
+            node["depends_on"] = existing
+        added = []
+        for k in keys:
+            if str(k) not in [str(e) for e in existing]:
+                existing.append(SQ(k))
+                added.append(k)
+        node["updated_at"] = _now_iso()
+        save_node(y, node, path, getattr(args, "flock", False))
+
+    sys.stdout.write(f"OK set-depends-on {label} += {added or '(nothing new)'}\n")
+    return 0
+
+
 def cmd_import_node(args) -> int:
+
     """Create a state node from a migration record. The counterpart to set-status for a
     node that does not exist yet.
 
@@ -7264,6 +7330,17 @@ def build_parser() -> argparse.ArgumentParser:
                     help="implementation_artifacts root (NOT the state root)")
     di.add_argument("--story", required=True)
     di.set_defaults(func=cmd_story_doc_init)
+
+    sdo = sub.add_parser("set-depends-on",
+                         help="append dependency keys to an epic or story node's depends_on list")
+    sdo.add_argument("--state-root", required=True)
+    sdo.add_argument("--epic")
+    sdo.add_argument("--story", help="a story node's depends_on takes story keys")
+    sdo.add_argument("--sprint")
+    sdo.add_argument("--add", action="append", required=True, metavar="KEY",
+                     help="repeatable; idempotent, order preserved. Epic keys for an epic "
+                          "node, story keys for a story node")
+    sdo.set_defaults(func=cmd_set_depends_on)
 
     imp = sub.add_parser("import-node",
                          help="create a state node from a migration record")

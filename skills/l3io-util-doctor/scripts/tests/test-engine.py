@@ -338,18 +338,16 @@ class TestWriteVerifyDispose(unittest.TestCase):
             eng.write(plan, state, PM_STATUS)
         warns = [line for line in buf.getvalue().splitlines() if line.startswith("WARN")]
 
-        # depends_on on the story E001-S01-001, plus estimate + actual on E001-S02-001.
+        # estimate + actual on E001-S02-001 still WARN. depends_on no longer does -- it has a
+        # typed writer now and lands on disk; see test_depends_on_lands_via_the_typed_writer.
         by_field = {}
         for line in warns:
             for field in ("depends_on", "estimate", "actual"):
                 if f" skipping {field}=" in line:
                     by_field[field] = line
 
-        self.assertIn("depends_on", by_field, warns)
-        self.assertIn("E001-S01-001", by_field["depends_on"],
-                      "the WARN must name the record so users know what they lost")
-        self.assertIn("E001-S01-002", by_field["depends_on"],
-                      "the WARN must include the value being dropped, not just the field name")
+        self.assertNotIn("depends_on", by_field,
+                         "depends_on has a typed writer; WARNing it would mean it was dropped")
 
         self.assertIn("estimate", by_field, warns)
         self.assertIn("E001-S02-001", by_field["estimate"])
@@ -359,7 +357,24 @@ class TestWriteVerifyDispose(unittest.TestCase):
         self.assertIn("actual", by_field, warns)
         self.assertIn("E001-S02-001", by_field["actual"])
 
+    def test_depends_on_lands_via_the_typed_writer(self):
+        """Converted from a WARN assertion. The l3io-flat fixture carries
+        `depends_on: ['E001-S01-002']` on story E001-S01-001; it must now be ON DISK as a
+        LIST, not WARNed and not flattened to the string "['E001-S01-002']"."""
+        from ruamel.yaml import YAML
+
+        _, _, state, _, _, errors = self._run("l3io-flat", "l3io-flat")
+        self.assertEqual(errors, [], f"set-depends-on must not error: {errors}")
+        p = state / "active" / "epic-001" / "sprint-01" / "E001-S01-001.yaml"
+        node = YAML(typ="safe").load(p.read_text(encoding="utf-8"))
+        self.assertIn("depends_on", node, "depends_on must be carried into state")
+        self.assertIsInstance(node["depends_on"], list,
+                              "it must land as a LIST -- a stringified list is worse than "
+                              "nothing, because a later reader takes it for a scalar")
+        self.assertEqual(node["depends_on"], ["E001-S01-002"])
+
     def test_cli_apply_end_to_end(self):
+
         p, d = _copy("l3io-flat")
         self.addCleanup(shutil.rmtree, d, ignore_errors=True)
         state = Path(d) / "state"
