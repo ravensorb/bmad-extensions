@@ -105,8 +105,10 @@ runs `npm ci` before any gate — add a gate step and it goes *after* that insta
 `node_modules/` is payload, so `check:manifest` never sees them. The dependency-free convention
 that used to hold here was never a decision — it accreted, and its cost was four hand-written
 parsers. See `docs/adr/0007-ci-installs-npm-dependencies.md`. There is **no mechanical check**
-that a gate script's imports are declared in `package.json`; that follow-up is named in the ADR
-and is not implemented.
+that a gate script's imports are declared in `package.json`" — that follow-up, named in the ADR,
+is now **check 28**. An undeclared import works locally, where the package is usually present
+transitively, and dies in CI at `ERR_MODULE_NOT_FOUND` after `npm ci` installs only what is
+declared.
 
 **Four packages in the installed tree carry an npm deprecation notice, not one.** `mvdan-sh`
 (a direct devDependency) is deliberate and argued in ADR-0007. The other three are
@@ -117,7 +119,7 @@ Recorded here so the next `npm ci` warning is a known fact rather than a redisco
 the current list rather than trusting this sentence: the `deprecated` field in
 `package-lock.json`'s `packages` map is the source of truth.
 
-`check:docs` runs twenty-seven checks asserting facts that have each drifted in this repo's history.
+`check:docs` runs twenty-nine checks asserting facts that have each drifted in this repo's history.
 They are numbered and described in `scripts/check-docs.mjs`'s own header — read them there rather
 than restating them here, **including the `KNOWN GAPS` block** at the end of that header, which
 states in full what check 4 does *not* reach over `skills/`. A numbered entry describes a check's
@@ -128,8 +130,10 @@ Three things that header does not tell you:
   step file that reverted to probing `.claude/commands/<name>.md` alone would pass every CI gate and
   then silently self-skip its phase on a 6.12 install — the failure mode §1.2 of
   `docs/superpowers/specs/2026-09-12-bmad-v612-migration-design.md` calls worse than a missing
-  skill. Probe-path correctness is verified only at **runtime**, against a real install, by
-  `/l3io-util-doctor check-deps`; a CI check for it is deferred, not implied.
+  skill. Probe-path correctness is now also checked at build time by **check 29**, which
+  requires any name probed through `.claude/commands/` to be probed through
+  `.claude/skills/<name>/SKILL.md` in the same file. `/l3io-util-doctor check-deps` remains the
+  runtime verification against a real install; check 29 catches the reversion, not the install.
 - Check 1 deliberately allows a doc to name a removed skill when mapping it to its replacement or
   explaining the change — `docs/upgrading.md` must be able to say `/l3io-pm-epic-execute` →
   `/l3io-pm-execute`. Docs are allowed to quote values inline; they are not allowed to quote them

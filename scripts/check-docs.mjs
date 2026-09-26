@@ -87,6 +87,14 @@
 //                    name all of them — scope derived from argparseSurface(), triggered by a
 //                    synopsis brace list or 2+ backticked members. See the block above
 //                    choiceEnumerations() for the KNOWN GAP.
+//  28. gate-imports  every bare import in a scripts/**.mjs gate is declared in
+//                    package.json — scope derived by walking scripts/, subpath specifiers
+//                    resolved to their package. ADR-0007 named this follow-up. See the
+//                    block above gateImportsDeclared() for the KNOWN GAP.
+//  29. probe-path-parity  a dependency probe naming .claude/commands/<n>.md must also
+//                    name .claude/skills/<n>/SKILL.md in the same file, or the phase
+//                    self-skips silently on a 6.12 install. CLAUDE.md carried this hole
+//                    in prose. See the block above probePathParity() for the KNOWN GAP.
 //
 // ---------------------------------------------------------------------------------------
 // KNOWN GAPS — check 4's reach over skills/
@@ -4148,7 +4156,133 @@ function checkChoiceEnumerations() {
   if (verbose) console.log(`  choice-enumerations: ${violations.length} violation(s)`);
 }
 
+// ---------------------------------------------------------------------------
+// 28. Every bare import in a gate script is declared in package.json.
+//
+// ADR-0007 made the checkers parse with libraries instead of hand-rolled readers and named
+// this follow-up explicitly: "There is no mechanical check that a gate script's imports are
+// declared in package.json." An undeclared import works locally, because the package is
+// usually present transitively, and dies in CI at ERR_MODULE_NOT_FOUND after `npm ci`
+// installs only what is declared. That is the same shape as the lock-file drift that kept
+// main silently red for a week: a gate that cannot START reports nothing about the thing it
+// guards, so the failure is indistinguishable from the gate being absent.
+//
+// Scope is DERIVED -- every .mjs under scripts/, recursively, never a list. `node:` builtins
+// and relative paths are not packages. A subpath import resolves to its package
+// (`csv-parse/sync` -> `csv-parse`, `@scope/pkg/sub` -> `@scope/pkg`).
+//
+// KNOWN GAP: static syntax only. A dynamic `await import(expr)` with a computed specifier
+// cannot be resolved without executing it; none exists today. False negatives only.
+const BARE_IMPORT_RE = /(?:^|\n)\s*(?:import|export)\b[^\n;]*?from\s*["']([^"']+)["']/g;
+const BARE_SIDE_EFFECT_IMPORT_RE = /(?:^|\n)\s*import\s+["']([^"']+)["']/g;
+
+function packageOfSpecifier(spec) {
+  if (spec.startsWith("node:") || spec.startsWith(".") || spec.startsWith("/")) return null;
+  const parts = spec.split("/");
+  return spec.startsWith("@") ? parts.slice(0, 2).join("/") : parts[0];
+}
+
+export function gateImportsDeclared(opts = {}) {
+  const violations = [];
+  const scanned = [];
+  const pkg = JSON.parse(read("package.json"));
+  const declared = new Set([
+    ...Object.keys(pkg.dependencies || {}),
+    ...Object.keys(pkg.devDependencies || {}),
+  ]);
+
+  const files = [];
+  const walk = (rel) => {
+    for (const entry of fs.readdirSync(path.join(repoRoot, rel), { withFileTypes: true })) {
+      const child = path.posix.join(rel, entry.name);
+      if (entry.isDirectory()) walk(child);
+      else if (entry.name.endsWith(".mjs")) files.push(child);
+    }
+  };
+  walk("scripts");
+
+  const sources = [...files.map((f) => ({ file: f, text: read(f) })),
+                   ...(opts.extraSources || [])];
+  for (const { file, text } of sources) {
+    scanned.push(file);
+    for (const re of [BARE_IMPORT_RE, BARE_SIDE_EFFECT_IMPORT_RE]) {
+      re.lastIndex = 0;
+      for (const m of text.matchAll(re)) {
+        const name = packageOfSpecifier(m[1]);
+        if (name && !declared.has(name)) {
+          violations.push(
+            `${file}: imports \`${m[1]}\` but \`${name}\` is not in package.json's ` +
+            `dependencies or devDependencies — \`npm ci\` in CI installs only what is ` +
+            `declared, so this dies at ERR_MODULE_NOT_FOUND before the gate runs`);
+        }
+      }
+    }
+  }
+  return { violations, scanned };
+}
+
+function checkGateImports() {
+  const { violations } = gateImportsDeclared();
+  for (const v of violations) failures.push(`[check 28] ${v}`);
+  if (verbose) console.log(`  gate-imports: ${violations.length} violation(s)`);
+}
+
+// ---------------------------------------------------------------------------
+// 29. A dependency probe that looks in .claude/commands/ also looks in .claude/skills/.
+//
+// CLAUDE.md has carried this hole in prose for months: "no check:docs check verifies probe
+// PATHS. A step file that reverted to probing `.claude/commands/<name>.md` alone would pass
+// every CI gate and then silently self-skip its phase on a 6.12 install." §1.2 of the v6.12
+// migration design calls that worse than a missing skill, because a self-skip is silent --
+// the phase simply does not run and nothing reports it.
+//
+// BMad 6.12 installs skills at `.claude/skills/<name>/SKILL.md`; the legacy layout put a
+// command at `.claude/commands/<name>.md`. A probe must accept BOTH, so the rule is a
+// containment one: every name probed through commands/ must also be probed through skills/
+// IN THE SAME FILE. The reverse is fine -- skills/-only is correct on a 6.12-only install.
+//
+// Scope is derived: every .md under skills/. Check 16 guards dependency NAMES; this guards
+// the paths those names are looked up through, which is the half it explicitly does not reach.
+//
+// KNOWN GAP: file-scoped, not block-scoped. A file probing name A via skills/ and a different
+// name B via commands/ passes, because the two sets are compared per file rather than per
+// probe chain. Tightening that needs shell parsing for a shape no file has today.
+const PROBE_COMMANDS_RE = /\.claude\/commands\/([$\w.-]+)\.md/g;
+const PROBE_SKILLS_RE = /\.claude\/skills\/([$\w.-]+)\/SKILL\.md/g;
+
+export function probePathParity(opts = {}) {
+  const violations = [];
+  const scanned = [];
+  const sources = [
+    ...walkSkillFiles([".md"]).map((f) => ({ file: f, text: read(f) })),
+    ...(opts.extraSources || []),
+  ];
+  for (const { file, text } of sources) {
+    scanned.push(file);
+    const viaCommands = new Set([...text.matchAll(PROBE_COMMANDS_RE)].map((m) => m[1]));
+    if (!viaCommands.size) continue;
+    const viaSkills = new Set([...text.matchAll(PROBE_SKILLS_RE)].map((m) => m[1]));
+    for (const name of viaCommands) {
+      if (!viaSkills.has(name)) {
+        violations.push(
+          `${file}: probes \`.claude/commands/${name}.md\` but never ` +
+          `\`.claude/skills/${name}/SKILL.md\` — on a BMad 6.12 install the skill is at the ` +
+          `second path, so this probe fails and the phase self-skips silently`);
+      }
+    }
+  }
+  return { violations, scanned };
+}
+
+function checkProbePathParity() {
+  const { violations } = probePathParity();
+  for (const v of violations) failures.push(`[check 29] ${v}`);
+  if (verbose) console.log(`  probe-path-parity: ${violations.length} violation(s)`);
+}
+
 function checkResolverInvariant() {
+
+
 
   const { violations } = resolverInvariant()
   for (const v of violations) failures.push(`[check 26] ${v}`)
@@ -4183,6 +4317,8 @@ checkSharedPointerResolution();
 checkDoctorModeKeywords();
 checkResolverInvariant();
 checkChoiceEnumerations();
+checkGateImports();
+checkProbePathParity();
 
 for (const note of notes) if (verbose) console.log(`  note: ${note}`);
 
