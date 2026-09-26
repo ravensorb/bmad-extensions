@@ -2289,7 +2289,7 @@ function checkAdrHome() {
 // Caught in practice: the count was bumped seventeen->eighteen when it should have gone
 // eighteen->nineteen, and stayed wrong because nothing compared it to anything.
 // ---------------------------------------------------------------------------
-const NUMBER_WORDS = ["zero", "one", "two", "three", "four", "five", "six", "seven", "eight",
+export const NUMBER_WORDS = ["zero", "one", "two", "three", "four", "five", "six", "seven", "eight",
   "nine", "ten", "eleven", "twelve", "thirteen", "fourteen", "fifteen", "sixteen",
   "seventeen", "eighteen", "nineteen", "twenty", "twenty-one", "twenty-two", "twenty-three",
   "twenty-four", "twenty-five", "twenty-six", "twenty-seven", "twenty-eight",

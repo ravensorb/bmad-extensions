@@ -9,7 +9,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { resolverInvariant } from "../check-docs.mjs";
+import { resolverInvariant, NUMBER_WORDS } from "../check-docs.mjs";
 
 const REPO = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..");
 const CHECK = path.join(REPO, "scripts", "check-docs.mjs");
@@ -347,13 +347,12 @@ function claudeModeWord(root) {
   return m ? m[1] : null;
 }
 
-// Local lookup, not imported from check-docs.mjs (awkward from a test file since the script
-// has no exports) -- but every use below indexes it by a count derived from the tree, never
-// by a hard-coded number.
-const NUMBER_WORDS = ["zero", "one", "two", "three", "four", "five", "six", "seven", "eight",
-  "nine", "ten", "eleven", "twelve", "thirteen", "fourteen", "fifteen", "sixteen",
-  "seventeen", "eighteen", "nineteen", "twenty", "twenty-one", "twenty-two", "twenty-three",
-  "twenty-four", "twenty-five", "twenty-six"];
+// NUMBER_WORDS is imported from check-docs.mjs, not copied. It used to be a local duplicate
+// "since the script has no exports", which stopped being true once resolverInvariant was
+// exported -- and the stale copy then ended at "twenty-six" while the real table grew, so
+// adding check 27 failed two tests here for a reason that had nothing to do with check 27.
+// Importing it is safe for what these tests assert: they check a DOC's stated count against
+// a count derived from the tree, using this only to spell the number.
 
 test("check 15: a stated count one below the real one is caught", (t) => {
   const root = fixture(t);

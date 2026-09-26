@@ -48,8 +48,52 @@ It is shown here only so the mirror (and Health Check 11's drift comparison) is 
    - **UX spec**: `*ux-spec*`, `*ux-design*`, `*wireframe*`, `*mockup*`, `*ui-spec*`
    - **Research / spike**: `*research*`, `*spike*`, `*investigation*`, `*discovery*`
    - **Brainstorming**: `*brainstorm*`, `*ideation*`, `*mind-map*`
-   Determine placement scope from the filename: if `sprint-{nn}` or `sprintSS` is present → `{planning_artifacts}/epic-{nnn}/sprint-{nn}/{filename}`; otherwise → `{planning_artifacts}/epic-{nnn}/{filename}`. If epic cannot be inferred from the filename, ask for a mapping before proceeding.
+   **Read the tree's convention before placing anything.** If `{planning_artifacts}` contains
+   no `epic-*` directory at any depth, this project does not organise planning artifacts by
+   epic. Leave every planning file where it is, report them as already-conforming, and
+   **never create the first `epic-*` directory.** Creating the first instance of a structure
+   is not cleanup — cleanup conforms a tree to the convention it already has.
+
+   When `{planning_artifacts}` **does** contain at least one `epic-*` directory, place by
+   filename as before:
+   - `sprint-{nn}` or `sprintSS` present → `{planning_artifacts}/epic-{nnn}/sprint-{nn}/{filename}`
+   - an epic inferable, no sprint → `{planning_artifacts}/epic-{nnn}/{filename}`
+   - **no epic inferable → the document is solution-scoped.** Leave it at the planning root,
+     report it as such, and offer an epic mapping as an option the user may decline.
+     **Never require one.**
+
+   > The old text ended "if epic cannot be inferred from the filename, ask for a mapping
+   > before proceeding" — whose only two outcomes were infer an epic or be handed one. A
+   > document about the whole solution has no correct epic, so the question forces a wrong
+   > answer.
+   >
+   > Measured on a real project: `{planning_artifacts}` held **41 flat files and zero**
+   > `epic-*` **or** `sprint-*` **directories at any depth**. Its seven subdirectories are
+   > all by KIND (`architecture/`, `prds/`, `research/`, `ux-designs/`, …), and where it does
+   > express epic scope it does so in the **filename** (`e002-resolution-2026-08-22.md`) or
+   > a kind-dir name (`spike-e004/`) — never a directory per epic. The flagged file,
+   > `architecture-review-2026-09-01.md`, states its own scope as "Entire committed
+   > solution" and has two exact siblings at the root. The old rule would have created that
+   > tree's first `epic-*` directory and orphaned it from them.
+   >
+   > Note this is **n=1**, so the rule is deliberately the conservative one: it never creates
+   > structure, only follows it. A project that wants planning artifacts organised by epic
+   > creates one such directory and the heuristic uses it from then on.
 6. **Unknown files**: leave in place; record as "unclassified".
+
+### Never moved, whatever a heuristic says
+
+Some files sit at a fixed path because the skills **write or read them there**. Moving one
+does not break loudly — the writer simply recreates it — it leaves a stale copy at the new
+path and a reader that never sees the move.
+
+| Path | Why | Written by |
+|---|---|---|
+| `{implementation_artifacts}/progress-report.md` | generated progress view, rewritten at every sprint and epic closure | `pm-status.py report --out`, from `steps/sprint/step-04-sprint-closure.md` and `steps/closure/epic-closure.md` |
+
+This list is checked **before** the heuristics, not after. `progress-report.md` happens to
+fall through to heuristic 6 today because it matches no pattern, but that is luck rather than
+protection: one new pattern containing `report` would claim it.
 
 ## Execution Sequence
 
