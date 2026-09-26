@@ -45,23 +45,20 @@ jobs:
       run: npm run check:manifest
     - name: Verify module structure — one module.yaml per module, correctly homed
       run: npm run check:module
-    - name: pm-status.py unit tests
-      run: uv run skills/_shared/tests/test-pm-status.py
-    - name: write-module-config.py unit tests
-      run: uv run skills/_shared/tests/test-write-module-config.py
-    - name: merge-help-csv.py unit tests
-      run: uv run skills/_shared/tests/test-merge-help-csv.py
-    - name: merge-config.py wrapper unit tests
-      run: uv run skills/_shared/tests/test-merge-config-wrapper.py
-    - name: drift-report.py unit tests
-      run: uv run --with pyyaml skills/l3io-pm-sync/scripts/tests/test-drift-report.py
-    - name: spec-align.py unit tests
-      run: uv run -q --with 'markdown-it-py>=3' --with 'mdit-py-plugins>=0.4' --with 'ruamel.yaml>=0.18' --with 'unidiff>=0.7' --with 'tenacity>=8' python3 skills/_shared/tests/test-spec-align.py
-    - name: init-sanctum.py unit tests
-      run: uv run skills/l3io-sec-redteam/scripts/tests/test-init-sanctum.py
-    - name: audit-backlog.py unit tests
-      run: uv run -q --with 'ruamel.yaml>=0.18' python3 skills/l3io-util-doctor/scripts/tests/test-audit-backlog.py
-    - name: bmad-deps.py unit tests
-      run: uv run -q --with 'ruamel.yaml>=0.18' python3 skills/l3io-util-doctor/scripts/tests/test-bmad-deps.py
-    - name: detect-layout.py unit tests
-      run: uv run skills/l3io-util-doctor/scripts/tests/test-detect-layout.py
+    # BMad Builder's own deterministic scanners, over this package's skills. bmb ships them
+    # in the `bmad-builder` npm package, which is a devDependency, so `npm ci` above is all
+    # the setup this needs -- no BMad install, which matters because `.claude/skills/` is
+    # gitignored and a real install is not available to CI. Exemptions for the core
+    # conventions this package rejects live in scripts/check-bmb.mjs, each with a test that
+    # plants a violation it must not swallow.
+    - name: BMad Builder skill scanners
+      run: npm run check:bmb
+    # Every Python suite under skills/**/tests/, DISCOVERED FROM DISK. This replaced ten
+    # hand-written steps, and the reason is that the hand-written list was wrong: seven
+    # suites (test-engine.py, its five reader suites, and test-state-record.py) existed and
+    # were never named here, so CI had never once run the tests for the migration engine
+    # that deletes a project's source layout. A list cannot notice what is missing from it
+    # (CLAUDE.md §4). Each suite carries its own PEP-723 header, so no per-suite flags
+    # belong here either.
+    - name: Python unit tests (discovered, not enumerated)
+      run: npm run test:python

@@ -1,4 +1,13 @@
 #!/usr/bin/env python3
+# A suite declares the dependencies of the script it drives, so `uv run <this file>`
+# works with no flags. They used to be passed as `--with` on the CI command line only,
+# which made the suite unrunnable as written anywhere else: running it directly gave
+# spurious failures that looked like real defects. It also made the CI step unshareable,
+# so the workflow had to name every suite by hand.
+# /// script
+# requires-python = ">=3.11"
+# dependencies = ["markdown-it-py>=3", "mdit-py-plugins>=0.4", "ruamel.yaml>=0.18", "unidiff>=0.7", "tenacity>=8"]
+# ///
 """
 Tests for spec-align.py. Run with:
   uv run -q --with 'markdown-it-py>=3' --with 'mdit-py-plugins>=0.4' --with 'ruamel.yaml>=0.18' \

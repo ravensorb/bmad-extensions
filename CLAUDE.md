@@ -79,12 +79,34 @@ skill's own non-shared files, at non-`.md` payloads, or at whether the cited `§
 3 does that).
 
 **Test suites are never shipped as payload.** `skills/_shared/tests/test-pm-status.py`,
-`skills/_shared/tests/test-write-module-config.py` and `skills/_shared/tests/test-spec-align.py` stay in `skills/_shared/tests/` only — CI
-runs all three straight from there (`.github/workflows/checks.yml`), no consumer skill invokes
-any of them, and `sync-shared-scripts.mjs` deliberately excludes them from every sync group. Ten
+`skills/_shared/tests/test-write-module-config.py` and `skills/_shared/tests/test-spec-align.py` stay in `skills/_shared/tests/` only — no
+consumer skill invokes any of them, `sync-shared-scripts.mjs` deliberately excludes them from
+every sync group, and no `payload-manifest.json` lists anything under a `tests/` directory. Ten
 copies (`test-pm-status.py` into pm-execute/pm-plan/pm-sync, `test-write-module-config.py`
 into all 8) shipped as dead payload — ~842 KB across the package — until removed; do not add
 either back to a manifest.
+
+**CI discovers the Python suites; it does not list them.** `npm run test:python`
+(`scripts/run-python-suites.mjs`) globs `skills/**/tests/test-*.py` and runs each under `uv
+run`, and the workflow has one step instead of ten. The list used to be written out in
+`.github/workflows/checks.yml` and it was wrong: seven suites — `test-engine.py`, the five
+reader suites it depends on, and `test-state-record.py` — were written during the
+`l3io-util-doctor` redesign and never added, so CI had never run the tests for the migration
+engine that deletes a project's source layout. Every suite therefore carries its own PEP-723
+header (four had their dependencies passed as `--with` flags in the workflow instead, which
+made them fail spuriously when run directly). The runner refuses with exit 2 on an empty
+discovery rather than reporting success over nothing.
+
+**`check:bmb` runs BMad Builder's own scanners over this package's skills.** bmb ships them
+in the `bmad-builder` npm package, a devDependency, so `npm ci` is the whole setup — a real
+BMad install is not available to CI, because `.claude/skills/` is gitignored. Both the
+scanner set (every `scan-*.py` bmb ships) and the skill set are derived, not listed.
+`scripts/check-bmb.mjs` carries an exemption per BMad-core convention this package rejects,
+each with a stated reason and a test that plants a violation it must **not** swallow;
+`relative-prefix` is deliberately *not* exempt, because that is the rule that caught a live
+defect (`uv run ./scripts/merge-config.py`, which only resolved when the working directory
+happened to be the skill root). `validate-module.py` is a different tool and stays in
+`smoke:install`, which needs a real install to build a module view.
 
 **Never bundle a BMad core script.** `resolve_config.py`, `resolve_customization.py`, and
 `memlog.py` are installed by BMad core at `{project-root}/_bmad/scripts/` and must be invoked
