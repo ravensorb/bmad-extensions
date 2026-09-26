@@ -1,6 +1,6 @@
 ---
 name: l3io-arch-review
-description: Engineering-standards architecture guardrails and review. Use when the user wants to apply best-practice engineering standards — separation of concerns, reuse, design-by-contract, testability, dependency/GA policy, unified correlated logging, documentation with diagrams, plus per-stack rules (Python uv/poetry, Node LTS, .NET self-contained, GitHub Actions, Docker digest-pinning/SBOM, PowerShell 7.6 LTS, shell strict-mode) — at new-project design time, during an architectural review, or when recording a technology/architecture decision.
+description: Engineering-standards architecture guardrails and review. Use when the user wants to apply best-practice engineering standards — separation of concerns, reuse, design-by-contract, testability, dependency/GA policy, unified correlated logging, documentation with diagrams, plus per-stack rules (Python uv/poetry, Node LTS, .NET self-contained, GitHub Actions, Docker digest-pinning/SBOM, PowerShell 7 major-scoped, shell strict-mode) — at new-project design time, during an architectural review, or when recording a technology/architecture decision.
 ---
 
 # Architecture Standards & Review

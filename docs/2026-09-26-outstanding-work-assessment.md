@@ -64,8 +64,8 @@ Ordered by consequence, not effort.
 | 3 | **Concurrent epics share one working tree** | No source-file independence check; `docs/limits.md` Concurrency | Design first |
 | 4 | **No check that gate imports are declared in `package.json`** | ADR-0007 names the follow-up; `CLAUDE.md:105-109` | 1 task |
 | 5 | **Probe-path correctness has no CI check** | `CLAUDE.md:132`; verified only at runtime by `check-deps` | 1-2 tasks |
-| 6 | **Three `standards-*.md` overlays are stubs** | `TODO: promote to full standard` in docker, powershell, shell | 3 tasks |
-| 7 | **`l3io-pm-setup` picker validation / install-order gating** | `assets/module.yaml:10` | Unscoped |
+| ~~6~~ | ~~Three `standards-*.md` overlays are stubs~~ | **DONE** — authored 2026-09-26 | — |
+| ~~7~~ | ~~`l3io-pm-setup` picker validation~~ | **NOT OURS** — see correction below | — |
 
 **Note on #2:** the write and read halves shipped in 3.1.0 — `--source-phase`/`--source-ref`/
 `--source-note` exist, `pointer_for` prefers them, seven call sites converted. What remains is
@@ -176,8 +176,28 @@ protect everything else.
 any code. Item #2's remainder is two breaking changes. Item #7 is unscoped. None should be
 started as implementation work.
 
-**Explicitly not recommended:** the three `standards-*.md` stubs (#6). They are honest
-placeholders that say what they are; promoting them is content work with no defect behind it.
+**Explicitly not recommended:** nothing remaining. (#6 was done on request; #7 was never ours.)
+
+### Corrections to items 6 and 7
+
+Both were listed on the strength of a `TODO` grep hit, without reading the comment it sat in.
+
+**#7 was never this repo's work.** The TODO in `l3io-pm-setup/assets/module.yaml:10` describes an
+**upstream BMad** gap, and the comment says so: the installer captures `dependencies` into
+`moduleInfo.dependencies` but *"as of BMad 6.12 nothing downstream reads it — picker validation
+and install-order gating are TODO"*. The field is declared deliberately, so a future BMad release
+that grows enforcement picks it up. The runtime need it would serve is **already covered here**:
+`step-00-activate.md` warns when `l3io-util-doctor` is missing. Nothing to do.
+
+**#6 was real but mis-sized, and is now done.** The three files were not empty placeholders — each
+carried 5-7 draft rules cross-referenced to core sections, and `l3io-arch-reference.md` advertised
+them accurately as stubs, so nothing over-promised. They were authored on request against current
+practice. The PowerShell one is deliberately scoped to the **major** version with exceptions and
+5.1→7 breaks called out, rather than naming an LTS minor and an EOL date: a dated claim in a
+standards file goes stale silently, which is the failure this document exists to catch.
+
+Both corrections share a cause worth naming: **a grep hit is not a finding.** The same mistake
+produced the `last_sync` recommendation in §3.
 
 ### Sequencing rationale
 
