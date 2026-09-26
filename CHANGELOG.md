@@ -2,6 +2,19 @@
 
 All notable changes to this project will be documented in this file. See [commit-and-tag-version](https://github.com/absolute-version/commit-and-tag-version) for commit guidelines.
 
+## [3.1.0](https://github.com/ravensorb/bmad-extensions/compare/3.0.2...3.1.0) (2026-09-26)
+
+
+### Features
+
+* **l3io-pm,l3io-util:** structured issue source, derived rather than parsed ([629f8b4](https://github.com/ravensorb/bmad-extensions/commit/629f8b473e8b7c21c8df78e62767f4d06a47a010))
+* **l3io-util:** close the six open gaps from the doctor capability analysis ([0238849](https://github.com/ravensorb/bmad-extensions/commit/023884903ce45e34da16899a9567a3481a899b5d))
+
+
+### Documentation
+
+* **l3io-util:** mark the doctor gap analysis closed, all ten resolved ([ee0ff11](https://github.com/ravensorb/bmad-extensions/commit/ee0ff11d102db9d308f190feb0929831117d2dff))
+
 ## [3.0.2](https://github.com/ravensorb/bmad-extensions/compare/3.0.1...3.0.2) (2026-09-26)
 
 
