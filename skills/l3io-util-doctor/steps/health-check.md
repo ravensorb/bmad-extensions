@@ -335,7 +335,82 @@ Run only if the index exists.
   rebuilds it, or `{spec_align} build` rebuilds it now
 - exit 0 → ✓
 
+**Check 20 — BMad dependency resolution**
+Every phase this package dispatches resolves against a real skill, or self-skips. A required
+dependency that vanished under a project surfaces otherwise as a silently skipped gate
+mid-epic — the failure `bmad-deps.py` exists to make visible, and nothing was calling it.
+
+```bash
+uv run {skill-root}/scripts/bmad-deps.py --project-root {project-root} --format json; echo "exit=$?"
+```
+
+- exit 3 → flag · Priority: **Critical** · name every unresolved **required** dependency. A
+  required skill that does not resolve will not self-skip; the phase that dispatches it fails
+  at the point of use, mid-run
+- `baseline_drift` non-empty → report only · the declared inventory disagrees with
+  `_bmad/_config/skill-manifest.csv` about what BMad ships. Informational: it means the
+  inventory needs re-checking against this BMad version, not that the project is broken
+- unresolved **optional** dependencies → report only · name them and the phases that will
+  self-skip, so a missing phase later is expected rather than mysterious
+- exit 0 and no drift → ✓
+
+**Check 21 — State tree reachable and tracked**
+Two states that look identical to a check that only looks at the configured path, and that
+turn "no findings" into a wrong answer rather than a refusal.
+
+```bash
+uv run {skill-root}/scripts/detect-layout.py --artifacts {implementation_artifacts} \
+  --project-root {project-root} --reachability --format json; echo "exit=$?"
+```
+
+- `orphaned` non-empty → flag · Priority: **Critical** · print each path. A state tree exists
+  outside `{implementation_artifacts}`, which means `implementation_artifacts` was repointed
+  and the history lives at the old path. **Report only — never move it**: which tree is
+  current is a human decision, and the wrong choice loses the project's history
+- `untracked` true → flag · Priority: **High** · `{implementation_artifacts}/state` is on disk
+  but git ignores it. It is one `git clean` from gone and invisible to every other clone.
+  Report only: the fix is a `.gitignore` edit, and which rule is catching it matters
+- neither → ✓
+
+> The probe is in `detect-layout.py`, not inline here, deliberately. Two step files already
+> carried it as a shell pair with a comment asking the next person to keep them in sync; a
+> third copy in the health check is what `CLAUDE.md` §4 is about. One tested implementation,
+> and `scripts/tests/test-detect-layout.py` covers the orphan, the gitignore, the clean tree
+> and the not-a-git-repo cases.
+
+**Check 22 — Story document vs state node status**
+A story's markdown frontmatter and its state node can disagree: `sync-story-doc` warns and
+returns 0 when the document is missing or has no frontmatter, because the state transition it
+follows is already durable. That is the right call at write time and leaves this drift behind.
+
+For each story node in the state tree, compare `status` against the `status:` in
+`{implementation_artifacts}/epic-XX/sprint-YY/stories/{story-key}.md`.
+
+- Any disagreement → flag for report · Priority: **Medium** · list `{key}: state={a} doc={b}`.
+  **Report only, never auto-correct.** Which side is right is a judgement: the doc may be a
+  hand-edit that the state never saw, or the state may have moved on while the doc went stale.
+  Same class as Check 11
+- A story node whose document is absent → not a finding here; Check 11 owns that
+- No disagreements → ✓
+
+**Check 23 — Epic directory placement (sharded tree)**
+The placement rule says an epic's directory lives in the folder named for its status. Check 8
+enforces this only for the legacy split layout; the sharded tree had no equivalent, so an epic
+whose folder and status disagree stayed wrong indefinitely — with both the detector and the
+repair already built and simply never connected.
+
+```bash
+uv run {pm_status} report --state-root {pm_state_root} --format json
+```
+
+- Any epic whose containing folder does not match its `status` (`planned/`=`backlog`,
+  `active/`=`in-progress`, `archived/`=`done`) → flag · Priority: **High** · name each, and
+  propose the repair, which is a `git mv` of the whole directory:
+  `uv run {pm_status} move-epic --state-root {pm_state_root} --epic {key} --to {status}`
+- No mismatches → ✓
+
 ### Step HC3 — Report findings
+
 
 Print the health check table. Use ✓ for passing checks, ⚠ for flagged items:
 
@@ -362,6 +437,10 @@ Backlog integrity & audit       ⚠ 1 integrity, 4 candidate(s)  triage
 Tracked lock files              ⚠ 3 *.lock tracked in git      untrack-locks
 ADR home & register             ⚠ 2 ADR(s) in epic-*/arch/     migrate-adrs
 Spec pointers                   ⚠ 1 broken pointer             — (report only)
+BMad dependencies               ✓ all resolve                  —
+State reachable & tracked       ✓ configured tree only         —
+Story doc vs state              ⚠ 1 disagreement               — (report only)
+Epic placement (sharded)        ⚠ 1 misplaced epic             move-epic
 ADR links                       ⚠ 1 unlinked departure         — (report only)
 Unconfirmed spec changes        ⚠ 1 built upon                 triage
 Spec index freshness            ✓ Fresh                        —

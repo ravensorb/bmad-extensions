@@ -48,13 +48,16 @@ Apply the first matching rule:
   ```
 - **Nothing present** → before concluding there is nothing to report, rule out an orphan
   caused by `implementation_artifacts` having been repointed — an empty probe result here is
-  not proof there is no history. This is the same check
-  `l3io-pm-help/steps/step-02-detect-layout.md` runs (a cross-skill duplication with no mechanical guard;
-  keep both in sync if the paths or wording change):
+  not proof there is no history. Ask the script that owns this decision:
   ```bash
-  git -C {project-root} ls-files -- '*/state/active/epic-*/epic.yaml' 'state/active/epic-*/epic.yaml' 2>/dev/null | head -5
-  find {project-root} -maxdepth 5 -type d -name active -path '*/state/*' 2>/dev/null | head -5
+  uv run {skill-root}/scripts/detect-layout.py --artifacts {implementation_artifacts} \
+    --project-root {project-root} --reachability --format json
   ```
+  It prints every state tree it can find outside `{implementation_artifacts}` and exits 4 when
+  there is one. This used to be an inline `git ls-files` + `find` pair carried here and in
+  `l3io-pm-help/steps/step-02-detect-layout.md`, with a comment asking the next person to keep
+  the two in sync; `scripts/tests/test-detect-layout.py` now covers it instead. **pm-help still
+  carries its own copy** — the remaining one.
   If either prints a path that is not under `{implementation_artifacts}/state`, a confidently
   empty dashboard over existing state elsewhere is the same "wrong beats a refusal" failure as
   the multi-layout case above, so **BLOCK**. Print and exit — do not print "nothing to report":

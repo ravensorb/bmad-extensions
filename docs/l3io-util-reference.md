@@ -116,6 +116,7 @@ in the [l3io-pm reference](l3io-pm-reference.md), which documents the whole CLI.
 | `import-node` | `migrate-state`, `bootstrap-state` | Creates a missing state node from a migration record; idempotent by skip (an existing node is left exactly as-is, no event appended). |
 | `verify` | `migrate-state`, `bootstrap-state` | Reads a migrated or bootstrapped node back and confirms it landed. |
 | `set-status` | `migrate-state`, `bootstrap-state` | The single atomic status write; these modes never edit a state YAML by hand. |
+| `move-epic` | health check (epic placement, check 23) | Moves an epic directory between `planned/`, `active/` and `archived/` so its folder matches its status, preferring `git mv` so history survives. The health check detects the mismatch and proposes this; it never moves an epic without confirmation. |
 | `set-field` | `migrate-state`, `bootstrap-state` | Sets an arbitrary field on an existing node; refuses `completion_evidence.tests_passing` and other derived fields outright (exit 2). Used to fill `title` on bootstrapped epics, and to write `goal` and `superseded_by` after `import-node` when the reader captured them from the source. |
 | `clear-lock` | `stats` | The stale-lock remedy `stats` prints per affected epic. |
 | `calibration` | `redrive` | `redrive` rebuilds the `scope` and `fix` components through it. |
@@ -123,7 +124,7 @@ in the [l3io-pm reference](l3io-pm-reference.md), which documents the whole CLI.
 
 ## Project Health Check
 
-The default mode runs nineteen numbered read-only checks (Checks 1–19, plus 2b and 2c), prints a findings table (✓ pass / ⚠ flagged), and — unless invoked as `check`/`status` — proposes the flagged actions in a fixed priority sequence behind a single confirmation:
+The default mode runs twenty-three numbered read-only checks (Checks 1–23, plus 2b and 2c), prints a findings table (✓ pass / ⚠ flagged), and — unless invoked as `check`/`status` — proposes the flagged actions in a fixed priority sequence behind a single confirmation:
 
 `rename-active → rename-epic-dirs → migrate-schema → split-status → migrate-state → bootstrap-state → reconcile-status → layout-cleanup → sort-status → harvest-debt → migrate-adrs → triage → update-ai-rules → redrive → untrack-locks → clean-legacy`
 

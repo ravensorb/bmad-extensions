@@ -145,5 +145,76 @@ class TestClassifyFlat(unittest.TestCase):
         self.assertEqual(code, 3)
 
 
+
+class TestReachability(unittest.TestCase):
+    """The two states that look identical to a caller checking only the configured path:
+    a tree orphaned by a repointed implementation_artifacts, and a tree git ignores. Both
+    turn "nothing to report" into a wrong answer rather than a refusal."""
+
+    def _repo(self):
+        d = Path(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, d, ignore_errors=True)
+        subprocess.run(["git", "init", "-q", str(d)], check=True)
+        return d
+
+    def _state(self, root, rel):
+        p = root / rel / "state" / "active" / "epic-001"
+        p.mkdir(parents=True)
+        (p / "epic.yaml").write_text("key: 'E001'\nstatus: in-progress\n", encoding="utf-8")
+        return root / rel
+
+    def test_configured_tree_alone_is_clean(self):
+        root = self._repo()
+        art = self._state(root, "arts")
+        r = mod.reachability(art, root)
+        self.assertEqual(r["orphaned"], [])
+        self.assertFalse(r["untracked"])
+        self.assertTrue(r["configured_exists"])
+
+    def test_a_tree_outside_the_configured_path_is_orphaned(self):
+        root = self._repo()
+        self._state(root, "old-arts")
+        (root / "new-arts").mkdir()
+        r = mod.reachability(root / "new-arts", root)
+        self.assertEqual(len(r["orphaned"]), 1, r)
+        self.assertIn("old-arts", r["orphaned"][0])
+
+    def test_a_gitignored_configured_tree_is_untracked(self):
+        root = self._repo()
+        art = self._state(root, "arts")
+        (root / ".gitignore").write_text("arts/state/\n", encoding="utf-8")
+        r = mod.reachability(art, root)
+        self.assertTrue(r["untracked"], r)
+
+    def test_no_state_anywhere_is_clean_not_a_finding(self):
+        root = self._repo()
+        (root / "arts").mkdir()
+        r = mod.reachability(root / "arts", root)
+        self.assertEqual(r["orphaned"], [])
+        self.assertFalse(r["untracked"])
+        self.assertFalse(r["configured_exists"])
+
+    def test_outside_a_git_repo_it_reports_rather_than_failing(self):
+        d = Path(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, d, ignore_errors=True)
+        (d / "arts").mkdir()
+        r = mod.reachability(d / "arts", d)
+        self.assertFalse(r["git_available"])
+        self.assertFalse(r["untracked"])
+
+    def test_cli_exits_4_on_a_finding_and_0_when_clean(self):
+        root = self._repo()
+        self._state(root, "old-arts")
+        (root / "new-arts").mkdir()
+        self.assertEqual(mod.main(["--artifacts", str(root / "new-arts"),
+                                   "--project-root", str(root), "--reachability"]), 4)
+        art = self._state(root, "ok-arts")
+        # a repo with ONLY the configured tree
+        root2 = self._repo()
+        art2 = self._state(root2, "arts")
+        self.assertEqual(mod.main(["--artifacts", str(art2),
+                                   "--project-root", str(root2), "--reachability"]), 0)
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

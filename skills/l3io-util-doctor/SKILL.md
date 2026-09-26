@@ -9,7 +9,28 @@ description: Migration and housekeeping utilities for BMad artifacts and l3io-pm
 
 Migration and housekeeping utilities for BMad artifacts.
 
-**Default behavior (no argument or unrecognized text):** Runs a project health check — scans for all known issues, reports findings in a priority table, and proposes the right actions in the correct execution order. One confirmation runs them all.
+**Default behavior (no argument, or text matching no keyword below):** Runs a project health check — scans for all known issues, reports findings in a priority table, and proposes the right actions in the correct execution order. One confirmation runs them all.
+
+**A REMOVED keyword is refused by name, never treated as unrecognized text.** Check the
+argument against this table *before* falling through to the health check. Print the
+replacement and stop; propose nothing.
+
+| Removed keyword | Say instead |
+|---|---|
+| `normalize` | `sort-status` for the naming report; on a legacy split layout also `reconcile-status`. Those two are all `normalize` ever ran |
+| `rename-active` | just `/l3io-util-doctor` — Health Check 1 detects the old filename and renames it inline |
+| `rename-epic-dirs` | just `/l3io-util-doctor` — Health Check 10 detects two-digit `epic-{nn}/` directories and renames them inline |
+| `overlay` | nothing yet — held back until `assets/overlays/` ships overlay TOML |
+| `cleanup` | the skill was renamed; use `/l3io-util-doctor` |
+
+> Falling through meant someone typing a keyword that used to work got a health check and a
+> proposal to write files they never asked about — the argument silently ignored. `backlog`
+> and `issues` are deliberately NOT here: they are live aliases for `stats`.
+>
+> This table duplicates `docs/upgrading.md`'s removed-keyword mapping, which is the
+> user-facing copy. **No check enforces that the two agree** — `check:module` rule 9 reads
+> the Menu column of the routing table below, not this one. Stated rather than implied,
+> per `CLAUDE.md` §3: if you remove a keyword, edit both.
 
 Modes (pass as argument to skip directly to that mode):
 

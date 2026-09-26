@@ -22,8 +22,15 @@ Load config (same as layout cleanup). Scan for:
    type a second literal**: `pm-status.py`'s `migrate_calibration` writes it as
    `calibration_path(state_root) + ".v1"`, so it always lands beside the live calibration
    file in the state root and follows it if that location ever moves. `migrate-schema` does
-   not produce it — it writes no backup at all. Scan `{pm_state_root}/` for `*.yaml.v1` so a
-   backup from any future calibration schema bump is swept by the same pass.
+   not produce it — it writes no backup at all. Scan `{pm_state_root}/` for `*.yaml.v1` **and
+   `*.yaml.pre-redrive`** so a backup from any future calibration schema bump, and the one
+   `redrive` itself writes, are swept by the same pass.
+
+   > `.pre-redrive` was missing from this list while `.legacy` and `.v1` were in it, so the
+   > doctor's own `redrive` mode accumulated a backup nothing ever removed. Two suffixes swept
+   > and a third not is the enumeration smell in `CLAUDE.md` §4. Both calibration backups now
+   > share one glob over the state root, which is why adding `.pre-redrive` needed no new scan
+   > step — only a wider pattern in the one that already runs.
 3. `{project-root}/_bmad/pm-calibration.yaml.legacy` (file) — `migrate-state` Stage D's
    pre-migration calibration backup, at its original location.
 4. `{project-root}/_bmad/state.legacy/` (directory) — `migrate-state` Stage D's whole-tree
