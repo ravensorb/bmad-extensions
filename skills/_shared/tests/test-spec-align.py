@@ -574,6 +574,26 @@ class TestAdrs(Project):
         self.assertIn("old ADR home", r.stderr)
         self.assertIn("migrate-adrs", r.stderr)
 
+    def test_an_adr_prefixed_filename_in_the_one_home_is_listed(self):
+        """`docs/adr/` holds hand-written ADRs, and `ADR-NNNN-slug.md` is how they are
+        usually named. Against the old `^\\d{4}` pattern every one of them was invisible to
+        `adrs`, `check-links` and the migration planner alike -- reported as "no ADRs"
+        rather than as a naming the reader could not parse."""
+        self.write("docs/adr/ADR-0007-prefixed.md", adr(7, "prefixed"))
+        r = self.sa("adrs", "--epic", "E003", "--format", "json")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        rows = json.loads(r.stdout)
+        self.assertIn(7, [x["number"] for x in rows])
+        self.assertEqual([x["home"] for x in rows if x["number"] == 7], ["docs"])
+
+    def test_a_non_adr_filename_in_the_one_home_is_still_skipped(self):
+        """The scope half: the `ADR-` prefix became optional, nothing else did."""
+        self.write("docs/adr/README.md", "# How we write ADRs\n")
+        self.write("docs/adr/notes-0099-scratch.md", adr(99, "scratch"))
+        r = self.sa("adrs", "--epic", "E003", "--format", "json")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertEqual([x["number"] for x in json.loads(r.stdout)], [1, 3, 5])
+
     def test_accepts_the_bare_epic_number(self):
         r = self.sa("adrs", "--epic", "3", "--format", "json")
         self.assertEqual(r.returncode, 0, r.stderr)

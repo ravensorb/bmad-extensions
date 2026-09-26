@@ -9646,6 +9646,30 @@ class TestAdrReserveScansDisk(unittest.TestCase):
         code, out, err = self.reserve("--adr-dir", self.empty)
         self.assertEqual((code, out), (0, ["0005"]), err)
 
+    def test_adr_prefixed_filenames_in_the_one_home_are_scanned(self):
+        """`ADR-NNNN-slug.md` is the naming a hand-written ADR usually carries, and the
+        hand-written ADR is precisely what this scan exists to catch. Against the old
+        `^\\d{4}` pattern a directory of them scanned as "highest is 0" -- indistinguishable
+        from an empty one -- so adr-reserve reissued numbers that were already on disk."""
+        self.touch("docs", "adr", "ADR-0025-infisical.md")
+        code, out, err = self.reserve("--adr-dir", os.path.join(self.d, "docs", "adr"))
+        self.assertEqual((code, out), (0, ["0026"]), err)
+
+    def test_adr_prefix_is_case_insensitive_in_both_homes(self):
+        self.touch("docs", "adr", "Adr-0009-x.md")
+        self.touch("impl", "epic-001", "arch", "ADR-0031-y.md")
+        code, out, err = self.reserve("--adr-dir", os.path.join(self.d, "docs", "adr"))
+        self.assertEqual((code, out), (0, ["0032"]), err)
+
+    def test_widening_did_not_swallow_non_adr_filenames(self):
+        """The scope half of the change: an `ADR-` prefix became optional, nothing else did.
+        Without this, a bare `^.*(\\d{4})` would pass every test above and quietly take the
+        highest four digits out of any filename in the directory."""
+        for name in ("README.md", "0025.md", "notes-0099-x.md", "index.md"):
+            self.touch("docs", "adr", name)
+        code, out, err = self.reserve("--adr-dir", os.path.join(self.d, "docs", "adr"))
+        self.assertEqual((code, out), (0, ["0001"]), err)
+
     def test_register_ahead_of_disk_wins(self):
         with open(pm.adr_register_path(self.root), "w", encoding="utf-8") as fh:
             fh.write("next: 20\nreserved: []\n")

@@ -2749,8 +2749,15 @@ def load_adr_register(state_root: str):
     return y, data
 
 
-_ADR_DOC_NAME = re.compile(r"^(\d{4})-.+\.md$")
-_ADR_OLD_HOME_NAME = re.compile(r"^adr-(\d{4})-.+\.md$")
+# The `ADR-` prefix is optional on the one home and case-insensitive on both. The
+# scan's whole reason for existing (see `highest_adr_on_disk`) is the ADR nobody
+# allocated through the register -- a hand-written one -- and hand-written ADRs are
+# commonly named `ADR-NNNN-slug.md`, which matched neither pattern. A real directory
+# holding ADR-0004..ADR-0025 scanned as "highest is 0", exactly as confidently as an
+# empty one, and `adr-reserve` then issued numbers that were already on disk.
+# Widening can only raise the floor the allocator starts from, never lower it.
+_ADR_DOC_NAME = re.compile(r"^(?:[Aa][Dd][Rr]-)?(\d{4})-.+\.md$")
+_ADR_OLD_HOME_NAME = re.compile(r"^[Aa][Dd][Rr]-(\d{4})-.+\.md$")
 
 
 def _git_toplevel(path: str):

@@ -42,3 +42,17 @@ tree.
 - Negative / trade-offs accepted: a project that does not migrate keeps working, because both
   readers still read the old home, but it carries two homes until it runs `migrate-adrs`.
 - Revisit if: ADR numbering needs to span repositories, which a per-repo register cannot do.
+
+## Amendment (2026-09-26) — the scan tolerates the `ADR-` filename prefix
+
+The scan above was implemented as `^\d{4}-.+\.md$` in the one home and `^adr-\d{4}-.+\.md$`
+in the old one. Neither matches `ADR-NNNN-slug.md`, which is how a hand-written ADR is
+commonly named — and the hand-written ADR is the first case the Decision names as the reason
+to scan disk at all. A consumer project with `docs/adr/ADR-0004…ADR-0025` scanned as "highest
+is 0", indistinguishable from an empty directory, and `adr-reserve` issued numbers that were
+already taken.
+
+Both patterns now accept an optional, case-insensitive `ADR-` prefix. This changes no
+decision: the allocator still takes `max(register next, highest on disk) + 1`, and widening
+what counts as an ADR on disk can only raise that floor, never lower it. The package still
+*writes* `{adr_number}-{slug}.md`; the tolerance is for files it did not write.

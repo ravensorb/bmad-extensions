@@ -718,8 +718,12 @@ def cmd_check_dispositions(ctx, a):
 
 # -- ADRs (one home: docs/adr/, ADR-0005) ------------------------------------------------------- #
 
-DOC_ADR_RE = re.compile(r"^(\d{4})-(.+)\.md$")  # group 2 = slug: see _migration_plan
-LEGACY_ADR_RE = re.compile(r"^adr-(\d{4})-(.+)\.md$")
+# The `ADR-` prefix is optional on the one home and case-insensitive on both, because
+# `docs/adr/` also holds hand-written ADRs and `ADR-NNNN-slug.md` is a common naming
+# convention that matched neither. Group 2 stays the slug in every accepted spelling,
+# so `_migration_plan`'s same-number-same-slug duplicate test is unaffected.
+DOC_ADR_RE = re.compile(r"^(?:[Aa][Dd][Rr]-)?(\d{4})-(.+)\.md$")  # group 2 = slug: see _migration_plan
+LEGACY_ADR_RE = re.compile(r"^[Aa][Dd][Rr]-(\d{4})-(.+)\.md$")
 ADR_META_RE = re.compile(r"^-\s+\*\*(Status|Epic|Departs from spec):\*\*\s*(.*?)\s*$")
 
 
