@@ -227,6 +227,27 @@ it is not wired into the entry point that the docs call the post-upgrade step
 
 ## 3. Gaps ranked by what I would actually close
 
+> **CLOSED 2026-09-26. All ten are resolved; this section is now a record, not a backlog.**
+>
+> | # | Gap | Closed by |
+> |---|---|---|
+> | 1 | Discriminate `sprint-status.yaml` by schema | `detect-layout.py --classify`, in the doctor redesign |
+> | 2 | Refuse a migration that moved nothing | `migrate-engine.py`'s pre-write gate |
+> | 3 | Run `check-deps` inside the health check | Check 20 |
+> | 4 | The two vacuous-pass guards | Check 21, probe moved into `detect-layout.py --reachability` |
+> | 5 | Dedupe the working epic list on both paths | one `dedupe()` rule in `state-record.py` |
+> | 6 | Story-doc vs state drift | Check 22, report-only |
+> | 7 | Epic placement, wired to `move-epic` | Check 23 |
+> | 8 | Reject removed keywords by name | `SKILL.md` removed-keyword table |
+> | 9 | The base-BMad story on-ramp | `read-artifacts.py` + the `artifacts` reader |
+> | 10 | Sweep `.pre-redrive` | `clean-legacy` glob widened to `*.yaml.pre-redrive` |
+>
+> Two things deliberately NOT done, both from item 10's second half and the "not worth
+> covering" list below: `closure`/`orchestration` have no calibration rebuild path (build
+> one if that drift is ever actually observed), and the four items judged not worth the
+> cost remain unbuilt for the reasons given. Re-read those reasons before building them;
+> they were arguments, not omissions.
+
 Each with the failure it prevents. Assessment only — nothing here is a plan.
 
 1. **Discriminate `sprint-status.yaml` by schema before any status-file action.**
