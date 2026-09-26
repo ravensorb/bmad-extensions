@@ -226,7 +226,112 @@ class TestPointers(Base):
         self.assertEqual(self.verdicts()["BL-E001-001"]["evidence"], "untraceable")
 
 
+class TestLegacySourceShapes(Base):
+    """Source shapes a real backlog actually contains, which no regex accepted.
+
+    Measured on a real project (houserules, 517 items): 335 were
+    `closure review (E{nnn}-S{nn})` and 29 were a bare story key -- 70% of the backlog --
+    and every one resolved to `basis: none` / `evidence: untraceable`. The health check
+    reported that as "0 candidates", which reads like a clean bill rather than blindness.
+    """
+
+    def test_closure_review_source_derives_the_sprint_review_file(self):
+        self.write("epic-001/sprint-02/closure/review-sprint-E001-S02.md",
+                   "F-1: something\n", base=self.arts)
+        self.append("A finding", "closure review (E001-S02)", sprint="02")
+        v = self.verdicts()["BL-E001-001"]
+        self.assertTrue(v["pointer"] and v["pointer"].endswith("review-sprint-E001-S02.md"),
+                        f"expected the sprint review file, got {v['pointer']!r}")
+
+    def test_closure_review_with_no_such_file_stays_untraceable(self):
+        self.append("A finding", "closure review (E001-S02)", sprint="02")
+        self.assertIsNone(self.verdicts()["BL-E001-001"]["pointer"])
+
+    def test_bare_story_key_source_resolves_into_that_story_closure_dir(self):
+        self.write("epic-001/sprint-01/closure/review-E001-S01-004.md",
+                   "the finding\n", base=self.arts)
+        self.append("A finding", "E001-S01-004")
+        v = self.verdicts()["BL-E001-001"]
+        self.assertTrue(v["pointer"] and "E001-S01-004" in v["pointer"],
+                        f"expected the story's closure artifact, got {v['pointer']!r}")
+
+    def test_bare_story_key_with_no_artifact_stays_untraceable(self):
+        self.append("A finding", "E001-S01-004")
+        self.assertIsNone(self.verdicts()["BL-E001-001"]["pointer"])
+
+    def test_story_key_followed_by_free_text_resolves(self):
+        """The dominant real shape: a story key with a trailing word. Measured on a real
+        backlog, `E###-S##-### development` / `implementation` / `code review` and similar
+        are 60+ items; the `$`-anchored form rejected every one on the trailing word."""
+        self.write("epic-001/sprint-01/closure/review-E001-S01-004.md",
+                   "the finding\n", base=self.arts)
+        self.append("A finding", "E001-S01-004 development")
+        v = self.verdicts()["BL-E001-001"]
+        self.assertTrue(v["pointer"] and "E001-S01-004" in v["pointer"],
+                        f"expected the story's closure artifact, got {v['pointer']!r}")
+
+    def test_story_key_with_a_long_trailing_clause_resolves(self):
+        self.write("epic-001/sprint-01/closure/review-E001-S01-004.md",
+                   "the finding\n", base=self.arts)
+        self.append("A finding",
+                    "E001-S01-004 development - returned to the orchestrator, not self-filed")
+        self.assertTrue(self.verdicts()["BL-E001-001"]["pointer"])
+
+    def test_story_key_in_one_file_BODY_resolves_with_a_line_number(self):
+        """Closure artifacts are named after the KIND, not the story: measured on a real
+        tree, only 6 of 39 carried a key in the filename, so filename matching reached
+        almost nothing. The sibling phase branch has always searched bodies."""
+        self.write("epic-001/sprint-01/closure/retrospective.md",
+                   "notes\nE001-S01-004 was deferred\nmore\n", base=self.arts)
+        self.append("A finding", "E001-S01-004 development")
+        v = self.verdicts()["BL-E001-001"]
+        self.assertTrue(v["pointer"] and v["pointer"].endswith("retrospective.md:2"),
+                        f"expected a body hit with a line number, got {v['pointer']!r}")
+
+    def test_story_key_in_two_file_BODIES_stays_untraceable(self):
+        self.write("epic-001/sprint-01/closure/retrospective.md",
+                   "E001-S01-004 here\n", base=self.arts)
+        self.write("epic-001/sprint-01/closure/redteam.md",
+                   "E001-S01-004 also here\n", base=self.arts)
+        self.append("A finding", "E001-S01-004 development")
+        self.assertIsNone(self.verdicts()["BL-E001-001"]["pointer"])
+
+    def test_a_key_twice_in_ONE_body_is_still_one_hit(self):
+        """Ambiguity is across files, not across lines of one file."""
+        self.write("epic-001/sprint-01/closure/retrospective.md",
+                   "E001-S01-004 first\nE001-S01-004 again\n", base=self.arts)
+        self.append("A finding", "E001-S01-004 development")
+        self.assertTrue(self.verdicts()["BL-E001-001"]["pointer"])
+
+    def test_a_body_key_inside_a_longer_token_does_not_match(self):
+        self.write("epic-001/sprint-01/closure/retrospective.md",
+                   "E001-S01-0041 is a different story\n", base=self.arts)
+        self.append("A finding", "E001-S01-004 development")
+        self.assertIsNone(self.verdicts()["BL-E001-001"]["pointer"])
+
+    def test_a_key_shaped_prefix_inside_a_longer_token_does_not_match(self):
+
+        """`\\b` must not let E001-S01-0041 resolve as E001-S01-004."""
+        self.write("epic-001/sprint-01/closure/review-E001-S01-004.md",
+                   "the finding\n", base=self.arts)
+        self.append("A finding", "E001-S01-0041 development")
+        self.assertIsNone(self.verdicts()["BL-E001-001"]["pointer"])
+
+    def test_ambiguous_story_artifacts_stay_untraceable(self):
+        """Two artifacts naming the key: the one-hit-or-nothing rule must still refuse."""
+        self.write("epic-001/sprint-01/closure/review-E001-S01-004.md", "x\n", base=self.arts)
+        self.write("epic-001/sprint-01/closure/redteam-E001-S01-004.md", "x\n", base=self.arts)
+        self.append("A finding", "E001-S01-004 development")
+        self.assertIsNone(self.verdicts()["BL-E001-001"]["pointer"])
+
+    def test_a_source_matching_nothing_is_still_untraceable(self):
+
+        self.append("A finding", "hand-written note with no shape")
+        self.assertIsNone(self.verdicts()["BL-E001-001"]["pointer"])
+
+
 class TestCli(Base):
+
     def test_json_through_a_subprocess(self):
         self.append("A finding", "qa (Q-1)")
         p = subprocess.run([sys.executable, SCRIPT, "--pm-status", PM, "--state-root", self.state,

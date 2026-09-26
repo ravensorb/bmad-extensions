@@ -40,6 +40,18 @@ CODE_MARKER_RE = re.compile(r"code-marker \(?([^():]+):(\d+)\)?")
 REVIEW_RE = re.compile(r"code-review \((E(\d{3})-S(\d{2})-\d{3})\)")
 PHASE_RE = re.compile(r"^([A-Za-z][\w-]*) \(([^()]+)\)$")
 SEE_RE = re.compile(r"^See (\S+)")
+# Two shapes the four regexes above never accepted, both produced by ordinary use.
+# On a real 517-item backlog they were 70% of it, and every one came back
+# `evidence: untraceable` -- reported upstream as "0 candidates", which reads like a
+# clean bill rather than blindness. CLOSURE_REVIEW_RE takes a 2-part SPRINT key, where
+# REVIEW_RE requires the literal `code-review` and a 3-part story key.
+CLOSURE_REVIEW_RE = re.compile(r"closure review \((E(\d{3})-S(\d{2}))\)")
+# A story key at the START, with any free text after it. Anchoring on `$` matched only a
+# bare key, which measurement on a real backlog showed is the rare case: the dominant shape is
+# `E004-S03-001 development`, `E004-S03-001 implementation`, `E004-S03-001 code review` and a
+# long tail of similar, which the anchored form rejected on the trailing word alone. The
+# one-hit-or-nothing lookup below is what keeps this safe to loosen.
+BARE_STORY_RE = re.compile(r"^(E(\d{3})-S(\d{2})-\d{3})\b")
 KEY_RE = re.compile(r"^BL-E\d{3}-(\d{3})$")
 SEVERITY_RANK = {"Low": 0, "Medium": 1, "High": 2, "Critical": 3}
 
@@ -142,6 +154,45 @@ def pointer_for(item, project_root, artifacts_root):
         p = os.path.join(artifacts_root, f"epic-{m.group(2)}", f"sprint-{m.group(3)}",
                          "closure", f"review-{m.group(1)}.md")
         return p if os.path.isfile(p) else None
+    m = CLOSURE_REVIEW_RE.search(src)
+    if m:
+        p = os.path.join(artifacts_root, f"epic-{m.group(2)}", f"sprint-{m.group(3)}",
+                         "closure", f"review-sprint-{m.group(1)}.md")
+        return p if os.path.isfile(p) else None
+    m = BARE_STORY_RE.match(src.strip())
+    if m:
+        # `append-issue --source <story-key>` is what normal use produces, and triage's
+        # repair table already calls this field `{story}`.
+        #
+        # Look in the NAME and in the BODY, one unambiguous hit or nothing -- the same rule
+        # the phase branch below uses. Name-only matching was the first attempt and it barely
+        # reached anything: measured on a real tree, closure artifacts are named after the
+        # KIND (retrospective.md, closure-report.md, redteam-report.md) and only 6 of 39
+        # carried a story key in the name, so 31 findings sat in bodies the lookup never
+        # opened. Two sibling branches resolving by different strategies is what hid that.
+        #
+        # Ambiguity is across FILES, not across lines: a key repeated inside one artifact is
+        # still one hit, so the loop stops at the first line that matches in each file.
+        key = m.group(1)
+        d = os.path.join(artifacts_root, f"epic-{m.group(2)}", f"sprint-{m.group(3)}", "closure")
+        if os.path.isdir(d):
+            key_re = re.compile(rf"(?<![\w-]){re.escape(key)}(?![\w-])")
+            hits = []
+            for name in sorted(os.listdir(d)):
+                if not name.endswith(".md"):
+                    continue
+                p = os.path.join(d, name)
+                if key in name:
+                    hits.append(p)
+                    continue
+                with open(p, encoding="utf-8", errors="replace") as fh:
+                    for n, line in enumerate(fh, 1):
+                        if key_re.search(line):
+                            hits.append(f"{p}:{n}")
+                            break
+            if len(hits) == 1:
+                return hits[0]
+        return None
     m = PHASE_RE.match(src.strip())
     if not m:
         return None
