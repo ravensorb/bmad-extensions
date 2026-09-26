@@ -1,6 +1,6 @@
 ---
 name: l3io-arch-review
-description: Engineering-standards architecture guardrails and review. Use when the user wants to apply best-practice engineering standards — separation of concerns, reuse, design-by-contract, testability, dependency/GA policy, unified correlated logging, documentation with diagrams, plus per-stack rules (Python uv/poetry, Node LTS, .NET self-contained, GitHub Actions) — at new-project design time, during an architectural review, or when recording a technology/architecture decision.
+description: Engineering-standards architecture guardrails and review. Use when the user wants to apply best-practice engineering standards — separation of concerns, reuse, design-by-contract, testability, dependency/GA policy, unified correlated logging, documentation with diagrams, plus per-stack rules (Python uv/poetry, Node LTS, .NET self-contained, GitHub Actions, Docker digest-pinning/SBOM, PowerShell 7.6 LTS, shell strict-mode) — at new-project design time, during an architectural review, or when recording a technology/architecture decision.
 ---
 
 # Architecture Standards & Review
@@ -44,7 +44,7 @@ explicitly passes `setup`, `configure`, or `install`.
    - Node.js (`package.json`) → `references/standards-nodejs.md`
    - .NET/C# (`*.csproj`, `*.sln`) → `references/standards-dotnet.md`
    - GitHub Actions (`.github/workflows/*`) → `references/standards-github-actions.md`
-   - Docker / PowerShell / shell → load the matching overlay if present (currently stubs).
+   - Docker / PowerShell / shell → load the matching overlay if present.
    When the user names a stack explicitly, honor that over auto-detection.
 3. **Pick the mode** from the user's intent (or ask if ambiguous). The three words
    `design`, `review` and `decision` name the modes directly — they are the `action`

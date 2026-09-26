@@ -52,9 +52,9 @@ The skill auto-detects the stack in scope and loads the matching overlay on top 
 | `standards-nodejs.md` | `package.json` | **Latest active LTS**, pinned (`engines` + `.nvmrc`); committed lockfile; TypeScript strict; `pino`-style structured logging. |
 | `standards-dotnet.md` | `*.csproj`, `*.sln` | **Latest supported .NET**; deployable apps publish **self-contained** with explicit RID; nullable + warnings-as-errors; `ILogger` structured logging. |
 | `standards-github-actions.md` | `.github/workflows/*` | **Marketplace actions over custom scripting**; **pin to major** (trusted) or SHA (third-party); least-privilege `permissions`; Dependabot. |
-| `standards-docker.md` | Dockerfiles | *Stub — coming next* (multi-stage, pinned/distroless base, non-root, no baked secrets, scanning/SBOM). |
-| `standards-powershell.md` | `*.ps1` | *Stub — coming next* (PS 7+, StrictMode, PSScriptAnalyzer, Pester, SecretManagement). |
-| `standards-shell.md` | `*.sh` | *Stub — coming next* (`set -euo pipefail`, ShellCheck, quote expansions, escalate to a real language when non-trivial). |
+| `standards-docker.md` | Dockerfiles | **Pin every `FROM` by digest AND tag**; minimal/distroless final stage carrying no build toolchain; secrets via `--mount=type=secret`, never `ARG`/`ENV`; `--sbom=true --provenance=true` at build time; non-root numeric `USER`; exec-form entrypoint so signals land. |
+| `standards-powershell.md` | `*.ps1` | **7.6 LTS** — 7.4/7.5 lose security fixes 10 Nov 2026; `#Requires` + `Set-StrictMode -Version Latest` + `$ErrorActionPreference = 'Stop'`; approved verbs, objects not formatted strings; PSScriptAnalyzer clean, Pester 5 via `[PesterConfiguration]`; SecretManagement. |
+| `standards-shell.md` | `*.sh` | `#!/usr/bin/env bash` + `set -euo pipefail`; quote every expansion, `"$@"` not `$@`; `mktemp` with `trap … EXIT` on the next line; ShellCheck clean with justified suppressions; escalate to a real language once branching outgrows shell. |
 
 ## Modes
 
