@@ -2,6 +2,43 @@
 
 All notable changes to this project will be documented in this file. See [commit-and-tag-version](https://github.com/absolute-version/commit-and-tag-version) for commit guidelines.
 
+## [3.0.2](https://github.com/ravensorb/bmad-extensions/compare/3.0.1...3.0.2) (2026-09-26)
+
+
+### Features
+
+* **ci-cd:** check:lock refuses release and blocks CI on package-lock drift ([99dfab8](https://github.com/ravensorb/bmad-extensions/commit/99dfab823063b92e080849b2317698d4afce59f4))
+* **infra:** check 27 fails a doc that enumerates a flag's choices incompletely ([3919351](https://github.com/ravensorb/bmad-extensions/commit/3919351fbbb516ccc29b9907516b2c7ecc626e6d))
+* **infra:** Stage 4 — check 4 required-flags-per-status extension ([d878ddc](https://github.com/ravensorb/bmad-extensions/commit/d878ddc3884f284d6a0c35cd3f7ee6a913d0caf4)), closes [#4](https://github.com/ravensorb/bmad-extensions/issues/4)
+* **l3io-pm,l3io-util:** detect bmad-loop and inform, no integration ([e630516](https://github.com/ravensorb/bmad-extensions/commit/e63051671dc7e2f524390c7e16240efdc81ac982))
+* **l3io-pm:** close the two blocked-status revisit-if-warranted follow-ups ([b5eddef](https://github.com/ravensorb/bmad-extensions/commit/b5eddef461d7492dd1565115037d1cb5e72503d3))
+* **l3io-pm:** Stage 1 — story-lifecycle blocked status enum + transitions ([ebe8d8a](https://github.com/ravensorb/bmad-extensions/commit/ebe8d8a55f965524537502f99adbf494a3faf704))
+* **l3io-pm:** Stage 2 — calibration exclusion + blocks_seen counter ([937008b](https://github.com/ravensorb/bmad-extensions/commit/937008b493035be9a136099512d3c6c20f2f294a))
+* **l3io-pm:** Stage 3 — closure BLOCKED: diagnostic + report/show rendering ([355d374](https://github.com/ravensorb/bmad-extensions/commit/355d374a9e05a84dd24ad3edf891ed1d60d521cc))
+
+
+### Fixes
+
+* **l3io-pm:** a legacy `deferred` issue status is migratable, not just reportable ([2bbe2c3](https://github.com/ravensorb/bmad-extensions/commit/2bbe2c3359a71749471edc4082ed0922780ad206))
+* **l3io-util,infra:** layout-cleanup follows a tree's convention instead of imposing one ([3e96f42](https://github.com/ravensorb/bmad-extensions/commit/3e96f42170b7f73402fea87d7efa69ca8c22cd1e))
+* **l3io-util:** audit-backlog resolves the source shapes real backlogs contain ([7492cfb](https://github.com/ravensorb/bmad-extensions/commit/7492cfbc33e3e79a6405afa96d1e34e56dfe9bf5))
+* **l3io-util:** migrate-adrs no longer renumbers an already-migrated ADR ([eb448c8](https://github.com/ravensorb/bmad-extensions/commit/eb448c8362047a4b4d56a8cbd760b589bbb95157))
+* **l3io-util:** the health check stops recommending the run that harms you ([0e31428](https://github.com/ravensorb/bmad-extensions/commit/0e314282b52774404c6d4ddc969a486bb31ec3e5))
+
+
+### Documentation
+
+* amend blocked design §5 — total_blocked_hours scan scoping ([12fd05c](https://github.com/ravensorb/bmad-extensions/commit/12fd05c68ee8dbb8b6716ff9c582c81a987c208a))
+* design pass for story-lifecycle blocked status ([0d79c93](https://github.com/ravensorb/bmad-extensions/commit/0d79c9347690a5a894d47f8be571af92d488624f))
+* document the four fixes for users, not just in the step files ([77e728b](https://github.com/ravensorb/bmad-extensions/commit/77e728b05a2b58bd5d4510d9ce3e8c03377f6fc8))
+* **l3io-pm:** closure prose — BLOCKED: wins over FAILED: when both apply ([64908b0](https://github.com/ravensorb/bmad-extensions/commit/64908b01eb2306470931eb29901a91fb456b3346))
+* **l3io-pm:** design for structured issue source fields ([b831496](https://github.com/ravensorb/bmad-extensions/commit/b8314962658f87892d14f1e02516bca5c3c4ecdf))
+
+
+### Maintenance
+
+* **ci-cd:** regenerate package-lock.json to sync with package.json ([2059739](https://github.com/ravensorb/bmad-extensions/commit/20597391e35d19726b6b4f0f81c1646e59dcf661))
+
 ## [3.0.1](https://github.com/ravensorb/bmad-extensions/compare/3.0.0...3.0.1) (2026-09-25)
 
 
