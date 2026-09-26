@@ -629,7 +629,91 @@ class TestAppendIssue(unittest.TestCase):
         self.assertEqual(len(data["backlog"]), 2)
         self.assertEqual(data["backlog"][1]["key"], "BL-E001-002")
 
+    def _append(self, *extra):
+        return self.run_main(["append-issue", "--file", self.f, "--epic", "001",
+                              "--sprint", "01", "--title", "T", "--severity", "Low", *extra])
+
+    def _item(self):
+        return pm._load(self.f)[1]["backlog"][-1]
+
+    # -- structured source ------------------------------------------------------------- #
+
+    def test_structured_source_derives_the_stored_string(self):
+        code, out = self._append("--source-phase", "code-review",
+                                 "--source-ref", "E001-S01-005")
+        self.assertEqual(code, 0, out)
+        it = self._item()
+        self.assertEqual(it["source"], "code-review (E001-S01-005)")
+        self.assertEqual(it["source_phase"], "code-review")
+        self.assertEqual(it["source_ref"], "E001-S01-005")
+
+    def test_a_note_is_appended_after_the_parens(self):
+        self._append("--source-phase", "code-review", "--source-ref", "E001-S01-005",
+                     "--source-note", "unresolved after 3 fix iterations")
+        it = self._item()
+        self.assertEqual(it["source"],
+                         "code-review (E001-S01-005) — unresolved after 3 fix iterations")
+        self.assertEqual(it["source_ref"], "E001-S01-005")
+
+    def test_a_free_text_source_stores_no_structured_fields(self):
+        """Absence is what marks a legacy item, so it must stay absent."""
+        self._append("--source", "hand-written note")
+        it = self._item()
+        self.assertEqual(it["source"], "hand-written note")
+        self.assertNotIn("source_phase", it)
+        self.assertNotIn("source_ref", it)
+
+    def test_source_and_source_phase_together_are_refused(self):
+        code, _ = self._append("--source", "x (y)", "--source-phase", "code-review",
+                               "--source-ref", "E001-S01-005")
+        self.assertEqual(code, 2)
+
+    def test_neither_source_nor_source_phase_is_refused(self):
+        self.assertEqual(self._append()[0], 2)
+
+    def test_source_phase_without_a_ref_is_refused(self):
+        self.assertEqual(self._append("--source-phase", "code-review")[0], 2)
+
+    def test_a_note_without_a_phase_is_refused(self):
+        self.assertEqual(self._append("--source", "x (y)", "--source-note", "n")[0], 2)
+
+    def test_a_phase_with_a_space_is_refused(self):
+        """The derived string must parse as `{phase} ({ref})`; a space breaks that."""
+        self.assertEqual(self._append("--source-phase", "closure review",
+                                      "--source-ref", "E001-S01")[0], 2)
+
+    def test_a_ref_containing_parens_is_refused(self):
+        self.assertEqual(self._append("--source-phase", "code-review",
+                                      "--source-ref", "E001 (S01)")[0], 2)
+
+    def test_every_derived_source_parses_as_phase_and_ref(self):
+        """The invariant the validation exists to buy: what this writes, the readers read."""
+        import re
+        phase_re = re.compile(r"^([A-Za-z][\w-]*) \(([^()]+)\)")
+        for phase, ref, note in [("code-review", "E001-S01-005", None),
+                                 ("arch-gate", "l3io-arch-review", None),
+                                 ("epic-redteam", "F-3", "and a trailing clause"),
+                                 ("x", "y", None)]:
+            with self.subTest(phase=phase):
+                argv = ["--source-phase", phase, "--source-ref", ref]
+                if note:
+                    argv += ["--source-note", note]
+                self.assertEqual(self._append(*argv)[0], 0)
+                m = phase_re.match(self._item()["source"])
+                self.assertIsNotNone(m, self._item()["source"])
+                self.assertEqual((m.group(1), m.group(2)), (phase, ref))
+
+    def test_dedupe_still_matches_a_structured_re_run(self):
+        """_content_matches compares the exact source string; deriving it must not break that."""
+        self._append("--source-phase", "code-review", "--source-ref", "E001-S01-005")
+        n1 = len(pm._load(self.f)[1]["backlog"])
+        code, out = self._append("--source-phase", "code-review", "--source-ref", "E001-S01-005")
+        self.assertEqual(code, 0, out)
+        self.assertEqual(len(pm._load(self.f)[1]["backlog"]), n1,
+                         "a structured re-run must be recognised as the same item")
+
     def test_invalid_severity_rejected(self):
+
         code, _ = self.run_main(["append-issue", "--file", self.f,
                                   "--key", "BL-E001-003", "--epic", "001",
                                   "--sprint", "", "--title", "T",

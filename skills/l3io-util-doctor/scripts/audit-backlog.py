@@ -142,7 +142,47 @@ def closure_dir(artifacts_root, item) -> str:
     return os.path.join(artifacts_root, f"epic-{e}", "epic-closure")
 
 
+def _resolve_phase_ref(phase, ref, item, artifacts_root):
+    """Resolve a STRUCTURED source. Same closure dir and same one-hit-or-nothing rule the
+    parsed branches use -- the difference is only that phase and ref arrived as fields rather
+    than being recovered from a string."""
+    d = closure_dir(artifacts_root, item)
+    if not os.path.isdir(d):
+        return None
+    ref_re = re.compile(rf"(?<![\w-]){re.escape(ref)}(?![\w-])")
+    tokens = {phase.casefold(), phase.casefold().removeprefix("epic-")}
+    hits = []
+    for name in sorted(os.listdir(d)):
+        if not name.endswith(".md"):
+            continue
+        p = os.path.join(d, name)
+        if ref in name:
+            hits.append(p)
+            continue
+        # Prefer a file whose name matches the phase, as the phase branch does; fall back to
+        # any file in the closure dir, since a structured ref is unambiguous on its own.
+        with open(p, encoding="utf-8", errors="replace") as fh:
+            for n, line in enumerate(fh, 1):
+                if ref_re.search(line):
+                    hits.append(f"{p}:{n}")
+                    break
+    if len(hits) == 1:
+        return hits[0]
+    named = [h for h in hits if any(t in os.path.basename(h).casefold() for t in tokens)]
+    return named[0] if len(named) == 1 else None
+
+
 def pointer_for(item, project_root, artifacts_root):
+
+    # An item written with `append-issue --source-phase` carries its phase and ref as fields,
+    # so there is nothing to parse. The regex chain below stays for the items written before
+    # that existed -- on one real backlog, 468 of 517 -- and is not going away: 76 of those
+    # point at artifacts that were never written, so no reader will ever resolve them.
+    phase, ref = (str(item.get("source_phase", "") or "").strip(),
+                  str(item.get("source_ref", "") or "").strip())
+    if phase and ref:
+        return _resolve_phase_ref(phase, ref, item, artifacts_root)
+
     m = SEE_RE.match(str(item.get("description", "") or "").strip())
     if m:
         p = _existing(m.group(1), project_root, artifacts_root)

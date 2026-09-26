@@ -330,7 +330,57 @@ class TestLegacySourceShapes(Base):
         self.assertIsNone(self.verdicts()["BL-E001-001"]["pointer"])
 
 
+class TestStructuredSource(Base):
+    """An item carrying source_phase/source_ref needs no parsing at all."""
+
+    def _append_structured(self, phase, ref, epic="001", sprint="01"):
+        return self.pm("append-issue", "--state-root", self.state, "--epic", epic,
+                       "--sprint", sprint, "--title", "T", "--severity", "Low",
+                       "--source-phase", phase, "--source-ref", ref)
+
+    def test_structured_item_resolves_without_the_regex_chain(self):
+        self.write("epic-001/sprint-01/closure/redteam-report.md",
+                   "notes\nF-3 the finding\n", base=self.arts)
+        self._append_structured("epic-redteam", "F-3")
+        v = self.verdicts()["BL-E001-001"]
+        self.assertTrue(v["pointer"] and v["pointer"].endswith("redteam-report.md:2"),
+                        f"expected a body hit, got {v['pointer']!r}")
+
+    def test_a_structured_item_bypasses_the_parsed_branches(self):
+        """Proves the structured branch is used, not that the answer happens to be right:
+        the stored `source` string is deliberately unparseable by every regex."""
+        self.write("epic-001/sprint-01/closure/redteam-report.md", "F-3 here\n", base=self.arts)
+        self._append_structured("epic-redteam", "F-3")
+        import ruamel.yaml
+        p = os.path.join(self.state, "issues.yaml")
+        y = ruamel.yaml.YAML()
+        with open(p, encoding="utf-8") as fh:
+            data = y.load(fh)
+        data["backlog"][0]["source"] = "!!! nothing can parse this !!!"
+        with open(p, "w", encoding="utf-8") as fh:
+            y.dump(data, fh)
+        self.assertTrue(self.verdicts()["BL-E001-001"]["pointer"],
+                        "structured fields must resolve even when `source` is garbage")
+
+    def test_a_structured_ref_in_two_files_stays_untraceable(self):
+        self.write("epic-001/sprint-01/closure/a.md", "F-3\n", base=self.arts)
+        self.write("epic-001/sprint-01/closure/b.md", "F-3\n", base=self.arts)
+        self._append_structured("epic-redteam", "F-3")
+        self.assertIsNone(self.verdicts()["BL-E001-001"]["pointer"])
+
+    def test_a_structured_ref_matching_nothing_is_untraceable(self):
+        self.write("epic-001/sprint-01/closure/a.md", "nothing here\n", base=self.arts)
+        self._append_structured("epic-redteam", "F-9")
+        self.assertIsNone(self.verdicts()["BL-E001-001"]["pointer"])
+
+    def test_a_legacy_item_still_uses_the_regex_chain(self):
+        self.write("epic-001/sprint-01/closure/review-E001-S01-004.md", "x\n", base=self.arts)
+        self.append("A finding", "E001-S01-004 development")
+        self.assertTrue(self.verdicts()["BL-E001-001"]["pointer"])
+
+
 class TestCli(Base):
+
 
     def test_json_through_a_subprocess(self):
         self.append("A finding", "qa (Q-1)")

@@ -84,7 +84,7 @@ on them, exactly as sprint closure §6 does:
   uv run {pm_status} append-issue --file {pm_issues_file} \
     --epic {epic_nnn} --sprint "" \
     --title "{finding_text}" \
-    --source "epic-arch-review ({finding_id})" \
+    --source-phase epic-arch-review --source-ref {finding_id} \
     --severity Low \
     --description "See {implementation_artifacts}/epic-{epic_nnn}/epic-closure/arch-drift-review.md"
   ```
@@ -190,7 +190,7 @@ arch reviewer's BLOCKER/MAJOR/MINOR:
   uv run {pm_status} append-issue --file {pm_issues_file} \
     --epic {epic_nnn} --sprint "" \
     --title "{finding_text}" \
-    --source "epic-redteam ({finding_id})" \
+    --source-phase epic-redteam --source-ref {finding_id} \
     --severity Low \
     --description "See {implementation_artifacts}/epic-{epic_nnn}/epic-closure/redteam-report.md"
   ```

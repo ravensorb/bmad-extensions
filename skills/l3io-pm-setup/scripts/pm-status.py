@@ -5635,7 +5635,58 @@ def _norm_issue_title(title) -> str:
     return " ".join(str(title).split()).casefold()
 
 
+SOURCE_PHASE_RE = re.compile(r"^[A-Za-z][\w-]*$")
+
+
+def resolve_source(args):
+    """Return (source_string, phase, ref) for an append-issue call.
+
+    `--source` is free text stored verbatim and validated nowhere, and it is the only link an
+    issue has back to the artifact that raised it. A real backlog grew 100+ distinct shapes,
+    and audit-backlog.py accumulated five regexes trying to read them -- every one of which
+    has been wrong about some shape. This package's own step-03-dev-loop.md even emits a
+    source its own primary reader rejects, surviving only because an earlier regex uses
+    .search rather than .match.
+
+    So the structured form DERIVES the string rather than sitting beside it: a caller cannot
+    produce a phase/ref pair that disagrees with the text, because it does not write the text.
+    Validation here guarantees the result parses as `{phase} ({ref})`, which is the invariant
+    the readers depend on.
+
+    `--source` stays accepted and stored byte-for-byte: _content_matches compares it exactly
+    as one of four duplicate-detection keys, deliberately, because over-matching loses a real
+    finding.
+    """
+    raw = getattr(args, "source", None)
+    phase = getattr(args, "source_phase", None)
+    ref = getattr(args, "source_ref", None)
+    note = getattr(args, "source_note", "") or ""
+
+    if raw and phase:
+        _die_usage("--source and --source-phase are alternatives -- pass one, not both")
+    if not raw and not phase:
+        _die_usage("append-issue needs --source, or --source-phase with --source-ref")
+    if note and not phase:
+        _die_usage("--source-note applies only to --source-phase")
+    if raw:
+        return raw, None, None
+
+    if not ref:
+        _die_usage("--source-phase requires --source-ref")
+    if not SOURCE_PHASE_RE.match(phase):
+        _die_usage(f"--source-phase {phase!r} must match {SOURCE_PHASE_RE.pattern} -- the "
+                   f"derived source has to parse as '{{phase}} ({{ref}})', which a space or a "
+                   f"punctuation character breaks")
+    if "(" in ref or ")" in ref:
+        _die_usage(f"--source-ref {ref!r} must not contain parentheses -- they delimit the ref "
+                   f"in the derived source string")
+
+    derived = f"{phase} ({ref})" + (f" — {note}" if note else "")
+    return derived, phase, ref
+
+
 def _content_matches(item, epic_norm: str, sprint_norm: str, source: str, norm_title: str) -> bool:
+
     return (isinstance(item, dict)
             and _norm_num(item.get("epic", ""), 3) == epic_norm
             and _norm_num(item.get("sprint", "") or "", 2) == sprint_norm
@@ -5706,6 +5757,8 @@ def _issues_open_path(args) -> str:
 
 def _append_issue(args) -> int:
     from ruamel.yaml.comments import CommentedMap
+    # Resolved before the lock: a usage error should not hold issues.yaml while it exits.
+    source_str, source_phase, source_ref = resolve_source(args)
     open_path = _issues_open_path(args)
     epic_norm = _norm_num(args.epic, 3)
     sprint_norm = _norm_num(args.sprint, 2) if args.sprint else ""
@@ -5740,7 +5793,7 @@ def _append_issue(args) -> int:
         note = ""
         if not args.allow_duplicate:
             dup = _find_issue_by_content(store.backlog, epic_norm, sprint_norm,
-                                         args.source, norm_title)
+                                         source_str, norm_title)
             if dup is not None:
                 sys.stdout.write(
                     f"OK append-issue skipped -- matches existing {dup.get('key', '')} "
@@ -5748,7 +5801,7 @@ def _append_issue(args) -> int:
                     f"--allow-duplicate to force a second entry.\n")
                 return 0
             prior = _last_resolved_match(store.resolved, epic_norm, sprint_norm,
-                                         args.source, norm_title)
+                                         source_str, norm_title)
             if prior is not None:
                 res, psev = str(prior.get("resolution", "")), str(prior.get("severity", ""))
                 if res == "fixed":
@@ -5771,7 +5824,10 @@ def _append_issue(args) -> int:
         item["epic"] = args.epic
         item["sprint"] = args.sprint if args.sprint else ""
         item["title"] = args.title
-        item["source"] = args.source
+        item["source"] = source_str
+        if source_phase:
+            item["source_phase"] = source_phase
+            item["source_ref"] = source_ref
         item["severity"] = args.severity
         item["status"] = "backlog"
         if kind != "defect":
@@ -7367,7 +7423,15 @@ def build_parser() -> argparse.ArgumentParser:
     ai.add_argument("--epic", required=True, help="zero-padded epic number, e.g. '001'")
     ai.add_argument("--sprint", default="", help="zero-padded sprint number; empty for epic-level")
     ai.add_argument("--title", required=True)
-    ai.add_argument("--source", required=True, help="review phase + finding ID")
+    ai.add_argument("--source", default=None,
+                    help="free-text source, stored verbatim (legacy form; prefer --source-phase)")
+    ai.add_argument("--source-phase", dest="source_phase", default=None,
+                    help="structured source: the phase, e.g. code-review. With --source-ref it "
+                         "DERIVES --source as '{phase} ({ref})', so the two cannot disagree")
+    ai.add_argument("--source-ref", dest="source_ref", default=None,
+                    help="structured source: the finding or story it points at; no parentheses")
+    ai.add_argument("--source-note", dest="source_note", default="",
+                    help="structured source: free text appended after the parens")
     ai.add_argument("--severity", required=True, choices=["Low", "Medium", "High", "Critical"])
     ai.add_argument("--description", default="")
     ai.add_argument("--kind", default="defect", choices=list(ISSUE_KINDS),

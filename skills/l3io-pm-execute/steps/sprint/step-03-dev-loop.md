@@ -262,7 +262,8 @@ uv run {pm_status} append-issue \
   --epic {epic_nnn} \
   --sprint {sprint_num} \
   --title "{finding_text}" \
-  --source "code-review ({story_key}) — unresolved after {max_fix_iterations} fix iterations" \
+  --source-phase code-review --source-ref {story_key} \
+  --source-note "unresolved after {max_fix_iterations} fix iterations" \
   --severity {Critical|High|Medium} \
   --description "See {sprint_root}/closure/review-{story_key}.md"
 ```
@@ -300,7 +301,7 @@ uv run {pm_status} append-issue \
   --epic {epic_nnn} \
   --sprint {sprint_num} \
   --title "{finding_text}" \
-  --source "code-review ({story_key})" \
+  --source-phase code-review --source-ref {story_key} \
   --severity Low \
   --description "See {sprint_root}/closure/review-{story_key}.md"
 ```

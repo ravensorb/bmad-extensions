@@ -211,7 +211,7 @@ uv run {pm_status} append-issue \
   --epic {epic_nnn} \
   --sprint {sprint_num} \
   --title "{issue_title}" \
-  --source "{phase} ({finding_id})" \
+  --source-phase {phase} --source-ref {finding_id} \
   --severity Low \
   --description "See {phase_report}"
 ```

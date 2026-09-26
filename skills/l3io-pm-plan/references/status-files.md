@@ -254,7 +254,9 @@ backlog:
   epic: '001'
   sprint: '02'                            # '' for an epic-level item
   title: 'Issue title'
-  source: 'code-review (E001-S02-003)'
+  source: 'code-review (E001-S02-003)'    # derived when written structurally
+  source_phase: 'code-review'             # present only when --source-phase was used
+  source_ref: 'E001-S02-003'              # absent = legacy item, `source` must be parsed
   severity: Low
   status: backlog                         # backlog (untriaged) | scheduled
   description: 'See …/closure/review-E001-S02-003.md'
@@ -385,7 +387,8 @@ compatibility (it must equal `<state-root>/issues.yaml`):
 
 ```bash
 uv run {pm_status} append-issue --file {pm_issues_file} \
-  --epic 001 --title "..." --source "..." --severity Medium \
+  --epic 001 --title "..." --severity Medium \
+  --source-phase code-review --source-ref E001-S02-003 \
   --description "See <the file and line where the finding is recorded>"
 ```
 

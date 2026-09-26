@@ -192,7 +192,7 @@ uv run {pm_status} append-issue \
   --epic {epic_nnn} \
   --sprint "" \
   --title "{finding_text}" \
-  --source "arch-gate ({reviewer})" \
+  --source-phase arch-gate --source-ref {reviewer} \
   --severity Low \
   --description "See {implementation_artifacts}/epic-{epic_nnn}/arch/arch-gate-review.md ({finding_id})"
 ```
