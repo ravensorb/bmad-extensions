@@ -83,6 +83,10 @@
 //                    two halves (inside pm-status.py; across all of skills/), scope derived from
 //                    the tree, with the canonical status-files.md contract exempt. See the block
 //                    above resolverInvariant() for the KNOWN GAP.
+//  27. choice-enumerations  a doc line that ENUMERATES a subcommand flag's choices must
+//                    name all of them — scope derived from argparseSurface(), triggered by a
+//                    synopsis brace list or 2+ backticked members. See the block above
+//                    choiceEnumerations() for the KNOWN GAP.
 //
 // ---------------------------------------------------------------------------------------
 // KNOWN GAPS — check 4's reach over skills/
@@ -2288,7 +2292,11 @@ function checkAdrHome() {
 const NUMBER_WORDS = ["zero", "one", "two", "three", "four", "five", "six", "seven", "eight",
   "nine", "ten", "eleven", "twelve", "thirteen", "fourteen", "fifteen", "sixteen",
   "seventeen", "eighteen", "nineteen", "twenty", "twenty-one", "twenty-two", "twenty-three",
-  "twenty-four", "twenty-five", "twenty-six"];
+  "twenty-four", "twenty-five", "twenty-six", "twenty-seven", "twenty-eight",
+  "twenty-nine", "thirty", "thirty-one", "thirty-two"];
+// Deliberately carries headroom past the current check count. The list previously ended at
+// the exact number of checks, so adding one made every prose count unfixable -- the correct
+// new word was not in the table, and the failure named the doc rather than the table.
 const DOCTOR_DIR = "skills/l3io-util-doctor";
 
 function checkDoctorModeCount() {
@@ -4039,7 +4047,88 @@ export function resolverInvariant(opts = {}) {
   return { violations, scannedFiles }
 }
 
+// ---------------------------------------------------------------------------
+// 27. A doc that ENUMERATES a subcommand flag's choices must name all of them.
+//
+// docs/l3io-util-reference.md listed repair-issue's actions as "unschedule, reopen, link
+// and reseed" and docs/l3io-pm-reference.md wrote the synopsis
+// `--action {unschedule,link,reseed,reopen}`. Adding `normalize-status` to argparse made
+// both WRONG rather than merely stale, and every gate stayed green: check 4 judges
+// INVOCATIONS of {pm_status} under skills/, so a prose table that lists actions without
+// invoking one is invisible to it. Two hand-kept enumerations of a set the code already
+// owns -- the drift CLAUDE.md §4 is about.
+//
+// HOW A LINE IS JUDGED. Scope is derived: every (subcommand, flag) whose argparse
+// declaration carries 2+ `choices`, read through argparseSurface() -- the same hardened
+// extractor check 4 uses, never a second parse of pm-status.py. A line is examined only
+// when it names the subcommand as a BACKTICKED token; plain prose mentioning the word is
+// not a claim about the flag, and matching bare words made `report` fire on "reports".
+//
+// Two enumeration shapes, and the first wins when both are present:
+//   synopsis  `--action {a,b,c}`  -- a brace list IS the enumeration, judged alone. The
+//             same line's prose often discusses a subset on purpose, so counting backticks
+//             there reported a complete synopsis as incomplete.
+//   prose     2+ backticked members -- naming several claims to be the list. One member is
+//             a reference to that action, not an enumeration, and is left alone.
+//
+// KNOWN GAP: a doc that enumerates in some third shape -- a bulleted list across lines, or
+// unquoted prose -- is not judged. This is line-scoped and quote-anchored on purpose;
+// widening it past that produced false positives faster than findings. False negatives
+// only, stated here rather than left for a reader to infer.
+function choiceEnumerations() {
+  const violations = [];
+  const surface = argparseSurface(PM_STATUS);
+  for (const [sub, entry] of surface) {
+    if (!entry.choices || entry.choices.size === 0) continue;
+    // The subcommand as an exact backticked token (`repair-issue`, the table-row shape) or
+    // leading a backticked synopsis before its first flag (`report --format ...`). A span that
+    // merely CONTAINS the word is not a claim about it: `report only -- fix it by hand` made
+    // check 27 attribute audit-issues' `--format {text,json}` to `report`.
+    const subEsc = sub.replace(/[-]/g, "\\-");
+    const subRe = new RegExp("`" + subEsc + "`|`" + subEsc + "\\s+-");
+    for (const [flag, valueSet] of entry.choices) {
+      const vals = [...valueSet];
+      if (vals.length < 2) continue;
+      const esc = (v) => v.replace(/[.*+?^${}()|[\]\\-]/g, "\\$&");
+      const braceRe = new RegExp(esc(flag) + "\\s*\\{([^}]*)\\}");
+      for (const doc of LIVE_DOCS) {
+        read(doc).split("\n").forEach((line, i) => {
+          if (!subRe.test(line)) return;
+          const brace = line.match(braceRe);
+          let named;
+          if (brace) {
+            const listed = brace[1].split(",").map((x) => x.trim());
+            named = vals.filter((v) => listed.includes(v));
+          } else {
+            // 2+ backticked members is the CLAIM to be enumerating; completeness is then
+            // judged on any appearance, code-formatted or not. CLAUDE.md writes
+            // "`spec-change` | `spec-proposal`; absent = defect" -- it names all three, and
+            // requiring backticks on the default value reported a correct line as wrong.
+            const quoted = vals.filter((v) => new RegExp("`" + esc(v) + "`").test(line));
+            if (quoted.length < 2) return;
+            named = vals.filter((v) => new RegExp("(?<![\\w-])" + esc(v) + "(?![\\w-])").test(line));
+          }
+          if (named.length === vals.length) return;
+          const missing = vals.filter((v) => !named.includes(v));
+          violations.push(
+            `${doc}:${i + 1} enumerates \`${sub}\`'s ${flag} but omits ` +
+            `${missing.map((m) => `\`${m}\``).join(", ")} — argparse declares ` +
+            `${vals.length}: ${vals.join(", ")}`);
+        });
+      }
+    }
+  }
+  return violations;
+}
+
+function checkChoiceEnumerations() {
+  const violations = choiceEnumerations();
+  for (const v of violations) failures.push(`[check 27] ${v}`);
+  if (verbose) console.log(`  choice-enumerations: ${violations.length} violation(s)`);
+}
+
 function checkResolverInvariant() {
+
   const { violations } = resolverInvariant()
   for (const v of violations) failures.push(`[check 26] ${v}`)
   if (verbose) console.log(`  resolver-invariant: ${violations.length} violation(s)`)
@@ -4072,6 +4161,7 @@ checkMarketplaceDependencies();
 checkSharedPointerResolution();
 checkDoctorModeKeywords();
 checkResolverInvariant();
+checkChoiceEnumerations();
 
 for (const note of notes) if (verbose) console.log(`  note: ${note}`);
 

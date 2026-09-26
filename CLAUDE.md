@@ -117,7 +117,7 @@ Recorded here so the next `npm ci` warning is a known fact rather than a redisco
 the current list rather than trusting this sentence: the `deprecated` field in
 `package-lock.json`'s `packages` map is the source of truth.
 
-`check:docs` runs twenty-six checks asserting facts that have each drifted in this repo's history.
+`check:docs` runs twenty-seven checks asserting facts that have each drifted in this repo's history.
 They are numbered and described in `scripts/check-docs.mjs`'s own header — read them there rather
 than restating them here, **including the `KNOWN GAPS` block** at the end of that header, which
 states in full what check 4 does *not* reach over `skills/`. A numbered entry describes a check's
