@@ -5468,6 +5468,38 @@ OPEN_ISSUE_STATUSES = ("backlog", "scheduled")
 # triage reports everything and can act on nothing. Mapping to a RESOLVED state instead would
 # be a judgement, not a migration, so it is deliberately not done here.
 LEGACY_OPEN_STATUSES = {"deferred": "backlog"}
+
+
+def legacy_status_coexistence(store):
+    """Return the legacy statuses that COEXIST with their own mapping target, or {}.
+
+    Mapping `deferred` -> `backlog` is only safe when the project never used both. If it did,
+    the two meant DIFFERENT things to whoever wrote them -- typically `deferred` as a
+    disposition ("we looked at this and decided not now") against `backlog` as undecided --
+    and collapsing them erases a distinction rather than modernising a name.
+
+    Reported from a real upgrade: 453 `deferred` alongside 64 `backlog`. For the 444 behind
+    CLOSED epics the mapping turned "we decided" into "nobody decided", and a project guard
+    refusing an epic closed over an undecided finding went red. A project without that guard
+    would have taken the loss in silence.
+
+    Coexistence is EVIDENCE, not a heuristic: two statuses in one file were two states.
+    `scheduled` does not count -- it is a scheduling state, not the resting state, so it
+    evidences no deferred-vs-backlog distinction.
+    """
+    present = {str(it.get("status", "")) for it in (store.open.get("backlog") or [])
+               if isinstance(it, dict)}
+    return {legacy: target for legacy, target in LEGACY_OPEN_STATUSES.items()
+            if legacy in present and target in present}
+
+
+def _coexistence_refusal(found) -> str:
+    pairs = ", ".join(f"{k!r} alongside {v!r}" for k, v in sorted(found.items()))
+    return (f"normalize-status refuses: {pairs} coexist in this backlog, so they were distinct "
+            f"states here and mapping one onto the other would erase that distinction. If "
+            f"`deferred` recorded a DECISION, `backlog` cannot hold it -- neither open status "
+            f"carries one. Nothing has been written. Decide per item, or dispose of the "
+            f"decided ones into issues-resolved.yaml where a resolution can hold it.")
 RESOLUTIONS = ("fixed", "wontfix", "duplicate", "obsolete")
 # A backlog item's kind. `defect` is the default and is never written, so every file written
 # before kinds existed still reads as all defects. The spec kinds come from spec-align.py's
@@ -6489,6 +6521,9 @@ def _normalize_all_legacy(args) -> int:
     open_path = issues_paths(args.state_root)[0]
     with issues_lock(open_path):
         store = IssueStore(open_path)
+        found = legacy_status_coexistence(store)
+        if found:
+            raise PMError(2, _coexistence_refusal(found))
         changed = []
         for it in (store.open.get("backlog") or []):
             was = str(it.get("status", ""))
@@ -6573,6 +6608,9 @@ def _repair_issue(args) -> int:
                 raise PMError(2, f"normalize-status: {k} does not resolve to one open item")
             it = opens[0]
             was = str(it.get("status", ""))
+            found = legacy_status_coexistence(store)
+            if found:
+                raise PMError(2, _coexistence_refusal(found))
             if was not in LEGACY_OPEN_STATUSES:
                 raise PMError(2, f"normalize-status: {k} has status {was!r}, which is not a "
                                  f"known legacy status ({', '.join(sorted(LEGACY_OPEN_STATUSES))})"

@@ -8366,15 +8366,17 @@ class TestRepairIssue(TestAuditIssues):
         per-item confirmation loop -- reported back from a real upgrade as impractical."""
         for t in ("A", "B", "C"):
             self.append(t)
-        self.edit_open(lambda d: [d["backlog"][0].__setitem__("status", "deferred"),
-                                  d["backlog"][2].__setitem__("status", "deferred")])
+        # All three legacy: a project with NO surviving `backlog` item, which is the only case
+        # the mapping is safe for. Leaving one as `backlog` would be coexistence, and the
+        # coexistence gate refuses it -- see test_normalize_refuses_when_backlog_and_deferred_COEXIST.
+        self.edit_open(lambda d: [it.__setitem__("status", "deferred") for it in d["backlog"]])
         code, out, err = self.run_all(["repair-issue", "--state-root", self.root,
                                        "--action", "normalize-status", "--all-legacy"])
         self.assertEqual(code, 0, err)
-        self.assertIn("2 item(s) normalized", out)
+        self.assertIn("3 item(s) normalized", out)
         self.assertEqual([str(i["status"]) for i in self.load_open()["backlog"]],
                          ["backlog", "backlog", "backlog"])
-        self.assertEqual(len(self.events("issue_status_normalized")), 2)
+        self.assertEqual(len(self.events("issue_status_normalized")), 3)
         self.assert_invariants()
 
     def test_all_legacy_leaves_an_unrecognised_status_alone(self):
@@ -8398,7 +8400,60 @@ class TestRepairIssue(TestAuditIssues):
         self.assertIn("no legacy status found", out)
         self.assertEqual(self.events("issue_status_normalized"), [])
 
+    def test_normalize_refuses_when_backlog_and_deferred_COEXIST(self):
+        """Coexistence proves the two were DISTINCT states in this project, so mapping one
+        onto the other erases a distinction its authors were making.
+
+        Reported from a real upgrade: 453 `deferred` alongside 64 `backlog`. `deferred` there
+        was a DISPOSITION -- "we looked at this and decided not now" -- and `backlog` means
+        open and undecided. For 444 items behind CLOSED epics the mapping turned "we decided"
+        into "nobody decided", and a project guard refusing an epic closed over an undecided
+        finding went red. A project without that guard would have taken the loss silently.
+        """
+        self.append("A")
+        self.append("B")
+        self.edit_open(lambda d: d["backlog"][0].__setitem__("status", "deferred"))
+        code, _, err = self.run_all(["repair-issue", "--state-root", self.root,
+                                     "--action", "normalize-status", "--all-legacy"])
+        self.assertEqual(code, 2)
+        self.assertIn("coexist", err)
+        self.assertEqual([str(i["status"]) for i in self.load_open()["backlog"]],
+                         ["deferred", "backlog"], "nothing may be rewritten on a refusal")
+
+    def test_single_key_normalize_also_refuses_on_coexistence(self):
+        """The loss is identical one item at a time."""
+        self.append("A")
+        self.append("B")
+        self.edit_open(lambda d: d["backlog"][0].__setitem__("status", "deferred"))
+        code, _, err = self.repair("BL-E001-001", "normalize-status")
+        self.assertEqual(code, 2)
+        self.assertIn("coexist", err)
+
+    def test_normalize_proceeds_when_no_backlog_item_coexists(self):
+        """All-legacy is the unambiguous case: nothing distinguishes them, so nothing is lost."""
+        self.append("A")
+        self.append("B")
+        self.edit_open(lambda d: [d["backlog"][0].__setitem__("status", "deferred"),
+                                  d["backlog"][1].__setitem__("status", "deferred")])
+        code, out, err = self.run_all(["repair-issue", "--state-root", self.root,
+                                       "--action", "normalize-status", "--all-legacy"])
+        self.assertEqual(code, 0, err)
+        self.assertEqual([str(i["status"]) for i in self.load_open()["backlog"]],
+                         ["backlog", "backlog"])
+
+    def test_a_scheduled_item_does_not_count_as_coexistence(self):
+        """`scheduled` is a scheduling state, not the undecided resting state, so it does not
+        evidence a deferred-vs-backlog distinction."""
+        self.append("A")
+        self.append("B")
+        self.edit_open(lambda d: [d["backlog"][0].__setitem__("status", "deferred"),
+                                  d["backlog"][1].__setitem__("status", "scheduled")])
+        code, _, err = self.run_all(["repair-issue", "--state-root", self.root,
+                                     "--action", "normalize-status", "--all-legacy"])
+        self.assertEqual(code, 0, err)
+
     def test_all_legacy_refuses_any_other_action(self):
+
         self.append("A")
         code, _, err = self.run_all(["repair-issue", "--state-root", self.root,
                                      "--action", "unschedule", "--all-legacy"])
