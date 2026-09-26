@@ -1231,6 +1231,51 @@ class TestMigrateAdrs(Project):
         self.assertEqual(self.git("status", "--porcelain", "--",
                                   "docs", f"{IMPL}/epic-001", f"{IMPL}/epic-002").strip(), "")
 
+    def test_same_number_AND_slug_is_a_duplicate_not_a_collision(self):
+        """An epic ADR already migrated is a LEFTOVER, not a competing decision.
+
+        Renumbering it mints a stale duplicate under a fresh number. Observed on a real
+        project (houserules, 2026-09-25): all 14 legacy ADRs were same-number-same-slug
+        duplicates, and --apply would have invented ADRs 36-49 for them, then rewritten the
+        epic artifacts to cite the invented numbers. DOC_ADR_RE matched the slug with `.+`
+        but never captured it, so the collision test compared numbers only.
+        """
+        self.write("docs/adr/0009-cache-policy.md", adr(9, "cache-policy", epic="E003"))
+        self.write(f"{IMPL}/epic-003/arch/adr-0009-cache-policy.md",
+                   "# ADR-0009: cache-policy\n\n- **Status:** Accepted\n\n## Context\n\nstale\n")
+        self.git("add", "-A")
+        self.git("commit", "-q", "-m", "duplicate fixture")
+        mv = {m["from"]: m for m in self.run_json("--plan")["moves"]}[
+            f"{IMPL}/epic-003/arch/adr-0009-cache-policy.md"]
+        self.assertTrue(mv["duplicate"], "same number AND slug must classify as duplicate")
+        self.assertFalse(mv["collision"], "a duplicate must never be renumbered")
+        self.assertIsNone(mv["to"])
+
+    def test_same_number_DIFFERENT_slug_is_still_a_collision(self):
+        """The genuine competing-decision case must keep renumbering."""
+        mv = {m["from"]: m for m in self.run_json("--plan")["moves"]}[
+            f"{IMPL}/epic-001/arch/adr-0003-auth.md"]
+        self.assertTrue(mv["collision"])
+        self.assertFalse(mv["duplicate"])
+
+    def test_apply_leaves_a_duplicate_in_place_and_reports_it(self):
+        """--apply must not move, renumber, or delete a duplicate: it reports it."""
+        self.write("docs/adr/0009-cache-policy.md", adr(9, "cache-policy", epic="E003"))
+        dup_rel = f"{IMPL}/epic-003/arch/adr-0009-cache-policy.md"
+        self.write(dup_rel,
+                   "# ADR-0009: cache-policy\n\n- **Status:** Accepted\n\n## Context\n\nstale\n")
+        self.git("add", "-A")
+        self.git("commit", "-q", "-m", "duplicate fixture")
+        out = self.run_json("--apply")
+        self.assertTrue(os.path.exists(self.path(dup_rel)),
+                        "the duplicate must stay where it is")
+        self.assertIn(dup_rel, {d["from"] for d in out["duplicates"]})
+        self.assertFalse(os.path.exists(self.path("docs/adr/0010-cache-policy.md")),
+                         "no fresh number may be minted for a duplicate")
+        self.assertEqual(self.read("docs/adr/0009-cache-policy.md"),
+                         adr(9, "cache-policy", epic="E003"),
+                         "the canonical docs/adr copy must be untouched")
+
     def test_nothing_to_move(self):
         self.git("rm", "-q", "-r", f"{IMPL}/epic-001/arch")
         self.git("commit", "-q", "-m", "no legacy")

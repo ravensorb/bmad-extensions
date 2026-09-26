@@ -145,8 +145,16 @@ def md():
     suffixes (-1, -2) count the same headings GitHub does; the index lists H1-H3 only."""
     global _MD
     if _MD is None:
-        from markdown_it import MarkdownIt
-        from mdit_py_plugins.anchors import anchors_plugin
+        try:
+            from markdown_it import MarkdownIt
+            from mdit_py_plugins.anchors import anchors_plugin
+        except ImportError as exc:
+            # This script's dependencies come from its PEP-723 header, which only `uv run`
+            # reads. Reached under a bare interpreter, the lazy import dies with a traceback
+            # naming a package nobody asked for -- so say what is actually wrong instead.
+            raise SAError(2, f"spec-align.py needs its PEP-723 dependencies ({exc.name}). "
+                             f"Run it under uv, not a bare interpreter:\n"
+                             f"  uv run {os.path.basename(__file__)} <subcommand> ...") from exc
         _MD = MarkdownIt("commonmark").enable("table").use(anchors_plugin,
                                                            min_level=1, max_level=6)
     return _MD
@@ -710,7 +718,7 @@ def cmd_check_dispositions(ctx, a):
 
 # -- ADRs (one home: docs/adr/, ADR-0005) ------------------------------------------------------- #
 
-DOC_ADR_RE = re.compile(r"^(\d{4})-.+\.md$")
+DOC_ADR_RE = re.compile(r"^(\d{4})-(.+)\.md$")  # group 2 = slug: see _migration_plan
 LEGACY_ADR_RE = re.compile(r"^adr-(\d{4})-(.+)\.md$")
 ADR_META_RE = re.compile(r"^-\s+\*\*(Status|Epic|Departs from spec):\*\*\s*(.*?)\s*$")
 
@@ -1403,9 +1411,11 @@ def cmd_check_stale(ctx, a):
 def _migration_plan(ctx):
     ctx.need("impl", "state")
     docs_dir = os.path.join(ctx.project, "docs", "adr")
-    docs_nums = set()
+    docs_by_num = {}
     if os.path.isdir(docs_dir):
-        docs_nums = {int(m.group(1)) for m in map(DOC_ADR_RE.match, os.listdir(docs_dir)) if m}
+        docs_by_num = {int(m.group(1)): m.group(2)
+                       for m in map(DOC_ADR_RE.match, os.listdir(docs_dir)) if m}
+    docs_nums = set(docs_by_num)
     moves, taken = [], set(docs_nums)
     for p in sorted(glob.glob(os.path.join(ctx.impl, "epic-*", "arch", "adr-*.md"))):
         m = LEGACY_ADR_RE.match(os.path.basename(p))
@@ -1413,8 +1423,16 @@ def _migration_plan(ctx):
         if not (m and em):
             continue
         n, slug = int(m.group(1)), m.group(2)
+        # A same-number AND same-slug file in docs/adr is not a competing decision -- it IS
+        # this decision, already migrated, and the epic copy is a leftover (often a stale
+        # pre-supersession snapshot). Renumbering it mints a duplicate ADR under a fresh
+        # number and rewrites the epic's artifacts to cite the invented one. Observed on a
+        # real project: all 14 legacy ADRs were duplicates, so every single one would have
+        # been minted as new. Only a DIFFERENT slug is a genuine collision.
+        dup = docs_by_num.get(n) == slug
         moves.append({"from": ctx.rel(p), "number": n, "slug": slug, "epic": f"E{em.group(1)}",
-                      "collision": n in taken,
+                      "duplicate": dup,
+                      "collision": (n in taken) and not dup,
                       "to": None if n in taken else f"docs/adr/{n:04d}-{slug}.md"})
         taken.add(n)
     reg = load_yaml(os.path.join(ctx.state_root, "adr-register.yaml")) or {}
@@ -1424,6 +1442,8 @@ def _migration_plan(ctx):
         nxt = 1
     hi = max([*docs_nums, *(mv["number"] for mv in moves)], default=0)
     return {"moves": moves,
+            "duplicates": [mv for mv in moves if mv["duplicate"]],
+            "actionable": [mv for mv in moves if not mv["duplicate"]],
             "register": {"next": nxt, "highest_on_disk": hi, "lagging": hi > 0 and nxt <= hi},
             "rewritten": [], "rewritten_uncommitted": [], "review": [], "commit": None}
 
@@ -1438,7 +1458,10 @@ def _add_epic_line(text, ek):
 
 def cmd_migrate_adrs(ctx, a):
     plan = _migration_plan(ctx)
-    if a.plan or not plan["moves"]:
+    # A duplicate is reported, never moved: nothing for --apply to do about it. When every
+    # move is a duplicate there is no work at all, and proceeding would open a git
+    # transaction that commits nothing.
+    if a.plan or not plan["actionable"]:
         print(json.dumps(plan, indent=2))
         return 0
     if _git(ctx, "rev-parse", "--is-inside-work-tree", check=False).stdout.strip() != "true":
@@ -1455,7 +1478,7 @@ def cmd_migrate_adrs(ctx, a):
     # epic tree), not only files under the source epic-*/arch/ or its own tree, so those
     # matching files are checked individually rather than assumed clean.
     check_paths = {ctx.rel(docs_dir)}
-    for mv in plan["moves"]:
+    for mv in plan["actionable"]:
         nnn, old, slug = mv["epic"][1:], mv["number"], mv["slug"]
         check_paths.add(os.path.dirname(mv["from"]))                       # its epic-*/arch/
         check_paths.add(f"{ctx.rel(ctx.impl)}/epic-{nnn}")                  # its own epic tree
@@ -1482,7 +1505,7 @@ def cmd_migrate_adrs(ctx, a):
                                   recursive=True))
     commit_paths, rewritten, touched = [], set(), []
     try:
-        for mv in plan["moves"]:
+        for mv in plan["actionable"]:
             old, nnn = mv["number"], mv["epic"][1:]
             new = old
             if mv["collision"]:
