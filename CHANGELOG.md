@@ -2,6 +2,18 @@
 
 All notable changes to this project will be documented in this file. See [commit-and-tag-version](https://github.com/absolute-version/commit-and-tag-version) for commit guidelines.
 
+## [3.1.2](https://github.com/ravensorb/bmad-extensions/compare/3.1.1...3.1.2) (2026-09-26)
+
+
+### Fixes
+
+* **infra:** close the six real findings from a bmad-builder validation pass ([e328afb](https://github.com/ravensorb/bmad-extensions/commit/e328afbed513d53ef6b23fbf1f99ec97ff02dae7))
+* **l3io-pm:** grade a missing estimate block amber, not red ([7868c93](https://github.com/ravensorb/bmad-extensions/commit/7868c93fa50702b28a9b30c8919a7a2ba79befd1))
+* **l3io-pm:** grade an absent story document amber, not red ([748d548](https://github.com/ravensorb/bmad-extensions/commit/748d548a3715142a0e7e1f77633bc3b075431781))
+* **l3io-pm:** pass the agent contract to the fix re-dispatch too ([2baabc1](https://github.com/ravensorb/bmad-extensions/commit/2baabc1a27be173d123059054bd99af315ed0a14))
+* **l3io-pm:** rebuild calibration in closure order, or refuse ([efb5df0](https://github.com/ravensorb/bmad-extensions/commit/efb5df094652ff82d2de90072c4fe46b0e88ea00))
+* **l3io-pm:** scan ADRs whose filename carries the ADR- prefix ([e43f14d](https://github.com/ravensorb/bmad-extensions/commit/e43f14d45b7e8869802242d0566b0d3908e7f3a9))
+
 ## [3.1.1](https://github.com/ravensorb/bmad-extensions/compare/3.1.0...3.1.1) (2026-09-26)
 
 
