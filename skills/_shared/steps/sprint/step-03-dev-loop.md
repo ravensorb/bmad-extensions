@@ -223,10 +223,17 @@ uv run {pm_status} dispatch --state-root {pm_state_root} --event open \
 ```
 
 Spawn `{dev_agent}` again with the findings **path**
-(`{sprint_root}/closure/review-{story_key}.md`), the severities to fix, and the changed files —
-not the findings text, and not a fresh read of the story tree. The same read scope as §2
-applies, and a fix round starts from a narrower position than the original: the reviewer
-already named the files and the sections.
+(`{sprint_root}/closure/review-{story_key}.md`), the severities to fix, the changed files, and
+`{agent_contract}` (verbatim — see `steps/shared/step-00-digest.md`) — not the findings text,
+and not a fresh read of the story tree. The same read scope as §2 applies, and a fix round
+starts from a narrower position than the original: the reviewer already named the files and
+the sections.
+
+**The contract is passed again because this is a fresh subagent, not a resumed one.** Every
+other spawn in this step states it (§2 for `{dev_agent}`, §3 for the reviewer); this one
+carried scope by reference — "the same read scope as §2 applies" — and silently let the
+contract travel with it, which it cannot. A fix-round agent that ends without
+`DONE —`/`BLOCKED:`/`FAILED:` leaves §4 parsing free text for a verdict.
 
 ```bash
 uv run {pm_status} dispatch --state-root {pm_state_root} --event close \
