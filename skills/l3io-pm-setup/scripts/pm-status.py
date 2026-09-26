@@ -2391,6 +2391,44 @@ def record_orchestration_sample(state_root: str, level: str, epic_key: str,
     return note
 
 
+def actual_event_times(state_root: str) -> dict:
+    """{story key: ts of its latest `actual` event}, from state/events.jsonl.
+
+    The one honest source for "when did this story close". `updated_at` is not:
+    any field write overwrites it, so it dates the last edit rather than the
+    closure. Used by `redrive_story_samples` to rebuild calibration samples in
+    the chronological order the original appends had -- see the refusal there
+    for why an incomplete answer is not usable.
+    """
+    idx: dict = {}
+    p = events_path(state_root)
+    if not os.path.isfile(p):
+        return idx
+    try:
+        with open(p, encoding="utf-8") as fh:
+            for line in fh:
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    ev = json.loads(line)
+                except ValueError:
+                    continue  # a torn or hand-mangled line must not kill the rebuild
+                if not isinstance(ev, dict):
+                    continue
+                if ev.get("event") != "actual" or ev.get("node") != "story":
+                    continue
+                k = ev.get("key")
+                if not k:
+                    continue
+                ts = str(ev.get("ts", ""))
+                if k not in idx or ts >= idx[k]:
+                    idx[k] = ts
+    except OSError as e:
+        raise PMError(2, f"could not read the event log at {p}: {e}") from e
+    return idx
+
+
 def redrive_story_samples(state_root: str) -> dict:
     """Rebuild `scope` and `fix` from the nodes on disk. Returns a report.
 
@@ -2409,20 +2447,20 @@ def redrive_story_samples(state_root: str) -> dict:
 
     Only `scope` and `fix` are rebuilt. `closure`, `orchestration` and `token_mix` derive
     from different inputs and were never affected, so they are left exactly as they are.
+
+    Samples are re-appended in CLOSURE order, taken from each story's `actual` event in
+    state/events.jsonl -- not in the order the tree walk visits them. `weighted_ratio`
+    weights the last entry most, so order is load-bearing, and directory order is not a
+    neutral substitute for it. Raises PMError(2) without writing anything when that order
+    cannot be established for every sampled story.
     """
     from ruamel.yaml.comments import CommentedMap
     report = {"stories": 0, "sampled": 0, "provenance": {}, "skipped": 0}
     with calibration_lock(state_root):
-        y, cal = load_calibration(state_root)
-        backup = calibration_path(state_root) + ".pre-redrive"
-        if os.path.exists(calibration_path(state_root)) and not os.path.exists(backup):
-            import shutil
-            shutil.copy2(calibration_path(state_root), backup)
-            report["backup"] = os.path.basename(backup)
-
-        cal["scope"] = CommentedMap()
-        cal["fix"] = CommentedMap()
-
+        # Pass 1 -- gather, mutating nothing. The refusal below has to be able to
+        # leave the file and the backup untouched, so no write happens until the
+        # ordering is known to be establishable.
+        gathered = []
         for status in STATUS_DIRS:
             base = os.path.join(state_root, status)
             if not os.path.isdir(base):
@@ -2444,37 +2482,98 @@ def redrive_story_samples(state_root: str) -> dict:
                         if sample is None:
                             report["skipped"] += 1
                             continue
-                        cls = sample["classification"]
-                        bucket = cal["scope"].setdefault(cls, CommentedMap())
-                        for metric, ratio in sample["scope_ratios"].items():
-                            entry = bucket.setdefault(metric, CommentedMap())
-                            entry.setdefault("samples", [])
-                            entry["samples"].append(round(ratio, 4))
-                        iters = sample["fix_iterations"]
-                        if iters is not None:
-                            _bump_cohort(cal["fix"].setdefault(cls, CommentedMap()),
-                                         "clean" if iters == 0 else "reworked",
-                                         sample["actual_man_hours"])
-                        report["sampled"] += 1
-                        pv = sample["provenance"]
-                        report["provenance"][pv] = report["provenance"].get(pv, 0) + 1
+                        key = str(node.get("key") or
+                                  os.path.splitext(os.path.basename(sf))[0])
+                        gathered.append((key, sample))
+
+        # Pass 2 -- restore chronological order, or refuse.
+        #
+        # `weighted_ratio` is an exponential-decay mean over samples oldest-first,
+        # so the LAST entry in a list weighs most. The original samples were
+        # appended one per `set-actual`, in closure order, which made that
+        # weighting mean what it says. Rebuilding by walking the tree replaced it
+        # with lexicographic key order -- and because STATUS_DIRS is
+        # ("active", "planned", "archived"), archived epics land LAST and collect
+        # the HIGHEST recency weight. Archived work is the oldest work, so on any
+        # project with an archived epic the weighting was not merely scrambled, it
+        # was cleanly inverted: a repair that changed no data re-priced every
+        # unstarted story, silently, in a command that advertises itself as a
+        # repair. Observed on a real project as a ~16% rise on `complex`.
+        #
+        # Refusing on an incomplete answer rather than falling back to directory
+        # order is deliberate, and follows `adr-reserve`/`AdrHomeUnresolved`: a
+        # confidently wrong result with a success code is worse than no result.
+        # Directory order is not a neutral default -- it is anti-chronological by
+        # construction here -- and `--no-events` means a log can exist and still
+        # not cover every story, which looks orderable and is not.
+        if gathered:
+            times = actual_event_times(state_root)
+            missing = sorted({k for k, _ in gathered if not times.get(k)})
+            if missing:
+                shown = ", ".join(missing[:5]) + ("..." if len(missing) > 5 else "")
+                raise PMError(2,
+                    f"redrive: cannot establish closure order for {len(missing)} of "
+                    f"{len(gathered)} sampled stories -- no `actual` event in "
+                    f"{events_path(state_root)} for: {shown}. Calibration ratios are "
+                    f"recency-weighted, so rebuilding in directory order would invert "
+                    f"the weighting rather than repair it (archived epics sort last "
+                    f"and would weigh most). Nothing written; the calibration file is "
+                    f"unchanged. This is expected on a project predating the event log, "
+                    f"or one whose actuals were written with --no-events.")
+            gathered.sort(key=lambda g: (times[g[0]], g[0]))
+
+        # Pass 3 -- write.
+        y, cal = load_calibration(state_root)
+        backup = calibration_path(state_root) + ".pre-redrive"
+        if os.path.exists(calibration_path(state_root)) and not os.path.exists(backup):
+            import shutil
+            shutil.copy2(calibration_path(state_root), backup)
+            report["backup"] = os.path.basename(backup)
+
+        cal["scope"] = CommentedMap()
+        cal["fix"] = CommentedMap()
+
+        for _key, sample in gathered:
+            cls = sample["classification"]
+            bucket = cal["scope"].setdefault(cls, CommentedMap())
+            for metric, ratio in sample["scope_ratios"].items():
+                entry = bucket.setdefault(metric, CommentedMap())
+                entry.setdefault("samples", [])
+                entry["samples"].append(round(ratio, 4))
+            iters = sample["fix_iterations"]
+            if iters is not None:
+                _bump_cohort(cal["fix"].setdefault(cls, CommentedMap()),
+                             "clean" if iters == 0 else "reworked",
+                             sample["actual_man_hours"])
+            report["sampled"] += 1
+            pv = sample["provenance"]
+            report["provenance"][pv] = report["provenance"].get(pv, 0) + 1
         save_calibration(y, cal, state_root)
     return report
 
 
 def cmd_calibration(args) -> int:
     if getattr(args, "action", "show") == "redrive":
-        rep = redrive_story_samples(args.state_root)
-        if rep.get("backup"):
-            sys.stdout.write(f"backup {rep['backup']}\n")
-        prov = " ".join(f"{k}={v}" for k, v in sorted(rep["provenance"].items()))
-        sys.stdout.write(
-            f"OK calibration redrive — stories seen {rep['stories']}, "
-            f"samples rebuilt {rep['sampled']}, skipped {rep['skipped']}"
-            + (f" [{prov}]" if prov else "") + "\n")
-        sys.stdout.write("scope and fix rebuilt from the nodes; closure, orchestration and "
-                         "token_mix untouched.\n")
-        return 0
+        # Through _run_core: redrive refuses with PMError(2) when it cannot establish
+        # closure order, and main() has no PMError handler of its own -- without this
+        # the refusal would surface as a traceback and exit 1 instead of the documented
+        # exit 2 with its message.
+        def _redrive() -> int:
+            rep = redrive_story_samples(args.state_root)
+            if rep.get("backup"):
+                sys.stdout.write(f"backup {rep['backup']}\n")
+            prov = " ".join(f"{k}={v}" for k, v in sorted(rep["provenance"].items()))
+            sys.stdout.write(
+                f"OK calibration redrive — stories seen {rep['stories']}, "
+                f"samples rebuilt {rep['sampled']}, skipped {rep['skipped']}"
+                + (f" [{prov}]" if prov else "") + "\n")
+            sys.stdout.write("scope and fix rebuilt from the nodes in closure order (from "
+                             "events.jsonl); closure, orchestration and token_mix untouched.\n")
+            sys.stdout.write("Ratios are recency-weighted, so estimates for unstarted stories "
+                             "may move even where no sample changed — re-run estimate-story to "
+                             "see current numbers.\n")
+            return 0
+        return _run_core(_redrive)
     if getattr(args, "action", "show") == "migrate-metrics":
         with calibration_lock(args.state_root):
             y, cal = load_calibration(args.state_root)
@@ -6522,9 +6621,23 @@ def _audit_findings(state_root, store) -> list:
                 # past the key space, which reseed refuses (exit 2), so that alias gets the
                 # same hand-fix repair as its key-space finding below, not a reseed it can't run.
                 advice = by_hand if beyond else "run repair-issue --action reseed"
+                # Name the raw bytes, not just the parsed key. The parsed key can differ
+                # from what is in the file in two ways at once -- an unquoted `019` loads
+                # as `19`, losing both the quoting AND the leading zero -- so an operator
+                # shown only `19` goes looking for a writer that emits integers and finds
+                # none. The usual cause is an external YAML round-trip rather than any
+                # pm-status verb: PyYAML's safe_dump quotes `001`-`007` and `012`, whose
+                # digits resolve as octal, but emits `008`, `009`, `018`, `019` bare
+                # because 8 and 9 are not octal digits -- so a project can round-trip this
+                # file for weeks and only corrupt the epics with an 8 or 9 behind the
+                # leading zero. Cost a consumer project a wrongly-filed defect against
+                # append-issue, which normalises correctly in every spelling.
                 add("1e", f"BL-E{en}", f"next has a non-canonical key {e!r} for epic {en} "
-                                      f"(= {nxt.get(e)!r}); allocate reads only {en!r} -- "
-                                      f"{advice}",
+                                      f"(= {nxt.get(e)!r}); allocate reads only the quoted "
+                                      f"{en!r}. Check the raw bytes -- a bare (unquoted) "
+                                      f"{en} in the file parses as {e!r}, and an external "
+                                      f"YAML round-trip is a likelier cause than any "
+                                      f"pm-status write -- {advice}",
                     hand_fix if beyond else "repair-issue --action reseed", epic=en)
             elif stored is None or stored <= highest:
                 add("1e", f"BL-E{en}", f"next[{e}] = {nxt.get(e)!r} but the highest key is "

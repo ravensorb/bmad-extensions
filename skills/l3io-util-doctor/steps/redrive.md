@@ -21,7 +21,10 @@ already recorded under it stay wrong until rebuilt. This mode rebuilds them.
    epics are covered, not just active/planned ones).
 3. Re-derives each story's sample from what is on the node today (`estimate`, `actual`,
    `completion_evidence`), through the same `derive_story_sample` function `set-actual` calls
-   live, and re-appends the result to `scope`/`fix`.
+   live, and re-appends the result to `scope`/`fix` **in closure order**, taken from each
+   story's `actual` event in `{pm_state_root}/events.jsonl` — not in the order the walk in
+   step 2 visits them. Calibration ratios are an exponential-decay mean over samples
+   oldest-first, so the last sample in a list weighs most and order is load-bearing.
 4. Reports to stdout: stories seen, samples rebuilt, samples skipped (a node that failed to
    parse, or has no estimate/actual pair to derive from), and a provenance breakdown
    (`exact=N backout=M legacy=K`) — a healthy rebuild after this fix should shift stories that
@@ -43,6 +46,17 @@ already recorded under it stay wrong until rebuilt. This mode rebuilds them.
   compounding drift.
 - **No calibration file yet is not an error.** A cold-start project has no stories to redrive;
   the command reports zero stories seen and writes no backup.
+- **It refuses rather than rebuild in an order it cannot verify.** If any story being sampled
+  has no `actual` event in `events.jsonl`, the command exits **2**, writes nothing, and names
+  the stories it could not place. Expect this on a project predating the event log, or one
+  whose actuals were written with `--no-events`. Directory order is not an acceptable
+  fallback: `STATUS_DIRS` is `("active", "planned", "archived")`, so archived epics — the
+  oldest work — sort **last** and would collect the **highest** recency weight, inverting the
+  weighting rather than repairing it. This was a live defect; a rebuild that repaired nothing
+  re-priced a real project's `complex` band by ~16%.
+- **Estimates for unstarted stories can move even when no sample changed.** Rebuilding
+  restores the correct order, which is itself a change if the file was previously mis-ordered.
+  Re-run `estimate-story` afterwards to see current numbers, and expect a diff.
 
 ### Steps
 
@@ -80,6 +94,18 @@ written), stories seen, samples rebuilt, samples skipped, and the provenance bre
 a closing line confirming `closure`, `orchestration`, and `token_mix` were left untouched.
 
 If the command exits non-zero, treat this as FAILED and stop — do not report DONE.
+
+**Exit 2 is a refusal, not a crash, and nothing was written.** It means closure order could
+not be established for every sampled story (see the limits above). Relay its message, which
+names the stories, and report:
+
+```
+BLOCKED: redrive refused — closure order could not be established; calibration unchanged.
+  {relayed stderr}
+```
+
+Do not offer to re-run it without the event log. A rebuild in directory order is worse than no
+rebuild, which is the whole reason it refuses.
 
 **Step RD4 — Report**
 

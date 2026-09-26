@@ -6293,15 +6293,41 @@ class TestTestRunEvidence(TestLayoutResolution):
 
 
 class TestCalibrationRedrive(TestLayoutResolution):
-    def _close_story(self, iters):
-        p = pm.story_file(self.root, "E001-S01-003")
+    def _close_story(self, iters, key="E001-S01-003", actual=9.0, ts="2026-01-01T00:00:00Z"):
+        p = pm.story_file(self.root, key)
         y, node = pm.load_node(p)
         node["classification"] = "standard"
         node["estimate"] = {"fix_factor": 1.25, "scope_ratios": {"man_hours": 1.0},
                             "man_hours": 8.75}
-        node["actual"] = {"man_hours": 9.0}
+        node["actual"] = {"man_hours": actual}
         node["completion_evidence"] = {"fix_iterations": iters}
         pm.save_node(y, node, p)
+        # `set-actual` appends this alongside the node write; redrive reads it back to
+        # recover closure order, so a hand-built node must carry it too or the rebuild
+        # correctly refuses.
+        if ts is not None:
+            self._actual_event(key, ts)
+
+    def _actual_event(self, key, ts):
+        epic, sprint, _ = pm.parse_story_key(key)
+        pm.append_event(self.root, {"ts": ts, "event": "actual", "node": "story",
+                                    "key": key, "epic": epic, "sprint": sprint})
+
+    def _story(self, key, status="active"):
+        """A second story node, in whichever status folder the test needs."""
+        epic, sprint, _ = pm.parse_story_key(key)
+        d = os.path.join(self.root, status, pm.epic_dirname(epic), pm.sprint_dirname(sprint))
+        os.makedirs(d, exist_ok=True)
+        ep = os.path.join(self.root, status, pm.epic_dirname(epic), "epic.yaml")
+        if not os.path.exists(ep):
+            with open(ep, "w") as fh:
+                fh.write(f"key: '{epic}'\nstatus: in-progress\n")
+        sp = os.path.join(d, "sprint.yaml")
+        if not os.path.exists(sp):
+            with open(sp, "w") as fh:
+                fh.write(f"key: '{sprint}'\nepic: '{epic}'\nstatus: in-progress\n")
+        with open(os.path.join(d, f"{key}.yaml"), "w") as fh:
+            fh.write(f"key: '{key}'\nepic: '{epic}'\nsprint: '{sprint}'\nstatus: review\n")
 
     def test_redrive_repairs_a_sample_poisoned_by_the_string_bug(self):
         # A node closed under the bug: text that does not parse, read as backout.
@@ -6325,6 +6351,74 @@ class TestCalibrationRedrive(TestLayoutResolution):
         _, cal = pm.load_calibration(self.root)
         self.assertEqual(len(cal["scope"]["standard"]["man_hours"]["samples"]), 1,
                          "a second redrive must replace, never double-count")
+
+    def test_redrive_appends_in_closure_order_not_directory_order(self):
+        """The defect: samples were re-appended in tree-walk order, and weighted_ratio
+        weights the LAST entry most, so a rebuild that repaired nothing re-priced every
+        unstarted story. Story ...-004 sorts after ...-003 by key but closed BEFORE it,
+        so closure order and directory order disagree and only one can be right."""
+        self._story("E001-S01-004")
+        self._close_story(0, key="E001-S01-003", actual=9.0, ts="2026-02-01T00:00:00Z")
+        self._close_story(0, key="E001-S01-004", actual=18.0, ts="2026-01-01T00:00:00Z")
+        pm.redrive_story_samples(self.root)
+        _, cal = pm.load_calibration(self.root)
+        got = cal["scope"]["standard"]["man_hours"]["samples"]
+        # ...-004 closed first, so its ratio (18.0-derived) must come FIRST and weigh least.
+        self.assertEqual([float(x) for x in got],
+                         sorted([float(x) for x in got], reverse=True),
+                         "the earlier-closed, larger-ratio sample must lead the list")
+        self.assertGreater(float(got[0]), float(got[1]))
+
+    def test_redrive_puts_an_archived_epic_before_a_later_active_one(self):
+        """STATUS_DIRS is ("active", "planned", "archived"), so a tree walk visits
+        archived LAST and it collects the HIGHEST recency weight — inverting the
+        weighting on every project with archived work, which is the common case."""
+        self._story("E013-S01-001", status="archived")
+        self._close_story(0, key="E013-S01-001", actual=18.0, ts="2026-01-01T00:00:00Z")
+        self._close_story(0, key="E001-S01-003", actual=9.0, ts="2026-03-01T00:00:00Z")
+        pm.redrive_story_samples(self.root)
+        _, cal = pm.load_calibration(self.root)
+        got = [float(x) for x in cal["scope"]["standard"]["man_hours"]["samples"]]
+        self.assertGreater(got[0], got[1],
+                           "archived E013 closed first, so it must lead and weigh least")
+
+    def test_redrive_refuses_when_the_event_log_is_absent(self):
+        self._close_story(0, ts=None)
+        with self.assertRaises(pm.PMError) as cm:
+            pm.redrive_story_samples(self.root)
+        self.assertEqual(cm.exception.code, 2)
+        self.assertIn("cannot establish closure order", cm.exception.msg)
+
+    def test_redrive_refuses_on_a_partially_covered_log(self):
+        """The dangerous middle state: a log exists and looks orderable, but
+        `set-actual --no-events` left one story out of it."""
+        self._story("E001-S01-004")
+        self._close_story(0, key="E001-S01-003", ts="2026-01-01T00:00:00Z")
+        self._close_story(0, key="E001-S01-004", ts=None)
+        with self.assertRaises(pm.PMError) as cm:
+            pm.redrive_story_samples(self.root)
+        self.assertEqual(cm.exception.code, 2)
+        self.assertIn("E001-S01-004", cm.exception.msg)
+        self.assertIn("1 of 2", cm.exception.msg)
+
+    def test_a_refusal_writes_nothing_at_all(self):
+        """A refusal must leave the file AND the backup untouched, or the operator loses
+        the very ordering the refusal exists to protect."""
+        self._close_story(0, ts="2026-01-01T00:00:00Z")
+        pm.redrive_story_samples(self.root)                      # a good run first
+        before = open(pm.calibration_path(self.root), encoding="utf-8").read()
+        backup = pm.calibration_path(self.root) + ".pre-redrive"
+        self._story("E001-S01-004")
+        self._close_story(0, key="E001-S01-004", ts=None)        # now uncoverable
+        had_backup = os.path.exists(backup)
+        bak_before = open(backup, encoding="utf-8").read() if had_backup else None
+        with self.assertRaises(pm.PMError):
+            pm.redrive_story_samples(self.root)
+        self.assertEqual(open(pm.calibration_path(self.root), encoding="utf-8").read(),
+                         before, "calibration file must be byte-identical after a refusal")
+        self.assertEqual(os.path.exists(backup), had_backup)
+        if had_backup:
+            self.assertEqual(open(backup, encoding="utf-8").read(), bak_before)
 
     def test_redrive_leaves_untouched_components_alone(self):
         self._close_story(0)

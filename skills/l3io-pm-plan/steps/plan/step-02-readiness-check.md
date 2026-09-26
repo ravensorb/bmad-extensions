@@ -72,13 +72,15 @@ For each story, evaluate the following checks:
 |-------|-------|-------|-----|
 | Classification | `classification` is `simple`, `standard`, or `complex` | — | Missing or unrecognized value |
 | Technical ACs | If `{work_type}` is CODE or MIXED: story file exists with non-empty "Acceptance Criteria" section containing technical details (interfaces, data model, error handling) | Story has only functional ACs (no technical details), **or the story document does not exist yet** | Story document exists but carries no AC section at all |
-| Estimate block | `estimate` block present with at least `man_hours` or `man_hours_low` | — | Estimate block absent |
+| Estimate block | `estimate` block present with at least `man_hours` or `man_hours_low` | **Absent** — `steps/shared/step-estimate.md` writes it later in this same run | — |
 | `depends_on` validity | All referenced keys exist in scope and are not `done` | — | Any key missing from any state file, or a cycle detected |
 | Sprint assignment | Story is assigned to a named sprint in its epic | — | Orphaned story (not in any sprint) |
 
 Technical ACs check only applies when `{work_type}` is CODE or MIXED. For DOCS and CONFIG, skip this check for all stories.
 
 **An absent story document is Amber, not Red, deliberately.** Red halts this step with `BLOCKED` and forbids loading the next one (§6) — and the next one, step 03, is exactly where §4 says "if the file does not yet exist at the given path, create it first" before enriching it. Grading a missing document Red therefore blocked the only step that could produce it, and left that create-it-first branch unreachable by any input: Amber requires a file to exist, so no story could ever arrive at it. Amber is the grade for a gap elaboration closes, and a missing document is one. A document that exists but carries no AC section stays Red — that is a story someone wrote and left empty, which is a content decision rather than a missing artifact.
+
+**A missing estimate block is Amber for the same reason.** The full-plan router loads `steps/shared/step-estimate.md` four steps after this one, so Red here halted the run before the step that writes the estimates it was demanding — the story-document case above, one row down. Nothing about an absent estimate needs a human: this step reports the gap, and the estimate step fills it before the plan is written. The row therefore has no Red. Two things kept this rarer than it looks, and neither makes it safe: `/l3io-pm-plan estimate` loads the estimate step alone and bypasses readiness entirely, and `promote-issue` writes a calibrated estimate block when it creates a story, so stories that arrive through backlog intake never lacked one. A story created any other way did.
 
 ## 3. BMad readiness integration
 
