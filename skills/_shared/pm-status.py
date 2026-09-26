@@ -89,6 +89,13 @@ Subcommands
                 store a list as the string "['E001']", which a reader takes for a scalar.
                 Idempotent, order preserved, all-or-nothing: every key is validated
                 before anything is written. A sprint node has no depends_on: exit 2)
+  import-actual --state-root S  --node story|sprint|epic  (--story KEY | --epic ID [--sprint ID])
+                [--elapsed-hours H] [--man-hours H] [--hitl-hours H]
+                (an actual OBSERVED ELSEWHERE, for a migration. runtime=other, tokens=N/A and
+                no calibration sample are FIXED, not flags: --runtime, --tokens-*, --model and
+                --calibrate are absent from its surface, so a call that would claim Claude
+                provenance or poison the learned ratios is a usage error rather than a silent
+                one. Delegates to set-actual, which is unchanged)
   set-field     --state-root S  (--story KEY | --epic ID [--sprint ID])  --field NAME --value V
                 (refuses any field in DERIVED_NODE_FIELDS, any sub-path of one
                 (<name>.x), or any parent path of one (completion_evidence, which would
@@ -4565,7 +4572,38 @@ def cmd_story_doc_init(args) -> int:
     return _run_core(run)
 
 
+def cmd_import_actual(args) -> int:
+    """set-actual with the migration contract baked into defaults that cannot be overridden.
+
+    A migrated actual needs three things, each easy to forget and dangerous to forget:
+
+      runtime = other   it has no Claude provenance to claim
+      tokens  = N/A     legacy data carries no four-class split, and 0 would be consumed by
+                        calibration as a real measurement, dragging the learned ratio to zero
+      no calibration    a bulk import must not append hundreds of samples in one pass;
+                        `calibration redrive` rebuilds from the nodes afterwards if wanted
+
+    set-actual can express all three -- that is why this verb delegates rather than
+    reimplements, and why set-actual is left exactly as it is. What it cannot do is stop a
+    caller omitting one: forget --tokens-na under runtime=claude and you get a refusal, but
+    forget --no-calibrate and the ratios are quietly poisoned with unmeasured data. This verb
+    removes that choice. --runtime, --tokens-*, --model and --calibrate are not in its surface
+    at all, so a wrong call is a usage error rather than a silent one.
+    """
+    args.runtime = "other"
+    args.tokens_na = True
+    args.no_calibrate = True
+    args.block = "actual"
+    args.model = ""
+    args.token_rates = ""
+    args.cost = None
+    for f in ("tokens_input", "tokens_output", "tokens_cache_write", "tokens_cache_read"):
+        setattr(args, f, None)
+    return cmd_set_actual(args)
+
+
 def cmd_set_actual(args) -> int:
+
     kind = args.node
     block = getattr(args, "block", "actual")
     if block == "orchestration" and kind == "story":
@@ -5536,37 +5574,7 @@ OPEN_ISSUE_STATUSES = ("backlog", "scheduled")
 LEGACY_OPEN_STATUSES = {"deferred": "backlog"}
 
 
-def legacy_status_coexistence(store):
-    """Return the legacy statuses that COEXIST with their own mapping target, or {}.
-
-    Mapping `deferred` -> `backlog` is only safe when the project never used both. If it did,
-    the two meant DIFFERENT things to whoever wrote them -- typically `deferred` as a
-    disposition ("we looked at this and decided not now") against `backlog` as undecided --
-    and collapsing them erases a distinction rather than modernising a name.
-
-    Reported from a real upgrade: 453 `deferred` alongside 64 `backlog`. For the 444 behind
-    CLOSED epics the mapping turned "we decided" into "nobody decided", and a project guard
-    refusing an epic closed over an undecided finding went red. A project without that guard
-    would have taken the loss in silence.
-
-    Coexistence is EVIDENCE, not a heuristic: two statuses in one file were two states.
-    `scheduled` does not count -- it is a scheduling state, not the resting state, so it
-    evidences no deferred-vs-backlog distinction.
-    """
-    present = {str(it.get("status", "")) for it in (store.open.get("backlog") or [])
-               if isinstance(it, dict)}
-    return {legacy: target for legacy, target in LEGACY_OPEN_STATUSES.items()
-            if legacy in present and target in present}
-
-
-def _coexistence_refusal(found) -> str:
-    pairs = ", ".join(f"{k!r} alongside {v!r}" for k, v in sorted(found.items()))
-    return (f"normalize-status refuses: {pairs} coexist in this backlog, so they were distinct "
-            f"states here and mapping one onto the other would erase that distinction. If "
-            f"`deferred` recorded a DECISION, `backlog` cannot hold it -- neither open status "
-            f"carries one. Nothing has been written. Decide per item, or dispose of the "
-            f"decided ones into issues-resolved.yaml where a resolution can hold it.")
-RESOLUTIONS = ("fixed", "wontfix", "duplicate", "obsolete")
+RESOLUTIONS = ("fixed", "wontfix", "duplicate", "obsolete", "deferred")
 # A backlog item's kind. `defect` is the default and is never written, so every file written
 # before kinds existed still reads as all defects. The spec kinds come from spec-align.py's
 # spec sync (docs/adr/0004-agents-edit-architecture-specs.md): they are confirmed or
@@ -6575,6 +6583,57 @@ def cmd_repair_issue(args) -> int:
     return _run_core(lambda: _repair_issue(args))
 
 
+def _epic_is_archived(state_root, item) -> bool | None:
+    """True/False for an item's epic, or None when its status cannot be established.
+
+    None matters: an item whose epic has no state node cannot be classified, and guessing
+    either way is the error this whole path exists to avoid.
+    """
+    epic = str(item.get("epic", "")).strip()
+    if not epic:
+        return None
+    d = find_epic_dir(state_root, f"E{_norm_num(epic, 3)}")
+    if d is None:
+        return None
+    return os.path.basename(os.path.dirname(d)) == "archived"
+
+
+def _normalize_one_legacy(store, state_root, item, session, cause):
+    """Apply the epic-aware rule to one legacy-status item. Returns a verb string for the
+    report: 'resolved', 'normalized', or 'skipped'.
+
+    The rule, and why it is not a flat mapping: `deferred` was a DISPOSITION -- "we looked at
+    this and decided not now". `backlog` means open and undecided, and neither open status
+    carries a decision, so mapping every `deferred` to `backlog` erases one.
+
+      behind an OPEN epic      -> backlog. The loss is harmless: the item is open either way.
+      behind an ARCHIVED epic  -> resolved `deferred`. It will not be picked up in that epic,
+                                  and issues-resolved.yaml is where a resolution can actually
+                                  hold the decision.
+      epic status unknown      -> skipped, reported, untouched.
+
+    Measured on the project that found this: 518 of 520 open items sat behind archived epics,
+    and mapping them to `backlog` made 444 undecided findings behind closed epics, reddening
+    that project's guard against exactly that.
+    """
+    was = str(item.get("status", ""))
+    archived = _epic_is_archived(state_root, item)
+    key = str(item.get("key", ""))
+    if archived is None:
+        return "skipped"
+    if archived:
+        resolve_issue_core(store, key, "deferred",
+                           note=f"migrated from the pre-3.0 open status {was!r}; the epic was "
+                                f"already closed, so the deferral is recorded as a resolution "
+                                f"rather than reopened as undecided",
+                           session=session, cause=cause)
+        return "resolved"
+    item["status"] = LEGACY_OPEN_STATUSES[was]
+    _issue_event(store.state_root, "issue_status_normalized", item, session, cause,
+                 note=f"{was} -> {item['status']}")
+    return "normalized"
+
+
 def _normalize_all_legacy(args) -> int:
     """Normalize every legacy open status in one pass, under one lock.
 
@@ -6587,23 +6646,30 @@ def _normalize_all_legacy(args) -> int:
     open_path = issues_paths(args.state_root)[0]
     with issues_lock(open_path):
         store = IssueStore(open_path)
-        found = legacy_status_coexistence(store)
-        if found:
-            raise PMError(2, _coexistence_refusal(found))
-        changed = []
-        for it in (store.open.get("backlog") or []):
-            was = str(it.get("status", ""))
-            if was in LEGACY_OPEN_STATUSES:
-                it["status"] = LEGACY_OPEN_STATUSES[was]
-                changed.append((it, was))
-        if not changed:
+        # Snapshot first: resolve_issue_core mutates the open list, so iterating it live
+        # would skip items.
+        legacy = [it for it in list(store.open.get("backlog") or [])
+                  if isinstance(it, dict) and str(it.get("status", "")) in LEGACY_OPEN_STATUSES]
+        if not legacy:
             sys.stdout.write("OK normalize-status --all-legacy: no legacy status found\n")
             return 0
+        tally = {"resolved": 0, "normalized": 0, "skipped": 0}
+        skipped_keys = []
+        for it in legacy:
+            verb = _normalize_one_legacy(store, args.state_root, it,
+                                         args.session_id, args.cause)
+            tally[verb] += 1
+            if verb == "skipped":
+                skipped_keys.append(str(it.get("key", "")))
         store.save_open()
-        for it, was in changed:
-            _issue_event(store.state_root, "issue_status_normalized", it, args.session_id,
-                         args.cause, note=f"{was} -> {it['status']}")
-    sys.stdout.write(f"OK normalize-status --all-legacy: {len(changed)} item(s) normalized\n")
+    sys.stdout.write(
+        f"OK normalize-status --all-legacy: {tally['normalized']} normalized to backlog "
+        f"(open epic), {tally['resolved']} resolved as deferred (closed epic), "
+        f"{tally['skipped']} skipped\n")
+    if skipped_keys:
+        sys.stdout.write(
+            f"  skipped -- epic status could not be established, left untouched: "
+            f"{', '.join(skipped_keys)}\n")
     return 0
 
 
@@ -6674,18 +6740,20 @@ def _repair_issue(args) -> int:
                 raise PMError(2, f"normalize-status: {k} does not resolve to one open item")
             it = opens[0]
             was = str(it.get("status", ""))
-            found = legacy_status_coexistence(store)
-            if found:
-                raise PMError(2, _coexistence_refusal(found))
             if was not in LEGACY_OPEN_STATUSES:
                 raise PMError(2, f"normalize-status: {k} has status {was!r}, which is not a "
                                  f"known legacy status ({', '.join(sorted(LEGACY_OPEN_STATUSES))})"
                                  f" -- audit finding 1f does not hold in its legacy form")
-            it["status"] = LEGACY_OPEN_STATUSES[was]
+            verb = _normalize_one_legacy(store, args.state_root, it,
+                                         args.session_id, args.cause)
             store.save_open()
-            _issue_event(store.state_root, "issue_status_normalized", it, args.session_id,
-                         args.cause)
-            msg = f"{k} {was} -> {it['status']} (legacy status normalized)"
+            if verb == "skipped":
+                msg = (f"{k} left at {was!r} -- its epic has no state node, so whether the "
+                       f"epic is closed cannot be established and the mapping would be a guess")
+            elif verb == "resolved":
+                msg = f"{k} {was} -> resolved as deferred (its epic is closed)"
+            else:
+                msg = f"{k} {was} -> {it['status']} (legacy status normalized)"
         elif act == "reseed":
             if not any(f["id"] == "1e" and (f["epic"] == epic or f["key"] == "next")
                        for f in findings):
@@ -7393,6 +7461,22 @@ def build_parser() -> argparse.ArgumentParser:
     a.add_argument("--session-id", dest="session_id", default=None,
                    help="recorded in the event payload; null when omitted")
     a.set_defaults(func=cmd_set_actual)
+
+    ia = sub.add_parser("import-actual",
+                        help="record an actual observed elsewhere (migration); runtime=other, "
+                             "tokens=N/A and no calibration sample are FIXED, not optional")
+    ia.add_argument("--state-root", required=True)
+    ia.add_argument("--node", required=True, choices=["story", "sprint", "epic"])
+    ia.add_argument("--story")
+    ia.add_argument("--epic")
+    ia.add_argument("--sprint")
+    ia.add_argument("--elapsed-hours", dest="elapsed_hours")
+    ia.add_argument("--man-hours", dest="man_hours")
+    ia.add_argument("--hitl-hours", dest="hitl_hours")
+    ia.add_argument("--flock", action="store_true")
+    ia.add_argument("--no-events", dest="no_events", action="store_true")
+    ia.add_argument("--session-id", dest="session_id", default=None)
+    ia.set_defaults(func=cmd_import_actual)
 
     v = sub.add_parser("verify", help="read-back gate; nonzero exit on any gap")
     v.add_argument("--state-root", required=True, help="path to {implementation_artifacts}/state")

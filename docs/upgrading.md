@@ -149,11 +149,14 @@ uv run {project-root}/_bmad/scripts/pm-status.py repair-issue \
 `issues-resolved.yaml` is created. A status that is not a known legacy value is refused rather
 than guessed, and `triage` offers this command itself when it sees more than a handful.
 
-**It refuses outright if your backlog holds BOTH `deferred` and `backlog` items**, and you should
-not work around that. Coexistence is evidence the two meant different things in your project —
-typically `deferred` as a *disposition* ("we looked at this and decided not now") against
-`backlog` as undecided. Neither current open status carries a decision, so the mapping cannot
-preserve one: it would silently convert "we decided" into "nobody decided".
+**It is epic-aware, because a flat mapping loses a decision.** `deferred` was a *disposition* —
+"we looked at this and decided not now" — and neither current open status carries one. So:
+
+| The item sits behind | What happens |
+|---|---|
+| an **open** epic | status becomes `backlog`. The loss is harmless: the item is open either way |
+| a **closed** epic | it is **resolved** as `deferred`, with a note. It will not be picked up in that epic, and a resolution is the only place a decision can actually live |
+| an epic with no state node | **skipped and reported**, untouched — its status cannot be established, and guessing is the error this exists to avoid |
 
 > Found the hard way on a real upgrade: 453 `deferred` alongside 64 `backlog`, of which **444
 > sat behind CLOSED epics**. Normalising them turned every one into an undecided finding behind
@@ -161,10 +164,9 @@ preserve one: it would silently convert "we decided" into "nobody decided".
 > undecided finding — went red. A project without such a guard would have taken the loss in
 > silence. The items were never at risk; the **decision attached to them** was.
 
-If you hit the refusal, the backlog stays as it is and `audit-issues` keeps reporting those
-items as `1f` findings. That is the better trade: a noisy audit beats a lost decision. A
-migration that disposes decided items into `issues-resolved.yaml`, where a resolution can
-actually hold the decision, is the real fix and is not built yet.
+An earlier version mapped every `deferred` to `backlog` and refused outright when both statuses
+coexisted. The refusal is gone because it is no longer needed: the harmful case is now handled
+rather than rejected.
 
 **The backlog auditor resolves more source shapes, and the health check stops overstating.**
 `audit-backlog.py` now understands `closure review (E{nnn}-S{nn})` and a story key followed by

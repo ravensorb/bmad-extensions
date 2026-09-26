@@ -334,26 +334,26 @@ def _apply_extras(rec: dict, state_root: Path, pm_status: str) -> list:
                     f"{rec['kind']} {rec['key']}: set-estimate failed -- "
                     f"{proc.stderr.strip()}")
         elif field == "actual":
-            # NO new verb. The follow-up sketch proposed `import-actual` on the import-node
-            # precedent, but that precedent does not transfer: set-status DIES on a missing
-            # node and cannot express creation at all, whereas set-actual CAN express a legacy
-            # actual exactly -- `--runtime other --tokens-na --no-calibrate`. Adding a verb
-            # that duplicates existing tested surface would be the cost without the reason.
+            # import-actual, not set-actual with three flags. Both write the same thing --
+            # runtime=other, tokens=N/A, no calibration sample -- but set-actual only does so
+            # if the caller passes all three, and omitting --no-calibrate poisons the learned
+            # ratios silently rather than failing. import-actual fixes them in its defaults
+            # and does not expose --runtime, --tokens-* or --calibrate at all, so a wrong call
+            # is a usage error instead of a quiet one.
             #
-            #   --runtime other   a migrated actual has no Claude provenance to claim
-            #   --tokens-na       legacy data carries no four-class split, and the sentinel is
-            #                     the honest value -- 0 would be consumed by calibration as a
-            #                     real measurement and drive the learned ratio toward zero
-            #   --no-calibrate    a bulk import must not append hundreds of samples in one
-            #                     pass; `pm-status.py calibration redrive` rebuilds from the
-            #                     nodes afterwards if they are wanted
+            #   runtime=other   a migrated actual has no Claude provenance to claim
+            #   tokens=N/A      legacy data carries no four-class split, and the sentinel is
+            #                   the honest value -- 0 would be consumed by calibration as a
+            #                   real measurement and drive the learned ratio toward zero
+            #   no calibration  a bulk import must not append hundreds of samples in one pass;
+            #                   `pm-status.py calibration redrive` rebuilds from the nodes
+            #                   afterwards if they are wanted
             if not isinstance(value, dict):
                 errors.append(f"{rec['kind']} {rec['key']}: actual is "
                               f"{type(value).__name__}, expected a mapping")
                 continue
-            argv = ["uv", "run", pm_status, "set-actual",
-                    "--state-root", str(state_root), "--node", rec["kind"],
-                    "--runtime", "other", "--tokens-na", "--no-calibrate"]
+            argv = ["uv", "run", pm_status, "import-actual",
+                    "--state-root", str(state_root), "--node", rec["kind"]]
             argv += _node_argv(rec)
             dropped = []
             for k, v in value.items():
@@ -371,7 +371,7 @@ def _apply_extras(rec: dict, state_root: Path, pm_status: str) -> list:
             proc = subprocess.run(argv, capture_output=True, text=True)
             if proc.returncode != 0:
                 errors.append(
-                    f"{rec['kind']} {rec['key']}: set-actual failed -- "
+                    f"{rec['kind']} {rec['key']}: import-actual failed -- "
                     f"{proc.stderr.strip()}")
         elif field in sr.STRUCTURED_EXTRAS_TO_WARN:
             sys.stderr.write(

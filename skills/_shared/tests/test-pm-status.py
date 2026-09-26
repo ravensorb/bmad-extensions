@@ -8373,7 +8373,7 @@ class TestRepairIssue(TestAuditIssues):
         code, out, err = self.run_all(["repair-issue", "--state-root", self.root,
                                        "--action", "normalize-status", "--all-legacy"])
         self.assertEqual(code, 0, err)
-        self.assertIn("3 item(s) normalized", out)
+        self.assertIn("3 normalized to backlog", out)
         self.assertEqual([str(i["status"]) for i in self.load_open()["backlog"]],
                          ["backlog", "backlog", "backlog"])
         self.assertEqual(len(self.events("issue_status_normalized")), 3)
@@ -8388,7 +8388,7 @@ class TestRepairIssue(TestAuditIssues):
         code, out, err = self.run_all(["repair-issue", "--state-root", self.root,
                                        "--action", "normalize-status", "--all-legacy"])
         self.assertEqual(code, 0, err)
-        self.assertIn("1 item(s) normalized", out)
+        self.assertIn("1 normalized to backlog", out)
         self.assertEqual([str(i["status"]) for i in self.load_open()["backlog"]],
                          ["backlog", "banana"])
 
@@ -8400,34 +8400,70 @@ class TestRepairIssue(TestAuditIssues):
         self.assertIn("no legacy status found", out)
         self.assertEqual(self.events("issue_status_normalized"), [])
 
-    def test_normalize_refuses_when_backlog_and_deferred_COEXIST(self):
-        """Coexistence proves the two were DISTINCT states in this project, so mapping one
-        onto the other erases a distinction its authors were making.
+    def _archive_epic(self, epic="001"):
+        """Put the item's epic in archived/, i.e. status done."""
+        # IssueBase._build_issue_tree already creates E001, and import-node is idempotent
+        # by skip -- so this must MOVE the existing epic, not try to create an archived one.
+        code, out, err = self.run_all(["archive-epic", "--state-root", self.root,
+                                       "--epic", f"E{epic}"])
+        self.assertEqual(code, 0, err)
 
-        Reported from a real upgrade: 453 `deferred` alongside 64 `backlog`. `deferred` there
-        was a DISPOSITION -- "we looked at this and decided not now" -- and `backlog` means
-        open and undecided. For 444 items behind CLOSED epics the mapping turned "we decided"
-        into "nobody decided", and a project guard refusing an epic closed over an undecided
-        finding went red. A project without that guard would have taken the loss silently.
-        """
+    def test_legacy_item_behind_an_ARCHIVED_epic_resolves_as_deferred(self):
+        """The finding that made the blanket mapping wrong. `deferred` was a DISPOSITION;
+        `backlog` means undecided. Behind a closed epic the mapping turned "we decided" into
+        "nobody decided", and a real project's guard against closing an epic over an undecided
+        finding went red. A resolution CAN hold the decision, so that is where it goes."""
+        self.append("A")
+        self._archive_epic("001")
+        self.edit_open(lambda d: d["backlog"][0].__setitem__("status", "deferred"))
+        code, out, err = self.run_all(["repair-issue", "--state-root", self.root,
+                                       "--action", "normalize-status", "--all-legacy"])
+        self.assertEqual(code, 0, err)
+        self.assertEqual(self.open_keys(), [], "it must leave the open list")
+        self.assertEqual(self.resolved_keys(), ["BL-E001-001"])
+        entry = self.load_resolved()["resolved"][-1]
+        self.assertEqual(str(entry["resolution"]), "deferred")
+        self.assertTrue(str(entry.get("note", "")).strip(),
+                        "the resolution must say why, not just assert one")
+
+    def test_legacy_item_behind_an_OPEN_epic_becomes_backlog(self):
+        """Behind an open epic the loss is harmless -- the item is open either way -- so the
+        original mapping is still right and nothing is resolved."""
+        self.append("A")
+        self.run_all(["move-epic", "--state-root", self.root, "--epic", "E001",
+                      "--to", "active"])
+        self.edit_open(lambda d: d["backlog"][0].__setitem__("status", "deferred"))
+        code, out, err = self.run_all(["repair-issue", "--state-root", self.root,
+                                       "--action", "normalize-status", "--all-legacy"])
+        self.assertEqual(code, 0, err)
+        self.assertEqual(self.open_keys(), ["BL-E001-001"])
+        self.assertEqual(str(self.load_open()["backlog"][0]["status"]), "backlog")
+        self.assertEqual(self.resolved_keys(), [])
+
+    def test_coexistence_no_longer_refuses_once_the_split_is_epic_aware(self):
+        """The blanket refusal existed because the mapping could not tell the two cases
+        apart. It can now, so a mixed backlog is handled rather than rejected."""
         self.append("A")
         self.append("B")
+        self._archive_epic("001")
         self.edit_open(lambda d: d["backlog"][0].__setitem__("status", "deferred"))
-        code, _, err = self.run_all(["repair-issue", "--state-root", self.root,
-                                     "--action", "normalize-status", "--all-legacy"])
-        self.assertEqual(code, 2)
-        self.assertIn("coexist", err)
-        self.assertEqual([str(i["status"]) for i in self.load_open()["backlog"]],
-                         ["deferred", "backlog"], "nothing may be rewritten on a refusal")
+        code, out, err = self.run_all(["repair-issue", "--state-root", self.root,
+                                       "--action", "normalize-status", "--all-legacy"])
+        self.assertEqual(code, 0, err)
+        self.assertEqual(self.resolved_keys(), ["BL-E001-001"])
+        self.assertEqual(self.open_keys(), ["BL-E001-002"])
 
-    def test_single_key_normalize_also_refuses_on_coexistence(self):
-        """The loss is identical one item at a time."""
-        self.append("A")
-        self.append("B")
+    def test_an_item_whose_epic_has_no_state_node_is_left_alone(self):
+        """No epic directory means the status cannot be established. Guessing either way is
+        the error this whole change exists to avoid, so it is reported and skipped."""
+        self.append("A", epic="099")          # the fixture creates no E099 node
         self.edit_open(lambda d: d["backlog"][0].__setitem__("status", "deferred"))
-        code, _, err = self.repair("BL-E001-001", "normalize-status")
-        self.assertEqual(code, 2)
-        self.assertIn("coexist", err)
+        code, out, err = self.run_all(["repair-issue", "--state-root", self.root,
+                                       "--action", "normalize-status", "--all-legacy"])
+        self.assertEqual(code, 0, err)
+        self.assertEqual(str(self.load_open()["backlog"][0]["status"]), "deferred",
+                         "an item whose epic status is unknown must not be rewritten")
+        self.assertIn("skipped", out.lower() + err.lower())
 
     def test_normalize_proceeds_when_no_backlog_item_coexists(self):
         """All-legacy is the unambiguous case: nothing distinguishes them, so nothing is lost."""
@@ -9854,7 +9890,77 @@ class TestSetDependsOn(Base):
                          "the good key in a rejected call must not land")
 
 
+class TestImportActual(Base):
+    """`import-actual` is set-actual with the migration contract baked into its defaults.
+
+    A migrated actual needs exactly three things that are easy to forget and dangerous to
+    forget: runtime=other (it has no Claude provenance to claim), tokens=N/A (legacy data
+    carries no four-class split, and 0 would be consumed by calibration as a real
+    measurement), and no calibration sample (a bulk import must not append hundreds in one
+    pass). set-actual can express all three, but only if the caller passes all three -- and a
+    caller who forgets --tokens-na on runtime=claude gets a refusal, while one who forgets
+    --no-calibrate silently poisons the ratios. This verb cannot be called wrongly.
+    """
+
+    def _story(self):
+        self.run_main(["import-node", "--state-root", self.d, "--epic", "E001",
+                       "--status", "backlog", "--title", "E"])
+        self.run_main(["import-node", "--state-root", self.d, "--story", "E001-S01-001",
+                       "--status", "done", "--title", "S"])
+
+    def _node(self):
+        return pm.load_node(pm.story_file(self.d, "E001-S01-001"))[1]
+
+    def test_lands_an_actual_with_the_N_A_sentinel(self):
+        self._story()
+        code, out = self.run_main(["import-actual", "--state-root", self.d, "--node", "story",
+                                   "--story", "E001-S01-001", "--man-hours", "6",
+                                   "--hitl-hours", "0", "--elapsed-hours", "0"])
+        self.assertEqual(code, 0, out)
+        actual = self._node()["actual"]
+        self.assertEqual(str(actual["man_hours"]), "6")
+        self.assertEqual(str(actual["tokens_k"]), "N/A",
+                         "0 would claim a measurement nobody took")
+
+    def test_appends_no_calibration_sample(self):
+        self._story()
+        self.run_main(["import-actual", "--state-root", self.d, "--node", "story",
+                       "--story", "E001-S01-001", "--man-hours", "6",
+                       "--hitl-hours", "0", "--elapsed-hours", "0"])
+        self.assertFalse(os.path.exists(pm.calibration_path(self.d)),
+                         "a bulk import must not append calibration samples")
+
+    def test_it_cannot_be_told_to_claim_claude_provenance(self):
+        """The point of the verb: the dangerous options are not reachable."""
+        self._story()
+        code, _ = self.run_main(["import-actual", "--state-root", self.d, "--node", "story",
+                                 "--story", "E001-S01-001", "--runtime", "claude",
+                                 "--man-hours", "6"])
+        self.assertEqual(code, 2, "--runtime must not be accepted")
+
+    def test_it_cannot_be_told_to_calibrate(self):
+        self._story()
+        code, _ = self.run_main(["import-actual", "--state-root", self.d, "--node", "story",
+                                 "--story", "E001-S01-001", "--calibrate",
+                                 "--man-hours", "6"])
+        self.assertEqual(code, 2, "--calibrate must not be accepted")
+
+    def test_a_missing_node_exits_3(self):
+        code, _ = self.run_main(["import-actual", "--state-root", self.d, "--node", "story",
+                                 "--story", "E404-S01-001", "--man-hours", "6"])
+        self.assertEqual(code, 3)
+
+    def test_set_actual_is_unchanged_and_still_refuses_claude_without_tokens(self):
+        """import-actual must not have loosened set-actual."""
+        self._story()
+        code, _ = self.run_main(["set-actual", "--state-root", self.d, "--node", "story",
+                                 "--story", "E001-S01-001", "--runtime", "claude",
+                                 "--man-hours", "6", "--tokens-na"])
+        self.assertEqual(code, 2)
+
+
 class TestImportNode(Base):
+
 
     def _events(self):
         p = os.path.join(self.d, "events.jsonl")
