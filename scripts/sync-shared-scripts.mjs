@@ -170,9 +170,24 @@ const newUtilDoctorDirs = [
 // fs.readdirSync() with no isDirectory() filter — harmless while every "l3io-*" entry under
 // skills/ happens to be a directory, but a stray file (e.g. a dropped "l3io-notes.md") would
 // have been treated as a skill directory and handed to fs.mkdirSync/fs.copyFileSync below.
+// A forwarder skill is a minimal dispatcher that carries only SKILL.md + customize.toml and
+// exists to keep an old skill name working through a rename cycle. Its SKILL.md frontmatter
+// description starts with "DEPRECATED forwarder" — that is the derived signal, so a forwarder
+// added later (or removed at 4.0.0) is picked up without a hand-kept list. Excluding
+// forwarders from allSkillDirs keeps config-resolution.md and other "every skill" payloads out
+// of them; a forwarder does not resolve config, it just dispatches.
+function isForwarderSkill(skillDir) {
+  const rel = path.join(repoRoot, "skills", skillDir, "SKILL.md");
+  if (!fs.existsSync(rel)) return false;
+  const body = fs.readFileSync(rel, "utf8");
+  const m = body.match(/^description:\s*(.+)$/m);
+  return Boolean(m && /^DEPRECATED forwarder/i.test(m[1].trim()));
+}
+
 const allSkillDirs = fs.readdirSync(path.join(repoRoot, "skills"), { withFileTypes: true })
   .filter((e) => e.isDirectory() && e.name.startsWith("l3io-"))
   .map((e) => e.name)
+  .filter((name) => !isForwarderSkill(name))
   .sort()
   .map((name) => path.join(repoRoot, "skills", name));
 

@@ -259,11 +259,11 @@ skills/
   l3io-sec-redteam/      SKILL.md, customize.toml, references/, assets/ (module.yaml, module-setup.md, module-help.csv), scripts/
   l3io-doctor/      SKILL.md, customize.toml, references/, assets/ (module.yaml, module-setup.md, module-help.csv), scripts/, steps/
   l3io-arch-review/      SKILL.md, customize.toml, references/, assets/ (module.yaml, module-setup.md, module-help.csv), scripts/
-  l3io-pm-execute/       SKILL.md, customize.toml, references/ — DEPRECATED forwarder to /l3io-execute (removed in 4.0.0)
-  l3io-pm-help/          SKILL.md, customize.toml, references/ — DEPRECATED forwarder to /l3io-help (removed in 4.0.0)
-  l3io-pm-plan/          SKILL.md, customize.toml, references/ — DEPRECATED forwarder to /l3io-plan (removed in 4.0.0)
-  l3io-pm-setup/         SKILL.md, customize.toml, references/ — DEPRECATED forwarder to /l3io-setup (removed in 4.0.0)
-  l3io-pm-sync/          SKILL.md, customize.toml, references/ — DEPRECATED forwarder to /l3io-sync (removed in 4.0.0)
+  l3io-pm-execute/       SKILL.md, customize.toml — DEPRECATED forwarder to /l3io-execute (removed in 4.0.0)
+  l3io-pm-help/          SKILL.md, customize.toml — DEPRECATED forwarder to /l3io-help (removed in 4.0.0)
+  l3io-pm-plan/          SKILL.md, customize.toml — DEPRECATED forwarder to /l3io-plan (removed in 4.0.0)
+  l3io-pm-setup/         SKILL.md, customize.toml — DEPRECATED forwarder to /l3io-setup (removed in 4.0.0)
+  l3io-pm-sync/          SKILL.md, customize.toml — DEPRECATED forwarder to /l3io-sync (removed in 4.0.0)
 .claude/commands/        symlinks → ../../skills/<skill>/SKILL.md
 .claude-plugin/          marketplace.json (required for installation)
 ```
