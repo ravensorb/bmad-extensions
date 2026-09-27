@@ -10,7 +10,7 @@
 
 **Goal:** Migrate bmad-extensions from v1.x to v2.0.0, matching the reference implementation's architecture with l3io branding and GitHub-only sync.
 
-**Architecture:** Copy-and-adapt from the reference implementation for all structural content; author `l3io-pm-sync` Python scripts fresh (GitHub-only, no ADO); rewrite `sync-shared-scripts.mjs` for the new flat layout; finish with `npm run release:major`.
+**Architecture:** Copy-and-adapt from the reference implementation for all structural content; author `l3io-sync` Python scripts fresh (GitHub-only, no ADO); rewrite `sync-shared-scripts.mjs` for the new flat layout; finish with `npm run release:major`.
 
 **Tech Stack:** Python 3.11+, ruamel.yaml (auto-provisioned via uv/PEP-723), Node.js 18+, uv, bash
 
@@ -240,7 +240,7 @@ git commit -s -m "feat(infra): add shared step files for all PM skill categories
 - Modify: `scripts/sync-shared-scripts.mjs`
 
 **Interfaces:**
-- Produces: script that syncs `resolve_config.py`, `memlog.py`, `pm-status.py`, `test-pm-status.py`, all step files, and `status-files.md` into `skills/l3io-pm-execute`, `skills/l3io-pm-plan`, `skills/l3io-pm-sync`
+- Produces: script that syncs `resolve_config.py`, `memlog.py`, `pm-status.py`, `test-pm-status.py`, all step files, and `status-files.md` into `skills/l3io-execute`, `skills/l3io-plan`, `skills/l3io-sync`
 
 - [ ] **Step 1: Replace sync-shared-scripts.mjs**
 
@@ -249,7 +249,7 @@ Write the full new content (adapt from `$REF/scripts/sync-shared-scripts.mjs`, a
 ```bash
 cp "$REF/scripts/sync-shared-scripts.mjs" scripts/sync-shared-scripts.mjs
 sed -i \
-  's|skills.*ava-pm-plan|skills/l3io-pm-plan|g; s|skills.*ava-pm-execute|skills/l3io-pm-execute|g; s|skills.*ava-pm-sync|skills/l3io-pm-sync|g; s|ava-pm|l3io-pm|g; s|ava-|l3io-|g' \
+  's|skills.*ava-pm-plan|skills/l3io-plan|g; s|skills.*ava-pm-execute|skills/l3io-execute|g; s|skills.*ava-pm-sync|skills/l3io-sync|g; s|ava-pm|l3io-pm|g; s|ava-|l3io-|g' \
   scripts/sync-shared-scripts.mjs
 ```
 
@@ -279,56 +279,56 @@ git commit -s -m "feat(infra): rewrite sync-shared-scripts.mjs for skills/ flat 
 
 ---
 
-### Task 6: l3io-pm-execute Skill
+### Task 6: l3io-execute Skill
 
 **Files:**
-- Create: `skills/l3io-pm-execute/SKILL.md`
-- Create: `skills/l3io-pm-execute/customize.toml`
-- Create: `skills/l3io-pm-execute/module.yaml`
-- Create: `skills/l3io-pm-execute/assets/module-help.csv`
-- Create: `skills/l3io-pm-execute/assets/module-setup.md`
-- Create: `skills/l3io-pm-execute/scripts/merge-config.py`
-- Create: `skills/l3io-pm-execute/scripts/merge-help-csv.py`
-- Create: `skills/l3io-pm-execute/scripts/resolve_customization.py`
+- Create: `skills/l3io-execute/SKILL.md`
+- Create: `skills/l3io-execute/customize.toml`
+- Create: `skills/l3io-execute/module.yaml`
+- Create: `skills/l3io-execute/assets/module-help.csv`
+- Create: `skills/l3io-execute/assets/module-setup.md`
+- Create: `skills/l3io-execute/scripts/merge-config.py`
+- Create: `skills/l3io-execute/scripts/merge-help-csv.py`
+- Create: `skills/l3io-execute/scripts/resolve_customization.py`
 
 Note: `scripts/pm-status.py`, `scripts/tests/test-pm-status.py`, `references/status-files.md`, and all `steps/` files are populated by `sync-shared-scripts.mjs` in Task 13 — do not create them manually.
 
 - [ ] **Step 1: Scaffold from reference**
 ```bash
-mkdir -p skills/l3io-pm-execute/{assets,scripts,references}
-cp "$REF/skills/ava-pm-execute/SKILL.md"          skills/l3io-pm-execute/SKILL.md
-cp "$REF/skills/ava-pm-execute/customize.toml"    skills/l3io-pm-execute/customize.toml
-cp "$REF/skills/ava-pm-execute/module.yaml"       skills/l3io-pm-execute/module.yaml
-cp "$REF/skills/ava-pm-execute/assets/module-help.csv"   skills/l3io-pm-execute/assets/module-help.csv
-cp "$REF/skills/ava-pm-execute/assets/module-setup.md"   skills/l3io-pm-execute/assets/module-setup.md
-cp "$REF/skills/ava-arch-review/scripts/merge-config.py"      skills/l3io-pm-execute/scripts/merge-config.py
-cp "$REF/skills/ava-arch-review/scripts/merge-help-csv.py"    skills/l3io-pm-execute/scripts/merge-help-csv.py
-cp "$REF/skills/ava-sec-redteam/scripts/merge-config.py"      skills/l3io-pm-execute/scripts/merge-config.py 2>/dev/null || \
-cp "$REF/skills/ava-util-cleanup/scripts/merge-config.py"     skills/l3io-pm-execute/scripts/merge-config.py
-cp "$REF/skills/ava-util-cleanup/scripts/merge-help-csv.py"   skills/l3io-pm-execute/scripts/merge-help-csv.py
+mkdir -p skills/l3io-execute/{assets,scripts,references}
+cp "$REF/skills/ava-pm-execute/SKILL.md"          skills/l3io-execute/SKILL.md
+cp "$REF/skills/ava-pm-execute/customize.toml"    skills/l3io-execute/customize.toml
+cp "$REF/skills/ava-pm-execute/module.yaml"       skills/l3io-execute/module.yaml
+cp "$REF/skills/ava-pm-execute/assets/module-help.csv"   skills/l3io-execute/assets/module-help.csv
+cp "$REF/skills/ava-pm-execute/assets/module-setup.md"   skills/l3io-execute/assets/module-setup.md
+cp "$REF/skills/ava-arch-review/scripts/merge-config.py"      skills/l3io-execute/scripts/merge-config.py
+cp "$REF/skills/ava-arch-review/scripts/merge-help-csv.py"    skills/l3io-execute/scripts/merge-help-csv.py
+cp "$REF/skills/ava-sec-redteam/scripts/merge-config.py"      skills/l3io-execute/scripts/merge-config.py 2>/dev/null || \
+cp "$REF/skills/ava-util-cleanup/scripts/merge-config.py"     skills/l3io-execute/scripts/merge-config.py
+cp "$REF/skills/ava-util-cleanup/scripts/merge-help-csv.py"   skills/l3io-execute/scripts/merge-help-csv.py
 # resolve_customization.py — updated v2 version
-cp "$REF/_bmad/scripts/resolve_customization.py"  skills/l3io-pm-execute/scripts/resolve_customization.py
+cp "$REF/_bmad/scripts/resolve_customization.py"  skills/l3io-execute/scripts/resolve_customization.py
 ```
 
 - [ ] **Step 2: Apply global rename tokens to all files**
 ```bash
-find skills/l3io-pm-execute -type f -exec sed -i \
+find skills/l3io-execute -type f -exec sed -i \
   's/ava-pm/l3io-pm/g; s/ava-sec/l3io-sec/g; s/ava-util/l3io-util/g; s/ava-arch/l3io-arch/g; s/ava-/l3io-/g; s/Avanade PM/LiquidLogicLabs PM/g; s/Avanade/LiquidLogicLabs/g; s/APE/LPE/g' {} \;
 ```
 
 - [ ] **Step 3: Verify SKILL.md**
 ```bash
-grep "l3io-pm-execute" skills/l3io-pm-execute/SKILL.md
-grep "headless" skills/l3io-pm-execute/SKILL.md
-grep "step-00-activate" skills/l3io-pm-execute/SKILL.md
-grep -i "avanade\|ava-" skills/l3io-pm-execute/SKILL.md && echo "FAIL" || echo "PASS"
+grep "l3io-execute" skills/l3io-execute/SKILL.md
+grep "headless" skills/l3io-execute/SKILL.md
+grep "step-00-activate" skills/l3io-execute/SKILL.md
+grep -i "avanade\|ava-" skills/l3io-execute/SKILL.md && echo "FAIL" || echo "PASS"
 ```
 
 - [ ] **Step 4: Verify customize.toml parses and has required keys**
 ```bash
 python3 -c "
 import tomllib
-with open('skills/l3io-pm-execute/customize.toml','rb') as f: d=tomllib.load(f)
+with open('skills/l3io-execute/customize.toml','rb') as f: d=tomllib.load(f)
 assert 'workflow' in d
 assert 'max_parallel_subagents' in d['workflow']
 assert 'epic_lock_ttl_minutes' in d['workflow']
@@ -338,32 +338,32 @@ print('PASS')
 
 - [ ] **Step 5: Commit**
 ```bash
-git add skills/l3io-pm-execute/
-git commit -s -m "feat(l3io-pm): add l3io-pm-execute skill (merged sprint+epic execution)"
+git add skills/l3io-execute/
+git commit -s -m "feat(l3io-pm): add l3io-execute skill (merged sprint+epic execution)"
 ```
 
 ---
 
-### Task 7: l3io-pm-plan Skill
+### Task 7: l3io-plan Skill
 
 **Files:**
-- Create: `skills/l3io-pm-plan/` (same structure as execute, minus execute-only refs)
+- Create: `skills/l3io-plan/` (same structure as execute, minus execute-only refs)
 
 - [ ] **Step 1: Scaffold from reference**
 ```bash
-mkdir -p skills/l3io-pm-plan/{assets,scripts,references}
+mkdir -p skills/l3io-plan/{assets,scripts,references}
 for f in SKILL.md customize.toml module.yaml; do
-  cp "$REF/skills/ava-pm-plan/$f" skills/l3io-pm-plan/$f
+  cp "$REF/skills/ava-pm-plan/$f" skills/l3io-plan/$f
 done
-cp "$REF/skills/ava-pm-plan/assets/"* skills/l3io-pm-plan/assets/
-cp "$REF/skills/ava-pm-execute/scripts/merge-config.py"     skills/l3io-pm-plan/scripts/
-cp "$REF/skills/ava-pm-execute/scripts/merge-help-csv.py"   skills/l3io-pm-plan/scripts/
-cp "$REF/_bmad/scripts/resolve_customization.py"            skills/l3io-pm-plan/scripts/
+cp "$REF/skills/ava-pm-plan/assets/"* skills/l3io-plan/assets/
+cp "$REF/skills/ava-pm-execute/scripts/merge-config.py"     skills/l3io-plan/scripts/
+cp "$REF/skills/ava-pm-execute/scripts/merge-help-csv.py"   skills/l3io-plan/scripts/
+cp "$REF/_bmad/scripts/resolve_customization.py"            skills/l3io-plan/scripts/
 ```
 
 - [ ] **Step 2: Apply global rename tokens**
 ```bash
-find skills/l3io-pm-plan -type f -exec sed -i \
+find skills/l3io-plan -type f -exec sed -i \
   's/ava-pm/l3io-pm/g; s/ava-/l3io-/g; s/Avanade PM/LiquidLogicLabs PM/g; s/Avanade/LiquidLogicLabs/g; s/APH/LPH/g; s/APP/LPP/g' {} \;
 ```
 
@@ -371,7 +371,7 @@ find skills/l3io-pm-plan -type f -exec sed -i \
 ```bash
 python3 -c "
 import tomllib
-with open('skills/l3io-pm-plan/customize.toml','rb') as f: d=tomllib.load(f)
+with open('skills/l3io-plan/customize.toml','rb') as f: d=tomllib.load(f)
 wf = d['workflow']
 assert 'include_estimates' in wf
 assert 'plan_output' in wf
@@ -381,78 +381,78 @@ print('PASS')
 
 - [ ] **Step 4: Commit**
 ```bash
-git add skills/l3io-pm-plan/
-git commit -s -m "feat(l3io-pm): add l3io-pm-plan skill (renamed from plan-execution, steps architecture)"
+git add skills/l3io-plan/
+git commit -s -m "feat(l3io-pm): add l3io-plan skill (renamed from plan-execution, steps architecture)"
 ```
 
 ---
 
-### Task 8: l3io-pm-help Skill
+### Task 8: l3io-help Skill
 
 **Files:**
-- Create: `skills/l3io-pm-help/` (no steps/ or references/ — single-step skill)
+- Create: `skills/l3io-help/` (no steps/ or references/ — single-step skill)
 
 - [ ] **Step 1: Scaffold from reference**
 ```bash
-mkdir -p skills/l3io-pm-help/{assets,scripts}
+mkdir -p skills/l3io-help/{assets,scripts}
 for f in SKILL.md customize.toml module.yaml; do
-  cp "$REF/skills/ava-pm-help/$f" skills/l3io-pm-help/$f
+  cp "$REF/skills/ava-pm-help/$f" skills/l3io-help/$f
 done
-cp "$REF/skills/ava-pm-help/assets/"* skills/l3io-pm-help/assets/
-cp "$REF/skills/ava-pm-execute/scripts/merge-config.py"   skills/l3io-pm-help/scripts/
-cp "$REF/skills/ava-pm-execute/scripts/merge-help-csv.py" skills/l3io-pm-help/scripts/
-cp "$REF/_bmad/scripts/resolve_customization.py"          skills/l3io-pm-help/scripts/
+cp "$REF/skills/ava-pm-help/assets/"* skills/l3io-help/assets/
+cp "$REF/skills/ava-pm-execute/scripts/merge-config.py"   skills/l3io-help/scripts/
+cp "$REF/skills/ava-pm-execute/scripts/merge-help-csv.py" skills/l3io-help/scripts/
+cp "$REF/_bmad/scripts/resolve_customization.py"          skills/l3io-help/scripts/
 ```
 
 - [ ] **Step 2: Apply global rename tokens**
 ```bash
-find skills/l3io-pm-help -type f -exec sed -i \
+find skills/l3io-help -type f -exec sed -i \
   's/ava-pm/l3io-pm/g; s/ava-/l3io-/g; s/Avanade PM/LiquidLogicLabs PM/g; s/Avanade/LiquidLogicLabs/g; s/APH/LPH/g' {} \;
 ```
 
 - [ ] **Step 3: Verify decision table present**
 ```bash
-grep "l3io-pm-plan\|l3io-pm-execute\|l3io-pm-sync" skills/l3io-pm-help/SKILL.md
-grep "stale lock\|plan-output-meta" skills/l3io-pm-help/SKILL.md
+grep "l3io-plan\|l3io-execute\|l3io-sync" skills/l3io-help/SKILL.md
+grep "stale lock\|plan-output-meta" skills/l3io-help/SKILL.md
 ```
 
 - [ ] **Step 4: Commit**
 ```bash
-git add skills/l3io-pm-help/
-git commit -s -m "feat(l3io-pm): add l3io-pm-help skill (state snapshot + next-action recommendation)"
+git add skills/l3io-help/
+git commit -s -m "feat(l3io-pm): add l3io-help skill (state snapshot + next-action recommendation)"
 ```
 
 ---
 
-### Task 9: l3io-pm-sync Skill (GitHub-Only)
+### Task 9: l3io-sync Skill (GitHub-Only)
 
 **Files:**
-- Create: `skills/l3io-pm-sync/SKILL.md`, `customize.toml`, `module.yaml`
-- Create: `skills/l3io-pm-sync/assets/module-help.csv`, `module-setup.md`, `sync-config-template.yaml`
-- Create: `skills/l3io-pm-sync/scripts/detect-platform.py` (GitHub-only)
-- Create: `skills/l3io-pm-sync/scripts/sync-state.py` (GitHub-only)
-- Create: `skills/l3io-pm-sync/scripts/drift-report.py`
-- Create: `skills/l3io-pm-sync/scripts/merge-config.py`, `merge-help-csv.py`, `resolve_customization.py`
+- Create: `skills/l3io-sync/SKILL.md`, `customize.toml`, `module.yaml`
+- Create: `skills/l3io-sync/assets/module-help.csv`, `module-setup.md`, `sync-config-template.yaml`
+- Create: `skills/l3io-sync/scripts/detect-platform.py` (GitHub-only)
+- Create: `skills/l3io-sync/scripts/sync-state.py` (GitHub-only)
+- Create: `skills/l3io-sync/scripts/drift-report.py`
+- Create: `skills/l3io-sync/scripts/merge-config.py`, `merge-help-csv.py`, `resolve_customization.py`
 
 **ADO rule:** Do not copy `ado-client.py`. In all other copied scripts, remove any code block inside `if platform == "azure-devops":` or `elif platform == "ado":` conditions — keep only the `github` branches.
 
 - [ ] **Step 1: Scaffold static files from reference**
 ```bash
-mkdir -p skills/l3io-pm-sync/{assets,scripts,steps/sync,steps/shared,references}
+mkdir -p skills/l3io-sync/{assets,scripts,steps/sync,steps/shared,references}
 for f in SKILL.md customize.toml module.yaml; do
-  cp "$REF/skills/ava-pm-sync/$f" skills/l3io-pm-sync/$f
+  cp "$REF/skills/ava-pm-sync/$f" skills/l3io-sync/$f
 done
-cp "$REF/skills/ava-pm-sync/assets/module-help.csv"          skills/l3io-pm-sync/assets/
-cp "$REF/skills/ava-pm-sync/assets/module-setup.md"          skills/l3io-pm-sync/assets/
-cp "$REF/skills/ava-pm-sync/assets/sync-config-template.yaml" skills/l3io-pm-sync/assets/
-cp "$REF/skills/ava-pm-execute/scripts/merge-config.py"       skills/l3io-pm-sync/scripts/
-cp "$REF/skills/ava-pm-execute/scripts/merge-help-csv.py"     skills/l3io-pm-sync/scripts/
-cp "$REF/_bmad/scripts/resolve_customization.py"              skills/l3io-pm-sync/scripts/
+cp "$REF/skills/ava-pm-sync/assets/module-help.csv"          skills/l3io-sync/assets/
+cp "$REF/skills/ava-pm-sync/assets/module-setup.md"          skills/l3io-sync/assets/
+cp "$REF/skills/ava-pm-sync/assets/sync-config-template.yaml" skills/l3io-sync/assets/
+cp "$REF/skills/ava-pm-execute/scripts/merge-config.py"       skills/l3io-sync/scripts/
+cp "$REF/skills/ava-pm-execute/scripts/merge-help-csv.py"     skills/l3io-sync/scripts/
+cp "$REF/_bmad/scripts/resolve_customization.py"              skills/l3io-sync/scripts/
 ```
 
 - [ ] **Step 2: Apply global rename tokens to static files**
 ```bash
-find skills/l3io-pm-sync -type f ! -path "*/scripts/detect-platform.py" \
+find skills/l3io-sync -type f ! -path "*/scripts/detect-platform.py" \
   ! -path "*/scripts/sync-state.py" ! -path "*/scripts/drift-report.py" \
   -exec sed -i \
   's/ava-pm/l3io-pm/g; s/ava-/l3io-/g; s/Avanade PM/LiquidLogicLabs PM/g; s/Avanade/LiquidLogicLabs/g; s/APS/LPS/g; s/APU/LPU/g; s/APL/LPL/g; s/APC/LPC/g; s/APT/LPT/g' {} \;
@@ -460,13 +460,13 @@ find skills/l3io-pm-sync -type f ! -path "*/scripts/detect-platform.py" \
 
 - [ ] **Step 3: Strip ADO from sync-config-template.yaml**
 
-Open `skills/l3io-pm-sync/assets/sync-config-template.yaml` and remove the entire `azure_devops:` block (lines from `# Azure DevOps connection` through the closing `auth_method: pat` line). Also update the `platform:` comment to remove `| azure-devops`. The file should only document `platform: github`.
+Open `skills/l3io-sync/assets/sync-config-template.yaml` and remove the entire `azure_devops:` block (lines from `# Azure DevOps connection` through the closing `auth_method: pat` line). Also update the `platform:` comment to remove `| azure-devops`. The file should only document `platform: github`.
 
 - [ ] **Step 4: Copy and strip ADO from Python scripts**
 ```bash
-cp "$REF/skills/ava-pm-sync/scripts/detect-platform.py" skills/l3io-pm-sync/scripts/detect-platform.py
-cp "$REF/skills/ava-pm-sync/scripts/sync-state.py"      skills/l3io-pm-sync/scripts/sync-state.py
-cp "$REF/skills/ava-pm-sync/scripts/drift-report.py"    skills/l3io-pm-sync/scripts/drift-report.py
+cp "$REF/skills/ava-pm-sync/scripts/detect-platform.py" skills/l3io-sync/scripts/detect-platform.py
+cp "$REF/skills/ava-pm-sync/scripts/sync-state.py"      skills/l3io-sync/scripts/sync-state.py
+cp "$REF/skills/ava-pm-sync/scripts/drift-report.py"    skills/l3io-sync/scripts/drift-report.py
 ```
 
 For each script: apply global rename tokens, then open the file and remove ADO-specific branches:
@@ -477,28 +477,28 @@ For each script: apply global rename tokens, then open the file and remove ADO-s
 Apply rename tokens to all three:
 ```bash
 sed -i 's/ava-pm/l3io-pm/g; s/ava-/l3io-/g; s/Avanade/LiquidLogicLabs/g' \
-  skills/l3io-pm-sync/scripts/detect-platform.py \
-  skills/l3io-pm-sync/scripts/sync-state.py \
-  skills/l3io-pm-sync/scripts/drift-report.py
+  skills/l3io-sync/scripts/detect-platform.py \
+  skills/l3io-sync/scripts/sync-state.py \
+  skills/l3io-sync/scripts/drift-report.py
 ```
 
 - [ ] **Step 5: Verify no ADO references in scripts**
 ```bash
-grep -i "azure.devops\|ADO_PAT\|AZURE_DEVOPS\|ado-client" skills/l3io-pm-sync/scripts/*.py \
+grep -i "azure.devops\|ADO_PAT\|AZURE_DEVOPS\|ado-client" skills/l3io-sync/scripts/*.py \
   && echo "FAIL: ADO references remain" || echo "PASS"
 ```
 
 - [ ] **Step 6: Verify SKILL.md**
 ```bash
-grep "github" skills/l3io-pm-sync/SKILL.md
-grep "step-02-detect-platform\|step-03-operations\|step-04-resolve" skills/l3io-pm-sync/SKILL.md
-grep -i "avanade\|ava-\|azure.devops\|ADO" skills/l3io-pm-sync/SKILL.md && echo "FAIL" || echo "PASS"
+grep "github" skills/l3io-sync/SKILL.md
+grep "step-02-detect-platform\|step-03-operations\|step-04-resolve" skills/l3io-sync/SKILL.md
+grep -i "avanade\|ava-\|azure.devops\|ADO" skills/l3io-sync/SKILL.md && echo "FAIL" || echo "PASS"
 ```
 
 - [ ] **Step 7: Commit**
 ```bash
-git add skills/l3io-pm-sync/
-git commit -s -m "feat(l3io-pm): add l3io-pm-sync skill (GitHub Issues bidirectional sync)"
+git add skills/l3io-sync/
+git commit -s -m "feat(l3io-pm): add l3io-sync skill (GitHub Issues bidirectional sync)"
 ```
 
 ---
@@ -636,12 +636,12 @@ git commit -s -m "chore(l3io-arch): move l3io-arch-review to flat skills/ layout
 ```bash
 cd .claude/commands
 # Remove old
-rm -f l3io-pm-sprint-execute.md l3io-pm-epic-execute.md l3io-pm-plan-execution.md l3io-sec-agent-redteam.md
+rm -f l3io-pm-sprint-execute.md l3io-pm-epic-execute.md l3io-plan-execution.md l3io-sec-agent-redteam.md
 # Add new (relative symlinks from .claude/commands/ → ../../skills/<skill>/SKILL.md)
-ln -s ../../skills/l3io-pm-execute/SKILL.md l3io-pm-execute.md
-ln -s ../../skills/l3io-pm-plan/SKILL.md l3io-pm-plan.md
-ln -s ../../skills/l3io-pm-help/SKILL.md l3io-pm-help.md
-ln -s ../../skills/l3io-pm-sync/SKILL.md l3io-pm-sync.md
+ln -s ../../skills/l3io-execute/SKILL.md l3io-execute.md
+ln -s ../../skills/l3io-plan/SKILL.md l3io-plan.md
+ln -s ../../skills/l3io-help/SKILL.md l3io-help.md
+ln -s ../../skills/l3io-sync/SKILL.md l3io-sync.md
 ln -s ../../skills/l3io-sec-redteam/SKILL.md l3io-sec-redteam.md
 ln -s ../../skills/l3io-util-cleanup/SKILL.md l3io-util-cleanup.md
 ln -s ../../skills/l3io-arch-review/SKILL.md l3io-arch-review.md
@@ -676,10 +676,10 @@ Replace the `plugins` array with the new flat skill list:
       "version": "2.0.0",
       "author": { "name": "Shawn Anderson", "email": "shawn@eye-catcher.com" },
       "skills": [
-        "./skills/l3io-pm-execute",
-        "./skills/l3io-pm-plan",
-        "./skills/l3io-pm-help",
-        "./skills/l3io-pm-sync"
+        "./skills/l3io-execute",
+        "./skills/l3io-plan",
+        "./skills/l3io-help",
+        "./skills/l3io-sync"
       ]
     },
     {
@@ -745,7 +745,7 @@ git commit -s -m "feat(infra): update commands symlinks, marketplace.json, and C
 ```bash
 npm run sync:scripts
 ```
-Expected output lists synced files for `l3io-pm-execute`, `l3io-pm-plan`, `l3io-pm-sync`. No errors.
+Expected output lists synced files for `l3io-execute`, `l3io-plan`, `l3io-sync`. No errors.
 
 - [ ] **Step 2: Verify sync is clean**
 ```bash
@@ -755,15 +755,15 @@ Expected: "Shared-script payload copies are in sync."
 
 - [ ] **Step 3: Spot-check a synced skill**
 ```bash
-ls skills/l3io-pm-execute/steps/shared/
-ls skills/l3io-pm-execute/scripts/pm-status.py
-ls skills/l3io-pm-execute/references/status-files.md
+ls skills/l3io-execute/steps/shared/
+ls skills/l3io-execute/scripts/pm-status.py
+ls skills/l3io-execute/references/status-files.md
 ```
 All must exist.
 
 - [ ] **Step 4: Run pm-status tests against the synced copy**
 ```bash
-cd skills/l3io-pm-execute && uv run --quiet --with pytest scripts/tests/test-pm-status.py -v
+cd skills/l3io-execute && uv run --quiet --with pytest scripts/tests/test-pm-status.py -v
 ```
 All tests must PASS.
 
@@ -802,6 +802,6 @@ Expected: creates `2.0.0` git tag, updates `CHANGELOG.md`, syncs version into al
 ```bash
 git log --oneline -3
 node -e "const p=require('./.claude-plugin/marketplace.json'); console.log(p.plugins[0].version)"
-grep "module_version" skills/l3io-pm-execute/module.yaml
+grep "module_version" skills/l3io-execute/module.yaml
 ```
 All should show `2.0.0`.

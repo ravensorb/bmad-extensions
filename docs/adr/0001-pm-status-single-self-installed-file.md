@@ -7,8 +7,8 @@
 
 ## Context
 
-`pm-status.py` is the one runtime writer of l3io-pm state, used by `l3io-pm-execute`,
-`l3io-pm-plan`, `l3io-pm-sync`, and `l3io-util-doctor`. Each skill ships a synced copy, and at
+`pm-status.py` is the one runtime writer of l3io-pm state, used by `l3io-execute`,
+`l3io-plan`, `l3io-sync`, and `l3io-doctor`. Each skill ships a synced copy, and at
 setup or activation runs `self-install --dest {project-root}/_bmad/scripts/pm-status.py`.
 `cmd_self_install` copies exactly `__file__` under one SHA-256 content guard and one
 `os.replace`. A sibling module would never reach `_bmad/scripts/`, so the installed copy could
@@ -36,7 +36,7 @@ skill needs at runtime.
 Option A. Anything that more than one skill runs at runtime stays inside `pm-status.py`. Code
 with a single consumer ships in that skill's own `scripts/` and reaches `pm-status.py` only
 through its CLI. The first application: the issue audit's heuristic checks go to
-`l3io-util-doctor/scripts/audit-backlog.py`, while its integrity checks stay in `pm-status.py`.
+`l3io-doctor/scripts/audit-backlog.py`, while its integrity checks stay in `pm-status.py`.
 
 ## Consequences
 

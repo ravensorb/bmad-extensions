@@ -85,8 +85,8 @@ Two refinements were made while writing this, both within the approved design:
 
 **Location and payload.**
 - The canonical source is `skills/_shared/spec-align.py`.
-- `sync-shared-scripts.mjs` copies it into `skills/l3io-pm-execute/scripts/` and
-  `skills/l3io-util-doctor/scripts/`, and both payload manifests cover it.
+- `sync-shared-scripts.mjs` copies it into `skills/l3io-execute/scripts/` and
+  `skills/l3io-doctor/scripts/`, and both payload manifests cover it.
 - It is invoked from the skill's own `scripts/` copy, like `audit-backlog.py`. It does not
   self-install. Only `pm-status.py` self-installs, because many skills share one runtime copy
   of it.
@@ -391,7 +391,7 @@ closure report, and only when `spec_alignment` is on.
        --epic {epic_nnn} --sprint "" --kind {spec-change|spec-proposal} \
        --ref {sha|proposal path} --title "{finding title}" \
        --source "spec-sync ({finding_id})" --severity {mapped} \
-       --description "Confirm or reject: /l3io-util-doctor triage"
+       --description "Confirm or reject: /l3io-doctor triage"
      ```
 
      The finding's severity maps BLOCKER → High, MAJOR → Medium and MINOR → Low. The item's
@@ -668,7 +668,7 @@ something cheaper and is reported in the closure report's **Spec changes** secti
 - **New files:**
   - `skills/_shared/spec-align.py`
   - `skills/_shared/tests/test-spec-align.py`
-  - `skills/l3io-util-doctor/steps/migrate-adrs.md`
+  - `skills/l3io-doctor/steps/migrate-adrs.md`
   - `docs/adr/0004-agents-edit-architecture-specs.md`
   - `docs/adr/0005-one-adr-home.md`
 - **`skills/_shared/pm-status.py`:** the §5 flags; the `adr-reserve` scan.
@@ -681,16 +681,16 @@ something cheaper and is reported in the closure report's **Spec changes** secti
   - `closure/epic-closure.md` (§2, §2a, §3, §5, the new §7)
   - `shared/step-00-digest.md`: only if a routing row is needed. Keep it within check 8's
     budget.
-- **`skills/l3io-pm-execute/customize.toml`:** `spec_alignment` and `spec_paths`.
+- **`skills/l3io-execute/customize.toml`:** `spec_alignment` and `spec_paths`.
 - **`skills/l3io-arch-review/`:** `SKILL.md` (Mode C and Output); `assets/adr-template.md`;
   the Mode B framing for the arch gate, carried in the step file rather than in arch-review
   itself.
-- **`skills/l3io-util-doctor/`:**
+- **`skills/l3io-doctor/`:**
   - `SKILL.md` (the mode table)
   - `steps/health-check.md` (Checks 15–19)
   - `steps/triage.md` (the spec pass)
   - `steps/layout-cleanup.md` (unchanged; it is compared by check 13)
-- **`skills/l3io-pm-help/SKILL.md`:** the spec item counts.
+- **`skills/l3io-help/SKILL.md`:** the spec item counts.
 - **`skills/_shared/status-files.md`:** the register section, the item `kind` and `ref`, and
   `spec-sync.lock`.
 - **Repo tooling:** `scripts/sync-shared-scripts.mjs` (the new sync group);

@@ -42,7 +42,7 @@ Run both after changing anything under `skills/_shared/`. `sync:scripts` does **
 the manifests for you, and a manifest asserting a hash its file no longer has is worse than no
 checksum, because it reads as a guarantee.
 
-`skills/l3io-util-doctor/scripts/audit-backlog.py` is the exception: it is single-consumer code
+`skills/l3io-doctor/scripts/audit-backlog.py` is the exception: it is single-consumer code
 that lives in its own skill and is edited in place.
 
 ### The gates

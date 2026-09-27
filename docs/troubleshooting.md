@@ -10,7 +10,7 @@ Two general rules first:
 - **Re-running without changing anything will block identically.** There is no override flag for
   most gates, by design. If a message tells you what to fix, that is the only path forward.
 
-When you do not know where you are, `/l3io-pm-help` reads the project and tells you the next
+When you do not know where you are, `/l3io-help` reads the project and tells you the next
 action. It is read-only and safe at any time.
 
 ## Exit codes
@@ -69,12 +69,12 @@ An earlier migration did not finish.
 
 The detector counts layouts rather than stopping at the first one it finds, precisely so a
 half-finished migration cannot be mistaken for a clean project. Inspect both locations, remove
-the stale one, then re-run `/l3io-util-doctor migrate-state`.
+the stale one, then re-run `/l3io-doctor migrate-state`.
 
 ### `legacy state layout — migrate required`
 
 A flat `sprint-status.yaml` or a legacy per-epic `_bmad/state/` tree was found. Run
-`/l3io-util-doctor migrate-state`. Originals are preserved as `.legacy`.
+`/l3io-doctor migrate-state`. Originals are preserved as `.legacy`.
 
 Do not run the individual migration modes by hand — `split-status` in particular produces a
 three-file layout that the PM skills *still* cannot read. Let the doctor sequence the migration.
@@ -99,18 +99,18 @@ verification detail is printed above the message.
 
 ### `plan-output-meta.yaml absent`
 
-No plan exists. Run `/l3io-pm-plan`.
+No plan exists. Run `/l3io-plan`.
 
 If snapshots exist but the pointer does not, the message lists them and offers two paths:
-re-run `/l3io-pm-plan` to rebuild the pointer (recommended), or write the pointer by hand if you
+re-run `/l3io-plan` to rebuild the pointer (recommended), or write the pointer by hand if you
 have verified a particular snapshot is complete.
 
 ### `plan readiness is RED`
 
-Two things unblock it: run `/l3io-pm-plan` to resolve the gaps, or — having accepted the risk —
+Two things unblock it: run `/l3io-plan` to resolve the gaps, or — having accepted the risk —
 edit `readiness:` in `plan-output-meta.yaml` to `amber` and re-run.
 
-Re-running `/l3io-pm-execute` unchanged will block identically. The step file says so explicitly,
+Re-running `/l3io-execute` unchanged will block identically. The step file says so explicitly,
 because it is the obvious wrong move.
 
 ### `readiness gate — red` at plan time
@@ -122,7 +122,7 @@ The readiness check found blocking issues. They are listed in
 
 Story markdown files exist without matching state nodes — normal for projects whose stories were
 created with the legacy `bmad-create-story` outside this package. Run
-`/l3io-util-doctor bootstrap-state` once. It is idempotent: existing correct nodes are skipped.
+`/l3io-doctor bootstrap-state` once. It is idempotent: existing correct nodes are skipped.
 
 ### `dependency graph has errors`
 
@@ -130,7 +130,7 @@ A cycle, printed as e.g. `E001 → E003 → E001`. Fix the `depends_on` fields o
 
 ### `plan-output-meta.yaml points at {file}, which does not exist`
 
-Re-run `/l3io-pm-plan` to rebuild both. Do not substitute another snapshot — the pointer and the
+Re-run `/l3io-plan` to rebuild both. Do not substitute another snapshot — the pointer and the
 readiness value belong together.
 
 ## Execution problems
@@ -199,7 +199,7 @@ destroy their uncommitted work. The message lists exactly which paths to look at
 
 ### `platform detection failed`
 
-`l3io-pm-sync` supports GitHub only. Point a remote at a GitHub repository and re-run.
+`l3io-sync` supports GitHub only. Point a remote at a GitHub repository and re-run.
 
 ### `authentication unavailable`
 
@@ -236,7 +236,7 @@ These are not errors to work around. Each one exists because the alternative shi
 
 ## Still stuck?
 
-- `/l3io-pm-help` — what to do next, read-only
-- `/l3io-util-doctor check` — the full diagnostic, read-only, changes nothing
+- `/l3io-help` — what to do next, read-only
+- `/l3io-doctor check` — the full diagnostic, read-only, changes nothing
 - [Limits](limits.md) — it may be something this package deliberately does not do
 - [Upgrading](upgrading.md) — if the project came from an older version

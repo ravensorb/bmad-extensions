@@ -353,7 +353,7 @@ class TestConcurrentNoticeSameKey(unittest.TestCase):
     section this preseed exists to lengthen ever gets cheaper (faster ruamel, a faster box, a
     cheaper loader) -- at which point this test keeps reporting OK while checking nothing.
     Exclusivity on a single repeated key is still a real property worth this smoke coverage:
-    two concurrent callers (e.g. l3io-pm-execute and l3io-pm-plan invoked around the same time
+    two concurrent callers (e.g. l3io-execute and l3io-plan invoked around the same time
     in an unconfigured project) racing on the SAME key must never both be told "emit it".
 
     An EMPTY ledger's critical section is too short-lived for process-launch jitter alone to
@@ -7766,7 +7766,7 @@ class TestPromoteIssue(IssueBase):
             code, out, err = self.promote("BL-E001-001")
             self.assertEqual(code, 2, (skey, out, err))
             self.assertIn(f"BL-E001-001 already claimed by ['E001-S02-001', '{skey}']", err)
-            self.assertIn("run /l3io-util-doctor triage (audit-issues 1d/1h)", err)
+            self.assertIn("run /l3io-doctor triage (audit-issues 1d/1h)", err)
             self.assertEqual(_tree_snapshot(self.d), before, skey)
             os.remove(p)
 
@@ -8076,7 +8076,7 @@ class TestDoneHook(IssueBase):
         self.assertEqual(code, 0)
         self.assertIn("pm-status.py: warning -- done hook failed for E001-S02-001: PMError(", err)
         self.assertIn("has a malformed 'backlog' field", err)
-        self.assertIn("; the status write stands. Run /l3io-util-doctor triage (audit-issues "
+        self.assertIn("; the status write stands. Run /l3io-doctor triage (audit-issues "
                       "finding 1c) to finish it.", err)
         self.assertEqual(self.story_status(), "done")
 
@@ -8199,7 +8199,7 @@ class TestDoneHook(IssueBase):
         code, _, err = self.set_status("done")
         self.assertEqual(code, 0, err)
         self.assertIn("could not resolve BL-E001-050 for E001-S02-001", err)
-        self.assertIn("-- run /l3io-util-doctor triage", err)
+        self.assertIn("-- run /l3io-doctor triage", err)
         self.assertEqual(self.resolved_keys(), ["BL-E001-001"])
 
     def test_hook_lines_follow_set_status_and_a_failed_key_does_not_stop_later_ones(self):

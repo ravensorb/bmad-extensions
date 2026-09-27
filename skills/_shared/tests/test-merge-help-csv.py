@@ -99,11 +99,11 @@ class TestAntiZombieMerge(Base):
             "l3io-old,l3io-pm,Stale row",
         ])
         proc = self.run_merge(root, module_code="l3io-pm", rows=[
-            "l3io-pm-execute,l3io-pm,Run the plan"])
+            "l3io-execute,l3io-pm,Run the plan"])
         self.assertEqual(proc.returncode, 0, proc.stderr)
         text = (root / "_bmad" / "_config" / "bmad-help.csv").read_text()
         self.assertIn("bmad-help,core,Core help", text)
-        self.assertIn("l3io-pm-execute,l3io-pm,Run the plan", text)
+        self.assertIn("l3io-execute,l3io-pm,Run the plan", text)
         self.assertNotIn("l3io-old", text)
 
     def test_other_modules_rows_keep_their_order(self):
@@ -115,7 +115,7 @@ class TestAntiZombieMerge(Base):
             "l3io-arch-review,l3io-arch,Arch review",
         ])
         self.run_merge(root, module_code="l3io-pm", rows=[
-            "l3io-pm-execute,l3io-pm,Run the plan"])
+            "l3io-execute,l3io-pm,Run the plan"])
         rows = self.help_csv_rows()
         module_col = [r[1] for r in rows[1:]]
         self.assertEqual(
@@ -126,28 +126,28 @@ class TestAntiZombieMerge(Base):
     def test_creates_the_file_when_absent(self):
         root = self.make_project(existing_help=None)
         proc = self.run_merge(root, module_code="l3io-util", rows=[
-            "l3io-util-doctor,l3io-util,Diagnostics"])
+            "l3io-doctor,l3io-util,Diagnostics"])
         self.assertEqual(proc.returncode, 0, proc.stderr)
         text = (root / "_bmad" / "_config" / "bmad-help.csv").read_text()
-        self.assertIn("l3io-util-doctor,l3io-util,Diagnostics", text)
+        self.assertIn("l3io-doctor,l3io-util,Diagnostics", text)
 
     def test_a_second_merge_with_fewer_rows_drops_the_removed_capability(self):
         root = self.make_project(existing_help=None)
         self.run_merge(root, module_code="l3io-pm", rows=[
-            "l3io-pm-execute,l3io-pm,Run the plan",
-            "l3io-pm-help,l3io-pm,Get help",
+            "l3io-execute,l3io-pm,Run the plan",
+            "l3io-help,l3io-pm,Get help",
         ])
         self.run_merge(root, module_code="l3io-pm", rows=[
-            "l3io-pm-execute,l3io-pm,Run the plan",
+            "l3io-execute,l3io-pm,Run the plan",
         ])
         text = (root / "_bmad" / "_config" / "bmad-help.csv").read_text()
-        self.assertIn("l3io-pm-execute", text)
-        self.assertNotIn("l3io-pm-help", text)
+        self.assertIn("l3io-execute", text)
+        self.assertNotIn("l3io-help", text)
 
     def test_source_header_row_is_not_duplicated_into_the_target(self):
         root = self.make_project(existing_help=None)
         self.run_merge(root, module_code="l3io-pm", rows=[
-            "l3io-pm-execute,l3io-pm,Run the plan"])
+            "l3io-execute,l3io-pm,Run the plan"])
         rows = self.help_csv_rows()
         self.assertEqual(rows[0], ["skill", "module", "description"])
         self.assertEqual(sum(1 for r in rows if r == rows[0]), 1)

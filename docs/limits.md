@@ -22,7 +22,7 @@ complete in order.
 
 ## Platform and runtime
 
-**`l3io-pm-sync` supports GitHub only.** Not GitLab, not Azure DevOps, not Jira. A remote that
+**`l3io-sync` supports GitHub only.** Not GitLab, not Azure DevOps, not Jira. A remote that
 does not parse as GitHub stops the run.
 
 **Sync has no field-level conflict resolution.** `push` overwrites the remote issue with local
@@ -85,7 +85,7 @@ Each is kept deliberately rather than removed, and the reason differs per entry.
   schema change.
 - **`sync-config.yaml`'s `field_rules` and `status_labels`** are not consumed by any script yet.
   Kept because they are a **reserved interface**, not debris — the template says so at the point
-  of use, so they mislead nobody, and `l3io-pm-sync` is GitHub-only *today* rather than by
+  of use, so they mislead nobody, and `l3io-sync` is GitHub-only *today* rather than by
   principle.
 - **`last_sync`**, the TOP-LEVEL key in the sync state file, is written `None` and never
   updated. Kept for the same schema reason as `granularity`. Do not confuse it with the
@@ -99,7 +99,7 @@ than documented, because unlike the entries above it was **user-settable** in fo
 ## Not in scope at all
 
 - **The installer refreshes skills; it does not migrate your data.** Those are separate steps,
-  and the second one is `/l3io-util-doctor`.
+  and the second one is `/l3io-doctor`.
 - **No BMad core script is bundled.** The config and customization resolvers are invoked from
   BMad's own installed location, never vendored here.
 - **Test suites are never shipped to consumers.** They stay in the source repository and run in

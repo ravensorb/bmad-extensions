@@ -6,7 +6,7 @@
 ## Problem
 
 There is no way to see progress against the plan during a long-running
-`/l3io-pm-execute` run. Answering "which phase are we in, which epic is holding it
+`/l3io-execute` run. Answering "which phase are we in, which epic is holding it
 up, which sprint is live, and which stories are in flight" currently requires
 running `pm-status.py show --epic <key>` once per epic and joining the results by
 hand against the plan snapshot.
@@ -150,11 +150,11 @@ cheap and the atomic writes make it correct; no daemon, no IPC.
 | Surface | Invocation |
 |---|---|
 | CLI | `pm-status.py report --state-root S [--plan P] [--format tree\|json\|md] [--out F] [--all] [--watch N]` |
-| `/l3io-pm-help` | `progress` argument — reuses help's config resolution, layout detection, and `pm_status_present` fallback |
-| `/l3io-pm-execute` | Live render at serialized points only (below) |
-| `/l3io-util-doctor` | `stats` mode swaps its flat counts for the hierarchy, keeping backlog/calibration/anomaly sections |
+| `/l3io-help` | `progress` argument — reuses help's config resolution, layout detection, and `pm_status_present` fallback |
+| `/l3io-execute` | Live render at serialized points only (below) |
+| `/l3io-doctor` | `stats` mode swaps its flat counts for the hierarchy, keeping backlog/calibration/anomaly sections |
 
-`/l3io-pm-plan` is deliberately **not** a surface.
+`/l3io-plan` is deliberately **not** a surface.
 
 The command is read-only unless `--out` is passed. This is what lets `stats` — which
 must not write — call the same code path.
@@ -208,7 +208,7 @@ tune them is what this view will generate.
 | Epic | `in-progress` | 72h |
 
 Epic-level staleness reuses the existing `_lock.ttl_minutes` check rather than
-introducing a second definition; `check-lock` and `/l3io-pm-help` already flag stale
+introducing a second definition; `check-lock` and `/l3io-help` already flag stale
 locks that way, and two competing definitions would eventually disagree.
 
 ### Degradation
@@ -220,7 +220,7 @@ Every one of these must produce useful output, not an error:
 | No `events.jsonl` (all existing projects) | Fall back to `updated_at` for dwell time; label it as an approximation |
 | No plan pointer / no snapshot | Emit the state hierarchy with `plan: null` and no phase framing |
 | Legacy state layout | Callers short-circuit to the existing migrate-state recommendation |
-| `pm-status.py` not self-installed | `/l3io-pm-help` reads `epic.yaml` directly, as it already does |
+| `pm-status.py` not self-installed | `/l3io-help` reads `epic.yaml` directly, as it already does |
 | Unparseable node file | Skip, record a flag, continue |
 
 ## Testing
@@ -251,7 +251,7 @@ Burndown charts, HTML dashboards, cost projection, web UI, configurable threshol
    `__pycache__/pm-status.cpython-311.pyc` caches left behind by commit `1a23e74`,
    compiled from a pre-sharding `pm-status.py` under the long-gone skill name
    `l3io-pm-epic-execute`.
-2. **Rename `l3io-util-cleanup` → `l3io-util-doctor`.** "Cleanup" describes about 3
+2. **Rename `l3io-util-cleanup` → `l3io-doctor`.** "Cleanup" describes about 3
    of its 15 modes; the default behavior is a diagnose-report-repair health check.
    Ships with a deprecation-forwarder skill at the old name, following the
    `bmad-editorial-review` → `bmad-review` precedent. Historical records
@@ -266,7 +266,7 @@ Burndown charts, HTML dashboards, cost projection, web UI, configurable threshol
 `skills/_shared/steps/closure/{sprint,epic}-closure.md`,
 `skills/_shared/steps/shared/step-00-activate.md`
 
-**Per-skill:** `skills/l3io-pm-help/SKILL.md`, the renamed util skill's `SKILL.md` /
+**Per-skill:** `skills/l3io-help/SKILL.md`, the renamed util skill's `SKILL.md` /
 `module.yaml` / `customize.toml`, plus a new forwarder skill directory.
 
 **Repo:** `.claude-plugin/marketplace.json`, `scripts/sync-shared-scripts.mjs`,

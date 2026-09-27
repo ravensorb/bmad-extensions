@@ -2,7 +2,7 @@
 
 Why each skill exists, when you reach for it, and the orders that make sense.
 
-Eight skills across four modules is a lot of surface. The thing to understand first is that
+Thirteen skills across four modules — eight canonical plus five deprecated forwarders from the 3.1.3 rename — is a lot of surface. The thing to understand first is that
 **you invoke very few of them directly.** Two of the four modules mostly run *inside* the
 execution engine, on your behalf, at points where their judgement is needed.
 
@@ -10,18 +10,18 @@ execution engine, on your behalf, at points where their judgement is needed.
 
 | Skill | The problem it solves | How you use it |
 |---|---|---|
-| `l3io-util-doctor` | "Is this project in a shape the other skills can read?" | **Run it first**, after every install and upgrade |
+| `l3io-doctor` | "Is this project in a shape the other skills can read?" | **Run it first**, after every install and upgrade |
 | `l3io-arch-review` | "Is this design sound, and is the decision recorded?" | Directly at design time; otherwise **automatic** inside execution |
-| `l3io-pm-plan` | "What order should this work run in, and how long will it take?" | Once per planning round |
-| `l3io-pm-execute` | "Actually do the work, and don't let it close sloppily" | The engine — most of your runs |
+| `l3io-plan` | "What order should this work run in, and how long will it take?" | Once per planning round |
+| `l3io-execute` | "Actually do the work, and don't let it close sloppily" | The engine — most of your runs |
 | `l3io-sec-redteam` | "What would an adversary do with this?" | **Automatic** at closure; directly for ad-hoc reviews |
-| `l3io-pm-help` | "What should I do next? Where is everything?" | Any time you are unsure. Read-only |
-| `l3io-pm-sync` | "Keep GitHub Issues in step with this state" | Opt-in, when your team lives in Issues |
-| `l3io-pm-setup` | "Record l3io-pm's project-level settings" | Only when you explicitly run `/l3io-pm-setup`, `configure`, or `install` |
+| `l3io-help` | "What should I do next? Where is everything?" | Any time you are unsure. Read-only |
+| `l3io-sync` | "Keep GitHub Issues in step with this state" | Opt-in, when your team lives in Issues |
+| `l3io-setup` | "Record l3io-pm's project-level settings" | Only when you explicitly run `/l3io-setup`, `configure`, or `install` |
 
 ## Why each one exists
 
-### `l3io-util-doctor` — the entry point
+### `l3io-doctor` — the entry point
 
 Every other skill reads a state tree at `{implementation_artifacts}/state/`. If that tree is
 missing, half-migrated, or in a legacy shape, the rest of the system either refuses or gives
@@ -52,7 +52,7 @@ it, those gates self-skip and the story-level check falls back to a built-in che
 Reach for it directly: at the start of a project, when weighing a load-bearing choice, or to
 audit something specific. Otherwise it runs itself — see [what runs automatically](#what-runs-automatically-inside-execution).
 
-### `l3io-pm-plan` — decide the order before spending money on it
+### `l3io-plan` — decide the order before spending money on it
 
 Given epics and stories, planning answers what can run now, what is blocked, what can run in
 parallel, and what it will cost. It validates readiness, elaborates thin stories, estimates all
@@ -65,7 +65,7 @@ recorded afterwards meaningful.
 
 Reach for it: whenever you have more than one epic, or after adding work.
 
-### `l3io-pm-execute` — the engine
+### `l3io-execute` — the engine
 
 This is where the work happens, and where most of the design effort went. It runs the plan,
 one epic, or one sprint. Per story: dev, code review, then a fix loop capped at three
@@ -79,7 +79,7 @@ a file on disk rather than context carried forward. Second, **nothing closes wit
 Critical, High or Medium findings**; Low findings defer to a tracked backlog rather than being
 forgotten.
 
-Reach for it: most of the time. `/l3io-pm-execute` for the whole plan, `E001` for one epic,
+Reach for it: most of the time. `/l3io-execute` for the whole plan, `E001` for one epic,
 `E001-S01` for one sprint.
 
 ### `l3io-sec-redteam` — the adversary you would not think to be
@@ -94,10 +94,10 @@ asks, and asking them as an afterthought produces afterthought answers.
 You mostly do not invoke it: it runs at sprint and epic closure automatically when installed
 and the work is code-bearing. Reach for it directly for an ad-hoc review of something specific.
 
-### `l3io-pm-help` — the read-only oracle
+### `l3io-help` — the read-only oracle
 
 Reads the project and tells you the single next action. With `progress` it forwards to
-`/l3io-util-doctor stats` for the progress tree rather than rendering its own copy, and with
+`/l3io-doctor stats` for the progress tree rather than rendering its own copy, and with
 `list plan` it enumerates plan snapshots so you can see whether the pointer is stale.
 
 It exists because the honest answer to "what now?" depends on state most people should not have
@@ -109,7 +109,7 @@ self-install the helper. When it suggests clearing a lock, it prints the command
 
 Reach for it: whenever you are unsure, and after any interruption.
 
-### `l3io-pm-sync` — only if your team lives in GitHub Issues
+### `l3io-sync` — only if your team lives in GitHub Issues
 
 Mirrors state onto GitHub Issues in both directions: `push` creates and updates issues, `pull`
 marks stories done whose issue closed as completed, `sync` does both. GitHub only.
@@ -117,7 +117,7 @@ marks stories done whose issue closed as completed, `sync` does both. GitHub onl
 It is opt-in and orthogonal. Nothing else depends on it, and skipping it costs you nothing but
 the mirror.
 
-### `l3io-pm-setup` — the module's setup skill
+### `l3io-setup` — the module's setup skill
 
 `l3io-pm` is the only multi-skill module in this package, so it is the only one with a
 dedicated setup skill; `l3io-util`, `l3io-sec`, and `l3io-arch` each self-register from their
@@ -131,7 +131,7 @@ one. Run it only when you explicitly ask to install, configure, or reconfigure `
 
 ## What runs automatically inside execution
 
-This is the part that surprises people. With `l3io-pm-execute` driving, these happen without
+This is the part that surprises people. With `l3io-execute` driving, these happen without
 you asking:
 
 | When | What runs | Condition | If not installed |
@@ -152,26 +152,26 @@ It adds reviewers to gates that already exist.
 ```
 /l3io-arch-review design        → boundaries, initial ADRs, a docs skeleton
 bmad-create-epics-and-stories   → the work itself (core BMad)
-/l3io-util-doctor               → confirm the project is legible
-/l3io-pm-plan                   → order, dependencies, estimates
-/l3io-pm-execute                → run it
+/l3io-doctor               → confirm the project is legible
+/l3io-plan                   → order, dependencies, estimates
+/l3io-execute                → run it
 ```
 
 ### A project that already has work underway
 
 ```
-/l3io-util-doctor               → health check first, always
-/l3io-pm-help                   → what is the next action?
-/l3io-pm-execute E001           → or whatever it told you
+/l3io-doctor               → health check first, always
+/l3io-help                   → what is the next action?
+/l3io-execute E001           → or whatever it told you
 ```
 
 ### A legacy project, from before the sharded state layout
 
 ```
-/l3io-util-doctor               → it detects the layout and sequences the migration
+/l3io-doctor               → it detects the layout and sequences the migration
                                   behind one confirmation. Do not run the individual
                                   migration modes by hand.
-/l3io-pm-help                   → confirm it now reads cleanly
+/l3io-help                   → confirm it now reads cleanly
 ```
 
 If the doctor reports more than one layout present, it stops rather than guessing which is
@@ -180,25 +180,25 @@ authoritative. See [Upgrading](upgrading.md) for the ordered sequence and the ro
 ### Day to day
 
 ```
-/l3io-pm-help                   → what next
-/l3io-pm-execute E001-S02       → run it
-/l3io-pm-help progress          → watch, any time, read-only
+/l3io-help                   → what next
+/l3io-execute E001-S02       → run it
+/l3io-help progress          → watch, any time, read-only
 ```
 
 ### Any time, independently
 
 - `/l3io-arch-review decision` — weigh a choice against the standards and record the ADR
 - `/l3io-sec-redteam` — an ad-hoc adversarial review
-- `/l3io-util-doctor triage` — close backlog items that are already fixed
-- `/l3io-util-doctor stats` — a progress dashboard
-- `/l3io-pm-sync` — reconcile with GitHub Issues
+- `/l3io-doctor triage` — close backlog items that are already fixed
+- `/l3io-doctor stats` — a progress dashboard
+- `/l3io-sync` — reconcile with GitHub Issues
 
 ## Required, optional, and what happens without each
 
 | Module | Required? | Without it |
 |---|---|---|
 | `l3io-pm` | The core of the package | No orchestration, planning, or closure discipline |
-| `l3io-util` | **Required when using `l3io-pm`** (declared in `skills/l3io-pm-setup/assets/module.yaml`'s `dependencies:` list) | `l3io-pm-help` warns at every activation via `check-pm-status`; `progress` forwards to `l3io-util-doctor stats` and errors without it; state-layout migrations (`migrate-state`, `bootstrap-state`) and the plan-aware progress dashboard fail if reached. The marketplace bundle ships it alongside `l3io-pm`, so a standard install always carries it. |
+| `l3io-util` | **Required when using `l3io-pm`** (declared in `skills/l3io-setup/assets/module.yaml`'s `dependencies:` list) | `l3io-help` warns at every activation via `check-pm-status`; `progress` forwards to `l3io-doctor stats` and errors without it; state-layout migrations (`migrate-state`, `bootstrap-state`) and the plan-aware progress dashboard fail if reached. The marketplace bundle ships it alongside `l3io-pm`, so a standard install always carries it. |
 | `l3io-arch` | Optional | The epic architecture gate skips; the story technical-AC gate falls back to a built-in checklist; drift reviews lose their reviewer |
 | `l3io-sec` | Optional | Closure runs without a security review |
 
@@ -219,13 +219,13 @@ Worth knowing before you run something on a project you care about.
 
 | Skill | Writes state? |
 |---|---|
-| `l3io-pm-execute` | Yes — statuses, actuals, the event log, closure artifacts |
-| `l3io-pm-plan` | Yes — plan snapshots, elaborated stories, estimates |
-| `l3io-util-doctor` | Yes, but every change is confirmed first, and migrations preserve originals as `.legacy` |
-| `l3io-pm-sync` | Yes — story statuses on `pull`, and the sync mapping store |
+| `l3io-execute` | Yes — statuses, actuals, the event log, closure artifacts |
+| `l3io-plan` | Yes — plan snapshots, elaborated stories, estimates |
+| `l3io-doctor` | Yes, but every change is confirmed first, and migrations preserve originals as `.legacy` |
+| `l3io-sync` | Yes — story statuses on `pull`, and the sync mapping store |
 | `l3io-arch-review` | Writes ADRs and review reports, not PM state |
 | `l3io-sec-redteam` | Writes findings reports, not PM state |
-| `l3io-pm-help` | **No.** Read-only by design |
+| `l3io-help` | **No.** Read-only by design |
 
 Every state write goes through one shared helper (`pm-status.py`) under a lock, which is what
 makes concurrent epics safe.

@@ -58,7 +58,7 @@ valid to `validate-module.py` — measured on the URL-source consumer path, `l3i
 Worse, the local `--custom-source` branch (`:171`–`:181`) calls `searchRoot(localPath)`, which
 is `all[0]` (`:149`) with **no matching on the requested module**, and every plugin in a
 marketplace repo shares one `localPath` (`ui.js:1212`). All four modules resolved to the one
-remaining discoverable file, `skills/l3io-pm-setup/assets/module.yaml`, so
+remaining discoverable file, `skills/l3io-setup/assets/module.yaml`, so
 `manifest-generator.js:560` used `l3io-pm` as the TOML section key for all of them and emitted
 `[modules.l3io-pm]` twice. `tomllib` rejects a table declared twice; `resolve_config.py` exited
 1; every l3io skill and every BMad core skill would have halted at activation and reported
@@ -74,9 +74,9 @@ the check could not fail for any tree the other checks permit.
 
 1. **The module shape is mixed, because the modules are.** `l3io-pm` is the only multi-skill
    module, so it gets the dedicated setup skill the validator's second shape requires:
-   `l3io-pm-setup`, carrying `assets/module.yaml`, `assets/module-help.csv` and
+   `l3io-setup`, carrying `assets/module.yaml`, `assets/module-help.csv` and
    `assets/module-setup.md` for the whole module. `l3io-util`, `l3io-sec` and `l3io-arch` are
-   single-skill modules and take the standalone shape — `l3io-util-doctor`,
+   single-skill modules and take the standalone shape — `l3io-doctor`,
    `l3io-sec-redteam` and `l3io-arch-review` are each their own module home and self-register.
    One `module.yaml` per module code, always at that module's home.
 
@@ -85,7 +85,7 @@ the check could not fail for any tree the other checks permit.
    in the one direction that matters: a skill root is exactly where
    `project-root.js:searchRootAll` looks for a non-`*-setup` skill. The shape is now:
 
-   - `l3io-pm` (multi-skill): `skills/l3io-pm-setup/assets/module.yaml` — unchanged.
+   - `l3io-pm` (multi-skill): `skills/l3io-setup/assets/module.yaml` — unchanged.
    - the three standalone modules: `assets/module.yaml` **and** a byte-identical copy at the
      skill root. `assets/` is what `validate-module.py` and `PluginResolver` strategy 3 read;
      the skill root is what the installer's discovery reads. Both tools are satisfied.
@@ -102,7 +102,7 @@ the check could not fail for any tree the other checks permit.
    state — a module can be installed and unconfigured — so it is not a first-run trigger. Setup
    runs only on an explicit `setup` / `configure` / `install` request.
 
-3. **`l3io-pm-execute` and `l3io-pm-plan` emit a pointer to `/l3io-pm-setup` at most once per
+3. **`l3io-execute` and `l3io-plan` emit a pointer to `/l3io-setup` at most once per
    project working copy**, via `pm-status.py notice --state-root S --key KEY`, and only when the
    config section is absent. This was specified as *once per session*, and shipped that way
    first; it did not work. `{session_id}` is bound per skill invocation, so no two `notice` calls
@@ -141,13 +141,13 @@ the check could not fail for any tree the other checks permit.
 
    | Invocation | Result |
    |---|---|
-   | `validate-module.py skills/l3io-util-doctor` | `pass`, `standalone: true` |
+   | `validate-module.py skills/l3io-doctor` | `pass`, `standalone: true` |
    | `validate-module.py skills/l3io-sec-redteam` | `pass`, `standalone: true` |
    | `validate-module.py skills/l3io-arch-review` | `pass`, `standalone: true` |
-   | `validate-module.py skills/l3io-pm-setup` | `fail` — 4 × `orphan-entry` |
+   | `validate-module.py skills/l3io-setup` | `fail` — 4 × `orphan-entry` |
    | `validate-module.py skills/` | `fail` — no module detected / cross-module findings |
 
-   Pointed at `l3io-pm-setup` alone, line 61's standalone test matches (the home has both
+   Pointed at `l3io-setup` alone, line 61's standalone test matches (the home has both
    `SKILL.md` and `assets/module.yaml`), so the module is read as single-skill and the four
    sibling skills its `module-help.csv` declares become `orphan-entry` findings — the CSV is
    right and the directory is only part of the module. Pointed at `skills/`,
@@ -160,7 +160,7 @@ the check could not fail for any tree the other checks permit.
    in `.claude/skills/` beside every `bmm`/`core`/`bmb` skill, and `_bmad/<code>/` holds only
    `config.yaml` and `module-help.csv` — no skills at all. Measured on a real
    `npx bmad-method install`: pointed at `.claude/skills/`, the validator detects
-   `l3io-pm-setup`, claims the entire flat tree as `l3io-pm`, and emits a `missing-entry`
+   `l3io-setup`, claims the entire flat tree as `l3io-pm`, and emits a `missing-entry`
    finding for every unrelated skill.
 
    **So the module must be assembled before it can be validated, and `npm run smoke:install`
@@ -181,7 +181,7 @@ the check could not fail for any tree the other checks permit.
 
    | Invocation | 2026-09-22 | 2026-09-23 |
    |---|---|---|
-   | `validate-module.py skills/l3io-util-doctor` | `pass`, 0 findings | `fail` — 4 high |
+   | `validate-module.py skills/l3io-doctor` | `pass`, 0 findings | `fail` — 4 high |
    | `validate-module.py skills/l3io-sec-redteam` | `pass`, 0 findings | `fail` — 4 high, 1 medium |
    | `validate-module.py skills/l3io-arch-review` | `pass`, 0 findings | `fail` — 4 high, 1 medium |
    | the four assembled views `smoke:install` builds | all `pass` | all `fail` — 4 or 5 findings each |
@@ -193,7 +193,7 @@ the check could not fail for any tree the other checks permit.
      URL in `output-location` and nothing else). The validator's step 8 reports it as an
      `orphan-entry` because there is no `_meta/` skill directory, and step 11 reports its three
      deliberately empty columns as `missing-field`. Four high findings per module.
-   - **cross-module `skill:action` relationships** (`l3io-arch-review` → `l3io-pm-execute`, and
+   - **cross-module `skill:action` relationships** (`l3io-arch-review` → `l3io-execute`, and
      so on). The validator's step 10 explicitly skips a colon-*less* ref as cross-module but
      requires every `skill:action` ref to resolve inside the one module it was handed. These
      refs do resolve — in `_bmad/_config/bmad-help.csv`, the assembled index bmad-help actually
@@ -237,7 +237,7 @@ the check could not fail for any tree the other checks permit.
   config format core does not read. `npm run smoke:install` proves this against a real
   `npx bmad-method install`, including that every skill `marketplace.json` declares actually
   lands in `.claude/skills/`.
-- `/l3io-pm-setup` is installed with its siblings — `marketplace.json` installs the `l3io-pm`
+- `/l3io-setup` is installed with its siblings — `marketplace.json` installs the `l3io-pm`
   plugin as one unit — but never has to be *run*. It is also `pm-status.py`'s single payload copy
   for the whole `l3io-pm` module; its four sibling skills self-install from it.
 - `merge-config.py`'s deviation must be re-checked whenever BMad Builder's scaffolder changes.
@@ -277,7 +277,7 @@ without it.
    right.
 
 4. **Moving text unchanged can break it, even when the text is byte-identical.** Splitting
-   `l3io-pm-help` into a router plus `steps/` was verified lossless by concatenate-and-diff: zero
+   `l3io-help` into a router plus `steps/` was verified lossless by concatenate-and-diff: zero
    differing bytes. It was still broken. Two mode files referenced "section 5 of the main flow"
    for a `clear-lock` remedy, and the router forbids those paths from loading step-05. A
    cross-reference is only valid if the referenced file is on the reader's load path, and

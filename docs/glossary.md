@@ -15,7 +15,7 @@ directory listing shows who has finished, not who is in flight.
 
 One of **`defect`** (the default, and assumed when the field is absent), **`spec-change`**, or
 **`spec-proposal`**. The two spec kinds each require a `--ref` — the commit that changed the
-spec, or the proposal file — and are confirmed or rejected in `/l3io-util-doctor triage`.
+spec, or the proposal file — and are confirmed or rejected in `/l3io-doctor triage`.
 
 ### calibration component
 
@@ -129,7 +129,7 @@ research cache.
 
 The current state design: one bare node per file, with children discovered by listing the
 directory rather than by a list wrapper. It replaced a flat `sprint-status.yaml` and a legacy
-per-epic tree, both of which are migrated by `/l3io-util-doctor migrate-state`.
+per-epic tree, both of which are migrated by `/l3io-doctor migrate-state`.
 
 ### spec index
 

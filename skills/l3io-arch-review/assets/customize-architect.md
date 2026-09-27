@@ -28,7 +28,7 @@ instruction block equivalent to the following.
 > boundaries, secrets), and testability / measurable NFRs. Add a concrete technical AC for each
 > applicable dimension; do not expand scope beyond the story's intent. This makes the
 > implementation contract unambiguous before development, rather than leaving it to each dev
-> agent — and it is what `l3io-pm-execute`'s story technical-AC gate checks for.
+> agent — and it is what `l3io-execute`'s story technical-AC gate checks for.
 
 ## Overlay for `bmad-code-review` (and/or l3io-sec-redteam)
 

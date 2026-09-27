@@ -123,7 +123,7 @@ All notable changes to this project will be documented in this file. See [commit
 ### ⚠ BREAKING CHANGES
 
 * **infra:** one module.yaml per module, under assets/
-* **l3io-util:** /l3io-util-cleanup no longer exists. Use /l3io-util-doctor.
+* **l3io-util:** /l3io-util-cleanup no longer exists. Use /l3io-doctor.
 
 Co-Authored-By: Claude Opus 5 (1M context) <noreply@anthropic.com>
 Signed-off-by: Shawn Anderson <sanderson@eye-catcher.com>
@@ -135,19 +135,19 @@ Signed-off-by: Shawn Anderson <sanderson@eye-catcher.com>
 * **infra:** add merge-config.py and merge-help-csv.py ([a1374db](https://github.com/ravensorb/bmad-extensions/commit/a1374db23903175367f2357430e3e39f1e6c7253))
 * **infra:** check 17 fails when a directive prefers a deprecated skill ([d9f8b4f](https://github.com/ravensorb/bmad-extensions/commit/d9f8b4fa962b7b5ebc8d6beb38c28d96ac4aa817))
 * **infra:** check 26 keeps state-path assembly in the resolver section ([e2ac19a](https://github.com/ravensorb/bmad-extensions/commit/e2ac19ae2e566e0ed620bd89da6f0d954d48a8e8))
-* **infra:** check:docs guards /l3io-util-doctor mode keywords ([1ccf301](https://github.com/ravensorb/bmad-extensions/commit/1ccf3014cebf36f4151c7482ba22b8321eb9cab7))
+* **infra:** check:docs guards /l3io-doctor mode keywords ([1ccf301](https://github.com/ravensorb/bmad-extensions/commit/1ccf3014cebf36f4151c7482ba22b8321eb9cab7))
 * **infra:** check:module rule 9 — every documented mode keyword is registered or excluded ([172de5b](https://github.com/ravensorb/bmad-extensions/commit/172de5bb909c4cb17929a6ab4e7dac190b6d664a))
 * **infra:** derive the skill and module counts too ([401e19f](https://github.com/ravensorb/bmad-extensions/commit/401e19fb6d0cae5b327ff1ced0cbb56b0c00d25d))
 * **infra:** guard the installer's silent fallthrough to a synthesized catalog ([feb4d6a](https://github.com/ravensorb/bmad-extensions/commit/feb4d6a6eda129555b96e7f60b63dd49caad3c5c))
 * **infra:** guard the README layout block and pm-status invocations in skills/ ([3e300cc](https://github.com/ravensorb/bmad-extensions/commit/3e300ccab10a535e868acd7be8e2fb40df5e9355))
 * **infra:** pin the BMad conformance baseline and smoke-test the install ([0a7e781](https://github.com/ravensorb/bmad-extensions/commit/0a7e781ce09f12cd2b29d5f05ea678dbf9ac0cea))
 * **l3io-arch:** register l3io-arch-review's three modes as three rows ([5f6024f](https://github.com/ravensorb/bmad-extensions/commit/5f6024f6c7acbbc62a9d3042c1bed611890c47d5))
-* **l3io-pm:** add l3io-pm-setup, the module's setup skill ([bcc3fa9](https://github.com/ravensorb/bmad-extensions/commit/bcc3fa915caf1d03c7aecff132a847997c9b0e92))
+* **l3io-pm:** add l3io-setup, the module's setup skill ([bcc3fa9](https://github.com/ravensorb/bmad-extensions/commit/bcc3fa915caf1d03c7aecff132a847997c9b0e92))
 * **l3io-pm:** ensure_node_path -- the one function that creates a node dir ([9c64141](https://github.com/ravensorb/bmad-extensions/commit/9c64141e9f78e0991f8c5f2a63543dd1857b6a79))
 * **l3io-pm:** import-node creates a state node from a migration record ([42b3624](https://github.com/ravensorb/bmad-extensions/commit/42b362484360bf979980f87b8ce6e42fe19cd31d))
 * **l3io-pm:** mention the setup skill at most once per session ([6b94917](https://github.com/ravensorb/bmad-extensions/commit/6b94917def607602f01ff90815a1a705e9addf0c))
-* **l3io-pm:** register l3io-pm-help's progress and list plan modes ([56eb67a](https://github.com/ravensorb/bmad-extensions/commit/56eb67a73290d07589ca5d6b6f83e3279004399f))
-* **l3io-pm:** warn at activation when l3io-util-doctor is missing ([bd92637](https://github.com/ravensorb/bmad-extensions/commit/bd92637f8ecd999d1ac23333b82a1f5e9253d912))
+* **l3io-pm:** register l3io-help's progress and list plan modes ([56eb67a](https://github.com/ravensorb/bmad-extensions/commit/56eb67a73290d07589ca5d6b6f83e3279004399f))
+* **l3io-pm:** warn at activation when l3io-doctor is missing ([bd92637](https://github.com/ravensorb/bmad-extensions/commit/bd92637f8ecd999d1ac23333b82a1f5e9253d912))
 * **l3io-sec:** check:module rule 10 — the agent roster and its skill's [agent] block agree ([0280512](https://github.com/ravensorb/bmad-extensions/commit/0280512870cbf06569713ea4cb7a06d8c4381b81))
 * **l3io-util,l3io-pm:** pm-help checks pm-status.py freshness via new doctor mode ([d6402db](https://github.com/ravensorb/bmad-extensions/commit/d6402dbc58f2b84ff72fe1dbfb7f9c049ba1d172))
 * **l3io-util:** add a deprecated dependency status distinct from removed ([6e63166](https://github.com/ravensorb/bmad-extensions/commit/6e63166117208820a72df00bd5000c6ad1d0083a))
@@ -205,14 +205,14 @@ Signed-off-by: Shawn Anderson <sanderson@eye-catcher.com>
 * **l3io-pm:** correct Estimate's output location, Plan's required flag and the APM code ([4cb6b5a](https://github.com/ravensorb/bmad-extensions/commit/4cb6b5a4e872f8bcaae7f4de4a7fde62550b2782))
 * **l3io-pm:** gate the setup pointer on absence and give notice failures a distinct exit code ([ddae4c8](https://github.com/ravensorb/bmad-extensions/commit/ddae4c8d64764ea79a91328d2709a7dc971e43bb))
 * **l3io-pm:** inline unreachable section-5 content in pm-help modes, fix Repo Layout drift ([4a32318](https://github.com/ravensorb/bmad-extensions/commit/4a32318c3a1d6bb9c20c02cb19b517dfb78974fa))
-* **l3io-pm:** l3io-pm-execute is single-action, so its ref carries no action ([609fb54](https://github.com/ravensorb/bmad-extensions/commit/609fb549897209253023ff80b7c56041708e8bbe))
-* **l3io-pm:** quote l3io-pm-sync's frontmatter, guard the class in check:docs ([15e13d2](https://github.com/ravensorb/bmad-extensions/commit/15e13d267041519f71b18c6d1413e7fa7c0c89d0))
+* **l3io-pm:** l3io-execute is single-action, so its ref carries no action ([609fb54](https://github.com/ravensorb/bmad-extensions/commit/609fb549897209253023ff80b7c56041708e8bbe))
+* **l3io-pm:** quote l3io-sync's frontmatter, guard the class in check:docs ([15e13d2](https://github.com/ravensorb/bmad-extensions/commit/15e13d267041519f71b18c6d1413e7fa7c0c89d0))
 * **l3io-pm:** re-scope the setup pointer to once-per-project, not once-per-session ([eb4e549](https://github.com/ravensorb/bmad-extensions/commit/eb4e549507dbca86bbd7a1face74fd32e2e33610))
 * **l3io-sec:** resolve First Breath's config the documented way, not from a file that does not exist ([d7c6146](https://github.com/ravensorb/bmad-extensions/commit/d7c6146e2233381dd44adbb7f63d3055f8dc9f0c))
 * **l3io-util:** bootstrap-state writes an all-done sprint as done, stated once ([8735d87](https://github.com/ravensorb/bmad-extensions/commit/8735d87232941d2af694cb6def519188e3e2d110))
 * **l3io-util:** fold the layout-collision check into 2b, not a sibling ([3a8d245](https://github.com/ravensorb/bmad-extensions/commit/3a8d245e73d15a48f2d38abcafe72d386eb37d52))
 * **l3io-util:** renumber the last stale check-17 references in bmad-dependencies.json ([b8d6816](https://github.com/ravensorb/bmad-extensions/commit/b8d6816ab23fb8542060937564fcb49fdebece15))
-* **l3io-util:** ship status-files.md to l3io-util-doctor, which pointed at it in six places ([63754f0](https://github.com/ravensorb/bmad-extensions/commit/63754f0004f49be327f24e20808aef018cd715b8))
+* **l3io-util:** ship status-files.md to l3io-doctor, which pointed at it in six places ([63754f0](https://github.com/ravensorb/bmad-extensions/commit/63754f0004f49be327f24e20808aef018cd715b8))
 * **l3io-util:** sort-status pointed at a mode file that no longer exists ([4068d08](https://github.com/ravensorb/bmad-extensions/commit/4068d089476bec7be9aaf476a354cf5067aa584f))
 * **l3io-util:** stats BLOCKs on a repointed implementation_artifacts orphan ([2ddce47](https://github.com/ravensorb/bmad-extensions/commit/2ddce47ca9295449c8292d1d1ea510fcedffec4b))
 * **l3io-util:** stats BLOCKs on multiple state layouts, matching Check 2b ([2d0d6b4](https://github.com/ravensorb/bmad-extensions/commit/2d0d6b4e3badf34ab41ffa01000b86220f3b6036))
@@ -233,7 +233,7 @@ Signed-off-by: Shawn Anderson <sanderson@eye-catcher.com>
 * **infra:** sync setup payload to module homes only ([cd0baff](https://github.com/ravensorb/bmad-extensions/commit/cd0baffe57c4bdae1bf12572a06b40336809ad9d))
 * **l3io-pm:** pm-help progress forwards to doctor stats ([fe3a6d3](https://github.com/ravensorb/bmad-extensions/commit/fe3a6d384a0f74e3844eed2793c2957ebe72dabd))
 * **l3io-pm:** ship one pm-status.py payload per module ([1c15daf](https://github.com/ravensorb/bmad-extensions/commit/1c15dafcdb56b30083555133425c0821a24870ee))
-* **l3io-pm:** split l3io-pm-help into a router and steps/ ([9c95082](https://github.com/ravensorb/bmad-extensions/commit/9c950823ba808fb395711bb580dee455e778e56d))
+* **l3io-pm:** split l3io-help into a router and steps/ ([9c95082](https://github.com/ravensorb/bmad-extensions/commit/9c950823ba808fb395711bb580dee455e778e56d))
 * **l3io-util:** bootstrap-state is prose around the engine ([b8cfa8e](https://github.com/ravensorb/bmad-extensions/commit/b8cfa8e95f9578558fcca825211872f6c8b42541))
 * **l3io-util:** demote the overlay doctor mode to a specification ([3b4218f](https://github.com/ravensorb/bmad-extensions/commit/3b4218fb20329db6f41e9389a01d5a588eb567cd))
 * **l3io-util:** fold rename-active and rename-epic-dirs into health-check ([8c83eae](https://github.com/ravensorb/bmad-extensions/commit/8c83eae1cbcadb797305b9bba1624a75b2e09a81))
@@ -250,9 +250,9 @@ Signed-off-by: Shawn Anderson <sanderson@eye-catcher.com>
 * **infra:** the gates are not dependency-free, and say where the install goes ([def95ff](https://github.com/ravensorb/bmad-extensions/commit/def95ff890e8b8eaf5b7579e38cf83237bf886e8))
 * **l3io-pm,infra:** declare l3io-util as a required intra-package module dependency ([39fac0a](https://github.com/ravensorb/bmad-extensions/commit/39fac0abdcba8701d3423fca73248d342f884c5d))
 * **l3io-pm:** cross-link the inlined stale-lock/pm-status duplicates ([ba05127](https://github.com/ravensorb/bmad-extensions/commit/ba0512702d9310e1f13480406e96d7cac3b148ae))
-* **l3io-util:** add l3io-util-doctor capability gap analysis ([55bfd51](https://github.com/ravensorb/bmad-extensions/commit/55bfd5133c609eea7d1ae1fb8d8050b0d866b4b1))
+* **l3io-util:** add l3io-doctor capability gap analysis ([55bfd51](https://github.com/ravensorb/bmad-extensions/commit/55bfd5133c609eea7d1ae1fb8d8050b0d866b4b1))
 * **l3io-util:** bootstrap-state is a second hand-rolled node writer ([e8cef05](https://github.com/ravensorb/bmad-extensions/commit/e8cef056c6610701ad0070853c1ec9a95b259c1c))
-* **l3io-util:** design for the l3io-util-doctor redesign ([f31b7cd](https://github.com/ravensorb/bmad-extensions/commit/f31b7cd21346d006787a751429fea3f16c037cbe))
+* **l3io-util:** design for the l3io-doctor redesign ([f31b7cd](https://github.com/ravensorb/bmad-extensions/commit/f31b7cd21346d006787a751429fea3f16c037cbe))
 * **l3io-util:** implementation plan for the doctor redesign ([987ad9d](https://github.com/ravensorb/bmad-extensions/commit/987ad9d59215d879f38182f29d83b6b5947812e8))
 * **l3io-util:** plan the doctor cleanup ahead of help registration ([29e1ad5](https://github.com/ravensorb/bmad-extensions/commit/29e1ad55e1a47e33dcbcdc52bb77becaaeea1188))
 * **l3io-util:** re-derive Task 5's register set after Phase 0 ([cad7c2f](https://github.com/ravensorb/bmad-extensions/commit/cad7c2fc0bc477d7ee1629eff81546fdfc47f1ed))
@@ -261,7 +261,7 @@ Signed-off-by: Shawn Anderson <sanderson@eye-catcher.com>
 * **l3io:** add Task 17 — replace hand-rolled parsers with libraries ([c0601ea](https://github.com/ravensorb/bmad-extensions/commit/c0601ea9fab62ff7ebd4dd19bde6ac8523bad688))
 * **l3io:** add Task 8A — guard the Shared Files table ([c180706](https://github.com/ravensorb/bmad-extensions/commit/c180706d8c1a97f8a10014d47bbbaf62a61ca97f))
 * **l3io:** correct an unreachable Phase 1 exit criterion ([4feb342](https://github.com/ravensorb/bmad-extensions/commit/4feb342e92c2ec33bc397a80e337e265033ccf93))
-* **l3io:** correct module-setup and skill-count claims after l3io-pm-setup ([c35e8bd](https://github.com/ravensorb/bmad-extensions/commit/c35e8bdeaad0506b2f003f2a7f0859f184b9ab74))
+* **l3io:** correct module-setup and skill-count claims after l3io-setup ([c35e8bd](https://github.com/ravensorb/bmad-extensions/commit/c35e8bdeaad0506b2f003f2a7f0859f184b9ab74))
 * **l3io:** correct Task 0's scope and fix two bugs found by running its own code ([fdd7638](https://github.com/ravensorb/bmad-extensions/commit/fdd7638ca616249af26ea96e8e40190f6b542d72))
 * **l3io:** correct the spec's root cause and install behaviour ([1671bf5](https://github.com/ravensorb/bmad-extensions/commit/1671bf591eb352f31ad277cbd8272295dd12eab1))
 * **l3io:** design l3io as a customization layer over BMad ([abe146b](https://github.com/ravensorb/bmad-extensions/commit/abe146b4daee34e5cc4226cd9b8f98234f718646))
@@ -511,7 +511,7 @@ Signed-off-by: Shawn Anderson <sanderson@eye-catcher.com>
 
 * **l3io-pm:** add --runtime codex enforcement with 3-class token capture ([b8de482](https://github.com/ravensorb/bmad-extensions/commit/b8de48233a876585920d2045ab7d4f3efe8a24dc))
 * **l3io-pm:** add --runtime copilot enforcement with scalar token capture ([688188a](https://github.com/ravensorb/bmad-extensions/commit/688188abda5292c51495d5cab67816d382ac730e))
-* **l3io-pm:** add list-plan mode to l3io-pm-help ([8568af6](https://github.com/ravensorb/bmad-extensions/commit/8568af65fcd5fbb0e0772661b519bf2bcfff6beb))
+* **l3io-pm:** add list-plan mode to l3io-help ([8568af6](https://github.com/ravensorb/bmad-extensions/commit/8568af65fcd5fbb0e0772661b519bf2bcfff6beb))
 * **l3io-pm:** extend runtime choices to codex and copilot, add OpenAI token rates ([6b30d50](https://github.com/ravensorb/bmad-extensions/commit/6b30d50faffb4f916b1347c4f61c39102ce6a806))
 * **l3io-pm:** extend runtime detection to codex and copilot in step-00-activate ([e5d0f5f](https://github.com/ravensorb/bmad-extensions/commit/e5d0f5f7700d17cb1f896e48513d3819db4af598))
 * **l3io-pm:** multi-runtime estimation support (codex, copilot) ([4efcf4e](https://github.com/ravensorb/bmad-extensions/commit/4efcf4e1ade44a36ed9d8f71b1102680a225a992))
@@ -906,7 +906,7 @@ Signed-off-by: Shawn Anderson <sanderson@eye-catcher.com>
 ### Refactoring
 
 * **l3io-pm:** remove the unused progress ledger ([7931dc3](https://github.com/ravensorb/bmad-extensions/commit/7931dc36df0ad91ec0b8956522aa0ab7d81a3cc3))
-* **l3io-util:** rename l3io-util-cleanup to l3io-util-doctor ([0085f7a](https://github.com/ravensorb/bmad-extensions/commit/0085f7aed01f01eafa81bc3b8af7e3d40aa4067b))
+* **l3io-util:** rename l3io-util-cleanup to l3io-doctor ([0085f7a](https://github.com/ravensorb/bmad-extensions/commit/0085f7aed01f01eafa81bc3b8af7e3d40aa4067b))
 
 
 ### Documentation
@@ -979,9 +979,9 @@ Signed-off-by: Shawn Anderson <sanderson@eye-catcher.com>
 * **l3io-pm:** call pm-status.py with keys, and fix the upgrade deadlock ([f511f1d](https://github.com/ravensorb/bmad-extensions/commit/f511f1d749c3bb29483dc931bcbcc5422485a8df))
 * **l3io-pm:** close upgrade-path gaps in migration, help, and state helper ([6f01f2c](https://github.com/ravensorb/bmad-extensions/commit/6f01f2c39cdaa92bcec54954a2f3afea86453764))
 * **l3io-pm:** gate module setup on state being version-controlled ([1cfaa73](https://github.com/ravensorb/bmad-extensions/commit/1cfaa738b78c30706e3268fe3173078c6ec5ebe8))
-* **l3io-pm:** read the sharded layout in l3io-pm-help ([e428d58](https://github.com/ravensorb/bmad-extensions/commit/e428d583c08140b8d091f00826085f7fcd0a02c0))
-* **l3io-pm:** remove dead deferred epic-status bucket from l3io-pm-plan ([1c28bba](https://github.com/ravensorb/bmad-extensions/commit/1c28bba4fcfa9a00c3e7f7f4fd9ca62f98b3791e))
-* **l3io-pm:** repair l3io-pm-sync against its real script CLIs ([890c748](https://github.com/ravensorb/bmad-extensions/commit/890c7482423fc50950342c266cc619995c303215))
+* **l3io-pm:** read the sharded layout in l3io-help ([e428d58](https://github.com/ravensorb/bmad-extensions/commit/e428d583c08140b8d091f00826085f7fcd0a02c0))
+* **l3io-pm:** remove dead deferred epic-status bucket from l3io-plan ([1c28bba](https://github.com/ravensorb/bmad-extensions/commit/1c28bba4fcfa9a00c3e7f7f4fd9ca62f98b3791e))
+* **l3io-pm:** repair l3io-sync against its real script CLIs ([890c748](https://github.com/ravensorb/bmad-extensions/commit/890c7482423fc50950342c266cc619995c303215))
 * **l3io-util:** extend clean-legacy to cover migrate-state's actual backups ([0add27d](https://github.com/ravensorb/bmad-extensions/commit/0add27dcb768bdbeaa7416f9b45e6c7f6efdce5a))
 * **l3io-util:** migrate to the sharded layout, verify before destroying ([0718ab6](https://github.com/ravensorb/bmad-extensions/commit/0718ab6783f948b3e44d939a0066973b0d4bdb3c))
 
@@ -1003,10 +1003,10 @@ Signed-off-by: Shawn Anderson <sanderson@eye-catcher.com>
 * **infra:** add shared step files for all PM skill categories ([d3af128](https://github.com/ravensorb/bmad-extensions/commit/d3af128a46bb6c6a3918c0711d6846d225b6593d))
 * **infra:** add updated status-files.md for _bmad/state/ layout ([61301f5](https://github.com/ravensorb/bmad-extensions/commit/61301f571d27a5ee312ce9969d0fcc9157dda381))
 * **infra:** rewrite sync-shared-scripts.mjs for skills/ flat layout and new script manifest ([64b9a78](https://github.com/ravensorb/bmad-extensions/commit/64b9a782c8f88649556e2b1a89717765cef3a1d3))
-* **l3io-pm:** add l3io-pm-execute skill (merged sprint+epic execution) ([7576731](https://github.com/ravensorb/bmad-extensions/commit/7576731a625990851ada84a18fd6715a72a56eb3))
-* **l3io-pm:** add l3io-pm-help skill (state snapshot + next-action recommendation) ([db75104](https://github.com/ravensorb/bmad-extensions/commit/db75104279749c6528136ade6d3c4b5d621bdb18))
-* **l3io-pm:** add l3io-pm-plan skill (renamed from plan-execution, steps architecture) ([1dd2383](https://github.com/ravensorb/bmad-extensions/commit/1dd238322f143f8238c5be92a6e3c8454a55efa3))
-* **l3io-pm:** add l3io-pm-sync skill (GitHub Issues bidirectional sync) ([15c42f9](https://github.com/ravensorb/bmad-extensions/commit/15c42f9b884ef88f4f8403162538f8972a44b351))
+* **l3io-pm:** add l3io-execute skill (merged sprint+epic execution) ([7576731](https://github.com/ravensorb/bmad-extensions/commit/7576731a625990851ada84a18fd6715a72a56eb3))
+* **l3io-pm:** add l3io-help skill (state snapshot + next-action recommendation) ([db75104](https://github.com/ravensorb/bmad-extensions/commit/db75104279749c6528136ade6d3c4b5d621bdb18))
+* **l3io-pm:** add l3io-plan skill (renamed from plan-execution, steps architecture) ([1dd2383](https://github.com/ravensorb/bmad-extensions/commit/1dd238322f143f8238c5be92a6e3c8454a55efa3))
+* **l3io-pm:** add l3io-sync skill (GitHub Issues bidirectional sync) ([15c42f9](https://github.com/ravensorb/bmad-extensions/commit/15c42f9b884ef88f4f8403162538f8972a44b351))
 * **l3io-sec:** rename l3io-sec-agent-redteam → l3io-sec-redteam (flat layout) ([5ac4870](https://github.com/ravensorb/bmad-extensions/commit/5ac487019308bf73240e1a0534def6576dad765a))
 * **l3io-util:** add migrate-state mode and 9-check health check to util-cleanup ([8653080](https://github.com/ravensorb/bmad-extensions/commit/865308096f627ec844aa5efd7c30f7536ab76605))
 
@@ -1015,7 +1015,7 @@ Signed-off-by: Shawn Anderson <sanderson@eye-catcher.com>
 
 * **infra:** patch brace-expansion DoS vulnerability in lockfile ([de2eaf5](https://github.com/ravensorb/bmad-extensions/commit/de2eaf50ba210ac8594c978b0e0518d631b80ef4))
 * **infra:** rename {ava_key} → {story_key} in sync step-04-resolve.md ([eb53540](https://github.com/ravensorb/bmad-extensions/commit/eb53540e0fa9c98ca5073214222675d25e59f299))
-* **infra:** update stale sprint-execute/epic-execute refs in CLAUDE.md to l3io-pm-execute ([c3bf2f3](https://github.com/ravensorb/bmad-extensions/commit/c3bf2f34359c6c134257bf68be8df7d45e0fa1d2))
+* **infra:** update stale sprint-execute/epic-execute refs in CLAUDE.md to l3io-execute ([c3bf2f3](https://github.com/ravensorb/bmad-extensions/commit/c3bf2f34359c6c134257bf68be8df7d45e0fa1d2))
 * **infra:** use key: schema in primary SAMPLE fixture for pm-status tests ([72ae464](https://github.com/ravensorb/bmad-extensions/commit/72ae464de0d8c7010eb72e78be4a21b88a52773b))
 * **l3io-pm:** remove ADO reference from sync module-help.csv description ([1373d82](https://github.com/ravensorb/bmad-extensions/commit/1373d82c0b99e5852fcb93a89cdb3906494bc000))
 * **l3io-sec:** correct SKILL_NAME in init-sanctum.py (remove bmad- prefix) ([1aed23d](https://github.com/ravensorb/bmad-extensions/commit/1aed23db23fac8128e36e209f0a3e469e02e5958))

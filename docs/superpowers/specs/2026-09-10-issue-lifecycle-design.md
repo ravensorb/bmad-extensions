@@ -75,11 +75,11 @@ Settled during design review, 2026-09-10:
 |---|---|
 | Scope | Lifecycle **and** intake (backlog → planned work). GitHub BL sync deferred. |
 | Where a promoted story lands | The user names a target epic + sprint. Archived epics and any sprint not in `backlog` are refused. No special debt epic. |
-| Which surface | `pm-plan` promotes; `l3io-util-doctor triage` closes without work and re-severities. |
+| Which surface | `pm-plan` promotes; `l3io-doctor triage` closes without work and re-severities. |
 | Open items of an archived epic | Stay open, keep their key, tagged `origin_archived` in every reader. `archive-epic` does not touch the backlog. |
 | Storage model | Open items in `issues.yaml`; resolved items in `issues-resolved.yaml`; per-epic `next:` high-water. ADR-0002. |
 | Audit depth | Mechanical checks, then a batched review agent for the rest; every verdict is a proposal the user confirms. |
-| Where the audit lives | Integrity checks in `pm-status.py` (`audit-issues`); heuristic checks in `l3io-util-doctor/scripts/audit-backlog.py`. ADR-0001. |
+| Where the audit lives | Integrity checks in `pm-status.py` (`audit-issues`); heuristic checks in `l3io-doctor/scripts/audit-backlog.py`. ADR-0001. |
 | `repair-issue` | Kept: narrow structural repairs, each gated on its audit finding. |
 | Review additions | Node LTS in CI; `pm-sync` `stateReason`; `reopen` repair; one owner for the story-document skeleton. |
 
@@ -429,7 +429,7 @@ finding exists, else 0.
 | 1i | Key duplicated within one file, or non-canonical | report only — only a hand edit or pre-existing reuse creates it |
 | 1j | Resolved `fixed` item whose `ref` story exists and is not `done` | `reopen` |
 
-### 3.2 `l3io-util-doctor/scripts/audit-backlog.py` — new, heuristic
+### 3.2 `l3io-doctor/scripts/audit-backlog.py` — new, heuristic
 
 A PEP-723 `uv run --script` like doctor's other scripts. Read-only. Gets items only through
 `pm-status.py list-issues --all --format json`, so issue-file layout knowledge stays in one
@@ -474,7 +474,7 @@ An unrecognized `source` format never raises; it falls through to step 3.
 
 ### 3.3 Doctor `triage` mode
 
-New `skills/l3io-util-doctor/steps/triage.md`, a keyword-table row in `SKILL.md`, and a help
+New `skills/l3io-doctor/steps/triage.md`, a keyword-table row in `SKILL.md`, and a help
 line under "Ongoing maintenance". Mode files, never inline.
 
 - **T1 — Load config.** As other modes, plus bind `{model_review}` from
@@ -560,11 +560,11 @@ Every producer passes `--source` and `--description "See <path>"`, in a fenced b
 | `sprint/step-03-dev-loop.md` Low path | Add `--description "See {sprint_root}/closure/review-{story_key}.md"` |
 | `execute/step-04-arch-gate.md` | Add a pointer to the arch review output |
 | `_shared/status-files.md:339` | Example gains `--description` |
-| `l3io-util-doctor/assets/migrate-state.md:472` | Add `--description` pointing to the migrated legacy story |
+| `l3io-doctor/assets/migrate-state.md:472` | Add `--description` pointing to the migrated legacy story |
 
 ### 4.3 Readers
 
-- **`l3io-pm-help`** "Open issues": `list-issues --format json` instead of `cat`; counts by
+- **`l3io-help`** "Open issues": `list-issues --format json` instead of `cat`; counts by
   severity split into untriaged / scheduled, plus origin-archived.
 - **Doctor `stats`**: the same split, plus resolved counts by resolution (`list-issues --all`).
 - **Doctor `backlog`**: `list-issues --format json`; status and origin-archived columns; closes
@@ -607,7 +607,7 @@ point it at a fixture tree.
   `npm run sync:scripts`; regenerate manifests with `node scripts/write-payload-manifest.mjs`.
 - `audit-backlog.py` and its tests are doctor's own files: outside the sync scope and outside
   every payload manifest (manifests cover shared payload only). Tests live in
-  `skills/l3io-util-doctor/scripts/tests/`, as `l3io-pm-sync` and `l3io-sec-redteam` already do.
+  `skills/l3io-doctor/scripts/tests/`, as `l3io-sync` and `l3io-sec-redteam` already do.
 
 ### 4.7 `pm-sync` pull — mark done only on completion
 
@@ -698,7 +698,7 @@ audit detects it. Concurrency tests use real subprocesses.
 - **Events:** each verb writes its event with `ts`, `session`, `cause`; a failing event write
   never fails the verb.
 
-### 6.2 `audit-backlog.py` — `skills/l3io-util-doctor/scripts/tests/test-audit-backlog.py`
+### 6.2 `audit-backlog.py` — `skills/l3io-doctor/scripts/tests/test-audit-backlog.py`
 
 `unittest`, fixtures built through `pm-status.py` verbs against a temp project tree:
 

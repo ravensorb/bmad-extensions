@@ -30,9 +30,9 @@
 | `skills/_shared/steps/shared/step-00-digest.md` | Modify | `{agent_contract}` block — add turn-cap rule |
 | `skills/_shared/steps/execute/step-05-epic-loop.md` | Modify | §5a model_prep, §5b story model resolution + all model_* in context, §5c model_closure |
 | `skills/_shared/steps/sprint/step-03-dev-loop.md` | Modify | §3 model_review hint; §4 two-tier test strategy |
-| `skills/l3io-pm-execute/customize.toml` | Modify | Add `max_turns_per_story = 120` |
-| `skills/l3io-pm-plan/customize.toml` | Modify | Add `max_turns_per_story = 120` |
-| `skills/l3io-pm-sync/customize.toml` | Modify | Add `max_turns_per_story = 120` |
+| `skills/l3io-execute/customize.toml` | Modify | Add `max_turns_per_story = 120` |
+| `skills/l3io-plan/customize.toml` | Modify | Add `max_turns_per_story = 120` |
+| `skills/l3io-sync/customize.toml` | Modify | Add `max_turns_per_story = 120` |
 
 Auto-updated by `npm run sync:scripts` (do NOT edit these directly):
 - All per-skill `steps/shared/`, `steps/execute/`, `steps/sprint/`, `references/` copies
@@ -90,9 +90,9 @@ No automated test for markdown prose. The CI `check:docs` check (9) validates au
 ## Task 2: Add max_turns_per_story to customize.toml (three skills)
 
 **Files:**
-- Modify: `skills/l3io-pm-execute/customize.toml`
-- Modify: `skills/l3io-pm-plan/customize.toml`
-- Modify: `skills/l3io-pm-sync/customize.toml`
+- Modify: `skills/l3io-execute/customize.toml`
+- Modify: `skills/l3io-plan/customize.toml`
+- Modify: `skills/l3io-sync/customize.toml`
 
 **Interfaces:**
 - Produces: `{max_turns_per_story}` binding available to step-00-digest.md agent_contract (Task 4)
@@ -101,7 +101,7 @@ Only these three skills ship `step-00-digest.md` as payload (confirmed: `find sk
 
 - [ ] **In each of the three files**, find the `# Fix loops` block (which contains `max_fix_iterations`). Add `max_turns_per_story` in the same block — it is a per-story cap on the same principle.
 
-  In `skills/l3io-pm-execute/customize.toml`, find:
+  In `skills/l3io-execute/customize.toml`, find:
   ```toml
   # Fix loops
   max_fix_iterations          = 3    # CODE and MIXED work — each iteration is a turn multiplier
@@ -115,15 +115,15 @@ Only these three skills ship `step-00-digest.md` as payload (confirmed: `find sk
   max_turns_per_story         = 120  # soft cap per story agent; self-monitored, not mechanically enforced
   ```
 
-- [ ] **Apply the same edit** to `skills/l3io-pm-plan/customize.toml` — find its `max_fix_iterations` block and add the same `max_turns_per_story = 120` line.
+- [ ] **Apply the same edit** to `skills/l3io-plan/customize.toml` — find its `max_fix_iterations` block and add the same `max_turns_per_story = 120` line.
 
-- [ ] **Apply the same edit** to `skills/l3io-pm-sync/customize.toml` — same pattern.
+- [ ] **Apply the same edit** to `skills/l3io-sync/customize.toml` — same pattern.
 
 - [ ] **Commit:**
   ```bash
-  git add skills/l3io-pm-execute/customize.toml \
-          skills/l3io-pm-plan/customize.toml \
-          skills/l3io-pm-sync/customize.toml
+  git add skills/l3io-execute/customize.toml \
+          skills/l3io-plan/customize.toml \
+          skills/l3io-sync/customize.toml
   git commit -s -m "feat(l3io-pm): add max_turns_per_story soft cap to customize.toml"
   ```
 

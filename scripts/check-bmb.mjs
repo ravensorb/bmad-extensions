@@ -4,7 +4,7 @@
  *
  * bmb (the `bmad-builder` npm package, a devDependency per ADR-0007) ships the scanners
  * its bmad-workflow-builder skill uses. They found three real defects here that nothing
- * else did, including `uv run ./scripts/merge-config.py` in l3io-pm-setup, which only
+ * else did, including `uv run ./scripts/merge-config.py` in l3io-setup, which only
  * worked when the working directory happened to be the skill root. Nothing stopped that
  * coming back, so this runs them on every push.
  *

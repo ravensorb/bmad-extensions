@@ -6,12 +6,12 @@ Project state diagnostics, progress reporting, and housekeeping utilities for BM
 
 `l3io-util` provides project state diagnostics, the plan-aware progress dashboard, one-time
 migrations, and repeatable maintenance for BMad PM artifacts and state files. It is
-standalone — no orchestrator relationship. Run the single skill `/l3io-util-doctor` with no
+standalone — no orchestrator relationship. Run the single skill `/l3io-doctor` with no
 argument for a **project health check** that scans for all known issues and proposes the
 right actions in priority order behind one confirmation, or pass a keyword to jump straight
 to a mode.
 
-Skill: `/l3io-util-doctor [command]`.
+Skill: `/l3io-doctor [command]`.
 
 > **Renamed in 2.1.0.** This skill was `l3io-util-cleanup` through 2.0.x. "Cleanup"
 > described about three of its modes, while the default behavior is a
@@ -41,9 +41,9 @@ Key settings (with defaults):
 |---------|--------------|
 | *(no argument)* | Project health check — runs all checks and, after one confirmation, executes the flagged actions in priority order. |
 | `check` / `status` | Same scan as the health check, but reports the findings table and exits without changing anything. |
-| `stats` (aliases `backlog`, `issues`) | Plan-aware progress dashboard — renders the phase → epic → sprint → story hierarchy with per-status dwell times and stuck-item flags, a live-view hint, and (per affected epic) the stale-lock `clear-lock` remedy, then appends backlog size by severity, last closed sprint/epic, and calibration file state. Delegates the state walk to `pm-status.py report` rather than duplicating it; falls back to counts only when `pm-status.py` is not installed yet. Archived epics count toward phase denominators but are listed only with `--all`. `/l3io-pm-help progress` forwards here rather than rendering its own copy of the tree. See [l3io-pm reference § Progress Reporting](l3io-pm-reference.md#progress-reporting). Step ST4 then lists the consolidated `backlog:` list per item, grouped by severity — items carry a `kind` — `defect` (the default, and assumed when the field is absent) plus `spec-change` and `spec-proposal`, which spec sync files and `triage`'s spec pass resolves. The `backlog` and `issues` aliases land here and always print that table; it was a separate mode until it was folded in, since it made the same single `list-issues --all` call `stats` already makes. |
+| `stats` (aliases `backlog`, `issues`) | Plan-aware progress dashboard — renders the phase → epic → sprint → story hierarchy with per-status dwell times and stuck-item flags, a live-view hint, and (per affected epic) the stale-lock `clear-lock` remedy, then appends backlog size by severity, last closed sprint/epic, and calibration file state. Delegates the state walk to `pm-status.py report` rather than duplicating it; falls back to counts only when `pm-status.py` is not installed yet. Archived epics count toward phase denominators but are listed only with `--all`. `/l3io-help progress` forwards here rather than rendering its own copy of the tree. See [l3io-pm reference § Progress Reporting](l3io-pm-reference.md#progress-reporting). Step ST4 then lists the consolidated `backlog:` list per item, grouped by severity — items carry a `kind` — `defect` (the default, and assumed when the field is absent) plus `spec-change` and `spec-proposal`, which spec sync files and `triage`'s spec pass resolves. The `backlog` and `issues` aliases land here and always print that table; it was a separate mode until it was folded in, since it made the same single `list-issues --all` call `stats` already makes. |
 | `check-deps` | Verifies every BMad skill this package dispatches resolves in this project, reports deprecated shims still in use, and names optional dependencies whose phases will self-skip. Read-only. |
-| `check-pm-status` | Reports whether the installed helper script at `{project-root}/_bmad/scripts/` is current, stale, or absent, by comparing its `--version` output against this doctor's `module_version`. Used by `l3io-pm-help` at activation to warn about a stale copy; also runnable directly. Read-only. |
+| `check-pm-status` | Reports whether the installed helper script at `{project-root}/_bmad/scripts/` is current, stale, or absent, by comparing its `--version` output against this doctor's `module_version`. Used by `l3io-help` at activation to warn about a stale copy; also runnable directly. Read-only. |
 
 ### One-time migrations (run in this order)
 
@@ -52,7 +52,7 @@ Key settings (with defaults):
 | `migrate-schema` | Upgrades an existing `sprint-status.yaml` to the current field schema — adds missing fields with zero/empty defaults, never overwrites existing values. |
 | `split-status` | Splits a single `sprint-status.yaml` into the three-file layout (`sprint-status.yaml` active / `sprint-status-backlog.yaml` / `sprint-status-archived.yaml`). One-way; original preserved as `sprint-status.yaml.legacy`. |
 | `migrate-state` | Makes a legacy project usable by the PM skills again — migrates a legacy state layout (flat `sprint-status.yaml`, or legacy per-epic `_bmad/state/`) to the sharded state tree. The source is renamed to `.legacy`, never deleted. A migration that would move nothing is refused rather than run. Preserves richer source fields when the reader can see them: `goal` and `superseded_by` land through `pm-status.py set-field` after the node is created; `depends_on`, `estimate`, and `actual` do not yet have typed writers, so the engine prints a `WARN` to stderr naming the record, the field, and the value being skipped (visible loss rather than silent). See the follow-up plan for the deferred typed writers. |
-| `bootstrap-state` | Creates state nodes from story `.md` artifacts — for projects whose stories were created via the legacy `bmad-create-story` without going through `l3io-pm-plan`. Bootstrapped sprints and epics are marked `origin: inferred`. Never overwrites existing state nodes; safe to repeat. **Additive on partial sharded state**: when the project already has state nodes for some stories and orphan `.md` files for others, the reader skips the tracked stories and lists only the genuinely new work in the plan; existing state is byte-preserved and `verify_against_plan` passes because the plan's scope matches what was written. |
+| `bootstrap-state` | Creates state nodes from story `.md` artifacts — for projects whose stories were created via the legacy `bmad-create-story` without going through `l3io-plan`. Bootstrapped sprints and epics are marked `origin: inferred`. Never overwrites existing state nodes; safe to repeat. **Additive on partial sharded state**: when the project already has state nodes for some stories and orphan `.md` files for others, the reader skips the tracked stories and lists only the genuinely new work in the plan; existing state is byte-preserved and `verify_against_plan` passes because the plan's scope matches what was written. |
 | `migrate-adrs` | Moves ADRs from the old per-epic home (`{implementation_artifacts}/epic-*/arch/`) to `{project-root}/docs/adr/`, the one ADR home (ADR-0005). Plans first, confirms, then commits once. Three outcomes per ADR: a **plain move** when `docs/adr/` has no such number; a **collision** (same number, *different* slug — two real decisions competing) which keeps the `docs/adr/` number and renumbers the epic copy, rewriting mentions only inside that epic's artifacts; and a **duplicate** (same number **and** slug — the epic copy is a leftover of an ADR already migrated), which is **never moved and never renumbered**, only reported for you to diff and delete. A run where every ADR is a duplicate does nothing and says so. |
 
 ### Ongoing maintenance (safe to repeat)
@@ -74,10 +74,10 @@ Key settings (with defaults):
 
 ### BMad customization layer — specified, not shipped
 
-There is **no `overlay` keyword** on `/l3io-util-doctor`. The mode was specified and then held
-back, because `skills/l3io-util-doctor/assets/overlays/` ships no overlay TOML: all three of its
+There is **no `overlay` keyword** on `/l3io-doctor`. The mode was specified and then held
+back, because `skills/l3io-doctor/assets/overlays/` ships no overlay TOML: all three of its
 actions (`list`, `diff`, `verify`) would report "nothing ships yet" by construction. Its full
-contract is kept as `skills/l3io-util-doctor/assets/overlays/overlay-mode.md`, beside the
+contract is kept as `skills/l3io-doctor/assets/overlays/overlay-mode.md`, beside the
 directory it describes, and Phase 3 of the customization-layer design restores the keyword along
 with the content.
 

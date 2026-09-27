@@ -1,4 +1,4 @@
-# l3io-util-doctor — capability gap analysis
+# l3io-doctor — capability gap analysis
 
 > **Assessment, measured 2026-09-23 at commit `47effcd`.** A point-in-time coverage review, not a
 > contract. It records what the doctor detects, what it can fix, and what is invisible to it, each
@@ -12,7 +12,7 @@ this commit — the `<scratch>/doctor-mode-audit.md` mode list was **not** used.
 
 ## 0. Current mode set, re-derived from `SKILL.md`
 
-`skills/l3io-util-doctor/SKILL.md:74-91` is the dispatch table. Sixteen loadable targets:
+`skills/l3io-doctor/SKILL.md:74-91` is the dispatch table. Sixteen loadable targets:
 
 | Keyword(s) | File | Kind |
 |---|---|---|
@@ -44,7 +44,7 @@ execution sequence (`:391-416`).
 
 **Structural fact that shapes everything below:** `check-deps` has **zero** references in
 `steps/health-check.md` (verified by grep — no match for `check-deps`, `bmad-deps`, or
-`baseline` in that file). The default `/l3io-util-doctor` run never looks at BMad at all.
+`baseline` in that file). The default `/l3io-doctor` run never looks at BMad at all.
 
 ---
 
@@ -63,8 +63,8 @@ execution sequence (`:391-416`).
 | **Artifact tree and state tree disagree on which epics exist** | **Partly.** Check 11 iterates *from the state side*, per sprint dir — an artifact epic directory with no state epic is never visited. It is caught only if it contains `sprint-*/stories/E*.md` (then Check 2c fires). An artifact epic holding only `closure/`, `tests/` or `epic-closure/` is invisible. | Partly (`bootstrap-state` for the story case) | `health-check.md:147` — the loop is "for each sprint directory under `{pm_state_root}/…`" |
 | **`completion_evidence` claims tests that never ran** | **No.** `set-field` refuses `tests_passing` and `add-test-run` derives it, so it cannot be *newly* forged — but a node migrated from a legacy layout keeps whatever it had, and `migrate-schema` is explicitly instructed to "preserve it as-is … never touch or retype it". Nothing later audits a `tests_passing: true` with empty `test_runs`. | No | `steps/schema-migration.md:16` and `:58` |
 | **Placement: epic directory whose folder ≠ its status** | **Yes, but not by the health check.** `pm-status.py report` emits a `placement` flag, which `stats` surfaces. The 19 checks have no placement check. | **No fixer is wired.** The repair is `move-epic`; no mode calls it, and `stats` is read-only. | `pm-status.py:3376-3393`; `steps/stats.md:84-85`, `:115` |
-| **`{pm_state_root}` is gitignored** | **No** in the health check. `migrate-state` Stage E1 checks it, pm-execute activation and pm-help check it — the doctor's own `bootstrap-state` creates a state tree and never checks it. | n/a | grep `check-ignore` in `health-check.md` → no match; present at `assets/migrate-state.md:560-575`, `skills/l3io-pm-help/steps/step-03-read-state.md:20`, `skills/_shared/steps/shared/step-00-activate.md:234` |
-| **`implementation_artifacts` repointed, real state orphaned elsewhere** | **No** in the health check. `stats` and `l3io-pm-help` both BLOCK on it; the health check's Check 2b treats "none present" as "new project → ✓". | n/a | `steps/stats.md:49-60` vs `health-check.md:58` |
+| **`{pm_state_root}` is gitignored** | **No** in the health check. `migrate-state` Stage E1 checks it, pm-execute activation and pm-help check it — the doctor's own `bootstrap-state` creates a state tree and never checks it. | n/a | grep `check-ignore` in `health-check.md` → no match; present at `assets/migrate-state.md:560-575`, `skills/l3io-help/steps/step-03-read-state.md:20`, `skills/_shared/steps/shared/step-00-activate.md:234` |
+| **`implementation_artifacts` repointed, real state orphaned elsewhere** | **No** in the health check. `stats` and `l3io-help` both BLOCK on it; the health check's Check 2b treats "none present" as "new project → ✓". | n/a | `steps/stats.md:49-60` vs `health-check.md:58` |
 | **Tracked `*.lock` files** | Yes (Check 14) | Yes (`untrack-locks`, inline) | `health-check.md:237-258`, `:464-482` |
 | **Backlog rot (fixed/obsolete/duplicate items)** | Yes (Check 13 + `audit-backlog.py`) | Yes (`triage`) | `health-check.md:212-235` |
 | **ADRs in the old home / register lagging** | Yes (Check 15) | `migrate-adrs` (moves); register lag is report-only and self-corrects | `health-check.md:260-272` |
@@ -94,7 +94,7 @@ BMad's own `sprint-status.yaml` and this package's "legacy flat `sprint-status.y
 | **Project with BMad's own `sprint-status.yaml`, never l3io's** | **Mis-detected as l3io legacy flat.** Check 2 reads it as "a `sprint-status.yaml` with done or backlog epics" → flags `split-status`. Check 2b sees exactly one legacy layout → flags `migrate-state` High. Nothing inspects the schema. | **No — and the prescribed fix is destructive.** `migrate-state` Stage A loads "all `epics:` lists found" (`assets/migrate-state.md:170`) → there is no `epics:` key → the working epic list is **empty**. Stage B writes nothing. Stage E's four gates pass **vacuously** (E2 is "for every epic key produced in Stage B" — zero; E3 and E4 iterate empty sets) (`:694-717`). Stage F then `rm -f`s the original (`:721-742`). Net: BMad's live tracking file is removed (a `.legacy` copy survives), `bmad-build`'s sync stops (it writes only when the file exists), `bmad-sprint-planning` and `bmad-retrospective` lose their input, and the report says "migration complete". | as cited |
 | **Flat + sharded collision** (`bmad-build` writing alongside l3io) | Yes — `detect-layout.py`, Critical | The remedy Check 2b prints is *exactly* the vacuous-destructive path above, because the colliding flat file is by construction the **BMad-schema** one — Check 2b's own rationale says so (`health-check.md:37-39` cites `bmad-build`'s `step-03-implement.md:27`) | `health-check.md:43-53`; `scripts/detect-layout.py:45-50` |
 | **Project that used `bmad-create-story`/`bmad-dev-story`, artifacts but no l3io state** | **Partly.** BMad 6.12 writes stories **flat** into `{implementation_artifacts}` (`--stories-dir {implementation_artifacts}`, `.claude/skills/bmad-sprint-planning/references/generate-tracking.md:12`) with names like `1-1-user-authentication.md`. Check 2c only globs `epic-*/sprint-*/stories/E*.md` (`health-check.md:79`) — it sees none. Check 4 / `layout-cleanup` heuristic 1 (`^([0-9]+)-[0-9]+.*\.md$`, `steps/layout-cleanup.md:44`) **does** match them. | **The chain does not close.** Heuristic 1's destination is `epic-{nnn}/sprint-{nn}/stories/{story-key}.md` but `{story-key}` is never defined for a BMad filename, and no step says to rename `1-1-user-authentication.md` → `E001-S01-001.md`. If the name is preserved, `bootstrap-state`'s `find -name 'E*.md'` (`bootstrap-state.md:21`) never matches it and the story stays stateless. Sprint is also defaulted to `01` with no mapping prompt. | as cited |
-| **First `/l3io-util-doctor` run in such a project** | It **detects** (flags `split-status` + `migrate-state`, possibly `layout-cleanup`) and **proposes**. HC5 asks once, HC6 runs the whole sequence. It does not fail loudly. | The sequence rule at `health-check.md:363-367` forbids ending before `migrate-state`, so the destructive step is *guaranteed* to run once `split-status` is flagged. | as cited |
+| **First `/l3io-doctor` run in such a project** | It **detects** (flags `split-status` + `migrate-state`, possibly `layout-cleanup`) and **proposes**. HC5 asks once, HC6 runs the whole sequence. It does not fail loudly. | The sequence rule at `health-check.md:363-367` forbids ending before `migrate-state`, so the destructive step is *guaranteed* to run once `split-status` is flagged. | as cited |
 | **The story `.md` frontmatter BMad writes** | `bootstrap-state` reads `title`/`status`/`classification` with defaults (`bootstrap-state.md:83-85`). BMad's story files are not guaranteed to carry `classification`; the default `standard` is silently assumed. | n/a — acceptable | as cited |
 
 ### C. Upgrades from earlier versions of this package
@@ -138,7 +138,7 @@ Yes. Ranked by likelihood × damage:
    remedy, so a user who does exactly what the tool says hits it.
 
 2. **The default run is blind to BMad entirely.** `check-deps` is a separate keyword nobody is
-   prompted to type. `/l3io-util-doctor` after a BMad upgrade that removed a required skill
+   prompted to type. `/l3io-doctor` after a BMad upgrade that removed a required skill
    prints "✓ Project is healthy — no actions needed", and the first symptom is a gate that
    self-skips during an epic run — the exact failure `bmad-deps.py`'s own docstring says it
    exists to prevent.

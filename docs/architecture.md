@@ -14,19 +14,19 @@ The same principle applies to `l3io-sec`: the agent's memory is disk-based (its 
 
 ## Module Relationships
 
-`l3io-pm-execute` is a single skill that runs in two modes. In **normal mode** it is the epic orchestrator; it dispatches each sprint as a **headless** subagent invocation of *itself*. There is no separate sprint skill.
+`l3io-execute` is a single skill that runs in two modes. In **normal mode** it is the epic orchestrator; it dispatches each sprint as a **headless** subagent invocation of *itself*. There is no separate sprint skill.
 
 ```
-l3io-pm-plan          (read-only — produces the plan snapshot + plan-output-meta.yaml)
+l3io-plan          (read-only — produces the plan snapshot + plan-output-meta.yaml)
     |
     v
-l3io-pm-execute  (normal mode — epic orchestrator)
+l3io-execute  (normal mode — epic orchestrator)
     |
     |-- spawns --> l3io-arch-review Mode B  (step-04 arch gate, before any sprint)
     |                  \-- escalates to bmad-agent-architect / superpowers
     |                      ONLY on a BLOCKER or MAJOR (see Pre-Execution Architecture Gate)
     |
-    |   Per sprint, THREE kinds of headless l3io-pm-execute agent, each ending when its
+    |   Per sprint, THREE kinds of headless l3io-execute agent, each ending when its
     |   piece is done. Sprints stay sequential; stories within a sprint are sequential too.
     |
     |-- spawns --> [prep]    step-02-story-prep            (once per sprint)
@@ -53,10 +53,10 @@ l3io-pm-execute  (normal mode — epic orchestrator)
                        |                   Reviewer Gate; skip if neither is present)
                        \-- spawns --> l3io-arch-review Mode B (drift audit, if installed)
 
-l3io-pm-help            (read-only — recommends the next action)
-l3io-pm-sync            (bidirectional GitHub Issues sync)
+l3io-help            (read-only — recommends the next action)
+l3io-sync            (bidirectional GitHub Issues sync)
 l3io-sec-redteam        (also invocable standalone)
-l3io-util-doctor       (standalone only — migration utilities)
+l3io-doctor       (standalone only — migration utilities)
 l3io-arch-review        (standalone, plus invoked by the gate and drift reviews above)
 ```
 
@@ -123,7 +123,7 @@ Issue verbs address both issue files through `--state-root`; `append-issue` stil
 
 **Concurrency:** every `epic.yaml` write takes `epic_node_lock` — epic-scoped writers (status, estimate, actual, lock, move) serialize against each other on it, so two writers to the *same* epic never race even though they still touch only that epic's files; different epics never contend, since each has its own lock file. `sprint.yaml` and story `.yaml` writes still take no flock — sharding gives each epic its own directory. The three files sharding cannot shard are inherently cross-epic aggregates and all take an automatic exclusive flock: `issues.yaml` and `issues-resolved.yaml` (every issue verb's whole read-modify-write, under one `issues_lock`), `events.jsonl` (on append), and `pm-calibration.yaml` (whole read-modify-write cycle, since two concurrent samplers would otherwise silently drop one another's samples). The epic lock is always the outer lock — promote nests `issues_lock` inside it, `set-actual` on an epic nests `calibration_lock` inside it, and a fresh epic lock is never taken while either of those is held (enforced at runtime).
 
-**Lock files:** `{state_root}/epic-NNN.lock` (one per epic, in the state root — not inside any epic directory — so it survives a `move-epic`/`archive-epic` `git mv`), plus the existing `issues.yaml.lock`, `pm-calibration.yaml.lock`, and `adr-register.yaml.lock`, plus a `.yaml.lock` sidecar per `--flock`'d node write and per `add-test-run` (which always flocks, so it leaves a `<story>.yaml.lock` beside every story that records a test run). All are created empty and never deleted, and none is ever committed. `pm-status.py` keeps `*.lock` in `{state_root}/.gitignore`: every lock acquisition inside a state root checks it, once per process, and adds the line if it is missing without rewriting the file's other lines. A bare `append-issue --file` outside one (no status folders, no `--state-root`) is skipped, so it never writes a `.gitignore` into a repo root. Lock files committed before that rule are untracked, and left on disk, by the sprint-closure checkpoint and by `/l3io-util-doctor`'s health check. `*.lock` never matches the state-root directory, so the activation gate's `git check-ignore` still passes. Lock files must not be deleted while a run may be active. Old `epic.yaml.lock` files left inside an epic directory by a pre-relocation `pm-status.py` are no longer the epic lock; the same filename is reused only as the redundant `--flock` sidecar, so removing one is harmless.
+**Lock files:** `{state_root}/epic-NNN.lock` (one per epic, in the state root — not inside any epic directory — so it survives a `move-epic`/`archive-epic` `git mv`), plus the existing `issues.yaml.lock`, `pm-calibration.yaml.lock`, and `adr-register.yaml.lock`, plus a `.yaml.lock` sidecar per `--flock`'d node write and per `add-test-run` (which always flocks, so it leaves a `<story>.yaml.lock` beside every story that records a test run). All are created empty and never deleted, and none is ever committed. `pm-status.py` keeps `*.lock` in `{state_root}/.gitignore`: every lock acquisition inside a state root checks it, once per process, and adds the line if it is missing without rewriting the file's other lines. A bare `append-issue --file` outside one (no status folders, no `--state-root`) is skipped, so it never writes a `.gitignore` into a repo root. Lock files committed before that rule are untracked, and left on disk, by the sprint-closure checkpoint and by `/l3io-doctor`'s health check. `*.lock` never matches the state-root directory, so the activation gate's `git check-ignore` still passes. Lock files must not be deleted while a run may be active. Old `epic.yaml.lock` files left inside an epic directory by a pre-relocation `pm-status.py` are no longer the epic lock; the same filename is reused only as the redundant `--flock` sidecar, so removing one is harmless.
 
 **Reads are lock-free.** Every write goes through an atomic temp-file-plus-rename, so a reader — notably `pm-status.py report --watch` polling during a parallel phase — can never observe a torn node file and needs no lock of its own. The exceptions are `list-issues --all` and `audit-issues`, which read both issue files under `issues_lock` so a concurrent resolve cannot tear the pair.
 
@@ -182,11 +182,11 @@ epic:   backlog → in-progress → done
 
 ### Ownership lock
 
-`l3io-pm-execute` claims an epic by writing a `_lock` block (session id, claimed-at, TTL — default 30 minutes) as the first key of `epic.yaml`. `check-lock` exits `0` when free or stale, `5` when held by a live session. A nonexistent epic is deliberately treated differently per verb: `check-lock`/`clear-lock` exit `0` (queries and cleanup succeed on absence), while `set-lock` exits `3` — it needs a file to write into.
+`l3io-execute` claims an epic by writing a `_lock` block (session id, claimed-at, TTL — default 30 minutes) as the first key of `epic.yaml`. `check-lock` exits `0` when free or stale, `5` when held by a live session. A nonexistent epic is deliberately treated differently per verb: `check-lock`/`clear-lock` exit `0` (queries and cleanup succeed on absence), while `set-lock` exits `3` — it needs a file to write into.
 
 ### Legacy detection
 
-At activation, read resolution checks for the current layout, the legacy per-epic `_bmad/state/` tree, and the legacy flat `sprint-status.yaml`. Detection **counts matches rather than stopping at the first hit** — if more than one layout is present, it blocks rather than guessing which is authoritative. Migration is `/l3io-util-doctor migrate-state`.
+At activation, read resolution checks for the current layout, the legacy per-epic `_bmad/state/` tree, and the legacy flat `sprint-status.yaml`. Detection **counts matches rather than stopping at the first hit** — if more than one layout is present, it blocks rather than guessing which is authoritative. Migration is `/l3io-doctor migrate-state`.
 
 ## Artifact Directory Structure
 
@@ -215,7 +215,7 @@ Epic directories are 3-digit zero-padded (`epic-001`); sprints are 2-digit (`spr
 
 ## Pre-Execution Architecture Gate
 
-Before any sprint runs, `l3io-pm-execute` step-04 gates the whole epic's design. This is a shift-left: architecture gaps surface before development instead of at closure.
+Before any sprint runs, `l3io-execute` step-04 gates the whole epic's design. This is a shift-left: architecture gaps surface before development instead of at closure.
 
 The gate is **skipped entirely** for `DOCS` and `CONFIG` work types, and when `l3io-arch-review` is absent — it never partially skips, because at least one reviewer must run for the gate to mean anything.
 

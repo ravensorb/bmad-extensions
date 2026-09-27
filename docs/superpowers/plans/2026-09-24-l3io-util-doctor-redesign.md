@@ -1,4 +1,4 @@
-# l3io-util-doctor Redesign Implementation Plan
+# l3io-doctor Redesign Implementation Plan
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
@@ -8,7 +8,7 @@
 
 **Tech Stack:** Python 3.11+ with PEP-723 inline metadata, run via `uv run` (never bare `python3`); `ruamel.yaml>=0.18` for round-trip YAML; `unittest` for Python suites; Node with `node --test` for the `scripts/*.mjs` gates.
 
-**Spec:** `docs/superpowers/specs/2026-09-23-l3io-util-doctor-redesign-design.md`
+**Spec:** `docs/superpowers/specs/2026-09-23-l3io-doctor-redesign-design.md`
 
 ## Global Constraints
 
@@ -31,20 +31,20 @@
 
 | File | Responsibility | Task |
 |---|---|---|
-| `skills/l3io-util-doctor/scripts/detect-layout.py` | *(modify)* adds flat-file schema classification | 1 |
-| `skills/l3io-util-doctor/scripts/state-record.py` | the normalised record: construction, validation, dedupe | 2 |
+| `skills/l3io-doctor/scripts/detect-layout.py` | *(modify)* adds flat-file schema classification | 1 |
+| `skills/l3io-doctor/scripts/state-record.py` | the normalised record: construction, validation, dedupe | 2 |
 | `skills/_shared/pm-status.py` | *(modify)* `ensure_node_path()` in the resolver section; `import-node` verb | 3, 4 |
-| `skills/l3io-util-doctor/scripts/read-l3io-flat.py` | reader: l3io legacy flat `epics:` list | 5 |
-| `skills/l3io-util-doctor/scripts/read-bmad-flat.py` | reader: base-BMad `development_status:` mapping | 6 |
-| `skills/l3io-util-doctor/scripts/read-per-epic.py` | reader: legacy `_bmad/state/` per-epic files | 7 |
-| `skills/l3io-util-doctor/scripts/read-split.py` | reader: split three-file layout | 8 |
-| `skills/l3io-util-doctor/scripts/read-artifacts.py` | reader: story `.md` frontmatter + sprint inference | 9 |
-| `skills/l3io-util-doctor/scripts/migrate-engine.py` | the eight-step run: detect → … → dispose | 10, 11 |
+| `skills/l3io-doctor/scripts/read-l3io-flat.py` | reader: l3io legacy flat `epics:` list | 5 |
+| `skills/l3io-doctor/scripts/read-bmad-flat.py` | reader: base-BMad `development_status:` mapping | 6 |
+| `skills/l3io-doctor/scripts/read-per-epic.py` | reader: legacy `_bmad/state/` per-epic files | 7 |
+| `skills/l3io-doctor/scripts/read-split.py` | reader: split three-file layout | 8 |
+| `skills/l3io-doctor/scripts/read-artifacts.py` | reader: story `.md` frontmatter + sprint inference | 9 |
+| `skills/l3io-doctor/scripts/migrate-engine.py` | the eight-step run: detect → … → dispose | 10, 11 |
 | `scripts/check-docs.mjs` | *(modify)* check 26, the two-half resolver guard | 12 |
-| `skills/l3io-util-doctor/assets/migrate-state.md` | *(rewrite)* prose around the engine | 13 |
-| `skills/l3io-util-doctor/steps/bootstrap-state.md` | *(rewrite)* prose around the engine | 14 |
-| `skills/l3io-util-doctor/scripts/tests/*.py` | one suite per reader, plus the engine suite | 2, 5-11 |
-| `skills/l3io-util-doctor/scripts/tests/fixtures/` | one fixture project per source layout | 2, 5-9 |
+| `skills/l3io-doctor/assets/migrate-state.md` | *(rewrite)* prose around the engine | 13 |
+| `skills/l3io-doctor/steps/bootstrap-state.md` | *(rewrite)* prose around the engine | 14 |
+| `skills/l3io-doctor/scripts/tests/*.py` | one suite per reader, plus the engine suite | 2, 5-11 |
+| `skills/l3io-doctor/scripts/tests/fixtures/` | one fixture project per source layout | 2, 5-9 |
 
 **Why readers are separate files:** each is a pure function with one input shape. A reader can be understood, tested and rejected on its own. They are single-consumer code and live in the doctor's own `scripts/` per ADR-0001 — they are *not* added to `skills/_shared/`.
 
@@ -53,8 +53,8 @@
 ## Task 1: Schema discrimination in detect-layout.py
 
 **Files:**
-- Modify: `skills/l3io-util-doctor/scripts/detect-layout.py`
-- Test: `skills/l3io-util-doctor/scripts/tests/test-detect-layout.py`
+- Modify: `skills/l3io-doctor/scripts/detect-layout.py`
+- Test: `skills/l3io-doctor/scripts/tests/test-detect-layout.py`
 
 **Interfaces:**
 - Consumes: nothing from earlier tasks.
@@ -64,7 +64,7 @@
 
 - [ ] **Step 1: Write the failing test**
 
-Add to `skills/l3io-util-doctor/scripts/tests/test-detect-layout.py`:
+Add to `skills/l3io-doctor/scripts/tests/test-detect-layout.py`:
 
 ```python
 class TestClassifyFlat(unittest.TestCase):
@@ -106,7 +106,7 @@ Add `import shutil`, `import tempfile` and `from pathlib import Path` to the fil
 
 - [ ] **Step 2: Run it to verify it fails**
 
-Run: `uv run skills/l3io-util-doctor/scripts/tests/test-detect-layout.py`
+Run: `uv run skills/l3io-doctor/scripts/tests/test-detect-layout.py`
 Expected: FAIL with `AttributeError: module has no attribute 'classify_flat'`
 
 - [ ] **Step 3: Add the ruamel dependency to the PEP-723 header**
@@ -192,7 +192,7 @@ Exit 3 -- --classify only: the flat sprint-status.yaml carries BMad's `developme
 
 - [ ] **Step 7: Run the tests**
 
-Run: `uv run skills/l3io-util-doctor/scripts/tests/test-detect-layout.py`
+Run: `uv run skills/l3io-doctor/scripts/tests/test-detect-layout.py`
 Expected: PASS, all tests including the pre-existing collision cases.
 
 - [ ] **Step 8: Regenerate the manifest and run the gates**
@@ -206,9 +206,9 @@ Expected: all pass.
 - [ ] **Step 9: Commit**
 
 ```bash
-git add skills/l3io-util-doctor/scripts/detect-layout.py \
-        skills/l3io-util-doctor/scripts/tests/test-detect-layout.py \
-        skills/l3io-util-doctor/payload-manifest.json
+git add skills/l3io-doctor/scripts/detect-layout.py \
+        skills/l3io-doctor/scripts/tests/test-detect-layout.py \
+        skills/l3io-doctor/payload-manifest.json
 git commit -s -m "feat(l3io-util): detect-layout classifies a flat status file by schema
 
 BMad's sprint-status.yaml is a development_status: mapping; ours is an epics:
@@ -221,9 +221,9 @@ schema. --classify exits 3 on BMad's, because argparse owns exit 2."
 ## Task 2: The normalised record
 
 **Files:**
-- Create: `skills/l3io-util-doctor/scripts/state-record.py`
-- Create: `skills/l3io-util-doctor/scripts/tests/test-state-record.py`
-- Create: `skills/l3io-util-doctor/scripts/tests/fixtures/README.md`
+- Create: `skills/l3io-doctor/scripts/state-record.py`
+- Create: `skills/l3io-doctor/scripts/tests/test-state-record.py`
+- Create: `skills/l3io-doctor/scripts/tests/fixtures/README.md`
 
 **Interfaces:**
 - Consumes: nothing.
@@ -235,7 +235,7 @@ schema. --classify exits 3 on BMad's, because argparse owns exit 2."
 
 - [ ] **Step 1: Write the failing test**
 
-Create `skills/l3io-util-doctor/scripts/tests/test-state-record.py`:
+Create `skills/l3io-doctor/scripts/tests/test-state-record.py`:
 
 ```python
 #!/usr/bin/env -S uv run --quiet --script
@@ -331,7 +331,7 @@ if __name__ == "__main__":
 
 - [ ] **Step 2: Run it to verify it fails**
 
-Run: `uv run skills/l3io-util-doctor/scripts/tests/test-state-record.py`
+Run: `uv run skills/l3io-doctor/scripts/tests/test-state-record.py`
 Expected: FAIL — `state-record.py` does not exist.
 
 - [ ] **Step 3: Implement `state-record.py`**
@@ -357,7 +357,7 @@ into two records with one key, landing in two status folders -- on BOTH source p
 and only one of them was ever filed. The rule now lives here, applied once where the
 lists are joined, so a new reader cannot reintroduce it.
 
-This is single-consumer code for l3io-util-doctor (ADR-0001) -- it is NOT shared, and
+This is single-consumer code for l3io-doctor (ADR-0001) -- it is NOT shared, and
 must not be added to skills/_shared/.
 """
 from __future__ import annotations
@@ -443,12 +443,12 @@ def dedupe(records: list) -> list:
 
 - [ ] **Step 4: Run the tests**
 
-Run: `uv run skills/l3io-util-doctor/scripts/tests/test-state-record.py`
+Run: `uv run skills/l3io-doctor/scripts/tests/test-state-record.py`
 Expected: PASS (13 tests).
 
 - [ ] **Step 5: Create the fixture directory contract**
 
-Create `skills/l3io-util-doctor/scripts/tests/fixtures/README.md`:
+Create `skills/l3io-doctor/scripts/tests/fixtures/README.md`:
 
 ```markdown
 # Reader fixtures
@@ -480,10 +480,10 @@ npm run check:docs && npm run check:scripts && npm run check:module && npm run c
 - [ ] **Step 7: Commit**
 
 ```bash
-git add skills/l3io-util-doctor/scripts/state-record.py \
-        skills/l3io-util-doctor/scripts/tests/test-state-record.py \
-        skills/l3io-util-doctor/scripts/tests/fixtures/README.md \
-        skills/l3io-util-doctor/payload-manifest.json
+git add skills/l3io-doctor/scripts/state-record.py \
+        skills/l3io-doctor/scripts/tests/test-state-record.py \
+        skills/l3io-doctor/scripts/tests/fixtures/README.md \
+        skills/l3io-doctor/payload-manifest.json
 git commit -s -m "feat(l3io-util): the normalised record every doctor reader emits
 
 Validation and the dedupe rule live here so they hold once rather than per
@@ -707,10 +707,10 @@ npm run check:docs && npm run check:scripts && npm run check:module && npm run c
 
 ```bash
 git add skills/_shared/pm-status.py skills/_shared/tests/test-pm-status.py \
-        skills/l3io-pm-setup/scripts/pm-status.py \
-        skills/l3io-util-doctor/scripts/pm-status.py \
-        skills/l3io-pm-setup/payload-manifest.json \
-        skills/l3io-util-doctor/payload-manifest.json
+        skills/l3io-setup/scripts/pm-status.py \
+        skills/l3io-doctor/scripts/pm-status.py \
+        skills/l3io-setup/payload-manifest.json \
+        skills/l3io-doctor/payload-manifest.json
 git commit -s -m "feat(l3io-pm): ensure_node_path -- the one function that creates a node dir
 
 Lives in the resolver section with everything else that turns a key into a
@@ -979,10 +979,10 @@ npm run check:docs && npm run check:scripts && npm run check:module && npm run c
 
 ```bash
 git add skills/_shared/pm-status.py skills/_shared/tests/test-pm-status.py \
-        skills/l3io-pm-setup/scripts/pm-status.py \
-        skills/l3io-util-doctor/scripts/pm-status.py \
-        skills/l3io-pm-setup/payload-manifest.json \
-        skills/l3io-util-doctor/payload-manifest.json
+        skills/l3io-setup/scripts/pm-status.py \
+        skills/l3io-doctor/scripts/pm-status.py \
+        skills/l3io-setup/payload-manifest.json \
+        skills/l3io-doctor/payload-manifest.json
 git commit -s -m "feat(l3io-pm): import-node creates a state node from a migration record
 
 cmd_set_status with one step swapped: ensure_node_path where set-status calls
@@ -996,9 +996,9 @@ migration cannot clobber a node a later step edited."
 ## Task 5: Reader — l3io legacy flat
 
 **Files:**
-- Create: `skills/l3io-util-doctor/scripts/read-l3io-flat.py`
-- Create: `skills/l3io-util-doctor/scripts/tests/test-read-l3io-flat.py`
-- Create: `skills/l3io-util-doctor/scripts/tests/fixtures/l3io-flat/sprint-status.yaml`
+- Create: `skills/l3io-doctor/scripts/read-l3io-flat.py`
+- Create: `skills/l3io-doctor/scripts/tests/test-read-l3io-flat.py`
+- Create: `skills/l3io-doctor/scripts/tests/fixtures/l3io-flat/sprint-status.yaml`
 
 **Interfaces:**
 - Consumes: `state-record.py`'s `make_record`, `validate`, `dedupe` (Task 2).
@@ -1008,7 +1008,7 @@ migration cannot clobber a node a later step edited."
 
 - [ ] **Step 1: Write the fixture**
 
-Create `skills/l3io-util-doctor/scripts/tests/fixtures/l3io-flat/sprint-status.yaml`:
+Create `skills/l3io-doctor/scripts/tests/fixtures/l3io-flat/sprint-status.yaml`:
 
 ```yaml
 # Legacy flat layout: one epics: list, sprints and stories nested inside it.
@@ -1043,7 +1043,7 @@ epics:
 
 - [ ] **Step 2: Write the failing test**
 
-Create `skills/l3io-util-doctor/scripts/tests/test-read-l3io-flat.py`:
+Create `skills/l3io-doctor/scripts/tests/test-read-l3io-flat.py`:
 
 ```python
 #!/usr/bin/env -S uv run --quiet --script
@@ -1148,7 +1148,7 @@ if __name__ == "__main__":
 
 - [ ] **Step 3: Run it to verify it fails**
 
-Run: `uv run skills/l3io-util-doctor/scripts/tests/test-read-l3io-flat.py`
+Run: `uv run skills/l3io-doctor/scripts/tests/test-read-l3io-flat.py`
 Expected: FAIL — `read-l3io-flat.py` does not exist.
 
 - [ ] **Step 4: Implement the reader**
@@ -1266,7 +1266,7 @@ if __name__ == "__main__":
 
 - [ ] **Step 5: Run the tests**
 
-Run: `uv run skills/l3io-util-doctor/scripts/tests/test-read-l3io-flat.py`
+Run: `uv run skills/l3io-doctor/scripts/tests/test-read-l3io-flat.py`
 Expected: PASS (11 tests), including `test_a_bmad_schema_file_yields_ZERO_records`.
 
 - [ ] **Step 6: Regenerate the manifest and run the gates**
@@ -1279,10 +1279,10 @@ npm run check:docs && npm run check:scripts && npm run check:module && npm run c
 - [ ] **Step 7: Commit**
 
 ```bash
-git add skills/l3io-util-doctor/scripts/read-l3io-flat.py \
-        skills/l3io-util-doctor/scripts/tests/test-read-l3io-flat.py \
-        skills/l3io-util-doctor/scripts/tests/fixtures/l3io-flat/ \
-        skills/l3io-util-doctor/payload-manifest.json
+git add skills/l3io-doctor/scripts/read-l3io-flat.py \
+        skills/l3io-doctor/scripts/tests/test-read-l3io-flat.py \
+        skills/l3io-doctor/scripts/tests/fixtures/l3io-flat/ \
+        skills/l3io-doctor/payload-manifest.json
 git commit -s -m "feat(l3io-util): reader for the legacy flat epics: list
 
 Pure function, tested against a real fixture tree. Includes the live defect as
@@ -1295,9 +1295,9 @@ invents nodes nor refuses -- the engine's gate is what blocks on emptiness."
 ## Task 6: Reader — base BMad
 
 **Files:**
-- Create: `skills/l3io-util-doctor/scripts/read-bmad-flat.py`
-- Create: `skills/l3io-util-doctor/scripts/tests/test-read-bmad-flat.py`
-- Create: `skills/l3io-util-doctor/scripts/tests/fixtures/bmad-flat/sprint-status.yaml`
+- Create: `skills/l3io-doctor/scripts/read-bmad-flat.py`
+- Create: `skills/l3io-doctor/scripts/tests/test-read-bmad-flat.py`
+- Create: `skills/l3io-doctor/scripts/tests/fixtures/bmad-flat/sprint-status.yaml`
 
 **Interfaces:**
 - Consumes: `state-record.py`'s `make_record`, `dedupe`.
@@ -1315,7 +1315,7 @@ development_status:
 
 - [ ] **Step 1: Write the fixture**
 
-Create `skills/l3io-util-doctor/scripts/tests/fixtures/bmad-flat/sprint-status.yaml`:
+Create `skills/l3io-doctor/scripts/tests/fixtures/bmad-flat/sprint-status.yaml`:
 
 ```yaml
 # Base BMad's own schema: a flat mapping, no sprints, ids in two shapes.
@@ -1329,7 +1329,7 @@ development_status:
 
 - [ ] **Step 2: Write the failing test**
 
-Create `skills/l3io-util-doctor/scripts/tests/test-read-bmad-flat.py`:
+Create `skills/l3io-doctor/scripts/tests/test-read-bmad-flat.py`:
 
 ```python
 #!/usr/bin/env -S uv run --quiet --script
@@ -1438,7 +1438,7 @@ if __name__ == "__main__":
 
 - [ ] **Step 3: Run it to verify it fails**
 
-Run: `uv run skills/l3io-util-doctor/scripts/tests/test-read-bmad-flat.py`
+Run: `uv run skills/l3io-doctor/scripts/tests/test-read-bmad-flat.py`
 Expected: FAIL — `read-bmad-flat.py` does not exist.
 
 - [ ] **Step 4: Implement the reader**
@@ -1591,7 +1591,7 @@ if __name__ == "__main__":
 
 - [ ] **Step 5: Run the tests**
 
-Run: `uv run skills/l3io-util-doctor/scripts/tests/test-read-bmad-flat.py`
+Run: `uv run skills/l3io-doctor/scripts/tests/test-read-bmad-flat.py`
 Expected: PASS (14 tests).
 
 - [ ] **Step 6: Regenerate the manifest and run the gates**
@@ -1604,10 +1604,10 @@ npm run check:docs && npm run check:scripts && npm run check:module && npm run c
 - [ ] **Step 7: Commit**
 
 ```bash
-git add skills/l3io-util-doctor/scripts/read-bmad-flat.py \
-        skills/l3io-util-doctor/scripts/tests/test-read-bmad-flat.py \
-        skills/l3io-util-doctor/scripts/tests/fixtures/bmad-flat/ \
-        skills/l3io-util-doctor/payload-manifest.json
+git add skills/l3io-doctor/scripts/read-bmad-flat.py \
+        skills/l3io-doctor/scripts/tests/test-read-bmad-flat.py \
+        skills/l3io-doctor/scripts/tests/fixtures/bmad-flat/ \
+        skills/l3io-doctor/payload-manifest.json
 git commit -s -m "feat(l3io-util): reader for base BMad's development_status mapping
 
 The schema this package could not read at all -- there were zero functional
@@ -1621,10 +1621,10 @@ consume a wrong status as a real sample."
 ## Task 7: Reader — legacy per-epic `_bmad/state/`
 
 **Files:**
-- Create: `skills/l3io-util-doctor/scripts/read-per-epic.py`
-- Create: `skills/l3io-util-doctor/scripts/tests/test-read-per-epic.py`
-- Create: `skills/l3io-util-doctor/scripts/tests/fixtures/per-epic/_bmad/state/epic-001.yaml`
-- Create: `skills/l3io-util-doctor/scripts/tests/fixtures/per-epic/_bmad/state/epic-002.yaml`
+- Create: `skills/l3io-doctor/scripts/read-per-epic.py`
+- Create: `skills/l3io-doctor/scripts/tests/test-read-per-epic.py`
+- Create: `skills/l3io-doctor/scripts/tests/fixtures/per-epic/_bmad/state/epic-001.yaml`
+- Create: `skills/l3io-doctor/scripts/tests/fixtures/per-epic/_bmad/state/epic-002.yaml`
 
 **Interfaces:**
 - Consumes: `state-record.py`'s `make_record`, `dedupe`.
@@ -1632,7 +1632,7 @@ consume a wrong status as a real sample."
 
 - [ ] **Step 1: Write the fixtures**
 
-`skills/l3io-util-doctor/scripts/tests/fixtures/per-epic/_bmad/state/epic-001.yaml`:
+`skills/l3io-doctor/scripts/tests/fixtures/per-epic/_bmad/state/epic-001.yaml`:
 
 ```yaml
 key: 'E001'
@@ -1648,7 +1648,7 @@ sprints:
         status: done
 ```
 
-`skills/l3io-util-doctor/scripts/tests/fixtures/per-epic/_bmad/state/epic-002.yaml`:
+`skills/l3io-doctor/scripts/tests/fixtures/per-epic/_bmad/state/epic-002.yaml`:
 
 ```yaml
 key: 'E002'
@@ -1659,7 +1659,7 @@ sprints: []
 
 - [ ] **Step 2: Write the failing test**
 
-Create `skills/l3io-util-doctor/scripts/tests/test-read-per-epic.py`:
+Create `skills/l3io-doctor/scripts/tests/test-read-per-epic.py`:
 
 ```python
 #!/usr/bin/env -S uv run --quiet --script
@@ -1760,7 +1760,7 @@ if __name__ == "__main__":
 
 - [ ] **Step 3: Run it to verify it fails**
 
-Run: `uv run skills/l3io-util-doctor/scripts/tests/test-read-per-epic.py`
+Run: `uv run skills/l3io-doctor/scripts/tests/test-read-per-epic.py`
 Expected: FAIL — `read-per-epic.py` does not exist.
 
 - [ ] **Step 4: Implement the reader**
@@ -1881,7 +1881,7 @@ if __name__ == "__main__":
 
 - [ ] **Step 5: Run the tests**
 
-Run: `uv run skills/l3io-util-doctor/scripts/tests/test-read-per-epic.py`
+Run: `uv run skills/l3io-doctor/scripts/tests/test-read-per-epic.py`
 Expected: PASS (9 tests), including the dedupe case.
 
 - [ ] **Step 6: Regenerate the manifest and run the gates**
@@ -1894,10 +1894,10 @@ npm run check:docs && npm run check:scripts && npm run check:module && npm run c
 - [ ] **Step 7: Commit**
 
 ```bash
-git add skills/l3io-util-doctor/scripts/read-per-epic.py \
-        skills/l3io-util-doctor/scripts/tests/test-read-per-epic.py \
-        skills/l3io-util-doctor/scripts/tests/fixtures/per-epic/ \
-        skills/l3io-util-doctor/payload-manifest.json
+git add skills/l3io-doctor/scripts/read-per-epic.py \
+        skills/l3io-doctor/scripts/tests/test-read-per-epic.py \
+        skills/l3io-doctor/scripts/tests/fixtures/per-epic/ \
+        skills/l3io-doctor/payload-manifest.json
 git commit -s -m "feat(l3io-util): reader for the legacy per-epic _bmad/state layout
 
 Includes the shell-plus-full-epic dedupe case as a test -- the defect that was
@@ -1911,11 +1911,11 @@ plan the user confirms."
 ## Task 8: Reader — split three-file layout
 
 **Files:**
-- Create: `skills/l3io-util-doctor/scripts/read-split.py`
-- Create: `skills/l3io-util-doctor/scripts/tests/test-read-split.py`
-- Create: `skills/l3io-util-doctor/scripts/tests/fixtures/split/sprint-status.yaml`
-- Create: `skills/l3io-util-doctor/scripts/tests/fixtures/split/sprint-status-backlog.yaml`
-- Create: `skills/l3io-util-doctor/scripts/tests/fixtures/split/sprint-status-archived.yaml`
+- Create: `skills/l3io-doctor/scripts/read-split.py`
+- Create: `skills/l3io-doctor/scripts/tests/test-read-split.py`
+- Create: `skills/l3io-doctor/scripts/tests/fixtures/split/sprint-status.yaml`
+- Create: `skills/l3io-doctor/scripts/tests/fixtures/split/sprint-status-backlog.yaml`
+- Create: `skills/l3io-doctor/scripts/tests/fixtures/split/sprint-status-archived.yaml`
 
 **Interfaces:**
 - Consumes: `read-l3io-flat.py`'s `read(path)` — each split file carries the same `epics:` list shape, so this reader composes that one rather than reimplementing it. Also `state-record.py`'s `dedupe`.
@@ -1925,7 +1925,7 @@ plan the user confirms."
 
 - [ ] **Step 1: Write the fixtures**
 
-`skills/l3io-util-doctor/scripts/tests/fixtures/split/sprint-status.yaml`:
+`skills/l3io-doctor/scripts/tests/fixtures/split/sprint-status.yaml`:
 
 ```yaml
 epics:
@@ -1942,7 +1942,7 @@ epics:
             status: review
 ```
 
-`skills/l3io-util-doctor/scripts/tests/fixtures/split/sprint-status-backlog.yaml`:
+`skills/l3io-doctor/scripts/tests/fixtures/split/sprint-status-backlog.yaml`:
 
 ```yaml
 epics:
@@ -1952,7 +1952,7 @@ epics:
     sprints: []
 ```
 
-`skills/l3io-util-doctor/scripts/tests/fixtures/split/sprint-status-archived.yaml`:
+`skills/l3io-doctor/scripts/tests/fixtures/split/sprint-status-archived.yaml`:
 
 ```yaml
 epics:
@@ -1971,7 +1971,7 @@ epics:
 
 - [ ] **Step 2: Write the failing test**
 
-Create `skills/l3io-util-doctor/scripts/tests/test-read-split.py`:
+Create `skills/l3io-doctor/scripts/tests/test-read-split.py`:
 
 ```python
 #!/usr/bin/env -S uv run --quiet --script
@@ -2074,7 +2074,7 @@ if __name__ == "__main__":
 
 - [ ] **Step 3: Run it to verify it fails**
 
-Run: `uv run skills/l3io-util-doctor/scripts/tests/test-read-split.py`
+Run: `uv run skills/l3io-doctor/scripts/tests/test-read-split.py`
 Expected: FAIL — `read-split.py` does not exist.
 
 - [ ] **Step 4: Implement the reader**
@@ -2171,7 +2171,7 @@ if __name__ == "__main__":
 
 - [ ] **Step 5: Run the tests**
 
-Run: `uv run skills/l3io-util-doctor/scripts/tests/test-read-split.py`
+Run: `uv run skills/l3io-doctor/scripts/tests/test-read-split.py`
 Expected: PASS (9 tests).
 
 - [ ] **Step 6: Regenerate the manifest and run the gates**
@@ -2184,10 +2184,10 @@ npm run check:docs && npm run check:scripts && npm run check:module && npm run c
 - [ ] **Step 7: Commit**
 
 ```bash
-git add skills/l3io-util-doctor/scripts/read-split.py \
-        skills/l3io-util-doctor/scripts/tests/test-read-split.py \
-        skills/l3io-util-doctor/scripts/tests/fixtures/split/ \
-        skills/l3io-util-doctor/payload-manifest.json
+git add skills/l3io-doctor/scripts/read-split.py \
+        skills/l3io-doctor/scripts/tests/test-read-split.py \
+        skills/l3io-doctor/scripts/tests/fixtures/split/ \
+        skills/l3io-doctor/payload-manifest.json
 git commit -s -m "feat(l3io-util): reader for the split three-file status layout
 
 Composes read-l3io-flat rather than parsing the same schema a second time; it
@@ -2199,11 +2199,11 @@ owns only which files and the join. Every file is optional."
 ## Task 9: Reader — story artifacts, with sprint inference
 
 **Files:**
-- Create: `skills/l3io-util-doctor/scripts/read-artifacts.py`
-- Create: `skills/l3io-util-doctor/scripts/tests/test-read-artifacts.py`
-- Create: `skills/l3io-util-doctor/scripts/tests/fixtures/artifacts/epic-001/sprint-01/stories/E001-S01-001.md`
-- Create: `skills/l3io-util-doctor/scripts/tests/fixtures/artifacts/epic-001/sprint-01/stories/E001-S01-002.md`
-- Create: `skills/l3io-util-doctor/scripts/tests/fixtures/artifacts/epic-001/sprint-02/stories/E001-S02-001.md`
+- Create: `skills/l3io-doctor/scripts/read-artifacts.py`
+- Create: `skills/l3io-doctor/scripts/tests/test-read-artifacts.py`
+- Create: `skills/l3io-doctor/scripts/tests/fixtures/artifacts/epic-001/sprint-01/stories/E001-S01-001.md`
+- Create: `skills/l3io-doctor/scripts/tests/fixtures/artifacts/epic-001/sprint-01/stories/E001-S01-002.md`
+- Create: `skills/l3io-doctor/scripts/tests/fixtures/artifacts/epic-001/sprint-02/stories/E001-S02-001.md`
 
 **Interfaces:**
 - Consumes: `state-record.py`'s `make_record`, `dedupe`, `VALID_STATUS`.
@@ -2257,7 +2257,7 @@ classification: feature
 
 - [ ] **Step 2: Write the failing test**
 
-Create `skills/l3io-util-doctor/scripts/tests/test-read-artifacts.py`:
+Create `skills/l3io-doctor/scripts/tests/test-read-artifacts.py`:
 
 ```python
 #!/usr/bin/env -S uv run --quiet --script
@@ -2392,7 +2392,7 @@ if __name__ == "__main__":
 
 - [ ] **Step 3: Run it to verify it fails**
 
-Run: `uv run skills/l3io-util-doctor/scripts/tests/test-read-artifacts.py`
+Run: `uv run skills/l3io-doctor/scripts/tests/test-read-artifacts.py`
 Expected: FAIL — `read-artifacts.py` does not exist.
 
 - [ ] **Step 4: Implement the reader**
@@ -2573,7 +2573,7 @@ if __name__ == "__main__":
 
 - [ ] **Step 5: Run the tests**
 
-Run: `uv run skills/l3io-util-doctor/scripts/tests/test-read-artifacts.py`
+Run: `uv run skills/l3io-doctor/scripts/tests/test-read-artifacts.py`
 Expected: PASS (17 tests).
 
 - [ ] **Step 6: Regenerate the manifest and run the gates**
@@ -2586,10 +2586,10 @@ npm run check:docs && npm run check:scripts && npm run check:module && npm run c
 - [ ] **Step 7: Commit**
 
 ```bash
-git add skills/l3io-util-doctor/scripts/read-artifacts.py \
-        skills/l3io-util-doctor/scripts/tests/test-read-artifacts.py \
-        skills/l3io-util-doctor/scripts/tests/fixtures/artifacts/ \
-        skills/l3io-util-doctor/payload-manifest.json
+git add skills/l3io-doctor/scripts/read-artifacts.py \
+        skills/l3io-doctor/scripts/tests/test-read-artifacts.py \
+        skills/l3io-doctor/scripts/tests/fixtures/artifacts/ \
+        skills/l3io-doctor/payload-manifest.json
 git commit -s -m "feat(l3io-util): derive records from story artifacts, sprints inferred
 
 Replaces the inline write_node() in bootstrap-state.md. Stories are read from
@@ -2604,8 +2604,8 @@ unrecognised status, is skipped rather than guessed."
 ## Task 10: The engine — detect, read, resolve, plan
 
 **Files:**
-- Create: `skills/l3io-util-doctor/scripts/migrate-engine.py`
-- Create: `skills/l3io-util-doctor/scripts/tests/test-engine.py`
+- Create: `skills/l3io-doctor/scripts/migrate-engine.py`
+- Create: `skills/l3io-doctor/scripts/tests/test-engine.py`
 
 **Interfaces:**
 - Consumes: every reader's `read()` (Tasks 5-9); `detect-layout.py`'s `classify_flat` (Task 1); `state-record.py`'s `dedupe` and `validate` (Task 2).
@@ -2622,7 +2622,7 @@ Task 11 adds `gate`, `write`, `verify_against_plan` and `dispose` to this same f
 
 - [ ] **Step 1: Write the failing test**
 
-Create `skills/l3io-util-doctor/scripts/tests/test-engine.py`:
+Create `skills/l3io-doctor/scripts/tests/test-engine.py`:
 
 ```python
 #!/usr/bin/env -S uv run --quiet --script
@@ -2761,12 +2761,12 @@ if __name__ == "__main__":
 
 - [ ] **Step 2: Run it to verify it fails**
 
-Run: `uv run skills/l3io-util-doctor/scripts/tests/test-engine.py`
+Run: `uv run skills/l3io-doctor/scripts/tests/test-engine.py`
 Expected: FAIL — `migrate-engine.py` does not exist.
 
 - [ ] **Step 3: Implement the read-only half**
 
-Create `skills/l3io-util-doctor/scripts/migrate-engine.py`:
+Create `skills/l3io-doctor/scripts/migrate-engine.py`:
 
 ```python
 #!/usr/bin/env -S uv run --quiet --script
@@ -2967,7 +2967,7 @@ if __name__ == "__main__":
 
 - [ ] **Step 4: Run the tests**
 
-Run: `uv run skills/l3io-util-doctor/scripts/tests/test-engine.py`
+Run: `uv run skills/l3io-doctor/scripts/tests/test-engine.py`
 Expected: PASS (18 tests), including `test_every_fixture_directory_has_a_reader`.
 
 - [ ] **Step 5: Prove the fixture-corpus test is not vacuous**
@@ -2975,15 +2975,15 @@ Expected: PASS (18 tests), including `test_every_fixture_directory_has_a_reader`
 Temporarily rename one fixture directory:
 
 ```bash
-mv skills/l3io-util-doctor/scripts/tests/fixtures/split \
-   skills/l3io-util-doctor/scripts/tests/fixtures/split-moved
-uv run skills/l3io-util-doctor/scripts/tests/test-engine.py -k FixtureCorpus
+mv skills/l3io-doctor/scripts/tests/fixtures/split \
+   skills/l3io-doctor/scripts/tests/fixtures/split-moved
+uv run skills/l3io-doctor/scripts/tests/test-engine.py -k FixtureCorpus
 ```
 Expected: **FAIL**. If it passes, the test is not doing its job — fix it before restoring.
 
 ```bash
-mv skills/l3io-util-doctor/scripts/tests/fixtures/split-moved \
-   skills/l3io-util-doctor/scripts/tests/fixtures/split
+mv skills/l3io-doctor/scripts/tests/fixtures/split-moved \
+   skills/l3io-doctor/scripts/tests/fixtures/split
 ```
 
 - [ ] **Step 6: Regenerate the manifest and run the gates**
@@ -2996,9 +2996,9 @@ npm run check:docs && npm run check:scripts && npm run check:module && npm run c
 - [ ] **Step 7: Commit**
 
 ```bash
-git add skills/l3io-util-doctor/scripts/migrate-engine.py \
-        skills/l3io-util-doctor/scripts/tests/test-engine.py \
-        skills/l3io-util-doctor/payload-manifest.json
+git add skills/l3io-doctor/scripts/migrate-engine.py \
+        skills/l3io-doctor/scripts/tests/test-engine.py \
+        skills/l3io-doctor/payload-manifest.json
 git commit -s -m "feat(l3io-util): migration engine, read-only half
 
 detect -> read -> resolve -> plan. Detection checks the split layout before the
@@ -3013,8 +3013,8 @@ set, so deleting a fixture fails the suite."
 ## Task 11: The engine — gate, write, verify, dispose
 
 **Files:**
-- Modify: `skills/l3io-util-doctor/scripts/migrate-engine.py`
-- Modify: `skills/l3io-util-doctor/scripts/tests/test-engine.py`
+- Modify: `skills/l3io-doctor/scripts/migrate-engine.py`
+- Modify: `skills/l3io-doctor/scripts/tests/test-engine.py`
 
 **Interfaces:**
 - Consumes: from Task 10 — `detect`, `gather`, `build_plan`, `source_is_empty`, `render_plan`, `READERS`, `_split.SPLIT_FILES`. From Task 4 — the `pm-status.py import-node` CLI.
@@ -3027,7 +3027,7 @@ set, so deleting a fixture fails the suite."
 
 - [ ] **Step 1: Write the failing tests**
 
-Append to `skills/l3io-util-doctor/scripts/tests/test-engine.py`:
+Append to `skills/l3io-doctor/scripts/tests/test-engine.py`:
 
 ```python
 REPO = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(HERE))))
@@ -3163,7 +3163,7 @@ class TestWriteVerifyDispose(unittest.TestCase):
 
 - [ ] **Step 2: Run it to verify it fails**
 
-Run: `uv run skills/l3io-util-doctor/scripts/tests/test-engine.py -k Gate`
+Run: `uv run skills/l3io-doctor/scripts/tests/test-engine.py -k Gate`
 Expected: FAIL — `module 'migrate_engine' has no attribute 'gate'`
 
 - [ ] **Step 3: Implement the gate**
@@ -3387,14 +3387,14 @@ And replace the tail of `main()` (everything after `plan = build_plan(...)`) wit
 
 - [ ] **Step 6: Run the full engine suite**
 
-Run: `uv run skills/l3io-util-doctor/scripts/tests/test-engine.py`
+Run: `uv run skills/l3io-doctor/scripts/tests/test-engine.py`
 Expected: PASS (33 tests), including the gate BLOCK case, the corrupted-node verify case, and idempotency.
 
 - [ ] **Step 7: Prove the gate test actually exercises the gate**
 
 Temporarily change `gate()`'s first branch to `return None`:
 
-Run: `uv run skills/l3io-util-doctor/scripts/tests/test-engine.py -k test_non_empty_source_with_empty_plan_BLOCKS`
+Run: `uv run skills/l3io-doctor/scripts/tests/test-engine.py -k test_non_empty_source_with_empty_plan_BLOCKS`
 Expected: **FAIL**. If it passes, the test is not exercising the gate — fix the test before restoring the code.
 
 Restore `gate()` and re-run the whole suite.
@@ -3409,9 +3409,9 @@ npm run check:docs && npm run check:scripts && npm run check:module && npm run c
 - [ ] **Step 9: Commit**
 
 ```bash
-git add skills/l3io-util-doctor/scripts/migrate-engine.py \
-        skills/l3io-util-doctor/scripts/tests/test-engine.py \
-        skills/l3io-util-doctor/payload-manifest.json
+git add skills/l3io-doctor/scripts/migrate-engine.py \
+        skills/l3io-doctor/scripts/tests/test-engine.py \
+        skills/l3io-doctor/payload-manifest.json
 git commit -s -m "feat(l3io-util): the gate, the write, and verification against the plan
 
 The gate sits before the write, so an empty parse cannot reach disposal whatever
@@ -3453,9 +3453,9 @@ test('check 26: scope is derived from the tree, not enumerated', () => {
   const { scannedFiles } = resolverInvariant()
   assert.ok(scannedFiles.length > 20,
     `expected the scan to reach the whole skills tree, saw ${scannedFiles.length}`)
-  assert.ok(scannedFiles.some(f => f.includes('l3io-util-doctor')),
+  assert.ok(scannedFiles.some(f => f.includes('l3io-doctor')),
     'the doctor must be in scope')
-  assert.ok(scannedFiles.some(f => f.includes('l3io-pm-execute')),
+  assert.ok(scannedFiles.some(f => f.includes('l3io-execute')),
     'every skill must be in scope, not only the doctor')
 })
 
@@ -3649,8 +3649,8 @@ the cleanup is measured against it. Tasks 13 and 14 remove those sites."
 ## Task 13: Rewrite `migrate-state.md` around the engine
 
 **Files:**
-- Rewrite: `skills/l3io-util-doctor/assets/migrate-state.md` (817 lines → roughly 150)
-- Modify: `skills/l3io-util-doctor/steps/migrate-state.md` if its forwarder names removed stages
+- Rewrite: `skills/l3io-doctor/assets/migrate-state.md` (817 lines → roughly 150)
+- Modify: `skills/l3io-doctor/steps/migrate-state.md` if its forwarder names removed stages
 
 **Interfaces:**
 - Consumes: `migrate-engine.py`'s `--plan` and `--apply` CLI (Tasks 10-11); `detect-layout.py --classify` (Task 1).
@@ -3661,14 +3661,14 @@ the cleanup is measured against it. Tasks 13 and 14 remove those sites."
 - [ ] **Step 1: Record what the old file did, before replacing it**
 
 ```bash
-grep -n 'mkdir -p\|^write \|rm -f' skills/l3io-util-doctor/assets/migrate-state.md \
+grep -n 'mkdir -p\|^write \|rm -f' skills/l3io-doctor/assets/migrate-state.md \
   | tee /tmp/migrate-state-old-sites.txt
-wc -l skills/l3io-util-doctor/assets/migrate-state.md
+wc -l skills/l3io-doctor/assets/migrate-state.md
 ```
 
 - [ ] **Step 2: Replace the file**
 
-Replace the entire contents of `skills/l3io-util-doctor/assets/migrate-state.md` with:
+Replace the entire contents of `skills/l3io-doctor/assets/migrate-state.md` with:
 
 ````markdown
 ## Migrate State Mode
@@ -3741,7 +3741,7 @@ against the plan, and only then renames the source aside.
 ```
 DONE — migrated {n} node(s) to {pm_state_root}.
   The previous source is preserved as *.legacy.
-  Run `/l3io-util-doctor stats` to see the result.
+  Run `/l3io-doctor stats` to see the result.
 ```
 
 **Exit 1 with `BLOCKED:`** — the gate refused. Nothing was written and the source is
@@ -3777,7 +3777,7 @@ uv run {pm_status} append-issue --state-root {pm_state_root} --epic {epic_key} \
 - [ ] **Step 3: Update the forwarder if it names removed stages**
 
 ```bash
-cat skills/l3io-util-doctor/steps/migrate-state.md
+cat skills/l3io-doctor/steps/migrate-state.md
 ```
 
 If it names Stages A-F, rewrite it to name Steps MS1-MS7. If it only points at
@@ -3786,7 +3786,7 @@ If it names Stages A-F, rewrite it to name Steps MS1-MS7. If it only points at
 - [ ] **Step 4: Verify every old site is gone**
 
 ```bash
-grep -n 'mkdir -p\|^write \|rm -f' skills/l3io-util-doctor/assets/migrate-state.md
+grep -n 'mkdir -p\|^write \|rm -f' skills/l3io-doctor/assets/migrate-state.md
 ```
 Expected: no output.
 
@@ -3808,9 +3808,9 @@ npm run check:scripts && npm run check:module && npm run check:version && npm ru
 - [ ] **Step 7: Commit**
 
 ```bash
-git add skills/l3io-util-doctor/assets/migrate-state.md \
-        skills/l3io-util-doctor/steps/migrate-state.md \
-        skills/l3io-util-doctor/payload-manifest.json
+git add skills/l3io-doctor/assets/migrate-state.md \
+        skills/l3io-doctor/steps/migrate-state.md \
+        skills/l3io-doctor/payload-manifest.json
 git commit -s -m "refactor(l3io-util): migrate-state is prose around the engine
 
 817 lines of untested procedure become detect, explain, confirm and interpret.
@@ -3827,7 +3827,7 @@ check 26 still fails, now naming only bootstrap-state.md. Task 14 closes it."
 ## Task 14: Rewrite `bootstrap-state.md` around the engine
 
 **Files:**
-- Rewrite: `skills/l3io-util-doctor/steps/bootstrap-state.md`
+- Rewrite: `skills/l3io-doctor/steps/bootstrap-state.md`
 
 **Interfaces:**
 - Consumes: `migrate-engine.py`'s `--plan`/`--apply` with the `artifacts` layout, served by Task 9's reader.
@@ -3839,12 +3839,12 @@ check 26 still fails, now naming only bootstrap-state.md. Task 14 closes it."
 
 ```bash
 grep -n 'mkdir -p\|pm_state_root}/{status_dir}\|write_node\|ruamel' \
-  skills/l3io-util-doctor/steps/bootstrap-state.md | tee /tmp/bootstrap-old-sites.txt
+  skills/l3io-doctor/steps/bootstrap-state.md | tee /tmp/bootstrap-old-sites.txt
 ```
 
 - [ ] **Step 2: Replace the file**
 
-Replace the entire contents of `skills/l3io-util-doctor/steps/bootstrap-state.md` with:
+Replace the entire contents of `skills/l3io-doctor/steps/bootstrap-state.md` with:
 
 ````markdown
 ## Bootstrap State Mode
@@ -3921,7 +3921,7 @@ skipped, never overwritten, so re-running after a partial run is safe.
 ```
 DONE — created {n} state node(s) under {pm_state_root}.
   {i} node(s) marked origin: inferred.
-  Run `/l3io-util-doctor stats` to see the result.
+  Run `/l3io-doctor stats` to see the result.
 ```
 
 **Exit 1 with `BLOCKED:`** — relay the engine's message verbatim. Nothing was written.
@@ -3949,7 +3949,7 @@ and that is correct: an estimate nobody made is a number calibration would learn
 
 ```bash
 grep -n 'mkdir -p\|pm_state_root}/{status_dir}\|write_node\|ruamel' \
-  skills/l3io-util-doctor/steps/bootstrap-state.md
+  skills/l3io-doctor/steps/bootstrap-state.md
 ```
 Expected: no output.
 
@@ -3969,7 +3969,7 @@ npm run check:docs && npm run check:scripts && npm run check:module && \
 uv run skills/_shared/tests/test-pm-status.py
 for t in state-record detect-layout read-l3io-flat read-bmad-flat read-per-epic \
          read-split read-artifacts engine; do
-  uv run skills/l3io-util-doctor/scripts/tests/test-$t.py || echo "FAILED: $t"
+  uv run skills/l3io-doctor/scripts/tests/test-$t.py || echo "FAILED: $t"
 done
 ```
 Expected: all green.
@@ -3977,8 +3977,8 @@ Expected: all green.
 - [ ] **Step 6: Commit**
 
 ```bash
-git add skills/l3io-util-doctor/steps/bootstrap-state.md \
-        skills/l3io-util-doctor/payload-manifest.json
+git add skills/l3io-doctor/steps/bootstrap-state.md \
+        skills/l3io-doctor/payload-manifest.json
 git commit -s -m "refactor(l3io-util): bootstrap-state is prose around the engine
 
 Removes the inline write_node() and all six state-path assembly sites -- the
@@ -3994,8 +3994,8 @@ check 26 is green as of this commit."
 ## Task 15: Documentation and the shipped surface
 
 **Files:**
-- Modify: `CLAUDE.md` — the `pm-status.py` verb paragraph and the `l3io-util-doctor` Module Layout note
-- Modify: `skills/l3io-util-doctor/SKILL.md` — the `migrate-state` and `bootstrap-state` routing rows
+- Modify: `CLAUDE.md` — the `pm-status.py` verb paragraph and the `l3io-doctor` Module Layout note
+- Modify: `skills/l3io-doctor/SKILL.md` — the `migrate-state` and `bootstrap-state` routing rows
 - Modify: `docs/l3io-util-reference.md` — the doctor's documented surface
 
 **Interfaces:**
@@ -4016,7 +4016,7 @@ still exits 3 on a missing node.
 
 - [ ] **Step 2: Update `CLAUDE.md`'s Module Layout note**
 
-Append to the `l3io-util-doctor` paragraph:
+Append to the `l3io-doctor` paragraph:
 
 ```
 Its migrations are not prose: `scripts/migrate-engine.py` runs detect → read → resolve →
@@ -4036,7 +4036,7 @@ and `check:module` both judge those.
 - [ ] **Step 4: Confirm `module-help.csv` needs no change**
 
 ```bash
-grep -n 'migrate\|bootstrap' skills/l3io-util-doctor/assets/module-help.csv
+grep -n 'migrate\|bootstrap' skills/l3io-doctor/assets/module-help.csv
 ```
 
 Neither mode currently has a row — only `DR`, `DS` and `DD` do. If that is still true,
@@ -4060,7 +4060,7 @@ npm run check:docs && npm run check:scripts && npm run check:module && \
 uv run skills/_shared/tests/test-pm-status.py
 for t in state-record detect-layout read-l3io-flat read-bmad-flat read-per-epic \
          read-split read-artifacts engine; do
-  uv run skills/l3io-util-doctor/scripts/tests/test-$t.py || echo "FAILED: $t"
+  uv run skills/l3io-doctor/scripts/tests/test-$t.py || echo "FAILED: $t"
 done
 ```
 Expected: all green.
@@ -4068,8 +4068,8 @@ Expected: all green.
 - [ ] **Step 7: Commit**
 
 ```bash
-git add CLAUDE.md skills/l3io-util-doctor/SKILL.md docs/l3io-util-reference.md \
-        skills/l3io-util-doctor/payload-manifest.json
+git add CLAUDE.md skills/l3io-doctor/SKILL.md docs/l3io-util-reference.md \
+        skills/l3io-doctor/payload-manifest.json
 git commit -s -m "docs: the doctor's migrations are an engine, not prose
 
 Records import-node as the fourth verb beyond the status/actuals core, the

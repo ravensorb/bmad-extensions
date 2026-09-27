@@ -31,9 +31,9 @@ This is what decides the module's code, name, and which install-time questions g
 It is per-plugin and it is correct. Measured against this repo:
 
 ```text
-plugin l3io-pm    -> code=l3io-pm    strategy=2  skills/l3io-pm-setup/assets/module.yaml
+plugin l3io-pm    -> code=l3io-pm    strategy=2  skills/l3io-setup/assets/module.yaml
 plugin l3io-sec   -> code=l3io-sec   strategy=3  skills/l3io-sec-redteam/assets/module.yaml
-plugin l3io-util  -> code=l3io-util  strategy=3  skills/l3io-util-doctor/assets/module.yaml
+plugin l3io-util  -> code=l3io-util  strategy=3  skills/l3io-doctor/assets/module.yaml
 plugin l3io-arch  -> code=l3io-arch  strategy=3  skills/l3io-arch-review/assets/module.yaml
 ```
 
@@ -99,7 +99,7 @@ to stop and report "BMad core is not installed" — which is false.
 
 | Module shape | Where `module.yaml` must live | Why |
 | --- | --- | --- |
-| Multi-skill, with a `*-setup` skill (`l3io-pm`) | `skills/l3io-pm-setup/assets/module.yaml` | PluginResolver strategy 2 and `searchRootAll` pattern 5 both read exactly this path |
+| Multi-skill, with a `*-setup` skill (`l3io-pm`) | `skills/l3io-setup/assets/module.yaml` | PluginResolver strategy 2 and `searchRootAll` pattern 5 both read exactly this path |
 | Standalone single-skill (`l3io-sec`, `l3io-util`, `l3io-arch`) | **both** `skills/<skill>/assets/module.yaml` **and** `skills/<skill>/module.yaml`, byte-identical | `assets/` is what PluginResolver strategy 3 and `validate-module.py` read; the **skill root** is the only place `searchRootAll` looks for a non-`*-setup` skill |
 | The repository itself | `skills/module.yaml`, declaring **no** `code:`, **no** `name:`, **no** `agents:` | it is `searchRootAll`'s first candidate, so it is what the local branch's `all[0]` returns for every module; with no `code:` the section key falls back to each module's own name (`manifest-generator.js:560`), and with no `agents:` no agent block is emitted more than once |
 
@@ -110,9 +110,9 @@ Measured on the **URL-source** path (the documented consumer path), before and a
 
 ```text
 before (assets/ only)                  after (skill-root copies added)
-  l3io-pm   -> l3io-pm-setup/assets/     l3io-pm   -> skills/l3io-pm-setup/assets/module.yaml
+  l3io-pm   -> l3io-setup/assets/     l3io-pm   -> skills/l3io-setup/assets/module.yaml
   l3io-sec  -> NULL                      l3io-sec  -> skills/l3io-sec-redteam/module.yaml
-  l3io-util -> NULL                      l3io-util -> skills/l3io-util-doctor/module.yaml
+  l3io-util -> NULL                      l3io-util -> skills/l3io-doctor/module.yaml
   l3io-arch -> NULL                      l3io-arch -> skills/l3io-arch-review/module.yaml
 ```
 

@@ -69,15 +69,15 @@ test("scope attack: a producer in a new file in a new directory is caught", (t) 
 
 test("a producer inside a SKILL.md is caught", (t) => {
   const root = fixture(t);
-  write(root, "skills/l3io-pm-help/SKILL.md", "\n" + UNPOINTED, true);
+  write(root, "skills/l3io-help/SKILL.md", "\n" + UNPOINTED, true);
   const r = run(root);
   assert.equal(r.status, 1);
-  assert.match(r.stderr, /l3io-pm-help\/SKILL\.md:\d+: append-issue without --description/);
+  assert.match(r.stderr, /l3io-help\/SKILL\.md:\d+: append-issue without --description/);
 });
 
 test("a producer inside a skill's assets/ is caught", (t) => {
   const root = fixture(t);
-  write(root, "skills/l3io-util-doctor/assets/brand-new.md", UNPOINTED);
+  write(root, "skills/l3io-doctor/assets/brand-new.md", UNPOINTED);
   const r = run(root);
   assert.equal(r.status, 1);
   assert.match(r.stderr, /assets\/brand-new\.md:\d+/);
@@ -195,9 +195,9 @@ test("check 4: spec-align names in backticks are not read as pm-status subcomman
 // The hand-kept prefix list in the forward arm's fallback (the ^(set|estimate|move|archive|
 // append|list|check|clear|self)- test) judges any hyphenated backtick token in that shape, on
 // any line, even one that names neither pm-status.py nor {pm_status}. `check-deps` (a
-// l3io-util-doctor mode keyword) and `check-ignore` (git's own subcommand) both start with
+// l3io-doctor mode keyword) and `check-ignore` (git's own subcommand) both start with
 // "check-", so both used to be misjudged as claimed pm-status.py subcommands.
-test("check 4: an l3io-util-doctor mode keyword (check-deps) is not read as a claimed pm-status subcommand", (t) => {
+test("check 4: an l3io-doctor mode keyword (check-deps) is not read as a claimed pm-status subcommand", (t) => {
   const root = fixture(t);
   write(root, "CLAUDE.md", "\nSee `check-deps` for the BMad dependency report.\n", true);
   const r = run(root);
@@ -237,7 +237,7 @@ test("check 10: a spec-align.py subcommand missing from its own docstring is cau
 
 test("check 13: a pattern added to layout-cleanup alone is caught", (t) => {
   const root = fixture(t);
-  const rel = "skills/l3io-util-doctor/steps/layout-cleanup.md";
+  const rel = "skills/l3io-doctor/steps/layout-cleanup.md";
   const text = fs.readFileSync(path.join(root, rel), "utf8");
   write(root, rel, text.replace("`*tech-design*`", "`*tech-design*`, `*blueprint*`"));
   const r = run(root);
@@ -276,7 +276,7 @@ test("check 14: the old ADR home in a new directory is caught", (t) => {
 
 test("check 14: the old ADR glob inside a fence is caught", (t) => {
   const root = fixture(t);
-  write(root, "skills/l3io-util-doctor/assets/brand-new.md",
+  write(root, "skills/l3io-doctor/assets/brand-new.md",
         "```\nls {implementation_artifacts}/epic-*/arch/*.md\n```\n");
   const r = run(root);
   assert.equal(r.status, 1);
@@ -336,7 +336,7 @@ test("check 14: a genuine new sentence after the qualifier is still caught", (t)
 
 // Same source of truth check 15 itself counts from: .md files under doctor's steps/.
 function realModeCount(root) {
-  return fs.readdirSync(path.join(root, "skills", "l3io-util-doctor", "steps"))
+  return fs.readdirSync(path.join(root, "skills", "l3io-doctor", "steps"))
     .filter((f) => f.endsWith(".md")).length;
 }
 
@@ -382,8 +382,8 @@ test("check 15 scope attack: a new steps file plus its routing row, prose unchan
   const word = claudeModeWord(root);
   assert.equal(NUMBER_WORDS.indexOf(word), n,
     "fixture's CLAUDE.md claim should match the real steps/ count before this test mutates it");
-  write(root, "skills/l3io-util-doctor/steps/zzz-extra-mode.md", "# Extra mode\n");
-  const rel = "skills/l3io-util-doctor/SKILL.md";
+  write(root, "skills/l3io-doctor/steps/zzz-extra-mode.md", "# Extra mode\n");
+  const rel = "skills/l3io-doctor/SKILL.md";
   const text = fs.readFileSync(path.join(root, rel), "utf8");
   // Anchored on the check-deps routing row rather than a literal that carries prose: the
   // stats row was this anchor until its Notes cell was reworded, and the replace silently
@@ -401,7 +401,7 @@ test("check 15 scope attack: a new steps file plus its routing row, prose unchan
 test("check 15: a steps file with no routing row trips the derivations-disagree branch", (t) => {
   const root = fixture(t);
   const n = realModeCount(root);
-  write(root, "skills/l3io-util-doctor/steps/zzz-orphan-mode.md", "# Orphan mode\n");
+  write(root, "skills/l3io-doctor/steps/zzz-orphan-mode.md", "# Orphan mode\n");
   const r = run(root);
   assert.equal(r.status, 1);
   assert.match(r.stderr, new RegExp(
@@ -414,7 +414,7 @@ test("check 15: a steps file with no routing row trips the derivations-disagree 
 // so the planted violations below go into new files, a new skills/ directory, and a module.yaml,
 // not only into files the check's author happened to think of.
 
-const DEP_INV = "skills/l3io-util-doctor/assets/bmad-dependencies.json";
+const DEP_INV = "skills/l3io-doctor/assets/bmad-dependencies.json";
 
 // Rewrites the fixture's REAL inventory through JSON.parse/stringify, so what is tested is the
 // schema the check reads, not a hand-built stand-in.
@@ -426,7 +426,7 @@ function editInventory(root, mutate) {
 
 test("check 16: an undeclared bmad-* token is caught", (t) => {
   const root = fixture(t);
-  write(root, "skills/l3io-pm-execute/steps/x-undeclared.md",
+  write(root, "skills/l3io-execute/steps/x-undeclared.md",
         "Spawn `bmad-frobnicate` with the story path.\n");
   const r = run(root);
   assert.equal(r.status, 1, r.stdout);
@@ -435,7 +435,7 @@ test("check 16: an undeclared bmad-* token is caught", (t) => {
 
 test("check 16: a step file dispatching a removed skill fails", (t) => {
   const root = fixture(t);
-  write(root, "skills/l3io-pm-execute/steps/x.md",
+  write(root, "skills/l3io-execute/steps/x.md",
         "Spawn `bmad-architect` subagent with the story path.\n");
   const r = run(root);
   assert.equal(r.status, 1, r.stdout);
@@ -486,7 +486,7 @@ test("check 16: the real tree passes", (t) => {
 
 test("check 16: a removed skill named beside its replacement is allowed", (t) => {
   const root = fixture(t);
-  write(root, "skills/l3io-pm-execute/steps/x-mapped.md",
+  write(root, "skills/l3io-execute/steps/x-mapped.md",
         "Migrated: `bmad-architect` is now `bmad-architecture`.\n");
   const r = run(root, ["-v"]);
   assert.equal(r.status, 0, r.stderr + r.stdout);
@@ -496,7 +496,7 @@ test("check 16: a removed skill named beside its replacement is allowed", (t) =>
 
 test("check 16: a removed skill on a line saying legacy is allowed", (t) => {
   const root = fixture(t);
-  write(root, "skills/l3io-pm-execute/steps/x-legacy.md",
+  write(root, "skills/l3io-execute/steps/x-legacy.md",
         "The `bmad-ux-review` name is legacy.\n");
   const r = run(root, ["-v"]);
   assert.equal(r.status, 0, r.stderr + r.stdout);
@@ -511,7 +511,7 @@ test("check 16: a removed skill on a line saying legacy is allowed", (t) => {
 // whole joined file leaves this case failing exactly as before, i.e. green.
 test("check 16: 'removed' is not an evidence arm, so it never excuses a dispatch", (t) => {
   const root = fixture(t);
-  write(root, "skills/l3io-pm-execute/steps/x-window.md",
+  write(root, "skills/l3io-execute/steps/x-window.md",
         "This skill was removed upstream.\n\n\n\nSpawn `bmad-architect` subagent.\n");
   const r = run(root);
   assert.equal(r.status, 1, "check 1's ±4-line window would have allowed this; check 16 must not");
@@ -526,7 +526,7 @@ test("check 16: 'removed' is not an evidence arm, so it never excuses a dispatch
 // line — which is precisely why the failure must come from line 5 and nowhere else.
 test("check 16: the word `legacy` four lines away does NOT excuse a dispatch", (t) => {
   const root = fixture(t);
-  write(root, "skills/l3io-pm-execute/steps/x-window-legacy.md",
+  write(root, "skills/l3io-execute/steps/x-window-legacy.md",
         "The bmad-architect skill is legacy.\n\n\n\nSpawn `bmad-architect` subagent.\n");
   const r = run(root);
   assert.equal(r.status, 1, "evidence must be on the dispatch line; a whole-file test would pass this");
@@ -537,7 +537,7 @@ test("check 16: a leading underscore yields no token (_bmad-output, _bmad-frobni
   const root = fixture(t);
   // _bmad-output is declared not-a-skill, so on its own it would pass either way; the second
   // path is undeclared and fails the moment the lookbehind is dropped from BMAD_TOKEN_RE.
-  write(root, "skills/l3io-pm-execute/steps/x-underscore.md",
+  write(root, "skills/l3io-execute/steps/x-underscore.md",
         "Reports land in `{project-root}/_bmad-output/` and `{project-root}/_bmad-frobnicate/`.\n");
   const r = run(root);
   assert.equal(r.status, 0, r.stderr + r.stdout);
@@ -545,7 +545,7 @@ test("check 16: a leading underscore yields no token (_bmad-output, _bmad-frobni
 
 test("check 16: not-a-skill tokens are skipped via their status", (t) => {
   const root = fixture(t);
-  write(root, "skills/l3io-pm-execute/steps/x-not-a-skill.md",
+  write(root, "skills/l3io-execute/steps/x-not-a-skill.md",
         "The `bmad-defer:` marker in a `bmad-l3io-extensions` checkout.\n");
   const r = run(root);
   assert.equal(r.status, 0, r.stderr + r.stdout);
@@ -575,7 +575,7 @@ test("check 16: a fallback naming an undeclared skill is caught", (t) => {
 // implement tolerance, i.e. it would forbid the fix it exists to protect.
 test("check 16: an existence probe naming a removed skill is allowed", (t) => {
   const root = fixture(t);
-  write(root, "skills/l3io-pm-execute/steps/x-probe.md",
+  write(root, "skills/l3io-execute/steps/x-probe.md",
         "```bash\nls {project-root}/.claude/skills/bmad-architect/SKILL.md 2>/dev/null\n```\n");
   const r = run(root);
   assert.equal(r.status, 0, "a probe line cannot dispatch anything; it must pass");
@@ -586,7 +586,7 @@ test("check 16: an existence probe naming a removed skill is allowed", (t) => {
 // both the weak and the strong predicate, so without this test a revert would be silent.
 test("check 16: a word ending in 'ls' does not make a dispatch line a probe", (t) => {
   const root = fixture(t);
-  write(root, "skills/l3io-pm-execute/steps/x-tools.md",
+  write(root, "skills/l3io-execute/steps/x-tools.md",
         "Check the tools installed under `.claude/skills/` before spawning `bmad-architect`.\n");
   const r = run(root);
   assert.equal(r.status, 1, "'tools ' plus '.claude/' is not an `ls` probe");
@@ -597,14 +597,14 @@ test("check 16: a word ending in 'ls' does not make a dispatch line a probe", (t
 // SUBSTRING of it, so a naive includes() check would let the guard pass its own worst case.
 test("check 16: replaced_by must match as a token, not a substring", (t) => {
   const root = fixture(t);
-  write(root, "skills/l3io-pm-execute/steps/x-substring.md",
+  write(root, "skills/l3io-execute/steps/x-substring.md",
         "Invoke `bmad-ux-review` with the story files.\n");
   const r = run(root);
   assert.equal(r.status, 1, "bmad-ux-review contains 'bmad-ux'; substring matching would pass this");
   assert.match(r.stderr, /dispatches removed skill 'bmad-ux-review'/);
 });
 
-const INVENTORY = path.join("skills", "l3io-util-doctor", "assets", "bmad-dependencies.json");
+const INVENTORY = path.join("skills", "l3io-doctor", "assets", "bmad-dependencies.json");
 
 function setStatus(root, name, patch) {
   const p = path.join(root, INVENTORY);
@@ -640,7 +640,7 @@ test("check 16 fails when a directive prefers a deprecated skill", (t) => {
   setStatus(root, "bmad-dev-story",
     { status: "deprecated", deprecated_in: "6.12.0", replaced_by: "bmad-build",
       removed_in: undefined });
-  write(root, "skills/l3io-pm-execute/steps/scope-attack.md",
+  write(root, "skills/l3io-execute/steps/scope-attack.md",
     "bind `{dev_agent}` = the legacy `bmad-dev-story` and spawn that skill\n");
   const r = run(root);
   assert.equal(r.status, 1);
@@ -652,7 +652,7 @@ test("check 16 still allows a bare existence probe of a deprecated skill", (t) =
   setStatus(root, "bmad-dev-story",
     { status: "deprecated", deprecated_in: "6.12.0", replaced_by: "bmad-build",
       removed_in: undefined });
-  write(root, "skills/l3io-pm-execute/steps/probe-only.md",
+  write(root, "skills/l3io-execute/steps/probe-only.md",
     "ls {project-root}/.claude/skills/bmad-dev-story/SKILL.md 2>/dev/null\n");
   const r = run(root);
   assert.equal(r.status, 0, r.stderr);
@@ -661,14 +661,14 @@ test("check 16 still allows a bare existence probe of a deprecated skill", (t) =
 // Scope attack: both tests above phrase the binding with a verb (bind/spawn/...). A binding
 // phrased as a bare `{placeholder}` = assignment carries none of those verbs and would escape
 // PREFERENCE_RE alone — this is exactly how `steps/plan/step-03-story-elaboration.md:66` stayed
-// invisible to fix-round-1's implementation. Planted in a different skill (l3io-pm-plan) than
+// invisible to fix-round-1's implementation. Planted in a different skill (l3io-plan) than
 // the verb-phrased tests above, so this also proves the check isn't scoped to one skill's files.
 test("check 16 scope attack: an assignment-style binding with no verb is still caught", (t) => {
   const root = fixture(t);
   setStatus(root, "bmad-dev-story",
     { status: "deprecated", deprecated_in: "6.12.0", replaced_by: "bmad-build",
       removed_in: undefined });
-  write(root, "skills/l3io-pm-plan/steps/assignment-attack.md",
+  write(root, "skills/l3io-plan/steps/assignment-attack.md",
     "A path printed → `{dev_agent}` = the legacy `bmad-dev-story`. Nothing printed →\n");
   const r = run(root);
   assert.equal(r.status, 1, r.stdout);
@@ -694,7 +694,7 @@ test("check 16 scope attack: a heading naming a deprecated skill is still caught
 
 test("check 17: a PEP-723 helper invoked with python3 is caught", (t) => {
   const root = fixture(t);
-  write(root, "skills/l3io-pm-execute/steps/bad-invocation.md",
+  write(root, "skills/l3io-execute/steps/bad-invocation.md",
     "```bash\npython3 {pm_status} set-status --state-root x\n```\n");
   const r = run(root);
   assert.equal(r.status, 1);
@@ -703,7 +703,7 @@ test("check 17: a PEP-723 helper invoked with python3 is caught", (t) => {
 
 test("check 17: uv run of the same helper passes", (t) => {
   const root = fixture(t);
-  write(root, "skills/l3io-pm-execute/steps/good-invocation.md",
+  write(root, "skills/l3io-execute/steps/good-invocation.md",
     "```bash\nuv run {pm_status} set-status --state-root x\n```\n");
   const r = run(root);
   assert.equal(r.status, 0, r.stderr);
@@ -711,7 +711,7 @@ test("check 17: uv run of the same helper passes", (t) => {
 
 test("check 17: the documented python3 fallback line is allowed", (t) => {
   const root = fixture(t);
-  write(root, "skills/l3io-pm-execute/steps/fallback.md",
+  write(root, "skills/l3io-execute/steps/fallback.md",
     "If `uv` is unavailable, use `python3` instead.\n");
   const r = run(root);
   assert.equal(r.status, 0, r.stderr);
@@ -722,7 +722,7 @@ test("check 17: the documented python3 fallback line is allowed", (t) => {
 // the check just because it also ends in `.py`.
 test("check 17: word boundary holds and an unrelated uv run line passes", (t) => {
   const root = fixture(t);
-  write(root, "skills/l3io-pm-execute/steps/decoys.md",
+  write(root, "skills/l3io-execute/steps/decoys.md",
     "The option --use-python3 {pm_status} is not real.\n\n" +
     "```bash\nuv run scripts/check.py --flag\n```\n");
   const r = run(root);
@@ -736,19 +736,19 @@ test("check 17: word boundary holds and an unrelated uv run line passes", (t) =>
 // exemption branch must actually fire for the line to pass.
 test("check 17: a same-line uv-unavailable qualifier exempts a real invocation", (t) => {
   const root = fixture(t);
-  write(root, "skills/l3io-pm-execute/steps/same-line-fallback.md",
+  write(root, "skills/l3io-execute/steps/same-line-fallback.md",
     "If `uv` is unavailable, run `python3 {pm_status} verify --state-root x` instead.\n");
   const r = run(root);
   assert.equal(r.status, 0, r.stderr);
 });
 
-// Scope attack: every other check-17 test above plants under skills/l3io-pm-execute/steps/.
+// Scope attack: every other check-17 test above plants under skills/l3io-execute/steps/.
 // This one plants under a different skill AND a different subdirectory (assets/, not steps/)
 // to prove walkMarkdown("skills") actually reaches there rather than the check having been
 // implicitly scoped to steps/ files by every test happening to live in one.
 test("check 17 scope attack: a violation under a different skill's assets/ is caught", (t) => {
   const root = fixture(t);
-  write(root, "skills/l3io-util-doctor/assets/scope-attack.md",
+  write(root, "skills/l3io-doctor/assets/scope-attack.md",
     "```bash\npython3 {skill-root}/scripts/detect-platform.py {project-root}\n```\n");
   const r = run(root);
   assert.equal(r.status, 1);
@@ -861,9 +861,9 @@ for (const [label, line] of [
     "uv run -q --with 'markdown-it-py>=3' --with 'mdit-py-plugins>=0.4' --with 'ruamel.yaml>=0.18' " +
     "--with 'unidiff>=0.7' --with 'tenacity>=8' python3 skills/_shared/tests/test-spec-align.py"],
   ["test-audit-backlog.py",
-    "uv run -q --with 'ruamel.yaml>=0.18' python3 skills/l3io-util-doctor/scripts/tests/test-audit-backlog.py"],
+    "uv run -q --with 'ruamel.yaml>=0.18' python3 skills/l3io-doctor/scripts/tests/test-audit-backlog.py"],
   ["test-bmad-deps.py",
-    "uv run -q --with 'ruamel.yaml>=0.18' python3 skills/l3io-util-doctor/scripts/tests/test-bmad-deps.py"],
+    "uv run -q --with 'ruamel.yaml>=0.18' python3 skills/l3io-doctor/scripts/tests/test-bmad-deps.py"],
 ]) {
   test(`check 17 F-1: real legitimate line (${label}) still passes`, (t) => {
     const root = fixture(t);
@@ -958,7 +958,7 @@ test("check 17 N-3: a `# fallback` comment in a workflow run: line does not exem
 // `uv`-unavailable fallback -- confirms the N-3 scoping is by file type, not a removal.
 test("check 17 N-3: the documented python3 fallback in markdown prose still passes", (t) => {
   const root = fixture(t);
-  write(root, "skills/l3io-pm-execute/steps/fallback-still-allowed.md",
+  write(root, "skills/l3io-execute/steps/fallback-still-allowed.md",
     "If `uv` is unavailable, use `python3 {pm_status} verify --state-root x` instead.\n");
   const r = run(root);
   assert.equal(r.status, 0, r.stderr);
@@ -1040,7 +1040,7 @@ for (const [label, line] of [
 ]) {
   test(`check 17 R-1: prose with ${label} is not a python3 invocation`, (t) => {
     const root = fixture(t);
-    write(root, "skills/l3io-pm-execute/steps/round4-prose.md", `${line}\n`);
+    write(root, "skills/l3io-execute/steps/round4-prose.md", `${line}\n`);
     const r = run(root);
     assert.equal(r.status, 0, r.stderr + r.stdout);
   });
@@ -1074,7 +1074,7 @@ for (const [label, line] of [
 // flag-shape constraint that only ever got exercised on `.py` paths.
 test("check 17 R-1: python3 with flags before a {spec_align} helper token is caught", (t) => {
   const root = fixture(t);
-  write(root, "skills/l3io-pm-execute/steps/round4-helper.md",
+  write(root, "skills/l3io-execute/steps/round4-helper.md",
     "```bash\npython3 -X utf8 -u {spec_align} build\n```\n");
   const r = run(root);
   assert.equal(r.status, 1, r.stdout);
@@ -1491,7 +1491,7 @@ function pep723HelperTokens() {
 for (const token of pep723HelperTokens()) {
   test(`check 17 M-5: a double-quoted {${token}} helper token is still an invocation`, (t) => {
     const root = fixture(t);
-    write(root, "skills/l3io-pm-execute/steps/m5-quoted-helper.md",
+    write(root, "skills/l3io-execute/steps/m5-quoted-helper.md",
       "```bash\n" + `python3 "{${token}}" verify\n` + "```\n");
     const r = run(root);
     assert.equal(r.status, 1, r.stdout);
@@ -1529,7 +1529,7 @@ for (const ext of ["yml", "yaml"]) {
 // the indirect wording and says so honestly.
 test("check 17 M-7: a bullet-decorated directive is caught with the indirect wording", (t) => {
   const root = fixture(t);
-  write(root, "skills/l3io-pm-execute/steps/m7-bullet.md",
+  write(root, "skills/l3io-execute/steps/m7-bullet.md",
     "- python3 {pm_status} set-status --state-root x\n");
   const r = run(root);
   assert.equal(r.status, 1, r.stdout);
@@ -1543,7 +1543,7 @@ test("check 17 M-7: a bullet-decorated directive is caught with the indirect wor
 // sequence and nothing exempted it.
 test("check 17 M-7: a table-cell directive is caught with the direct wording", (t) => {
   const root = fixture(t);
-  write(root, "skills/l3io-pm-execute/steps/m7-table.md",
+  write(root, "skills/l3io-execute/steps/m7-table.md",
     "| `python3 {pm_status} verify` | wrong |\n");
   const r = run(root);
   assert.equal(r.status, 1, r.stdout);
@@ -1669,7 +1669,7 @@ test("check 19: a reworded claim sentence fails loudly rather than passing", (t)
   const root = fixture(t);
   const p = path.join(root, "docs", "l3io-pm-reference.md");
   const before = fs.readFileSync(p, "utf8");
-  fs.writeFileSync(p, before.replace(/four skills that cover the delivery lifecycle/,
+  fs.writeFileSync(p, before.replace(/five skills that cover the delivery lifecycle/,
     "several skills covering the lifecycle"));
   const r = run(root);
   assert.equal(r.status, 1);
@@ -1713,14 +1713,14 @@ test("check 20: the real tree passes", (t) => {
 //
 // Task 11A fix round 1, H-1: BMad's installer silently drops a skill whose SKILL.md
 // frontmatter fails a strict YAML parse, or whose `name:` disagrees with its directory name.
-// l3io-pm-sync/SKILL.md's unquoted "Modes: setup, push, ..." did exactly this (H-2) and no
+// l3io-sync/SKILL.md's unquoted "Modes: setup, push, ..." did exactly this (H-2) and no
 // other check here would have caught it. These tests plant the same class of break in a
 // DIFFERENT skill than the one that broke in production, so the guard is proven general
 // rather than special-cased to the one file that happened to fail first.
 
 test("check 21: an unquoted colon in a description breaks the YAML parse and is caught", (t) => {
   const root = fixture(t);
-  const p = path.join(root, "skills", "l3io-pm-help", "SKILL.md");
+  const p = path.join(root, "skills", "l3io-help", "SKILL.md");
   const before = fs.readFileSync(p, "utf8");
   const after = before.replace(
     /^description:.*$/m,
@@ -1730,21 +1730,21 @@ test("check 21: an unquoted colon in a description breaks the YAML parse and is 
   fs.writeFileSync(p, after);
   const r = run(root);
   assert.equal(r.status, 1);
-  assert.match(r.stderr, /skills\/l3io-pm-help\/SKILL\.md: frontmatter fails a strict YAML parse/);
+  assert.match(r.stderr, /skills\/l3io-help\/SKILL\.md: frontmatter fails a strict YAML parse/);
 });
 
 test("check 21: a frontmatter name that disagrees with the directory name is caught", (t) => {
   const root = fixture(t);
-  const p = path.join(root, "skills", "l3io-pm-plan", "SKILL.md");
+  const p = path.join(root, "skills", "l3io-plan", "SKILL.md");
   const before = fs.readFileSync(p, "utf8");
-  const after = before.replace(/^name: l3io-pm-plan$/m, "name: l3io-pm-plan-renamed");
+  const after = before.replace(/^name: l3io-plan$/m, "name: l3io-plan-renamed");
   assert.notEqual(before, after, "fixture SKILL.md did not contain the expected name line");
   fs.writeFileSync(p, after);
   const r = run(root);
   assert.equal(r.status, 1);
   assert.match(
     r.stderr,
-    /skills\/l3io-pm-plan\/SKILL\.md: frontmatter 'name: l3io-pm-plan-renamed' does not match its directory name 'l3io-pm-plan'/,
+    /skills\/l3io-plan\/SKILL\.md: frontmatter 'name: l3io-plan-renamed' does not match its directory name 'l3io-plan'/,
   );
 });
 
@@ -1757,17 +1757,17 @@ test("check 21: the real tree's SKILL.md frontmatter all strict-parse and match 
 
 test("check 21: a frontmatter name rendered as a non-string type shows the actual type, not a stringified join", (t) => {
   const root = fixture(t);
-  const p = path.join(root, "skills", "l3io-util-doctor", "SKILL.md");
+  const p = path.join(root, "skills", "l3io-doctor", "SKILL.md");
   const before = fs.readFileSync(p, "utf8");
-  const after = before.replace(/^name: l3io-util-doctor$/m, "name: [l3io-util-doctor, other]");
+  const after = before.replace(/^name: l3io-doctor$/m, "name: [l3io-doctor, other]");
   assert.notEqual(before, after, "fixture SKILL.md did not contain the expected name line");
   fs.writeFileSync(p, after);
   const r = run(root);
   assert.equal(r.status, 1);
   // Fix round 2, N-2: a template-literal join used to render this as the misleading
-  // "name: l3io-util-doctor,other" (looks like a near-miss typo). JSON.stringify shows the
+  // "name: l3io-doctor,other" (looks like a near-miss typo). JSON.stringify shows the
   // real shape -- a list -- instead.
-  assert.match(r.stderr, /frontmatter 'name: \["l3io-util-doctor","other"\]' does not match/);
+  assert.match(r.stderr, /frontmatter 'name: \["l3io-doctor","other"\]' does not match/);
 });
 
 // ---- check 21, `description` (Fix round 2, N-1) ----
@@ -1849,13 +1849,13 @@ test("check 21: a valid non-empty string description does not trip the descripti
 // The arm exists because the commands agents actually run live in skills/**/*.md and were
 // checked by nothing: check 4's live-docs arm reads README/CLAUDE.md/docs only, and judges
 // subcommand NAMES, never flags. Task 12 inlined a `clear-lock --state-root ... --epic ...`
-// into l3io-pm-help, Task 13 put a second copy in l3io-util-doctor, and the two are
+// into l3io-help, Task 13 put a second copy in l3io-doctor, and the two are
 // cross-linked in prose alone.
 //
 // Every plant below goes into a BRAND-NEW file in a BRAND-NEW directory, so each test attacks
 // the scope (is skills/ really walked?) as well as the rule.
 // ---------------------------------------------------------------------------
-const PLANT_FILE = path.join("skills", "l3io-util-doctor", "steps", "brand-new-invocation-dir",
+const PLANT_FILE = path.join("skills", "l3io-doctor", "steps", "brand-new-invocation-dir",
   "planted.md");
 
 function plantInvocation(root, command) {
@@ -1988,7 +1988,7 @@ test("check 4/skills: other subcommands are unaffected by the set-status rule", 
 // under uv from build_parser(), before this check shipped. This pins the alias case, so that
 // simplification fails loudly instead of inventing three phantom violations.
 // This one plants under l3io-pm rather than at PLANT_FILE, because it is the only
-// expect-GREEN plant that names a subcommand l3io-util-doctor does not really run: check 4's
+// expect-GREEN plant that names a subcommand l3io-doctor does not really run: check 4's
 // module-reference arm would rightly demand a docs/l3io-util-reference.md row for it, and this
 // test is about flag ALIASES, not about module documentation. docs/l3io-pm-reference.md
 // documents the whole CLI, so the module arm has nothing to add there. Still a brand-new file
@@ -1998,7 +1998,7 @@ test("check 4/skills: a second spelling registered in the same add_argument() is
   const cli = fs.readFileSync(path.join(root, "skills", "_shared", "pm-status.py"), "utf8");
   assert.match(cli, /add_argument\(\s*"--elapsed-hours",\s*"--time-hours"/,
     "pm-status.py no longer registers --time-hours as an alias; this test needs a new one");
-  write(root, path.join("skills", "l3io-pm-execute", "steps", "brand-new-alias-dir", "planted.md"),
+  write(root, path.join("skills", "l3io-execute", "steps", "brand-new-alias-dir", "planted.md"),
     ["# Planted", "", "```bash",
      "uv run {pm_status} set-estimate --state-root {r} --story {s} --time-hours 2",
      "```", ""].join("\n"));
@@ -2027,8 +2027,11 @@ test("check 4/skills: prose naming pm-status.py outside a uv run command is not 
 
 test("check 4/modules: a subcommand a module runs but its reference doc omits is caught", (t) => {
   const root = fixture(t);
-  write(root, "skills/l3io-util-doctor/steps/planted-mode.md",
-    "Run `uv run {pm_status} estimate-story --state-root x --story E001-S01-001`.\n");
+  // Append to an existing mode file rather than adding a new one — a new file with no
+  // matching routing row would trigger check 15's mode-count mismatch first, masking the
+  // subcommand-coverage check the assertion targets.
+  write(root, "skills/l3io-doctor/steps/stats.md",
+    "\nRun `uv run {pm_status} estimate-story --state-root x --story E001-S01-001`.\n", true);
   const r = run(root);
   assert.equal(r.status, 1, r.stdout);
   assert.match(r.stderr,
@@ -2050,25 +2053,25 @@ test("check 4/modules scope attack: a brand-new skill in a module is covered on 
 
 // A per-skill file whose bytes match a skills/_shared/ file is a GENERATED copy of shared
 // contract text, not something the module chose to run -- syncing status-files.md into
-// l3io-util-doctor must not start demanding rows for the subcommands the shared state contract
+// l3io-doctor must not start demanding rows for the subcommands the shared state contract
 // quotes. The exclusion is derived from content, so this plants the same bytes in both places.
 test("check 4/modules: a synced copy of a shared reference demands no row", (t) => {
   const root = fixture(t);
   const body = "# Shared\n\nRun `uv run {pm_status} estimate-story --state-root x --story S`.\n";
   write(root, "skills/_shared/planted-shared.md", body);
-  write(root, "skills/l3io-util-doctor/references/planted-shared.md", body);
+  write(root, "skills/l3io-doctor/references/planted-shared.md", body);
   const r = run(root);
   assert.equal(r.status, 0, r.stderr + r.stdout);
 });
 
 // ...and the control for it: one byte different and it is no longer a synced copy, so the row
 // is demanded again. Without this, the test above would pass just as well if the arm had
-// stopped looking at l3io-util-doctor entirely.
+// stopped looking at l3io-doctor entirely.
 test("check 4/modules: a NEAR-copy of a shared reference is not exempt", (t) => {
   const root = fixture(t);
   const body = "# Shared\n\nRun `uv run {pm_status} estimate-story --state-root x --story S`.\n";
   write(root, "skills/_shared/planted-shared.md", body);
-  write(root, "skills/l3io-util-doctor/references/planted-shared.md", body + "\nLocal note.\n");
+  write(root, "skills/l3io-doctor/references/planted-shared.md", body + "\nLocal note.\n");
   const r = run(root);
   assert.equal(r.status, 1, r.stdout);
   assert.match(r.stderr,
@@ -2159,8 +2162,8 @@ test("LIVE_DOCS scope attack: renaming an excluded tree fails loudly", (t) => {
 // ---------------------------------------------------------------------------
 // Check 22 (readme-repo-layout).
 //
-// The block drifted three times in three consecutive tasks -- the l3io-pm-help row, the
-// l3io-pm-plan row claiming a deleted scripts/, and the l3io-pm-setup row omitting an
+// The block drifted three times in three consecutive tasks -- the l3io-help row, the
+// l3io-plan row claiming a deleted scripts/, and the l3io-setup row omitting an
 // existing references/ -- and nothing read it, so all three survived six green gates.
 // ---------------------------------------------------------------------------
 
@@ -2182,21 +2185,21 @@ test("check 22: a row claiming a directory that does not exist is caught", (t) =
   const root = fixture(t);
   const p = path.join(root, "README.md");
   const before = fs.readFileSync(p, "utf8");
-  const after = before.replace(/^(\s*l3io-pm-help\/\s+.*)$/m, "$1, assets/");
-  assert.notEqual(before, after, "README has no l3io-pm-help Repo Layout row to amend");
+  const after = before.replace(/^(\s*l3io-help\/\s+.*)$/m, "$1, assets/");
+  assert.notEqual(before, after, "README has no l3io-help Repo Layout row to amend");
   fs.writeFileSync(p, after);
   const r = run(root);
   assert.equal(r.status, 1, r.stdout);
   assert.match(r.stderr,
-    /the skills\/l3io-pm-help\/ row lists assets\/, which does not exist on disk/);
+    /the skills\/l3io-help\/ row lists assets\/, which does not exist on disk/);
 });
 
 test("check 22: a directory on disk that no row claims is caught", (t) => {
   const root = fixture(t);
-  write(root, path.join("skills", "l3io-pm-help", "brand-new-dir", "file.md"), "# hi\n");
+  write(root, path.join("skills", "l3io-help", "brand-new-dir", "file.md"), "# hi\n");
   const r = run(root);
   assert.equal(r.status, 1, r.stdout);
-  assert.match(r.stderr, /the skills\/l3io-pm-help\/ row does not list brand-new-dir\//);
+  assert.match(r.stderr, /the skills\/l3io-help\/ row does not list brand-new-dir\//);
 });
 
 // Scope attack: the skill set must come from disk, not from the block's own rows. A checker
@@ -2214,9 +2217,9 @@ test("check 22: a row naming a skill directory that does not exist is caught", (
   const root = fixture(t);
   const p = path.join(root, "README.md");
   const before = fs.readFileSync(p, "utf8");
-  const after = before.replace(/^(\s*l3io-pm-help\/\s+.*)$/m,
+  const after = before.replace(/^(\s*l3io-help\/\s+.*)$/m,
     "  l3io-pm-ghost/        SKILL.md, references/\n$1");
-  assert.notEqual(before, after, "README has no l3io-pm-help Repo Layout row to anchor on");
+  assert.notEqual(before, after, "README has no l3io-help Repo Layout row to anchor on");
   fs.writeFileSync(p, after);
   const r = run(root);
   assert.equal(r.status, 1, r.stdout);
@@ -2242,16 +2245,16 @@ function gitFixture(t) {
 }
 
 // The defect this derivation exists to kill, planted exactly as it occurred: an interpreter
-// left a gitignored __pycache__/ under skills/l3io-pm-plan/scripts/ AFTER that skill's
+// left a gitignored __pycache__/ under skills/l3io-plan/scripts/ AFTER that skill's
 // pm-status.py payload copy was cut, and check 22 -- asking readdirSync -- demanded a README
 // row for a scripts/ directory the repository does not have. The row was correct; the gate was
 // red; there was nothing to fix. Reverting trackedEntries() to readdirSync turns this red.
 test("check 22: a gitignored build artifact under a skill demands no README row", (t) => {
   const root = gitFixture(t);
-  fs.mkdirSync(path.join(root, "skills", "l3io-pm-plan", "scripts", "__pycache__"),
+  fs.mkdirSync(path.join(root, "skills", "l3io-plan", "scripts", "__pycache__"),
     { recursive: true });
   fs.writeFileSync(
-    path.join(root, "skills", "l3io-pm-plan", "scripts", "__pycache__", "x.pyc"), "");
+    path.join(root, "skills", "l3io-plan", "scripts", "__pycache__", "x.pyc"), "");
   const r = run(root);
   assert.equal(r.status, 0, r.stderr + r.stdout);
 });
@@ -2261,13 +2264,13 @@ test("check 22: a gitignored build artifact under a skill demands no README row"
 // naming the set the run actually consulted.
 test("check 22: in a git work tree, a tracked directory no row claims is still caught", (t) => {
   const root = gitFixture(t);
-  const rel = path.join("skills", "l3io-pm-help", "brand-new-dir", "file.md");
+  const rel = path.join("skills", "l3io-help", "brand-new-dir", "file.md");
   write(root, rel, "# hi\n");
   assert.equal(spawnSync("git", ["-C", root, "add", "-f", "--", rel]).status, 0);
   const r = run(root);
   assert.equal(r.status, 1, r.stdout);
   assert.match(r.stderr,
-    /the skills\/l3io-pm-help\/ row does not list brand-new-dir\/, which is tracked in the repository/);
+    /the skills\/l3io-help\/ row does not list brand-new-dir\/, which is tracked in the repository/);
 });
 
 // Scope attack against the git path itself: the untracked-artifact tolerance must not have
@@ -2310,7 +2313,7 @@ test("check 18: CONTRIBUTING.md's check count is read, and a wrong one fails", (
 });
 
 // A command soft-wrapped inside one `...` code span, which is how the second copy of the
-// duplicated clear-lock remedy is written in l3io-util-doctor/steps/stats.md. Without the
+// duplicated clear-lock remedy is written in l3io-doctor/steps/stats.md. Without the
 // open-span join the flags sit on the line after the subcommand and are never judged -- so
 // one copy of the duplication would be checked and the other not, which is the failure this
 // arm exists to prevent. Verified on the real file: planting --epic-key on its second source
@@ -2497,13 +2500,13 @@ test("check 4 catches a real flag given to the wrong subcommand in the synopsis"
 // would pass every test above while checking nothing new here.
 test("scope attack: a digest copy in a skill that had none is checked on arrival", (t) => {
   const root = fixture(t);
-  const rel = "skills/l3io-util-doctor/steps/shared/step-00-digest.md";
+  const rel = "skills/l3io-doctor/steps/shared/step-00-digest.md";
   write(root, rel, fs.readFileSync(path.join(root, DIGEST_REL), "utf8"));
   plantInDigest(root, rel, "also-not-real --state-root S");
   const r = run(root);
   assert.equal(r.status, 1, r.stdout);
   assert.match(r.stderr,
-    /l3io-util-doctor\/steps\/shared\/step-00-digest\.md:\d+: the subagent CLI synopsis documents subcommand 'also-not-real'/);
+    /l3io-doctor\/steps\/shared\/step-00-digest\.md:\d+: the subagent CLI synopsis documents subcommand 'also-not-real'/);
 });
 
 // The other half of the scope question: an arm whose input set can become empty passes in
@@ -2528,7 +2531,7 @@ test("scope attack: removing every digest copy fails rather than passing vacuous
 // M-2(1): an invocation with no literal `uv run` in front of it escaped the arm entirely.
 test("check 4 catches a bare {pm_status} invocation with no uv run", (t) => {
   const root = fixture(t);
-  write(root, "skills/l3io-util-doctor/steps/triage.md",
+  write(root, "skills/l3io-doctor/steps/triage.md",
     "\n| `zz` | `{pm_status} totally-made-up --nope X` |\n", true);
   const r = run(root);
   assert.equal(r.status, 1, r.stdout);
@@ -2542,7 +2545,7 @@ test("check 4 catches a bare {pm_status} invocation with no uv run", (t) => {
 // them stale with every gate green.
 test("check 4 catches a FLAGLESS bare {pm_status} invocation", (t) => {
   const root = fixture(t);
-  write(root, "skills/l3io-util-doctor/steps/triage.md",
+  write(root, "skills/l3io-doctor/steps/triage.md",
     "\n| `zz` | run `{pm_status} totally-made-up` once |\n", true);
   const r = run(root);
   assert.equal(r.status, 1, r.stdout);
@@ -2559,7 +2562,7 @@ test("check 4 catches a FLAGLESS bare {pm_status} invocation", (t) => {
 // "invokes pm-status.py subcommand 'not'". It must not now.
 test("prose naming {pm_status} outside code formatting is not an invocation, flag or no flag", (t) => {
   const root = fixture(t);
-  write(root, "skills/l3io-util-doctor/steps/triage.md", [
+  write(root, "skills/l3io-doctor/steps/triage.md", [
     "",
     "```",
     "BLOCKED: {pm_status} not found. Self-install did not complete --flock — check the path.",
@@ -2578,7 +2581,7 @@ test("prose naming {pm_status} outside code formatting is not an invocation, fla
 // M-2(3): a real flag on the wrong subcommand, in an executed directive rather than a synopsis.
 test("check 4 catches a real flag invoked on a subcommand that does not take it", (t) => {
   const root = fixture(t);
-  write(root, "skills/l3io-util-doctor/steps/triage.md",
+  write(root, "skills/l3io-doctor/steps/triage.md",
     "\n| `zy` | `uv run {pm_status} set-status --state-root S --scope story` |\n", true);
   const r = run(root);
   assert.equal(r.status, 1, r.stdout);
@@ -2592,7 +2595,7 @@ test("check 4 catches a real flag invoked on a subcommand that does not take it"
 // really are required, and listed one BMad had removed. Nothing read it.
 
 const MARKETPLACE_REL = ".claude-plugin/marketplace.json";
-const INVENTORY_REL = "skills/l3io-util-doctor/assets/bmad-dependencies.json";
+const INVENTORY_REL = "skills/l3io-doctor/assets/bmad-dependencies.json";
 
 function readJson(root, rel) {
   return JSON.parse(fs.readFileSync(path.join(root, rel), "utf8"));
@@ -2696,25 +2699,25 @@ function writeSharedReference(root, basename, text) {
 }
 
 // Re-plant one of the pointers this check was built to catch: metrics-contract.md ships to
-// l3io-pm-execute, l3io-pm-plan and l3io-pm-sync, and the sprint-closure step file it cites
-// ships to l3io-pm-execute alone. Reverting the qualifier must turn CI red again.
+// l3io-execute, l3io-plan and l3io-sync, and the sprint-closure step file it cites
+// ships to l3io-execute alone. Reverting the qualifier must turn CI red again.
 test("check 24 catches a re-planted bare pointer in a shared reference", (t) => {
   const root = fixture(t);
   const before = read(root, "skills/_shared/metrics-contract.md");
   const planted = before.replace(
-    "`l3io-pm-execute/steps/sprint/step-04-sprint-closure.md`",
+    "`l3io-execute/steps/sprint/step-04-sprint-closure.md`",
     "`steps/sprint/step-04-sprint-closure.md`");
   assert.notEqual(planted, before, "the qualified pointer is gone — re-anchor this test");
   writeSharedReference(root, "metrics-contract.md", planted);
   const r = run(root);
   assert.equal(r.status, 1, r.stdout);
   assert.match(r.stderr,
-    /metrics-contract\.md:\d+: `steps\/sprint\/step-04-sprint-closure\.md` does not exist in l3io-pm-plan, l3io-pm-sync/);
+    /metrics-contract\.md:\d+: `steps\/sprint\/step-04-sprint-closure\.md` does not exist in l3io-plan, l3io-sync/);
 });
 
 // The same shape in the file that made this class visible: status-files.md is the one shared
-// reference l3io-util-doctor carries, so its onward pointers must hold in a doctor install too.
-test("check 24 catches a bare onward pointer in the reference shipped to l3io-util-doctor", (t) => {
+// reference l3io-doctor carries, so its onward pointers must hold in a doctor install too.
+test("check 24 catches a bare onward pointer in the reference shipped to l3io-doctor", (t) => {
   const root = fixture(t);
   writeSharedReference(root, "status-files.md",
     read(root, "skills/_shared/status-files.md") +
@@ -2722,7 +2725,7 @@ test("check 24 catches a bare onward pointer in the reference shipped to l3io-ut
   const r = run(root);
   assert.equal(r.status, 1, r.stdout);
   assert.match(r.stderr,
-    /status-files\.md:\d+: `references\/calibration-model\.md` does not exist in l3io-util-doctor/);
+    /status-files\.md:\d+: `references\/calibration-model\.md` does not exist in l3io-doctor/);
 });
 
 // THE SCOPE ATTACK. The corpus and the destination set both come from syncGroups, read out of
@@ -2744,7 +2747,7 @@ test("scope attack: a pointer in a newly registered shared file is in scope at o
   const r = run(root);
   assert.equal(r.status, 1, r.stdout);
   assert.match(r.stderr,
-    /step-99-brand-new\.md:\d+: `steps\/execute\/step-05-epic-loop\.md` does not exist in l3io-pm-plan/);
+    /step-99-brand-new\.md:\d+: `steps\/execute\/step-05-epic-loop\.md` does not exist in l3io-plan/);
 });
 
 // A skill-qualified pointer is judged against the skill it names, so the replacement shape
@@ -2753,11 +2756,11 @@ test("check 24 catches a qualified pointer naming a skill that does not carry it
   const root = fixture(t);
   writeSharedReference(root, "config-resolution.md",
     read(root, "skills/_shared/config-resolution.md") +
-    "\nSee `l3io-pm-help/references/metrics-contract.md` for the metrics.\n");
+    "\nSee `l3io-help/references/metrics-contract.md` for the metrics.\n");
   const r = run(root);
   assert.equal(r.status, 1, r.stdout);
   assert.match(r.stderr,
-    /config-resolution\.md:\d+: `l3io-pm-help\/references\/metrics-contract\.md` does not exist in l3io-pm-help/);
+    /config-resolution\.md:\d+: `l3io-help\/references\/metrics-contract\.md` does not exist in l3io-help/);
 });
 
 // FALSE-POSITIVE PIN. The exemption is attribution, and it must hold: a line that names a real
@@ -2768,7 +2771,7 @@ test("check 24 stays green on a bare pointer attributed to a skill that has it",
   const root = fixture(t);
   writeSharedReference(root, "config-resolution.md",
     read(root, "skills/_shared/config-resolution.md") +
-    "\n`l3io-pm-execute`'s own `steps/execute/step-04-arch-gate.md` runs the epic arch gate.\n");
+    "\n`l3io-execute`'s own `steps/execute/step-04-arch-gate.md` runs the epic arch gate.\n");
   const r = run(root);
   assert.equal(r.status, 0, r.stderr + r.stdout);
 });
@@ -2779,7 +2782,7 @@ test("check 24 does not accept attribution to a skill that lacks the file", (t) 
   const root = fixture(t);
   writeSharedReference(root, "config-resolution.md",
     read(root, "skills/_shared/config-resolution.md") +
-    "\n`l3io-pm-help`'s own `steps/execute/step-04-arch-gate.md` runs the epic arch gate.\n");
+    "\n`l3io-help`'s own `steps/execute/step-04-arch-gate.md` runs the epic arch gate.\n");
   const r = run(root);
   assert.equal(r.status, 1, r.stdout);
   assert.match(r.stderr, /`steps\/execute\/step-04-arch-gate\.md` does not exist in/);
@@ -2890,11 +2893,11 @@ test("check 17: `bash -c` around a clean uv run is not a violation", (t) => {
 // check 4 — the facets closed in this round
 // ---------------------------------------------------------------------------
 const DIRECTIVE = (cmd) => "# Probe\n\n```bash\n" + cmd + "\n```\n";
-// The probe lives in an EXISTING subdirectory of l3io-pm-execute, deliberately:
-// skills/l3io-util-doctor/steps/ is where check 15 counts the doctor's modes (a new file
+// The probe lives in an EXISTING subdirectory of l3io-execute, deliberately:
+// skills/l3io-doctor/steps/ is where check 15 counts the doctor's modes (a new file
 // there fails it), and l3io-pm's reference doc is the one that documents every pm-status
 // subcommand, so check 4's module-reference arm has nothing to complain about either.
-const PROBE_MD = "skills/l3io-pm-execute/references/zz-probe.md";
+const PROBE_MD = "skills/l3io-execute/references/zz-probe.md";
 
 test("check 4: a short option on a pm-status.py invocation is caught", (t) => {
   const root = fixture(t);
@@ -3027,7 +3030,7 @@ test("check 4: a doctor mode and a disposition value are not subcommand claims",
 //
 // Task 0C removed five doctor mode keywords by hand. Nothing mechanical would have caught a
 // leftover reference to one: the router sends an unrecognised argument to the health check,
-// so a stale `/l3io-util-doctor overlay` in a runtime directive silently runs a project scan
+// so a stale `/l3io-doctor overlay` in a runtime directive silently runs a project scan
 // instead of erroring. These tests attack the RULE and the SCOPE separately.
 // ---------------------------------------------------------------------------
 
@@ -3037,10 +3040,10 @@ test("check 25: a live doc naming a removed mode keyword is caught", (t) => {
   const root = fixture(t);
   write(root, "docs/l3io-util-reference.md",
     read(root, "docs/l3io-util-reference.md") +
-    "\nRun `/l3io-util-doctor overlay` to inspect the customization layer.\n");
+    "\nRun `/l3io-doctor overlay` to inspect the customization layer.\n");
   const r = run(root);
   assert.equal(r.status, 1, r.stdout);
-  assert.match(r.stderr, /names \/l3io-util-doctor overlay, which is not a keyword/);
+  assert.match(r.stderr, /names \/l3io-doctor overlay, which is not a keyword/);
 });
 
 // SCOPE ATTACK. Deleting a reference from a file the check already reads proves little. This
@@ -3050,11 +3053,11 @@ test("check 25: a live doc naming a removed mode keyword is caught", (t) => {
 // messages, so this is the shape the check exists for.
 test("check 25: scope attack — a stale keyword in a skills/ .py message is caught", (t) => {
   const root = fixture(t);
-  write(root, "skills/l3io-util-doctor/scripts/probe-25.py",
-    '#!/usr/bin/env python3\nprint("Run /l3io-util-doctor rename-epic-dirs first.")\n');
+  write(root, "skills/l3io-doctor/scripts/probe-25.py",
+    '#!/usr/bin/env python3\nprint("Run /l3io-doctor rename-epic-dirs first.")\n');
   const r = run(root);
   assert.equal(r.status, 1, r.stdout);
-  assert.match(r.stderr, /probe-25\.py:2: names \/l3io-util-doctor rename-epic-dirs/);
+  assert.match(r.stderr, /probe-25\.py:2: names \/l3io-doctor rename-epic-dirs/);
 });
 
 // SCOPE ATTACK on the valid set. If the keyword list were hand-kept here, renaming a live
@@ -3067,35 +3070,35 @@ test("check 25: scope attack — a stale keyword in a skills/ .py message is cau
 // bounded by the routing table's header row; this pins that.
 test("check 25: a second table in SKILL.md does not widen the valid keyword set", (t) => {
   const root = fixture(t);
-  const skill = "skills/l3io-util-doctor/SKILL.md";
+  const skill = "skills/l3io-doctor/SKILL.md";
   write(root, skill, read(root, skill) +
     "\n\n## Removed\n\n| Removed keyword | Say instead |\n|---|---|\n" +
     "| `no-such-mode` | something else |\n");
   // The unrelated table must NOT make `no-such-mode` a valid keyword: an invocation of it
   // still has to be caught.
-  write(root, "skills/l3io-util-doctor/scripts/probe-25b.py",
-    '#!/usr/bin/env python3\nprint("Run /l3io-util-doctor no-such-mode first.")\n');
+  write(root, "skills/l3io-doctor/scripts/probe-25b.py",
+    '#!/usr/bin/env python3\nprint("Run /l3io-doctor no-such-mode first.")\n');
   const r = run(root);
   assert.equal(r.status, 1, r.stdout);
-  assert.match(r.stderr, /probe-25b\.py:2: names \/l3io-util-doctor no-such-mode/);
+  assert.match(r.stderr, /probe-25b\.py:2: names \/l3io-doctor no-such-mode/);
 });
 
 test("check 25: scope attack — the valid set follows SKILL.md's routing table", (t) => {
 
   const root = fixture(t);
-  const skill = "skills/l3io-util-doctor/SKILL.md";
+  const skill = "skills/l3io-doctor/SKILL.md";
   const text = read(root, skill);
   assert.ok(text.includes(DOCTOR_TABLE_ROW), "the routing row this test edits must exist");
   write(root, skill, text.replace(DOCTOR_TABLE_ROW, "| `triage-x` | `steps/triage.md` |"));
   const r = run(root);
   assert.equal(r.status, 1, r.stdout);
-  assert.match(r.stderr, /names \/l3io-util-doctor triage, which is not a keyword/);
+  assert.match(r.stderr, /names \/l3io-doctor triage, which is not a keyword/);
 });
 
 // A table that stops parsing must fail loudly, not derive an empty set and pass everything.
 test("check 25: an unparseable routing table fails rather than passing vacuously", (t) => {
   const root = fixture(t);
-  const skill = "skills/l3io-util-doctor/SKILL.md";
+  const skill = "skills/l3io-doctor/SKILL.md";
   write(root, skill, read(root, skill).replace(/^\| `/gm, "| "));
   const r = run(root);
   assert.equal(r.status, 1, r.stdout);
@@ -3108,8 +3111,8 @@ test("check 25: prose after a bare command invocation is not a keyword claim", (
   const root = fixture(t);
   write(root, "docs/glossary.md",
     read(root, "docs/glossary.md") +
-    "\nRun /l3io-util-doctor for a health check, /l3io-util-doctor once per upgrade, or\n" +
-    "/l3io-util-doctor to install the helper.\n");
+    "\nRun /l3io-doctor for a health check, /l3io-doctor once per upgrade, or\n" +
+    "/l3io-doctor to install the helper.\n");
   const r = run(root);
   assert.equal(r.status, 0, r.stderr + r.stdout);
 });
@@ -3119,12 +3122,12 @@ test("check 25: prose after a bare command invocation is not a keyword claim", (
 // load a file that is not there is worse than a stale keyword.
 test("check 25: a step file pointing at a mode file the doctor does not carry is caught", (t) => {
   const root = fixture(t);
-  write(root, "skills/l3io-util-doctor/steps/sort-status.md",
-    read(root, "skills/l3io-util-doctor/steps/sort-status.md") +
+  write(root, "skills/l3io-doctor/steps/sort-status.md",
+    read(root, "skills/l3io-doctor/steps/sort-status.md") +
     "\nApply the fix with `steps/rename-epic-dirs.md` (Rename Epic Dirs Mode).\n");
   const r = run(root);
   assert.equal(r.status, 1, r.stdout);
-  assert.match(r.stderr, /points at steps\/rename-epic-dirs\.md, which skills\/l3io-util-doctor does not carry/);
+  assert.match(r.stderr, /points at steps\/rename-epic-dirs\.md, which skills\/l3io-doctor does not carry/);
 });
 
 // FALSE-POSITIVE PIN for the second arm: a pointer qualified with another skill resolves
@@ -3132,9 +3135,9 @@ test("check 25: a step file pointing at a mode file the doctor does not carry is
 // written this way.
 test("check 25: a cross-skill qualified mode-file pointer is not a doctor pointer", (t) => {
   const root = fixture(t);
-  write(root, "skills/l3io-util-doctor/steps/sort-status.md",
-    read(root, "skills/l3io-util-doctor/steps/sort-status.md") +
-    "\nThe same walk runs in `l3io-pm-help/steps/step-02-detect-layout.md`.\n");
+  write(root, "skills/l3io-doctor/steps/sort-status.md",
+    read(root, "skills/l3io-doctor/steps/sort-status.md") +
+    "\nThe same walk runs in `l3io-help/steps/step-02-detect-layout.md`.\n");
   const r = run(root);
   assert.equal(r.status, 0, r.stderr + r.stdout);
 });
@@ -3147,9 +3150,9 @@ test('check 26: scope is derived from the tree, not enumerated', () => {
   const { scannedFiles } = resolverInvariant()
   assert.ok(scannedFiles.length > 20,
     `expected the scan to reach the whole skills tree, saw ${scannedFiles.length}`)
-  assert.ok(scannedFiles.some(f => f.includes('l3io-util-doctor')),
+  assert.ok(scannedFiles.some(f => f.includes('l3io-doctor')),
     'the doctor must be in scope')
-  assert.ok(scannedFiles.some(f => f.includes('l3io-pm-execute')),
+  assert.ok(scannedFiles.some(f => f.includes('l3io-execute')),
     'every skill must be in scope, not only the doctor')
 })
 

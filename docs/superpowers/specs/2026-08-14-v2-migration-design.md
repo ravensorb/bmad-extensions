@@ -20,9 +20,9 @@ Key changes:
 - `src/` → `skills/` directory rename with flat skill layout
 - State files move to `_bmad/state/` with per-epic sharding
 - Node key schema change: `id:` → `key:` in all state files
-- `l3io-pm-sprint-execute` + `l3io-pm-epic-execute` merged into `l3io-pm-execute`
-- `l3io-pm-plan-execution` renamed to `l3io-pm-plan`
-- Two new skills: `l3io-pm-help`, `l3io-pm-sync` (GitHub Issues only)
+- `l3io-pm-sprint-execute` + `l3io-pm-epic-execute` merged into `l3io-execute`
+- `l3io-plan-execution` renamed to `l3io-plan`
+- Two new skills: `l3io-help`, `l3io-sync` (GitHub Issues only)
 - `l3io-sec-agent-redteam` renamed to `l3io-sec-redteam`
 - New `_bmad/scripts/`: `resolve_config.py`, `memlog.py`
 - `pm-status.py` upgraded to v2.0.0 with six new subcommands and flock-protected writes
@@ -45,12 +45,12 @@ The nesting level also flattens: previously `src/<module>/<skill>/`, now `skills
 
 | Old name | New name | Change |
 |---|---|---|
-| `l3io-pm-sprint-execute` | *(removed)* | merged into `l3io-pm-execute` |
-| `l3io-pm-epic-execute` | *(removed)* | merged into `l3io-pm-execute` |
-| `l3io-pm-plan-execution` | `l3io-pm-plan` | renamed + steps architecture |
-| *(new)* | `l3io-pm-execute` | merges sprint + epic execution |
-| *(new)* | `l3io-pm-help` | new — recommends next action |
-| *(new)* | `l3io-pm-sync` | new — GitHub Issues sync |
+| `l3io-pm-sprint-execute` | *(removed)* | merged into `l3io-execute` |
+| `l3io-pm-epic-execute` | *(removed)* | merged into `l3io-execute` |
+| `l3io-plan-execution` | `l3io-plan` | renamed + steps architecture |
+| *(new)* | `l3io-execute` | merges sprint + epic execution |
+| *(new)* | `l3io-help` | new — recommends next action |
+| *(new)* | `l3io-sync` | new — GitHub Issues sync |
 | `l3io-sec-agent-redteam` | `l3io-sec-redteam` | directory + symlink rename only |
 | `l3io-util-cleanup` | `l3io-util-cleanup` | adds `migrate-state` mode; health check updated |
 | `l3io-arch-review` | `l3io-arch-review` | unchanged |
@@ -196,9 +196,9 @@ Deferred story key assignment: sequential starting after highest `BL-E{epic_id}-
 
 ### Reference file disposal
 
-PM skills (`l3io-pm-execute`, `l3io-pm-plan`, `l3io-pm-sync`) retain only `references/status-files.md` (synced from `_shared/`). All other reference files (`metrics-contract.md`, `cicd-guidelines.md`, `story-loop.md`, `testing-guidelines.md`, `epic-arch-gate.md`, `sprint-execution-loop.md`, `epic-closure.md`, `sprint-closure.md`) are eliminated — their content is absorbed into the step files.
+PM skills (`l3io-execute`, `l3io-plan`, `l3io-sync`) retain only `references/status-files.md` (synced from `_shared/`). All other reference files (`metrics-contract.md`, `cicd-guidelines.md`, `story-loop.md`, `testing-guidelines.md`, `epic-arch-gate.md`, `sprint-execution-loop.md`, `epic-closure.md`, `sprint-closure.md`) are eliminated — their content is absorbed into the step files.
 
-### `l3io-pm-execute`
+### `l3io-execute`
 
 **customize.toml knobs:**
 ```toml
@@ -251,10 +251,10 @@ steps/execute/step-06-epic-closure.md
 
 **module-help.csv:**
 ```
-LiquidLogicLabs PM,l3io-pm-execute,Execute,LPE,"Run the l3io-pm plan — full run or scoped to a single epic or sprint. Dispatches sprint subagents with context injection and writes actuals to state.",execute,[E{nnn}|E{nnn}-S{nn}],execution,l3io-pm-plan:plan,l3io-pm-sync:sync,false,implementation_artifacts,"epic-{nnn}/sprint-{nn}/stories/, epic-{nnn}/sprint-{nn}/closure/, epic-{nnn}/epic-closure/"
+LiquidLogicLabs PM,l3io-execute,Execute,LPE,"Run the l3io-pm plan — full run or scoped to a single epic or sprint. Dispatches sprint subagents with context injection and writes actuals to state.",execute,[E{nnn}|E{nnn}-S{nn}],execution,l3io-plan:plan,l3io-sync:sync,false,implementation_artifacts,"epic-{nnn}/sprint-{nn}/stories/, epic-{nnn}/sprint-{nn}/closure/, epic-{nnn}/epic-closure/"
 ```
 
-### `l3io-pm-plan`
+### `l3io-plan`
 
 **customize.toml knobs:**
 ```toml
@@ -289,7 +289,7 @@ Outputs `plan-output-meta.yaml` to `{planning_artifacts}/`.
 - Writing to `sprint-status-planned.yaml` requires `--flock` flag (hardcoded, not optional)
 - Confidence: `high` if ≥3 calibration samples; `medium` if 1–2; `low` if cold-start
 
-### `l3io-pm-help`
+### `l3io-help`
 
 Single-step skill (no `steps/` subdirectory, no `references/`).
 
@@ -306,16 +306,16 @@ Reads `_bmad/state/` snapshot and applies a priority-ordered decision table:
 | Condition | Recommendation |
 |---|---|
 | No state files, no epics | Run story creation first |
-| No `plan-output-meta.yaml` | Run `/l3io-pm-plan` |
-| Plan readiness = red | Run `/l3io-pm-plan` to resolve gaps |
-| Plan readiness = amber | Run `/l3io-pm-plan` or proceed with `/l3io-pm-execute` |
+| No `plan-output-meta.yaml` | Run `/l3io-plan` |
+| Plan readiness = red | Run `/l3io-plan` to resolve gaps |
+| Plan readiness = amber | Run `/l3io-plan` or proceed with `/l3io-execute` |
 | Stale lock on active epic | Run `pm-status.py clear-lock` for that epic |
-| Active epic, no blocked sprint | Run `/l3io-pm-execute {key}` |
-| No active epics, plan green | Run `/l3io-pm-execute` |
-| All epics done | Run `/l3io-pm-sync` to push closure |
-| Deferred epics remain | Surface count, suggest `/l3io-pm-plan` |
+| Active epic, no blocked sprint | Run `/l3io-execute {key}` |
+| No active epics, plan green | Run `/l3io-execute` |
+| All epics done | Run `/l3io-sync` to push closure |
+| Deferred epics remain | Surface count, suggest `/l3io-plan` |
 
-### `l3io-pm-sync`
+### `l3io-sync`
 
 GitHub Issues only. Modes: `status` (default), `setup`, `push`, `pull`, `sync`.
 
@@ -373,11 +373,11 @@ Scripts (authored fresh, GitHub-only — no ADO):
 **module-help.csv (5 rows):**
 ```
 module,skill,display-name,menu-code,description,action,args,phase,preceded-by,followed-by,required,output-location,outputs
-LiquidLogicLabs PM,l3io-pm-sync,Sync Setup,LPS,Configure GitHub Issues sync connection.,setup,,anytime,,l3io-pm-sync:push,false,_bmad/state,sync-mapping.yaml
-LiquidLogicLabs PM,l3io-pm-sync,Sync Push,LPU,Push l3io-pm state to GitHub Issues.,push,,anytime,l3io-pm-sync:setup,,false,,sync report
-LiquidLogicLabs PM,l3io-pm-sync,Sync Pull,LPL,Pull GitHub Issue status updates into l3io-pm state.,pull,,anytime,l3io-pm-sync:setup,,false,,sync report
-LiquidLogicLabs PM,l3io-pm-sync,Sync,LPC,Bidirectional sync (push then pull).,sync,,anytime,l3io-pm-sync:setup,,false,,sync report
-LiquidLogicLabs PM,l3io-pm-sync,Sync Status,LPT,Show sync drift report between local state and GitHub Issues.,status,,anytime,,,false,,drift report printed to console
+LiquidLogicLabs PM,l3io-sync,Sync Setup,LPS,Configure GitHub Issues sync connection.,setup,,anytime,,l3io-sync:push,false,_bmad/state,sync-mapping.yaml
+LiquidLogicLabs PM,l3io-sync,Sync Push,LPU,Push l3io-pm state to GitHub Issues.,push,,anytime,l3io-sync:setup,,false,,sync report
+LiquidLogicLabs PM,l3io-sync,Sync Pull,LPL,Pull GitHub Issue status updates into l3io-pm state.,pull,,anytime,l3io-sync:setup,,false,,sync report
+LiquidLogicLabs PM,l3io-sync,Sync,LPC,Bidirectional sync (push then pull).,sync,,anytime,l3io-sync:setup,,false,,sync report
+LiquidLogicLabs PM,l3io-sync,Sync Status,LPT,Show sync drift report between local state and GitHub Issues.,status,,anytime,,,false,,drift report printed to console
 ```
 
 ### `l3io-sec-redteam`
@@ -532,12 +532,12 @@ cp -n {skill-root}/scripts/memlog.py {project-root}/_bmad/scripts/memlog.py
 
 Updated for `skills/` root and flat skill layout. New sync manifest:
 
-- `sharedScriptFiles` (`resolve_config.py`, `memlog.py`, `pm-status.py`, `test-pm-status.py`) → `l3io-pm-execute`, `l3io-pm-plan`, `l3io-pm-sync`
+- `sharedScriptFiles` (`resolve_config.py`, `memlog.py`, `pm-status.py`, `test-pm-status.py`) → `l3io-execute`, `l3io-plan`, `l3io-sync`
 - `sharedStepFiles` (`steps/shared/`) → all three PM skills
-- `planStepFiles` → `l3io-pm-plan`
-- `executeStepFiles` → `l3io-pm-execute`
-- `syncStepFiles` → `l3io-pm-sync`
-- `pmRefFiles` (`status-files.md`) → `l3io-pm-execute`, `l3io-pm-plan`, `l3io-pm-sync`
+- `planStepFiles` → `l3io-plan`
+- `executeStepFiles` → `l3io-execute`
+- `syncStepFiles` → `l3io-sync`
+- `pmRefFiles` (`status-files.md`) → `l3io-execute`, `l3io-plan`, `l3io-sync`
 
 Old `pmScriptDirs` and `allPmDirs` arrays emptied (old skills removed at cutover).
 
@@ -547,8 +547,8 @@ Updated glob pattern finds `module.yaml` under `skills/` (flat, `skills/*/module
 
 ### `.claude/commands/` symlinks
 
-Removed: `l3io-pm-sprint-execute`, `l3io-pm-epic-execute`, `l3io-pm-plan-execution`, `l3io-sec-agent-redteam`
-Added: `l3io-pm-execute`, `l3io-pm-plan`, `l3io-pm-help`, `l3io-pm-sync`, `l3io-sec-redteam`
+Removed: `l3io-pm-sprint-execute`, `l3io-pm-epic-execute`, `l3io-plan-execution`, `l3io-sec-agent-redteam`
+Added: `l3io-execute`, `l3io-plan`, `l3io-help`, `l3io-sync`, `l3io-sec-redteam`
 
 ### `.claude-plugin/marketplace.json`
 
@@ -571,9 +571,9 @@ Released via `npm run release:major`.
 Top-level `BREAKING CHANGE` block:
 - State layout: files move to `_bmad/state/`, per-epic sharding in `active/`
 - Node schema: `id:` → `key:` in all state files
-- Skill consolidation: sprint-execute + epic-execute → `l3io-pm-execute`
-- Renamed: `l3io-pm-plan-execution` → `l3io-pm-plan`, `l3io-sec-agent-redteam` → `l3io-sec-redteam`
-- New skills: `l3io-pm-help`, `l3io-pm-sync` (GitHub Issues)
+- Skill consolidation: sprint-execute + epic-execute → `l3io-execute`
+- Renamed: `l3io-plan-execution` → `l3io-plan`, `l3io-sec-agent-redteam` → `l3io-sec-redteam`
+- New skills: `l3io-help`, `l3io-sync` (GitHub Issues)
 - `pm-status.py` v2.0.0: six new subcommands, flock-protected writes, exit code 5 for check-lock
 - New runtime scripts: `resolve_config.py`, `memlog.py`
 - Directory: `src/` → `skills/`, flat skill layout

@@ -193,8 +193,8 @@ of three.
 - `skills/_shared/steps/sprint/step-03-dev-loop.md` — cap
 - `skills/_shared/steps/shared/step-00-activate.md` — restore the `§7` routing row
 
-**Per-skill (not generated):** `customize.toml` in `l3io-pm-execute`, `l3io-pm-plan`,
-`l3io-pm-sync`, `l3io-pm-help`
+**Per-skill (not generated):** `customize.toml` in `l3io-execute`, `l3io-plan`,
+`l3io-sync`, `l3io-help`
 
 **Docs:** `CLAUDE.md` (parallelism paragraph, ATDD optional-dependency claim, fix-cap
 description), `docs/l3io-pm-reference.md` (the §8 phase table and the fix-loop caps it

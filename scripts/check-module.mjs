@@ -57,7 +57,7 @@
 //                            for `l3io-util-cleanup`, a skill that no longer exists.
 //                            The margin at the time this check was written was one file and
 //                            one list entry: `l3io-pm` reaches strategy 2 only because
-//                            `skills/l3io-pm-setup/` is named `*-setup` and carries both
+//                            `skills/l3io-setup/` is named `*-setup` and carries both
 //                            files, and the other three reach strategy 3 only because
 //                            `_trySingleStandalone` requires EXACTLY ONE existing skill --
 //                            adding a second skill to any of their `skills` arrays, with
@@ -336,7 +336,9 @@ function checkModuleHomes(byCode, skills) {
       }
     }
 
-    const siblingCount = skills.filter((s) => s === code || s.startsWith(`${code}-`)).length;
+    // "Which skills belong to this module" — see the shared derivation below.
+    const siblings = siblingsOfCode(code, skills, byCode);
+    const siblingCount = siblings.size;
     if (siblingCount > 1 && !home.endsWith("-setup")) {
       failures.push(
         `module home skills/${home} (code '${code}') is not a *-setup directory, but the ` +
@@ -386,7 +388,7 @@ function parseCsvRows(rel, text) {
 // added skill is picked up automatically.
 function checkPmStatusSingleton(byCode, skills) {
   for (const code of byCode.keys()) {
-    const siblings = skills.filter((s) => s === code || s.startsWith(`${code}-`));
+    const siblings = [...siblingsOfCode(code, skills, byCode)];
     const carriers = siblings.filter((s) => exists(`skills/${s}/scripts/pm-status.py`));
     if (carriers.length > 1) {
       const files = carriers.map((s) => `skills/${s}/scripts/pm-status.py`).join(", ");
@@ -457,6 +459,64 @@ function checkCsvSkillsExist(skills) {
 // Reported per plugin under -v so a reader can see what this concluded, rather than trusting
 // that it concluded anything.
 const MARKETPLACE_REL = ".claude-plugin/marketplace.json";
+
+// "Which skills belong to this module code" derives from three sources, tried in a
+// deliberate order:
+//
+//   1. If a skill's own module.yaml declares a code, THAT is the answer for that skill (source
+//      of truth — a skill that says "I'm code X" cannot be a sibling of code Y).
+//   2. Otherwise, the naming convention `<code>-*` (or exact `<code>`) still applies. The
+//      3.1.3 rename replaced `l3io-pm-execute`/`l3io-pm-plan` with `l3io-execute`/`l3io-plan`
+//      — names that no longer match the l3io-pm convention — so this fallback is not enough
+//      on its own.
+//   3. Otherwise, the plugin's own `skills[]` array in marketplace.json (the source of truth
+//      once a plugin lists them). Also gated by (1): a skill listed in one plugin but
+//      declaring a different code in its own module.yaml belongs to the code it declares,
+//      not the plugin that lists it. Test "check:module passes a two-skill plugin where both
+//      skills carry the module files" pins this: plugin `alpha` lists `alpha` and `beta`,
+//      but `beta` declares `code: beta` and is a sibling of code beta, not alpha.
+//
+// Returns a Set of skill directory names.
+function siblingsOfCode(code, skills, byCode) {
+  // codeOfSkill: skill → declared code (from any of the byCode entries for it), or null.
+  const codeOfSkill = new Map();
+  for (const [c, { assets, root }] of byCode) {
+    for (const { skill } of [...assets, ...root]) {
+      codeOfSkill.set(skill, c);
+    }
+  }
+  const marketplaceSkills = new Set(marketplaceSkillsForCode(code));
+  const out = new Set();
+  for (const s of skills) {
+    const explicit = codeOfSkill.get(s);
+    if (explicit !== undefined) {
+      if (explicit === code) out.add(s);
+      continue;
+    }
+    if (s === code || s.startsWith(`${code}-`)) out.add(s);
+    else if (marketplaceSkills.has(s)) out.add(s);
+  }
+  return out;
+}
+
+// Return the skill directory names declared in marketplace.json for the plugin whose `name`
+// matches the given module code (in this package, the plugin `name` IS the module code).
+// Skill paths like "./skills/l3io-execute" collapse to their leaf directory ("l3io-execute").
+// Any parse or shape error yields an empty list — the check's siblings computation unions
+// this with the naming-convention fallback, so a partial answer here still counts naming
+// matches, and a broken marketplace is already reported by check 8.
+function marketplaceSkillsForCode(code) {
+  if (!exists(MARKETPLACE_REL)) return [];
+  let marketplace;
+  try { marketplace = JSON.parse(read(MARKETPLACE_REL)); } catch { return []; }
+  if (!marketplace || !Array.isArray(marketplace.plugins)) return [];
+  const plugin = marketplace.plugins.find(
+    (p) => p && typeof p === "object" && fieldText(p.name).trim() === code);
+  if (!plugin || !Array.isArray(plugin.skills)) return [];
+  return plugin.skills
+    .map((s) => (typeof s === "string" ? path.basename(s) : ""))
+    .filter(Boolean);
+}
 
 const STRATEGY_NAMES = {
   1: "root module files at the skills' common parent",
@@ -637,11 +697,11 @@ function checkPluginResolverStrategy() {
 // registration and the keyword table are two copies of the same fact in two files. Tasks 1-6
 // of the module-help-registration plan corrected that by hand across four CSVs -- two
 // advertised flags that no skill parsed, a fabricated `args` value, two unregistered
-// `l3io-pm-help` modes and a doctor registering one capability out of twenty-one. Nothing
+// `l3io-help` modes and a doctor registering one capability out of twenty-one. Nothing
 // would have caught any of it, and nothing would catch the next one (repo CLAUDE.md §3: when
 // you write a rule, write the check that enforces it in the same change).
 //
-// THE EXCLUSION SET IS DERIVED, NOT LISTED HERE. `skills/l3io-util-doctor/SKILL.md`'s routing
+// THE EXCLUSION SET IS DERIVED, NOT LISTED HERE. `skills/l3io-doctor/SKILL.md`'s routing
 // table carries a `Menu` column whose value per keyword is:
 //
 //   registered       -- carries its own row, whose `action` column equals the keyword
@@ -664,16 +724,16 @@ function checkPluginResolverStrategy() {
 //
 //   (a) mode files on disk -- a top-level `steps/<name>.md` that is not part of a numbered
 //       `step-NN-*.md` sequence IS a mode (root CLAUDE.md, "Module Layout": add a mode as a
-//       file plus a table row). Sixteen of them under l3io-util-doctor, two under
-//       l3io-pm-help; the sequential step files of the PM skills are not modes and are not
+//       file plus a table row). Sixteen of them under l3io-doctor, two under
+//       l3io-help; the sequential step files of the PM skills are not modes and are not
 //       counted.
 //   (b) the "Recognized keywords" paragraph both real tables sit under, for a skill whose
 //       modes are not one-file-per-mode.
 //
 // KNOWN GAP, stated rather than implied: the check is one-directional per keyword. It does
 // not require every CSV row to map back to a table entry, because three skills
-// (l3io-pm-plan, l3io-pm-sync, l3io-pm-execute) document their modes in prose rather than a
-// routing table, and l3io-pm-help's `status` row is served by its default fallthrough rather
+// (l3io-plan, l3io-sync, l3io-execute) document their modes in prose rather than a
+// routing table, and l3io-help's `status` row is served by its default fallthrough rather
 // than a keyword. Rows whose `action` no skill parses are check 25 of check:docs's territory
 // for the doctor, and nobody's for the rest.
 //
@@ -754,7 +814,7 @@ function modeFiles(skill) {
 function checkHelpRegistration(skills) {
   // Every row of every module-help.csv in the tree, indexed by the skill it registers. A
   // skill's rows do not necessarily live in its own directory: the whole l3io-pm module is
-  // registered from skills/l3io-pm-setup/assets/module-help.csv.
+  // registered from skills/l3io-setup/assets/module-help.csv.
   const actionsBySkill = new Map();
   for (const skill of skills) {
     const rel = `skills/${skill}/assets/module-help.csv`;
@@ -932,7 +992,7 @@ function checkAgentRoster(byCode, skills) {
         );
         continue;
       }
-      const siblings = skills.filter((s) => s === code || s.startsWith(`${code}-`));
+      const siblings = [...siblingsOfCode(code, skills, byCode)];
 
       for (const [i, entry] of roster.entries()) {
         entryCount += 1;

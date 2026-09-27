@@ -23,7 +23,7 @@ enforces all of it; `docs/bmad-module-yaml-discovery.md` has the measured contra
 BMad's `PluginResolver` tries five strategies per plugin in `.claude-plugin/marketplace.json`;
 the fifth **synthesizes** a stub catalog from `SKILL.md` frontmatter and the install still exits
 0, with no warning, ignoring every authored CSV. `l3io-pm` reaches strategy 2 only because
-`skills/l3io-pm-setup/` is named `*-setup` and carries both module files; the other three reach
+`skills/l3io-setup/` is named `*-setup` and carries both module files; the other three reach
 strategy 3 only because `_trySingleStandalone` requires **exactly one** existing skill. Adding a
 second skill to any of those three plugins — nothing deleted, every file where it was — drops
 that module to synthesis. `check:module` rule 8 mirrors the resolver's conditions and fails on

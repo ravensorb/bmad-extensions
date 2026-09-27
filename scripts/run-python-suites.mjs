@@ -5,7 +5,7 @@
  * WHY THIS EXISTS, rather than a list of steps in checks.yml. The workflow named each
  * suite by hand, and the list drifted: seven suites -- test-engine.py and the five
  * reader suites it depends on, plus test-state-record.py -- were written during the
- * l3io-util-doctor redesign and never added to it. They sat on disk passing locally and
+ * l3io-doctor redesign and never added to it. They sat on disk passing locally and
  * unprotected in CI for as long as they existed, including the suite for the migration
  * engine that deletes a project's source layout after its gated write. Nothing reported
  * this, because a hand-kept list cannot notice what is missing from it (CLAUDE.md §4:

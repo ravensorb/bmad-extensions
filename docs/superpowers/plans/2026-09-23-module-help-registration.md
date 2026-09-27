@@ -26,7 +26,7 @@
 
 ## Phase 0 — Cleanup (do these first)
 
-Added after a full audit of all 21 `l3io-util-doctor` modes (`<scratch>/doctor-mode-audit.md`) and a correction to the Step 3 assessment. Registration is **last** because Phase 0 changes what there is to register — Task 5 was going to register `normalize`, which Task 0C deletes.
+Added after a full audit of all 21 `l3io-doctor` modes (`<scratch>/doctor-mode-audit.md`) and a correction to the Step 3 assessment. Registration is **last** because Phase 0 changes what there is to register — Task 5 was going to register `normalize`, which Task 0C deletes.
 
 ---
 
@@ -34,7 +34,7 @@ Added after a full audit of all 21 `l3io-util-doctor` modes (`<scratch>/doctor-m
 
 Each is wrong for real users today, and each was verified against the source, not inferred.
 
-**Files:** `skills/l3io-util-doctor/steps/clean-legacy.md`, `steps/health-check.md`, `steps/triage.md`, `steps/bootstrap-state.md`, `steps/update-ai-rules.md`
+**Files:** `skills/l3io-doctor/steps/clean-legacy.md`, `steps/health-check.md`, `steps/triage.md`, `steps/bootstrap-state.md`, `steps/update-ai-rules.md`
 
 - [ ] **Step 1: `clean-legacy` sweeps a directory the file is never in**
 
@@ -66,7 +66,7 @@ BMad's `PluginResolver` tries five strategies per plugin. **Verified at `plugin-
 
 This already happened to this package: the `_bmad/` tree from 2026-09-14 holds exactly those stub rows, `l3io-util-cleanup` included.
 
-The margin at HEAD is one file and one list entry. `l3io-pm` resolves by strategy 2 only because `skills/l3io-pm-setup/assets/module-help.csv` exists and that directory is named `*-setup`. The other three resolve by strategy 3 only because their plugin lists **exactly one** skill — adding a second silently drops them to synthesis.
+The margin at HEAD is one file and one list entry. `l3io-pm` resolves by strategy 2 only because `skills/l3io-setup/assets/module-help.csv` exists and that directory is named `*-setup`. The other three resolve by strategy 3 only because their plugin lists **exactly one** skill — adding a second silently drops them to synthesis.
 
 - [ ] **Step 1: Write the failing test first**
 
@@ -86,7 +86,7 @@ Confirm the real tree passes, confirm the scope attack fails, revert byte-identi
 
 21 modes → ~14. Every change below carries the audit's evidence; re-derive it rather than trusting this summary.
 
-**Files:** `skills/l3io-util-doctor/SKILL.md` (keyword table), the affected `steps/*.md`, `steps/health-check.md` (its proposals), and every doc naming a removed keyword.
+**Files:** `skills/l3io-doctor/SKILL.md` (keyword table), the affected `steps/*.md`, `steps/health-check.md` (its proposals), and every doc naming a removed keyword.
 
 - [ ] **Step 1: Remove `normalize`**
 
@@ -123,7 +123,7 @@ Six gates green; `check:module`'s mode-count prose and `CLAUDE.md`'s "twenty-one
 The sharpest finding, and the one this repo has explicitly committed to not repeating. `CLAUDE.md` §3 cites it from the project's own history: *"three committed documents prescribed a command-line flag that did not exist; agents followed it for weeks because the instruction read as authoritative."* These sit in the file whose entire purpose is telling an LLM how to invoke these skills.
 
 **Files:**
-- Modify: `skills/l3io-pm-setup/assets/module-help.csv` (the `l3io-pm-plan,Plan` row's `args`)
+- Modify: `skills/l3io-setup/assets/module-help.csv` (the `l3io-plan,Plan` row's `args`)
 - Modify: `skills/l3io-sec-redteam/assets/module-help.csv` (the `args`)
 - Modify: `skills/l3io-sec-redteam/references/first-breath.md:55`
 
@@ -138,13 +138,13 @@ grep -rn -- '--refresh-cache'  skills/ | grep -v module-help.csv
 ```
 Expected: the first returns nothing; the second returns only `first-breath.md:55`. If either returns an implementation, **stop** — the flag is real and the finding is wrong.
 
-- [ ] **Step 2: Confirm how `l3io-pm-plan` actually parses its argument**
+- [ ] **Step 2: Confirm how `l3io-plan` actually parses its argument**
 
-Read `skills/l3io-pm-plan/SKILL.md`'s activation section. It recognises no argument, or an argument beginning `estimate`. There is no flag grammar at all.
+Read `skills/l3io-plan/SKILL.md`'s activation section. It recognises no argument, or an argument beginning `estimate`. There is no flag grammar at all.
 
 - [ ] **Step 3: Empty both `args` cells**
 
-`l3io-pm-plan,Plan` → `args` becomes empty. `l3io-sec-redteam` → `args` becomes empty.
+`l3io-plan,Plan` → `args` becomes empty. `l3io-sec-redteam` → `args` becomes empty.
 
 - [ ] **Step 4: Remove the `--refresh-cache` sentence from `first-breath.md`**
 
@@ -154,7 +154,7 @@ Delete the clause offering the flag. Do not replace it with a different flag; th
 
 ```bash
 npm run check:docs && npm run check:module && npm run check:scripts && npm run check:manifest
-git add skills/l3io-pm-setup/assets/module-help.csv skills/l3io-sec-redteam/assets/module-help.csv skills/l3io-sec-redteam/references/first-breath.md
+git add skills/l3io-setup/assets/module-help.csv skills/l3io-sec-redteam/assets/module-help.csv skills/l3io-sec-redteam/references/first-breath.md
 ```
 Commit message must say both flags were advertised and implemented nowhere.
 
@@ -207,7 +207,7 @@ git add skills/l3io-arch-review/assets/module-help.csv
 Three separate defects in one file; they share a review surface.
 
 **Files:**
-- Modify: `skills/l3io-pm-setup/assets/module-help.csv`
+- Modify: `skills/l3io-setup/assets/module-help.csv`
 
 **Interfaces:**
 - Produces: `Estimate` and `Plan` rows whose metadata matches the skills.
@@ -215,7 +215,7 @@ Three separate defects in one file; they share a review surface.
 - [ ] **Step 1: Prove the `Estimate` output-location is wrong**
 
 ```bash
-grep -n 'plan snapshot\|must not touch' skills/l3io-pm-plan/SKILL.md
+grep -n 'plan snapshot\|must not touch' skills/l3io-plan/SKILL.md
 ```
 `SKILL.md` states estimate mode writes state and must not touch any plan snapshot. The row says `output-location: planning_artifacts`, so completion detection can never match.
 
@@ -225,29 +225,29 @@ State lives under `{implementation_artifacts}/state/`. Use the column value that
 
 - [ ] **Step 3: Fix `Plan`'s `required` flag**
 
-It is `false`, telling `bmad-help` the execution phase has no prerequisite. `l3io-pm-execute` reads `plan-output-meta.yaml` by name. Set `required: true` on the `Plan` row, and verify `Execute`'s `preceded-by` names `Plan`.
+It is `false`, telling `bmad-help` the execution phase has no prerequisite. `l3io-execute` reads `plan-output-meta.yaml` by name. Set `required: true` on the `Plan` row, and verify `Execute`'s `preceded-by` names `Plan`.
 
 - [ ] **Step 4: Fix the `APM` menu code**
 
 Every other `l3io-pm` code is `LP?` (`LPP`, `LPE`, `LPH`, `LPS`, `LPU`, `LPL`, `LPC`, `LPT`). `APM` shares no letter with "Estimate" and collides conceptually with `AR`. Use `LPM` if free, otherwise another free `LP?`. Check the whole package for collisions:
 
 ```bash
-node -e "const {parse}=require('csv-parse/sync');const fs=require('fs');const c=[];for(const f of ['l3io-pm-setup','l3io-util-doctor','l3io-sec-redteam','l3io-arch-review'])for(const r of parse(fs.readFileSync('skills/'+f+'/assets/module-help.csv'),{columns:true}))if(r['menu-code'])c.push(r['menu-code']);console.log(c.sort().join(' '));const d=c.filter((x,i)=>c.indexOf(x)!==i);console.log('dupes:',d.length?d:'none')"
+node -e "const {parse}=require('csv-parse/sync');const fs=require('fs');const c=[];for(const f of ['l3io-setup','l3io-doctor','l3io-sec-redteam','l3io-arch-review'])for(const r of parse(fs.readFileSync('skills/'+f+'/assets/module-help.csv'),{columns:true}))if(r['menu-code'])c.push(r['menu-code']);console.log(c.sort().join(' '));const d=c.filter((x,i)=>c.indexOf(x)!==i);console.log('dupes:',d.length?d:'none')"
 ```
 
 - [ ] **Step 5: Verify and commit**
 
 ```bash
 npm run check:docs && npm run check:module
-git add skills/l3io-pm-setup/assets/module-help.csv
+git add skills/l3io-setup/assets/module-help.csv
 ```
 
 ---
 
-### Task 4: Register `l3io-pm-help`'s two unlisted modes
+### Task 4: Register `l3io-help`'s two unlisted modes
 
 **Files:**
-- Modify: `skills/l3io-pm-setup/assets/module-help.csv`
+- Modify: `skills/l3io-setup/assets/module-help.csv`
 
 **Interfaces:**
 - Consumes: Task 3's menu-code audit command.
@@ -256,10 +256,10 @@ git add skills/l3io-pm-setup/assets/module-help.csv
 - [ ] **Step 1: Confirm the modes and their current routing**
 
 ```bash
-grep -n 'progress\|list plan' skills/l3io-pm-help/SKILL.md | head
-head -4 skills/l3io-pm-help/SKILL.md
+grep -n 'progress\|list plan' skills/l3io-help/SKILL.md | head
+head -4 skills/l3io-help/SKILL.md
 ```
-`progress` is advertised in the skill's own frontmatter description and has no row. Note that `progress` **forwards to `/l3io-util-doctor stats`** — the row must describe what the user gets, and should not duplicate the doctor's own row.
+`progress` is advertised in the skill's own frontmatter description and has no row. Note that `progress` **forwards to `/l3io-doctor stats`** — the row must describe what the user gets, and should not duplicate the doctor's own row.
 
 - [ ] **Step 2: Add two rows**
 
@@ -273,12 +273,12 @@ Because it forwards, its `followed-by` or description must make the forward visi
 
 ```bash
 npm run check:docs && npm run check:module
-git add skills/l3io-pm-setup/assets/module-help.csv
+git add skills/l3io-setup/assets/module-help.csv
 ```
 
 ---
 
-### Task 5: Register `l3io-util-doctor`'s advertised capabilities, and record the exclusion
+### Task 5: Register `l3io-doctor`'s advertised capabilities, and record the exclusion
 
 The largest finding: 21 modes, 1 row. Neither 1 nor 21 is right.
 
@@ -286,13 +286,13 @@ The largest finding: 21 modes, 1 row. Neither 1 nor 21 is right.
 
 - **Guidance** — the module-builder workflow §3: *"Does every distinct capability of every skill have its own CSV row? A skill with multiple modes or actions should have multiple entries."* That argues for ~12 rows.
 - **Practice** — measured in BMad 6.12.0: across `bmm` (16 skills) and `core` (8 skills), **exactly one skill registers more than one row** (`bmad-sprint-planning`, two). The overwhelming convention is one row per skill.
-- **Mechanism** — multi-row *is* supported and documented: `bmad-help/SKILL.md:46` defines `skill-name:action` addressing for multi-action skills, and this package's own `l3io-pm-sync` already uses five rows.
+- **Mechanism** — multi-row *is* supported and documented: `bmad-help/SKILL.md:46` defines `skill-name:action` addressing for multi-action skills, and this package's own `l3io-sync` already uses five rows.
 
-Twelve rows for one skill would make `l3io-util-doctor` the most granularly registered skill in the ecosystem by a wide margin, in a menu shared with every other module. So this task registers **only the capabilities something already advertises and cannot route to** — the evidenced failures — and leaves the rest to the health check, which is what `SKILL.md` says sequences them.
+Twelve rows for one skill would make `l3io-doctor` the most granularly registered skill in the ecosystem by a wide margin, in a menu shared with every other module. So this task registers **only the capabilities something already advertises and cannot route to** — the evidenced failures — and leaves the rest to the health check, which is what `SKILL.md` says sequences them.
 
 **Files:**
-- Modify: `skills/l3io-util-doctor/assets/module-help.csv`
-- Modify: `skills/l3io-util-doctor/SKILL.md` (the keyword table gains an exclusion marker — see Step 3)
+- Modify: `skills/l3io-doctor/assets/module-help.csv`
+- Modify: `skills/l3io-doctor/SKILL.md` (the keyword table gains an exclusion marker — see Step 3)
 
 **Interfaces:**
 - Produces: the row set Task 7's new rule derives its expectation from.
@@ -332,7 +332,7 @@ layout-cleanup 6 · migrate-adrs 6 · split-status 7 · triage 11 · migrate-sta
 
 **Do not register — not capabilities**: `help`/`?`, and `setup`/`configure`/`install`.
 
-This lands at **five rows** — the four above plus `normalize` — and matches how the module already describes itself: *"Run /l3io-util-doctor for a project health check, or /l3io-util-doctor stats for the plan-aware progress dashboard."*
+This lands at **five rows** — the four above plus `normalize` — and matches how the module already describes itself: *"Run /l3io-doctor for a project health check, or /l3io-doctor stats for the plan-aware progress dashboard."*
 
 Re-derive the counts rather than trusting the block above, and re-read each `SKILL.md` note. **If a mode has zero health-check mentions and answers a question the health check does not ask, register it** — that is the rule; the four names are its current output.
 
@@ -352,7 +352,7 @@ It is ~370 characters carrying four mode summaries, because those modes had no r
 
 ```bash
 npm run check:docs && npm run check:module && npm run check:manifest
-git add skills/l3io-util-doctor/assets/module-help.csv skills/l3io-util-doctor/SKILL.md
+git add skills/l3io-doctor/assets/module-help.csv skills/l3io-doctor/SKILL.md
 ```
 
 ---
@@ -370,7 +370,7 @@ Four corrections that all span every CSV, so they share one review surface.
 
 - [ ] **Step 0a: Fix `action: run`, which three skills do not recognise**
 
-`l3io-util-doctor`, `l3io-sec-redteam` and `l3io-arch-review` all carry `action: run`. Check each skill's activation section: none parses the word `run` (the doctor reaches its default only by falling through its catch-all). BMad's convention for a default invocation is an **empty** `action` — confirm that against `src/core-skills/module-help.csv` and `src/bmm-skills/module-help.csv` in the unpacked `bmad-method` tarball at `<scratch>/package/`, then apply whatever those files actually do.
+`l3io-doctor`, `l3io-sec-redteam` and `l3io-arch-review` all carry `action: run`. Check each skill's activation section: none parses the word `run` (the doctor reaches its default only by falling through its catch-all). BMad's convention for a default invocation is an **empty** `action` — confirm that against `src/core-skills/module-help.csv` and `src/bmm-skills/module-help.csv` in the unpacked `bmad-method` tarball at `<scratch>/package/`, then apply whatever those files actually do.
 
 - [ ] **Step 0b: Settle one `phase` vocabulary for the package**
 
@@ -394,9 +394,9 @@ Point each at its own reference doc (`docs/l3io-pm-reference.md`, `docs/l3io-uti
 
 - [ ] **Step 3: Wire the documented relationships**
 
-`CLAUDE.md` documents three that the CSVs do not express: the epic architecture gate (`l3io-pm-execute` → `l3io-arch-review`), the closure security review (`l3io-sec-redteam`), and `pm-help progress` → `doctor stats` (Task 4). Set `preceded-by`/`followed-by` for each. Do not invent relationships `CLAUDE.md` does not state.
+`CLAUDE.md` documents three that the CSVs do not express: the epic architecture gate (`l3io-execute` → `l3io-arch-review`), the closure security review (`l3io-sec-redteam`), and `pm-help progress` → `doctor stats` (Task 4). Set `preceded-by`/`followed-by` for each. Do not invent relationships `CLAUDE.md` does not state.
 
-**Use BMad's documented format**, from `bmad-help/SKILL.md:46`: `skill-name` for single-action skills, **`skill-name:action` for multi-action skills**. Several l3io skills are multi-action (`l3io-pm-sync` has five rows), so a relationship pointing at one of those must name the action, not just the skill. Verified against `bmm`, whose values are bare skill names because its skills are single-action.
+**Use BMad's documented format**, from `bmad-help/SKILL.md:46`: `skill-name` for single-action skills, **`skill-name:action` for multi-action skills**. Several l3io skills are multi-action (`l3io-sync` has five rows), so a relationship pointing at one of those must name the action, not just the skill. Verified against `bmm`, whose values are bare skill names because its skills are single-action.
 
 Note also `bmad-help/SKILL.md:43`: sequencing is *"soft suggestions, not hard gates — see `required` for gating"*. So these columns advise ordering; Task 3's `required: true` is what actually gates.
 
@@ -404,7 +404,7 @@ Note also `bmad-help/SKILL.md:43`: sequencing is *"soft suggestions, not hard ga
 
 ```bash
 npm run check:docs && npm run check:module
-git add skills/l3io-pm-setup/assets/module-help.csv skills/l3io-util-doctor/assets/module-help.csv skills/l3io-sec-redteam/assets/module-help.csv skills/l3io-arch-review/assets/module-help.csv
+git add skills/l3io-setup/assets/module-help.csv skills/l3io-doctor/assets/module-help.csv skills/l3io-sec-redteam/assets/module-help.csv skills/l3io-arch-review/assets/module-help.csv
 ```
 
 ---
@@ -430,7 +430,7 @@ Add to `check-module.test.mjs`, following the shape of the existing `csv-skill-e
 test("check:module rejects a keyword-table entry with no module-help.csv row", (t) => {
   const root = fixture(t);
   // append a new, unexcluded keyword row to the doctor's table
-  write(root, "skills/l3io-util-doctor/SKILL.md",
+  write(root, "skills/l3io-doctor/SKILL.md",
     "\n| `brand-new-mode` | `steps/brand-new-mode.md` |  |\n", true);
   const r = run(root);
   assert.equal(r.status, 1);
@@ -547,7 +547,7 @@ The plan is only finished when the workflow that produced it passes.
 - [ ] **Step 1: Re-run the structural half**
 
 ```bash
-for m in l3io-pm-setup l3io-util-doctor l3io-sec-redteam l3io-arch-review; do
+for m in l3io-setup l3io-doctor l3io-sec-redteam l3io-arch-review; do
   uv run .claude/skills/bmad-module-builder/scripts/validate-module.py "skills/$m"
 done
 ```
@@ -561,7 +561,7 @@ Work through `.claude/skills/bmad-module-builder/references/validate-module.md` 
 
 ```bash
 mkdir -p /tmp/smoke-step3 && bash scripts/smoke-install.sh /tmp/smoke-step3
-diff <(cat /tmp/smoke-step3/_bmad/l3io-util/module-help.csv) skills/l3io-util-doctor/assets/module-help.csv
+diff <(cat /tmp/smoke-step3/_bmad/l3io-util/module-help.csv) skills/l3io-doctor/assets/module-help.csv
 ```
 Expected: `smoke: PASS`, and the diff empty — the authored rows are what a real install carries. **The repo's own `_bmad/` is a gitignored install artifact from 2026-09-14 and must not be used for this comparison; it predates most of this work.**
 

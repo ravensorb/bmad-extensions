@@ -12,7 +12,7 @@ const byId = (id) => {
   return e;
 };
 /** Is this finding swallowed by ANY exemption? That is what the gate actually asks. */
-const exempt = (f, ctx = { skill: 'skills/l3io-util-doctor', tested: new Set() }) =>
+const exempt = (f, ctx = { skill: 'skills/l3io-doctor', tested: new Set() }) =>
   EXEMPTIONS.some((e) => e.match(f, ctx));
 
 test('scope is derived: scanners come from the installed bmb package, skills from disk', () => {
@@ -31,7 +31,7 @@ test('every exemption carries an id and a stated reason', () => {
 });
 
 test('relative-prefix is NOT exempt — it is the rule that caught the live defect', () => {
-  // l3io-pm-setup shipped `uv run ./scripts/merge-config.py`, which only resolved when the
+  // l3io-setup shipped `uv run ./scripts/merge-config.py`, which only resolved when the
   // cwd happened to be the skill root. If any exemption ever swallows this category the
   // gate stops being able to catch it coming back.
   assert.equal(exempt({
@@ -51,7 +51,7 @@ test('the project-root exemption does not extend to other categories', () => {
 test('absolute-path is exempt only for the two documented runtime homes', () => {
   const f = (line) => ({ category: 'absolute-path', severity: 'high',
                          file: 'steps/execute/step-04-arch-gate.md', line });
-  const ctx = { skill: 'skills/l3io-pm-execute', tested: new Set() };
+  const ctx = { skill: 'skills/l3io-execute', tested: new Set() };
   // Line 34 really does contain ~/.claude/... — the scanner's own `detail` truncates
   // before it, which is why the predicate reads the file instead.
   assert.equal(byId('user-level-runtime-homes').match(f(34), ctx), true);
@@ -68,9 +68,9 @@ test('the PEP 723 exemption turns off for a script that declares no inline deps'
   const e = byId('pep723-declared');
   const dep = { category: 'dependencies', severity: 'high' };
   assert.equal(e.match({ ...dep, file: 'scripts/pm-status.py' },
-                       { skill: 'skills/l3io-util-doctor' }), true);
+                       { skill: 'skills/l3io-doctor' }), true);
   // A .md has no PEP 723 header, so the same category over it is reported.
-  assert.equal(e.match({ ...dep, file: 'SKILL.md' }, { skill: 'skills/l3io-util-doctor' }), false);
+  assert.equal(e.match({ ...dep, file: 'SKILL.md' }, { skill: 'skills/l3io-doctor' }), false);
 });
 
 test('the tests exemption is keyed on suites that exist, and reports a script with none', () => {

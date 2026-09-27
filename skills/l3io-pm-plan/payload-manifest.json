@@ -1,20 +1,7 @@
 {
-  "version": "3.1.2",
+  "version": "3.1.3",
   "generated_from": "skills/_shared/",
   "files": {
-    "references/config-resolution.md": "d6cee2910b327fbfa5eab90de57e04fd1229aca1d065d149a1ab12d66a13bb7c",
-    "steps/shared/step-00-activate.md": "1c27590f2c5bf2d4d7f623ab172a7e615dd390284ecbf020ee9590ca767332ab",
-    "steps/shared/step-00-digest.md": "98562ed101305facf67a2405a027afcc53bc41fd13f9c16a2eb5e78e78bd081a",
-    "steps/shared/step-01-classify-work.md": "80f5393af57977acf4df7ce21b9d1935820ebf10468413a688e982477f9c8ce6",
-    "steps/shared/step-estimate.md": "c8b191418895e9027c4259ebf162e5de26270a9ca95d3ee4a44ec895703ad8db",
-    "steps/plan/step-backlog-intake.md": "fb3b449d46805f62eab5df345a2e36113c18cb45c1e1cb70c81a2bf47147c7c7",
-    "steps/plan/step-02-readiness-check.md": "0d97074e23c48f25e72955bafdea48695f1b77696f9c81ab0541e255c1601e64",
-    "steps/plan/step-03-story-elaboration.md": "e4cf8ed1494068bb0fa0cf7c4b212143c0ad6c03f6aebff824cba544bea92e8e",
-    "steps/plan/step-04-load-state.md": "82458b69ba91e38d4b5df46df12d9c8582621dba2fa6320850ce72ad5eb66004",
-    "steps/plan/step-05-dependency-graph.md": "431fefabcbd8295a756afd6523596dbfc6b579add43624a2409853b6fb585e26",
-    "steps/plan/step-06-plan-output.md": "f28bc7f01f6a6d79dd165d9f056e535288eb473cf638090233c392a94fa595ff",
-    "references/status-files.md": "b34f95b96d15ea5e79fc3635a1d0ee6267ac310d61eda6ec293243da989d7895",
-    "references/metrics-contract.md": "f93a96d25f945b8b665cc0ec5061e9757ed50277a90dc25e81adc53ed45cd361",
-    "references/calibration-model.md": "a2300f3c2ec2e4adc73a4b194e6ef71f93c51a69137996913ecfafcec698af2c"
+    "references/config-resolution.md": "7636a63b75d009634094be83a2a405c9e5df0a52ed1ccbe22a0dda3db0f5757b"
   }
 }

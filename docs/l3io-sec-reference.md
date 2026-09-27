@@ -20,7 +20,7 @@ Config is resolved via `{project-root}/_bmad/scripts/resolve_config.py`, which m
 
 ### Mode 1 — Orchestrator invocation
 
-Triggered when the activation prompt contains an explicit scope, artifact paths, and output path — i.e., when called headlessly by `l3io-pm-execute` during sprint closure or epic closure.
+Triggered when the activation prompt contains an explicit scope, artifact paths, and output path — i.e., when called headlessly by `l3io-execute` during sprint closure or epic closure.
 
 Behavior:
 1. If sanctum is absent, initialize it automatically

@@ -111,7 +111,7 @@ test("a cross-module skill:action ref is exempt", (t) => {
 test("a real install's whole finding set (both causes together) passes", (t) => {
   const r = run(
     view(t),
-    result([...META_FINDINGS, invalidRef("Do The Thing", "preceded-by", "l3io-pm-execute:execute")]),
+    result([...META_FINDINGS, invalidRef("Do The Thing", "preceded-by", "l3io-execute:execute")]),
   );
   assert.equal(r.status, 0, r.stderr);
   assert.match(r.stdout, /5 exempt, 5 total/);

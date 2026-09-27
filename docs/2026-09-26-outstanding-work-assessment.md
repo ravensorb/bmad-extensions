@@ -65,7 +65,7 @@ Ordered by consequence, not effort.
 | 4 | **No check that gate imports are declared in `package.json`** | ADR-0007 names the follow-up; `CLAUDE.md:105-109` | 1 task |
 | 5 | **Probe-path correctness has no CI check** | `CLAUDE.md:132`; verified only at runtime by `check-deps` | 1-2 tasks |
 | ~~6~~ | ~~Three `standards-*.md` overlays are stubs~~ | **DONE** — authored 2026-09-26 | — |
-| ~~7~~ | ~~`l3io-pm-setup` picker validation~~ | **NOT OURS** — see correction below | — |
+| ~~7~~ | ~~`l3io-setup` picker validation~~ | **NOT OURS** — see correction below | — |
 
 **Note on #2:** the write and read halves shipped in 3.1.0 — `--source-phase`/`--source-ref`/
 `--source-note` exist, `pointer_for` prefers them, seven call sites converted. What remains is
@@ -88,8 +88,8 @@ and invites someone to tune it.
 
 | Knob | Where | Why inert | Recommendation |
 |---|---|---|---|
-| `max_fix_iterations_non_code` | 8 files, incl. `l3io-pm-execute/customize.toml` | **Doubly** inert: equal to `max_fix_iterations`, AND every phase with a fix loop is already skipped for DOCS/CONFIG | **Delete.** It is user-settable, so it actively misleads |
-| `field_rules`, `status_labels` | `l3io-pm-sync/assets/sync-config-template.yaml` | Not consumed by any script **yet** | **KEEP.** Corrected — see below |
+| `max_fix_iterations_non_code` | 8 files, incl. `l3io-execute/customize.toml` | **Doubly** inert: equal to `max_fix_iterations`, AND every phase with a fix loop is already skipped for DOCS/CONFIG | **Delete.** It is user-settable, so it actively misleads |
+| `field_rules`, `status_labels` | `l3io-sync/assets/sync-config-template.yaml` | Not consumed by any script **yet** | **KEEP.** Corrected — see below |
 | `last_sync` | 1 site: `sync-state.py:36` | Top-level key, written `None`, never updated | **KEEP.** Corrected — see below |
 | `granularity` | 18 files | Never varied; every project runs `"story"` | **Keep.** It lives in the calibration file, so removing it is a schema change, and the standing rule is no unapproved version bumps |
 
@@ -102,7 +102,7 @@ from a grep that conflated two different things.
 **`field_rules` / `status_labels` are a deliberate reserved interface, not debris.** The
 template says so at the point of use: *"not yet consumed by any script; they are reserved for
 a future field-authority/label-mapping feature."* A reader is warned in the file itself, so
-they mislead nobody, and `l3io-pm-sync` is documented as GitHub-only *today* — the phrasing in
+they mislead nobody, and `l3io-sync` is documented as GitHub-only *today* — the phrasing in
 `docs/limits.md` and `l3io-pm-reference.md` treats GitLab, Azure DevOps and Jira as absent
 rather than rejected. Deleting a designed extension point because it is not wired yet is how
 you pay for it twice.
@@ -182,12 +182,12 @@ started as implementation work.
 
 Both were listed on the strength of a `TODO` grep hit, without reading the comment it sat in.
 
-**#7 was never this repo's work.** The TODO in `l3io-pm-setup/assets/module.yaml:10` describes an
+**#7 was never this repo's work.** The TODO in `l3io-setup/assets/module.yaml:10` describes an
 **upstream BMad** gap, and the comment says so: the installer captures `dependencies` into
 `moduleInfo.dependencies` but *"as of BMad 6.12 nothing downstream reads it — picker validation
 and install-order gating are TODO"*. The field is declared deliberately, so a future BMad release
 that grows enforcement picks it up. The runtime need it would serve is **already covered here**:
-`step-00-activate.md` warns when `l3io-util-doctor` is missing. Nothing to do.
+`step-00-activate.md` warns when `l3io-doctor` is missing. Nothing to do.
 
 **#6 was real but mis-sized, and is now done.** The three files were not empty placeholders — each
 carried 5-7 draft rules cross-referenced to core sections, and `l3io-arch-reference.md` advertised

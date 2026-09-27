@@ -224,9 +224,9 @@ confirmed by `find skills/ -name step-00-digest.md`:
 
 | File | Change |
 |---|---|
-| `skills/l3io-pm-execute/customize.toml` | Add `max_turns_per_story = 120` |
-| `skills/l3io-pm-plan/customize.toml` | Add `max_turns_per_story = 120` |
-| `skills/l3io-pm-sync/customize.toml` | Add `max_turns_per_story = 120` |
+| `skills/l3io-execute/customize.toml` | Add `max_turns_per_story = 120` |
+| `skills/l3io-plan/customize.toml` | Add `max_turns_per_story = 120` |
+| `skills/l3io-sync/customize.toml` | Add `max_turns_per_story = 120` |
 
 ### Auto-synced by `npm run sync:scripts`:
 

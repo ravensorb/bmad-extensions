@@ -65,7 +65,7 @@ Note: `cache_write` for OpenAI is 1.25× the input rate (same multiplier as Anth
 | `skills/_shared/steps/shared/step-00-activate.md` | Modify | Runtime detection extended to codex/copilot |
 | `skills/_shared/metrics-contract.md` | Modify | §3 split into four named runtime subsections |
 | `docs/estimation-guide.md` | Create | New user-facing estimation guide |
-| `skills/l3io-pm-execute/scripts/pm-status.py` + others | Auto-generated | `npm run sync:scripts` |
+| `skills/l3io-execute/scripts/pm-status.py` + others | Auto-generated | `npm run sync:scripts` |
 | `skills/*/steps/shared/step-00-activate.md` + others | Auto-generated | `npm run sync:scripts` |
 | All `payload-manifest.json` files | Auto-generated | `node scripts/write-payload-manifest.mjs` |
 
@@ -614,7 +614,7 @@ git commit -s -m "feat(l3io-pm): add --runtime copilot enforcement with scalar t
 
 **Files:**
 - Modify: `skills/_shared/steps/shared/step-00-activate.md`
-- Auto-synced to: `skills/l3io-pm-execute/steps/shared/step-00-activate.md`, `skills/l3io-pm-plan/steps/shared/step-00-activate.md`, `skills/l3io-pm-sync/steps/shared/step-00-activate.md`
+- Auto-synced to: `skills/l3io-execute/steps/shared/step-00-activate.md`, `skills/l3io-plan/steps/shared/step-00-activate.md`, `skills/l3io-sync/steps/shared/step-00-activate.md`
 
 **Interfaces:**
 - Consumes: enforcement contract from Tasks 2 and 3
@@ -686,9 +686,9 @@ Expected: no drift reported.
 
 ```bash
 git add skills/_shared/steps/shared/step-00-activate.md \
-        skills/l3io-pm-execute/steps/shared/step-00-activate.md \
-        skills/l3io-pm-plan/steps/shared/step-00-activate.md \
-        skills/l3io-pm-sync/steps/shared/step-00-activate.md
+        skills/l3io-execute/steps/shared/step-00-activate.md \
+        skills/l3io-plan/steps/shared/step-00-activate.md \
+        skills/l3io-sync/steps/shared/step-00-activate.md
 git commit -s -m "feat(l3io-pm): extend runtime detection to codex and copilot in step-00-activate"
 ```
 
@@ -804,9 +804,9 @@ Fix any check failures before committing.
 
 ```bash
 git add skills/_shared/metrics-contract.md \
-        skills/l3io-pm-execute/references/metrics-contract.md \
-        skills/l3io-pm-plan/references/metrics-contract.md \
-        skills/l3io-pm-sync/references/metrics-contract.md
+        skills/l3io-execute/references/metrics-contract.md \
+        skills/l3io-plan/references/metrics-contract.md \
+        skills/l3io-sync/references/metrics-contract.md
 git commit -s -m "docs(l3io-pm): document codex and copilot capture procedures in metrics-contract §3"
 ```
 

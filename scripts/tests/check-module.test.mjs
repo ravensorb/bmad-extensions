@@ -61,6 +61,18 @@ function writeModuleHome(root, dir, code) {
   write(root, `skills/${dir}/scripts/merge-help-csv.py`, "# merge-help-csv\n");
 }
 
+// Register a plugin in marketplace.json so checks that derive skill-membership from the
+// marketplace (not just the `<code>-*` naming convention) can find the sibling skills. Used by
+// the check-5 tests, where the 3.1.3 rename replaced l3io-pm-execute/l3io-pm-plan with
+// l3io-execute/l3io-plan — names that no longer follow the convention.
+function registerPlugin(root, name, skills) {
+  const rel = ".claude-plugin/marketplace.json";
+  const existing = JSON.parse(fs.readFileSync(path.join(root, rel), "utf8"));
+  existing.plugins = existing.plugins.filter((p) => p.name !== name);
+  existing.plugins.push({ name, skills: skills.map((s) => `./skills/${s}`) });
+  fs.writeFileSync(path.join(root, rel), JSON.stringify(existing, null, 2) + "\n");
+}
+
 // ---- check 1 (discovery-layout) ----
 //
 // This rule is the one the whole-branch review's C-1/H-1 landed on, and it replaced its own
@@ -70,7 +82,7 @@ function writeModuleHome(root, dir, code) {
 
 test("check:module rejects a module.yaml at a skill root that is not a standalone module home", (t) => {
   const root = fixture(t);
-  write(root, "skills/l3io-pm-execute/module.yaml", "code: l3io-pm\n");
+  write(root, "skills/l3io-execute/module.yaml", "code: l3io-pm\n");
   const r = run(root);
   assert.equal(r.status, 1);
   assert.match(r.stderr, /module\.yaml at a skill root that is not a standalone module home/);
@@ -171,15 +183,19 @@ test("check:module passes on a well-formed standalone module", (t) => {
 
 // ---- check 5 (home-placement) ----
 //
-// This is the rule l3io-pm-setup itself exists to satisfy: a module home shared by more than
+// This is the rule l3io-setup itself exists to satisfy: a module home shared by more than
 // one skill must be a dedicated *-setup skill, never one of the module's own operational
 // skills. Untested before this task added the first real multi-skill module home
-// (l3io-pm-setup) -- a check with no test for its own branch is worse than no check, because
+// (l3io-setup) -- a check with no test for its own branch is worse than no check, because
 // it reads as covering something it has never actually been proven to catch.
 test("check:module rejects a multi-skill module whose home is not a *-setup skill", (t) => {
   const root = fixture(t);
-  writeModuleHome(root, "l3io-pm-execute", "l3io-pm"); // home lacks a -setup suffix
-  write(root, "skills/l3io-pm-plan/SKILL.md", "# plan\n"); // second sibling under the same code
+  writeModuleHome(root, "l3io-execute", "l3io-pm"); // home lacks a -setup suffix
+  write(root, "skills/l3io-plan/SKILL.md", "# plan\n"); // second sibling under the same code
+  // Post-3.1.3 rename: neither l3io-execute nor l3io-plan follows the `l3io-pm-*` naming
+  // convention, so sibling membership derives from the plugin's marketplace.json `skills[]`
+  // list rather than the name pattern.
+  registerPlugin(root, "l3io-pm", ["l3io-execute", "l3io-plan"]);
   const r = run(root);
   assert.equal(r.status, 1);
   assert.match(r.stderr, /is not a \*-setup directory/);
@@ -187,9 +203,10 @@ test("check:module rejects a multi-skill module whose home is not a *-setup skil
 
 test("check:module passes when a multi-skill module's home is a *-setup skill", (t) => {
   const root = fixture(t);
-  writeModuleHome(root, "l3io-pm-setup", "l3io-pm");
-  write(root, "skills/l3io-pm-execute/SKILL.md", "# execute\n");
-  write(root, "skills/l3io-pm-plan/SKILL.md", "# plan\n");
+  writeModuleHome(root, "l3io-setup", "l3io-pm");
+  write(root, "skills/l3io-execute/SKILL.md", "# execute\n");
+  write(root, "skills/l3io-plan/SKILL.md", "# plan\n");
+  registerPlugin(root, "l3io-pm", ["l3io-setup", "l3io-execute", "l3io-plan"]);
   const r = run(root);
   assert.equal(r.status, 0, r.stderr);
 });
@@ -198,14 +215,15 @@ test("check:module passes when a multi-skill module's home is a *-setup skill", 
 //
 // Task 11A: pm-status.py used to ship four times (execute/plan/sync/util-doctor), three of
 // them in one module self-installing identical bytes to the identical destination. The end
-// state is one payload copy per module that self-installs it -- l3io-pm-setup for l3io-pm,
-// l3io-util-doctor for l3io-util. This guards the invariant mechanically so a future sync-group
+// state is one payload copy per module that self-installs it -- l3io-setup for l3io-pm,
+// l3io-doctor for l3io-util. This guards the invariant mechanically so a future sync-group
 // edit can't silently reintroduce a second copy inside one module.
 test("check:module rejects a second pm-status.py payload within one module", (t) => {
   const root = fixture(t);
-  writeModuleHome(root, "l3io-pm-setup", "l3io-pm");
-  write(root, "skills/l3io-pm-setup/scripts/pm-status.py", "# x\n");
-  write(root, "skills/l3io-pm-execute/scripts/pm-status.py", "# x\n");
+  writeModuleHome(root, "l3io-setup", "l3io-pm");
+  write(root, "skills/l3io-setup/scripts/pm-status.py", "# x\n");
+  write(root, "skills/l3io-execute/scripts/pm-status.py", "# x\n");
+  registerPlugin(root, "l3io-pm", ["l3io-setup", "l3io-execute"]);
   const r = run(root);
   assert.equal(r.status, 1);
   assert.match(r.stderr, /pm-status\.py appears 2 times for module 'l3io-pm'/);
@@ -213,10 +231,10 @@ test("check:module rejects a second pm-status.py payload within one module", (t)
 
 test("check:module passes when only one skill in a module carries pm-status.py", (t) => {
   const root = fixture(t);
-  writeModuleHome(root, "l3io-pm-setup", "l3io-pm");
-  write(root, "skills/l3io-pm-setup/scripts/pm-status.py", "# x\n");
-  write(root, "skills/l3io-pm-execute/SKILL.md", "# execute\n");
-  write(root, "skills/l3io-pm-plan/SKILL.md", "# plan\n");
+  writeModuleHome(root, "l3io-setup", "l3io-pm");
+  write(root, "skills/l3io-setup/scripts/pm-status.py", "# x\n");
+  write(root, "skills/l3io-execute/SKILL.md", "# execute\n");
+  write(root, "skills/l3io-plan/SKILL.md", "# plan\n");
   const r = run(root);
   assert.equal(r.status, 0, r.stderr);
 });
@@ -451,7 +469,7 @@ test("check:module rejects a plugin that a second skill drops to synthesized fal
   const arch = marketplace.plugins.find((p) => p.name === "l3io-arch");
   assert.ok(arch, "fixture precondition: marketplace.json declares an l3io-arch plugin");
   assert.deepEqual(arch.skills, ["./skills/l3io-arch-review"], "fixture precondition: one skill");
-  arch.skills.push("./skills/l3io-pm-help");
+  arch.skills.push("./skills/l3io-help");
   fs.writeFileSync(mpPath, JSON.stringify(marketplace, null, 2) + "\n");
 
   const r = run(root);

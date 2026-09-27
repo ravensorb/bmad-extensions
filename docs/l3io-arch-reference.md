@@ -103,7 +103,7 @@ Invocation shortcuts: `/l3io-arch-review design|review|decision [--stack python|
 `assets/customize-architect.md` documents the `bmad-customize` overlays to author **in the consuming project** (the core skills live there, not in this extension repo):
 
 - **`bmad-architecture`** — load the standards before finalizing any architecture/technology decision; hold the design against every principle; record ADRs; produce diagrams and the docs skeleton.
-- **the story enricher, legacy `bmad-create-story`** — when drafting a story's acceptance criteria, make the technical contract explicit wherever the story implies one (interfaces/API contracts, data model, error and edge handling, observability, security controls, testability), adding one concrete technical AC per applicable dimension without expanding scope. This is the same contract `l3io-pm-execute`'s story technical-AC gate checks, applied at authoring time.
+- **the story enricher, legacy `bmad-create-story`** — when drafting a story's acceptance criteria, make the technical contract explicit wherever the story implies one (interfaces/API contracts, data model, error and edge handling, observability, security controls, testability), adding one concrete technical AC per applicable dimension without expanding scope. This is the same contract `l3io-execute`'s story technical-AC gate checks, applied at authoring time.
 - **`bmad-code-review`** (and/or `l3io-sec-redteam`) — additionally check standards compliance during review; treat BLOCKER/MAJOR as gating, MINOR as backlog.
 
 The overlays point at the standards files rather than duplicating them, keeping a single source of truth.

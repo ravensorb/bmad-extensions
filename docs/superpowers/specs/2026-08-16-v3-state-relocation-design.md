@@ -166,7 +166,7 @@ to them. With per-epic directories, epic-start and epic-close touch only that ep
 directory. `issues.yaml` is the sole remaining shared append target.
 
 Sharding `planned/` additionally removes a contention point the v2 design underweighted:
-`l3io-pm-plan` elaborates and estimates stories with parallel subagents, all previously
+`l3io-plan` elaborates and estimates stories with parallel subagents, all previously
 writing into one `planned.yaml`.
 
 **Cost:** roughly 45 files per epic, so ~2,300 after fifty epics. Unremarkable for git.
@@ -200,7 +200,7 @@ key: 'E001'
 title: 'Epic 001 — Foundation'
 goal: 'Stand up the core platform'
 status: in-progress
-depends_on: []                            # epic keys; read by l3io-pm-plan
+depends_on: []                            # epic keys; read by l3io-plan
 estimate:                                 # ranges at epic/sprint level
   man_hours_low: 40
   man_hours_high: 60
@@ -437,7 +437,7 @@ track — so migration is a clean break in history. Every transition *after* mig
 ### Deferred to a later release
 
 The claim protocol — `claimed_by` / `claimed_at` fields, a `pm-status.py claim`
-subcommand, and GitHub-Issue-as-arbiter via `l3io-pm-sync`. The layout admits an ownership
+subcommand, and GitHub-Issue-as-arbiter via `l3io-sync`. The layout admits an ownership
 field on a story file with no structural change, so deferring costs nothing structurally.
 This is what makes the "both, eventually" team model work: the layout is designed for
 distribution now, and the protocol layers in when the team model is concrete.
@@ -476,7 +476,7 @@ inline. Per-skill copies regenerate via
 | `skills/_shared/steps/shared/step-00-activate.md` | 8 | Detection chain, orphan check, new bindings |
 | `skills/l3io-util-cleanup/assets/migrate-state.md` | 9 | v2→v3 path |
 | `skills/l3io-util-cleanup/SKILL.md` | 3 | Mode docs, health check #10 |
-| `skills/l3io-pm-help/SKILL.md` + `assets/module-setup.md` | 3 | State snapshot reads |
+| `skills/l3io-help/SKILL.md` + `assets/module-setup.md` | 3 | State snapshot reads |
 | `skills/_shared/steps/**` | — | Replace inline paths with key-based calls |
 | `skills/*/assets/module-setup.md` | — | Gitignore verification gate |
 | `CLAUDE.md` | 5 | State layout, calibration commit status |

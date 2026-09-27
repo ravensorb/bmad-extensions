@@ -1,5 +1,5 @@
 ---
-skill: l3io-util-doctor
+skill: l3io-doctor
 phase: complete
 classification: simple-workflow
 last_touched: 2026-06-15

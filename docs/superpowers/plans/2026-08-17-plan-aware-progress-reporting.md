@@ -2,7 +2,7 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Make long-running `/l3io-pm-execute` progress visible — which phase, which epic, which sprint, which stories are in flight — from one computed model exposed through four surfaces.
+**Goal:** Make long-running `/l3io-execute` progress visible — which phase, which epic, which sprint, which stories are in flight — from one computed model exposed through four surfaces.
 
 **Architecture:** A single builder in `pm-status.py` walks the sharded state tree, joins it against the plan snapshot, and returns a plain dict. Three thin renderers (`tree`/`json`/`md`) consume that dict and nothing else. A new append-only `events.jsonl`, written automatically by `set-status`/`set-actual`, supplies the per-status dwell times that state alone cannot provide.
 
@@ -16,7 +16,7 @@
 - **`pm-status.py` is the only component that resolves a node key to a path.** No step file, skill, or renderer may construct a state path.
 - **Bump `PM_STATUS_VERSION` to `2.3.0`** in both places: the constant at line 92 and the `# pm-status-version:` marker on line 6. `self-install` compares them.
 - **Timestamps** are `datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")`. Parsing requires `.replace("Z", "+00:00")` before `datetime.fromisoformat`.
-- **`report` is read-only unless `--out` is passed.** `/l3io-util-doctor stats` calls it and is documented as changing no files.
+- **`report` is read-only unless `--out` is passed.** `/l3io-doctor stats` calls it and is documented as changing no files.
 - **Exit codes are fixed:** 0 success, 2 usage error, 3 node not found, 4 verification failure, 5 epic locked.
 - **Stuck thresholds (hours):** story `in-progress` 4, story `review` 4, sprint `in-progress` 24, epic `in-progress` 72. Story `ready-for-dev` is never flagged.
 - **Never fail a status write because of telemetry.** A failed event append warns on stderr and returns 0, matching the existing calibration contract.
@@ -1231,7 +1231,7 @@ Insert after `cmd_show`:
 ```python
 def cmd_report(args) -> int:
     """Plan-aware progress report. Read-only unless --out is given, which is what
-    lets /l3io-util-doctor stats call this while documenting that it changes nothing."""
+    lets /l3io-doctor stats call this while documenting that it changes nothing."""
     if not os.path.isdir(args.state_root):
         _die_notfound(f"state root {args.state_root}")
 
@@ -1394,8 +1394,8 @@ Expected: sync reports the copied files; check exits 0.
 - [ ] **Step 5: Verify a payload copy actually got the new command**
 
 ```bash
-python3 skills/l3io-pm-execute/scripts/pm-status.py --version
-grep -c "def cmd_report" skills/l3io-pm-plan/scripts/pm-status.py
+python3 skills/l3io-execute/scripts/pm-status.py --version
+grep -c "def cmd_report" skills/l3io-plan/scripts/pm-status.py
 ```
 
 Expected: `pm-status.py 2.3.0`; count `1`.
@@ -1413,10 +1413,10 @@ optional and unpassed."
 
 ---
 
-### Task 7: `/l3io-pm-help progress`
+### Task 7: `/l3io-help progress`
 
 **Files:**
-- Modify: `skills/l3io-pm-help/SKILL.md`
+- Modify: `skills/l3io-help/SKILL.md`
 
 **Interfaces:**
 - Consumes: `pm-status.py report`; help's existing `{pm_state_root}`, `{planning_artifacts}`, `{pm_status}`, `{pm_status_present}` bindings
@@ -1447,7 +1447,7 @@ phase roll-ups:
 
 ```
 pm-status.py is not installed yet, so the progress report cannot be computed. It
-self-installs the first time you run /l3io-pm-plan or /l3io-pm-execute.
+self-installs the first time you run /l3io-plan or /l3io-execute.
 ```
 
 **Otherwise** run:
@@ -1481,7 +1481,7 @@ state yourself — the report already computed it from `_lock.ttl_minutes`.
 Change the `description` line to:
 
 ```yaml
-description: Read project state and recommend the exact next l3io-pm action. Use /l3io-pm-help progress for a plan-aware progress tree (which phase, epic, sprint, and stories are in flight).
+description: Read project state and recommend the exact next l3io-pm action. Use /l3io-help progress for a plan-aware progress tree (which phase, epic, sprint, and stories are in flight).
 ```
 
 - [ ] **Step 4: Verify the referenced command actually works end-to-end**
@@ -1501,8 +1501,8 @@ Expected: a tree naming `E001`, `S01`, `E001-S01-001`, and a Totals block. Exit 
 - [ ] **Step 5: Commit**
 
 ```bash
-git add skills/l3io-pm-help/SKILL.md
-git commit -s -m "feat(l3io-pm): add progress mode to l3io-pm-help
+git add skills/l3io-help/SKILL.md
+git commit -s -m "feat(l3io-pm): add progress mode to l3io-help
 
 Reuses help's config resolution and layout detection, and hands off to
 pm-status.py report rather than re-deriving anything."
@@ -1510,7 +1510,7 @@ pm-status.py report rather than re-deriving anything."
 
 ---
 
-### Task 8: Live render points in `/l3io-pm-execute`
+### Task 8: Live render points in `/l3io-execute`
 
 **Files:**
 - Modify: `skills/_shared/steps/execute/step-05-epic-loop.md`
@@ -1696,7 +1696,7 @@ to the counts-only walk described in Step ST2b:
 
 ```
 pm-status.py is not installed yet — showing counts only, without the plan-aware
-hierarchy. It self-installs the first time you run /l3io-pm-plan or /l3io-pm-execute.
+hierarchy. It self-installs the first time you run /l3io-plan or /l3io-execute.
 ```
 
 From the JSON take `totals` (epics/sprints/stories by status), `phases`
@@ -1836,40 +1836,40 @@ git status --porcelain | grep "src/" || echo "nothing to commit for src/"
 
 ---
 
-### Task 11: Rename `l3io-util-cleanup` → `l3io-util-doctor` with a deprecation forwarder
+### Task 11: Rename `l3io-util-cleanup` → `l3io-doctor` with a deprecation forwarder
 
 **Files:**
-- Rename: `skills/l3io-util-cleanup/` → `skills/l3io-util-doctor/`
+- Rename: `skills/l3io-util-cleanup/` → `skills/l3io-doctor/`
 - Create: `skills/l3io-util-cleanup/SKILL.md` (forwarder only), `skills/l3io-util-cleanup/module.yaml`
-- Create: `.claude/commands/l3io-util-doctor.md` (symlink)
-- Modify: `.claude-plugin/marketplace.json:59`, `scripts/sync-shared-scripts.mjs:77`, `skills/_shared/steps/shared/step-00-activate.md`, `skills/l3io-pm-help/SKILL.md`, `README.md`, `CLAUDE.md`, `docs/getting-started.md`, `docs/architecture.md`, `docs/l3io-util-reference.md`
+- Create: `.claude/commands/l3io-doctor.md` (symlink)
+- Modify: `.claude-plugin/marketplace.json:59`, `scripts/sync-shared-scripts.mjs:77`, `skills/_shared/steps/shared/step-00-activate.md`, `skills/l3io-help/SKILL.md`, `README.md`, `CLAUDE.md`, `docs/getting-started.md`, `docs/architecture.md`, `docs/l3io-util-reference.md`
 
 Do **not** rewrite `CHANGELOG.md` or `docs/superpowers/plans|specs/*` — those are historical record.
 
 - [ ] **Step 1: Move the skill and its command symlink**
 
 ```bash
-git mv skills/l3io-util-cleanup skills/l3io-util-doctor
+git mv skills/l3io-util-cleanup skills/l3io-doctor
 git rm .claude/commands/l3io-util-cleanup.md
-ln -s ../../skills/l3io-util-doctor/SKILL.md .claude/commands/l3io-util-doctor.md
-git add .claude/commands/l3io-util-doctor.md
+ln -s ../../skills/l3io-doctor/SKILL.md .claude/commands/l3io-doctor.md
+git add .claude/commands/l3io-doctor.md
 ```
 
 - [ ] **Step 2: Update the skill's own identity**
 
-In `skills/l3io-util-doctor/SKILL.md` frontmatter set `name: l3io-util-doctor`. Replace
-every self-reference — `grep -n "l3io-util-cleanup" skills/l3io-util-doctor/SKILL.md`
-lists them; all become `l3io-util-doctor`. Same in `module.yaml` and `customize.toml`
+In `skills/l3io-doctor/SKILL.md` frontmatter set `name: l3io-doctor`. Replace
+every self-reference — `grep -n "l3io-util-cleanup" skills/l3io-doctor/SKILL.md`
+lists them; all become `l3io-doctor`. Same in `module.yaml` and `customize.toml`
 (keep the `[workflow]` root key — this is a workflow skill, not a memory agent).
 
 - [ ] **Step 3: Update the registries**
 
 `.claude-plugin/marketplace.json` line 59: `"./skills/l3io-util-cleanup"` →
-`"./skills/l3io-util-doctor"`, and add a second entry `"./skills/l3io-util-cleanup"` for
+`"./skills/l3io-doctor"`, and add a second entry `"./skills/l3io-util-cleanup"` for
 the forwarder so the deprecated command still installs.
 
 `scripts/sync-shared-scripts.mjs` `allSkillDirs`: rename `"l3io-util-cleanup"` to
-`"l3io-util-doctor"` and add `"l3io-util-cleanup"` — the forwarder needs the shared
+`"l3io-doctor"` and add `"l3io-util-cleanup"` — the forwarder needs the shared
 config-resolution reference and module-setup asset too, or its own `references/` will be
 missing when `check:scripts` runs.
 
@@ -1880,24 +1880,24 @@ missing when `check:scripts` runs.
 ```markdown
 ---
 name: l3io-util-cleanup
-description: Deprecated — renamed to l3io-util-doctor. Forwards to it.
+description: Deprecated — renamed to l3io-doctor. Forwards to it.
 ---
 
 # l3io-util-cleanup (deprecated)
 
 Communicate all responses in `{communication_language}`.
 
-This skill was renamed to **`l3io-util-doctor`**. "Cleanup" described about three of
+This skill was renamed to **`l3io-doctor`**. "Cleanup" described about three of
 its fifteen modes; the default behavior is a diagnose-report-repair health check.
 
 Tell the user exactly once:
 
 ```
-/l3io-util-cleanup has been renamed to /l3io-util-doctor. Running it for you now —
+/l3io-util-cleanup has been renamed to /l3io-doctor. Running it for you now —
 please use the new name from here on.
 ```
 
-Then load `{project-root}/skills/l3io-util-doctor/SKILL.md` (or the installed
+Then load `{project-root}/skills/l3io-doctor/SKILL.md` (or the installed
 equivalent) and execute it with the same arguments you received, unchanged. Do not
 re-implement any mode here.
 ```
@@ -1909,11 +1909,11 @@ the skill name to `l3io-util-cleanup`. Leave the version alone — `postbump` ma
 
 ```bash
 grep -rln "l3io-util-cleanup" \
-  skills/_shared skills/l3io-pm-help README.md CLAUDE.md \
+  skills/_shared skills/l3io-help README.md CLAUDE.md \
   docs/getting-started.md docs/architecture.md docs/l3io-util-reference.md
 ```
 
-In each, replace `l3io-util-cleanup` with `l3io-util-doctor` (these are all live
+In each, replace `l3io-util-cleanup` with `l3io-doctor` (these are all live
 recommendations like "run `/l3io-util-cleanup migrate-state`"). Then add one line to
 `README.md` in the module table noting the old name still works and is deprecated.
 
@@ -1931,8 +1931,8 @@ Expected: check exits 0; `NO STALE REFS`.
 - [ ] **Step 7: Verify both command names resolve**
 
 ```bash
-test -f .claude/commands/l3io-util-doctor.md && head -3 .claude/commands/l3io-util-doctor.md
-test -f skills/l3io-util-cleanup/SKILL.md && grep -c "l3io-util-doctor" skills/l3io-util-cleanup/SKILL.md
+test -f .claude/commands/l3io-doctor.md && head -3 .claude/commands/l3io-doctor.md
+test -f skills/l3io-util-cleanup/SKILL.md && grep -c "l3io-doctor" skills/l3io-util-cleanup/SKILL.md
 python3 -c "import json; d=json.load(open('.claude-plugin/marketplace.json')); \
 print([s for s in json.dumps(d).split('\"') if 'l3io-util' in s])"
 ```
@@ -1945,14 +1945,14 @@ name; marketplace lists both paths.
 ```bash
 git add -A skills/ .claude/commands/ .claude-plugin/marketplace.json \
   scripts/sync-shared-scripts.mjs README.md CLAUDE.md docs/
-git commit -s -m "refactor(l3io-util)!: rename l3io-util-cleanup to l3io-util-doctor
+git commit -s -m "refactor(l3io-util)!: rename l3io-util-cleanup to l3io-doctor
 
 'Cleanup' described 3 of 15 modes; the default behavior is a diagnose-report-repair
 health check. The old name ships as a deprecation forwarder, following the
 bmad-editorial-review -> bmad-review precedent. Historical records in CHANGELOG and
 docs/superpowers are left unrewritten.
 
-BREAKING CHANGE: /l3io-util-cleanup is deprecated in favor of /l3io-util-doctor.
+BREAKING CHANGE: /l3io-util-cleanup is deprecated in favor of /l3io-doctor.
 The old command still works and forwards, and will be removed in a future release."
 ```
 
@@ -1970,7 +1970,7 @@ The old command still works and forwards, and will be removed in a future releas
 | Renderers `tree`/`json`/`md` | 5 |
 | `--watch` | 5 |
 | Surface: CLI `report` | 5 |
-| Surface: `/l3io-pm-help progress` | 7 |
+| Surface: `/l3io-help progress` | 7 |
 | Surface: execute-loop render points | 8 |
 | Surface: `stats` fold-in | 9 |
 | Archived omitted unless `--all`, denominators stay true | 3, 4 |

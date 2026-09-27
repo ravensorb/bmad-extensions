@@ -31,8 +31,8 @@ test('discovery is non-empty and includes the suites CI used to name by hand', (
   assert.ok(got.length >= 17, `expected >=17 suites, got ${got.length}`);
   for (const s of ['skills/_shared/tests/test-pm-status.py',
                    'skills/_shared/tests/test-spec-align.py',
-                   'skills/l3io-util-doctor/scripts/tests/test-engine.py',
-                   'skills/l3io-util-doctor/scripts/tests/test-state-record.py']) {
+                   'skills/l3io-doctor/scripts/tests/test-engine.py',
+                   'skills/l3io-doctor/scripts/tests/test-state-record.py']) {
     assert.ok(got.includes(s), `discovery lost ${s}`);
   }
 });

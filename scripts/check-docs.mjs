@@ -39,7 +39,7 @@
 //  14. adr-home      no runtime directive names the old per-epic ADR home (epic-*/arch/adr-*)
 //  15. doctor-mode-count  the doctor's stated mode count equals the modes it actually has
 //  16. bmad-dependency-inventory  every bmad-* name a runtime directive under skills/ uses is
-//                    declared in skills/l3io-util-doctor/assets/bmad-dependencies.json, and no
+//                    declared in skills/l3io-doctor/assets/bmad-dependencies.json, and no
 //                    directive dispatches a removed one without same-line historical evidence
 //  17. pep723-invocation  no live doc, no runtime directive under skills/, and no CI step
 //                    under .github/workflows/, invokes a PEP-723 script ({pm_status},
@@ -66,14 +66,14 @@
 //                    not mistaken for something README should describe
 //  23. marketplace-deps  `.claude-plugin/marketplace.json`'s `dependencies` block agrees with
 //                    the declared inventory in
-//                    `skills/l3io-util-doctor/assets/bmad-dependencies.json` — required and
+//                    `skills/l3io-doctor/assets/bmad-dependencies.json` — required and
 //                    optional sets both ways, with both sides derived from the two files
 //  24. shared-pointers  every skill-relative pointer inside a file sync-shared-scripts.mjs
 //                    ships resolves in EVERY skill that file's sync group delivers it to —
 //                    scope and destinations both derived from syncGroups, no allowlist. Read
 //                    check 24's own block below for what "pointer" means and what it misses
 //
-//  25. doctor-mode-keywords  every `/l3io-util-doctor <keyword>` invocation, in a live doc or
+//  25. doctor-mode-keywords  every `/l3io-doctor <keyword>` invocation, in a live doc or
 //                    a runtime directive, names a keyword the doctor's routing table still
 //                    has -- and every unqualified `steps/<name>.md` pointer inside the doctor
 //                    resolves to a file it carries. Read check 25's own block for the two
@@ -160,7 +160,7 @@
 //           check without the explicit `pm-status.py <name>` form. The same-line qualifier is
 //           what makes it safe, and it was measured: the derived prefixes ALONE newly judge 39
 //           tokens, three of which are correct prose that would red CI (`update-ai-rules`, an
-//           l3io-util-doctor mode, and `adr-justified` in two docs, a spec-align disposition
+//           l3io-doctor mode, and `adr-justified` in two docs, a spec-align disposition
 //           value). Requiring pm-status.py on the line drops all three and keeps seven.
 //
 // What is STILL NOT CHECKED, stated so nobody has to discover it:
@@ -299,7 +299,7 @@ function skillDirNames() {
 // ---------------------------------------------------------------------------
 // 1. Every l3io-* skill named in live docs resolves to a real skill directory.
 //
-// Caught in practice: README documented l3io-pm-plan-execution, l3io-pm-sprint-execute,
+// Caught in practice: README documented l3io-plan-execution, l3io-pm-sprint-execute,
 // l3io-pm-epic-execute and l3io-sec-agent-redteam long after the 2.0 rename merged them
 // away, and three docs pointed at _bmad/memory/l3io-sec-agent-redteam/ — a path that does
 // not exist, so anyone following them looked in the wrong directory.
@@ -661,12 +661,12 @@ function checkCliSurface() {
       // The same-line qualifier is not decoration; it is what makes the derived set safe.
       // Measured on this tree: the derived prefixes alone newly judge 39 tokens, of which
       // THREE are correct prose that would turn CI red -- `update-ai-rules` (an
-      // l3io-util-doctor mode) and `adr-justified` in two docs (a spec-align disposition
+      // l3io-doctor mode) and `adr-justified` in two docs (a spec-align disposition
       // value). Requiring pm-status.py on the line drops those three and keeps seven.
       const derivedClaim = onCliLine.has(name) && cliPrefixes.has(name.split("-")[0]);
       // The hand-kept prefix list's own catch: a token in this shape but on a line that names
       // neither pm-status.py nor {pm_status}. Two classes of correct prose live there and must
-      // not be judged as a pm-status.py claim: an l3io-util-doctor mode keyword (`check-deps`
+      // not be judged as a pm-status.py claim: an l3io-doctor mode keyword (`check-deps`
       // is one; the valid set comes from doctorModeKeywords(), the SAME routing-table source
       // check 25 uses, never a second hand-list here), and a token that is structurally another
       // tool's subcommand on the same line (`grep \`check-ignore\``, `git \`check-ignore\``, via
@@ -736,8 +736,8 @@ function checkCliSurface() {
 // two _shared files, and judges subcommand NAMES only -- never flags. So the commands agents
 // actually execute, which live in skills/**/*.md, were checked by nothing at all. Task 12
 // inlined `uv run {pm_status} clear-lock --state-root ... --epic ...` into
-// skills/l3io-pm-help/steps/mode-list-plan.md, Task 13 put a second copy in
-// skills/l3io-util-doctor/steps/stats.md, and the two are cross-linked in prose only: renaming
+// skills/l3io-help/steps/mode-list-plan.md, Task 13 put a second copy in
+// skills/l3io-doctor/steps/stats.md, and the two are cross-linked in prose only: renaming
 // the subcommand or dropping a flag would leave both copies green and both runs broken.
 //
 // Scope, derived. allSkillDocs() walks skills/ for *.md -- the same set checks 9, 11 and 17
@@ -1150,8 +1150,8 @@ function checkDigestCliSynopsis() {
 //   - a trailing `\`, which is a shell continuation (check 11 joins these too);
 //   - an unclosed `…` code span, which is a markdown SOFT WRAP. Without it the second copy of
 //     the duplicated clear-lock remedy escapes its own flag check:
-//     l3io-util-doctor/steps/stats.md writes the command across two source lines inside one
-//     span, so `--state-root`/`--epic` sit on the line after the subcommand. The l3io-pm-help
+//     l3io-doctor/steps/stats.md writes the command across two source lines inside one
+//     span, so `--state-root`/`--epic` sit on the line after the subcommand. The l3io-help
 //     copy is one table-cell line and was already covered -- checking one copy of a
 //     duplication and not the other is the failure this arm exists to prevent.
 // The two are counted SEPARATELY and only the span join is capped. They are not the same kind
@@ -1505,7 +1505,7 @@ function checkPmStatusInvocations() {
 // SYNCED COPIES ARE EXCLUDED, and that exclusion is derived too -- a per-skill file whose
 // bytes are identical to a file under skills/_shared/ is a generated copy of shared contract
 // text, not something this module chose to run. Without it, syncing status-files.md into
-// l3io-util-doctor (commit 98945ac) would have demanded rows in docs/l3io-util-reference.md
+// l3io-doctor (commit 98945ac) would have demanded rows in docs/l3io-util-reference.md
 // for set-lock, check-lock and set-status purely because the shared state contract quotes
 // them. A guard that cries wolf gets switched off.
 //
@@ -1558,7 +1558,15 @@ function checkModuleReferenceCoverage() {
 
   let checked = 0;
   for (const [code, doc] of [...refDocs].sort()) {
-    const owned = dirs.filter((d) => d === code || d.startsWith(`${code}-`));
+    // A skill is owned by a module when its module.yaml declares that code (source of truth),
+    // OR when it has no module.yaml and its name follows the `<code>-*` convention (scope-attack
+    // fallback: a brand-new skill directory is bound to its module on arrival, before it
+    // carries a module.yaml). The union is what the header claims and what test 198 pins.
+    const owned = dirs.filter((d) => {
+      const explicit = moduleCodeOf(d);
+      if (explicit !== null) return explicit === code;
+      return d === code || d.startsWith(`${code}-`);
+    });
     const invoked = new Map(); // sub -> "file:line" of the first invocation found
     for (const dir of owned) {
       for (const rel of walkMarkdown(path.join("skills", dir))) {
@@ -1736,7 +1744,7 @@ function checkSpecAlignSurface() {
 // quote is checked. Caught in practice: the cap was stated as a flat 10 in six places and
 // went stale in all of them the moment it became configurable.
 // ---------------------------------------------------------------------------
-const PM_SKILLS = ["l3io-pm-execute", "l3io-pm-plan", "l3io-pm-sync", "l3io-pm-help"];
+const PM_SKILLS = ["l3io-execute", "l3io-plan", "l3io-sync", "l3io-help"];
 
 function tomlInt(text, key) {
   const m = text.match(new RegExp(`^${key}\\s*=\\s*(\\d+)`, "m"));
@@ -1799,7 +1807,7 @@ function checkConfigValues() {
   // max_turns_per_story — only in pm-execute, pm-plan, pm-sync (pm-help omitted by design)
   {
     const seen = new Map();
-    for (const skill of ["l3io-pm-execute", "l3io-pm-plan", "l3io-pm-sync"]) {
+    for (const skill of ["l3io-execute", "l3io-plan", "l3io-sync"]) {
       const p = `skills/${skill}/customize.toml`;
       if (!exists(p)) continue;
       const v = tomlInt(read(p), "max_turns_per_story");
@@ -1845,8 +1853,8 @@ function checkConfigValues() {
 // ---------------------------------------------------------------------------
 const STATUS_FOLDERS = ["planned", "active", "archived"];
 const PHRASE_TABLE_FILES = [
-  "skills/l3io-pm-help/SKILL.md",
-  "skills/l3io-util-doctor/SKILL.md",
+  "skills/l3io-help/SKILL.md",
+  "skills/l3io-doctor/SKILL.md",
 ];
 
 function checkStatusValues() {
@@ -2008,7 +2016,7 @@ function checkDigestSize() {
 // walker checkSectionRefs uses) rather than by a hand-kept list, so a new skill or a new
 // doc file is covered automatically instead of silently sitting outside the check's view.
 //
-// "canonical" was dropped from the provenance keyword list: skills/l3io-util-doctor/SKILL.md
+// "canonical" was dropped from the provenance keyword list: skills/l3io-doctor/SKILL.md
 // said "see `skills/_shared/status-files.md` §10, the canonical contract)" — a directive
 // (it tells the agent to go read the path) that calls the *target* canonical, not a note
 // naming skills/_shared/ as *this file's own source*. Every real provenance line in the repo
@@ -2127,7 +2135,7 @@ function checkCliDocstring() {
 // `append-issue` and at least one `--` flag.
 //
 // Fences. Fence state is deliberately not tracked: a stray or four-backtick fence inverts a
-// naive open/close toggle and hides every invocation after it (skills/l3io-util-doctor/SKILL.md
+// naive open/close toggle and hides every invocation after it (skills/l3io-doctor/SKILL.md
 // carries one).
 //
 // Not detected.
@@ -2204,7 +2212,7 @@ function checkPmStatusSize() {
 // of truth), and its DIMENSIONS must be the six headings the enrichment prompt tells the agent
 // to write -- check-pointers rejects any other name, so a drift here blocks every story.
 // ---------------------------------------------------------------------------
-const LAYOUT_CLEANUP = "skills/l3io-util-doctor/steps/layout-cleanup.md";
+const LAYOUT_CLEANUP = "skills/l3io-doctor/steps/layout-cleanup.md";
 const STORY_PREP = "skills/_shared/steps/sprint/step-02-story-prep.md";
 const KIND_LABELS = { architecture: "Architecture", prd: "Requirements / PRD", ux: "UX spec" };
 
@@ -2268,8 +2276,8 @@ function checkSpecAlignContract() {
 // ---------------------------------------------------------------------------
 const ADR_OLD_HOME = /arch\/adr-|arch\/\*\.md/;
 const ADR_OLD_HOME_ALLOWED = new Set([
-  "skills/l3io-util-doctor/steps/migrate-adrs.md",
-  "skills/l3io-util-doctor/steps/health-check.md",
+  "skills/l3io-doctor/steps/migrate-adrs.md",
+  "skills/l3io-doctor/steps/health-check.md",
 ]);
 const ADR_OLD_HOME_QUALIFIER = /\b(old home|old per-epic home|legacy|migrat\w*)\b/i;
 
@@ -2326,7 +2334,7 @@ export const NUMBER_WORDS = ["zero", "one", "two", "three", "four", "five", "six
 // Deliberately carries headroom past the current check count. The list previously ended at
 // the exact number of checks, so adding one made every prose count unfixable -- the correct
 // new word was not in the table, and the failure named the doc rather than the table.
-const DOCTOR_DIR = "skills/l3io-util-doctor";
+const DOCTOR_DIR = "skills/l3io-doctor";
 
 function checkDoctorModeCount() {
   const steps = fs.readdirSync(path.join(repoRoot, DOCTOR_DIR, "steps"))
@@ -2377,13 +2385,13 @@ function checkDoctorModeCount() {
 //
 // A removed name may still appear where the mention is self-evidently historical, but the
 // evidence must be on the SAME LINE. Check 1 widens to a ±4-line window; dry-run here, that
-// window excused l3io-util-doctor/SKILL.md:84 because an unrelated routing row nearby said
+// window excused l3io-doctor/SKILL.md:84 because an unrelated routing row nearby said
 // "remove migration backup files". An accidental pass is how a guard starts crying wolf.
 //
 // Scope is derived by walking skills/ markdown and every skills/<dir>/assets/module.yaml, never
 // a list.
 // ---------------------------------------------------------------------------
-const DEP_INVENTORY = "skills/l3io-util-doctor/assets/bmad-dependencies.json";
+const DEP_INVENTORY = "skills/l3io-doctor/assets/bmad-dependencies.json";
 const BMAD_TOKEN_RE = /(?<![\w-])bmad-[a-z0-9-]+/g;
 const DEP_STATUSES = ["required", "optional", "related", "deprecated", "removed", "not-a-skill"];
 
@@ -2574,7 +2582,7 @@ function checkBmadDependencyInventory() {
 //
 // Tolerance: skills/_shared/steps/shared/step-00-activate.md documents "If `uv` is
 // unavailable, use `python3` instead" as an explicit fallback for self-install, and
-// skills/l3io-util-doctor/assets/migrate-state.md and bootstrap-state.md restate the same
+// skills/l3io-doctor/assets/migrate-state.md and bootstrap-state.md restate the same
 // fallback. A rule that forbade the word `python3` outright would forbid its own escape
 // hatch, so a line naming `uv`+`unavailable` or the word `fallback`, ON THE SAME LINE as the
 // invocation, is exempted from this check. PY_FALLBACK_QUALIFIER is MARKDOWN-ONLY and stays
@@ -3068,7 +3076,7 @@ function checkDocsCheckCount() {
 // module.yaml now lives at each module's home (assets/module.yaml -- a dedicated *-setup skill
 // for a multi-skill module, or the skill itself for a standalone one); codeOf() also reads the
 // skill-root location so a not-yet-migrated module still counts. A module's home can exist
-// before it is a full skill -- l3io-pm-setup carries assets/module.yaml from the day this
+// before it is a full skill -- l3io-setup carries assets/module.yaml from the day this
 // relocation lands, but its SKILL.md does not arrive until a later task -- so "skills" counts
 // only directories that carry a SKILL.md, while "modules" is derived from every module.yaml
 // regardless. "pmSkills" then excludes the module's own home directory from its delivery
@@ -3090,7 +3098,7 @@ function derivedCounts() {
     if (code) homeOfCode.set(code, dir);
   }
   // A directory is a real, installable skill only once it carries a SKILL.md -- a module home
-  // created ahead of its SKILL.md (l3io-pm-setup, until a later task fills it in) is
+  // created ahead of its SKILL.md (l3io-setup, until a later task fills it in) is
   // infrastructure, not yet a skill.
   const skillDirs = dirs.filter((dir) => exists(`skills/${dir}/SKILL.md`));
   const pmHome = homeOfCode.get("l3io-pm");
@@ -3223,7 +3231,7 @@ function checkSharedFilesTable() {
 // frontmatter strict-YAML-parses, `name:` equals the directory name, AND `description` is a
 // non-empty string. A skill that fails any of these is dropped from a real install with NO
 // warning -- not an error, not a log line, just absent. Task 11A fix round 1 found this live
-// via `name`: `l3io-pm-sync/SKILL.md`'s unquoted `Modes: setup, push, ...` in its description
+// via `name`: `l3io-sync/SKILL.md`'s unquoted `Modes: setup, push, ...` in its description
 // broke the YAML parse, and a real install silently shipped seven of the module's eight
 // skills. Fix round 2's re-review found the same failure class reachable through the
 // NEIGHBOURING field: this check originally validated only `name`, so a missing, empty, null,
@@ -3351,9 +3359,9 @@ function checkSkillFrontmatter() {
 // 22. README's Repo Layout block lists the directories each skill actually has.
 //
 // Caught in practice, three times in three consecutive tasks, all by a human reading: the
-// l3io-pm-help row went stale when that skill gained steps/; the l3io-pm-plan row kept
+// l3io-help row went stale when that skill gained steps/; the l3io-plan row kept
 // claiming a scripts/ directory deleted two commits earlier -- in a commit that edited the
-// very next line of the same block; and the l3io-pm-setup row omitted references/, which was
+// very next line of the same block; and the l3io-setup row omitted references/, which was
 // on disk the day the row was written. Nothing read this block, so every drift survived six
 // green gates and was found only when someone happened to look.
 //
@@ -3364,7 +3372,7 @@ function checkSkillFrontmatter() {
 // WHY GIT AND NOT readdirSync. "On disk" and "in the repository" are not the same set, and
 // this check is about the repository: README describes what a reader clones, not what a local
 // build left behind. It used to ask the filesystem, and a gitignored `__pycache__/` -- dropped
-// under skills/l3io-pm-plan/scripts/ by an interpreter run before that skill's pm-status.py
+// under skills/l3io-plan/scripts/ by an interpreter run before that skill's pm-status.py
 // payload copy was cut -- made the gate demand a README row for a `scripts/` directory that
 // does not exist as far as the repo is concerned. The row was CORRECT and the gate was RED, in
 // a shared checkout, with nothing to fix. A guard that cries wolf gets switched off.
@@ -3519,7 +3527,7 @@ function checkReadmeRepoLayout() {
 
 // ---------------------------------------------------------------------------
 // 23. `.claude-plugin/marketplace.json`'s `dependencies` block agrees with the declared
-// inventory, `skills/l3io-util-doctor/assets/bmad-dependencies.json`.
+// inventory, `skills/l3io-doctor/assets/bmad-dependencies.json`.
 //
 // Why: the marketplace block is the first thing a prospective consumer reads about what this
 // package needs, and nothing read it. Measured at the time this check was written, it
@@ -3633,8 +3641,8 @@ function checkMarketplaceDependencies() {
 // Caught in practice: a 2026-09-22 sweep of skills/*/**.md found 337 such pointers with 56
 // unresolved in the skill carrying them. Every one was a shared file naming a file only one
 // of its consumers ships -- `metrics-contract.md` citing `steps/sprint/step-04-sprint-closure.md`
-// (l3io-pm-execute only), `config-resolution.md` citing `assets/module-setup.md` (module homes
-// only), and `status-files.md`, newly shipped to l3io-util-doctor, importing its own onward
+// (l3io-execute only), `config-resolution.md` citing `assets/module-setup.md` (module homes
+// only), and `status-files.md`, newly shipped to l3io-doctor, importing its own onward
 // pointers into a skill that carries none of them.
 //
 // SCOPE IS DERIVED, NOT ENUMERATED (repo CLAUDE.md §4). Both halves come from
@@ -3645,7 +3653,7 @@ function checkMarketplaceDependencies() {
 //
 // WHAT COUNTS AS A POINTER: a whole backtick span that is a path starting `references/`,
 // `assets/`, `steps/` or `scripts/` (optionally behind `{skill-root}/` or `./`). A span with
-// any other root -- `{project-root}/…`, `{implementation_artifacts}/…`, `l3io-pm-execute/…` --
+// any other root -- `{project-root}/…`, `{implementation_artifacts}/…`, `l3io-execute/…` --
 // is not skill-relative and is not judged as one. A span whose first segment IS a real skill
 // directory is judged too, against THAT skill: that is the shape this check's own fixes use
 // (`l3io-sec-redteam/references/scope-mapping.md`), so the replacement is guarded as well as
@@ -3653,7 +3661,7 @@ function checkMarketplaceDependencies() {
 //
 // THE ONE EXEMPTION, and it is derived rather than allowlisted: a pointer whose LINE also
 // names a real skill directory in which the path does resolve. That is the attribution shape
-// the original sweep excluded ("`l3io-util-doctor`'s own `steps/stats.md`") and it carries the
+// the original sweep excluded ("`l3io-doctor`'s own `steps/stats.md`") and it carries the
 // information a reader needs -- which skill to look in. It is mechanical: the named directory
 // must exist under skills/ AND must actually contain the file. Naming a skill that does not
 // have it exempts nothing.
@@ -3669,7 +3677,7 @@ function checkMarketplaceDependencies() {
 //   - files a sync group ships that are not .md (the .py payloads). Their pointers are in
 //     Python source, not backtick spans.
 //   - pointers in a skill's OWN files. This check's corpus is the shared set only; a
-//     l3io-util-doctor step file naming a l3io-util-doctor reference that does not exist is
+//     l3io-doctor step file naming a l3io-doctor reference that does not exist is
 //     not in scope here, and nothing else checks it either.
 //   - whether the pointed-at SECTION exists. Check 3 does that for `<file>.md §N`.
 //   - a pointer split across a line break, which the line-scoped scan cannot see as one span.
@@ -3760,11 +3768,11 @@ if (process.argv.includes("--dump-subcommand-options")) {
 }
 
 // ---------------------------------------------------------------------------
-// 25. Every `/l3io-util-doctor <keyword>` invocation names a keyword that exists.
+// 25. Every `/l3io-doctor <keyword>` invocation names a keyword that exists.
 //
 // A removed mode keyword left named somewhere is a runtime defect, not a documentation nit.
 // The doctor's router sends any argument it does not recognise to the health check
-// (SKILL.md, "Everything else"), so a directive that still says `/l3io-util-doctor overlay`
+// (SKILL.md, "Everything else"), so a directive that still says `/l3io-doctor overlay`
 // does not error -- it silently runs a full project scan instead of the thing it named, and
 // the user has no way to tell. Check 1 validates l3io-* SKILL names; nothing validated the
 // MODE keywords underneath them, and Task 0C removed five of them by hand.
@@ -3775,18 +3783,18 @@ if (process.argv.includes("--dump-subcommand-options")) {
 //
 // The corpus is LIVE_DOCS plus every text file under skills/, not only markdown: the doctor's
 // own scripts print these invocations in user-facing messages (pm-status.py and spec-align.py
-// both name `/l3io-util-doctor triage`), and a dangling keyword in an error message is worse
+// both name `/l3io-doctor triage`), and a dangling keyword in an error message is worse
 // than one in a doc, because the user is already stuck when they read it.
 //
 // KNOWN GAPS -- what this check cannot see, stated so the next reader does not assume cover:
 //
 //   1. A single-word keyword followed by prose. The rule below reads the token after the
 //      command as an argument UNLESS it is followed by whitespace and another lowercase word,
-//      because English prose puts one there constantly ("Run /l3io-util-doctor for a health
+//      because English prose puts one there constantly ("Run /l3io-doctor for a health
 //      check", "...to install it"). Measured over the whole live tree at the time of writing,
 //      that exemption is what keeps the false-positive count at zero; without it there are
 //      three prose sites and no real findings. The cost is that
-//      "/l3io-util-doctor overlay to see what is customizable" is invisible. A HYPHENATED
+//      "/l3io-doctor overlay to see what is customizable" is invisible. A HYPHENATED
 //      token is always checked, prose or not, because English does not put one there -- and
 //      twelve of the doctor's sixteen keywords are hyphenated, so the reach is most of the set
 //      and all of the migration-critical part of it.
@@ -3796,14 +3804,14 @@ if (process.argv.includes("--dump-subcommand-options")) {
 //      removed skill to its replacement.
 //
 //      This gap has now cost something, so here is what closing it would cost. README.md's
-//      /l3io-util-doctor row listed `overlay` -- removed by d91cb8f -- as a keyword you can
+//      /l3io-doctor row listed `overlay` -- removed by d91cb8f -- as a keyword you can
 //      "skip directly to", in the same sentence that links docs/l3io-util-reference.md, which
 //      says "There is no `overlay` keyword". It sat there through every gate and was found by
 //      a human reading in 2026-09-23's independent validation. Two closures were measured
 //      against the whole live-doc corpus before this text was written, and neither is worth
 //      taking:
 //        - THE GENERAL FORM -- treat every backticked lowercase token on a line that mentions
-//          /l3io-util-doctor as a claimed keyword. 87 such lines; 56 tokens judged; 45
+//          /l3io-doctor as a claimed keyword. 87 such lines; 56 tokens judged; 45
 //          reported, of which ONE is real. A 44-item false-positive surface made of statuses
 //          (`done`, `ready-for-dev`), resolutions (`fixed`, `wontfix`), pm-status.py
 //          subcommands (`set-status`, `append-issue`) and sibling skill names. That is the
@@ -3825,12 +3833,12 @@ if (process.argv.includes("--dump-subcommand-options")) {
 // stale keyword, because the instruction is to READ A FILE THAT IS NOT THERE. It survived the
 // whole of Task 0C's hand sweep and every gate (steps/sort-status.md pointed at
 // steps/rename-epic-dirs.md), which is the evidence for this arm existing. Every unqualified
-// `steps/<name>.md` inside skills/l3io-util-doctor/ must resolve there; a pointer written
+// `steps/<name>.md` inside skills/l3io-doctor/ must resolve there; a pointer written
 // `<other-skill>/steps/<name>.md` is a cross-skill reference and is skipped, because it
 // resolves against that skill, not this one.
 // ---------------------------------------------------------------------------
 const DOCTOR_ROUTING_ROW_RE = /^\| ((?:`[^`|]+`(?:[,/]| or )?\s*)+)\|/gm;
-const DOCTOR_INVOCATION_RE = /\/l3io-util-(?:doctor|cleanup)[ \t]+([a-z][a-z0-9-]*)/g;
+const DOCTOR_INVOCATION_RE = /\/(?:l3io-doctor|l3io-util-doctor|l3io-util-cleanup)[ \t]+([a-z][a-z0-9-]*)/g;
 const DOCTOR_CORPUS_EXT = [".md", ".py", ".yaml", ".yml", ".toml", ".csv", ".json", ".txt"];
 
 function* walkTextFiles(rel) {
@@ -3871,7 +3879,7 @@ function checkDoctorModeKeywords() {
       const after = text.slice(m.index + m[0].length, m.index + m[0].length + 2);
       if (/^\s[a-z]/.test(after) && !token.includes("-")) continue; // prose, per gap 1
       const line = text.slice(0, m.index).split("\n").length;
-      failures.push(`${rel}:${line}: names /l3io-util-doctor ${token}, which is not a keyword ` +
+      failures.push(`${rel}:${line}: names /l3io-doctor ${token}, which is not a keyword ` +
         `the doctor's routing table has — the router sends an unrecognised argument to the ` +
         `health check, so this silently runs a project scan instead. Valid: ` +
         `${[...valid].sort().join(", ")}`);
@@ -3947,8 +3955,8 @@ function checkDoctorModeKeywords() {
 // docs/superpowers/plans/2026-09-24-followup-pm-status-exists-verb.md tracks the follow-up.
 //
 // check26:allow SITES (state-existence read probes, not path-assembly violations):
-//   skills/l3io-pm-help/steps/mode-list-plan.md   — ls -d to find which bucket holds the epic
-//   skills/l3io-util-doctor/steps/health-check.md — diff <(ls ...) state/artifact mirror check
+//   skills/l3io-help/steps/mode-list-plan.md   — ls -d to find which bucket holds the epic
+//   skills/l3io-doctor/steps/health-check.md — diff <(ls ...) state/artifact mirror check
 
 const RESOLVER_START_MARKER =
   'Sharded layout resolution — the ONLY place that knows where nodes live'

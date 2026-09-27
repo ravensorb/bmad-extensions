@@ -2,7 +2,7 @@
 
 **Date:** 2026-09-26
 **Status:** approved design, not yet planned
-**Prompted by:** the four l3io-util-doctor defects fixed in `eb448c8`, `7492cfb`, `2bbe2c3`, `0e31428`
+**Prompted by:** the four l3io-doctor defects fixed in `eb448c8`, `7492cfb`, `2bbe2c3`, `0e31428`
 
 ## 1. Why
 
@@ -141,7 +141,7 @@ is worse than an absent one: absent routes to the fallback, wrong short-circuits
 | derived `source` string, both with and without a note | same |
 | `source_phase`/`source_ref` absent unless written structurally | same |
 | **dedup still matches a structured re-run** | same — the `_content_matches` constraint |
-| `pointer_for` prefers the structured fields | `skills/l3io-util-doctor/scripts/tests/test-audit-backlog.py` |
+| `pointer_for` prefers the structured fields | `skills/l3io-doctor/scripts/tests/test-audit-backlog.py` |
 | a legacy item still resolves through the regex chain | same |
 
 Two that exist because of what went wrong this week:
