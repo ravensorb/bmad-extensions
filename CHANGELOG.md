@@ -2,6 +2,34 @@
 
 All notable changes to this project will be documented in this file. See [commit-and-tag-version](https://github.com/absolute-version/commit-and-tag-version) for commit guidelines.
 
+## [3.1.3](https://github.com/ravensorb/bmad-extensions/compare/3.1.2...3.1.3) (2026-09-27)
+
+
+### ⚠ BREAKING CHANGES
+
+* **l3io-doctor:** rename layout-cleanup → clean-layout for verb-first consistency
+* **l3io-pm,l3io-util:** verb-first skill names + cross-module discovery mode
+
+### Features
+
+* **ci-cd:** run every Python suite, and gate on bmb's skill scanners ([b46a27f](https://github.com/ravensorb/bmad-extensions/commit/b46a27fdfe699db97d86e32566e0f09c961c59df))
+* **l3io-pm,l3io-util:** verb-first skill names + cross-module discovery mode ([b53ae65](https://github.com/ravensorb/bmad-extensions/commit/b53ae65508578346ebdac9531a27fb23c56429e5))
+
+
+### Performance
+
+* **l3io-doctor,infra:** lazy-load doctor help block + trim forwarder payload ([d37d618](https://github.com/ravensorb/bmad-extensions/commit/d37d6181f1e149edd11c277280f0a880787be318))
+
+
+### Refactoring
+
+* **l3io-doctor:** rename layout-cleanup → clean-layout for verb-first consistency ([00c85f8](https://github.com/ravensorb/bmad-extensions/commit/00c85f827df135fdeec6cb9c6f89aee61e4d043e))
+
+
+### Documentation
+
+* preserve historical prose in decision-logs and superpowers ([6191a49](https://github.com/ravensorb/bmad-extensions/commit/6191a4906dee146790046c5db1ebffffadb4cc49))
+
 ## [3.1.2](https://github.com/ravensorb/bmad-extensions/compare/3.1.1...3.1.2) (2026-09-26)
 
 
