@@ -2,7 +2,10 @@
 
 **Resume line:** *"You are `bmad-extensions`. Read your handoff note, then continue."*
 
-**Last updated:** 2026-09-27 · **HEAD:** `b46a27f` · **Released:** 3.1.2 · main in sync, tree clean
+**Released:** 3.1.2. For the rest — current HEAD, whether main is in sync, whether the
+tree is clean — run `git log --oneline -5` and `git status -sb`. An earlier revision of
+this line pinned a commit by hand and was stale one commit later, which is the same
+defect the rest of this note is about.
 
 > **Naming is an assumption.** No agent name was assigned to this session; `bmad-extensions`
 > is chosen after the repo. Rename the file if the user has another convention.
@@ -102,8 +105,12 @@ Two notes written earlier in this session are in the shared basic-memory KB. **R
 before re-deriving anything below** — they carry the method, the corrections and the
 sampling caveats, which these one-liners do not.
 
-- **BMAD/l3io Skill Traps and Invariants**
 - **Agent Session Cost, Measured**
+- The skill-behaviour note, reported to this agent under two titles on the same day:
+  **BMAD/l3io Skill Traps and Invariants** and, later, **BMAD and l3io Skill Behaviour**
+  (described then as the two notes merged). Search on either, or on `migrate-adrs`, which
+  appears in it whichever title it carries. *Unresolved: which title is current — ask the KB
+  owner rather than assume the later message supersedes the earlier one.*
 
 Three entries need a pointer *and* a caveat, because the bare number misleads:
 
