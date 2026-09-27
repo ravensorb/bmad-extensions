@@ -106,11 +106,12 @@ before re-deriving anything below** — they carry the method, the corrections a
 sampling caveats, which these one-liners do not.
 
 - **Agent Session Cost, Measured**
-- The skill-behaviour note, reported to this agent under two titles on the same day:
-  **BMAD/l3io Skill Traps and Invariants** and, later, **BMAD and l3io Skill Behaviour**
-  (described then as the two notes merged). Search on either, or on `migrate-adrs`, which
-  appears in it whichever title it carries. *Unresolved: which title is current — ask the KB
-  owner rather than assume the later message supersedes the earlier one.*
+- **BMAD and l3io Skill Behaviour** — merged by the KB owner from two notes this agent
+  wrote, one of them titled *BMAD/l3io Skill Traps and Invariants*, which may still appear
+  as a stale link target. If neither title resolves, search the content: `migrate-adrs`
+  appears in it under any title. Prefer a content term over a title when citing the KB —
+  a retitle left 17 dangling wikilinks across it, one of them pointing at the old title
+  of this very note from the cost note beside it.
 
 Three entries need a pointer *and* a caveat, because the bare number misleads:
 
