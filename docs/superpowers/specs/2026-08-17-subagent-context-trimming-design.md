@@ -114,8 +114,8 @@ then the reference, and treat the digest as stale.
 
 ### 2. Narrow `persistent_facts`
 
-Present in exactly the four PM skills — `l3io-execute`, `l3io-plan`, `l3io-sync`,
-`l3io-help` (`l3io-arch-review`, `l3io-doctor`, and the `l3io-util-cleanup` forwarder
+Present in exactly the four PM skills — `l3io-pm-execute`, `l3io-pm-plan`, `l3io-pm-sync`,
+`l3io-pm-help` (`l3io-arch-review`, `l3io-util-doctor`, and the `l3io-util-cleanup` forwarder
 already use `[]`):
 
 ```toml
@@ -255,7 +255,7 @@ encode today's waste as the baseline.
 The two references appear here because their loading instruction changes, not their content.
 Removing content from them remains out of scope, as stated above.
 
-**Per-skill:** `customize.toml` in `l3io-execute`, `l3io-plan`, `l3io-sync`,
-`l3io-help` (the `persistent_facts` glob)
+**Per-skill:** `customize.toml` in `l3io-pm-execute`, `l3io-pm-plan`, `l3io-pm-sync`,
+`l3io-pm-help` (the `persistent_facts` glob)
 
 **Docs:** `CLAUDE.md` and `docs/l3io-pm-reference.md` where they describe activation loading

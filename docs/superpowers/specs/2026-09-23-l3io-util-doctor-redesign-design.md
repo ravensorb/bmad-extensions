@@ -1,8 +1,8 @@
-# l3io-doctor redesign — design
+# l3io-util-doctor redesign — design
 
 **Date:** 2026-09-23
 **Status:** approved design, not yet planned
-**Informed by:** `docs/l3io-doctor-gap-analysis.md`
+**Informed by:** `docs/l3io-util-doctor-gap-analysis.md`
 
 ## 1. Why
 
@@ -85,7 +85,7 @@ and judgement stay in prose; parsing and writing become code.**
 
 | Layer | Where | Responsibility |
 |---|---|---|
-| **Readers** | `skills/l3io-doctor/scripts/` — one per source layout | Parse a source tree into a list of **normalised records**. Pure: no writes, no locks, no interaction. |
+| **Readers** | `skills/l3io-util-doctor/scripts/` — one per source layout | Parse a source tree into a list of **normalised records**. Pure: no writes, no locks, no interaction. |
 | **Writer** | a new `pm-status.py` verb | Create a state node from a record, under the existing lock/event/exit-code contract. |
 | **Prose** | `assets/`, `steps/` | Detect which layout is present, explain what will happen, exercise judgement, confirm, dispose of the source. |
 
@@ -207,9 +207,9 @@ stops being a backfill.
 
 | What | Where | Harness |
 |---|---|---|
-| Readers | `skills/l3io-doctor/scripts/tests/` | fixture directories, alongside the existing `test-detect-layout.py` |
+| Readers | `skills/l3io-util-doctor/scripts/tests/` | fixture directories, alongside the existing `test-detect-layout.py` |
 | The writer verb | `skills/_shared/tests/test-pm-status.py` | the existing in-process `run_main` |
-| End-to-end per path | `skills/l3io-doctor/scripts/tests/` | fixture project → run → assert the resulting tree |
+| End-to-end per path | `skills/l3io-util-doctor/scripts/tests/` | fixture project → run → assert the resulting tree |
 
 One fixture project per source layout: base-BMad adoption, l3io legacy flat,
 per-epic `_bmad/state/`, the split three-file layout, and an artifacts-only
@@ -236,7 +236,7 @@ it.
 
 ## 8. What this closes
 
-Mapped to the ranked gaps in `docs/l3io-doctor-gap-analysis.md` §3:
+Mapped to the ranked gaps in `docs/l3io-util-doctor-gap-analysis.md` §3:
 
 | Gap | Closed by |
 |---|---|

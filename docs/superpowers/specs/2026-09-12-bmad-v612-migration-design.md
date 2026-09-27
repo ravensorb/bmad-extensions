@@ -131,10 +131,10 @@ Sites to change:
   87; `skills/l3io-arch-review/assets/customize-architect.md` — line 12 (`bmad-architect`) and
   **line 21** (`## Overlay for bmad-create-story`)
 - The four `l3io-pm-*/module.yaml` files — `post-install-notes` lines 13, 15, 17 in each of
-  `l3io-execute`, `l3io-plan`, `l3io-help`, `l3io-sync`
+  `l3io-pm-execute`, `l3io-pm-plan`, `l3io-pm-help`, `l3io-pm-sync`
 - Doctor's **historical** mentions, which describe legacy projects accurately and are therefore
-  kept, not reworded: `skills/l3io-doctor/SKILL.md:3,25,84,114` and
-  `skills/l3io-doctor/assets/migrate-state.md:122` (see §7.2's allowance)
+  kept, not reworded: `skills/l3io-util-doctor/SKILL.md:3,25,84,114` and
+  `skills/l3io-util-doctor/assets/migrate-state.md:122` (see §7.2's allowance)
 
 **Calibration is unaffected.** `set-actual` keys samples by classification and level, never by
 agent name, so `pm-calibration.yaml` ratios carry over intact. Only `usage --agent
@@ -161,7 +161,7 @@ Applies to `steps/execute/step-04-arch-gate.md:34,35` and `steps/closure/sprint-
 dependency **names**, not probe **paths**. `check:docs` check 17 will pass a step file that
 reverts to a single `.claude/commands/<name>.md` probe, reintroducing exactly the silent
 self-skip §1.2 describes: no CI check examines the shape above, and none should be assumed to.
-It is verified only at **runtime**, against a real install, by `/l3io-doctor check-deps`
+It is verified only at **runtime**, against a real install, by `/l3io-util-doctor check-deps`
 (§7.3) — `bmad-deps.py` resolves every declared name through all four locations and names each
 absent optional one, so a self-skipped gate is not mistaken for a passed one. A CI check for
 probe shape is **deferred**, not implied: it needs its own tests and its own proof that it can
@@ -241,7 +241,7 @@ one defect from §1.
 
 ### 7.1 The inventory
 
-`skills/l3io-doctor/assets/bmad-dependencies.json` — the single declaration of every
+`skills/l3io-util-doctor/assets/bmad-dependencies.json` — the single declaration of every
 upstream skill this package references.
 
 **JSON is forced, and correctly so.** This package has zero runtime node dependencies
@@ -335,7 +335,7 @@ Assertions:
 
   **Deliberately tighter than check 1**, which widens to a ±4-line window matching
   `/renam|deprecat|remov|previously|no longer|.../i`. Dry-run against this repo, that window
-  passes `l3io-doctor/SKILL.md:84` only because an unrelated routing row four lines away
+  passes `l3io-util-doctor/SKILL.md:84` only because an unrelated routing row four lines away
   says "remove migration backup files" — an accidental pass, which is how a guard starts crying
   wolf and gets switched off. Same-line evidence cannot be satisfied by a neighbour.
 
@@ -348,10 +348,10 @@ Raises the check count from sixteen to **seventeen** (CLAUDE.md and the script h
 
 ### 7.3 Level 2 — runtime, `bmad-deps.py` + a doctor mode
 
-Skill-local, not shared: `l3io-doctor` is the only consumer, which is exactly what ADR-0001
+Skill-local, not shared: `l3io-util-doctor` is the only consumer, which is exactly what ADR-0001
 prescribes. It follows the existing precedent of `audit-backlog.py` verbatim — script at
-`skills/l3io-doctor/scripts/bmad-deps.py`, suite at
-`skills/l3io-doctor/scripts/tests/test-bmad-deps.py`, one CI step. **No sync group, no
+`skills/l3io-util-doctor/scripts/bmad-deps.py`, suite at
+`skills/l3io-util-doctor/scripts/tests/test-bmad-deps.py`, one CI step. **No sync group, no
 `_shared/` copy.**
 
 PEP 723 header, run via `uv run`, dependency `ruamel.yaml>=0.18` (to read
@@ -373,7 +373,7 @@ refusal; `3` a required skill missing; `4` inventory or manifest unreadable. An 
 skill is a warning line with exit `0`.
 
 Doctor mode: keyword `check-deps`, file `steps/check-deps.md`, read-only. Adding it raises the
-mode count from nineteen to **twenty** at both claim sites — `skills/l3io-doctor/SKILL.md:56-57`
+mode count from nineteen to **twenty** at both claim sites — `skills/l3io-util-doctor/SKILL.md:56-57`
 ("nineteen procedures", "eighteen it would not execute") and `CLAUDE.md:12`.
 
 `docs/l3io-util-reference.md:86`'s "nineteen numbered read-only checks (Checks 1–19)" is the
@@ -382,8 +382,8 @@ standalone mode, deliberately not a health-check numbered check, so that count s
 
 ## 8. Documentation and configuration truth
 
-- The **four** `l3io-pm-*/module.yaml` `post-install-notes` (`l3io-execute`, `l3io-plan`,
-  `l3io-help`, `l3io-sync`, each at lines 13/15/17) — restate the dependency list in
+- The **four** `l3io-pm-*/module.yaml` `post-install-notes` (`l3io-pm-execute`, `l3io-pm-plan`,
+  `l3io-pm-help`, `l3io-pm-sync`, each at lines 13/15/17) — restate the dependency list in
   tolerance terms: name the preferred skill and note that an older install resolves to the
   pre-6.12 name automatically. Keep `--modules bmm` (verified against
   `docs/start/install-bmad.md:105`). Do **not** assert a minimum BMad version.
@@ -394,8 +394,8 @@ standalone mode, deliberately not a health-check numbered check, so that count s
 - The four **docs/** sites naming `bmad-architect`, which check 17 does not scan but users read:
   `docs/l3io-arch-reference.md:9,96`, `docs/architecture.md:57`, `docs/getting-started.md:136`.
 - The five doctor historical mentions gain the word `legacy` so §7.2's same-line rule is
-  satisfied without weakening it: `skills/l3io-doctor/SKILL.md:3,25,84,114` and
-  `skills/l3io-doctor/assets/migrate-state.md:122`.
+  satisfied without weakening it: `skills/l3io-util-doctor/SKILL.md:3,25,84,114` and
+  `skills/l3io-util-doctor/assets/migrate-state.md:122`.
 - `docs/getting-started.md` and `README.md` — state that BMad ≥6.12.0 installs skills to
   `.claude/skills/` and needs no `--shims` flag, **and** that older installs keep working
   unchanged. This is information, not a version floor.
@@ -488,7 +488,7 @@ Each guard needs a non-hollow proof: revert the guard, confirm the test fails.
 **CI** — one step in `.github/workflows/checks.yml` mirroring line 42:
 
 ```yaml
-- run: uv run -q --with 'ruamel.yaml>=0.18' python3 skills/l3io-doctor/scripts/tests/test-bmad-deps.py
+- run: uv run -q --with 'ruamel.yaml>=0.18' python3 skills/l3io-util-doctor/scripts/tests/test-bmad-deps.py
 ```
 
 ## 12. Verification
@@ -500,7 +500,7 @@ Step files are shared sources, so after editing: `npm run sync:scripts`, then
 Acceptance, both halves required:
 
 1. A clean `npx bmad-method install --yes --modules bmm --tools claude-code` followed by
-   `/l3io-doctor check-deps` reports every required dependency present and no shim in use.
+   `/l3io-util-doctor check-deps` reports every required dependency present and no shim in use.
 2. **An install carrying the pre-6.12 skill names still resolves every site to those names**, so
    a project working today is behaviorally unchanged. Verified by running `check-deps` against a
    fixture tree holding the old names and confirming each resolves via `fallback`.

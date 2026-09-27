@@ -2,9 +2,9 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Fix four related bugs: (1) migrate-state says "nothing to migrate" when legacy BMad format is present; (2) story elaboration updates epic.md instead of creating story files; (3) l3io-plan silently finds zero stories when only artifact .md files exist without state YAML; (4) add a bootstrap-state mode that creates state YAML from existing story artifacts.
+**Goal:** Fix four related bugs: (1) migrate-state says "nothing to migrate" when legacy BMad format is present; (2) story elaboration updates epic.md instead of creating story files; (3) l3io-pm-plan silently finds zero stories when only artifact .md files exist without state YAML; (4) add a bootstrap-state mode that creates state YAML from existing story artifacts.
 
-**Architecture:** Bug 2 is a prompt fix (tell bmad-create-story to create-if-absent). Bugs 3 and 4 are addressed together by a new `bootstrap-state` mode in l3io-doctor plus a new pre-flight check in step-02-readiness-check that detects artifact-only stories and blocks with an actionable message. Bug 1 is addressed by adding diagnostic output to migrate-state (showing exactly which paths were checked) and a fourth pre-flight detection case for the artifact-only layout.
+**Architecture:** Bug 2 is a prompt fix (tell bmad-create-story to create-if-absent). Bugs 3 and 4 are addressed together by a new `bootstrap-state` mode in l3io-util-doctor plus a new pre-flight check in step-02-readiness-check that detects artifact-only stories and blocks with an actionable message. Bug 1 is addressed by adding diagnostic output to migrate-state (showing exactly which paths were checked) and a fourth pre-flight detection case for the artifact-only layout.
 
 **Tech Stack:** Markdown instruction files (LLM step files), no compiled code changes. One bash snippet addition to migrate-state. `npm run sync:scripts` propagates `skills/_shared/steps/**` changes to per-skill copies.
 
@@ -14,8 +14,8 @@
 
 - All `skills/_shared/steps/**` changes must be propagated via `npm run sync:scripts` before any CI check runs
 - Never hand-edit per-skill `steps/` copies — they are generated
-- `skills/l3io-doctor/assets/` and `steps/` files are NOT shared — edit them directly
-- Every mode added to l3io-doctor SKILL.md must have a corresponding `steps/` file — never inline
+- `skills/l3io-util-doctor/assets/` and `steps/` files are NOT shared — edit them directly
+- Every mode added to l3io-util-doctor SKILL.md must have a corresponding `steps/` file — never inline
 - `npm run check:scripts`, `npm run check:docs`, `npm run check:manifest` must all pass after every task
 - Story state YAML must carry required back-references: `epic:` on sprint/story nodes, `epic:` + `sprint:` on story nodes
 - All YAML node files are bare (no `epics:` / `sprints:` / `stories:` wrapper)
@@ -46,7 +46,7 @@ Spawn `bmad-create-story` with:
   model changes, error handling and edge cases, observability requirements, security
   considerations, testability (unit + integration test anchors) — treating each story on its
   own terms rather than applying one answer across the batch
-- Context preamble: `epic_key: {epic_key}`, `work_type: {work_type}`, `skill: l3io-plan`
+- Context preamble: `epic_key: {epic_key}`, `work_type: {work_type}`, `skill: l3io-pm-plan`
 - `{agent_contract}` (verbatim — see `steps/shared/step-00-digest.md`)
 ```
 
@@ -75,7 +75,7 @@ Spawn `bmad-create-story` with:
   model changes, error handling and edge cases, observability requirements, security
   considerations, testability (unit + integration test anchors) — treating each story on its
   own terms rather than applying one answer across the batch
-- Context preamble: `epic_key: {epic_key}`, `work_type: {work_type}`, `skill: l3io-plan`
+- Context preamble: `epic_key: {epic_key}`, `work_type: {work_type}`, `skill: l3io-pm-plan`
 - `{agent_contract}` (verbatim — see `steps/shared/step-00-digest.md`)
 ```
 
@@ -143,12 +143,12 @@ Both must exit 0.
 ```bash
 git add skills/_shared/steps/plan/step-03-story-elaboration.md \
         skills/_shared/steps/sprint/step-02-story-prep.md \
-        skills/l3io-plan/steps/plan/step-03-story-elaboration.md \
-        skills/l3io-execute/steps/sprint/step-02-story-prep.md \
-        skills/l3io-sync/steps/sprint/step-02-story-prep.md \
-        skills/l3io-plan/payload-manifest.json \
-        skills/l3io-execute/payload-manifest.json \
-        skills/l3io-sync/payload-manifest.json
+        skills/l3io-pm-plan/steps/plan/step-03-story-elaboration.md \
+        skills/l3io-pm-execute/steps/sprint/step-02-story-prep.md \
+        skills/l3io-pm-sync/steps/sprint/step-02-story-prep.md \
+        skills/l3io-pm-plan/payload-manifest.json \
+        skills/l3io-pm-execute/payload-manifest.json \
+        skills/l3io-pm-sync/payload-manifest.json
 git commit -s -m "fix(l3io-pm): create story artifact file if absent before elaboration
 
 Step-03-story-elaboration and sprint step-02-story-prep both passed story
@@ -170,7 +170,7 @@ path first, then enrich with technical ACs."
 **Interfaces:**
 - Consumes: artifact tree at `{implementation_artifacts}/epic-*/sprint-*/stories/*.md`
 - Consumes: state tree at `{pm_state_root}/(active|planned|archived)/epic-*/sprint-*/*.yaml`
-- Produces: Red gate blocking l3io-plan with actionable message when artifact-only stories found
+- Produces: Red gate blocking l3io-pm-plan with actionable message when artifact-only stories found
 
 **Why this matters:** step-02 enumerates stories from state YAML files only. If story `.md` files exist in the artifact tree with no corresponding state YAML, the readiness check finds zero stories and silently passes — the plan is generated with no stories to execute. The fix adds a pre-scan that detects this mismatch and blocks with a clear message pointing to `bootstrap-state`.
 
@@ -206,17 +206,17 @@ If **any artifact-only stories are found**, halt immediately:
 🔴 Readiness check FAILED — {count} story artifact(s) found with no state node.
 
 These stories exist as .md files in the artifact tree but have no corresponding
-state YAML under {pm_state_root}/. l3io-plan reads state only, so these stories
+state YAML under {pm_state_root}/. l3io-pm-plan reads state only, so these stories
 are invisible to planning, estimation, and execution.
 
 Artifact-only stories:
 {list each: {implementation_artifacts}/epic-{nnn}/sprint-{nn}/stories/{story_key}.md}
 
-Fix: run /l3io-doctor bootstrap-state to create state nodes from your artifact
+Fix: run /l3io-util-doctor bootstrap-state to create state nodes from your artifact
 files. This is a one-time step for projects whose stories were created outside l3io-pm.
 ```
 
-BLOCKED: artifact-only stories detected — run /l3io-doctor bootstrap-state first.
+BLOCKED: artifact-only stories detected — run /l3io-util-doctor bootstrap-state first.
 
 If no artifact-only stories are found, continue to §1.
 ```
@@ -259,34 +259,34 @@ npm run check:manifest
 
 ```bash
 git add skills/_shared/steps/plan/step-02-readiness-check.md \
-        skills/l3io-plan/steps/plan/step-02-readiness-check.md \
-        skills/l3io-plan/payload-manifest.json
+        skills/l3io-pm-plan/steps/plan/step-02-readiness-check.md \
+        skills/l3io-pm-plan/payload-manifest.json
 git commit -s -m "fix(l3io-pm): detect artifact-only stories before readiness check
 
-l3io-plan step-02 enumerated stories exclusively from state YAML files.
+l3io-pm-plan step-02 enumerated stories exclusively from state YAML files.
 If story .md artifacts existed but had no corresponding state nodes
 (the 'legacy BMad format' case), planning found zero stories and generated
 an empty plan with no error. A new §0 pre-scan detects this mismatch and
-blocks with an actionable message pointing to /l3io-doctor bootstrap-state."
+blocks with an actionable message pointing to /l3io-util-doctor bootstrap-state."
 ```
 
 ---
 
-### Task 3: Add bootstrap-state mode to l3io-doctor (Bugs 3 + 4)
+### Task 3: Add bootstrap-state mode to l3io-util-doctor (Bugs 3 + 4)
 
 **Files:**
-- Create: `skills/l3io-doctor/steps/bootstrap-state.md`
-- Modify: `skills/l3io-doctor/SKILL.md` (keyword table, help output, description, On Activation)
-- Modify: `skills/l3io-doctor/steps/health-check.md` (add Check 2c)
+- Create: `skills/l3io-util-doctor/steps/bootstrap-state.md`
+- Modify: `skills/l3io-util-doctor/SKILL.md` (keyword table, help output, description, On Activation)
+- Modify: `skills/l3io-util-doctor/steps/health-check.md` (add Check 2c)
 
 **Interfaces:**
 - Consumes: artifact tree `{implementation_artifacts}/epic-{nnn}/sprint-{nn}/stories/{story_key}.md`
 - Consumes: epic markdown at `{implementation_artifacts}/epic-{nnn}/epic.md` (optional, for title/goal)
 - Produces: sharded state YAML nodes at `{pm_state_root}/planned/epic-{nnn}/` (new files only)
 
-**Why this matters:** There is currently no path from "BMad story .md artifact files" to "l3io-pm sharded state YAML." A user who created stories via `bmad-create-story` without going through l3io-plan has artifacts but no state — migrate-state says "nothing to migrate" and l3io-plan finds zero stories. bootstrap-state fills this gap as a one-time setup step.
+**Why this matters:** There is currently no path from "BMad story .md artifact files" to "l3io-pm sharded state YAML." A user who created stories via `bmad-create-story` without going through l3io-pm-plan has artifacts but no state — migrate-state says "nothing to migrate" and l3io-pm-plan finds zero stories. bootstrap-state fills this gap as a one-time setup step.
 
-- [ ] **Step 1: Create skills/l3io-doctor/steps/bootstrap-state.md**
+- [ ] **Step 1: Create skills/l3io-util-doctor/steps/bootstrap-state.md**
 
 Create the file with this content:
 
@@ -324,9 +324,9 @@ echo "sharded=$SHARDED"
 If `SHARDED=1`:
 ```
 BLOCKED: {pm_state_root} already exists. bootstrap-state only runs on projects with
-no state yet. If you have state in a legacy format, run /l3io-doctor migrate-state
+no state yet. If you have state in a legacy format, run /l3io-util-doctor migrate-state
 instead. If you have both state and artifact-only stories, resolve the mismatch manually
-(see the drift report from /l3io-doctor check).
+(see the drift report from /l3io-util-doctor check).
 ```
 
 **Check 2 — Artifact tree exists with story files:**
@@ -354,7 +354,7 @@ If any two-digit `epic-{nn}/` directories are found, halt:
 ```
 BLOCKED: Found legacy two-digit epic directories:
   {list}
-Run /l3io-doctor rename-epic-dirs first to upgrade them to three-digit form
+Run /l3io-util-doctor rename-epic-dirs first to upgrade them to three-digit form
 (epic-{nnn}/), then re-run bootstrap-state.
 ```
 
@@ -511,7 +511,7 @@ If any verification fails, report:
 ```
 
 Do not remove the created files on verify failure — partial state is better than no state
-for investigation; the user can re-run `/l3io-doctor check` to see the exact drift.
+for investigation; the user can re-run `/l3io-util-doctor check` to see the exact drift.
 
 ---
 
@@ -526,8 +526,8 @@ bootstrap-state complete:
   Verification:     {N}/{N} epics passed
 
 Next steps:
-  1. Run /l3io-plan to validate readiness, estimate, and generate an execution plan.
-  2. Run /l3io-doctor check to confirm the new state looks correct.
+  1. Run /l3io-pm-plan to validate readiness, estimate, and generate an execution plan.
+  2. Run /l3io-util-doctor check to confirm the new state looks correct.
   3. If any stories were skipped, create their state nodes manually using the schema
      at {pm_state_root}/planned/epic-{nnn}/sprint-{nn}/ as a template.
 ```
@@ -535,7 +535,7 @@ Next steps:
 
 - [ ] **Step 2: Add `bootstrap-state` to SKILL.md keyword table**
 
-In `skills/l3io-doctor/SKILL.md`, in the keyword table (after `migrate-state` row, line 78):
+In `skills/l3io-util-doctor/SKILL.md`, in the keyword table (after `migrate-state` row, line 78):
 
 Add after the `migrate-state` row:
 ```
@@ -547,7 +547,7 @@ Add after the `migrate-state` row:
 In the help output block, under "One-time migrations (run in this order)", after the `migrate-state` line:
 ```
   bootstrap-state    Create state nodes from story artifact .md files — use when stories
-                     were authored via bmad-create-story without going through l3io-plan
+                     were authored via bmad-create-story without going through l3io-pm-plan
 ```
 
 - [ ] **Step 4: Update SKILL.md description (first paragraph)**
@@ -560,7 +560,7 @@ Change to: `...Run without arguments for an auto-diagnostic that scans project s
 
 - [ ] **Step 5: Add Check 2c to health-check.md**
 
-In `skills/l3io-doctor/steps/health-check.md`, after **Check 2b — State layout migration** (around line 28), insert a new **Check 2c — Artifact-only stories (no state YAML)**:
+In `skills/l3io-util-doctor/steps/health-check.md`, after **Check 2b — State layout migration** (around line 28), insert a new **Check 2c — Artifact-only stories (no state YAML)**:
 
 ```markdown
 **Check 2c — Artifact-only stories (no state YAML)**
@@ -579,7 +579,7 @@ find {pm_state_root}/active {pm_state_root}/planned {pm_state_root}/archived \
 ```
 
 - Any `.md` file with no corresponding `.yaml` → flag `bootstrap-state` · Priority: **High** ·
-  note count — state is absent for these stories, so l3io-plan finds zero stories and
+  note count — state is absent for these stories, so l3io-pm-plan finds zero stories and
   generates an empty plan. The fix is a one-time import, not a repeat migration.
 - None found (all artifact stories have matching state) → ✓
 - No `.md` files found at all → ✓ (new project or all stories are state-only, which is normal
@@ -588,7 +588,7 @@ find {pm_state_root}/active {pm_state_root}/planned {pm_state_root}/archived \
 
 - [ ] **Step 6: Verify SKILL.md routing table completeness**
 
-Read `skills/l3io-doctor/SKILL.md` and verify:
+Read `skills/l3io-util-doctor/SKILL.md` and verify:
 - `bootstrap-state` appears in the keyword table pointing to `steps/bootstrap-state.md`
 - `steps/bootstrap-state.md` now exists
 - The help output lists `bootstrap-state` under "One-time migrations"
@@ -613,10 +613,10 @@ npm run check:manifest
 - [ ] **Step 9: Commit**
 
 ```bash
-git add skills/l3io-doctor/steps/bootstrap-state.md \
-        skills/l3io-doctor/SKILL.md \
-        skills/l3io-doctor/steps/health-check.md \
-        skills/l3io-doctor/payload-manifest.json
+git add skills/l3io-util-doctor/steps/bootstrap-state.md \
+        skills/l3io-util-doctor/SKILL.md \
+        skills/l3io-util-doctor/steps/health-check.md \
+        skills/l3io-util-doctor/payload-manifest.json
 git commit -s -m "feat(l3io-util): add bootstrap-state mode for artifact-only projects
 
 Projects whose stories were created via bmad-create-story (outside l3io-pm)
@@ -635,7 +635,7 @@ priority with a clear action."
 ### Task 4: Improve migrate-state diagnostics and detection (Bug 1 + Bug 4 pre-flight)
 
 **Files:**
-- Modify: `skills/l3io-doctor/assets/migrate-state.md`
+- Modify: `skills/l3io-util-doctor/assets/migrate-state.md`
 
 **Interfaces:**
 - Consumes: `{implementation_artifacts}` and `{project-root}` bindings from config resolver
@@ -645,7 +645,7 @@ priority with a clear action."
 
 - [ ] **Step 1: Add diagnostic output to "nothing to migrate" exit**
 
-In `skills/l3io-doctor/assets/migrate-state.md`, in the **Pre-flight** section, find the final `else` branch (the "nothing to migrate" case):
+In `skills/l3io-util-doctor/assets/migrate-state.md`, in the **Pre-flight** section, find the final `else` branch (the "nothing to migrate" case):
 
 Current:
 ```
@@ -674,7 +674,7 @@ If `ARTIFACT_STORIES` is non-zero → artifact-only project. Print:
 Story artifacts found but no state of any format. These stories were created
 outside l3io-pm and need state nodes before the PM skills can use them.
 
-Run: /l3io-doctor bootstrap-state
+Run: /l3io-util-doctor bootstrap-state
 ```
 Exit. This is not an error; the correct next step is bootstrap-state.
 
@@ -794,8 +794,8 @@ npm run check:manifest
 - [ ] **Step 5: Commit**
 
 ```bash
-git add skills/l3io-doctor/assets/migrate-state.md \
-        skills/l3io-doctor/payload-manifest.json
+git add skills/l3io-util-doctor/assets/migrate-state.md \
+        skills/l3io-util-doctor/payload-manifest.json
 git commit -s -m "fix(l3io-util): improve migrate-state diagnostics and artifact-only detection
 
 When migrate-state reported 'nothing to migrate', the user had no way to
@@ -809,7 +809,7 @@ Changes:
 - Check for sprint-status.yaml at {project-root}/ as a fallback (common
   placement when implementation_artifacts is not explicitly configured)
 - Detect artifact-only projects (stories in epic-*/sprint-*/stories/ but
-  no state) and route to /l3io-doctor bootstrap-state"
+  no state) and route to /l3io-util-doctor bootstrap-state"
 ```
 
 ---
@@ -819,37 +819,37 @@ Changes:
 **Files:**
 - Modify: `docs/getting-started.md`
 
-**Why this matters:** The getting-started docs say "state (created by `/l3io-plan` or manually)." l3io-plan does NOT create story state YAML files from scratch — it only reads/estimates existing nodes. This doc error is what sent users looking for a non-existent creation mechanism.
+**Why this matters:** The getting-started docs say "state (created by `/l3io-pm-plan` or manually)." l3io-pm-plan does NOT create story state YAML files from scratch — it only reads/estimates existing nodes. This doc error is what sent users looking for a non-existent creation mechanism.
 
 - [ ] **Step 1: Fix getting-started.md claim**
 
 In `docs/getting-started.md`, find:
 ```
 Sprints must already exist in
-state (created by `/l3io-plan` or manually) before an epic run
+state (created by `/l3io-pm-plan` or manually) before an epic run
 ```
 
 Replace with:
 ```
 Sprints must already exist in
-state (created manually or via `/l3io-doctor bootstrap-state` for artifact-only
+state (created manually or via `/l3io-util-doctor bootstrap-state` for artifact-only
 projects) before an epic run
 ```
 
 Also update the "Before Running l3io-pm" section to mention bootstrap-state. Find:
 ```
    upgrading from a legacy layout — a flat `sprint-status.yaml`, the three-file split, or a
-   per-epic `_bmad/state/` tree — run `/l3io-doctor` first and let it sequence the
+   per-epic `_bmad/state/` tree — run `/l3io-util-doctor` first and let it sequence the
    migration; see [Upgrading](upgrading.md). Originals are preserved as `.legacy`.
 ```
 
 Replace with:
 ```
    upgrading from a legacy layout — a flat `sprint-status.yaml`, the three-file split, or a
-   per-epic `_bmad/state/` tree — run `/l3io-doctor` first and let it sequence the
+   per-epic `_bmad/state/` tree — run `/l3io-util-doctor` first and let it sequence the
    migration; see [Upgrading](upgrading.md). Originals are preserved as `.legacy`.
-   If you created stories via `bmad-create-story` without going through l3io-plan
-   (the "legacy BMad format" case), run `/l3io-doctor bootstrap-state` to create
+   If you created stories via `bmad-create-story` without going through l3io-pm-plan
+   (the "legacy BMad format" case), run `/l3io-util-doctor bootstrap-state` to create
    state nodes from your artifact files.
 ```
 
@@ -869,10 +869,10 @@ If check:docs fails on `section-refs` due to the new §0 in step-02-readiness-ch
 
 ```bash
 git add docs/getting-started.md
-git commit -s -m "docs: fix inaccurate claim that l3io-plan creates story state
+git commit -s -m "docs: fix inaccurate claim that l3io-pm-plan creates story state
 
-l3io-plan reads and estimates existing state nodes; it does not create
-them from scratch. The 'created by /l3io-plan or manually' phrasing led
+l3io-pm-plan reads and estimates existing state nodes; it does not create
+them from scratch. The 'created by /l3io-pm-plan or manually' phrasing led
 users to expect a creation mechanism that does not exist. Updated to name
 bootstrap-state as the correct import path for artifact-only projects."
 ```
@@ -887,7 +887,7 @@ bootstrap-state as the correct import path for artifact-only projects."
 |-----|----------------------|
 | Bug 1: legacy format detected by step-00 but not by migrate-state | Task 4 — diagnostic output + fallback root-path check |
 | Bug 2: bmad-create-story updates epic.md instead of creating story files | Task 1 — create-if-absent instruction |
-| Bug 3: l3io-plan finds zero stories from artifact-only projects | Task 2 (blocks with message) + Task 3 (bootstrap-state) |
+| Bug 3: l3io-pm-plan finds zero stories from artifact-only projects | Task 2 (blocks with message) + Task 3 (bootstrap-state) |
 | Bug 4: migrate-state says "nothing to migrate" for legacy BMad format | Task 4 (artifact-only detection) + Task 3 (bootstrap-state) |
 
 ### Placeholder scan
@@ -905,5 +905,5 @@ bootstrap-state as the correct import path for artifact-only projects."
 ### Gaps
 
 - **pm-status.py has no `create-node` command** — bootstrap-state.md writes state YAML directly (as migrate-state's Stage B already does), which is intentional: adding a pm-status.py subcommand would require updating the cli-surface reference doc and is out of scope for a step-file-only fix. The direct-write approach is already used in migrate-state.
-- **bootstrap-state does not set `estimate` blocks** — that is correct; l3io-plan's step-estimate will compute them on the first plan run after bootstrap.
+- **bootstrap-state does not set `estimate` blocks** — that is correct; l3io-pm-plan's step-estimate will compute them on the first plan run after bootstrap.
 - **bootstrap-state writes all epics as `planned/` by default** — this is intentional; an epic whose stories are `in-progress` in their frontmatter gets placed in `active/`. The user can move epics with `pm-status.py move-epic` after bootstrap if the placement is wrong.

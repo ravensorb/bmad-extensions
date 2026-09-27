@@ -305,7 +305,7 @@ spend blocked" distribution. Named here so a future design considers it.
 
 ## 6. Fix loop interaction
 
-`l3io-execute`'s per-story fix loop (`customize.toml`'s
+`l3io-pm-execute`'s per-story fix loop (`customize.toml`'s
 `max_fix_iterations`) already has an exit path when review returns clean. Add
 one more:
 

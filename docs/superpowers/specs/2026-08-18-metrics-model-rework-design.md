@@ -2,7 +2,7 @@
 
 **Date:** 2026-08-18
 **Status:** Approved for planning
-**Origin:** Post-run analysis of epic E000, sprint S03 (`l3io-execute`)
+**Origin:** Post-run analysis of epic E000, sprint S03 (`l3io-pm-execute`)
 
 ---
 

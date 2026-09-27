@@ -13,7 +13,7 @@
 ## Global Constraints
 
 - **Never edit per-skill payload copies.** `skills/_shared/**` is the only editable source. `npm run sync:scripts` regenerates `skills/l3io-pm-{execute,plan,sync}/{scripts,references,steps}/`. CI runs `npm run check:scripts`.
-- **`customize.toml` files are per-skill sources, NOT generated.** All four PM skills must be edited directly: `l3io-execute`, `l3io-plan`, `l3io-sync`, `l3io-help`. `l3io-arch-review`, `l3io-doctor`, and `l3io-util-cleanup` must not be touched.
+- **`customize.toml` files are per-skill sources, NOT generated.** All four PM skills must be edited directly: `l3io-pm-execute`, `l3io-pm-plan`, `l3io-pm-sync`, `l3io-pm-help`. `l3io-arch-review`, `l3io-util-doctor`, and `l3io-util-cleanup` must not be touched.
 - **Exactly one computation of `{skip_phases}` may exist** in `skills/_shared/` when this plan is done.
 - **Gating behavior must not change except where the spec says so.** The only intended behavioral changes are: UX review no longer runs on DOCS, and the fix-loop cap becomes 3 for DOCS/CONFIG. Every other phase must skip and run exactly as it does today.
 - **Phases enforced by a `{work_type}` check at their own step stay that way.** Do not convert them to `{skip_phases}` entries — a malformed string would silently disable a gate, while a `{work_type}` check cannot be.
@@ -246,7 +246,7 @@ MSG
 ### Task 2: Work-type-aware, configurable fix-loop cap
 
 **Files:**
-- Modify: `skills/l3io-execute/customize.toml`, `skills/l3io-plan/customize.toml`, `skills/l3io-sync/customize.toml`, `skills/l3io-help/customize.toml`
+- Modify: `skills/l3io-pm-execute/customize.toml`, `skills/l3io-pm-plan/customize.toml`, `skills/l3io-pm-sync/customize.toml`, `skills/l3io-pm-help/customize.toml`
 - Modify: `skills/_shared/steps/shared/step-01-classify-work.md` (bind `{max_fix_iterations}` after §4)
 - Modify: `skills/_shared/steps/sprint/step-03-dev-loop.md:51`
 - Modify: `skills/_shared/steps/closure/sprint-closure.md:38` (line number is pre-Task-1; find it by content)
@@ -267,7 +267,7 @@ new = ("# Fix loops\n"
        "max_fix_iterations_non_code = 3    # DOCS and CONFIG work\n"
        "\n"
        "# Concurrency")
-for s in ["l3io-execute"]:
+for s in ["l3io-pm-execute"]:
     p = f"skills/{s}/customize.toml"
     t = open(p).read()
     assert old in t, f"{p}: '# Concurrency' anchor not found"
@@ -276,8 +276,8 @@ for s in ["l3io-execute"]:
 PY
 ```
 
-`l3io-execute` has a `# Concurrency` comment to anchor on; the other three do not. For
-`l3io-plan`, `l3io-sync`, and `l3io-help`, append the same block to the end of the
+`l3io-pm-execute` has a `# Concurrency` comment to anchor on; the other three do not. For
+`l3io-pm-plan`, `l3io-pm-sync`, and `l3io-pm-help`, append the same block to the end of the
 `[workflow]` section:
 
 ```toml
@@ -296,8 +296,8 @@ Read each file first — they are short — and place the block after the last e
 cd $REPO_ROOT
 python3 - <<'PY'
 import tomllib
-for s in ["l3io-execute","l3io-plan","l3io-sync","l3io-help",
-          "l3io-arch-review","l3io-doctor","l3io-util-cleanup"]:
+for s in ["l3io-pm-execute","l3io-pm-plan","l3io-pm-sync","l3io-pm-help",
+          "l3io-arch-review","l3io-util-doctor","l3io-util-cleanup"]:
     p = f"skills/{s}/customize.toml"
     with open(p,"rb") as fh: d = tomllib.load(fh)
     w = d.get("workflow") or d.get("agent") or {}
@@ -457,7 +457,7 @@ exists in any `customize.toml` or is computed in any step file. Find that paragr
 `**Adaptive parallelism**:` — and replace its whole body with:
 
 ```markdown
-**Parallelism**: within a plan phase marked `parallel: true`, `l3io-execute` dispatches epics concurrently up to `max_parallel_subagents` (default 4, per-skill in `customize.toml`). Sprints within an epic are **always sequential**, so calibration from each finished sprint feeds forward into re-estimating the rest. Phase parallelism is decided at plan time: `steps/plan/step-05-dependency-graph.md` runs a topological sort over `depends_on` and marks a phase parallel only when its epics have no dependency on one another. Atomic status writes via `pm-status.py` are what make concurrent epics safe at the state layer. **`parallel_mode`, `parallel_ceiling`, and `safe_batch_size` are not implemented** — they describe an intended adaptive model specced in `docs/superpowers/specs/2026-08-17-adaptive-parallelism-design.md`, not current behavior. Note that concurrent epics currently share one working tree with no source-file independence check; that spec addresses it.
+**Parallelism**: within a plan phase marked `parallel: true`, `l3io-pm-execute` dispatches epics concurrently up to `max_parallel_subagents` (default 4, per-skill in `customize.toml`). Sprints within an epic are **always sequential**, so calibration from each finished sprint feeds forward into re-estimating the rest. Phase parallelism is decided at plan time: `steps/plan/step-05-dependency-graph.md` runs a topological sort over `depends_on` and marks a phase parallel only when its epics have no dependency on one another. Atomic status writes via `pm-status.py` are what make concurrent epics safe at the state layer. **`parallel_mode`, `parallel_ceiling`, and `safe_batch_size` are not implemented** — they describe an intended adaptive model specced in `docs/superpowers/specs/2026-08-17-adaptive-parallelism-design.md`, not current behavior. Note that concurrent epics currently share one working tree with no source-file independence check; that spec addresses it.
 ```
 
 - [ ] **Step 3: Correct the ATDD claim and the fix-cap description in CLAUDE.md**

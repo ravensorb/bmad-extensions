@@ -98,11 +98,11 @@ Reproduce: hash each shared-by-name file across skills and group.
 directives telling an agent to go read something:
 
 ```
-l3io-execute/steps/shared/step-estimate.md:25, :86
-l3io-plan/steps/shared/step-estimate.md:25, :86
-l3io-doctor/SKILL.md:154
-l3io-doctor/steps/layout-cleanup.md:4
-l3io-doctor/steps/split-status.md:12
+l3io-pm-execute/steps/shared/step-estimate.md:25, :86
+l3io-pm-plan/steps/shared/step-estimate.md:25, :86
+l3io-util-doctor/SKILL.md:154
+l3io-util-doctor/steps/layout-cleanup.md:4
+l3io-util-doctor/steps/split-status.md:12
 ```
 
 ## 6. The arch gate blocks on an interactive prompt, inside a step that forbids waiting — **Medium**
@@ -246,7 +246,7 @@ reported, 1 confirmed as an observation with a falsified mechanism.**
 | 2 | CONFIRMED | `step-05-epic-loop.md` §6 is a two-line comment-only bash block, then loads `step-estimate.md`. |
 | 3 | CONFIRMED | `tests_passing` is coerced at `pm-status.py:1049` and written at `step-03-dev-loop.md:215` from `{tests_passing}`. No step defines the required suite set. |
 | 4 | PARTLY — reframed | Upstream **does** detect divergence: `npm run check:scripts` covers all eight files. The real gap is downstream: an installed package carries no manifest, so copies are unverifiable *at rest in the consumer*. Fix belongs in what ships, not in CI. |
-| 5 | CONFIRMED, undercounted | 10 runtime directives point at the authoring path, not 5 — the report missed `l3io-sync/steps/shared/step-estimate.md:25,:86` and `l3io-doctor/steps/health-check.md:84`. Header provenance notes (e.g. `assets/migrate-state.md:9`) are correctly excluded. |
+| 5 | CONFIRMED, undercounted | 10 runtime directives point at the authoring path, not 5 — the report missed `l3io-pm-sync/steps/shared/step-estimate.md:25,:86` and `l3io-util-doctor/steps/health-check.md:84`. Header provenance notes (e.g. `assets/migrate-state.md:9`) are correctly excluded. |
 | 6 | CONFIRMED | `step-04-arch-gate.md:152-154` — `(y/n)` prompt followed by "Wait for user confirmation." |
 | 7 | **MECHANISM FALSIFIED — finding upgraded** | See below. |
 | 8 | CONFIRMED | `step-00-digest.md:59-66` carries exactly three clauses. Neither "stopped to ask a question" nor "armed a wait after the final line" is covered by any of them. |

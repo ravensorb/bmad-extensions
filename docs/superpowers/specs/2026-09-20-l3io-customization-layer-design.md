@@ -194,7 +194,7 @@ Applied here, that is a **mixed** answer:
 
 | Module | Skills *after* §4.6 | Shape | Registration |
 |---|---|---|---|
-| `l3io-pm` | 4 (execute, plan, help, sync) | multi-skill + `l3io-setup` | once-per-session pointer¹ |
+| `l3io-pm` | 4 (execute, plan, help, sync) | multi-skill + `l3io-pm-setup` | once-per-session pointer¹ |
 | `l3io-util` | **1** (doctor) | standalone | auto on first run |
 | `l3io-sec` | 1 (redteam) | standalone | auto on first run |
 | `l3io-arch` | 1 (review) | standalone | auto on first run |
@@ -227,7 +227,7 @@ is wrong: there is no session concept that outlives one skill invocation to key 
 `step-00-activate.md` binds `{session_id}` fresh at the start of every invocation and "must
 remain constant for the lifetime of this skill invocation" — a session *is* one invocation.
 The only other caller `notice` could have shared a session with is a dispatched sprint
-subagent, and `l3io-execute`'s headless mode explicitly does not call `notice`. So no two
+subagent, and `l3io-pm-execute`'s headless mode explicitly does not call `notice`. So no two
 `notice` calls were ever going to share a session id, `exit 1` was unreachable by construction,
 and an unconfigured project would have seen the pointer on **every** execute/plan invocation —
 exactly the nagging this mechanism exists to prevent. `.notices.yaml`, its lock, and any
@@ -278,20 +278,20 @@ lenses, sharing one set of references.
 
 ### 4.2 Progress reporting is duplicated across two modules
 
-`l3io-help progress` and `l3io-doctor stats` both render a plan-aware
+`l3io-pm-help progress` and `l3io-util-doctor stats` both render a plan-aware
 phase→epic→sprint→story tree from `pm-status.py report`. `doctor stats` is the richer of the two
 (dwell times, stuck-item flags, backlog by severity, calibration state) and becomes the owner;
 `pm-help progress` forwards to it.
 
-### 4.3 `l3io-help` violates the package's own router rule
+### 4.3 `l3io-pm-help` violates the package's own router rule
 
 | | SKILL.md | `steps/` |
 |---|---|---|
-| `l3io-doctor` | 19,914 B | 20 files |
-| `l3io-help` | 19,997 B | **0 files** |
+| `l3io-util-doctor` | 19,914 B | 20 files |
+| `l3io-pm-help` | 19,997 B | **0 files** |
 
 Identical size; one is a router, the other a monolith loaded in full every invocation. CLAUDE.md's
-Module Layout rule was written about precisely this failure. `l3io-help` is its unfixed
+Module Layout rule was written about precisely this failure. `l3io-pm-help` is its unfixed
 instance and is split into `steps/`.
 
 ### 4.4 Nothing owns the BMad overlay layer
@@ -323,7 +323,7 @@ A 1.5 KB deprecated forwarder since 2.1.0, still consuming skill-listing budget.
    reporting any entry whose declared status contradicts the manifest. The hand-kept list
    becomes an annotation over a derived set.
 5. Extend `check:docs` check 17 to fail when a directive *prefers* a name marked `deprecated`.
-6. **Detect the layout collision** rather than configuring around it: `l3io-doctor`'s
+6. **Detect the layout collision** rather than configuring around it: `l3io-util-doctor`'s
    health check reports a project holding both a flat `sprint-status.yaml` and a sharded
    `state/` tree, and proposes `migrate-state`. No config variable is declared — see §1.4 for
    why declaring one would reverse a recorded decision.
@@ -340,8 +340,8 @@ A 1.5 KB deprecated forwarder since 2.1.0, still consuming skill-listing budget.
 
    | Module | `assets/module.yaml` lives in | Operational skills |
    |---|---|---|
-   | `l3io-pm` | `l3io-setup/` | drop their copies (4 skills) |
-   | `l3io-util` | `l3io-doctor/` | n/a (is the skill) |
+   | `l3io-pm` | `l3io-pm-setup/` | drop their copies (4 skills) |
+   | `l3io-util` | `l3io-util-doctor/` | n/a (is the skill) |
    | `l3io-sec` | `l3io-sec-redteam/` | n/a (is the skill) |
    | `l3io-arch` | `l3io-arch-review/` | n/a (is the skill) |
 
@@ -354,21 +354,21 @@ A 1.5 KB deprecated forwarder since 2.1.0, still consuming skill-listing budget.
    per §2, recorded in ADR-0008. Lives beside its `module.yaml` (setup skill, or the standalone
    skill).
 3. Add `scripts/merge-help-csv.py` — targets `_bmad/_config/bmad-help.csv`. Same placement rule.
-4. Create **`l3io-setup`** — the only setup skill. `l3io-doctor`, `l3io-sec-redteam` and
+4. Create **`l3io-pm-setup`** — the only setup skill. `l3io-util-doctor`, `l3io-sec-redteam` and
    `l3io-arch-review` stay standalone and self-registering (§3.2).
-5. Two of the four `l3io-pm` operational skills (`l3io-execute`, `l3io-plan` — not
-   `l3io-help`/`l3io-sync`) emit a **once-per-project**¹ pointer to `/l3io-setup` via
+5. Two of the four `l3io-pm` operational skills (`l3io-pm-execute`, `l3io-pm-plan` — not
+   `l3io-pm-help`/`l3io-pm-sync`) emit a **once-per-project**¹ pointer to `/l3io-pm-setup` via
    the new `pm-status.py notice` subcommand (§3.2) — never a per-invocation check. The three
    standalone skills keep today's auto-registration unchanged.
 6. Narrow the `sync-shared-scripts.mjs` scope: `assets/module-setup.md` and the merge scripts
    currently sync into **all 8** skills, but are now needed in only the **4** module homes
-   (`l3io-setup`, `l3io-doctor`, `l3io-sec-redteam`, `l3io-arch-review`). This removes
+   (`l3io-pm-setup`, `l3io-util-doctor`, `l3io-sec-redteam`, `l3io-arch-review`). This removes
    shipped payload rather than adding it. Regenerate every `payload-manifest.json` afterwards —
    `npm run sync:scripts` does not do it.
 
 **Reorganization**
 
-7. Split `l3io-help` into `SKILL.md` router + `steps/` (§4.3).
+7. Split `l3io-pm-help` into `SKILL.md` router + `steps/` (§4.3).
 8. `pm-help progress` forwards to `doctor stats` (§4.2).
 9. Retire `l3io-util-cleanup` (§4.6); `docs/upgrading.md` records the mapping.
 10. Scaffold the overlay owner (§4.4) — capability shell and contract only; overlay content is
@@ -416,7 +416,7 @@ right. Resolve with the maintainers before Phase 3; Phases 1–2 do not depend o
 | `implementation_handoff` unreachable on oneshot | Do not route through oneshot (§3.3) |
 | Phase 2 touches every skill directory | Gated by `validate-module.py`, the four `check:*` gates, and a clean-install test |
 | Retiring `l3io-util-cleanup` breaks existing invocations | `docs/upgrading.md` mapping; check 1 permits naming a removed skill when mapping it |
-| A new setup skill bloats the listing | Only one is added (`l3io-setup`) while `l3io-util-cleanup` is retired, so the listing is net neutral |
+| A new setup skill bloats the listing | Only one is added (`l3io-pm-setup`) while `l3io-util-cleanup` is retired, so the listing is net neutral |
 
 ## 8. Open questions
 

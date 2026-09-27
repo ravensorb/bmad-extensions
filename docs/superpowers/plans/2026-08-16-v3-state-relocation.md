@@ -1033,7 +1033,7 @@ Replace the entire contents of `skills/_shared/status-files.md` with a document 
 8. **Ordering** — zero-padded naming makes lexical order correct order.
 9. **Concurrency** — no flock needed for epic-scoped writes; `issues.yaml` remains the one shared append target and still takes `--flock`.
 10. **Read resolution at activation** — the three-way detection table and the bindings `{pm_state_root}`, `{pm_issues_file}`, `{pm_calibration_file}`.
-11. **Dependency fields** — `depends_on` on `epic.yaml` (epic keys) and on story files (story keys), validated by `l3io-plan`.
+11. **Dependency fields** — `depends_on` on `epic.yaml` (epic keys) and on story files (story keys), validated by `l3io-pm-plan`.
 
 - [ ] **Step 2: Verify no stale legacy per-epic references remain**
 
@@ -1359,7 +1359,7 @@ becomes a naming validator rather than a reordering pass."
 ## Task 10: Gitignore verification in module setup
 
 **Files:**
-- Modify: `skills/l3io-execute/assets/module-setup.md`, `skills/l3io-plan/assets/module-setup.md`, `skills/l3io-help/assets/module-setup.md`, `skills/l3io-sync/assets/module-setup.md`
+- Modify: `skills/l3io-pm-execute/assets/module-setup.md`, `skills/l3io-pm-plan/assets/module-setup.md`, `skills/l3io-pm-help/assets/module-setup.md`, `skills/l3io-pm-sync/assets/module-setup.md`
 
 **Interfaces:**
 - Consumes: `{pm_state_root}` from Task 7
@@ -1597,7 +1597,7 @@ Verify the gate actually fires by proving it fails on drift and passes when clea
 
 ```bash
 # 1. introduce deliberate drift in a payload copy
-printf '\n# drift probe\n' >> skills/l3io-execute/scripts/pm-status.py
+printf '\n# drift probe\n' >> skills/l3io-pm-execute/scripts/pm-status.py
 node scripts/sync-shared-scripts.mjs --check; echo "exit=$?   # MUST be non-zero"
 
 # 2. restore and confirm the gate passes

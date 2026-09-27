@@ -101,7 +101,7 @@ Each one refines the spec without contradicting it. Executors follow the ruling.
 |---|---|
 | `skills/_shared/spec-align.py` | The whole spec-alignment CLI: index, pointers, dispositions, ADRs, lease, sync plan and proposals, guarded commit, reject, stale check, migration |
 | `skills/_shared/tests/test-spec-align.py` | Its suite: real CLI, real git |
-| `skills/l3io-doctor/steps/migrate-adrs.md` | Doctor mode that wraps `migrate-adrs --plan/--apply` |
+| `skills/l3io-util-doctor/steps/migrate-adrs.md` | Doctor mode that wraps `migrate-adrs --plan/--apply` |
 | `docs/adr/0004-agents-edit-architecture-specs.md` | ADR |
 | `docs/adr/0005-one-adr-home.md` | ADR |
 
@@ -119,10 +119,10 @@ Each one refines the spec without contradicting it. Executors follow the ruling.
 | `skills/_shared/steps/closure/epic-closure.md` | §2, the new §2a, §3, §5 and the new §7 |
 | `skills/_shared/steps/shared/step-00-digest.md` | The `adr-reserve` line |
 | `skills/_shared/status-files.md` | Item `kind`/`ref`; the register scan; `spec-sync.lock` |
-| `skills/l3io-execute/SKILL.md`, `skills/l3io-execute/customize.toml` | `{spec_align}` binding; `spec_alignment`; `spec_paths` |
-| `skills/l3io-doctor/SKILL.md`, `steps/health-check.md`, `steps/triage.md` | Binding, mode row, Checks 15–19, spec pass |
-| `skills/l3io-doctor/scripts/audit-backlog.py`, `scripts/tests/test-audit-backlog.py` | Skip spec items |
-| `skills/l3io-help/SKILL.md` | Spec item counts |
+| `skills/l3io-pm-execute/SKILL.md`, `skills/l3io-pm-execute/customize.toml` | `{spec_align}` binding; `spec_alignment`; `spec_paths` |
+| `skills/l3io-util-doctor/SKILL.md`, `steps/health-check.md`, `steps/triage.md` | Binding, mode row, Checks 15–19, spec pass |
+| `skills/l3io-util-doctor/scripts/audit-backlog.py`, `scripts/tests/test-audit-backlog.py` | Skip spec items |
+| `skills/l3io-pm-help/SKILL.md` | Spec item counts |
 | `skills/l3io-arch-review/SKILL.md`, `skills/l3io-arch-review/assets/adr-template.md` | Mode A/C ADR allocation; two template lines |
 | `scripts/sync-shared-scripts.mjs` | The `specAlignFiles` group |
 | `scripts/check-docs.mjs`, `scripts/tests/check-docs.test.mjs` | Check 4 extension, checks 13 and 14 |
@@ -274,7 +274,7 @@ EOF
 - Modify: `skills/_shared/status-files.md` (issue schema at about 247–262; §7 `list-issues`
   row at 411)
 - Modify: `docs/l3io-pm-reference.md` (the `append-issue` and `list-issues` rows at 477–478)
-- Modify: `skills/l3io-doctor/steps/triage.md` (the T2 table's "report only" row)
+- Modify: `skills/l3io-util-doctor/steps/triage.md` (the T2 table's "report only" row)
 - Regenerated: payload copies and manifests
 
 **Interfaces:**
@@ -454,7 +454,7 @@ indentation as that `if`:
         kind = str(item.get("kind") or "defect")
         if kind != "defect":
             raise PMError(2, f"{k} is a {kind} item -- spec items are confirmed or rejected in "
-                             f"/l3io-doctor triage, never promoted to a story")
+                             f"/l3io-util-doctor triage, never promoted to a story")
 ```
 
 (e) In `_audit_findings`: change the docstring's `1a-1j` to `1a-1k`. Then, directly after
@@ -526,10 +526,10 @@ In the same file's §7 table, append this to the end of the `list-issues` row's 
 ` \`--kind {defect,spec-change,spec-proposal}\` filters by kind (no \`kind\` = defect).`
 
 `docs/l3io-pm-reference.md`, in the `append-issue` row, append:
-` \`--kind {defect,spec-change,spec-proposal}\` (default \`defect\`, written only when not the default) with \`--ref\` — required for the spec kinds, and a commit SHA for \`spec-change\`; \`promote-issue\` refuses spec items (they are confirmed or rejected in \`/l3io-doctor triage\`).`
+` \`--kind {defect,spec-change,spec-proposal}\` (default \`defect\`, written only when not the default) with \`--ref\` — required for the spec kinds, and a commit SHA for \`spec-change\`; \`promote-issue\` refuses spec items (they are confirmed or rejected in \`/l3io-util-doctor triage\`).`
 In the `list-issues` row, append the same `--kind` sentence as in `status-files.md`.
 
-`skills/l3io-doctor/steps/triage.md`, in the T2 table, change the row
+`skills/l3io-util-doctor/steps/triage.md`, in the T2 table, change the row
 `| \`1b\` naming an unknown key, \`1f\`, \`1h\`, \`1i\` | report only …` so that its first
 cell reads `` `1b` naming an unknown key, `1f`, `1h`, `1i`, `1k` ``.
 
@@ -541,11 +541,11 @@ Expected: every command exits 0.
 ```bash
 git add skills/_shared/pm-status.py skills/_shared/tests/test-pm-status.py \
   skills/_shared/status-files.md docs/l3io-pm-reference.md \
-  skills/l3io-doctor/steps/triage.md \
-  skills/l3io-execute/scripts/pm-status.py skills/l3io-plan/scripts/pm-status.py \
-  skills/l3io-sync/scripts/pm-status.py skills/l3io-doctor/scripts/pm-status.py \
-  skills/l3io-execute/references/status-files.md skills/l3io-plan/references/status-files.md \
-  skills/l3io-sync/references/status-files.md \
+  skills/l3io-util-doctor/steps/triage.md \
+  skills/l3io-pm-execute/scripts/pm-status.py skills/l3io-pm-plan/scripts/pm-status.py \
+  skills/l3io-pm-sync/scripts/pm-status.py skills/l3io-util-doctor/scripts/pm-status.py \
+  skills/l3io-pm-execute/references/status-files.md skills/l3io-pm-plan/references/status-files.md \
+  skills/l3io-pm-sync/references/status-files.md \
   skills/*/payload-manifest.json
 git status --short   # nothing else of yours may be staged
 git commit -s -F - <<'EOF'
@@ -813,8 +813,8 @@ must print `0`.
 - Create: `skills/_shared/tests/test-spec-align.py`
 - Modify: `scripts/sync-shared-scripts.mjs` (new group; header comment)
 - Modify: `.github/workflows/checks.yml` (new step after the `drift-report.py` step)
-- Generated: `skills/l3io-execute/scripts/spec-align.py`,
-  `skills/l3io-doctor/scripts/spec-align.py`, and both manifests
+- Generated: `skills/l3io-pm-execute/scripts/spec-align.py`,
+  `skills/l3io-util-doctor/scripts/spec-align.py`, and both manifests
 
 **Interfaces:**
 - Produces, and used by every later spec-align task:
@@ -1146,7 +1146,7 @@ spec-align.py -- keeps a project's specs and its implementation in step, for l3i
 Subcommands: build, check-pointers, sections, disposition, check-dispositions, adrs,
 check-links, lease, sync-plan, propose, commit, reject, check-stale, migrate-adrs.
 
-It never calls a model. Each spec-alignment point in l3io-execute runs one of these
+It never calls a model. Each spec-alignment point in l3io-pm-execute runs one of these
 first, and the result decides whether an agent is dispatched at all.
 
 Global flags come before the subcommand: --project-root (required), --planning-root,
@@ -1180,7 +1180,7 @@ SPEC_PATHS_RE = re.compile(r"^# spec-paths: (.*)$")
 
 # Spec kinds in precedence order: a name matching several kinds takes the first. The
 # architecture, ux and prd patterns are copied verbatim from
-# l3io-doctor/steps/layout-cleanup.md heuristic 5 -- check-docs check 13 compares them.
+# l3io-util-doctor/steps/layout-cleanup.md heuristic 5 -- check-docs check 13 compares them.
 KINDS = (
     ("architecture", ("*architecture*", "*arch-spec*", "*system-design*", "*tech-design*")),
     ("ux", ("*ux-spec*", "*ux-design*", "*wireframe*", "*mockup*", "*ui-spec*")),
@@ -1557,8 +1557,8 @@ Expected: `OK` (13 tests), and no leak error. If
 (a) In the header comment's "Shared files:" list, after the `pm-status.py (no tests)` entry:
 
 ```js
-//   spec-align.py → scripts/ in l3io-execute (arch gate, story prep, closures) and
-//   l3io-doctor (health Checks 15-19, triage's spec pass, migrate-adrs); shared because
+//   spec-align.py → scripts/ in l3io-pm-execute (arch gate, story prep, closures) and
+//   l3io-util-doctor (health Checks 15-19, triage's spec pass, migrate-adrs); shared because
 //   it has two consumers (ADR-0001), run from each skill's own copy, never self-installed
 ```
 
@@ -1599,8 +1599,8 @@ Expected: every command exits 0.
 ```bash
 git add skills/_shared/spec-align.py skills/_shared/tests/test-spec-align.py \
   scripts/sync-shared-scripts.mjs .github/workflows/checks.yml \
-  skills/l3io-execute/scripts/spec-align.py skills/l3io-doctor/scripts/spec-align.py \
-  skills/l3io-execute/payload-manifest.json skills/l3io-doctor/payload-manifest.json
+  skills/l3io-pm-execute/scripts/spec-align.py skills/l3io-util-doctor/scripts/spec-align.py \
+  skills/l3io-pm-execute/payload-manifest.json skills/l3io-util-doctor/payload-manifest.json
 git commit -s -F - <<'EOF'
 feat(l3io-pm): spec-align.py with the spec index (build)
 
@@ -2468,7 +2468,7 @@ def cmd_adrs(ctx, a):
     for x in rows:
         if x["home"] == "legacy":
             sys.stderr.write(f"WARN {x['path']} is in the old ADR home -- run "
-                             f"/l3io-doctor migrate-adrs\n")
+                             f"/l3io-util-doctor migrate-adrs\n")
     if a.format == "json":
         print(json.dumps(rows, indent=2))
     else:
@@ -2931,7 +2931,7 @@ def append_spec_issue(ctx, nnn, kind, ref, ident, title, severity, pointer, wher
     args = ["append-issue", "--state-root", ctx.state_root, "--epic", nnn, "--sprint", "",
             "--kind", kind, "--ref", ref, "--title", f"{label}: {title}",
             "--source", f"spec-sync ({ident})", "--severity", SEV_MAP.get(severity, "Low"),
-            "--description", f"Confirm or reject: /l3io-doctor triage. Spec: {pointer}. "
+            "--description", f"Confirm or reject: /l3io-util-doctor triage. Spec: {pointer}. "
                              f"From: {where}."]
     r = _pm(ctx, *args)
     if r.returncode == 0 and "resolved as" in r.stdout:     # matched a resolved twin, not open
@@ -3038,7 +3038,7 @@ def _deferred_text(it):
     lines += ["- **Why deferred:** the spec-sync lease was held by another epic's closure, so "
               "nothing was edited.", "",
               "Apply the change the finding describes to that section, then confirm this item "
-              "in `/l3io-doctor triage`.", ""]
+              "in `/l3io-util-doctor triage`.", ""]
     return "\n".join(lines)
 
 
@@ -3670,7 +3670,7 @@ def cmd_check_stale(ctx, a):
             age = f"{(time.time() - int(ct)) / 86400:.0f} day(s) old, " if ct.isdigit() else ""
             findings.append(f"{it['key']}: unconfirmed spec change {ref[:12]} ({age}"
                             f"{len(later)} later commit(s) on {', '.join(files)}) -- confirm "
-                            f"or reject it in /l3io-doctor triage")
+                            f"or reject it in /l3io-util-doctor triage")
     for f in findings:
         print(f)
     if findings:
@@ -3938,8 +3938,8 @@ the moved ADR's Epic-line edit is uncommitted, check that `git_commit` receives 
 ### Task 13: pm-execute wiring — the binding, the switch, and the arch gate
 
 **Files:**
-- Modify: `skills/l3io-execute/SKILL.md` (Conventions list)
-- Modify: `skills/l3io-execute/customize.toml` (after the Concurrency block)
+- Modify: `skills/l3io-pm-execute/SKILL.md` (Conventions list)
+- Modify: `skills/l3io-pm-execute/customize.toml` (after the Concurrency block)
 - Modify: `skills/_shared/steps/execute/step-05-epic-loop.md` (context blocks 5a and 5b)
 - Modify: `skills/_shared/steps/execute/step-04-arch-gate.md` (§3, §4, §6)
 - Modify: `docs/l3io-pm-reference.md` ("Architecture gate (step-04)")
@@ -3955,14 +3955,14 @@ the moved ADR's Epic-line edit is uncommitted, check that `git_commit` receives 
 - **Consumed by:** Tasks 14–15, which use the same `{spec_align}` form, and check 4 (Task 18),
   which validates every `{spec_align} <sub>` against the real CLI.
 
-- [ ] **Step 1: The binding.** In `skills/l3io-execute/SKILL.md`'s `## Conventions`
+- [ ] **Step 1: The binding.** In `skills/l3io-pm-execute/SKILL.md`'s `## Conventions`
   list, append:
 
 ```markdown
 - `{spec_align}` = `uv run {skill-root}/scripts/spec-align.py --project-root {project-root} --planning-root {planning_artifacts} --impl-root {implementation_artifacts} --state-root {implementation_artifacts}/state --pm-status {project-root}/_bmad/scripts/pm-status.py --spec-paths '{spec_paths}'` — the spec-alignment helper; it never calls a model. `{spec_paths}` is `customize.toml`'s list rendered as JSON (`[]` by default). Step files run it only where `{spec_alignment}` is `true`, except `disposition`, `check-dispositions` and `adrs`, which run either way. Headless sprint subagents receive both bindings in their context block (`steps/execute/step-05-epic-loop.md` §5a).
 ```
 
-- [ ] **Step 2: The switch.** In `skills/l3io-execute/customize.toml`, after the
+- [ ] **Step 2: The switch.** In `skills/l3io-pm-execute/customize.toml`, after the
   `# Concurrency` block:
 
 ```toml
@@ -4084,14 +4084,14 @@ Run: `npm run sync:scripts && node scripts/write-payload-manifest.mjs && npm run
 Expected: all exit 0.
 
 Stage these paths:
-- `skills/l3io-execute/SKILL.md`
-- `skills/l3io-execute/customize.toml`
+- `skills/l3io-pm-execute/SKILL.md`
+- `skills/l3io-pm-execute/customize.toml`
 - `skills/_shared/steps/execute/step-04-arch-gate.md`
 - `skills/_shared/steps/execute/step-05-epic-loop.md`
-- `skills/l3io-execute/steps/execute/step-04-arch-gate.md`
-- `skills/l3io-execute/steps/execute/step-05-epic-loop.md`
+- `skills/l3io-pm-execute/steps/execute/step-04-arch-gate.md`
+- `skills/l3io-pm-execute/steps/execute/step-05-epic-loop.md`
 - `docs/l3io-pm-reference.md`
-- `skills/l3io-execute/payload-manifest.json`
+- `skills/l3io-pm-execute/payload-manifest.json`
 
 Run `git status --short` to check nothing else is staged, then commit with the subject
 `feat(l3io-pm): spec inputs to the arch gate; ADRs to docs/adr; spec_alignment switch`.
@@ -4453,7 +4453,7 @@ the commit.
       (Keep the \`spec-align.py\` prefix: check 4's pm-status pass flags a bare backticked
       \`check-*\` name in a live doc until Task 18 teaches it the spec-align names.)
     - Insert after item 2:
-      `2a. **Spec sync** — when \`spec_alignment\` is on and \`spec-align.py sync-plan\` finds pending items: one \`l3io-spec-sync\` agent under a spec-edit lease writes each accepted architecture departure back as its own \`docs(spec)\` commit (a scope guard keeps it inside the section; an anchor guard protects story pointers) and writes proposals for PRD/UX/epic changes; each becomes a \`spec-change\` or \`spec-proposal\` backlog item, confirmed or rejected in \`/l3io-doctor triage\`. An empty plan dispatches nothing.`
+      `2a. **Spec sync** — when \`spec_alignment\` is on and \`spec-align.py sync-plan\` finds pending items: one \`l3io-spec-sync\` agent under a spec-edit lease writes each accepted architecture departure back as its own \`docs(spec)\` commit (a scope guard keeps it inside the section; an anchor guard protects story pointers) and writes proposals for PRD/UX/epic changes; each becomes a \`spec-change\` or \`spec-proposal\` backlog item, confirmed or rejected in \`/l3io-util-doctor triage\`. An empty plan dispatches nothing.`
     - Append item `6. **Commit checkpoint** — stages \`state/\`, the epic's artifacts, \`spec/\` and planning artifacts, and commits \`chore({epic_key}): close epic\``.
     - In item 5, append `, and a Spec changes section (dispositions, commits, proposals, index size, sections read, spec sync's token share against the 5% budget)`.
 
@@ -4463,9 +4463,9 @@ Run: `grep -rn -E "arch/adr-|arch/\*\.md" skills/_shared/steps`
 Expected: no output.
 
 Run the Task 13 gate command. Stage the three `_shared` files, their pm-execute copies
-(`skills/l3io-execute/steps/closure/sprint-closure.md`,
-`skills/l3io-execute/steps/closure/epic-closure.md`,
-`skills/l3io-execute/steps/sprint/step-04-sprint-closure.md`), the reference doc and the
+(`skills/l3io-pm-execute/steps/closure/sprint-closure.md`,
+`skills/l3io-pm-execute/steps/closure/epic-closure.md`,
+`skills/l3io-pm-execute/steps/sprint/step-04-sprint-closure.md`), the reference doc and the
 pm-execute manifest. Commit with the subject
 `feat(l3io-pm): drift dispositions, epic spec sync, and the epic commit checkpoint`.
 
@@ -4473,11 +4473,11 @@ pm-execute manifest. Commit with the subject
 ### Task 16: doctor — binding, the `migrate-adrs` mode, and health Checks 15–19
 
 **Files:**
-- Create: `skills/l3io-doctor/steps/migrate-adrs.md`
-- Modify: `skills/l3io-doctor/SKILL.md`: the description frontmatter; the mode count
+- Create: `skills/l3io-util-doctor/steps/migrate-adrs.md`
+- Modify: `skills/l3io-util-doctor/SKILL.md`: the description frontmatter; the mode count
   (lines 55–56); the mode bullets (near line 33); the mode table; the help block; the
   `{spec_align}` binding after the `{pm_status}` binding.
-- Modify: `skills/l3io-doctor/steps/health-check.md`: the HC2 heading and intro; new
+- Modify: `skills/l3io-util-doctor/steps/health-check.md`: the HC2 heading and intro; new
   Checks 15–19 after Check 14; HC3 table rows; the HC6 action order.
 
 **Interfaces:**
@@ -4486,7 +4486,7 @@ pm-execute manifest. Commit with the subject
   (exit 1 = findings).
 - **Produces:** the doctor binding `{spec_align}`, which passes no `--spec-paths` (R3), and the
   mode keyword `migrate-adrs`. Check 14 (Task 18) allowlists
-  `skills/l3io-doctor/steps/migrate-adrs.md` and `steps/health-check.md`.
+  `skills/l3io-util-doctor/steps/migrate-adrs.md` and `steps/health-check.md`.
 
 - [ ] **Step 1: The binding.** In `SKILL.md`, directly after
   `Bind \`{pm_status}\` = \`{project-root}/_bmad/scripts/pm-status.py\` for use in all mode files\nbelow.`,
@@ -4513,7 +4513,7 @@ so it checks the spec set the project's spec index recorded (pm-execute's `spec_
   - The description frontmatter: after `triage the backlog (audit it and resolve findings that are already fixed),`
     insert ` move ADRs from the old per-epic home to docs/adr/,`.
 
-- [ ] **Step 3: The mode file.** Create `skills/l3io-doctor/steps/migrate-adrs.md`:
+- [ ] **Step 3: The mode file.** Create `skills/l3io-util-doctor/steps/migrate-adrs.md`:
 
 ````markdown
 ## Migrate ADRs Mode
@@ -4673,9 +4673,9 @@ after it: `**\`migrate-adrs\` keeps its own confirmation too** — it moves file
 - [ ] **Step 7: Verify.** Run `npm run check:docs && npm run test:scripts`. Expected: exit 0.
   Check 3 resolves no new `§` refs here, and check 1 finds no unknown skill names.
 
-- [ ] **Step 8: Commit.** Stage `skills/l3io-doctor/SKILL.md`,
-  `skills/l3io-doctor/steps/health-check.md` and
-  `skills/l3io-doctor/steps/migrate-adrs.md`. Commit with the subject
+- [ ] **Step 8: Commit.** Stage `skills/l3io-util-doctor/SKILL.md`,
+  `skills/l3io-util-doctor/steps/health-check.md` and
+  `skills/l3io-util-doctor/steps/migrate-adrs.md`. Commit with the subject
   `feat(l3io-util): doctor migrate-adrs mode and spec-alignment health Checks 15-19`.
 
 ---
@@ -4683,10 +4683,10 @@ after it: `**\`migrate-adrs\` keeps its own confirmation too** — it moves file
 ### Task 17: triage spec pass, audit-backlog skip, pm-help counts, arch-review ADR allocation
 
 **Files:**
-- Modify: `skills/l3io-doctor/steps/triage.md` (new Step T3b; T7 summary)
-- Modify: `skills/l3io-doctor/scripts/audit-backlog.py` (`audit()` filter; docstring)
-- Modify: `skills/l3io-doctor/scripts/tests/test-audit-backlog.py` (new class)
-- Modify: `skills/l3io-help/SKILL.md` ("Open issues" bullet)
+- Modify: `skills/l3io-util-doctor/steps/triage.md` (new Step T3b; T7 summary)
+- Modify: `skills/l3io-util-doctor/scripts/audit-backlog.py` (`audit()` filter; docstring)
+- Modify: `skills/l3io-util-doctor/scripts/tests/test-audit-backlog.py` (new class)
+- Modify: `skills/l3io-pm-help/SKILL.md` ("Open issues" bullet)
 - Modify: `skills/l3io-arch-review/SKILL.md` (Mode A, Mode C, Output)
 - Modify: `skills/l3io-arch-review/assets/adr-template.md`
 
@@ -4706,14 +4706,14 @@ class TestSpecItemsSkipped(Base):
         self.pm("append-issue", "--state-root", self.state, "--epic", "001", "--sprint", "",
                 "--title", "Spec change: order API", "--source", "spec-sync (AD-1)",
                 "--severity", "Medium", "--kind", "spec-change", "--ref", "3f9c2a1",
-                "--description", "Confirm or reject: /l3io-doctor triage")
+                "--description", "Confirm or reject: /l3io-util-doctor triage")
         self.append("A defect", "code-review (E001-S01-001)")
         v = self.verdicts()
         self.assertNotIn("BL-E001-001", v)
         self.assertIn("BL-E001-002", v)
 ```
 
-Run: `uv run -q --with 'ruamel.yaml>=0.18' python3 skills/l3io-doctor/scripts/tests/test-audit-backlog.py TestSpecItemsSkipped`
+Run: `uv run -q --with 'ruamel.yaml>=0.18' python3 skills/l3io-util-doctor/scripts/tests/test-audit-backlog.py TestSpecItemsSkipped`
 Expected: FAIL. `BL-E001-001` gets a `needs-review` verdict.
 
 - [ ] **Step 2: Implement.** In `audit-backlog.py`, make `audit()`'s first statement, before
@@ -4728,7 +4728,7 @@ Append this sentence to the module docstring's first paragraph:
 `Spec items (kind spec-change / spec-proposal) are skipped: triage's spec pass handles them.`
 
 Run the Step 1 command again. Expected: `OK`. Then run the whole suite:
-`uv run -q --with 'ruamel.yaml>=0.18' python3 skills/l3io-doctor/scripts/tests/test-audit-backlog.py`
+`uv run -q --with 'ruamel.yaml>=0.18' python3 skills/l3io-util-doctor/scripts/tests/test-audit-backlog.py`
 Expected: `OK` (23 tests).
 
 - [ ] **Step 3: Non-hollow proof.** Comment out the filter line and rerun Step 1's command.
@@ -4773,9 +4773,9 @@ In Step T7's summary block, directly after the `Re-severitied:` line, add:
   Spec items:         {n}  (confirmed {a} · rejected {r} · still open {o})
 ```
 
-- [ ] **Step 5: pm-help.** In `skills/l3io-help/SKILL.md`'s **Open issues** bullet,
+- [ ] **Step 5: pm-help.** In `skills/l3io-pm-help/SKILL.md`'s **Open issues** bullet,
   append:
-  ` Count \`spec-change\` items (unconfirmed spec edits) and \`spec-proposal\` items (proposed PRD/UX/epic changes) separately, by their \`kind\` field — with the \`cat\` fallback read each item's \`kind:\`; an item without one is a defect. If any are open, recommend \`/l3io-doctor triage\` (its spec pass confirms or rejects them).`
+  ` Count \`spec-change\` items (unconfirmed spec edits) and \`spec-proposal\` items (proposed PRD/UX/epic changes) separately, by their \`kind\` field — with the \`cat\` fallback read each item's \`kind:\`; an item without one is a defect. If any are open, recommend \`/l3io-util-doctor triage\` (its spec pass confirms or rejects them).`
 
 - [ ] **Step 6: arch-review.** In `skills/l3io-arch-review/SKILL.md`, make three edits:
   1. Mode A bullet: append ` — numbered and placed as in Mode C` after
@@ -4811,10 +4811,10 @@ In `assets/adr-template.md`, directly after `- **Deciders:** <names/roles>`, add
 
 - [ ] **Step 7: Gates and commit.** Run `npm run check:docs && npm run test:scripts`, then
   the audit-backlog suite. Stage these files:
-  - `skills/l3io-doctor/steps/triage.md`
-  - `skills/l3io-doctor/scripts/audit-backlog.py`
-  - `skills/l3io-doctor/scripts/tests/test-audit-backlog.py`
-  - `skills/l3io-help/SKILL.md`
+  - `skills/l3io-util-doctor/steps/triage.md`
+  - `skills/l3io-util-doctor/scripts/audit-backlog.py`
+  - `skills/l3io-util-doctor/scripts/tests/test-audit-backlog.py`
+  - `skills/l3io-pm-help/SKILL.md`
   - `skills/l3io-arch-review/SKILL.md`
   - `skills/l3io-arch-review/assets/adr-template.md`
 
@@ -4903,7 +4903,7 @@ test("check 4: spec-align names in backticks are not read as pm-status subcomman
 
 test("check 13: a pattern added to layout-cleanup alone is caught", (t) => {
   const root = fixture(t);
-  const rel = "skills/l3io-doctor/steps/layout-cleanup.md";
+  const rel = "skills/l3io-util-doctor/steps/layout-cleanup.md";
   const text = fs.readFileSync(path.join(root, rel), "utf8");
   write(root, rel, text.replace("`*tech-design*`", "`*tech-design*`, `*blueprint*`"));
   const r = run(root);
@@ -4942,7 +4942,7 @@ test("check 14: the old ADR home in a new directory is caught", (t) => {
 
 test("check 14: the old ADR glob inside a fence is caught", (t) => {
   const root = fixture(t);
-  write(root, "skills/l3io-doctor/assets/brand-new.md",
+  write(root, "skills/l3io-util-doctor/assets/brand-new.md",
         "```\nls {implementation_artifacts}/epic-*/arch/*.md\n```\n");
   const r = run(root);
   assert.equal(r.status, 1);
@@ -5068,7 +5068,7 @@ function checkSpecAlignSurface() {
 // of truth), and its DIMENSIONS must be the six headings the enrichment prompt tells the agent
 // to write -- check-pointers rejects any other name, so a drift here blocks every story.
 // ---------------------------------------------------------------------------
-const LAYOUT_CLEANUP = "skills/l3io-doctor/steps/layout-cleanup.md";
+const LAYOUT_CLEANUP = "skills/l3io-util-doctor/steps/layout-cleanup.md";
 const STORY_PREP = "skills/_shared/steps/sprint/step-02-story-prep.md";
 const KIND_LABELS = { architecture: "Architecture", prd: "Requirements / PRD", ux: "UX spec" };
 
@@ -5132,8 +5132,8 @@ function checkSpecAlignContract() {
 // ---------------------------------------------------------------------------
 const ADR_OLD_HOME = /arch\/adr-|arch\/\*\.md/;
 const ADR_OLD_HOME_ALLOWED = new Set([
-  "skills/l3io-doctor/steps/migrate-adrs.md",
-  "skills/l3io-doctor/steps/health-check.md",
+  "skills/l3io-util-doctor/steps/migrate-adrs.md",
+  "skills/l3io-util-doctor/steps/health-check.md",
 ]);
 
 function checkAdrHome() {
@@ -5200,10 +5200,10 @@ Expected: every test passes, the nine new ones included.
   2. **Module Layout.** `each of its seventeen modes` → `each of its eighteen modes`.
   3. **Skill Directory tree.** In the `_shared/` comment, after `pm-status.py,`, add
      `spec-align.py,`.
-  4. **Skill table.** In the `l3io-doctor` row's mode list, after `triage`, add
+  4. **Skill table.** In the `l3io-util-doctor` row's mode list, after `triage`, add
      `, \`migrate-adrs\``.
   5. **Shared Files table.** Add this row after the `pm-status.py` row:
-     `| \`skills/_shared/spec-align.py\` | \`scripts/spec-align.py\` | pm-execute, **l3io-doctor** — run from each skill's own copy, never self-installed; its suite \`tests/test-spec-align.py\` stays in \`_shared/tests/\` |`
+     `| \`skills/_shared/spec-align.py\` | \`scripts/spec-align.py\` | pm-execute, **l3io-util-doctor** — run from each skill's own copy, never self-installed; its suite \`tests/test-spec-align.py\` stays in \`_shared/tests/\` |`
   6. **The "Test suites are never shipped" paragraph.** After
      `skills/_shared/tests/test-write-module-config.py`, insert
      `and \`skills/_shared/tests/test-spec-align.py\``.
@@ -5222,7 +5222,7 @@ Expected: every test passes, the nine new ones included.
        `- \`state/spec-sync.lock\` — the spec-edit lease (\`spec-align.py lease\`): owner and expiry as JSON, taken by an epic closure's spec sync so parallel closures sharing one tree never edit or commit a spec at once; ignored by the \`*.lock\` rule.`
   9. **Pre-execution gates paragraph.** After the sentence that ends
      `…standards into core \`bmad-create-story\`/\`bmad-architect\`/\`bmad-code-review\` in the consuming repo.`, add:
-     `With \`spec_alignment\` on (pm-execute \`customize.toml\`, default \`true\`), both gates also take the project's specs — by pointer, never whole: \`spec-align.py build\` indexes every spec under \`{planning_artifacts}\` (headings, anchors, first sentences, line ranges; no model), the arch gate's reviewer reads only the ranges the stories point to, and every technical-AC dimension must end with a resolving \`Spec: <path>#<anchor>\` line (or \`Spec: none — <reason>\`), checked by \`spec-align.py check-pointers\` before \`ready-for-dev\`. Sprint and epic drift reviews record a disposition for every BLOCKER/MAJOR finding, and epic closure's spec sync writes accepted architecture departures back as one guarded \`docs(spec)\` commit each, confirmed or rejected in \`/l3io-doctor triage\`. Design: \`docs/superpowers/specs/2026-09-11-spec-alignment-design.md\`.`
+     `With \`spec_alignment\` on (pm-execute \`customize.toml\`, default \`true\`), both gates also take the project's specs — by pointer, never whole: \`spec-align.py build\` indexes every spec under \`{planning_artifacts}\` (headings, anchors, first sentences, line ranges; no model), the arch gate's reviewer reads only the ranges the stories point to, and every technical-AC dimension must end with a resolving \`Spec: <path>#<anchor>\` line (or \`Spec: none — <reason>\`), checked by \`spec-align.py check-pointers\` before \`ready-for-dev\`. Sprint and epic drift reviews record a disposition for every BLOCKER/MAJOR finding, and epic closure's spec sync writes accepted architecture departures back as one guarded \`docs(spec)\` commit each, confirmed or rejected in \`/l3io-util-doctor triage\`. Design: \`docs/superpowers/specs/2026-09-11-spec-alignment-design.md\`.`
 
 - [ ] **Step 2: `status-files.md` §9.** After the bullet about
   `issues.yaml.lock`, `pm-calibration.yaml.lock` and `adr-register.yaml.lock`, add:
@@ -5250,9 +5250,9 @@ Nothing is written in this task unless a step fails. It proves the branch is gre
 python3 skills/_shared/tests/test-pm-status.py -q
 uv run -q --with 'markdown-it-py>=3' --with 'mdit-py-plugins>=0.4' --with 'ruamel.yaml>=0.18' --with 'unidiff>=0.7' --with 'tenacity>=8' python3 skills/_shared/tests/test-spec-align.py
 uv run skills/_shared/tests/test-write-module-config.py
-uv run --with pyyaml skills/l3io-sync/scripts/tests/test-drift-report.py
+uv run --with pyyaml skills/l3io-pm-sync/scripts/tests/test-drift-report.py
 uv run skills/l3io-sec-redteam/scripts/tests/test-init-sanctum.py
-uv run -q --with 'ruamel.yaml>=0.18' python3 skills/l3io-doctor/scripts/tests/test-audit-backlog.py
+uv run -q --with 'ruamel.yaml>=0.18' python3 skills/l3io-util-doctor/scripts/tests/test-audit-backlog.py
 npm run test:scripts
 ```
 

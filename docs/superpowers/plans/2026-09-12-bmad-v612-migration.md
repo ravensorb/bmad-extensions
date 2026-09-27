@@ -39,10 +39,10 @@ Check 17 (Task 10) fails any file that *dispatches* a `removed` skill. It must t
 
 **Created:**
 - `docs/adr/0006-bmad-dependency-inventory.md` — records the three decisions in spec §10.
-- `skills/l3io-doctor/assets/bmad-dependencies.json` — the inventory; the one place every `bmad-*` name is declared.
-- `skills/l3io-doctor/scripts/bmad-deps.py` — runtime verifier, `verify` subcommand.
-- `skills/l3io-doctor/scripts/tests/test-bmad-deps.py` — its suite.
-- `skills/l3io-doctor/steps/check-deps.md` — the doctor mode.
+- `skills/l3io-util-doctor/assets/bmad-dependencies.json` — the inventory; the one place every `bmad-*` name is declared.
+- `skills/l3io-util-doctor/scripts/bmad-deps.py` — runtime verifier, `verify` subcommand.
+- `skills/l3io-util-doctor/scripts/tests/test-bmad-deps.py` — its suite.
+- `skills/l3io-util-doctor/steps/check-deps.md` — the doctor mode.
 
 **Modified (canonical sources):**
 - `skills/_shared/steps/sprint/step-03-dev-loop.md` — implementer resolution + harvested review instructions.
@@ -54,7 +54,7 @@ Check 17 (Task 10) fails any file that *dispatches* a `removed` skill. It must t
 
 **Modified (not generated — edit directly):**
 - `scripts/check-docs.mjs`, `scripts/tests/check-docs.test.mjs`, `.github/workflows/checks.yml`
-- `skills/l3io-doctor/SKILL.md`, `skills/l3io-doctor/assets/migrate-state.md`
+- `skills/l3io-util-doctor/SKILL.md`, `skills/l3io-util-doctor/assets/migrate-state.md`
 - `skills/l3io-arch-review/module.yaml`, `SKILL.md`, `assets/customize-architect.md`
 - Four `l3io-pm-*/module.yaml`; `CLAUDE.md`; `README.md`; `docs/*.md`
 
@@ -90,13 +90,13 @@ by hand and looking.
 
 ## Decision
 1. Every upstream `bmad-*` name this package references is declared in one inventory,
-   `skills/l3io-doctor/assets/bmad-dependencies.json`, with its status and its fallback.
+   `skills/l3io-util-doctor/assets/bmad-dependencies.json`, with its status and its fallback.
 2. The inventory is **JSON**. This package has zero runtime node dependencies and
    `check-docs.mjs` imports only `node:fs`/`node:path`; no TOML or YAML parser is available to
    it, and library-first forbids hand-rolling one. `JSON.parse` is native to node and `json`
    is stdlib in Python, so both guards read it with no parsing code.
-3. The runtime verifier is **skill-local** at `skills/l3io-doctor/scripts/bmad-deps.py`,
-   because `l3io-doctor` is its only consumer. ADR-0001 places single-consumer code in
+3. The runtime verifier is **skill-local** at `skills/l3io-util-doctor/scripts/bmad-deps.py`,
+   because `l3io-util-doctor` is its only consumer. ADR-0001 places single-consumer code in
    its skill's own `scripts/`; this follows `audit-backlog.py` exactly, including a suite at
    `scripts/tests/` and one CI step. It gets no sync group and no `_shared/` copy.
 
@@ -104,7 +104,7 @@ by hand and looking.
 Dependency truth is one file instead of prose in six `module.yaml` files and a dozen step
 files. `check:docs` check 17 asserts the step files agree with it where no BMad install
 exists; `bmad-deps.py` asserts a real install agrees with it. A future rename fails CI or
-surfaces in `/l3io-doctor check-deps` instead of silently disabling a gate.
+surfaces in `/l3io-util-doctor check-deps` instead of silently disabling a gate.
 
 The inventory is hand-maintained against upstream, so it can lag a BMad release. It records
 `verified_against` for exactly that reason: the claim is "checked at this version", not
@@ -123,7 +123,7 @@ git commit -s -m "docs(adr): record ADR-0006, one guarded BMad dependency invent
 ### Task 2: The dependency inventory
 
 **Files:**
-- Create: `skills/l3io-doctor/assets/bmad-dependencies.json`
+- Create: `skills/l3io-util-doctor/assets/bmad-dependencies.json`
 
 **Interfaces:**
 - Produces: the file both guards read. Consumed by Task 10 (`DEP_INVENTORY`) and Task 11 (`--inventory` default). Schema exactly as below — Tasks 10 and 11 validate these field names.
@@ -185,11 +185,11 @@ The set is complete as given; it was derived by dry-running check 17's scope aga
 
 Note `bmad-create-story`/`bmad-dev-story` carry a `replaced_by` that is an in-package agent identity, not a BMad skill. Task 10's fallback validation only checks `fallback` targets, never `replaced_by`, so this is intentional and valid.
 
-**Amended after the final review.** Three corrections landed against this block, and the shipped `skills/l3io-doctor/assets/bmad-dependencies.json` is authoritative over it: (a) `bmad-architecture` is `optional`, not `required` — nothing dispatches it, see Task 14 Step 5; (b) `bmad-deps` was added as a fourth `not-a-skill` entry; (c) `bmad-review`, `bmad-help`, `bmad-customize`, `bmad-brainstorming` and `bmad-forge-idea` ship in `core`, not `bmm` — measured against a core-only install, where all five resolve and every genuinely-`bmm` entry reports MISSING.
+**Amended after the final review.** Three corrections landed against this block, and the shipped `skills/l3io-util-doctor/assets/bmad-dependencies.json` is authoritative over it: (a) `bmad-architecture` is `optional`, not `required` — nothing dispatches it, see Task 14 Step 5; (b) `bmad-deps` was added as a fourth `not-a-skill` entry; (c) `bmad-review`, `bmad-help`, `bmad-customize`, `bmad-brainstorming` and `bmad-forge-idea` ship in `core`, not `bmm` — measured against a core-only install, where all five resolve and every genuinely-`bmm` entry reports MISSING.
 
 - [ ] **Step 2: Verify it parses**
 
-Run: `node -e "const i=require('./skills/l3io-doctor/assets/bmad-dependencies.json');console.log(i.skills.length+' entries')"`
+Run: `node -e "const i=require('./skills/l3io-util-doctor/assets/bmad-dependencies.json');console.log(i.skills.length+' entries')"`
 Expected: `22 entries`
 
 - [ ] **Step 3: Regenerate manifests and commit**
@@ -198,7 +198,7 @@ Expected: `22 entries`
 
 ```bash
 node scripts/write-payload-manifest.mjs
-git add skills/l3io-doctor/assets/bmad-dependencies.json skills/l3io-doctor/payload-manifest.json
+git add skills/l3io-util-doctor/assets/bmad-dependencies.json skills/l3io-util-doctor/payload-manifest.json
 git commit -s -m "feat(l3io-util): declare every BMad dependency in one inventory"
 ```
 
@@ -276,7 +276,7 @@ Expected: no output.
 
 ```bash
 git add skills/_shared/steps/sprint/step-03-dev-loop.md skills/_shared/status-files.md \
-        skills/l3io-execute skills/l3io-plan skills/l3io-sync skills/l3io-doctor
+        skills/l3io-pm-execute skills/l3io-pm-plan skills/l3io-pm-sync skills/l3io-util-doctor
 git commit -s -m "fix(l3io-pm): resolve the dev-loop implementer instead of hard-coding it"
 ```
 
@@ -340,7 +340,7 @@ git add skills/_shared/steps/sprint/step-02-story-prep.md \
         skills/_shared/steps/plan/step-03-story-elaboration.md \
         skills/_shared/steps/plan/step-backlog-intake.md \
         skills/_shared/metrics-contract.md \
-        skills/l3io-execute skills/l3io-plan skills/l3io-sync skills/l3io-doctor
+        skills/l3io-pm-execute skills/l3io-pm-plan skills/l3io-pm-sync skills/l3io-util-doctor
 git commit -s -m "fix(l3io-pm): resolve the story enricher instead of hard-coding it"
 ```
 
@@ -414,7 +414,7 @@ exists. Empty result → skip the phase.
 ```bash
 npm run sync:scripts && node scripts/write-payload-manifest.mjs
 git add skills/_shared/steps/closure/sprint-closure.md \
-        skills/l3io-execute skills/l3io-plan skills/l3io-sync skills/l3io-doctor
+        skills/l3io-pm-execute skills/l3io-pm-plan skills/l3io-pm-sync skills/l3io-util-doctor
 git commit -s -m "fix(l3io-pm): resolve closure reviewers across BMad versions"
 ```
 
@@ -462,14 +462,14 @@ Fold "not ready" findings into the gate:
 
 - [ ] **Step 2: Fix the historical mention at line 46**
 
-Currently `(e.g. via bmad-create-story without going through l3io-plan).` → `(e.g. via the legacy `bmad-create-story` workflow, without going through l3io-plan).`
+Currently `(e.g. via bmad-create-story without going through l3io-pm-plan).` → `(e.g. via the legacy `bmad-create-story` workflow, without going through l3io-pm-plan).`
 
 - [ ] **Step 3: Sync, regenerate, commit**
 
 ```bash
 npm run sync:scripts && node scripts/write-payload-manifest.mjs
 git add skills/_shared/steps/plan/step-02-readiness-check.md \
-        skills/l3io-execute skills/l3io-plan skills/l3io-sync skills/l3io-doctor
+        skills/l3io-pm-execute skills/l3io-pm-plan skills/l3io-pm-sync skills/l3io-util-doctor
 git commit -s -m "fix(l3io-pm): resolve the readiness checker across BMad versions"
 ```
 
@@ -509,7 +509,7 @@ Expected: the path prints (proving the new layout is what 6.12.0 produces).
 ```bash
 npm run sync:scripts && node scripts/write-payload-manifest.mjs
 git add skills/_shared/steps/execute/step-04-arch-gate.md \
-        skills/l3io-execute skills/l3io-plan skills/l3io-sync skills/l3io-doctor
+        skills/l3io-pm-execute skills/l3io-pm-plan skills/l3io-pm-sync skills/l3io-util-doctor
 git commit -s -m "fix(l3io-pm): probe both skill layouts so the arch gate stops self-skipping"
 ```
 
@@ -550,7 +550,7 @@ Report what is real — never pad to reach a count.
 ```bash
 npm run sync:scripts && node scripts/write-payload-manifest.mjs
 git add skills/_shared/steps/sprint/step-03-dev-loop.md \
-        skills/l3io-execute skills/l3io-plan skills/l3io-sync skills/l3io-doctor
+        skills/l3io-pm-execute skills/l3io-pm-plan skills/l3io-pm-sync skills/l3io-util-doctor
 git commit -s -m "feat(l3io-pm): add deletion and claims checks to story code review"
 ```
 
@@ -560,8 +560,8 @@ git commit -s -m "feat(l3io-pm): add deletion and claims checks to story code re
 
 **Files:**
 - Modify: `skills/l3io-arch-review/module.yaml:10,18`, `skills/l3io-arch-review/SKILL.md:87`, `skills/l3io-arch-review/assets/customize-architect.md:12,21`
-- Modify: `skills/l3io-doctor/SKILL.md:3,25,84,114`, `skills/l3io-doctor/assets/migrate-state.md:122`, `skills/l3io-doctor/steps/bootstrap-state.md:9`
-- Modify: `skills/l3io-execute/module.yaml`, `skills/l3io-plan/module.yaml`, `skills/l3io-help/module.yaml`, `skills/l3io-sync/module.yaml` (lines 13, 15, 17 each)
+- Modify: `skills/l3io-util-doctor/SKILL.md:3,25,84,114`, `skills/l3io-util-doctor/assets/migrate-state.md:122`, `skills/l3io-util-doctor/steps/bootstrap-state.md:9`
+- Modify: `skills/l3io-pm-execute/module.yaml`, `skills/l3io-pm-plan/module.yaml`, `skills/l3io-pm-help/module.yaml`, `skills/l3io-pm-sync/module.yaml` (lines 13, 15, 17 each)
 
 **Interfaces:**
 - Produces: a `skills/` tree where every `removed` token either is gone or carries same-line historical evidence — the precondition for Task 10.
@@ -588,13 +588,13 @@ Do the same at `SKILL.md:3,25,114` and `assets/migrate-state.md:122`, and at
 `steps/bootstrap-state.md:9`, which currently reads:
 
 ```
-created via `bmad-create-story` (or another workflow) without going through `l3io-plan`
+created via `bmad-create-story` (or another workflow) without going through `l3io-pm-plan`
 ```
 
 and becomes:
 
 ```
-created via the legacy `bmad-create-story` workflow (or another) without going through `l3io-plan`
+created via the legacy `bmad-create-story` workflow (or another) without going through `l3io-pm-plan`
 ```
 
 **Doctor's `steps/` are hand-authored, not generated** — `skills/_shared/steps/**` syncs only to
@@ -615,8 +615,8 @@ post-install-notes: >
   legacy bmad-create-story / bmad-dev-story skills are absent, so no shim flag is needed.
   Optional: bmad-ux (UX phases skip when absent), l3io-arch-review (epic architecture gate
   and drift reviews), l3io-sec-redteam (closure security review).
-  Run /l3io-doctor check-deps to confirm what resolved in this project.
-  /l3io-sync additionally needs an authenticated GitHub CLI (gh) or a configured GitHub
+  Run /l3io-util-doctor check-deps to confirm what resolved in this project.
+  /l3io-pm-sync additionally needs an authenticated GitHub CLI (gh) or a configured GitHub
   MCP server.
   Requires uv on PATH: the Python helpers run via `uv run`.
 ```
@@ -642,15 +642,15 @@ probe):
 | each of the **four** `l3io-pm-*/module.yaml` | 13 | `bmad-create-story` **and** `bmad-dev-story` |
 | each of the **four** `l3io-pm-*/module.yaml` | 15 | `bmad-review-adversarial-general` |
 | each of the **four** `l3io-pm-*/module.yaml` | 17 | `bmad-ux-review` |
-| `skills/l3io-doctor/SKILL.md` | 25, 84, 114 | `bmad-create-story` |
-| `skills/l3io-doctor/assets/migrate-state.md` | 122 | `bmad-create-story` |
-| `skills/l3io-doctor/steps/bootstrap-state.md` | 9 | `bmad-create-story` |
+| `skills/l3io-util-doctor/SKILL.md` | 25, 84, 114 | `bmad-create-story` |
+| `skills/l3io-util-doctor/assets/migrate-state.md` | 122 | `bmad-create-story` |
+| `skills/l3io-util-doctor/steps/bootstrap-state.md` | 9 | `bmad-create-story` |
 
 The four `module.yaml` files contribute **16** of the 26 — four tokens each — which the earlier
 "lines 13/15/17" phrasing understated. The `post-install-notes` rewrite in Step 4 removes all
 sixteen at once by replacing that whole block.
 
-**`skills/l3io-doctor/SKILL.md:3` is NOT in the list** — it already satisfies an arm. Do not
+**`skills/l3io-util-doctor/SKILL.md:3` is NOT in the list** — it already satisfies an arm. Do not
 edit it.
 
 - [ ] **Step 5: Verify every removed token now has same-line evidence**
@@ -671,9 +671,9 @@ Expected: no output. Any line printed is one check 17 will reject in Task 10 —
 
 ```bash
 node scripts/write-payload-manifest.mjs
-git add skills/l3io-arch-review skills/l3io-doctor \
-        skills/l3io-execute/module.yaml skills/l3io-plan/module.yaml \
-        skills/l3io-help/module.yaml skills/l3io-sync/module.yaml
+git add skills/l3io-arch-review skills/l3io-util-doctor \
+        skills/l3io-pm-execute/module.yaml skills/l3io-pm-plan/module.yaml \
+        skills/l3io-pm-help/module.yaml skills/l3io-pm-sync/module.yaml
 git commit -s -m "docs: retire stale BMad skill names outside the shared sources"
 ```
 
@@ -710,7 +710,7 @@ Add to `scripts/tests/check-docs.test.mjs`, following its existing planted-viola
 
 test("check 17: a step file dispatching a removed skill fails", async () => {
   const repo = await plantRepo();
-  await writeFile(join(repo, "skills/l3io-execute/steps/x.md"),
+  await writeFile(join(repo, "skills/l3io-pm-execute/steps/x.md"),
     "Spawn `bmad-dev-story` subagent with the story path.\n");
   const { code, stderr } = await runCheckDocs(repo);
   assert.equal(code, 1);
@@ -719,7 +719,7 @@ test("check 17: a step file dispatching a removed skill fails", async () => {
 
 test("check 17: an explanatory word four lines away does NOT excuse a dispatch", async () => {
   const repo = await plantRepo();
-  await writeFile(join(repo, "skills/l3io-execute/steps/x.md"),
+  await writeFile(join(repo, "skills/l3io-pm-execute/steps/x.md"),
     "This skill was removed upstream.\n\n\n\nSpawn `bmad-dev-story` subagent.\n");
   const { code, stderr } = await runCheckDocs(repo);
   assert.equal(code, 1, "check 1's ±4-line window would have allowed this; check 17 must not");
@@ -730,7 +730,7 @@ test("check 17: an explanatory word four lines away does NOT excuse a dispatch",
 // implement tolerance, i.e. it would forbid the fix it exists to protect.
 test("check 17: an existence probe naming a removed skill is allowed", async () => {
   const repo = await plantRepo();
-  await writeFile(join(repo, "skills/l3io-execute/steps/x.md"),
+  await writeFile(join(repo, "skills/l3io-pm-execute/steps/x.md"),
     "```bash\nls {project-root}/.claude/skills/bmad-dev-story/SKILL.md 2>/dev/null\n```\n");
   const { code } = await runCheckDocs(repo);
   assert.equal(code, 0, "a probe line cannot dispatch anything; it must pass");
@@ -740,7 +740,7 @@ test("check 17: an existence probe naming a removed skill is allowed", async () 
 // SUBSTRING of it, so a naive includes() check would let the guard pass its own worst case.
 test("check 17: replaced_by must match as a token, not a substring", async () => {
   const repo = await plantRepo();
-  await writeFile(join(repo, "skills/l3io-execute/steps/x.md"),
+  await writeFile(join(repo, "skills/l3io-pm-execute/steps/x.md"),
     "Invoke `bmad-ux-review` with the story files.\n");
   const { code, stderr } = await runCheckDocs(repo);
   assert.equal(code, 1, "bmad-ux-review contains 'bmad-ux'; substring matching would pass this");
@@ -771,12 +771,12 @@ Insert after the check-16 block, matching its header-comment style:
 //
 // A removed name may still appear where the mention is self-evidently historical, but the
 // evidence must be on the SAME LINE. Check 1 widens to a ±4-line window; dry-run here, that
-// window excused l3io-doctor/SKILL.md:84 because an unrelated routing row nearby said
+// window excused l3io-util-doctor/SKILL.md:84 because an unrelated routing row nearby said
 // "remove migration backup files". An accidental pass is how a guard starts crying wolf.
 //
 // Scope is derived by walking skills/ markdown and every skills/<dir>/module.yaml, never a list.
 // ---------------------------------------------------------------------------
-const DEP_INVENTORY = "skills/l3io-doctor/assets/bmad-dependencies.json";
+const DEP_INVENTORY = "skills/l3io-util-doctor/assets/bmad-dependencies.json";
 const BMAD_TOKEN_RE = /(?<![\w-])bmad-[a-z0-9-]+/g;
 const DEP_STATUSES = ["required", "optional", "removed", "not-a-skill"];
 
@@ -890,8 +890,8 @@ git commit -s -m "feat(infra): add check 17, every BMad dependency is declared"
 ### Task 11: bmad-deps.py and its suite
 
 **Files:**
-- Create: `skills/l3io-doctor/scripts/bmad-deps.py`
-- Create: `skills/l3io-doctor/scripts/tests/test-bmad-deps.py`
+- Create: `skills/l3io-util-doctor/scripts/bmad-deps.py`
+- Create: `skills/l3io-util-doctor/scripts/tests/test-bmad-deps.py`
 - Modify: `.github/workflows/checks.yml` (one step after the `audit-backlog.py` step)
 
 **Interfaces:**
@@ -900,7 +900,7 @@ git commit -s -m "feat(infra): add check 17, every BMad dependency is declared"
 
 - [ ] **Step 1: Write the failing suite first**
 
-Copy the leak-guard block verbatim from `skills/l3io-doctor/scripts/tests/test-audit-backlog.py` (setUpModule/tearDownModule, prefix `test-bmad-deps-`). Drive the real CLI via `subprocess`; build fixture trees with `tempfile.mkdtemp()`. All 14 cases:
+Copy the leak-guard block verbatim from `skills/l3io-util-doctor/scripts/tests/test-audit-backlog.py` (setUpModule/tearDownModule, prefix `test-bmad-deps-`). Drive the real CLI via `subprocess`; build fixture trees with `tempfile.mkdtemp()`. All 14 cases:
 
 ```python
 # 1 all required present -> 0; 2 required missing -> 3; 3 optional missing -> 0 + warning;
@@ -948,7 +948,7 @@ def test_preferred_wins_when_both_present(self):
 
 - [ ] **Step 2: Run to verify failure**
 
-Run: `uv run -q --with 'ruamel.yaml>=0.18' python3 skills/l3io-doctor/scripts/tests/test-bmad-deps.py`
+Run: `uv run -q --with 'ruamel.yaml>=0.18' python3 skills/l3io-util-doctor/scripts/tests/test-bmad-deps.py`
 Expected: FAIL — the script does not exist.
 
 - [ ] **Step 3: Implement the script**
@@ -974,7 +974,7 @@ passed one.
 
 check:docs check 17 asserts the step files agree with the inventory, but CI has no BMad
 install (_bmad/ is gitignored). This script is the other half: it compares the same inventory
-against a real install. Single consumer (l3io-doctor), so it ships in doctor's own
+against a real install. Single consumer (l3io-util-doctor), so it ships in doctor's own
 scripts/ per ADR-0001, like audit-backlog.py, with no sync group.
 
 Usage
@@ -1099,12 +1099,12 @@ if __name__ == "__main__":
 
 - [ ] **Step 4: Run the suite to green**
 
-Run: `uv run -q --with 'ruamel.yaml>=0.18' python3 skills/l3io-doctor/scripts/tests/test-bmad-deps.py`
+Run: `uv run -q --with 'ruamel.yaml>=0.18' python3 skills/l3io-util-doctor/scripts/tests/test-bmad-deps.py`
 Expected: all 14 pass.
 
 - [ ] **Step 5: Run it against this repo's real 6.11.0 install**
 
-Run: `uv run -q --with 'ruamel.yaml>=0.18' python3 skills/l3io-doctor/scripts/bmad-deps.py verify --project-root "$PWD"`
+Run: `uv run -q --with 'ruamel.yaml>=0.18' python3 skills/l3io-util-doctor/scripts/bmad-deps.py verify --project-root "$PWD"`
 Expected: exit 0. `bmad-review` resolves **via** `bmad-review-adversarial-general`, and readiness via `bmad-check-implementation-readiness` — the live proof of spec §12 criterion 2.
 
 - [ ] **Step 6: Non-hollow proof**
@@ -1117,14 +1117,14 @@ In `.github/workflows/checks.yml`, after the `audit-backlog.py unit tests` step:
 
 ```yaml
     - name: bmad-deps.py unit tests
-      run: uv run -q --with 'ruamel.yaml>=0.18' python3 skills/l3io-doctor/scripts/tests/test-bmad-deps.py
+      run: uv run -q --with 'ruamel.yaml>=0.18' python3 skills/l3io-util-doctor/scripts/tests/test-bmad-deps.py
 ```
 
 ```bash
 node scripts/write-payload-manifest.mjs
-git add skills/l3io-doctor/scripts/bmad-deps.py \
-        skills/l3io-doctor/scripts/tests/test-bmad-deps.py \
-        skills/l3io-doctor/payload-manifest.json .github/workflows/checks.yml
+git add skills/l3io-util-doctor/scripts/bmad-deps.py \
+        skills/l3io-util-doctor/scripts/tests/test-bmad-deps.py \
+        skills/l3io-util-doctor/payload-manifest.json .github/workflows/checks.yml
 git commit -s -m "feat(l3io-util): verify installed BMad skills against the inventory"
 ```
 
@@ -1133,8 +1133,8 @@ git commit -s -m "feat(l3io-util): verify installed BMad skills against the inve
 ### Task 12: The check-deps doctor mode
 
 **Files:**
-- Create: `skills/l3io-doctor/steps/check-deps.md`
-- Modify: `skills/l3io-doctor/SKILL.md` (routing row; lines 56–57 counts)
+- Create: `skills/l3io-util-doctor/steps/check-deps.md`
+- Modify: `skills/l3io-util-doctor/SKILL.md` (routing row; lines 56–57 counts)
 - Modify: `CLAUDE.md:12` (mode count)
 - Modify: `docs/l3io-util-reference.md` (mode table row)
 
@@ -1207,8 +1207,8 @@ Expected: exit 0. A count mismatch prints `mode count derivations disagree` or `
 
 ```bash
 node scripts/write-payload-manifest.mjs
-git add skills/l3io-doctor/steps/check-deps.md skills/l3io-doctor/SKILL.md \
-        skills/l3io-doctor/payload-manifest.json CLAUDE.md docs/l3io-util-reference.md
+git add skills/l3io-util-doctor/steps/check-deps.md skills/l3io-util-doctor/SKILL.md \
+        skills/l3io-util-doctor/payload-manifest.json CLAUDE.md docs/l3io-util-reference.md
 git commit -s -m "feat(l3io-util): add the check-deps doctor mode"
 ```
 
@@ -1254,8 +1254,8 @@ In `README.md` and `docs/getting-started.md`, beside the install command: BMad �
 
 ```bash
 npm run check:docs && npm run check:manifest
-git add skills/l3io-execute/module.yaml skills/l3io-plan/module.yaml \
-        skills/l3io-help/module.yaml skills/l3io-sync/module.yaml \
+git add skills/l3io-pm-execute/module.yaml skills/l3io-pm-plan/module.yaml \
+        skills/l3io-pm-help/module.yaml skills/l3io-pm-sync/module.yaml \
         CLAUDE.md README.md docs/getting-started.md docs/l3io-pm-reference.md \
         docs/l3io-arch-reference.md docs/architecture.md
 git commit -s -m "docs: state BMad dependencies as they resolve on both install shapes"
@@ -1289,11 +1289,11 @@ Expected: all exit 0.
 python3 -m pip install --quiet 'ruamel.yaml>=0.18'
 python3 skills/_shared/tests/test-pm-status.py
 uv run skills/_shared/tests/test-write-module-config.py
-uv run --with pyyaml skills/l3io-sync/scripts/tests/test-drift-report.py
+uv run --with pyyaml skills/l3io-pm-sync/scripts/tests/test-drift-report.py
 uv run -q --with 'markdown-it-py>=3' --with 'mdit-py-plugins>=0.4' --with 'ruamel.yaml>=0.18' --with 'unidiff>=0.7' --with 'tenacity>=8' python3 skills/_shared/tests/test-spec-align.py
 uv run skills/l3io-sec-redteam/scripts/tests/test-init-sanctum.py
-uv run -q --with 'ruamel.yaml>=0.18' python3 skills/l3io-doctor/scripts/tests/test-audit-backlog.py
-uv run -q --with 'ruamel.yaml>=0.18' python3 skills/l3io-doctor/scripts/tests/test-bmad-deps.py
+uv run -q --with 'ruamel.yaml>=0.18' python3 skills/l3io-util-doctor/scripts/tests/test-audit-backlog.py
+uv run -q --with 'ruamel.yaml>=0.18' python3 skills/l3io-util-doctor/scripts/tests/test-bmad-deps.py
 ```
 Expected: all pass.
 
@@ -1302,7 +1302,7 @@ Expected: all pass.
 ```bash
 D=$(mktemp -d) && git -C "$D" init -q .
 npx --yes bmad-method@latest install --yes --modules bmm --tools claude-code --directory "$D"
-uv run -q --with 'ruamel.yaml>=0.18' python3 skills/l3io-doctor/scripts/bmad-deps.py \
+uv run -q --with 'ruamel.yaml>=0.18' python3 skills/l3io-util-doctor/scripts/bmad-deps.py \
   verify --project-root "$D"
 ```
 Expected: exit 0, every required skill resolves, **no shim in use**.
@@ -1310,7 +1310,7 @@ Expected: exit 0, every required skill resolves, **no shim in use**.
 - [ ] **Step 5: Acceptance 2 — an install that works today is unchanged**
 
 ```bash
-uv run -q --with 'ruamel.yaml>=0.18' python3 skills/l3io-doctor/scripts/bmad-deps.py \
+uv run -q --with 'ruamel.yaml>=0.18' python3 skills/l3io-util-doctor/scripts/bmad-deps.py \
   verify --project-root "$PWD" --format json
 ```
 Expected: **exit 3** against this repo's real BMad **6.11.0**, and that is the correct result — not a
@@ -1336,7 +1336,7 @@ wrongly:
 **The backward-compatibility guarantee is not proven by this run**, because this machine has no
 `bmm` to fall back within. It is proven machine-independently by
 `test_pre_612_only_tree_resolves_every_site_via_fallback` in
-`skills/l3io-doctor/scripts/tests/test-bmad-deps.py`, which builds a tree holding **only**
+`skills/l3io-util-doctor/scripts/tests/test-bmad-deps.py`, which builds a tree holding **only**
 pre-6.12 names and asserts every site resolves via `fallback`. Confirm that test is present and
 passing; it is the executable form of the design spec's second acceptance criterion, and a stronger
 proof than any single machine's state.

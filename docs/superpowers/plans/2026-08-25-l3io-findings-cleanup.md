@@ -1143,7 +1143,7 @@ sections they patched rather than the whole epic."
 
 **Files:**
 - Modify: `skills/_shared/steps/shared/step-estimate.md:25,:86`
-- Modify: `skills/l3io-doctor/SKILL.md:154`, `steps/layout-cleanup.md:4`, `steps/health-check.md:84`, `steps/split-status.md:12`
+- Modify: `skills/l3io-util-doctor/SKILL.md:154`, `steps/layout-cleanup.md:4`, `steps/health-check.md:84`, `steps/split-status.md:12`
 - Modify: `scripts/check-docs.mjs` — new check 9
 
 - [ ] **Step 1: Fix the directives**
@@ -1153,15 +1153,15 @@ cd <repo root>
 # Shared source first -- per-skill copies are regenerated, never hand-edited.
 sed -i 's|`skills/_shared/status-files\.md`|`references/status-files.md`|g' \
   skills/_shared/steps/shared/step-estimate.md
-# l3io-doctor is not synced from _shared, so it is edited in place.
+# l3io-util-doctor is not synced from _shared, so it is edited in place.
 sed -i 's|`skills/_shared/status-files\.md`|`references/status-files.md`|g' \
-  skills/l3io-doctor/SKILL.md \
-  skills/l3io-doctor/steps/layout-cleanup.md \
-  skills/l3io-doctor/steps/health-check.md \
-  skills/l3io-doctor/steps/split-status.md
+  skills/l3io-util-doctor/SKILL.md \
+  skills/l3io-util-doctor/steps/layout-cleanup.md \
+  skills/l3io-util-doctor/steps/health-check.md \
+  skills/l3io-util-doctor/steps/split-status.md
 ```
 
-Then re-read `skills/l3io-doctor/assets/migrate-state.md:9` by hand. It reads `references/status-files.md` (source: `skills/_shared/status-files.md`; ...)` — that is a **provenance note**, which is correct and must not be rewritten. If the `sed` above touched it, revert that line.
+Then re-read `skills/l3io-util-doctor/assets/migrate-state.md:9` by hand. It reads `references/status-files.md` (source: `skills/_shared/status-files.md`; ...)` — that is a **provenance note**, which is correct and must not be rewritten. If the `sed` above touched it, revert that line.
 
 - [ ] **Step 2: Add the check that keeps them fixed**
 
@@ -1320,10 +1320,10 @@ const n=Object.keys(m).length;
 console.log(n+" files hashed");
 if(n<20){console.error("suspiciously few — is PAYLOAD_TARGETS the real list?");process.exit(1)}
 '
-printf "\n" >> skills/l3io-execute/references/status-files.md
+printf "\n" >> skills/l3io-pm-execute/references/status-files.md
 node scripts/write-payload-manifest.mjs
 git diff --quiet payload-manifest.json && echo "FAIL: hash did not move" || echo "OK: hash moved"
-git checkout skills/l3io-execute/references/status-files.md payload-manifest.json
+git checkout skills/l3io-pm-execute/references/status-files.md payload-manifest.json
 ```
 
 - [ ] **Step 5: Commit**
