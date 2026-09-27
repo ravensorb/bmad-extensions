@@ -51,7 +51,7 @@ SPEC_PATHS_RE = re.compile(r"^# spec-paths: (.*)$")
 
 # Spec kinds in precedence order: a name matching several kinds takes the first. The
 # architecture, ux and prd patterns are copied verbatim from
-# l3io-doctor/steps/layout-cleanup.md heuristic 5 -- check-docs check 13 compares them.
+# l3io-doctor/steps/clean-layout.md heuristic 5 -- check-docs check 13 compares them.
 KINDS = (
     ("architecture", ("*architecture*", "*arch-spec*", "*system-design*", "*tech-design*")),
     ("ux", ("*ux-spec*", "*ux-design*", "*wireframe*", "*mockup*", "*ui-spec*")),

@@ -57,7 +57,7 @@ Modes (pass as argument to skip directly to that mode):
 **Ongoing maintenance (safe to repeat)**
 - **`reconcile-status`:** *(legacy-only)* Audits the three split status files for placement and structure issues: epics in the wrong file for their `status`, nested per-epic `backlog:` arrays that should be flattened into the consolidated top-level list, stale backlog items whose status is no longer `backlog`, and empty epic shells in the backlog file. Dry-run first; confirms before writing. Safe to run at any time.
 - **`sort-status`:** Validates state file and directory naming against the zero-padded convention (`epic-{nnn}/`, `sprint-{nn}/`, `E{nnn}-S{nn}-{nnn}.yaml`). Ordering itself can no longer drift under the sharded layout — directory listing order is correct order — so this mode no longer reorders anything. It reports misnamed entries, which would sort incorrectly and break key resolution.
-- **`layout-cleanup`:** Runs only the artifact layout reorganization (the original default behavior) — reorganizes flat artifact outputs into the structured epic/sprint folder hierarchy, reconciles references, verifies state consistency.
+- **`clean-layout`** (alias `layout-cleanup`): Runs only the artifact layout reorganization (the original default behavior) — reorganizes flat artifact outputs into the structured epic/sprint folder hierarchy, reconciles references, verifies state consistency.
 - **`redrive`:** Rebuilds the `scope` and `fix` calibration components from the story nodes on disk — repairs samples poisoned by a fixed defect where `fix_iterations` was once stored as a string and misclassified as `backout` instead of `exact`. Backs up the calibration file first (only if no backup already exists); `closure`, `orchestration`, and `token_mix` are untouched. Safe to run repeatedly — it derives fresh from the same nodes each time.
 - **`triage`:** Audits the issues backlog — integrity (`audit-issues`), mechanical evidence (`scripts/audit-backlog.py`), and an optional agent review — and resolves what is already fixed, with evidence, only on confirmation.
 
@@ -105,7 +105,7 @@ or module setup.
 | `stats`, `backlog` or `issues` | `steps/stats.md` | registered | read-only — plan-aware progress dashboard plus the per-item backlog table |
 | `check-deps` | `steps/check-deps.md` | registered | read-only — verify BMad skill dependencies resolve |
 | `check-pm-status` | `steps/check-pm-status.md` | registered | read-only — verify the installed pm-status.py matches this doctor's module_version |
-| `layout-cleanup` | `steps/layout-cleanup.md` | health-check | layout reorganization only |
+| `clean-layout` or `layout-cleanup` | `steps/clean-layout.md` | health-check | layout reorganization only. `clean-layout` is the primary; `layout-cleanup` is the DEPRECATED alias from ≤ 3.1.3, kept so old muscle memory still routes. Verb-first (`clean-<noun>`) mirrors `clean-legacy`. |
 | `migrate-schema` | `steps/schema-migration.md` | health-check | legacy-only bridge |
 | `split-status` | `steps/split-status.md` | health-check | legacy-only bridge |
 | `harvest-debt` | `steps/harvest-debt.md` | health-check |  |

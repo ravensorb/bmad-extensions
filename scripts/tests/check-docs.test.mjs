@@ -237,7 +237,7 @@ test("check 10: a spec-align.py subcommand missing from its own docstring is cau
 
 test("check 13: a pattern added to layout-cleanup alone is caught", (t) => {
   const root = fixture(t);
-  const rel = "skills/l3io-doctor/steps/layout-cleanup.md";
+  const rel = "skills/l3io-doctor/steps/clean-layout.md";
   const text = fs.readFileSync(path.join(root, rel), "utf8");
   write(root, rel, text.replace("`*tech-design*`", "`*tech-design*`, `*blueprint*`"));
   const r = run(root);

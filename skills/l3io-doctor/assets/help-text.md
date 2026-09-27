@@ -22,7 +22,8 @@ One-time migrations (run in this order)
 Ongoing maintenance (safe to repeat)
   reconcile-status   (legacy-only) Fix misplaced epics, nested backlogs, stale items
   sort-status        Validate zero-padded naming (epic-{nnn}/, sprint-{nn}/, story keys)
-  layout-cleanup     Reorganize flat artifact files into epic/sprint folder structure
+  clean-layout       Reorganize flat artifact files into epic/sprint folder structure
+                     (alias: layout-cleanup, deprecated in 3.1.4)
   redrive            Rebuild calibration scope/fix samples from the story nodes on disk
   triage             Audit the issues backlog and resolve findings already fixed
 

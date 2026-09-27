@@ -127,6 +127,7 @@ to remember which module a skill lives in.
 | `/l3io-pm-sync` | `/l3io-sync` |
 | `/l3io-pm-setup` | `/l3io-setup` |
 | `/l3io-util-doctor` | `/l3io-doctor` — **clean rename, no forwarder** |
+| `/l3io-util-doctor layout-cleanup` | `/l3io-doctor clean-layout` — verb-first, mirrors `clean-legacy`; `layout-cleanup` kept as an alias in 3.1.3+, planned removal in 4.0.0 |
 | `/l3io-sec-redteam` | unchanged |
 | `/l3io-arch-review` | unchanged |
 

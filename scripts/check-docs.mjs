@@ -2212,7 +2212,7 @@ function checkPmStatusSize() {
 // of truth), and its DIMENSIONS must be the six headings the enrichment prompt tells the agent
 // to write -- check-pointers rejects any other name, so a drift here blocks every story.
 // ---------------------------------------------------------------------------
-const LAYOUT_CLEANUP = "skills/l3io-doctor/steps/layout-cleanup.md";
+const LAYOUT_CLEANUP = "skills/l3io-doctor/steps/clean-layout.md";
 const STORY_PREP = "skills/_shared/steps/sprint/step-02-story-prep.md";
 const KIND_LABELS = { architecture: "Architecture", prd: "Requirements / PRD", ux: "UX spec" };
 

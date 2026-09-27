@@ -96,8 +96,8 @@ For each present status file, spot-check the first epic node and first sprint no
 - No gaps → ✓
 
 **Check 4 — Artifact layout**
-Scan the top level of `{implementation_artifacts}` and `{planning_artifacts}` for flat classifiable files (story files matching heuristic 1, sprint/epic closure files matching heuristics 2–3, test files matching heuristic 4, misplaced planning docs matching heuristic 5 — all from `steps/layout-cleanup.md` (File Classification Heuristics)).
-- Flat classifiable files found → flag `layout-cleanup` · Priority: Medium · note count
+Scan the top level of `{implementation_artifacts}` and `{planning_artifacts}` for flat classifiable files (story files matching heuristic 1, sprint/epic closure files matching heuristics 2–3, test files matching heuristic 4, misplaced planning docs matching heuristic 5 — all from `steps/clean-layout.md` (File Classification Heuristics)).
+- Flat classifiable files found → flag `clean-layout` · Priority: Medium · note count
 - None → ✓
 
 **Check 5 — State file naming**
@@ -425,7 +425,7 @@ State layout migration          ⚠ Both layouts present          migrate-state
 Artifact-only stories           ⚠ 2 story artifact(s), no state bootstrap-state
 Status file schema              ✓ All fields current           —
 Status placement & backlog      ⚠ 1 misplaced epic, 3 nested  reconcile-status
-Artifact layout                 ⚠ 3 flat file(s) detected     layout-cleanup
+Artifact layout                 ⚠ 3 flat file(s) detected     clean-layout
 Status file ordering            ✓ All sorted                   —
 Deferred code markers           ⚠ 2 new marker(s)             harvest-debt
 AI instruction references       ✓ Current                      —
@@ -449,7 +449,7 @@ Spec index freshness            ✓ Fresh                        —
 
 If flagged items exist, append the recommended execution sequence (only flagged actions shown, in priority order):
 ```
-Recommended actions (in order): rename-active → rename-epic-dirs → split-status → migrate-state → layout-cleanup → harvest-debt
+Recommended actions (in order): rename-active → rename-epic-dirs → split-status → migrate-state → clean-layout → harvest-debt
 ```
 
 If `untrack-locks` is flagged, print Check 14's `ls-files` list under the table — every path
@@ -495,7 +495,7 @@ Run each approved action in this fixed priority sequence (skip any that were not
 5. `migrate-state`
 6. `bootstrap-state`
 7. `reconcile-status`
-8. `layout-cleanup`
+8. `clean-layout`
 9. `sort-status`
 10. `harvest-debt`
 11. `migrate-adrs`
@@ -509,7 +509,7 @@ Run each approved action in this fixed priority sequence (skip any that were not
 tree that bootstrap-state then augments with story nodes from the artifact tree. `redrive` must
 run after `migrate-state` — it walks the sharded state tree, which does not
 exist before that step — and after every other action that can add, move, or rewrite node
-files (`reconcile-status`, `layout-cleanup`, `sort-status`), so it rebuilds calibration
+files (`reconcile-status`, `clean-layout`, `sort-status`), so it rebuilds calibration
 samples from the most fully-corrected tree available. It runs before `clean-legacy` only
 because that step is the fixed final tidy-up; nothing about `redrive` depends on backup files
 still being present.
