@@ -96,9 +96,45 @@ during a stash. Stage explicit paths; never `-A`/`-u` in a repo where these skil
 *(Inference: the 78-file figure is the peer's observation, not measured here. The mechanism above
 is verified in this tree; the blast radius in a consumer repo is not.)*
 
-## Not carried forward
+## Findings held in the shared KB, not restated here
 
-A peer attributed two further findings to this agent — "453 integrity findings with 0 applicable
-repairs" and two notes in a shared KB — plus `n=1` / "flat-planning-tree" labels. No record of any
-of them exists in this session or this repo. They are most likely another agent's and are left out
-rather than restated unverified.
+Two notes written earlier in this session are in the shared basic-memory KB. **Read them
+before re-deriving anything below** — they carry the method, the corrections and the
+sampling caveats, which these one-liners do not.
+
+- **BMAD/l3io Skill Traps and Invariants**
+- **Agent Session Cost, Measured**
+
+Three entries need a pointer *and* a caveat, because the bare number misleads:
+
+- [done] **453 `audit-issues` findings with no applicable repair, on any pre-3.0 backlog** —
+  all id `1f`, all "open item has status `deferred`". **This is now repairable**, which the KB
+  note predates: `repair-issue --action normalize-status --all-legacy` (added this session,
+  epic-aware) does it in one pass. `steps/triage.md` records 452 normalized on a real upgrade
+  against the 453 findings measured then; the two counts come from different runs and neither
+  has been reconciled — do not treat the gap as a defect without checking.
+- [done] **Backlog traceability 0-of-517 → 49 after three fixes.** 49 is a hard ceiling, not a
+  shortfall: 76 items point at artifacts that were never written. Method in
+  `docs/superpowers/specs/2026-09-26-issue-source-structure-design.md` §1.
+- **Session cost, measured over 1,868 turns:** 942.9 M tokens / $667, of which `cache_read`
+  was 916.6 M / $458 — about 69%. Per-turn `cache_read` grew 179k → 873k between compactions
+  and reset at each one. Relevant to any decision about turn counts, fix-loop caps or agent
+  fan-out; `CLAUDE.md`'s note that cost scales with turns per session is the same effect.
+
+**`n=1` labels are load-bearing — keep them.** Several measurements come from a single
+consuming project. The flat-planning-tree shape in particular must not be generalised.
+
+## A correction worth keeping, about this note
+
+An earlier revision of this file disclaimed the four items above as "another agent's,
+unverified". They are this agent's own, from earlier in this session, and were lost to a
+context compaction. Checking the session and the tree found nothing, so the conclusion
+followed correctly from the evidence available — the evidence was incomplete in a way that is
+invisible from inside. A peer who still had the exchange corrected it, and the claims were
+then confirmed against this session's own transcript under
+`~/.claude/projects/<project>/452abcf5-*.jsonl`.
+
+The lesson for the next session, which is the same failure mode as every defect fixed today:
+**absent from context is indistinguishable from never existed.** Before recording that
+something does not exist, check a source that outlives the context window — the transcript,
+the KB, or git.
