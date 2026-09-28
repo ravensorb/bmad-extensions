@@ -252,7 +252,7 @@ For the fields the skills write (stories, sprints, epics, backlog items), see th
 
 **Artifact paths** (zero-padded):
 
-- Stories: `{implementation_artifacts}/epic-XX/sprint-YY/stories/{story-key}.md`
+- Stories: `{implementation_artifacts}/epic-XX/sprint-YY/stories/{story-key}[-{slug}].md` — the story-key prefix is canonical; an optional trailing `-slug` (e.g. `E032-S01-001-centralized-file-config.md`) is UX-only and does not affect the state key. Check 11's drift diff extracts the canonical prefix, so both filename shapes work.
 - Closure outputs: `{implementation_artifacts}/epic-XX/sprint-YY/closure/`
 - QA tests: `{implementation_artifacts}/epic-XX/sprint-YY/tests/` and `{implementation_artifacts}/epic-XX/tests/`
 - Epic closure: `{implementation_artifacts}/epic-XX/epic-closure/`

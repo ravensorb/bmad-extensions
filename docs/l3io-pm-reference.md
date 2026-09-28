@@ -559,7 +559,7 @@ Epic directories are 3-digit zero-padded, sprints 2-digit. Zero-padding makes le
 | `{implementation_artifacts}/state/events.jsonl` | Append-only transition log — committed; the source of per-status dwell time |
 | `{implementation_artifacts}/state/pm-calibration.yaml` | Learned calibration ratios — committed |
 | `{implementation_artifacts}/progress-report.md` | Generated progress report — a **view**, regenerated at closure boundaries; never hand-edit |
-| `{implementation_artifacts}/epic-{nnn}/sprint-{nn}/stories/{story-key}.md` | Story markdown |
+| `{implementation_artifacts}/epic-{nnn}/sprint-{nn}/stories/{story-key}[-{slug}].md` | Story markdown. `{story-key}` prefix is canonical; optional trailing `-{slug}` (e.g. `E032-S01-001-centralized-file-config.md`) is a UX convenience and does not affect the state key |
 | `{implementation_artifacts}/epic-{nnn}/sprint-{nn}/closure/` | Sprint closure outputs |
 | `{implementation_artifacts}/epic-{nnn}/sprint-{nn}/tests/` | Sprint-scoped QA evidence |
 | `{implementation_artifacts}/epic-{nnn}/arch/` | Arch-gate review output (`arch-gate-review.md`); ADRs live in `{project-root}/docs/adr/` (ADR-0005) |
