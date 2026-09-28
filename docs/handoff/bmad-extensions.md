@@ -23,6 +23,12 @@ the home-lab estate.
 3. `scripts/CLAUDE.md` — manifest contract, sync/verify commands, release gates.
 4. `docs/adr/` — ADR-0005 (one ADR home) and ADR-0008 (packaging shape) are the load-bearing ones.
 
+**Skills were renamed verb-first in 3.1.3.** `l3io-pm-execute`/`-plan`/`-help`/`-setup`/`-sync`
+→ `l3io-execute`/`l3io-plan`/`l3io-help`/`l3io-setup`/`l3io-sync`, with deprecated forwarders
+until 4.0.0; `l3io-util-doctor` → `l3io-doctor` with **no forwarder**. Full mapping and the
+reasoning: `docs/upgrading.md`. This note was written before that release and is corrected,
+not rewritten — treat any stale name elsewhere in it as a transcription error, not a second skill.
+
 ## Standing constraints from the user
 
 - Use `uv run`, never bare `python`.
@@ -45,7 +51,7 @@ the home-lab estate.
   mandates a trap on the next line, and the repo's only shell script has zero traps.
 - [todo] Node test suites have no temp-dir leak guard. The Python suites do — see the
   `setUpModule`/`tearDownModule` guard in
-  `skills/l3io-util-doctor/scripts/tests/test-detect-layout.py`, which **fails the run** if
+  `skills/l3io-doctor/scripts/tests/test-detect-layout.py`, which **fails the run** if
   anything is left behind. Four `/tmp/check-docs-*` dirs (92 MB) leaked over five days because
   the Node side only cleans up and never asserts it cleaned up.
 - [todo] 224 KB of test files ship to consumers. The installer copies whole skill directories,
@@ -88,7 +94,7 @@ Carry both halves or the next session re-derives them.
 
 ## Churn caveat — this tooling causes it
 
-The l3io skills self-install `pm-status.py` at activation, and `/l3io-util-doctor update-ai-rules`
+The l3io skills self-install `pm-status.py` at activation, and `/l3io-doctor update-ai-rules`
 writes AI instruction files (`CLAUDE.md`, `AGENTS.md`, `.cursorrules`, …) at the **project root**.
 
 In *this* repo `.agents/`, `.claude/skills/` and `.claude/settings.local.json` are gitignored, so
