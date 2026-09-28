@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file. See [commit-and-tag-version](https://github.com/absolute-version/commit-and-tag-version) for commit guidelines.
 
+## [3.1.5](https://github.com/ravensorb/bmad-extensions/compare/3.1.4...3.1.5) (2026-09-28)
+
+
+### Refactoring
+
+* move per-skill tests out of shipped payload ([67cb428](https://github.com/ravensorb/bmad-extensions/commit/67cb428159091e24844530e0674e8f8f33fb2ec1))
+
 ## [3.1.4](https://github.com/ravensorb/bmad-extensions/compare/3.1.3...3.1.4) (2026-09-28)
 
 
