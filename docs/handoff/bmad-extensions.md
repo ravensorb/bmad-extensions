@@ -102,6 +102,15 @@ copied to `~/work-artifacts/bmad-extensions/`, are:
   cost figures above. The derived summary is in the KB note; this is the source.
 - `ledger-close.md`, `ledger-final.md` — subagent-driven-development ledgers from the
   customization-layer work.
+- `scratchpad-probes-452abcf5.tar.gz` — 228 one-off verification instruments (mutation
+  drivers, planted-bug scripts, boot/lock/race probes) from the pre-compaction session.
+  Archived rather than kept live: the findings they produced are in commits and the KB, but
+  the method is cheaper to read than to re-derive.
+
+**That scratchpad is gone.** 456 MB of verification scratch under session `452abcf5` was
+deleted on 2026-09-28 to relieve tmpfs pressure (`/tmp` 37% → 27%). Everything in it was
+either reproducible from git — the `tree-<sha>` copies each matched a real commit, checked
+before deleting — or rescued above. Do not go looking for it.
 
 Checked and **not** copied, because they were already superseded or committed: an `adr0008.md`
 draft (the committed `docs/adr/0008-*.md` is an amended, later version), and `plan-part2.md` /
