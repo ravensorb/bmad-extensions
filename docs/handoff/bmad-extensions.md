@@ -92,6 +92,24 @@ Carry both halves or the next session re-derives them.
   at `dup = docs_by_num.get(n) == slug`. **Still live for any consumer below 3.0.2**, and Health
   Check 15 recommends the mode to exactly those projects. Upgrade is the remedy.
 
+## Durable artifacts outside this repo
+
+`/tmp` on this box is **tmpfs** — scratchpad contents are resident RAM and do not survive a
+reboot. Everything this agent produced that matters is committed here in git; the exceptions,
+copied to `~/work-artifacts/bmad-extensions/`, are:
+
+- `session-cost-measurement-452abcf5.md` — the raw per-turn `cache_read` measurement behind the
+  cost figures above. The derived summary is in the KB note; this is the source.
+- `ledger-close.md`, `ledger-final.md` — subagent-driven-development ledgers from the
+  customization-layer work.
+
+Checked and **not** copied, because they were already superseded or committed: an `adr0008.md`
+draft (the committed `docs/adr/0008-*.md` is an amended, later version), and `plan-part2.md` /
+`plan-part3.md` (both contained in `docs/superpowers/plans/2026-09-24-l3io-util-doctor-redesign.md`).
+
+*`~` is on `/`, which was 91% full when this was written — "durable" here means survives a
+reboot, not backed up.*
+
 ## Churn caveat — this tooling causes it
 
 The l3io skills self-install `pm-status.py` at activation, and `/l3io-doctor update-ai-rules`
