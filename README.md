@@ -102,7 +102,6 @@ set BMad offers:
 |---|---|---|
 | *(implicit)* | **BMad Core Module** | Shared utilities across modules. Always installed — never passed in `--modules`. |
 | `bmm` | **BMad Method** | Agile AI-driven development. **Required by this package** — every BMad skill the `l3io` modules dispatch to lives here. |
-| `bmb` | **BMad Builder** | Skill, workflow, and agent builder |
 | `cis` | **BMad Creative Intelligence Suite** | Creative thinking partners |
 | `tea` | **BMad Test Architect** | Enterprise testing add-on for `bmm` |
 | `gds` | **BMad Game Dev Studio** | Ideate, design, and build games |
