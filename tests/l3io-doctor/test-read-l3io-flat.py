@@ -12,13 +12,13 @@ import unittest
 from pathlib import Path
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-SCRIPT = os.path.join(os.path.dirname(HERE), "read-l3io-flat.py")
+SCRIPT = os.path.join(os.path.dirname(os.path.dirname(HERE)), "skills", "l3io-doctor", "scripts", "read-l3io-flat.py")
 FIXTURE = Path(HERE) / "fixtures" / "l3io-flat" / "sprint-status.yaml"
 
 
 def _load(name, filename):
     spec = importlib.util.spec_from_file_location(
-        name, os.path.join(os.path.dirname(HERE), filename))
+        name, os.path.join(os.path.dirname(os.path.dirname(HERE)), "skills", "l3io-doctor", "scripts", filename))
     mod = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(mod)
     return mod

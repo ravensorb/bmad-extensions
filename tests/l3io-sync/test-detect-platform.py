@@ -23,7 +23,7 @@ from pathlib import Path
 import importlib.util
 
 _HERE = os.path.dirname(os.path.abspath(__file__))
-_SCRIPT = os.path.join(os.path.dirname(_HERE), "detect-platform.py")
+_SCRIPT = os.path.join(os.path.dirname(os.path.dirname(_HERE)), "skills", "l3io-sync", "scripts", "detect-platform.py")
 _SPEC = importlib.util.spec_from_file_location("detect_platform", _SCRIPT)
 mod = importlib.util.module_from_spec(_SPEC)
 _SPEC.loader.exec_module(mod)

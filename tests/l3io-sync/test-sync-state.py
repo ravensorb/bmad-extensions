@@ -25,7 +25,7 @@ from pathlib import Path
 import yaml
 
 _HERE = os.path.dirname(os.path.abspath(__file__))
-_SCRIPT = os.path.join(os.path.dirname(_HERE), "sync-state.py")
+_SCRIPT = os.path.join(os.path.dirname(os.path.dirname(_HERE)), "skills", "l3io-sync", "scripts", "sync-state.py")
 
 
 class Base(unittest.TestCase):

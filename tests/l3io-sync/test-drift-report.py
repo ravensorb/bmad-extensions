@@ -29,7 +29,7 @@ from pathlib import Path
 from unittest import mock
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-SCRIPT = os.path.join(os.path.dirname(HERE), "drift-report.py")
+SCRIPT = os.path.join(os.path.dirname(os.path.dirname(HERE)), "skills", "l3io-sync", "scripts", "drift-report.py")
 
 import importlib.util
 

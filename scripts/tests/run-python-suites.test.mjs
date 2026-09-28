@@ -13,17 +13,26 @@ test('discovery finds every test-*.py on disk — the scope, not a list', () => 
   // The bug this guards: the CI workflow enumerated suites by hand and silently omitted
   // seven. Comparing discovery against an independent walk of the tree is the only check
   // that can notice an omission, because any list written here would share the mistake.
-  const walk = (dir, out = []) => {
+  // Two roots after the tests-out-of-payload move: shared suites at skills/_shared/tests/,
+  // per-skill suites at tests/{skill}/. Walk both, union, and compare.
+  const walk = (dir, out = [], allowDirName = null) => {
+    if (!fs.existsSync(dir)) return out;
     for (const e of fs.readdirSync(dir, { withFileTypes: true })) {
       const p = path.join(dir, e.name);
-      if (e.isDirectory()) { if (e.name !== '__pycache__') walk(p, out); }
-      else if (/^test-.*\.py$/.test(e.name) && path.basename(dir) === 'tests') {
+      if (e.isDirectory()) { if (e.name !== '__pycache__') walk(p, out, allowDirName); }
+      else if (/^test-.*\.py$/.test(e.name)) {
+        // Under skills/_shared/: only files in a directory named `tests` count.
+        // Under tests/{skill}/: all test-*.py at any depth count.
+        if (allowDirName === 'tests' && path.basename(dir) !== 'tests') continue;
         out.push(path.relative(ROOT, p).split(path.sep).join('/'));
       }
     }
     return out;
   };
-  assert.deepEqual(discover(), walk(path.join(ROOT, 'skills')).sort());
+  const shared = walk(path.join(ROOT, 'skills/_shared'), [], 'tests');
+  const perSkill = walk(path.join(ROOT, 'tests'), [], null);
+  const expected = [...new Set([...shared, ...perSkill])].sort();
+  assert.deepEqual(discover(), expected);
 });
 
 test('discovery is non-empty and includes the suites CI used to name by hand', () => {
@@ -31,8 +40,8 @@ test('discovery is non-empty and includes the suites CI used to name by hand', (
   assert.ok(got.length >= 17, `expected >=17 suites, got ${got.length}`);
   for (const s of ['skills/_shared/tests/test-pm-status.py',
                    'skills/_shared/tests/test-spec-align.py',
-                   'skills/l3io-doctor/scripts/tests/test-engine.py',
-                   'skills/l3io-doctor/scripts/tests/test-state-record.py']) {
+                   'tests/l3io-doctor/test-engine.py',
+                   'tests/l3io-doctor/test-state-record.py']) {
     assert.ok(got.includes(s), `discovery lost ${s}`);
   }
 });

@@ -66,7 +66,7 @@ def tearDownModule():
                              f"cleanup: {', '.join(leaked[:5])}")
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-SCRIPT = os.path.join(os.path.dirname(HERE), "bmad-deps.py")
+SCRIPT = os.path.join(os.path.dirname(os.path.dirname(HERE)), "skills", "l3io-doctor", "scripts", "bmad-deps.py")
 SKILL_ROOT = os.path.dirname(os.path.dirname(SCRIPT))
 INVENTORY = os.path.join(SKILL_ROOT, "assets", "bmad-dependencies.json")
 

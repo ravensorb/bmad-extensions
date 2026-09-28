@@ -8,7 +8,7 @@ import os
 import unittest
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-SCRIPT = os.path.join(os.path.dirname(HERE), "state-record.py")
+SCRIPT = os.path.join(os.path.dirname(os.path.dirname(HERE)), "skills", "l3io-doctor", "scripts", "state-record.py")
 spec = importlib.util.spec_from_file_location("state_record", SCRIPT)
 sr = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(sr)

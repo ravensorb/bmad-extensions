@@ -20,7 +20,7 @@ FIXTURES = Path(HERE) / "fixtures"
 
 def _load(name, filename):
     spec = importlib.util.spec_from_file_location(
-        name, os.path.join(os.path.dirname(HERE), filename))
+        name, os.path.join(os.path.dirname(os.path.dirname(HERE)), "skills", "l3io-doctor", "scripts", filename))
     mod = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(mod)
     return mod
@@ -131,7 +131,7 @@ class TestGatherAndPlan(unittest.TestCase):
         self.assertIn("epics", text)
 
 
-REPO = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(HERE))))
+REPO = os.path.dirname(os.path.dirname(HERE))
 PM_STATUS = os.path.join(REPO, "skills", "_shared", "pm-status.py")
 
 

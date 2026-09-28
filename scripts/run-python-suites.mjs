@@ -24,13 +24,24 @@ import { spawnSync } from 'node:child_process';
 import path from 'node:path';
 
 const ROOT = path.resolve(import.meta.dirname, '..');
-const PATTERN = 'skills/**/tests/test-*.py';
+// Test suites live under two roots:
+//   - skills/_shared/tests/*.py — shared suites (test-pm-status.py etc.) that CI runs
+//     against source, never shipped to consumers because _shared/ is not a marketplace
+//     plugin skill.
+//   - tests/{skill-name}/*.py — per-skill suites moved out of skills/{skill-name}/scripts/tests/
+//     so they don't ship as payload when BMad's --custom-source install copies the skill
+//     directory. Each test targets its script via skills/{skill-name}/scripts/{script}.py.
+const PATTERNS = ['skills/_shared/tests/test-*.py', 'tests/**/test-*.py'];
 
 export function discover(root = ROOT) {
-  return globSync(PATTERN, { cwd: root })
-    .filter((p) => !p.includes('__pycache__'))
-    .map((p) => p.split(path.sep).join('/'))
-    .sort();
+  const seen = new Set();
+  for (const pattern of PATTERNS) {
+    for (const p of globSync(pattern, { cwd: root })) {
+      if (p.includes('__pycache__')) continue;
+      seen.add(p.split(path.sep).join('/'));
+    }
+  }
+  return [...seen].sort();
 }
 
 if (process.argv[1] && path.resolve(process.argv[1]) === path.resolve(import.meta.filename)) {
@@ -42,7 +53,7 @@ if (process.argv[1] && path.resolve(process.argv[1]) === path.resolve(import.met
   // The scope guard. An empty set is the one result that would make this runner report
   // success over nothing at all -- the exact shape of the failure it was written to stop.
   if (suites.length === 0) {
-    console.error(`No Python suites matched ${PATTERN}. Refusing to report success over an ` +
+    console.error(`No Python suites matched ${PATTERNS.join(' or ')}. Refusing to report success over an ` +
                   `empty set -- either the pattern is wrong or the suites are gone.`);
     process.exit(2);
   }

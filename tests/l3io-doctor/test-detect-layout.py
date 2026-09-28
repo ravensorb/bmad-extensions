@@ -20,7 +20,7 @@ from pathlib import Path
 import importlib.util
 _HERE = os.path.dirname(os.path.abspath(__file__))
 _SPEC = importlib.util.spec_from_file_location(
-    "detect_layout", os.path.join(os.path.dirname(_HERE), "detect-layout.py"))
+    "detect_layout", os.path.join(os.path.dirname(os.path.dirname(_HERE)), "skills", "l3io-doctor", "scripts", "detect-layout.py"))
 mod = importlib.util.module_from_spec(_SPEC)
 _SPEC.loader.exec_module(mod)
 
@@ -60,7 +60,7 @@ def tearDownModule():
 
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-SCRIPT = os.path.join(os.path.dirname(HERE), "detect-layout.py")
+SCRIPT = os.path.join(os.path.dirname(os.path.dirname(HERE)), "skills", "l3io-doctor", "scripts", "detect-layout.py")
 
 
 class TestLayoutCollision(unittest.TestCase):

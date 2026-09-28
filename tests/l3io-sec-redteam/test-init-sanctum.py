@@ -15,7 +15,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-_SCRIPT = Path(__file__).parent.parent / "init-sanctum.py"
+_SCRIPT = Path(__file__).parent.parent.parent / "skills" / "l3io-sec-redteam" / "scripts" / "init-sanctum.py"
 _spec = importlib.util.spec_from_file_location("init_sanctum", _SCRIPT)
 m = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(m)

@@ -48,10 +48,15 @@ export function skills(root = ROOT) {
  */
 function testedScripts(root = ROOT) {
   const tested = new Set();
-  for (const suite of globSync('skills/**/tests/test-*.py', { cwd: root })) {
-    if (suite.includes('__pycache__')) continue;
-    const body = fs.readFileSync(path.join(root, suite), 'utf8');
-    for (const m of body.matchAll(/([a-z0-9][a-z0-9_-]*\.py)/g)) tested.add(m[1]);
+  // Two roots after the tests-out-of-payload move: shared suites still live at
+  // skills/_shared/tests/ (never shipped since _shared/ is not a marketplace plugin skill);
+  // per-skill suites live at tests/{skill-name}/ (top-level, outside any shipped skill dir).
+  for (const pattern of ['skills/_shared/tests/test-*.py', 'tests/**/test-*.py']) {
+    for (const suite of globSync(pattern, { cwd: root })) {
+      if (suite.includes('__pycache__')) continue;
+      const body = fs.readFileSync(path.join(root, suite), 'utf8');
+      for (const m of body.matchAll(/([a-z0-9][a-z0-9_-]*\.py)/g)) tested.add(m[1]);
+    }
   }
   return tested;
 }
@@ -100,9 +105,11 @@ export const EXEMPTIONS = [
   {
     id: 'tested-elsewhere',
     why: 'The scanner looks for scripts/tests/test-<script>.py beside the script. This package ' +
-         'keeps shared suites in skills/_shared/tests/ and names some after the module they ' +
-         'drive (test-engine.py covers migrate-engine.py). Derived from the suites on disk, so ' +
-         'a script with no suite anywhere is still reported.',
+         'keeps shared suites in skills/_shared/tests/ and per-skill suites in tests/{skill-name}/ ' +
+         '(moved out of skills/{skill}/scripts/tests/ so they no longer ship as payload). Some ' +
+         'suites are named after the module they drive (test-engine.py covers migrate-engine.py). ' +
+         'Derived from the suites on disk under both roots, so a script with no suite anywhere ' +
+         'is still reported.',
     match: (f, ctx) => f.category === 'tests' &&
                        (ctx.tested.has(path.basename(f.file || '')) || (f.file || '').endsWith('/')),
   },

@@ -64,8 +64,8 @@ def tearDownModule():
                              f"cleanup: {', '.join(leaked[:5])}")
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-SCRIPT = os.path.join(os.path.dirname(HERE), "audit-backlog.py")
-REPO = os.path.abspath(os.path.join(HERE, "..", "..", "..", ".."))
+SCRIPT = os.path.join(os.path.dirname(os.path.dirname(HERE)), "skills", "l3io-doctor", "scripts", "audit-backlog.py")
+REPO = os.path.abspath(os.path.join(HERE, "..", ".."))
 PM = os.path.join(REPO, "skills", "_shared", "pm-status.py")
 
 _spec = importlib.util.spec_from_file_location("audit_backlog", SCRIPT)
