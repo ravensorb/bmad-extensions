@@ -2,6 +2,18 @@
 
 All notable changes to this project will be documented in this file. See [commit-and-tag-version](https://github.com/absolute-version/commit-and-tag-version) for commit guidelines.
 
+## [3.1.4](https://github.com/ravensorb/bmad-extensions/compare/3.1.3...3.1.4) (2026-09-28)
+
+
+### Fixes
+
+* **l3io-util-doctor:** Check 11 tolerates slug-in-filename convention ([53b8a40](https://github.com/ravensorb/bmad-extensions/commit/53b8a400fe3e524d8b147a4bc547607a3d54d739))
+
+
+### Documentation
+
+* **readme:** remove bmb from user-install module table ([bec6605](https://github.com/ravensorb/bmad-extensions/commit/bec660542af135ccfd99205b0eed0f210f501725))
+
 ## [3.1.3](https://github.com/ravensorb/bmad-extensions/compare/3.1.2...3.1.3) (2026-09-27)
 
 
