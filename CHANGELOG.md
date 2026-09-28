@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file. See [commit-and-tag-version](https://github.com/absolute-version/commit-and-tag-version) for commit guidelines.
 
+## [3.1.6](https://github.com/ravensorb/bmad-extensions/compare/3.1.5...3.1.6) (2026-09-28)
+
+
+### Maintenance
+
+* **ci:** add scripts/ci-local.mjs thin wrapper for act ([f8cbf35](https://github.com/ravensorb/bmad-extensions/commit/f8cbf353b6e766e579e92a86e43736bc734722df))
+
 ## [3.1.5](https://github.com/ravensorb/bmad-extensions/compare/3.1.4...3.1.5) (2026-09-28)
 
 
