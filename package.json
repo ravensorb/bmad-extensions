@@ -14,6 +14,7 @@
     "check:scripts": "node scripts/sync-shared-scripts.mjs --check",
     "check:version": "node scripts/check-pm-status-version.mjs",
     "changelog": "conventional-changelog -p angular -i CHANGELOG.md -s",
+    "ci:local": "node scripts/ci-local.mjs",
     "postbump": "node scripts/sync-bmad-versions.mjs && node scripts/sync-shared-scripts.mjs && node scripts/write-payload-manifest.mjs && git add -u",
     "release": "commit-and-tag-version",
     "release:major": "commit-and-tag-version --release-as major",
