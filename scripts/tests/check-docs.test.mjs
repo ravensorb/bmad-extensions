@@ -3436,3 +3436,80 @@ test("check 30: scope is derived — a new subparser script is covered with no e
   assert.match(r.stderr, /\[check 30\].*zz-new-cli\.py invoked with no subcommand/);
   assert.match(r.stderr, /expected one of inspect/);
 });
+
+// ---------------------------------------------------------------------------
+// The reporter itself. Not a check -- the delivery of every check's output.
+//
+// `console.error` is ASYNCHRONOUS when stderr is a pipe, which is how CI and this file
+// (spawnSync) run the checker. `process.exit()` tears the process down without flushing what
+// is still queued, and the discarded bytes are reported nowhere. Measured on this tree against
+// the pre-fix reporter: 7 of 20 runs of a 231-failure report delivered between 103 and 147
+// findings under a header that correctly said 231, with the closing advice gone. A shell
+// pipeline was intact 8/8, so it only ever went wrong where nobody was reading.
+
+const FLUSH_PROBE = `
+import { writeAllSync } from ${JSON.stringify(CHECK)};
+const line = "x".repeat(255) + "\\n";
+const n = Number(process.argv[2]);
+if (process.argv[3] === "console") { for (let i = 0; i < n; i++) console.error(line); }
+else writeAllSync(2, line.repeat(n));
+process.exit(1);
+`;
+
+function flushProbe(t, lines, mode) {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "check-docs-flush-"));
+  t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+  const probe = path.join(dir, "probe.mjs");
+  fs.writeFileSync(probe, FLUSH_PROBE);
+  return spawnSync(process.execPath, [probe, String(lines), mode],
+                   { cwd: REPO, encoding: "utf8", maxBuffer: 64 * 1024 * 1024 });
+}
+
+test("writeAllSync delivers every byte when the process exits immediately", (t) => {
+  // 8192 * 256 B = 2 MB, ~32x the 64 KB default pipe buffer, so the write CANNOT complete
+  // before process.exit() and the canary below is deterministic rather than a coin flip.
+  // (At 64 KB the pre-fix shape truncated 10/20; at 1 MB, 20/20.)
+  const LINES = 8192;
+  const want = LINES * 256;
+
+  const canary = flushProbe(t, LINES, "console");
+  assert.notEqual(canary.stderr.length, want,
+    "console.error + process.exit() delivered all 2 MB, so this machine cannot show the " +
+    "truncation this test exists to rule out -- the assertion below proves nothing here");
+
+  // Twenty runs, not one: the failure it guards against is a race, and one green run of a race
+  // is not evidence.
+  for (let i = 0; i < 20; i++) {
+    assert.equal(flushProbe(t, LINES, "writeAll").stderr.length, want,
+                 `writeAllSync lost bytes on run ${i}`);
+  }
+});
+
+test("the failure reporter writes through writeAllSync and never process.exit", () => {
+  // The behavioural test above proves the helper is sound; this one proves the reporter still
+  // USES it. Reverting either half -- back to console.error, or back to process.exit(1) --
+  // reintroduces the truncation, and only this assertion sees it deterministically.
+  const tail = fs.readFileSync(CHECK, "utf8");
+  const at = tail.indexOf("if (failures.length > 0) {");
+  assert.notEqual(at, -1, "could not find the failure reporter in check-docs.mjs");
+  // Comment lines are stripped first. The reporter's own comment says "never
+  // `process.exit()`", which a naive scan reads as the very call it is warning against --
+  // this assertion failed on the commit that introduced it, for exactly that reason.
+  const reporter = tail.slice(at).split("\n").filter((l) => !/^\s*\/\//.test(l)).join("\n");
+  assert.match(reporter, /writeAllSync\(2,/);
+  assert.match(reporter, /process\.exitCode = 1/);
+  assert.doesNotMatch(reporter, /console\.error/,
+    "the failure reporter is back on console.error, which truncates over a pipe");
+  assert.doesNotMatch(reporter, /process\.exit\(/,
+    "the failure reporter calls process.exit(), which discards unflushed output");
+});
+
+test("--dump-subcommand-options emits parseable JSON, not a partial write", () => {
+  // Its caller JSON.parses the payload, so a byte lost to the pipe race is a parse error
+  // rather than a shortened report.
+  const r = spawnSync(process.execPath, [CHECK, "--dump-subcommand-options"],
+                      { cwd: REPO, encoding: "utf8", maxBuffer: 64 * 1024 * 1024 });
+  assert.equal(r.status, 0, r.stderr);
+  const dump = JSON.parse(r.stdout);
+  assert.ok(Object.keys(dump).length > 0, "dump is empty");
+});

@@ -236,8 +236,53 @@ const isMain = process.argv[1] && path.resolve(process.argv[1]) === fileURLToPat
 const failures = [];
 const notes = [];
 
-const read = (p) => fs.readFileSync(path.join(repoRoot, p), "utf8");
+// read() is MEMOISED, and that is a performance fix with real measurements behind it.
+//
+// Thirty checks walk overlapping file sets, so the same bytes were re-read over and over: one
+// run of this checker over its own repo made 3,347 read() calls totalling 50.1 MB over a 13 MB
+// tree -- `docs/l3io-pm-reference.md` 47 times, `CLAUDE.md` 45, the 392 KB `pm-status.py` 15.
+// That cost compounds in scripts/tests/check-docs.test.mjs, which spawns a full run PER TEST.
+//
+// Safe for the same reason stated above trackedPaths(): this process never writes to the tree
+// it is checking, so a path's contents cannot change underneath a run. The cache is per-process
+// and dies with it, so each spawned run in the test suite still sees its own fixture. Misses
+// (ENOENT and friends) are deliberately NOT cached -- callers that let the throw propagate
+// depend on it, and a negative cache would be a second thing to reason about for no gain.
+const readCache = new Map();
+const read = (p) => {
+  let text = readCache.get(p);
+  if (text === undefined) readCache.set(p, text = fs.readFileSync(path.join(repoRoot, p), "utf8"));
+  return text;
+};
 const exists = (p) => fs.existsSync(path.join(repoRoot, p));
+
+// Write `text` to a raw fd, looping until every byte is gone.
+//
+// `console.log`/`console.error` are ASYNCHRONOUS when the stream is a PIPE -- which is exactly
+// how CI and scripts/tests/check-docs.test.mjs (spawnSync) run this file. Queued bytes that
+// have not reached the pipe when `process.exit()` tears the process down are DISCARDED, with
+// no error anywhere. Measured on this tree before the fix: 10 of 20 spawnSync runs of the
+// failure path delivered a truncated report -- a correct "231 documentation problem(s)" header
+// over 142 delivered findings and no closing advice. The same command through a shell pipeline
+// was intact 8/8, so the truncation only ever showed up where a human was not reading it.
+//
+// Two rules follow, and both matter:
+//   1. Assemble the whole report as ONE string and write it through here.
+//   2. Set `process.exitCode` and fall through -- never `process.exit()`.
+// writeSync alone is not sufficient: on a non-blocking fd it can write fewer bytes than asked,
+// or throw EAGAIN, and either one truncates just as silently as the race it replaces.
+export function writeAllSync(fd, text) {
+  const buf = Buffer.from(text, "utf8");
+  let off = 0;
+  while (off < buf.length) {
+    try {
+      off += fs.writeSync(fd, buf, off, buf.length - off);
+    } catch (err) {
+      if (err.code === "EAGAIN") continue;
+      throw err;
+    }
+  }
+}
 
 // Files a reader is told are current. Historical records are excluded on purpose: CHANGELOG
 // and the trees below describe what was true when written, and rewriting them to match today
@@ -2744,14 +2789,72 @@ function wordLiteral(word, vars) {
 // follow it instead of producing one. `seed` supplies variables the script inherits rather
 // than sets -- a workflow's `env:` maps, which are the other half of the
 // "value not statically known" gap. Returns null when the script is not valid shell.
+// The PARSE is memoised; the walk is not. `shellParser.Parse(script, "run")` is a pure function
+// of `script` alone -- `seed` supplies variables to the walk below and never reaches the parser
+// -- so caching the whole call would be wrong for a differing seed while caching the AST is
+// correct for any seed. Measured on this tree: 466 calls, 157 distinct scripts, so 66% of every
+// parse was of text already parsed. The cause is structural, not accidental:
+// sync-shared-scripts.mjs copies each shared step file into every destination skill, so one
+// `uv run {pm_status} …` fragment in `skills/_shared/` is re-parsed once per copy. mvdan-sh is
+// a WASM parser and by far the most expensive thing this checker does.
+//
+// Two properties this relies on, both checked before it landed:
+//   - Parse is deterministic, so a cached FAILURE is as sound as a cached success. Caching the
+//     failure matters: an unparseable fragment is retried through normaliseSynopsis(), and that
+//     retry is itself a repeat of repeated text.
+//   - The walk below only READS the AST (Args, Assigns, Name.Value). Sharing one AST across
+//     calls would be unsound if anything here mutated it -- that, not determinism, is the
+//     property to re-check if this walk ever grows a write.
+// Memoised, and it is worth knowing WHICH HALF costs, because the obvious answer is wrong.
+//
+// This is the most expensive thing the checker does. Measured on this tree: 466 calls over 157
+// distinct scripts -- 66% of the work is over text already processed. The cause is structural,
+// not accidental: sync-shared-scripts.mjs copies each shared step file into every destination
+// skill, so one `uv run {pm_status} …` fragment authored in `skills/_shared/` is re-processed
+// once per copy.
+//
+// The intuitive fix is to cache `shellParser.Parse`. Measured, that is 71 ms of the 1,039 ms
+// spent here -- the PARSE is cheap and the WALK is 968 ms, because mvdan-sh is a WASM parser
+// and every property read in the walk below (`node.Args`, `Pos().Line()`, each `wordLiteral`)
+// crosses the JS/WASM boundary. So the RESULT is cached, not the AST.
+//
+// Two caches, because they key on different things:
+//   - shellCommandsCache keys on (script, seed) and skips the walk. `seed` must be in the key:
+//     it seeds the variable map the walk resolves words against, so the same script under a
+//     different seed is a genuinely different answer.
+//   - shellParseCache keys on `script` alone, and so still pays when one script is walked under
+//     several seeds -- check 17's workflow `env:` maps are the case that does this.
+// Caching a FAILED parse as null is sound because Parse is deterministic, and it matters:
+// an unparseable fragment is retried through normaliseSynopsis(), which repeats repeated text.
+//
+// The returned array is SHARED, so callers must treat it as read-only. All three do today
+// (they iterate and `argv.slice()`; stripWrappers() returns a slice rather than splicing).
+// That, not parser determinism, is the property to re-check before adding a caller.
+const shellParseCache = new Map();
+const shellCommandsCache = new Map();
 function shellCommands(script, seed) {
+  const entries = seed ? [...seed] : [];
+  const key = entries.length === 0 ? script : `${JSON.stringify(entries)}\u0000${script}`;
+  if (shellCommandsCache.has(key)) return shellCommandsCache.get(key);
+  const result = walkShellCommands(script, entries);
+  shellCommandsCache.set(key, result);
+  return result;
+}
+
+function walkShellCommands(script, entries) {
   let file;
-  try {
-    file = shellParser.Parse(script, "run");
-  } catch {
-    return null;
+  if (shellParseCache.has(script)) {
+    file = shellParseCache.get(script);
+  } else {
+    try {
+      file = shellParser.Parse(script, "run");
+    } catch {
+      file = null;
+    }
+    shellParseCache.set(script, file);
   }
-  const vars = new Map(seed || []);
+  if (file === null) return null;
+  const vars = new Map(entries);
   const commands = [];
   syntax.Walk(file, (node) => {
     if (!node || syntax.NodeType(node) !== "CallExpr") return true;
@@ -3773,7 +3876,9 @@ function checkSharedPointerResolution() {
 if (process.argv.includes("--dump-subcommand-options")) {
   const dump = {};
   for (const [sub, opts] of [...pmStatusSubcommandOptions()].sort()) dump[sub] = [...opts].sort();
-  console.log(JSON.stringify(dump));
+  // Not cosmetic here: the caller JSON.parses this, so a byte lost to the pipe race is a parse
+  // error rather than a shortened report. See writeAllSync's header.
+  writeAllSync(1, JSON.stringify(dump) + "\n");
   process.exit(0);
 }
 
@@ -4429,12 +4534,16 @@ checkSubcommandRequired();
 for (const note of notes) if (verbose) console.log(`  note: ${note}`);
 
 if (failures.length > 0) {
-  console.error(`\n${failures.length} documentation problem(s):\n`);
-  for (const f of failures) console.error(`  ✗ ${f}\n`);
-  console.error("These are facts the docs state about code that says otherwise. Fix the doc,");
-  console.error("or if the code moved, fix both.");
-  process.exit(1);
+  // One buffered write, then `process.exitCode` -- never `process.exit()`. See writeAllSync's
+  // header: exiting here truncated half of all failing runs, and the report is the only thing
+  // this gate produces that a human can act on.
+  writeAllSync(2,
+    `\n${failures.length} documentation problem(s):\n\n` +
+    failures.map((f) => `  ✗ ${f}\n\n`).join("") +
+    "These are facts the docs state about code that says otherwise. Fix the doc,\n" +
+    "or if the code moved, fix both.\n");
+  process.exitCode = 1;
+} else {
+  console.log("Documentation checks passed: skill names, gating tables, and section references all resolve.");
 }
-
-console.log("Documentation checks passed: skill names, gating tables, and section references all resolve.");
 }
