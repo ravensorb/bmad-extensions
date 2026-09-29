@@ -3280,3 +3280,71 @@ test('check 26: check26:allow marker on preceding line suppresses the flag', () 
   assert.ok(!violations.some(v => v.includes('suppressed.md')),
     'marker on preceding line must suppress the flag')
 })
+
+// ---- check 30 (subcommand-required) ----
+// The defect that prompted it: bmad-deps.py shipped in 3.1.3 documented without `verify`,
+// argparse exited 2, and health-check.md's Check 20 branched on 3/0 — so the check meant to
+// surface a vanished required dependency could not run. Found by a consumer, not by CI.
+
+test("check 30: a subparser script invoked with no subcommand is caught", (t) => {
+  const root = fixture(t);
+  write(root, "skills/l3io-doctor/steps/zz-probe.md",
+        "```bash\nuv run {skill-root}/scripts/bmad-deps.py --project-root . --format json\n```\n");
+  const r = run(root);
+  assert.equal(r.status, 1);
+  assert.match(r.stderr, /\[check 30\].*bmad-deps\.py invoked with no subcommand/);
+  assert.match(r.stderr, /expected one of .*verify/);
+});
+
+test("check 30: a subcommand the script does not register is caught", (t) => {
+  const root = fixture(t);
+  write(root, "skills/l3io-doctor/steps/zz-probe.md",
+        "```bash\nuv run {skill-root}/scripts/bmad-deps.py frobnicate --project-root .\n```\n");
+  const r = run(root);
+  assert.equal(r.status, 1);
+  assert.match(r.stderr, /\[check 30\].*invoked with 'frobnicate'/);
+});
+
+test("check 30: the correct invocation passes", (t) => {
+  const root = fixture(t);
+  write(root, "skills/l3io-doctor/steps/zz-probe.md",
+        "```bash\nuv run {skill-root}/scripts/bmad-deps.py verify --project-root . --format json\n```\n");
+  assert.doesNotMatch(run(root).stderr, /\[check 30\]/);
+});
+
+// The three shapes that produced false positives while this check was being written. Each
+// is a MENTION of the script path, not a call, and each must stay silent.
+test("check 30: a path argument, a test operand and a binding are not invocations", (t) => {
+  const root = fixture(t);
+  write(root, "skills/l3io-doctor/steps/zz-arg.md",
+        "```bash\nuv run {skill-root}/scripts/pm-status.py self-install \\\\\n" +
+        "  --dest {project-root}/_bmad/scripts/pm-status.py\n```\n");
+  write(root, "skills/l3io-doctor/steps/zz-test.md",
+        "```bash\ntest -f {skill-root}/scripts/pm-status.py\n" +
+        "[ -f {project-root}/_bmad/scripts/pm-status.py ] && echo present\n```\n");
+  write(root, "skills/l3io-doctor/steps/zz-bind.md",
+        "```\nspec_align: uv run {skill-root}/scripts/spec-align.py --project-root {project-root}\n```\n");
+  assert.doesNotMatch(run(root).stderr, /\[check 30\]/);
+});
+
+test("check 30: a sibling script whose name ENDS with a guarded name is not confused for it", (t) => {
+  // check-pm-status.py contains the substring pm-status.py and takes no subcommand. A plain
+  // indexOf reported every one of its calls as a subcommand-less pm-status.py call.
+  const root = fixture(t);
+  write(root, "skills/l3io-doctor/steps/zz-sibling.md",
+        "```bash\nuv run {skill-root}/scripts/check-pm-status.py --project-root {project-root}\n```\n");
+  assert.doesNotMatch(run(root).stderr, /\[check 30\]/);
+});
+
+test("check 30: scope is derived — a new subparser script is covered with no edit", (t) => {
+  const root = fixture(t);
+  write(root, "skills/l3io-doctor/scripts/zz-new-cli.py",
+        "import argparse\np = argparse.ArgumentParser()\n" +
+        "sub = p.add_subparsers(dest='cmd', required=True)\nsub.add_parser('inspect')\n");
+  write(root, "skills/l3io-doctor/steps/zz-new.md",
+        "```bash\nuv run {skill-root}/scripts/zz-new-cli.py --project-root .\n```\n");
+  const r = run(root);
+  assert.equal(r.status, 1);
+  assert.match(r.stderr, /\[check 30\].*zz-new-cli\.py invoked with no subcommand/);
+  assert.match(r.stderr, /expected one of inspect/);
+});

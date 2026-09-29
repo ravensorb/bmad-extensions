@@ -95,6 +95,16 @@
 //                    name .claude/skills/<n>/SKILL.md in the same file, or the phase
 //                    self-skips silently on a 6.12 install. CLAUDE.md carried this hole
 //                    in prose. See the block above probePathParity() for the KNOWN GAP.
+//  30. subcommand-required  a documented invocation of a script that registers subparsers
+//                    must name one. Check 4 does this for pm-status.py and spec-align.py;
+//                    skills/*/scripts/ holds twenty scripts and bmad-deps.py shipped in
+//                    3.1.3 documented without its `verify`, so argparse exited 2 and
+//                    health-check.md's Check 20 -- the check that surfaces a vanished
+//                    required dependency -- could never run. Scope derived from
+//                    add_subparsers in the scripts themselves, so a new one is covered
+//                    with no edit here. Shell-tagged fences only; a `--dest <path>`
+//                    argument, a `test -f <path>` and a `name: <prefix>` binding are
+//                    mentions, not calls, and each produced a false positive first.
 //
 // ---------------------------------------------------------------------------------------
 // KNOWN GAPS — check 4's reach over skills/
@@ -4282,6 +4292,93 @@ export function probePathParity(opts = {}) {
   return { violations, scanned };
 }
 
+// --- check 30: subcommand-required -------------------------------------------------- //
+// Every documented invocation of a script that registers subparsers must name one.
+//
+// Check 4 already does this for pm-status.py and spec-align.py. Its scope was those two
+// scripts; skills/*/scripts/ holds twenty. bmad-deps.py -- outside that scope, and with no
+// build_parser() for argparseSurface() to read -- shipped in 3.1.3 documented as
+//   `bmad-deps.py --project-root {project-root} --format json`
+// with no `verify`. argparse exits 2, health-check.md's Check 20 branches on 3/0, so the
+// check that exists to surface a vanished required dependency could not run at all. Found
+// by a consumer, not by CI: the rule was right and its reach was two twentieths.
+//
+// SCOPE IS DERIVED from the scripts themselves -- any file under a skill's scripts/ that
+// calls add_subparsers is in, and its valid subcommands come from its own add_parser calls.
+// A new subcommand-taking script is covered with no edit here.
+//
+// An invocation is a line inside a SHELL-tagged fence. Two things are deliberately not
+// invocations: an untagged fence (step-05-epic-loop.md defines `spec_align: uv run ...` as
+// a command PREFIX there, with the subcommand appended at each call site), and a
+// `name: value` binding line. Both were flagged by a first draft of this check and both
+// are correct as written.
+function subcommandScripts() {
+  const out = new Map();
+  for (const rel of walkSkillFiles([".py"]).filter((p) => /\/scripts\/[^/]+\.py$/.test(p) && !p.includes("/tests/"))) {
+    const src = read(rel);
+    if (!src.includes("add_subparsers")) continue;
+    const subs = new Set([...src.matchAll(/add_parser\(\s*["']([a-z][a-z0-9-]*)["']/g)].map((m) => m[1]));
+    if (subs.size) out.set(rel.split("/").pop(), subs);
+  }
+  return out;
+}
+
+function subcommandRequired() {
+  const scripts = subcommandScripts();
+  const violations = [];
+  if (scripts.size === 0) {
+    violations.push("no script under skills/*/scripts/ registers subparsers — scope derivation broke");
+    return { violations, scripts, examined: 0 };
+  }
+  let examined = 0;
+  for (const rel of walkSkillFiles([".md"])) {
+    const lines = read(rel).split("\n");
+    let shell = false;
+    lines.forEach((line, i) => {
+      const fence = /^\s*```(\w*)/.exec(line);
+      if (fence) { shell = shell ? false : /^(bash|sh|shell|console)$/.test(fence[1]); return; }
+      if (!shell) return;
+      if (/^\s*[A-Za-z_][\w-]*:\s/.test(line)) return;          // a binding, not a call
+      for (const [name, subs] of scripts) {
+        // Two things a first draft got wrong, both worth stating because both produced
+        // confident false positives:
+        //   1. BOUNDARY. `check-pm-status.py` CONTAINS `pm-status.py`, so a plain indexOf
+        //      reported every check-pm-status.py call as a subcommand-less pm-status.py one.
+        //   2. INVOCATION vs MENTION. The script path also appears as an ARGUMENT
+        //      (`--dest .../pm-status.py`) and as a test operand (`test -f .../pm-status.py`,
+        //      `[ -f .../pm-status.py ]`). None of those is a call, and all three were
+        //      flagged. A call is preceded by `uv run` (optionally with uv's own flags).
+        const esc = name.replace(/[.]/g, "\\.");
+        const call = new RegExp(`\\buv run\\s+(?:-{1,2}[\\w-]+(?:[ =]\\S+)?\\s+)*(?:\\S*/)?${esc}(\\s|$)`);
+        const m = call.exec(line);
+        if (!m) continue;
+        const at = m.index;
+        examined++;
+        const rest = line.slice(line.indexOf(name, at) + name.length).trim();
+        const first = rest.split(/\s+/)[0] || "";
+        if (first.startsWith("-") || first === "") {
+          violations.push(`${rel}:${i + 1}: ${name} invoked with no subcommand (expected one of ` +
+                          `${[...subs].sort().join(", ")}) — argparse exits 2, which matches no ` +
+                          `documented exit-code branch`);
+        } else if (!subs.has(first) && !first.startsWith("{")) {
+          violations.push(`${rel}:${i + 1}: ${name} invoked with '${first}', which is not a ` +
+                          `subcommand it registers (${[...subs].sort().join(", ")})`);
+        }
+      }
+    });
+  }
+  return { violations, scripts, examined };
+}
+
+function checkSubcommandRequired() {
+  const { violations, scripts, examined } = subcommandRequired();
+  for (const v of violations) failures.push(`[check 30] ${v}`);
+  if (verbose) {
+    console.log(`  subcommand-required: ${scripts.size} script(s) with subparsers, ` +
+                `${examined} invocation(s), ${violations.length} violation(s)`);
+  }
+}
+
 function checkProbePathParity() {
   const { violations } = probePathParity();
   for (const v of violations) failures.push(`[check 29] ${v}`);
@@ -4327,6 +4424,7 @@ checkResolverInvariant();
 checkChoiceEnumerations();
 checkGateImports();
 checkProbePathParity();
+checkSubcommandRequired();
 
 for (const note of notes) if (verbose) console.log(`  note: ${note}`);
 

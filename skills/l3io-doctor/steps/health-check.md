@@ -6,7 +6,7 @@ The default mode — runs when no recognized keyword is passed, or when `check`/
 
 Load config same as described above under On Activation.
 
-### Step HC2 — Scan (19 checks, read-only)
+### Step HC2 — Scan (25 checks, read-only)
 
 Run all checks. They change no project files, with one exception: a check that runs
 `pm-status.py` (Check 13) takes its locks when an issue file exists, and taking a lock may
@@ -348,7 +348,7 @@ dependency that vanished under a project surfaces otherwise as a silently skippe
 mid-epic — the failure `bmad-deps.py` exists to make visible, and nothing was calling it.
 
 ```bash
-uv run {skill-root}/scripts/bmad-deps.py --project-root {project-root} --format json; echo "exit=$?"
+uv run {skill-root}/scripts/bmad-deps.py verify --project-root {project-root} --format json; echo "exit=$?"
 ```
 
 - exit 3 → flag · Priority: **Critical** · name every unresolved **required** dependency. A
