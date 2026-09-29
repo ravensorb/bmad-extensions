@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file. See [commit-and-tag-version](https://github.com/absolute-version/commit-and-tag-version) for commit guidelines.
 
+## [3.1.8](https://github.com/ravensorb/bmad-extensions/compare/3.1.7...3.1.8) (2026-09-29)
+
+
+### Fixes
+
+* **l3io-pm:** drop the l3io-pm-setup forwarder, which made the module home a lottery ([c5a3e32](https://github.com/ravensorb/bmad-extensions/commit/c5a3e32055a17c3cd620141b6acf155fb1cd53d6))
+
 ## [3.1.7](https://github.com/ravensorb/bmad-extensions/compare/3.1.6...3.1.7) (2026-09-29)
 
 
