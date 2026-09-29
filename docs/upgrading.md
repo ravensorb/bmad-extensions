@@ -109,6 +109,20 @@ nor `.notices.yaml` matches the directory itself.
 Find your starting version and read forward. `npx bmad-method install` upgrades across any
 number of these at once, but the migrations must still run.
 
+### → 3.1.4
+
+**A health-check check that could not run, now runs.** `/l3io-doctor` Check 20 (BMad
+dependency resolution) documented `bmad-deps.py` without its `verify` subcommand, so argparse
+exited 2 — a code the step maps to no branch — and the check silently did nothing. It is the
+check that surfaces a required dependency which has vanished from a project, so on 3.1.3 and
+earlier a missing dependency would show up later as a phase skipping mid-epic instead. Nothing
+to migrate: re-run `/l3io-doctor` and Check 20 will report for the first time.
+
+**Everything else in this release is build tooling** and changes nothing in an installed
+project: ruff now lints the package's Python in CI, a new `check:docs` check (30) validates
+that documented CLI invocations name a subcommand the script actually registers, and
+`smoke:install` no longer leaks its temporary workdir.
+
 ### → 3.1.3
 
 **Skill rename for verb-first clarity, plus a cross-module discovery mode.** Eight skills are
