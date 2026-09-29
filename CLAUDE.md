@@ -97,6 +97,15 @@ header (four had their dependencies passed as `--with` flags in the workflow ins
 made them fail spuriously when run directly). The runner refuses with exit 2 on an empty
 discovery rather than reporting success over nothing.
 
+**`check:lint:py` runs ruff over every Python file in `skills/`.** `ruff.toml` carries no
+`select` list on purpose: the rule set is whatever the pinned ruff enables, so it cannot drift
+from a hand-kept list, and the pin lives in the npm script so a bump is a visible diff. Before
+this existed nothing linted ~12,000 lines of Python — and `check:bmb` was reporting clean over
+them, because bmb's `scan-scripts.py` shells to `uv run ruff`, which fails to spawn when ruff
+is absent and is swallowed (it reports a `lint-setup` finding for a missing **uv**, not a
+missing ruff). Deliberate violations are marked inline with `# noqa: RULE -- reason`, never
+ignored wholesale; `ruff.toml` states the only two exemptions and why each cannot be inline.
+
 **`check:bmb` runs BMad Builder's own scanners over this package's skills.** bmb ships them
 in the `bmad-builder` npm package, a devDependency, so `npm ci` is the whole setup — a real
 BMad install is not available to CI, because `.claude/skills/` is gitignored. Both the

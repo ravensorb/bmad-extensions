@@ -5,7 +5,31 @@
 # found only by installing by hand and looking.
 set -euo pipefail
 
-work="${1:-$(mktemp -d)}"
+# The workdir is ours to clean up only when WE created it. A caller-supplied "$1" belongs
+# to the caller -- removing it would be the over-broad delete this estate has already paid
+# for once. And a run that FAILS keeps its tree: a smoke test that deletes the evidence at
+# the moment you need it is hostile to the debugging it exists to serve.
+#
+# This script had no trap at all and leaked every workdir it ever made: 11 directories,
+# 85 MB, each a full BMad install, and /tmp here is tmpfs so that was resident RAM. It also
+# broke a rule this package itself publishes -- standards-shell.md, "Temporary paths come
+# from `mktemp`, and the `trap` is registered on the next line" -- in the only shell script
+# the repo ships.
+smoke_cleanup() {
+  local rc=$?
+  if [ "$rc" -eq 0 ]; then
+    rm -rf "$work"
+  else
+    echo "smoke: workdir kept for inspection: $work" >&2
+  fi
+  return "$rc"
+}
+
+work="${1:-}"
+if [ -z "$work" ]; then
+  work="$(mktemp -d)"
+  trap smoke_cleanup EXIT   # the very next line after mktemp, per the rule above
+fi
 pkg="$(cd "$(dirname "$0")/.." && pwd)"
 
 # The workdir is validated explicitly, not left to `set -e` on the `cd` below.

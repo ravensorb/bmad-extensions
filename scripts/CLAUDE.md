@@ -64,6 +64,20 @@ each exemption and the condition that switches it off; `scripts/tests/check-modu
 attacks all of them and runs in CI, which `smoke:install` does not. ADR-0008 Decision 7's
 2026-09-23 amendment has the measurements.
 
+**`smoke:install` now cleans up after itself, and only after itself.** The script took its
+workdir from `work="${1:-$(mktemp -d)}"` and never removed it: eleven full BMad installs,
+85 MB, leaked into a tmpfs `/tmp` where every byte is resident RAM. It also broke a rule this
+package publishes — `standards-shell.md` requires the `trap` on the line after `mktemp` — in
+the only shell script the repo ships.
+
+Two properties the trap deliberately keeps:
+
+- **A workdir passed as `$1` is never removed.** It belongs to the caller; deleting it would
+  be the over-broad delete that has already cost this estate a file.
+- **A FAILING run keeps its tree** and prints the path. A smoke test that deletes the evidence
+  at the moment you need it is hostile to the debugging it exists for. Cleanup happens on
+  exit 0 only.
+
 ## Dependencies
 
 The checkers are **not** dependency-free, and have not been since
