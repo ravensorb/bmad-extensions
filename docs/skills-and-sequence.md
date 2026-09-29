@@ -2,7 +2,7 @@
 
 Why each skill exists, when you reach for it, and the orders that make sense.
 
-Thirteen skills across four modules — eight canonical plus five deprecated forwarders from the 3.1.3 rename — is a lot of surface. The thing to understand first is that
+Twelve skills across four modules — eight canonical plus four deprecated forwarders from the 3.1.3 rename — is a lot of surface. The thing to understand first is that
 **you invoke very few of them directly.** Two of the four modules mostly run *inside* the
 execution engine, on your behalf, at points where their judgement is needed.
 

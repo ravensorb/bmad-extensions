@@ -109,6 +109,48 @@ nor `.notices.yaml` matches the directory itself.
 Find your starting version and read forward. `npx bmad-method install` upgrades across any
 number of these at once, but the migrations must still run.
 
+### → 3.1.8
+
+**`/l3io-pm-setup` is gone — and if you are on macOS, `l3io-pm` module registration was
+already broken on 3.1.3–3.1.7. Upgrade, then re-run your install.**
+
+3.1.3 added five deprecated forwarders at the old PM skill names. One of them,
+`l3io-pm-setup`, was a name BMad's resolver derives meaning from, and that made it unsafe in a
+way the other four are not.
+
+BMad finds a module's setup skill by scanning for the **first** directory whose name ends in
+`-setup` and returning it — `find_setup_skill()` in `validate-module.py`, and the same scan
+inside `PluginResolver` strategy 2. There is no tie-break. With both `l3io-pm-setup/` (the
+forwarder — `SKILL.md` and `customize.toml`, and **no `module.yaml` at all**) and
+`l3io-setup/` (the real module home) present, the winner is whichever the filesystem returns
+first.
+
+That is not uniformly random. `'l3io-pm-setup'` sorts **before** `'l3io-setup'` (`'p'` < `'s'`),
+so on any filesystem that returns directory entries in sorted order — **APFS and HFS+, i.e.
+macOS**, and many NFS/SMB mounts — the forwarder won *every time*. BMad then registered the
+`l3io-pm` module from a directory carrying no `module.yaml`, got nothing, and **exited 0
+without warning**. On Linux's ext4 hash ordering the draw happened to favour the real home,
+which is why this shipped: every gate in the repo was green over a broken shape.
+
+**What to do:** upgrade to 3.1.8 and re-run `npx bmad-method install`. Nothing in your project
+state is affected — this is install-time module registration only. If `/l3io-pm` commands were
+missing from BMad's help menu, or `[modules.l3io-pm]` never appeared in your `_bmad/config.toml`,
+this was why.
+
+**Use `/l3io-setup`.** It is the canonical name and has been since 3.1.3. There is deliberately
+no forwarder at the old name and there will not be one — the rename is clean, the same way
+`/l3io-doctor`'s was, and for the same class of reason.
+
+**The general rule, now enforced:** *a deprecated forwarder is safe only at a name the module's
+resolver derives no meaning from.* BMad 6.12 has two such derivations — the `*-setup` suffix
+(strategy 2) and the exactly-one-skill count (strategy 3, which is why `/l3io-util-doctor` never
+got a forwarder). `npm run check:module` gained **rule 11 (`setup-singleton`)**, which fails on
+more than one `*-setup` directory per module and names the sorted-order winner in the message.
+Rules 8 and 11 now cover both derivations between them.
+
+Found by the downstream extension that builds on this package: its smoke install caught the
+same shape on its own tree and the finding was reported back upstream.
+
 ### → 3.1.4
 
 **A health-check check that could not run, now runs.** `/l3io-doctor` Check 20 (BMad
@@ -139,7 +181,7 @@ to remember which module a skill lives in.
 | `/l3io-pm-plan` | `/l3io-plan` |
 | `/l3io-pm-execute` | `/l3io-execute` |
 | `/l3io-pm-sync` | `/l3io-sync` |
-| `/l3io-pm-setup` | `/l3io-setup` |
+| `/l3io-pm-setup` | `/l3io-setup` — forwarder shipped in 3.1.3–3.1.7, **withdrawn in 3.1.8**; see below |
 | `/l3io-util-doctor` | `/l3io-doctor` — **clean rename, no forwarder** |
 | `/l3io-util-doctor layout-cleanup` | `/l3io-doctor clean-layout` — verb-first, mirrors `clean-legacy`; `layout-cleanup` kept as an alias in 3.1.3+, planned removal in 4.0.0 |
 | `/l3io-sec-redteam` | unchanged |
@@ -153,11 +195,12 @@ The PM skills carry no persona — they are verbs, and now read as verbs.
 `l3io-arch`) resolve their `module-help.csv` under BMad's `_trySingleStandalone` strategy,
 which requires **exactly one skill per plugin**. Adding a second skill to `l3io-util` (a
 forwarder alongside `l3io-doctor`) would drop the plugin to synthesis and silently ignore the
-authored CSV. `l3io-pm` is a multi-skill plugin, so its 5 forwarders are safe. If you have
-`/l3io-util-doctor` in scripts or muscle memory, update to `/l3io-doctor` — the invocation is
-otherwise identical.
+authored CSV. `l3io-pm` is a multi-skill plugin, so its forwarders are safe **except at a name
+the resolver derives meaning from** — which is why `/l3io-pm-setup`'s forwarder was withdrawn
+in 3.1.8 (see that section). If you have `/l3io-util-doctor` in scripts or muscle memory,
+update to `/l3io-doctor` — the invocation is otherwise identical.
 
-**Forwarder timeline:** the 5 PM forwarders are shipped in 3.1.3 and **removed in 4.0.0**.
+**Forwarder timeline:** the 4 remaining PM forwarders are shipped in 3.1.3 and **removed in 4.0.0**.
 Each prints a one-line deprecation notice to stderr before dispatching, so an invocation
 still succeeds but is impossible to miss.
 

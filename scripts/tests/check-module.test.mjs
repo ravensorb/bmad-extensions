@@ -854,3 +854,43 @@ test("check:module ignores a customize.toml with no [agent] block", (t) => {
   const r = run(root, ["-v"]);
   assert.equal(r.status, 0, r.stderr);
 });
+
+// ---------------------------------------------------------------------------
+// 11. setup-singleton. The shape that shipped in 3.1.7: a bare DEPRECATED forwarder at the
+// module's OLD setup name, beside the real home at the new one. BMad's find_setup_skill()
+// takes the first `*-setup` directory the filesystem hands back, so which one is the module
+// home depends on directory ordering -- and 'pm-pm-setup' < 'pm-setup', so on a sorted-order
+// filesystem (APFS/HFS+, many NFS/SMB) the forwarder wins deterministically.
+test("check:module rejects a second *-setup directory in one module", (t) => {
+  const root = fixture(t);
+  writeModuleHome(root, "pm-setup", "pm");
+  // The forwarder, exactly as shipped: SKILL.md + customize.toml, no module.yaml at all.
+  write(root, "skills/pm-pm-setup/SKILL.md", "---\nname: pm-pm-setup\n---\n# forwarder\n");
+  write(root, "skills/pm-pm-setup/customize.toml", "[workflow]\n");
+  const r = run(root);
+  assert.equal(r.status, 1, r.stdout);
+  assert.match(r.stderr, /has 2 \*-setup directories/);
+  // The message must name the sorted-order winner, which is the actionable half: it tells you
+  // WHICH one macOS has been resolving to, not merely that two exist.
+  assert.match(r.stderr, /always skills\/pm-pm-setup/);
+});
+
+// One *-setup directory is the correct shape and must stay silent -- a rule that fired on the
+// normal case would be worse than no rule.
+test("check:module accepts exactly one *-setup directory in a module", (t) => {
+  const root = fixture(t);
+  writeModuleHome(root, "pm-setup", "pm");
+  write(root, "skills/pm-execute/SKILL.md", "---\nname: pm-execute\n---\n# x\n");
+  const r = run(root, ["-v"]);
+  assert.equal(r.status, 0, r.stderr);
+});
+
+// Scope check: two *-setup directories belonging to DIFFERENT modules are legal -- every
+// module is entitled to its own setup skill. The rule is per-module, not per-repo.
+test("check:module allows one *-setup directory each in two different modules", (t) => {
+  const root = fixture(t);
+  writeModuleHome(root, "pm-setup", "pm");
+  writeModuleHome(root, "ops-setup", "ops");
+  const r = run(root, ["-v"]);
+  assert.equal(r.status, 0, r.stderr);
+});

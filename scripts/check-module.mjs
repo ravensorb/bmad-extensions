@@ -9,7 +9,7 @@
 // repo alone, so CI can catch a regression even though the real validator never runs here.
 //
 // Deliberately narrow, and deliberately RED against today's layout -- see the commit that
-// introduced this file. The ten assertions:
+// introduced this file. The eleven assertions:
 //
 //   1. discovery-layout     the layout BMad's INSTALLER discovers, which is not the layout
 //                            `validate-module.py` validates. Three parts:
@@ -78,8 +78,34 @@
 //                            OWN block at activation, so drift gives the agent two
 //                            identities. `code` is the TOML section key, never a directory
 //                            name -- see the rule's own header for the verification.
+//  11. setup-singleton       at most ONE `*-setup` directory per module code. BMad resolves a
+//                            module's setup skill by scanning for the FIRST directory whose
+//                            name ends in `-setup` and returning it -- `find_setup_skill()` in
+//                            `validate-module.py`, and the same scan inside PluginResolver
+//                            strategy 2. First match wins in filesystem order, so a second
+//                            `*-setup` directory makes the module home a lottery. Shipped in
+//                            3.1.7: `skills/l3io-pm-setup/` (a bare DEPRECATED forwarder --
+//                            SKILL.md and customize.toml, no `module.yaml` at all) sat beside
+//                            `skills/l3io-setup/`, the real home. The order is not even random
+//                            everywhere: `'l3io-pm-setup' < 'l3io-setup'` ('p' < 's'), so on
+//                            any filesystem returning sorted entries (APFS/HFS+, many NFS/SMB
+//                            mounts) the FORWARDER won every time and module registration got
+//                            a directory carrying no `module.yaml`. On ext4's hash order this
+//                            repo happened to draw the right one, which is why every gate here
+//                            was green over a broken shape. Rule 3 could not see it -- the
+//                            forwarder declares no code, so nothing was duplicated -- and rule
+//                            5 could not either, since it asks whether the home IS `*-setup`,
+//                            never whether something else also is. Reported by the adopter
+//                            package, which hit the same shape and whose smoke install caught
+//                            it there first.
+//                            The general rule, which rules 8 and 11 enforce between them:
+//                            A DEPRECATED FORWARDER IS SAFE ONLY AT A NAME THE RESOLVER
+//                            DERIVES NO MEANING FROM. Two derivations exist in 6.12 -- the
+//                            `*-setup` suffix (strategy 2, this rule) and the exactly-one-skill
+//                            count (strategy 3, rule 8). A rename whose OLD name collides with
+//                            either cannot carry a forwarder at that name.
 //
-// Scope for checks 1-7, 9 and 10 is derived by walking `skills/` and for check 8 from
+// Scope for checks 1-7 and 9-11 is derived by walking `skills/` and for check 8 from
 // `.claude-plugin/marketplace.json`'s own `plugins` array -- never from a hand-kept list of
 // module codes, skill names or plugin names -- so a code or a plugin nobody told this script
 // about is still found and checked. Check 9 derives a second scope the same way: which
@@ -1100,6 +1126,39 @@ function checkAgentRoster(byCode, skills) {
 }
 
 // ---------------------------------------------------------------------------
+// 11. setup-singleton: at most one `*-setup` directory per module code.
+//
+// BMad picks a module's setup skill with a first-match scan and no tie-break:
+//
+//     for d in module_dir.iterdir():
+//         if d.is_dir() and d.name.endswith("-setup"):
+//             return d
+//
+// So a second `*-setup` directory does not add a candidate, it REPLACES the answer roughly
+// half the time -- and deterministically, on any filesystem that returns entries sorted, if
+// the wrong name happens to sort first. Membership is derived with `siblingsOfCode()`, the
+// same derivation checks 5 and 6 use, so a renamed or added skill is picked up without
+// telling this rule about it.
+//
+// The failure is silent at every layer above it: the forwarder that caused this carried no
+// `module.yaml`, so module registration resolved to a directory with nothing to register and
+// the install still exited 0.
+function checkSetupSingleton(byCode, skills) {
+  for (const code of byCode.keys()) {
+    const setups = [...siblingsOfCode(code, skills, byCode)].filter((s) => s.endsWith("-setup"));
+    if (setups.length > 1) {
+      const sorted = [...setups].sort();
+      failures.push(
+        `module '${code}' has ${setups.length} *-setup directories: ${setups.map((s) => `skills/${s}`).join(", ")} -- ` +
+        `BMad's find_setup_skill() returns the FIRST one in filesystem order, so the module ` +
+        `home is whichever the filesystem hands back. On a sorted-order filesystem that is ` +
+        `always skills/${sorted[0]}. Exactly one directory per module may end in '-setup'.`
+      );
+    }
+  }
+}
+
+// ---------------------------------------------------------------------------
 const skills = listSkillDirs();
 checkRequiredFields(skills);
 const byCode = collectModuleYamlByCode(skills);
@@ -1110,6 +1169,7 @@ checkPmStatusSingleton(byCode, skills);
 checkCsvSkillsExist(skills);
 checkHelpRegistration(skills);
 checkAgentRoster(byCode, skills);
+checkSetupSingleton(byCode, skills);
 const strategyReport = checkPluginResolverStrategy();
 
 if (verbose) {

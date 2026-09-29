@@ -1669,8 +1669,15 @@ test("check 19: a reworded claim sentence fails loudly rather than passing", (t)
   const root = fixture(t);
   const p = path.join(root, "docs", "l3io-pm-reference.md");
   const before = fs.readFileSync(p, "utf8");
-  fs.writeFileSync(p, before.replace(/five skills that cover the delivery lifecycle/,
-    "several skills covering the lifecycle"));
+  const after = before.replace(/four skills that cover the delivery lifecycle/,
+    "several skills covering the lifecycle");
+  // The substitution IS the test's setup. If the doc's wording changes, this replace becomes a
+  // no-op and the assertions below fail as a bare `0 !== 1` -- which cost a 20-minute suite run
+  // to diagnose once. Fail here instead, naming the cause.
+  assert.notEqual(after, before,
+    "fixture setup: the anchored sentence is no longer in docs/l3io-pm-reference.md — " +
+    "update the literal in this test to match the doc");
+  fs.writeFileSync(p, after);
   const r = run(root);
   assert.equal(r.status, 1);
   assert.match(r.stderr, /claim was not found — has the sentence been reworded/);

@@ -261,8 +261,10 @@ skills/
   l3io-pm-execute/       SKILL.md, customize.toml — DEPRECATED forwarder to /l3io-execute (removed in 4.0.0)
   l3io-pm-help/          SKILL.md, customize.toml — DEPRECATED forwarder to /l3io-help (removed in 4.0.0)
   l3io-pm-plan/          SKILL.md, customize.toml — DEPRECATED forwarder to /l3io-plan (removed in 4.0.0)
-  l3io-pm-setup/         SKILL.md, customize.toml — DEPRECATED forwarder to /l3io-setup (removed in 4.0.0)
   l3io-pm-sync/          SKILL.md, customize.toml — DEPRECATED forwarder to /l3io-sync (removed in 4.0.0)
+                         (there is deliberately NO l3io-pm-setup forwarder — a second
+                          *-setup directory makes BMad's find_setup_skill() a lottery;
+                          see docs/upgrading.md → 3.1.8)
 .claude/commands/        symlinks → ../../skills/<skill>/SKILL.md
 .claude-plugin/          marketplace.json (required for installation)
 ```

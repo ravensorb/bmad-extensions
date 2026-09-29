@@ -1,6 +1,6 @@
 # l3io-pm Reference
 
-Full reference for the PM orchestration module — five skills that cover the delivery lifecycle from planning through epic closure.
+Full reference for the PM orchestration module — four skills that cover the delivery lifecycle from planning through epic closure.
 
 ## Skills Overview
 
