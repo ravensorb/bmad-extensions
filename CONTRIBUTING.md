@@ -71,12 +71,23 @@ on `ERR_MODULE_NOT_FOUND`. CI installs before any gate, and so should you.
 PATH and a running Docker daemon); `scripts/ci-local.mjs` documents its one known divergence
 from GitHub's runners.
 
-**`test:scripts` takes roughly a quarter of an hour** — it copies the repo once per test.
+**`test:scripts` takes about four and a half minutes**, down from a quarter of an hour. It
+spawns a full `check-docs` run per test, 405 of them, so two things carry that: `check-docs.mjs`
+memoises its shell walk and its reads, and `check-docs.test.mjs` runs its tests concurrently.
+The concurrency is capped at the core count — `CHECK_DOCS_CONCURRENCY=1` restores serial order,
+which is what you want when bisecting a failure, since concurrent output interleaves.
+
+If you add a test here, **`run()` is async**: write `const r = await run(root)`. Forgetting the
+`await` gives you a pending Promise whose `.stderr` is `undefined`, and the assertion that fails
+will not mention the cause.
+
 `node --test` prints `not ok` for subtests that never ran, so a run you interrupt and a run
 that genuinely failed produce the same summary line; read an actual `not ok` block before
 believing a failure count. `KEEP_FIXTURES=1 npm run test:scripts` preserves every fixture tree
 and prints its path, which is what you want the moment something fails there — the tree that
-produced it is otherwise deleted before you can look at it.
+produced it is otherwise deleted before you can look at it. Fixtures are named for the checkout
+that owns them (`/tmp/<repo-dir>-check-docs-*`); never clear them with a glob that would also
+match another checkout's live trees.
 
 **The Python suites are discovered, not listed.** `npm run test:python`
 (`scripts/run-python-suites.mjs`) globs `skills/**/tests/test-*.py` and runs each under `uv

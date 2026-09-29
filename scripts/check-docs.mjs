@@ -3876,8 +3876,12 @@ function checkSharedPointerResolution() {
 if (process.argv.includes("--dump-subcommand-options")) {
   const dump = {};
   for (const [sub, opts] of [...pmStatusSubcommandOptions()].sort()) dump[sub] = [...opts].sort();
-  // Not cosmetic here: the caller JSON.parses this, so a byte lost to the pipe race is a parse
-  // error rather than a shortened report. See writeAllSync's header.
+  // Insurance, not a live fix: this dump measures ~4 KB, well inside the pipe buffer, so it has
+  // never been observed to truncate. It writes through writeAllSync anyway because the failure
+  // mode here is worse than the reporter's — the caller JSON.parses this, so a lost byte is a
+  // parse error rather than a shortened report — and because the surface it dumps grows with
+  // pm-status.py's CLI. Revisit only if you are tempted to go back to console.log. See
+  // writeAllSync's header for the measurements that do show truncation.
   writeAllSync(1, JSON.stringify(dump) + "\n");
   process.exit(0);
 }
