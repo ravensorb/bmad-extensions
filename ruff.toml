@@ -10,6 +10,13 @@
 # wholesale here. There are only two exceptions, both below, and both are about a property
 # of the file rather than of a line.
 
+# SCOPE IS THE REPO, not a directory list. `check:lint:py` runs `ruff check .` rather than
+# `ruff check skills/`, because the narrower form stopped covering the per-skill suites the
+# moment 3.1.6 relocated them from skills/{skill}/scripts/tests/ to top-level tests/. They
+# were clean when they moved and nothing would have caught it if they had not been -- a gate
+# whose scope is a path list silently shrinks when someone moves a path. ruff honours
+# .gitignore, so node_modules and _bmad are excluded without an ignore list here.
+
 target-version = "py311"   # every script's PEP 723 header says requires-python = ">=3.11"
 line-length = 100
 
