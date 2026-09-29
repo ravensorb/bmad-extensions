@@ -24,7 +24,7 @@ BMad community module package — four modules: `l3io-pm` (sprint/epic orchestra
 ## Conventions that differ from defaults
 
 - `postbump` auto-syncs version strings and payload copies — do not manually bump `marketplace.json` or `module.yaml` files
-- `prerelease` runs four gates, not two: `check:scripts`, `check:manifest`, `check:docs` and `check:version` (see `.versionrc.cjs`). Run all four before releasing — stale payload copies, a stale manifest, a doc that disagrees with the code, or a `pm-status.py` version marker out of step with `package.json` each block the release
+- `prerelease` runs five gates, not two: `check:scripts`, `check:manifest`, `check:docs`, `check:version` and `check:lock` (see `.versionrc.cjs`). Run all five before releasing — stale payload copies, a stale manifest, a doc that disagrees with the code, a `pm-status.py` version marker out of step with `package.json`, or a `package-lock.json` that no longer matches `package.json` each block the release. The lock gate is the one a shortened list drops first, and it is the one that was added because CI died at `npm ci` for a week before any gate could run (2.5.2 through 3.0.1)
 - `l3io-doctor` modes live one-per-file in `steps/` — never inline a new mode into `SKILL.md`
 
 ## Known pitfalls

@@ -115,6 +115,18 @@ still the right choice here and the ADR says why, which successor was considered
 async-only against a synchronous `check-docs.mjs`) and what would make us switch. Do not reach
 for it in new code without reading that section.
 
+**`check-docs.test.mjs`'s fixture is a *runnable* copy of the repo, and that is load-bearing.**
+Check 24 derives its scope by spawning the *checked tree's own* `sync-shared-scripts.mjs
+--dump-deliveries`, so the fixture needs this repo's devDependencies resolvable from it — it
+symlinks `node_modules` rather than copying it. Without that link the fixture can only run a
+script whose every import is a node builtin, which `sync-shared-scripts.mjs` happens to satisfy
+today and is exactly the kind of thing that stops being true here, since the table above is a
+standing instruction to reach for a library. The adopter package hit it when its sync script
+acquired a `yaml` import: `ERR_MODULE_NOT_FOUND` surfaced as `check 24 cannot derive its scope`
+across ~90 simultaneous failures, and no message anywhere named `node_modules`. A canary test
+plants a library import into the copy and asserts the checker still runs, because a suite that
+is green either way proves nothing about the property.
+
 These are **devDependencies**. Nothing here ships: payload scope is `skills/<skill>/` (derived
 from `PAYLOAD_TARGETS`), and `node_modules/` is gitignored, so `check:manifest` cannot see them.
 Nothing mechanically asserts that a gate script's imports are declared in `package.json` — that

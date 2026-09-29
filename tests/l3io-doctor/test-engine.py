@@ -356,14 +356,14 @@ class TestWriteVerifyDispose(unittest.TestCase):
         self.assertIn("unrecognised extra", buf.getvalue())
         self.assertIn("no_such_field", buf.getvalue())
 
-    def test_actual_lands_via_set_actual_with_the_N_A_sentinel(self):
+    def test_actual_lands_via_import_actual_with_the_N_A_sentinel(self):
         """The fixture carries `actual: {man_hours: 6}` on E001-S02-001. It must land, with
         tokens as the N/A sentinel rather than a fabricated four-class split, and without
         appending a calibration sample."""
         from ruamel.yaml import YAML
 
         _, _, state, _, _, errors = self._run("l3io-flat", "l3io-flat")
-        self.assertEqual(errors, [], f"set-actual must not error: {errors}")
+        self.assertEqual(errors, [], f"import-actual must not error: {errors}")
         p = state / "active" / "epic-001" / "sprint-02" / "E001-S02-001.yaml"
         node = YAML(typ="safe").load(p.read_text(encoding="utf-8"))
         self.assertIn("actual", node, "the actual must be carried into state")

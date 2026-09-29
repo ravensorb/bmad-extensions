@@ -29,6 +29,17 @@ function fixture(t) {
       !path.relative(REPO, src).split(path.sep)
         .some((p) => p === ".git" || p === "node_modules" || p === "__pycache__"),
   });
+  // The fixture is a RUNNABLE copy, not merely a readable one: check 24 derives its scope by
+  // spawning the copy's OWN `sync-shared-scripts.mjs --dump-deliveries` (deliberately, so no
+  // hand-kept list can drift from it). A copy with no `node_modules` can only run a script
+  // whose every import is a node builtin -- which is true of that script today and is exactly
+  // the kind of thing that stops being true, since this repo's own convention is to parse with
+  // libraries rather than hand-rolled readers (ADR-0007). The failure it produces is badly
+  // misleading: ERR_MODULE_NOT_FOUND surfaces as `check 24 cannot derive its scope`, ~90 tests
+  // in this file fail at once, and nothing in any message says `node_modules`. Symlink rather
+  // than copy -- the real tree dwarfs the fixture, and a link costs nothing.
+  const deps = path.join(REPO, "node_modules");
+  if (fs.existsSync(deps)) fs.symlinkSync(deps, path.join(dir, "node_modules"), "dir");
   return dir;
 }
 
@@ -57,6 +68,31 @@ const UNPOINTED = [
 test("an unmodified copy passes", (t) => {
   const r = run(fixture(t));
   assert.equal(r.status, 0, r.stderr + r.stdout);
+});
+
+// The fixture must be RUNNABLE, not just readable. Check 24 spawns the copy's own
+// sync-shared-scripts.mjs to derive its scope, so the copy needs this repo's devDependencies
+// resolvable from it. Today that script imports only node builtins, which means the whole file
+// would pass even with the dependency link removed -- a green run proves nothing about the
+// property. This test makes the property fail on its own terms instead: it plants a library
+// import into the COPY (never the real tree) and asserts the checker still runs.
+//
+// Found by the adopter package, whose sync script acquired a `yaml` import for exactly the
+// reason ours might: ADR-0007 says parse with libraries, never hand-rolled readers. There it
+// failed as ~90 simultaneous `check 24 cannot derive its scope` errors, naming a check rather
+// than the missing module. Reproduced here before fixing: same error string, byte for byte.
+test("a fixture can run a checked script that imports a devDependency", (t) => {
+  const root = fixture(t);
+  const script = path.join(root, "scripts", "sync-shared-scripts.mjs");
+  const src = fs.readFileSync(script, "utf8");
+  // After the shebang, which must stay on line 1.
+  const nl = src.indexOf("\n");
+  fs.writeFileSync(script,
+    `${src.slice(0, nl + 1)}import { parse as _probe } from "yaml";\n${src.slice(nl + 1)}`);
+  const r = run(root);
+  assert.equal(r.status, 0,
+    "check 24 could not spawn the copy's sync-shared-scripts.mjs once it imported a " +
+    "devDependency -- the fixture's node_modules link is missing:\n" + r.stderr + r.stdout);
 });
 
 test("scope attack: a producer in a new file in a new directory is caught", (t) => {
