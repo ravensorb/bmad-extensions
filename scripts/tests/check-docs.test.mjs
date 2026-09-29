@@ -14,9 +14,26 @@ import { resolverInvariant, NUMBER_WORDS } from "../check-docs.mjs";
 const REPO = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..");
 const CHECK = path.join(REPO, "scripts", "check-docs.mjs");
 
+// `KEEP_FIXTURES=1 npm run test:scripts` preserves every fixture tree and prints its path.
+//
+// `scripts/smoke-install.sh` already publishes this rule -- a failing run keeps its tree,
+// because a test that deletes the evidence at the moment you need it is hostile to the
+// debugging it exists for -- and these fixtures did not follow it. On 2026-09-29 a single
+// `check 23` failure appeared here, did not reproduce in the next full run, did not reproduce
+// in a deterministic side-by-side, and was seen exactly once on the adopter's tree too. Nobody
+// could look at the tree that produced it: cleanup had already run. If it appears a third time,
+// the fixture is the thing to capture, not the summary line.
+//
+// Opt-in rather than automatic-on-failure because `node:test` gives an `after` hook no way to
+// ask whether its test passed. An env var costs nothing and never changes a default run.
+const KEEP_FIXTURES = process.env.KEEP_FIXTURES === "1";
+
 function fixture(t) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "check-docs-"));
-  t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+  t.after(() => {
+    if (KEEP_FIXTURES) return void console.error(`  fixture kept: ${dir}`);
+    fs.rmSync(dir, { recursive: true, force: true });
+  });
   fs.cpSync(REPO, dir, {
     recursive: true,
     // __pycache__ is filtered for the same reason check 22 asks git rather than readdirSync:
@@ -37,7 +54,9 @@ function fixture(t) {
   // libraries rather than hand-rolled readers (ADR-0007). The failure it produces is badly
   // misleading: ERR_MODULE_NOT_FOUND surfaces as `check 24 cannot derive its scope`, ~90 tests
   // in this file fail at once, and nothing in any message says `node_modules`. Symlink rather
-  // than copy -- the real tree dwarfs the fixture, and a link costs nothing.
+  // than copy -- the real tree dwarfs the fixture, and a link costs nothing. The cleanup above
+  // is safe over it: `fs.rmSync` lstats, so it unlinks the link and never walks into the real
+  // `node_modules` (asserted in `a fixture's cleanup unlinks the node_modules symlink`).
   const deps = path.join(REPO, "node_modules");
   if (fs.existsSync(deps)) fs.symlinkSync(deps, path.join(dir, "node_modules"), "dir");
   return dir;
@@ -93,6 +112,32 @@ test("a fixture can run a checked script that imports a devDependency", (t) => {
   assert.equal(r.status, 0,
     "check 24 could not spawn the copy's sync-shared-scripts.mjs once it imported a " +
     "devDependency -- the fixture's node_modules link is missing:\n" + r.stderr + r.stdout);
+});
+
+// The other half of that link: every fixture's cleanup runs `rmSync(recursive)` over a tree
+// containing a symlink into the repo's REAL node_modules. `rmSync` lstats, so it unlinks the
+// link rather than walking through it -- but that is a semantic worth pinning rather than
+// remembering, because the blast radius if it ever inverted is the working tree itself.
+//
+// It reads destructive and is not: the ~215 fixtures in this file already delete over that
+// link on every run, so this asserts a property that is either already true or already doing
+// damage. It adds detection, not exposure. Cleanup is driven through `fixture()`'s own `after`
+// hook via a subtest (whose hooks have run by the time its promise resolves), so what is
+// tested is the real cleanup path and not a re-implementation of it.
+test("a fixture's cleanup unlinks the node_modules symlink", async (t) => {
+  const deps = path.join(REPO, "node_modules");
+  if (!fs.existsSync(deps)) return; // Nothing to link, nothing to assert.
+  const before = fs.readdirSync(deps).length;
+  let dir;
+  await t.test("make and clean one fixture", (inner) => {
+    dir = fixture(inner);
+    assert.ok(fs.lstatSync(path.join(dir, "node_modules")).isSymbolicLink(),
+      "fixture did not create the node_modules symlink this test exists to guard");
+  });
+  assert.equal(fs.existsSync(dir), KEEP_FIXTURES,
+    KEEP_FIXTURES ? "KEEP_FIXTURES=1 should have preserved the tree" : "fixture tree survived cleanup");
+  assert.equal(fs.readdirSync(deps).length, before,
+    "cleanup followed the node_modules symlink into the repo's real tree and deleted from it");
 });
 
 test("scope attack: a producer in a new file in a new directory is caught", (t) => {
