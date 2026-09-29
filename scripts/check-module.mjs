@@ -9,7 +9,7 @@
 // repo alone, so CI can catch a regression even though the real validator never runs here.
 //
 // Deliberately narrow, and deliberately RED against today's layout -- see the commit that
-// introduced this file. The twelve assertions:
+// introduced this file. The thirteen assertions:
 //
 //   1. discovery-layout     the layout BMad's INSTALLER discovers, which is not the layout
 //                            `validate-module.py` validates. Three parts:
@@ -117,8 +117,26 @@
 //                            each other. `validate-module.py` does report it, but it needs a
 //                            real BMad install, so it only runs in `smoke:install`, which is
 //                            not in CI.
+//  13. forwarder-shape      a DEPRECATED forwarder forwards to the skill it claims, and only
+//                            to that one. Rules 8 and 11 say WHERE a forwarder may sit; this
+//                            says whether it works. Every forwarder here was made by copying
+//                            its neighbour and editing five names, and nothing checked that
+//                            all five were edited -- a missed one leaves a skill that
+//                            activates, prints a confident deprecation notice, and runs
+//                            somebody else's workflow. Asserts: the target exists and is not
+//                            itself a forwarder; the body invokes exactly `skill:<target>`;
+//                            no third skill is named anywhere in it; the NOTICE line names the
+//                            forwarder as deprecated and the target as the replacement; the
+//                            directory carries only SKILL.md and customize.toml (payload on a
+//                            forwarder is the road to the rule 11 defect); and the rename and
+//                            removal versions agree between frontmatter and body. Plus the one
+//                            clause that fires without anyone editing the tree: THE REMOVAL
+//                            VERSION MUST STILL BE IN THE FUTURE, so the release that reaches
+//                            4.0.0 fails until the forwarders promising removal there are
+//                            actually deleted. Scope is derived from the `DEPRECATED forwarder
+//                            for /<target>` description shape, not a list of names.
 //
-// Scope for checks 1-7 and 9-12 is derived by walking `skills/` and for check 8 from
+// Scope for checks 1-7 and 9-13 is derived by walking `skills/` and for check 8 from
 // `.claude-plugin/marketplace.json`'s own `plugins` array -- never from a hand-kept list of
 // module codes, skill names or plugin names -- so a code or a plugin nobody told this script
 // about is still found and checked. Check 9 derives a second scope the same way: which
@@ -1222,6 +1240,217 @@ function checkMenuCodeUnique(skills) {
 }
 
 // ---------------------------------------------------------------------------
+// 13. forwarder-shape: a DEPRECATED forwarder actually forwards, to the skill it claims.
+//
+// Rules 8 and 11 already carry the forwarder PLACEMENT law -- a deprecated forwarder is safe
+// only at a name BMad's resolver derives no meaning from. This is the other half, and it is a
+// different question: given that a forwarder sits at a legal name, does it send the user to
+// the right place? Nothing checked that. A forwarder is the one kind of skill whose entire
+// body is a claim about another skill, and every one of them here was produced by copying its
+// neighbour and editing the names -- five edits per file, in four files, with no gate over
+// whether an edit was missed. The failure mode is silent in the worst way: the skill activates,
+// prints a confident deprecation notice, and runs somebody else's workflow.
+//
+// SCOPE IS DERIVED, like every other rule here: a forwarder is any `skills/*/SKILL.md` whose
+// frontmatter `description` begins `DEPRECATED forwarder for /<target>`. No list of forwarder
+// names exists anywhere in this repo, and adding one here would be the thing that goes stale
+// the first time somebody renames a skill without telling this file.
+//
+// What it asserts, per forwarder:
+//   - the TARGET exists as a real skill directory, and is not itself a forwarder (no chains --
+//     a forwarder to a forwarder still resolves today, but it resolves through a skill that is
+//     already scheduled for deletion, so it breaks on a date nobody is tracking);
+//   - the body invokes `skill:<target>` and nothing else -- exactly one distinct `skill:` ref;
+//   - every `/skill-name` the body mentions is either the forwarder or its target, which is
+//     what catches the copy-paste that edits four of the five names;
+//   - a NOTICE line exists, and it names the forwarder as the deprecated one and the target as
+//     the replacement -- not the other way round, and not a third skill;
+//   - the directory carries nothing but SKILL.md and customize.toml. A forwarder that grows
+//     payload has stopped being a forwarder, and payload is the road to `assets/module.yaml`,
+//     which is precisely how 3.1.7 shipped a module home that was a lottery (rule 11);
+//   - the rename version and the removal version agree between the frontmatter and the body.
+//
+// And the one that makes forwarders finite: THE REMOVAL VERSION MUST STILL BE IN THE FUTURE.
+// A forwarder promises "removed in 4.0.0" and nothing makes that true; `postbump` writes the
+// new version into package.json, so the release that reaches 4.0.0 turns every such promise
+// into a failing gate and the forwarders get deleted instead of accumulating forever. That is
+// the only clause here that fires on a tree nobody edited.
+//
+// What it does NOT reach: a forwarder written without the `DEPRECATED forwarder for /<target>`
+// description shape is invisible to this rule -- it is the handle the scope is derived from.
+// That is a false negative, and it is the honest trade against a hand-kept list. Check 21 in
+// check-docs.mjs separately asserts every SKILL.md frontmatter parses and that `name:` equals
+// the directory, so those are not re-checked here.
+const FORWARDER_RE = /^DEPRECATED forwarder for \/([a-z0-9-]+)/;
+const FORWARDER_ALLOWED_FILES = new Set(["SKILL.md", "customize.toml"]);
+
+// The frontmatter block of a SKILL.md as an object, or null when there is not one. Tolerant by
+// design: check-docs.mjs check 21 is what fails a SKILL.md whose frontmatter does not parse,
+// and a rule that also threw there would report the same defect twice in different words.
+function parseSkillFrontmatter(text) {
+  if (!text.startsWith("---\n")) return null;
+  const end = text.indexOf("\n---", 3);
+  if (end === -1) return null;
+  try {
+    const doc = YAML.parse(text.slice(4, end + 1));
+    return doc && typeof doc === "object" && !Array.isArray(doc) ? doc : null;
+  } catch {
+    return null;
+  }
+}
+
+// Every `v?N.N.N` following `renamed ... in` / `removed in`, normalised without the `v`.
+function versionsAfter(text, verb) {
+  const re = new RegExp(`${verb}[^.\\n]*?\\bin v?(\\d+\\.\\d+\\.\\d+)`, "g");
+  return [...text.matchAll(re)].map((m) => m[1]);
+}
+
+// Index of `/name` in `line` as a whole skill reference, or -1. Whole-reference matching
+// matters because one skill name can be a prefix of another (`/l3io-sync` inside
+// `/l3io-sync-status`), and a bare indexOf would report the longer one as the shorter.
+function slashRefIndex(line, name) {
+  const re = new RegExp(`/${name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}(?![a-z0-9-])`);
+  return line.search(re);
+}
+
+function comparableVersion(v) {
+  return v.split(".").map((n) => Number(n));
+}
+
+// a < b
+function versionLess(a, b) {
+  const [x, y] = [comparableVersion(a), comparableVersion(b)];
+  for (let i = 0; i < 3; i++) {
+    if (x[i] !== y[i]) return x[i] < y[i];
+  }
+  return false;
+}
+
+function checkForwarderShape(skills) {
+  // Pass 1: which skills are forwarders, and what does each claim as its target? Collected
+  // first because the no-chains clause needs to ask whether a TARGET is itself a forwarder.
+  const forwarders = new Map(); // skill -> { rel, text, description, target }
+  for (const skill of skills) {
+    const rel = `skills/${skill}/SKILL.md`;
+    if (!exists(rel)) continue;
+    const text = read(rel);
+    const fm = parseSkillFrontmatter(text);
+    const description = fieldText(fm?.description).trim();
+    const m = FORWARDER_RE.exec(description);
+    if (!m) continue;
+    // Everything after the closing `---`, so the frontmatter's own mention of the target is
+    // not mistaken for the body making the same claim -- they are two separate assertions.
+    const close = text.indexOf("\n---", 3);
+    const body = close === -1 ? text : text.slice(close + 4);
+    forwarders.set(skill, { rel, body, description, target: m[1] });
+  }
+  if (forwarders.size === 0) return;
+
+  const skillSet = new Set(skills);
+  let packageVersion = "";
+  try {
+    packageVersion = fieldText(JSON.parse(read("package.json"))?.version).trim();
+  } catch {
+    packageVersion = ""; // Reported by check:version; not this rule's business to duplicate.
+  }
+
+  for (const [skill, fwd] of forwarders) {
+    const { rel, body, description, target } = fwd;
+
+    if (!skillSet.has(target)) {
+      failures.push(
+        `${rel}: forwards to '/${target}', which is not a skill directory under skills/. ` +
+        `A forwarder whose target does not exist fails only when a user invokes the old name.`
+      );
+      continue;
+    }
+    if (forwarders.has(target)) {
+      failures.push(
+        `${rel}: forwards to '/${target}', which is itself a DEPRECATED forwarder ` +
+        `(to '/${forwarders.get(target).target}'). Forward to the real skill instead -- a chain ` +
+        `breaks when the middle link reaches its own removal version.`
+      );
+    }
+
+    // Exactly one `skill:` invocation, and it is the target.
+    const invoked = [...new Set([...body.matchAll(/\bskill:([a-z0-9-]+)/g)].map((m) => m[1]))];
+    if (invoked.length !== 1 || invoked[0] !== target) {
+      failures.push(
+        `${rel}: declares itself a forwarder to '/${target}' but its body invokes ` +
+        `${invoked.length === 0 ? "no skill at all" : invoked.map((s) => `skill:${s}`).join(", ")}. ` +
+        `A forwarder must invoke exactly skill:${target} -- this is the edit a copied forwarder misses.`
+      );
+    }
+
+    // Every /skill-name the body mentions is the forwarder itself or its target. Restricted to
+    // names that are real skill directories, so a path or URL fragment cannot false-positive.
+    const mentioned = [...new Set([...body.matchAll(/\/([a-z0-9-]+)/g)].map((m) => m[1]))]
+      .filter((n) => skillSet.has(n) && n !== skill && n !== target);
+    if (mentioned.length > 0) {
+      failures.push(
+        `${rel}: names ${mentioned.map((n) => `'/${n}'`).join(", ")}, which is neither this ` +
+        `forwarder nor its target '/${target}'. A forwarder's body is a claim about exactly two ` +
+        `skills; a third one in it means a copied file was not fully edited.`
+      );
+    }
+
+    // The NOTICE line: present, naming both skills, AND pointing the right way round. Presence
+    // alone is not enough -- a notice with the two names swapped tells the user to migrate TO
+    // the name that is going away, which is worse than no notice at all, and it contains both
+    // names so any presence-only test passes it.
+    const notice = body.split("\n").find((l) => l.includes("NOTICE:"));
+    const at = (line, name) => slashRefIndex(line, name);
+    if (!notice) {
+      failures.push(
+        `${rel}: has no NOTICE: line. The deprecation notice is the only signal a user of the ` +
+        `old name gets that it is going away.`
+      );
+    } else if (at(notice, skill) === -1 || at(notice, target) === -1) {
+      failures.push(
+        `${rel}: its NOTICE line does not name both '/${skill}' (deprecated) and '/${target}' ` +
+        `(the replacement): ${notice.trim()}`
+      );
+    } else if (at(notice, skill) > at(notice, target)) {
+      failures.push(
+        `${rel}: its NOTICE line names '/${target}' before '/${skill}', which reads as the ` +
+        `replacement being deprecated in favour of the old name -- the two are swapped: ` +
+        `${notice.trim()}`
+      );
+    }
+
+    // Nothing but SKILL.md and customize.toml.
+    const entries = fs.readdirSync(path.join(repoRoot, "skills", skill));
+    const extra = entries.filter((e) => !FORWARDER_ALLOWED_FILES.has(e)).sort();
+    if (extra.length > 0) {
+      failures.push(
+        `${rel.replace(/\/SKILL\.md$/, "")}: a forwarder carries only SKILL.md and ` +
+        `customize.toml, but this one also has ${extra.join(", ")}. Payload on a forwarder is ` +
+        `how a second module home appears (see rule 11) -- move it to skills/${target}/.`
+      );
+    }
+
+    // Rename and removal versions agree between the frontmatter and the body.
+    for (const [verb, label] of [["renamed", "rename"], ["removed", "removal"]]) {
+      const found = [...new Set([...versionsAfter(description, verb), ...versionsAfter(body, verb)])];
+      if (found.length === 0) {
+        failures.push(`${rel}: states no ${label} version. A forwarder must say when it ${verb === "renamed" ? "replaced the old name" : "goes away"}.`);
+      } else if (found.length > 1) {
+        failures.push(
+          `${rel}: gives ${found.length} different ${label} versions (${found.join(", ")}). ` +
+          `The frontmatter and the body must agree.`
+        );
+      } else if (verb === "removed" && packageVersion && !versionLess(packageVersion, found[0])) {
+        failures.push(
+          `${rel}: promises removal in ${found[0]}, but this package is already at ` +
+          `${packageVersion}. The promise came due -- delete skills/${skill}/ and its entry in ` +
+          `.claude-plugin/marketplace.json, or move the removal version out.`
+        );
+      }
+    }
+  }
+}
+
+// ---------------------------------------------------------------------------
 const skills = listSkillDirs();
 checkRequiredFields(skills);
 const byCode = collectModuleYamlByCode(skills);
@@ -1234,6 +1463,7 @@ checkHelpRegistration(skills);
 checkAgentRoster(byCode, skills);
 checkSetupSingleton(byCode, skills);
 checkMenuCodeUnique(skills);
+checkForwarderShape(skills);
 const strategyReport = checkPluginResolverStrategy();
 
 if (verbose) {

@@ -123,10 +123,13 @@ from there. This package used to vendor byte-identical copies of all three into 
 `scripts/` directories where nothing invoked them — dead payload that duplicated core and
 would rot on the next BMad release.
 
-Each skill also carries a **generated** `skills/<skill>/payload-manifest.json` — a SHA-256 per
-payload file, keyed relative to that skill's own root so a consumer who installed one skill can
-verify that skill alone. **Never hand-edit a manifest, and regenerate it whenever a payload file
-changes** — `npm run sync:scripts` does not do it for you. The manifest contract, the sync/verify
+Each skill **that has payload** carries a **generated** `skills/<skill>/payload-manifest.json` —
+a SHA-256 per payload file, keyed relative to that skill's own root so a consumer who installed
+one skill can verify that skill alone. Eight of the twelve skills have one; the four deprecated
+forwarders do not, and should not — they ship no payload at all, and the manifest writer derives
+its scope from the sync groups rather than from the list of skill directories. **Never
+hand-edit a manifest, and regenerate it whenever a payload file changes** — `npm run
+sync:scripts` does not do it for you. The manifest contract, the sync/verify
 commands and the release gates live in `scripts/CLAUDE.md`.
 
 **The check tooling has npm dependencies, and CI installs them.** `.github/workflows/checks.yml`

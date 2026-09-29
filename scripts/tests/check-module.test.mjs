@@ -957,3 +957,161 @@ test("check:module allows the same menu code in two different modules", (t) => {
   const r = run(root, ["-v"]);
   assert.equal(r.status, 0, r.stderr);
 });
+
+// ---------------------------------------------------------------------------
+// Rule 13: forwarder-shape.
+//
+// The real forwarders are all internally consistent today, so these fixtures are what makes
+// the rule non-vacuous: each one plants exactly the edit a copied forwarder is apt to miss.
+
+// The shipped shape, parameterised. `to` is the target; the options each break ONE part of it,
+// so a failing test names the clause it broke rather than "the forwarder is wrong".
+function writeForwarder(root, from, to, opts = {}) {
+  const notice = opts.notice !== undefined
+    ? opts.notice
+    : `NOTICE: /${from} is deprecated (renamed to /${to} in v3.1.3). This forwarder will be removed in v${opts.bodyRemoval ?? "4.0.0"}.`;
+  write(root, `skills/${from}/SKILL.md`,
+    `---\n` +
+    `name: ${from}\n` +
+    `description: DEPRECATED forwarder for /${to} — renamed in 3.1.3. Use /${to} instead. ` +
+    `This forwarder will be removed in ${opts.fmRemoval ?? "4.0.0"}.\n` +
+    `---\n\n` +
+    `# ${from} (DEPRECATED — use /${to})\n\n` +
+    `This skill was renamed to \`/${to}\` in v3.1.3. This forwarder exists only so old\n` +
+    `invocations continue to work; it will be **removed in v${opts.bodyRemoval ?? "4.0.0"}**.\n\n` +
+    `## On Activation\n\n` +
+    `1. Print one line to stderr, verbatim:\n\n` +
+    (notice ? `   \`\`\`\n   ${notice}\n   \`\`\`\n\n` : ``) +
+    `2. Invoke \`skill:${opts.invokes ?? to}\` with the exact arguments the user gave to /${from}, and report\n` +
+    `   its output unchanged.\n`);
+  write(root, `skills/${from}/customize.toml`, `[workflow]\n`);
+}
+
+// A plain (non-forwarder) skill for the forwarder to point at.
+function writePlainSkill(root, name) {
+  write(root, `skills/${name}/SKILL.md`, `---\nname: ${name}\ndescription: A real skill.\n---\n\n# ${name}\n`);
+  write(root, `skills/${name}/customize.toml`, `[workflow]\n`);
+}
+
+test("check:module accepts a well-formed forwarder", (t) => {
+  const root = fixture(t);
+  writePlainSkill(root, "solo-exec");
+  writeForwarder(root, "solo-pm-exec", "solo-exec");
+  const r = run(root, ["-v"]);
+  assert.equal(r.status, 0, r.stderr);
+});
+
+test("check:module rejects a forwarder that invokes a different skill than it claims", (t) => {
+  const root = fixture(t);
+  writePlainSkill(root, "solo-exec");
+  writePlainSkill(root, "solo-plan");
+  writeForwarder(root, "solo-pm-exec", "solo-exec", { invokes: "solo-plan" });
+  const r = run(root, ["-v"]);
+  assert.equal(r.status, 1, "a forwarder invoking the wrong skill must fail");
+  assert.match(r.stderr, /body invokes skill:solo-plan/);
+});
+
+test("check:module rejects a forwarder whose target does not exist", (t) => {
+  const root = fixture(t);
+  writeForwarder(root, "solo-pm-exec", "solo-gone");
+  const r = run(root, ["-v"]);
+  assert.equal(r.status, 1, "a forwarder to a nonexistent skill must fail");
+  assert.match(r.stderr, /forwards to '\/solo-gone', which is not a skill directory/);
+});
+
+test("check:module rejects a forwarder chain", (t) => {
+  const root = fixture(t);
+  writePlainSkill(root, "solo-exec");
+  writeForwarder(root, "solo-mid", "solo-exec");
+  writeForwarder(root, "solo-old", "solo-mid");
+  const r = run(root, ["-v"]);
+  assert.equal(r.status, 1, "a forwarder pointing at another forwarder must fail");
+  assert.match(r.stderr, /which is itself a DEPRECATED forwarder/);
+});
+
+test("check:module rejects a forwarder that names a third skill", (t) => {
+  const root = fixture(t);
+  writePlainSkill(root, "solo-exec");
+  writePlainSkill(root, "solo-sync");
+  writeForwarder(root, "solo-pm-exec", "solo-exec", {
+    notice: `NOTICE: /solo-sync is deprecated (renamed to /solo-exec in v3.1.3). This forwarder will be removed in v4.0.0.`,
+  });
+  const r = run(root, ["-v"]);
+  assert.equal(r.status, 1, "a third skill named in a forwarder body must fail");
+  assert.match(r.stderr, /names '\/solo-sync'/);
+});
+
+test("check:module rejects a forwarder with no NOTICE line", (t) => {
+  const root = fixture(t);
+  writePlainSkill(root, "solo-exec");
+  writeForwarder(root, "solo-pm-exec", "solo-exec", { notice: "" });
+  const r = run(root, ["-v"]);
+  assert.equal(r.status, 1, "a forwarder with no deprecation notice must fail");
+  assert.match(r.stderr, /has no NOTICE: line/);
+});
+
+test("check:module rejects a forwarder carrying payload beyond SKILL.md and customize.toml", (t) => {
+  const root = fixture(t);
+  writePlainSkill(root, "solo-exec");
+  writeForwarder(root, "solo-pm-exec", "solo-exec");
+  write(root, "skills/solo-pm-exec/assets/module.yaml", "code: solo\nname: x\ndescription: y\n");
+  const r = run(root, ["-v"]);
+  assert.equal(r.status, 1, "payload on a forwarder must fail -- this is the rule 11 road");
+  assert.match(r.stderr, /a forwarder carries only SKILL\.md and customize\.toml/);
+});
+
+test("check:module rejects a forwarder whose frontmatter and body disagree on the removal version", (t) => {
+  const root = fixture(t);
+  writePlainSkill(root, "solo-exec");
+  writeForwarder(root, "solo-pm-exec", "solo-exec", { fmRemoval: "4.0.0", bodyRemoval: "5.0.0" });
+  const r = run(root, ["-v"]);
+  assert.equal(r.status, 1, "two different removal versions must fail");
+  assert.match(r.stderr, /different removal versions/);
+});
+
+// The clause that fires on a tree nobody edited: once the package reaches the version a
+// forwarder promised to disappear in, the promise is due and the gate says so.
+test("check:module rejects a forwarder whose removal version has already been reached", (t) => {
+  const root = fixture(t);
+  write(root, "package.json", JSON.stringify({ name: "fixture", version: "4.0.0" }) + "\n");
+  writePlainSkill(root, "solo-exec");
+  writeForwarder(root, "solo-pm-exec", "solo-exec");
+  const r = run(root, ["-v"]);
+  assert.equal(r.status, 1, "a forwarder past its own removal version must fail");
+  assert.match(r.stderr, /promises removal in 4\.0\.0, but this package is already at 4\.0\.0/);
+});
+
+test("check:module accepts a forwarder whose removal version is still ahead", (t) => {
+  const root = fixture(t);
+  write(root, "package.json", JSON.stringify({ name: "fixture", version: "3.1.8" }) + "\n");
+  writePlainSkill(root, "solo-exec");
+  writeForwarder(root, "solo-pm-exec", "solo-exec");
+  const r = run(root, ["-v"]);
+  assert.equal(r.status, 0, r.stderr);
+});
+
+// SCOPE: the rule is derived from the `DEPRECATED forwarder for /<target>` description shape.
+// An ordinary skill that merely mentions another skill is not a forwarder and is not judged.
+test("check:module does not judge a non-forwarder skill that names other skills", (t) => {
+  const root = fixture(t);
+  writePlainSkill(root, "solo-exec");
+  write(root, "skills/solo-doc/SKILL.md",
+    "---\nname: solo-doc\ndescription: A real skill that talks about /solo-exec a lot.\n---\n\n" +
+    "# solo-doc\n\nSee /solo-exec and invoke `skill:solo-exec` whenever you like.\n");
+  write(root, "skills/solo-doc/customize.toml", "[workflow]\n");
+  const r = run(root, ["-v"]);
+  assert.equal(r.status, 0, r.stderr);
+});
+
+// Both names present, roles swapped. A presence-only check passes this, which is why the rule
+// compares their positions: this notice tells the user to migrate TO the name being removed.
+test("check:module rejects a NOTICE line with the two skills swapped", (t) => {
+  const root = fixture(t);
+  writePlainSkill(root, "solo-exec");
+  writeForwarder(root, "solo-pm-exec", "solo-exec", {
+    notice: "NOTICE: /solo-exec is deprecated (renamed to /solo-pm-exec in v3.1.3). This forwarder will be removed in v4.0.0.",
+  });
+  const r = run(root, ["-v"]);
+  assert.equal(r.status, 1, "a swapped NOTICE line must fail");
+  assert.match(r.stderr, /the two are swapped/);
+});

@@ -161,6 +161,24 @@ fails in CI: every existing gate over those CSVs compared a row to something *ou
 — a directory on disk, a keyword in a routing table — and none of them compared two rows to
 each other.
 
+**The four forwarders are now checked for whether they actually forward.** Rules 8 and 11 say
+*where* a deprecated forwarder may sit; nothing said whether it sends you to the right place.
+`npm run check:module` gained **rule 13 (`forwarder-shape`)**, which asserts that each
+forwarder's target exists and is not itself a forwarder, that the body invokes exactly
+`skill:<target>` and names no third skill, that the NOTICE line names the two in the right
+order (both names present but swapped tells you to migrate *to* the name being removed — and
+passes any presence-only test), that the directory carries nothing but `SKILL.md` and
+`customize.toml`, and that the rename and removal versions agree between frontmatter and body.
+Nothing was wrong with the four — each was made by copying its neighbour and editing five
+names, and this time all five were edited. The gate is there because nothing checked that.
+
+It also carries the clause that makes forwarders finite: **the removal version must still be
+in the future.** Each of `/l3io-pm-execute`, `/l3io-pm-help`, `/l3io-pm-plan` and
+`/l3io-pm-sync` promises removal in 4.0.0, and `postbump` writes the new version into
+`package.json`, so the release that reaches 4.0.0 fails this gate until those four directories
+and their `marketplace.json` entries are actually deleted. It is the one clause here that
+fires on a tree nobody edited.
+
 ### → 3.1.4
 
 **A health-check check that could not run, now runs.** `/l3io-doctor` Check 20 (BMad
