@@ -2,6 +2,32 @@
 
 All notable changes to this project will be documented in this file. See [commit-and-tag-version](https://github.com/absolute-version/commit-and-tag-version) for commit guidelines.
 
+## [3.1.7](https://github.com/ravensorb/bmad-extensions/compare/3.1.6...3.1.7) (2026-09-29)
+
+
+### Features
+
+* **ci-cd:** lint Python with ruff, and fix everything it found ([a5083aa](https://github.com/ravensorb/bmad-extensions/commit/a5083aad7855626fe4f882ff4cd5664051aaa247))
+
+
+### Fixes
+
+* **ci-cd:** lint the repo, not a directory list ([2bf5e52](https://github.com/ravensorb/bmad-extensions/commit/2bf5e523b66747e2d66ade071df01877b7306f63))
+* **infra:** smoke-install cleans up after itself, and only after itself ([099b1b1](https://github.com/ravensorb/bmad-extensions/commit/099b1b11a28db94230c1cc98fb6923e9ed638d6a))
+* **l3io-util,infra:** repair Check 20's dead command, and gate the class ([0245b03](https://github.com/ravensorb/bmad-extensions/commit/0245b037f26ff0878a717b25f00895b105ea3224))
+
+
+### Documentation
+
+* **infra:** add a session handoff note ([d0955ab](https://github.com/ravensorb/bmad-extensions/commit/d0955abaca633fb9a7d553da5f3880a059c54e93))
+* **infra:** name the current KB title, keep the content fallback ([3c2170b](https://github.com/ravensorb/bmad-extensions/commit/3c2170b2ed0e9ad685e3a4d4b879473029c45f2d))
+* **infra:** reclaim four findings the handoff wrongly disclaimed ([20066b3](https://github.com/ravensorb/bmad-extensions/commit/20066b3959ca7e231ebc465fd4afa3fed89e29cf))
+* **infra:** record the scratchpad deletion and what was kept ([f173cbb](https://github.com/ravensorb/bmad-extensions/commit/f173cbb41c819b8960411bda76eaa6193e10bf49))
+* **infra:** record where the out-of-repo artifacts live ([49a0cf8](https://github.com/ravensorb/bmad-extensions/commit/49a0cf8e10a3414f8ee836f23097613ecd89d699))
+* **infra:** stop the handoff pinning facts git already owns ([35b1b44](https://github.com/ravensorb/bmad-extensions/commit/35b1b445b6c29ab1c3d801b1e567a73b1bf732c8))
+* **infra:** update the handoff for the 3.1.3 verb-first renames ([3150d34](https://github.com/ravensorb/bmad-extensions/commit/3150d345e78107b1c6f3e601dff9dc6799ed496e))
+* note the Check 20 repair for 3.1.4 upgraders ([e06e6bb](https://github.com/ravensorb/bmad-extensions/commit/e06e6bb9ebac0ed8338fc4047a864a02dad8c57f))
+
 ## [3.1.6](https://github.com/ravensorb/bmad-extensions/compare/3.1.5...3.1.6) (2026-09-28)
 
 
