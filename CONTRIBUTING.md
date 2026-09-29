@@ -61,13 +61,29 @@ on `ERR_MODULE_NOT_FOUND`. CI installs before any gate, and so should you.
 | `npm run check:docs` | Documentation matches the code it describes — thirty checks, including that every documented CLI subcommand exists and every `<file>.md §N` cross-reference resolves |
 | `npm run check:version` | `pm-status.py`'s version marker, its `PM_STATUS_VERSION`, and `package.json` agree |
 | `npm run check:module` | One `module.yaml` per module code, correctly homed, with its required payload; every plugin in `marketplace.json` resolving to an authored `PluginResolver` strategy rather than BMad's silent synthesized fallback; every mode keyword a `SKILL.md` documents either registered in `module-help.csv` or marked excluded in that table's own **Menu** column; and every `module.yaml` agent roster entry agreeing with its skill's `customize.toml` `[agent]` block |
+| `npm run check:bmb` | BMad Builder's own scanners, run over this package's skills |
+| `npm run check:lint:py` | `ruff` over every Python file in `skills/`, with the version pinned in the npm script so a bump is a visible diff |
+| `npm run check:lock` | `package-lock.json` still satisfies `package.json` — the gate that exists because CI died at `npm ci` for a week (2.5.2 through 3.0.1) |
 | `npm run test:scripts` | The `check-docs` and `check-module` self-tests |
+| `npm run test:python` | Every Python suite, discovered rather than listed (below) |
 
-The Python suites are run by CI directly and are worth running locally when you touch them —
-see `.github/workflows/checks.yml` for the exact invocations. Note that the Python helpers run
-through `uv`, which provisions their dependencies from an inline PEP 723 header, so
-`test-spec-align.py` needs its documented `--with` flags; a bare `uv run --script` fails with
-`ModuleNotFoundError` and is a mis-invocation rather than a failure.
+`npm run ci:local` runs the whole `checks.yml` workflow locally through `act` (needs `act` on
+PATH and a running Docker daemon); `scripts/ci-local.mjs` documents its one known divergence
+from GitHub's runners.
+
+**`test:scripts` takes roughly a quarter of an hour** — it copies the repo once per test.
+`node --test` prints `not ok` for subtests that never ran, so a run you interrupt and a run
+that genuinely failed produce the same summary line; read an actual `not ok` block before
+believing a failure count. `KEEP_FIXTURES=1 npm run test:scripts` preserves every fixture tree
+and prints its path, which is what you want the moment something fails there — the tree that
+produced it is otherwise deleted before you can look at it.
+
+**The Python suites are discovered, not listed.** `npm run test:python`
+(`scripts/run-python-suites.mjs`) globs `skills/**/tests/test-*.py` and runs each under `uv
+run`, and CI has one step rather than one per suite. Every suite carries its own PEP 723
+header declaring the dependencies of the script it drives, so `uv run <the file>` works with
+no flags — do not add `--with` flags on the command line. Four suites once had theirs passed
+that way by the workflow alone, which made them fail spuriously when run any other way.
 
 ### Pinning GitHub Actions
 
