@@ -1,0 +1,38 @@
+# Ruff config for this package's Python.
+#
+# NO `select` LIST. The rule set is whatever the pinned ruff version enables by default,
+# because a hand-maintained select list is the same failure this repo keeps finding: a
+# rule set kept separately from its source of truth, drifting from it silently. The
+# version is pinned in package.json's check:lint:py instead, so the set only changes when
+# someone deliberately bumps it and sees the diff.
+#
+# Deliberate violations are marked inline with `# noqa: RULE  -- reason`, never ignored
+# wholesale here. There are only two exceptions, both below, and both are about a property
+# of the file rather than of a line.
+
+target-version = "py311"   # every script's PEP 723 header says requires-python = ">=3.11"
+line-length = 100
+
+[lint]
+# EXE001 fires on a shebang in a non-executable file. These scripts are invoked as
+# `uv run <path>`, which ignores the shebang; the shebang exists so a self-installed copy
+# is runnable directly, and `self-install` chmods that copy. The repo mode is therefore
+# not the thing that matters, and the rule cannot be silenced inline because the shebang
+# must be line 1.
+ignore = ["EXE001"]
+
+[lint.per-file-ignores]
+# Test suites drive real CLIs in subprocesses and build fixtures. Six rules are inherent to
+# that shape rather than signals about it, and each is listed with why -- the alternative is
+# 122 findings that would train the reader to skim the output, which is how a linter stops
+# being read at all.
+#
+#   RUF059   `code, out, err = self.cli(...)` then asserting on one of them. Unpacking the
+#            full tuple and using part of it is the clearest way to write these.
+#   PLW1510  a test asserting a non-zero exit MUST NOT raise on it; check=False is implied
+#            by the assertion on the next line.
+#   SIM117   nested `with` blocks are how a fixture layers a tmpdir, a patched env and a lock.
+#   C408     dict(...) over {...} reads better in a table of expected values.
+#   RUF012   ClassVar annotations on unittest fixtures add noise without adding safety.
+#   FURB122  an explicit write loop is easier to read than writelines when building a fixture.
+"**/tests/*.py" = ["S", "BLE001", "SIM115", "RUF059", "PLW1510", "SIM117", "C408", "RUF012", "FURB122"]

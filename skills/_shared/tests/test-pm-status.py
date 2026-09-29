@@ -205,7 +205,7 @@ class TestLockCommands(Base):
         self.run_main(["set-lock", "--state-root", self.state_root, "--epic", "E001",
                        "--session-id", "sess-abc", "--ttl-minutes", "30"])
         _, data = pm.load_node(self.epic_file)
-        self.assertEqual(list(data.keys())[0], "_lock")
+        self.assertEqual(next(iter(data.keys())), "_lock")
 
     def test_clear_lock_removes_block(self):
         self.run_main(["set-lock", "--state-root", self.state_root, "--epic", "E001",
@@ -913,7 +913,6 @@ backlog:
   status: backlog
 """
 
-from unittest import mock
 
 
 def _build_issue_tree(root):
@@ -1220,10 +1219,9 @@ class TestResolveIssue(IssueBase):
 
     def test_crash_between_writes_is_cleared_by_rerun(self):
         self.append("A")
-        with _dump_failing_on(2):
-            with self.assertRaises(OSError):
-                pm.main(["resolve-issue", "--state-root", self.root, "--key", "BL-E001-001",
-                         "--resolution", "obsolete", "--note", "gone"])
+        with _dump_failing_on(2), self.assertRaises(OSError):
+            pm.main(["resolve-issue", "--state-root", self.root, "--key", "BL-E001-001",
+                     "--resolution", "obsolete", "--note", "gone"])
         self.assertEqual(self.open_keys(), ["BL-E001-001"])      # premise: both files
         self.assertEqual(self.resolved_keys(), ["BL-E001-001"])
         code, out, _ = self.resolve("BL-E001-001", "obsolete", "--note", "gone")
@@ -2230,7 +2228,7 @@ class TestLockOnEpicFile(TestLayoutResolution):
             ["set-lock", "--state-root", self.root, "--epic", "E001", "--session-id", "sess-a"])
         self.assertEqual(code, 0, out)
         _, node = pm.load_node(pm.epic_file(self.root, "E001"))
-        self.assertEqual(list(node.keys())[0], "_lock")
+        self.assertEqual(next(iter(node.keys())), "_lock")
         self.assertEqual(node["_lock"]["session_id"], "sess-a")
 
     def test_check_lock_exit_5_for_other_session(self):
@@ -5827,8 +5825,7 @@ class TestTranscriptUsage(Base):
     def _write(self, name, records):
         p = os.path.join(self.d, name)
         with open(p, "w", encoding="utf-8") as fh:
-            for r in records:
-                fh.write(json.dumps(r) + "\n")
+            fh.writelines(json.dumps(r) + "\n" for r in records)
         return p
 
     def _asst(self, mid, inp, out, cw, cr, sidechain=False):
@@ -5926,12 +5923,11 @@ class TestTranscriptIdentity(Base):
     def _sess_file(self, name, sid, n=2):
         p = os.path.join(self.d, name)
         with open(p, "w", encoding="utf-8") as fh:
-            for i in range(n):
-                fh.write(json.dumps({
+            fh.writelines(json.dumps({
                     "type": "assistant", "sessionId": sid,
                     "message": {"id": f"m{i}", "usage": {
                         "input_tokens": 1, "output_tokens": 1,
-                        "cache_creation_input_tokens": 1, "cache_read_input_tokens": 1}}}) + "\n")
+                        "cache_creation_input_tokens": 1, "cache_read_input_tokens": 1}}}) + "\n" for i in range(n))
         return p
 
     def test_refuses_a_file_carrying_no_session_id(self):
@@ -5957,9 +5953,8 @@ class TestTranscriptIdentity(Base):
     def test_refuses_a_file_mixing_sessions(self):
         p = os.path.join(self.d, "mixed.jsonl")
         with open(p, "w", encoding="utf-8") as fh:
-            for sid in ("A", "B"):
-                fh.write(json.dumps({"type": "assistant", "sessionId": sid,
-                                     "message": {"id": sid, "usage": {"output_tokens": 1}}}) + "\n")
+            fh.writelines(json.dumps({"type": "assistant", "sessionId": sid,
+                                     "message": {"id": sid, "usage": {"output_tokens": 1}}}) + "\n" for sid in ("A", "B"))
         buf = io.StringIO()
         with redirect_stderr(buf):
             code, _ = self.run_main(["usage", p])
@@ -6023,8 +6018,7 @@ class TestTranscriptScoping(Base):
         p = os.path.join(self.d, name)
         os.makedirs(os.path.dirname(p), exist_ok=True) if os.path.dirname(name) else None
         with open(p, "w", encoding="utf-8") as fh:
-            for r in recs:
-                fh.write(json.dumps(r) + "\n")
+            fh.writelines(json.dumps(r) + "\n" for r in recs)
         return p
 
     def test_window_excludes_records_outside_the_bracket(self):
@@ -6053,12 +6047,11 @@ class TestTranscriptScoping(Base):
         root = os.path.join(self.d, "state")
         os.makedirs(root, exist_ok=True)
         with open(os.path.join(root, "events.jsonl"), "w", encoding="utf-8") as fh:
-            for ev, ts in [("dispatch_open", "2026-08-01T10:00:00+00:00"),
+            fh.writelines(json.dumps({"ts": ts, "event": ev, "agent": "bmad-dev-story",
+                                     "epic": "E001", "story": "E001-S01-001"}) + "\n" for ev, ts in [("dispatch_open", "2026-08-01T10:00:00+00:00"),
                            ("dispatch_close", "2026-08-01T11:00:00+00:00"),
                            ("dispatch_open", "2026-08-01T12:00:00+00:00"),
-                           ("dispatch_close", "2026-08-01T13:00:00+00:00")]:
-                fh.write(json.dumps({"ts": ts, "event": ev, "agent": "bmad-dev-story",
-                                     "epic": "E001", "story": "E001-S01-001"}) + "\n")
+                           ("dispatch_close", "2026-08-01T13:00:00+00:00")])
             fh.write(json.dumps({"ts": "2026-08-01T20:00:00+00:00", "event": "dispatch_open",
                                  "agent": "bmad-dev-story", "epic": "E001",
                                  "story": "E001-S01-999"}) + "\n")
@@ -6447,11 +6440,11 @@ class TestSyncStoryDoc(Base):
         os.makedirs(os.path.dirname(self.doc), exist_ok=True)
 
     def _write(self, text):
-        with io.open(self.doc, "w", encoding="utf-8") as fh:
+        with open(self.doc, "w", encoding="utf-8") as fh:
             fh.write(text)
 
     def _read(self):
-        with io.open(self.doc, encoding="utf-8") as fh:
+        with open(self.doc, encoding="utf-8") as fh:
             return fh.read()
 
     def test_status_in_frontmatter_is_rewritten(self):
@@ -6653,7 +6646,7 @@ class TestModelMismatch(TestLayoutResolution):
 
     def run_main(self, argv):
         import io
-        from contextlib import redirect_stdout, redirect_stderr
+        from contextlib import redirect_stderr, redirect_stdout
         out_buf = io.StringIO()
         err_buf = io.StringIO()
         try:
@@ -7000,10 +6993,9 @@ class TestUpdateIssue(IssueBase):
         """Resolve's crash window leaves a key in both files; it is resolved, so an
         update must be refused, not applied to the stale open copy."""
         self.append("A", "001", "01", "Low")
-        with _dump_failing_on(2):
-            with self.assertRaises(OSError):
-                pm.main(["resolve-issue", "--state-root", self.root, "--key",
-                         "BL-E001-001", "--resolution", "obsolete", "--note", "x"])
+        with _dump_failing_on(2), self.assertRaises(OSError):
+            pm.main(["resolve-issue", "--state-root", self.root, "--key",
+                     "BL-E001-001", "--resolution", "obsolete", "--note", "x"])
         self.assertEqual(self.open_keys(), ["BL-E001-001"])       # premise: both files
         code, _, err = self.update("BL-E001-001", "High")
         self.assertEqual(code, 2)
@@ -7437,8 +7429,8 @@ class TestPromoteIssue(IssueBase):
         now = pm._now_iso()
         cases = {  # name: (lock, check-lock's verdict -- pinned, so check-lock cannot drift)
             "live":     (f"session_id: other\nclaimed_at: '{now}'\nttl_minutes: 30\n", 5),
-            "stale":    ("session_id: other\nclaimed_at: '2020-01-01T00:00:00Z'\n"
-                         "ttl_minutes: 1\n", 0),
+            "stale":    (("session_id: other\nclaimed_at: '2020-01-01T00:00:00Z'\n"
+                         "ttl_minutes: 1\n"), 0),
             "ttl-zero": (f"session_id: other\nclaimed_at: '{now}'\nttl_minutes: 0\n", 0),
         }
         for i, (name, (lock, verdict)) in enumerate(cases.items(), start=1):
@@ -7461,8 +7453,8 @@ class TestPromoteIssue(IssueBase):
             "not-a-mapping":   ("'just-a-string'\n", 0),
             "no-timestamp":    ("session_id: other\nttl_minutes: 30\n", 0),
             "bad-timestamp":   ("session_id: other\nclaimed_at: 'not-a-time'\nttl_minutes: 30\n", 0),
-            "naive-timestamp": ("session_id: other\nclaimed_at: '2026-01-01T00:00:00'\n"
-                                "ttl_minutes: 30\n", None),
+            "naive-timestamp": (("session_id: other\nclaimed_at: '2026-01-01T00:00:00'\n"
+                                "ttl_minutes: 30\n"), None),
             "no-session":      (f"claimed_at: '{now}'\nttl_minutes: 30\n", 5),
             "non-integer-ttl": (f"session_id: other\nclaimed_at: '{now}'\nttl_minutes: abc\n", None),
         }
@@ -7566,10 +7558,9 @@ class TestPromoteIssue(IssueBase):
 
     def test_key_in_both_files_is_refused_as_resolved(self):
         self.append("A")
-        with _dump_failing_on(2):
-            with self.assertRaises(OSError):
-                pm.main(["resolve-issue", "--state-root", self.root, "--key", "BL-E001-001",
-                         "--resolution", "obsolete", "--note", "x"])
+        with _dump_failing_on(2), self.assertRaises(OSError):
+            pm.main(["resolve-issue", "--state-root", self.root, "--key", "BL-E001-001",
+                     "--resolution", "obsolete", "--note", "x"])
         before = _tree_snapshot(self.d)
         code, _, err = self.promote("BL-E001-001")
         self.assertEqual(code, 2)
@@ -7902,9 +7893,8 @@ class TestEpicNodeLockScope(unittest.TestCase):
             self.assertEqual(fh.read(), before)
 
     def test_another_epics_lock_does_not_cover_the_write(self):
-        with pm.epic_node_lock(self.root, "E005"):
-            with self.assertRaises(RuntimeError):
-                self._touch(pm.epic_file(self.root, "E001"))
+        with pm.epic_node_lock(self.root, "E005"), self.assertRaises(RuntimeError):
+            self._touch(pm.epic_file(self.root, "E001"))
 
     def test_the_same_epic_under_any_spelling_covers_the_write(self):
         with pm.epic_node_lock(os.path.relpath(self.root), "1"):    # relative root, bare key
@@ -7929,9 +7919,8 @@ class TestEpicNodeLockScope(unittest.TestCase):
         # The re-entrancy counter is per lock family, so a nested second epic's lock would
         # silently skip its flock -- refused outright instead.
         with pm.epic_node_lock(self.root, "E001"):
-            with self.assertRaises(RuntimeError):
-                with pm.epic_node_lock(self.root, "E005"):
-                    pass
+            with self.assertRaises(RuntimeError), pm.epic_node_lock(self.root, "E005"):
+                pass
             self._touch(pm.epic_file(self.root, "E001"))     # the outer hold survives
         self.assertEqual(pm._EPIC_NODE_LOCK["depth"], 0)
 
@@ -9086,10 +9075,9 @@ class TestIssueInvariants(IssueBase):
 
         def in_both_files():            # a resolve that crashed between its two writes
             with _dump_failing_on(2), redirect_stdout(io.StringIO()), \
-                    redirect_stderr(io.StringIO()):
-                with self.assertRaises(OSError):
-                    pm.main(["resolve-issue", "--state-root", self.root, "--key", "BL-E001-001",
-                             "--resolution", "obsolete", "--note", "x"])
+                    redirect_stderr(io.StringIO()), self.assertRaises(OSError):
+                pm.main(["resolve-issue", "--state-root", self.root, "--key", "BL-E001-001",
+                         "--resolution", "obsolete", "--note", "x"])
 
         def non_canonical(d):
             d["backlog"].append(CommentedMap([("key", "BL-E1-9"), ("epic", "001"),
@@ -10509,7 +10497,7 @@ class TestBlockedStoryStatus(Base):
 
     def test_reason_on_sprint_or_epic_exits_2(self):
         """--reason and --resolution are story-only flags."""
-        path = self._seed_story()
+        self._seed_story()
         buf = io.StringIO()
         with redirect_stderr(buf):
             code, _ = self.run_main(["set-status", "--state-root", self.d,
@@ -10778,12 +10766,11 @@ class TestBlockedCalibration(Base):
         # Craft events by hand -- realistic durations without waiting real hours.
         events = os.path.join(self.d, "events.jsonl")
         with open(events, "w") as fh:
-            for rec in [
+            fh.writelines(json.dumps(rec) + "\n" for rec in [
                 {"event": "block_close", "story": "E001-S01-002", "duration_hours": 2.5},
                 {"event": "block_close", "story": "E001-S01-002", "duration_hours": 1.25},
                 {"event": "block_close", "story": "E001-OTHER", "duration_hours": 99.0},
-            ]:
-                fh.write(json.dumps(rec) + "\n")
+            ])
         self.assertEqual(pm._total_blocked_hours(self.d, "E001-S01-002"), 3.75)
 
     def test_total_blocked_hours_survives_torn_line(self):
@@ -10818,14 +10805,13 @@ class TestBlockedCalibration(Base):
         """The current-cycle block IS counted; the prior-cycle block is not."""
         events = os.path.join(self.d, "events.jsonl")
         with open(events, "w") as fh:
-            for rec in [
+            fh.writelines(json.dumps(rec) + "\n" for rec in [
                 {"event": "dispatch_open", "story": "E001-S01-002"},
                 {"event": "block_close", "story": "E001-S01-002", "duration_hours": 4.0},
                 {"event": "dispatch_close", "story": "E001-S01-002"},
                 {"event": "dispatch_open", "story": "E001-S01-002"},
                 {"event": "block_close", "story": "E001-S01-002", "duration_hours": 1.5},
-            ]:
-                fh.write(json.dumps(rec) + "\n")
+            ])
         self.assertEqual(pm._total_blocked_hours(self.d, "E001-S01-002"), 1.5,
                          "only the block after the latest dispatch_open counts")
 

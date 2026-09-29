@@ -12,15 +12,13 @@ the exit code and stdout are the ones /l3io-sync setup actually sees. URL parsin
 also exercised directly, because the shapes that matter (SSH, .git suffix, a host that is
 not GitHub) are cheaper to enumerate as data than as twenty throwaway repos.
 """
+import importlib.util
 import json
 import os
 import subprocess
 import sys
 import tempfile
 import unittest
-from pathlib import Path
-
-import importlib.util
 
 _HERE = os.path.dirname(os.path.abspath(__file__))
 _SCRIPT = os.path.join(os.path.dirname(os.path.dirname(_HERE)), "skills", "l3io-sync", "scripts", "detect-platform.py")

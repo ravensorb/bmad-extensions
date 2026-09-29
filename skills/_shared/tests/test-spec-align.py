@@ -26,7 +26,6 @@ import threading
 import time
 import unittest
 
-
 # -- temp-dir leak guard ---------------------------------------------------------------- #
 # setUpModule points tempfile.tempdir (this test process) AND the TMPDIR environment variable
 # (inherited by every subprocess it spawns) at one private run directory; tearDownModule fails
@@ -309,7 +308,7 @@ class TestBuild(Project):
         self.assertIn("--spec-paths", r_bad.stderr)
 
     def test_index_never_indexes_itself(self):
-        self.write(f"_bmad-output/architecture.md", ARCH)
+        self.write("_bmad-output/architecture.md", ARCH)
         parent = os.path.join(self.root, "_bmad-output")
         self.assertEqual(self.sa("build", planning=parent).returncode, 0)
         self.assertEqual(self.sa("build", planning=parent).returncode, 0)

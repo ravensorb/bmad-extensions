@@ -10,6 +10,7 @@ Tests for detect-layout.py. Run with:
 Every case drives the real CLI through subprocess -- never the detect() function directly --
 so the test exercises the same exit code and stdout a health-check run would see.
 """
+import importlib.util
 import os
 import shutil
 import subprocess
@@ -17,7 +18,6 @@ import tempfile
 import unittest
 from pathlib import Path
 
-import importlib.util
 _HERE = os.path.dirname(os.path.abspath(__file__))
 _SPEC = importlib.util.spec_from_file_location(
     "detect_layout", os.path.join(os.path.dirname(os.path.dirname(_HERE)), "skills", "l3io-doctor", "scripts", "detect-layout.py"))
@@ -208,7 +208,7 @@ class TestReachability(unittest.TestCase):
         (root / "new-arts").mkdir()
         self.assertEqual(mod.main(["--artifacts", str(root / "new-arts"),
                                    "--project-root", str(root), "--reachability"]), 4)
-        art = self._state(root, "ok-arts")
+        self._state(root, "ok-arts")
         # a repo with ONLY the configured tree
         root2 = self._repo()
         art2 = self._state(root2, "arts")

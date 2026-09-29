@@ -51,6 +51,14 @@ jobs:
     # gitignored and a real install is not available to CI. Exemptions for the core
     # conventions this package rejects live in scripts/check-bmb.mjs, each with a test that
     # plants a violation it must not swallow.
+    # Ruff over every Python file in skills/. The version is PINNED in the npm script, and
+    # ruff.toml carries no `select` list on purpose: the rule set is whatever that pinned
+    # version enables, so it cannot drift from a hand-kept list, and a bump is a visible diff.
+    # This ran nowhere before -- bmb's scan-scripts.py has a ruff arm, but it shells to
+    # `uv run ruff`, which failed to spawn here and was swallowed, so check:bmb was passing
+    # over ~12,000 unlinted lines.
+    - name: Python lint (ruff)
+      run: npm run check:lint:py
     - name: BMad Builder skill scanners
       run: npm run check:bmb
     # Every Python suite under skills/**/tests/, DISCOVERED FROM DISK. This replaced ten

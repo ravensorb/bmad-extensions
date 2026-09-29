@@ -24,7 +24,6 @@ import tempfile
 import unittest
 from contextlib import redirect_stderr, redirect_stdout
 
-
 # -- temp-dir leak guard ---------------------------------------------------------------- #
 # setUpModule points tempfile.tempdir (this test process) AND the TMPDIR environment variable
 # (inherited by every subprocess it spawns) at one private run directory; tearDownModule fails

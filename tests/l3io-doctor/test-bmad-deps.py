@@ -26,7 +26,6 @@ import sys
 import tempfile
 import unittest
 
-
 # -- temp-dir leak guard ---------------------------------------------------------------- #
 # setUpModule points tempfile.tempdir (this test process) AND the TMPDIR environment variable
 # (inherited by every subprocess it spawns) at one private run directory; tearDownModule fails
@@ -538,7 +537,7 @@ class TestShims(Base):
         code, out = self.run_cli(["verify", "--project-root", root, "--format", "json"])
         self.assertEqual(code, 0, self.err)
         data = json.loads(out)
-        self.assertEqual(set(s["name"] for s in data["shims_in_use"]), set(deprecated_names))
+        self.assertEqual({s["name"] for s in data["shims_in_use"]}, set(deprecated_names))
         self.assertEqual(data["deprecated_absent"], [])
 
 

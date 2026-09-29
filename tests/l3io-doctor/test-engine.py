@@ -8,7 +8,6 @@ import importlib.util
 import io
 import os
 import shutil
-import sys
 import tempfile
 import unittest
 from contextlib import redirect_stderr

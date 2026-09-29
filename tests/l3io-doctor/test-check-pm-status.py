@@ -12,6 +12,7 @@ a stub at {project-root}/_bmad/scripts/pm-status.py that prints the version the 
 codes are the whole interface here (0 current, 3 stale, 4 absent, 2 unreadable), so each
 gets a case; asserting only on stdout would let any of them drift to 0 unnoticed.
 """
+import importlib.util
 import json
 import os
 import shutil
@@ -20,8 +21,6 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
-
-import importlib.util
 
 _HERE = os.path.dirname(os.path.abspath(__file__))
 _SCRIPT = os.path.join(os.path.dirname(os.path.dirname(_HERE)), "skills", "l3io-doctor", "scripts", "check-pm-status.py")
@@ -127,11 +126,11 @@ class TestCli(unittest.TestCase):
         env = {**os.environ}
         r = subprocess.run(
             [sys.executable, "-c",
-             "import importlib.util,sys;"
+             ("import importlib.util,sys;"
              f"s=importlib.util.spec_from_file_location('m',{_SCRIPT!r});"
              "m=importlib.util.module_from_spec(s);s.loader.exec_module(m);"
              "m._MODULE_YAML=__import__('pathlib').Path('/nonexistent/module.yaml');"
-             f"sys.exit(m.main(['--project-root',{self.d!r}]))"],
+             f"sys.exit(m.main(['--project-root',{self.d!r}]))")],
             capture_output=True, text=True, env=env)
         self.assertEqual(r.returncode, 2)
         self.assertIn("cannot read module_version", r.stderr)
