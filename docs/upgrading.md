@@ -151,6 +151,16 @@ Rules 8 and 11 now cover both derivations between them.
 Found by the downstream extension that builds on this package: its smoke install caught the
 same shape on its own tree and the finding was reported back upstream.
 
+**`/l3io-help catalog`'s help-menu code changed from `LPC` to `LPA`.** `LPC` already belonged
+to `/l3io-sync sync`, and had since 3.1.3 — two rows claiming one selector means one of the two
+capabilities is unreachable from BMad's menu, and which one loses is decided by the menu
+builder, not by either row. Typing the code is the only thing affected; both skills were always
+reachable by name (`/l3io-help catalog`, `/l3io-sync sync`), which is why this went five
+releases unnoticed. `npm run check:module` gained **rule 12 (`menu-code-unique`)** so a repeat
+fails in CI: every existing gate over those CSVs compared a row to something *outside* the file
+— a directory on disk, a keyword in a routing table — and none of them compared two rows to
+each other.
+
 ### → 3.1.4
 
 **A health-check check that could not run, now runs.** `/l3io-doctor` Check 20 (BMad

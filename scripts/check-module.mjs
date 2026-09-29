@@ -9,7 +9,7 @@
 // repo alone, so CI can catch a regression even though the real validator never runs here.
 //
 // Deliberately narrow, and deliberately RED against today's layout -- see the commit that
-// introduced this file. The eleven assertions:
+// introduced this file. The twelve assertions:
 //
 //   1. discovery-layout     the layout BMad's INSTALLER discovers, which is not the layout
 //                            `validate-module.py` validates. Three parts:
@@ -104,8 +104,21 @@
 //                            `*-setup` suffix (strategy 2, this rule) and the exactly-one-skill
 //                            count (strategy 3, rule 8). A rename whose OLD name collides with
 //                            either cannot carry a forwarder at that name.
+//  12. menu-code-unique     no two rows in one `module-help.csv` share a `menu-code`. The menu
+//                            code is the SELECTOR a user types to pick a capability out of
+//                            BMad's help menu, so a duplicate makes one of the two capabilities
+//                            unreachable, and which one loses is decided by the menu builder,
+//                            not by anything either row says. Shipped in 3.1.3: `/l3io-help
+//                            catalog` was added carrying `LPC`, which `l3io-sync`'s Sync row
+//                            already held, and it survived five releases because every gate
+//                            over that CSV asked a different question -- rule 7 asks whether a
+//                            row's `skill` names a real directory, rule 9 asks whether every
+//                            documented keyword HAS a row, and neither compares two rows to
+//                            each other. `validate-module.py` does report it, but it needs a
+//                            real BMad install, so it only runs in `smoke:install`, which is
+//                            not in CI.
 //
-// Scope for checks 1-7 and 9-11 is derived by walking `skills/` and for check 8 from
+// Scope for checks 1-7 and 9-12 is derived by walking `skills/` and for check 8 from
 // `.claude-plugin/marketplace.json`'s own `plugins` array -- never from a hand-kept list of
 // module codes, skill names or plugin names -- so a code or a plugin nobody told this script
 // about is still found and checked. Check 9 derives a second scope the same way: which
@@ -1159,6 +1172,56 @@ function checkSetupSingleton(byCode, skills) {
 }
 
 // ---------------------------------------------------------------------------
+// 12. menu-code-unique: no two rows in one module's module-help.csv share a `menu-code`.
+//
+// The menu code is the SELECTOR a user types to pick a capability out of BMad's help menu.
+// Two rows carrying the same one is not a cosmetic duplicate: one of the two capabilities
+// becomes unreachable, and which one loses is decided by whatever the menu builder does with
+// the collision -- not by anything either row says.
+//
+// Shipped in 3.1.3: `/l3io-help catalog` was added with menu code LPC, which `l3io-sync`'s
+// Sync row already held. It survived five releases because every gate over the CSV asked a
+// different question -- rule 7 asks whether each row's `skill` column names a real directory,
+// rule 9 asks whether every documented keyword HAS a row -- and none of them compared two rows
+// to each other. `validate-module.py` does report it, but it needs a real BMad install, so it
+// only runs in `smoke:install`, which is not in CI.
+//
+// Scope is every `skills/*/assets/module-help.csv`, derived by walking `skills/` like every
+// other rule here. Codes are compared case-insensitively: they are typed by a human at a menu,
+// and `lpc` selecting a row that wrote `LPC` is the same collision.
+//
+// `_meta` rows are not capabilities and carry no menu code; a row with an empty code is
+// skipped rather than counted as colliding with every other empty one.
+//
+// What it does NOT reach: a code reused by two DIFFERENT modules. Each module's rows are
+// assembled into its own menu, so that is a different question and no evidence here says it
+// collides; as of this writing the four CSVs share no code anyway, so widening the scope would
+// assert something unmeasured over a set that happens to pass.
+function checkMenuCodeUnique(skills) {
+  for (const skill of skills) {
+    const rel = `skills/${skill}/assets/module-help.csv`;
+    if (!exists(rel)) continue;
+    const seen = new Map();
+    for (const row of parseCsvRows(rel, read(rel))) {
+      const code = fieldText(row["menu-code"]).trim();
+      if (!code) continue;
+      const key = code.toLowerCase();
+      const prior = seen.get(key);
+      if (prior) {
+        failures.push(
+          `${rel}: menu-code '${code}' is claimed by two rows -- ` +
+          `'${prior.skill}' (${prior.name}) and '${fieldText(row.skill)}' (${fieldText(row["display-name"])}). ` +
+          `The menu code is what a user types to select a capability, so a duplicate makes one ` +
+          `of the two unreachable from BMad's help menu.`
+        );
+        continue;
+      }
+      seen.set(key, { skill: fieldText(row.skill), name: fieldText(row["display-name"]) });
+    }
+  }
+}
+
+// ---------------------------------------------------------------------------
 const skills = listSkillDirs();
 checkRequiredFields(skills);
 const byCode = collectModuleYamlByCode(skills);
@@ -1170,6 +1233,7 @@ checkCsvSkillsExist(skills);
 checkHelpRegistration(skills);
 checkAgentRoster(byCode, skills);
 checkSetupSingleton(byCode, skills);
+checkMenuCodeUnique(skills);
 const strategyReport = checkPluginResolverStrategy();
 
 if (verbose) {

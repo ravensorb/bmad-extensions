@@ -52,6 +52,14 @@ table too, so deleting a table fails instead of passing over an empty set: a top
 `steps/<name>.md` that is not part of a numbered `step-NN-*.md` sequence is a mode, and a
 skill with mode files (or a "Recognized keywords" section) owes a table.
 
+**Having a row is not the same as having a reachable one.** Rule 9 asks whether a keyword HAS a
+row; rule 7 asks whether a row's `skill` names a real directory. Both compare a row to something
+*outside* the file, so neither could see two rows claiming one `menu-code` — the selector a user
+types at BMad's menu — which is what shipped in 3.1.3 when `/l3io-help catalog` was given `LPC`,
+already held by `/l3io-sync sync`. `check:module` rule 12 compares rows to each other, within
+one CSV, case-insensitively. Cross-module reuse is deliberately out of scope: each module
+assembles its own menu, and nothing measured says those collide.
+
 **`smoke:install` judges the validator's findings, not its verdict.** `validate-module.py` does
 not implement two conventions `bmad-help` documents and BMad's own modules ship — the `_meta`
 documentation row, and cross-module `skill:action` relationships — so it returns `fail` for all

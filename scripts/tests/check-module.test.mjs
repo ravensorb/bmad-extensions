@@ -894,3 +894,66 @@ test("check:module allows one *-setup directory each in two different modules", 
   const r = run(root, ["-v"]);
   assert.equal(r.status, 0, r.stderr);
 });
+
+// ---------------------------------------------------------------------------
+// 12. menu-code-unique. The shape that shipped in 3.1.3: `/l3io-help catalog` was given menu
+// code LPC, which `l3io-sync`'s Sync row already held, and it survived five releases. Every
+// other gate over this CSV compares a row to something OUTSIDE the file -- a directory on
+// disk (rule 7), a keyword in a routing table (rule 9) -- so none of them ever compared two
+// rows to each other.
+test("check:module rejects two module-help.csv rows sharing a menu code", (t) => {
+  const root = fixture(t);
+  writeModuleHome(root, "solo", "solo");
+  write(root, "skills/solo/assets/module-help.csv", HELP_CSV_HEADER +
+    'Solo,solo,Sync,SLC,"Bidirectional sync.",sync,,anytime,,,false,,report\n' +
+    'Solo,solo,Catalog,SLC,"List installed skills.",catalog,,anytime,,,false,,table\n');
+  const r = run(root);
+  assert.equal(r.status, 1, r.stdout);
+  assert.match(r.stderr, /menu-code 'SLC' is claimed by two rows/);
+  // Both rows must be named: knowing a code collides is useless without knowing which two
+  // capabilities are fighting over it, since only one of them is the newcomer to move.
+  assert.match(r.stderr, /Sync/);
+  assert.match(r.stderr, /Catalog/);
+});
+
+// The code is typed by a human at a menu, so `slc` selects the row that wrote `SLC`. A
+// case-sensitive comparison would call that pair distinct and miss a real collision.
+test("check:module rejects menu codes that differ only in case", (t) => {
+  const root = fixture(t);
+  writeModuleHome(root, "solo", "solo");
+  write(root, "skills/solo/assets/module-help.csv", HELP_CSV_HEADER +
+    'Solo,solo,Sync,SLC,"Bidirectional sync.",sync,,anytime,,,false,,report\n' +
+    'Solo,solo,Catalog,slc,"List installed skills.",catalog,,anytime,,,false,,table\n');
+  const r = run(root);
+  assert.equal(r.status, 1, r.stdout);
+  assert.match(r.stderr, /claimed by two rows/);
+});
+
+// The normal shape must stay silent, INCLUDING the `_meta` documentation row, which carries no
+// menu code at all. Counting empty codes as colliding would fire on every real module CSV --
+// each of the four ships exactly one such row.
+test("check:module accepts distinct menu codes and empty _meta codes", (t) => {
+  const root = fixture(t);
+  writeModuleHome(root, "solo", "solo");
+  write(root, "skills/solo/assets/module-help.csv", HELP_CSV_HEADER +
+    'Solo,_meta,,,,,,,,,false,https://example.invalid/docs,\n' +
+    'Solo,solo,Sync,SLC,"Bidirectional sync.",sync,,anytime,,,false,,report\n' +
+    'Solo,solo,Catalog,SLA,"List installed skills.",catalog,,anytime,,,false,,table\n');
+  const r = run(root, ["-v"]);
+  assert.equal(r.status, 0, r.stderr);
+});
+
+// SCOPE: the rule is per-CSV, and the header says so. Two DIFFERENT modules reusing a code are
+// assembling separate menus, and nothing measured here says those collide -- a repo-wide
+// uniqueness rule would assert that without evidence.
+test("check:module allows the same menu code in two different modules", (t) => {
+  const root = fixture(t);
+  writeModuleHome(root, "solo", "solo");
+  writeModuleHome(root, "other", "other");
+  write(root, "skills/solo/assets/module-help.csv", HELP_CSV_HEADER +
+    'Solo,solo,Sync,SLC,"Bidirectional sync.",sync,,anytime,,,false,,report\n');
+  write(root, "skills/other/assets/module-help.csv", HELP_CSV_HEADER +
+    'Other,other,Sync,SLC,"Bidirectional sync.",sync,,anytime,,,false,,report\n');
+  const r = run(root, ["-v"]);
+  assert.equal(r.status, 0, r.stderr);
+});
