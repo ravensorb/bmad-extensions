@@ -121,6 +121,19 @@ running to completion, so the hazard is the exit, not the writer. Calling `write
 per line is also fine — the rule is "never queue", not "write once" — and the two mutating
 scripts do exactly that, so a run that throws partway still shows what it had already written.
 
+**There is a THIRD failure shape, and the framing above does not reach it.** Everything to this
+point measures the class by how much is queued. Misordering is not about quantity at all.
+`run-python-suites.mjs` wrote its `=== <suite>` header and then spawned the suite with
+`stdio: 'inherit'`: the child writes that fd *directly* while the parent's write is still
+queued, so the header can land **after** the output it labels. Nothing is lost — it is
+**misattributed**, which is worse, because a truncated report looks wrong and a mislabelled one
+looks fine and gets acted on. A 20-byte header carries exactly the same exposure as a 20 KB
+one, so no size threshold and no measured curve predicts it. The rule that does cover it is the
+narrow one: **never hand an inherited fd to a child with your own write still queued on it.**
+That header call is already on `writeAllSync` and says why at the call site; what was missing
+was this paragraph. Raised by the downstream package after both our trees had documented
+the class purely in terms of queue depth, which is the frame this case escapes.
+
 ## Dependencies
 
 The checkers are **not** dependency-free, and have not been since
