@@ -225,6 +225,7 @@ import { createHash } from "node:crypto";
 import { fileURLToPath } from "node:url";
 import YAML from "yaml";
 import sh from "mvdan-sh";
+import { writeAllSync } from "./write-all-sync.mjs";
 
 // CHECK_DOCS_ROOT points the checker at another tree -- scripts/tests/check-docs.test.mjs
 // runs it against a temp copy with a planted violation.
@@ -256,33 +257,11 @@ const read = (p) => {
 };
 const exists = (p) => fs.existsSync(path.join(repoRoot, p));
 
-// Write `text` to a raw fd, looping until every byte is gone.
-//
-// `console.log`/`console.error` are ASYNCHRONOUS when the stream is a PIPE -- which is exactly
-// how CI and scripts/tests/check-docs.test.mjs (spawnSync) run this file. Queued bytes that
-// have not reached the pipe when `process.exit()` tears the process down are DISCARDED, with
-// no error anywhere. Measured on this tree before the fix: 10 of 20 spawnSync runs of the
-// failure path delivered a truncated report -- a correct "231 documentation problem(s)" header
-// over 142 delivered findings and no closing advice. The same command through a shell pipeline
-// was intact 8/8, so the truncation only ever showed up where a human was not reading it.
-//
-// Two rules follow, and both matter:
-//   1. Assemble the whole report as ONE string and write it through here.
-//   2. Set `process.exitCode` and fall through -- never `process.exit()`.
-// writeSync alone is not sufficient: on a non-blocking fd it can write fewer bytes than asked,
-// or throw EAGAIN, and either one truncates just as silently as the race it replaces.
-export function writeAllSync(fd, text) {
-  const buf = Buffer.from(text, "utf8");
-  let off = 0;
-  while (off < buf.length) {
-    try {
-      off += fs.writeSync(fd, buf, off, buf.length - off);
-    } catch (err) {
-      if (err.code === "EAGAIN") continue;
-      throw err;
-    }
-  }
-}
+// The report writer. Its own module since four gate scripts need it -- `scripts/write-all-sync.mjs`
+// carries the measurements and the two rules that go with it. Re-exported here because
+// scripts/tests/check-docs.test.mjs's flush probe imports it from this file, and because the
+// rule it enforces is about THIS file's reporter as much as the shared helper.
+export { writeAllSync };
 
 // Files a reader is told are current. Historical records are excluded on purpose: CHANGELOG
 // and the trees below describe what was true when written, and rewriting them to match today

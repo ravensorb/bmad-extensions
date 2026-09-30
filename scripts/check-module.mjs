@@ -172,6 +172,7 @@ import path from "node:path";
 import YAML from "yaml";
 import { parse as parseCsv } from "csv-parse/sync";
 import { parse as parseToml } from "smol-toml";
+import { writeAllSync } from "./write-all-sync.mjs";
 
 // CHECK_MODULE_ROOT points the checker at another tree -- scripts/tests/check-module.test.mjs
 // runs it against fixtures built from an empty skills/ tree.
@@ -1471,11 +1472,15 @@ if (verbose) {
   for (const line of strategyReport) console.log(line);
 }
 
+// One buffered write, then `process.exitCode` -- never a console.error loop and never
+// `process.exit()`. See scripts/write-all-sync.mjs for why, and for the measured line counts at
+// which the loop starts losing findings.
 if (failures.length > 0) {
-  console.error(`\n${failures.length} module structure problem(s):\n`);
-  for (const f of failures) console.error(`  ✗ ${f}\n`);
-  console.error("These are the structural facts the module layout must hold. Fix the tree, not this check.");
-  process.exit(1);
+  writeAllSync(2,
+    `\n${failures.length} module structure problem(s):\n\n` +
+    failures.map((f) => `  ✗ ${f}\n\n`).join("") +
+    "These are the structural facts the module layout must hold. Fix the tree, not this check.\n");
+  process.exitCode = 1;
+} else {
+  console.log("Module structure checks passed: one module.yaml per module, correctly homed.");
 }
-
-console.log("Module structure checks passed: one module.yaml per module, correctly homed.");

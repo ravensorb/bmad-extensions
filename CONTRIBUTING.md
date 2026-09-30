@@ -64,7 +64,7 @@ on `ERR_MODULE_NOT_FOUND`. CI installs before any gate, and so should you.
 | `npm run check:bmb` | BMad Builder's own scanners, run over this package's skills |
 | `npm run check:lint:py` | `ruff` over every Python file in `skills/`, with the version pinned in the npm script so a bump is a visible diff |
 | `npm run check:lock` | `package-lock.json` still satisfies `package.json` — the gate that exists because CI died at `npm ci` for a week (2.5.2 through 3.0.1) |
-| `npm run test:scripts` | The `check-docs` and `check-module` self-tests |
+| `npm run test:scripts` | The gate scripts' own self-tests — every `scripts/tests/*.test.mjs`, globbed rather than listed |
 | `npm run test:python` | Every Python suite, discovered rather than listed (below) |
 
 `npm run ci:local` runs the whole `checks.yml` workflow locally through `act` (needs `act` on

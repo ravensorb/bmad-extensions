@@ -71,6 +71,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { parse as parseCsv } from "csv-parse/sync";
+import { writeAllSync } from "./write-all-sync.mjs";
 
 // The validator's message wordings, which are the only machine-readable handle it offers on
 // WHICH row a finding is about. Anchored whole, so a reworded message stops matching and the
@@ -85,8 +86,13 @@ const META_SKILL = "_meta";
 // has `_meta` in it, so a missing `skill` is always a real defect.
 const META_EMPTY_FIELDS = new Set(["display-name", "menu-code", "description"]);
 
+// `process.exit()` is safe HERE and nowhere else in this file: writeAllSync has already put
+// every byte on the fd by the time it returns, so there is nothing queued left to discard. The
+// rule in scripts/write-all-sync.mjs bans the pair `console.error(...)` + `process.exit()`,
+// which is a different thing. `die` has to stay terminating -- callers use it as control flow
+// (`if (!viewDir) die(...)`) and would fall through into code that assumes the check passed.
 function die(msg) {
-  console.error(`check-module-view: ${msg}`);
+  writeAllSync(2, `check-module-view: ${msg}\n`);
   process.exit(1);
 }
 
@@ -134,9 +140,10 @@ const csvHome = info.skill_dir || info.setup_skill;
 if (!csvHome) {
   // Happens when the validator bailed out early with a structural critical. There is no
   // evidence to exempt anything against, so everything stands.
-  console.error(`check-module-view: view '${viewDir}': the validator reported no module home ` +
-    `(info.skill_dir / info.setup_skill absent), so no exemption has evidence behind it.`);
-  for (const f of findings) console.error(`  ${f.severity} ${f.category}: ${f.message}`);
+  writeAllSync(2,
+    `check-module-view: view '${viewDir}': the validator reported no module home ` +
+    `(info.skill_dir / info.setup_skill absent), so no exemption has evidence behind it.\n` +
+    findings.map((f) => `  ${f.severity} ${f.category}: ${f.message}\n`).join(""));
   process.exit(1);
 }
 const csvPath = path.join(viewDir, csvHome, "assets", "module-help.csv");
@@ -222,15 +229,17 @@ for (const f of findings) {
 const label = info.module_code || csvHome || viewDir;
 // The exemptions are listed with -v, and always when something stands beside them: a reader
 // looking at a failure needs to see what was waved through next to what was not.
+// Both lists go out as one write each. Two findings per exemption and one per standing item is
+// a line count that scales with the module's CSV, and this path ends in `die` -- see
+// scripts/write-all-sync.mjs for what a console loop loses on the way out.
 if (verbose || standing.length > 0) {
-  for (const { f, why } of exempt) {
-    console.log(`  exempt  [${f.category}] ${f.message}`);
-    console.log(`          ↳ ${why}`);
-  }
+  writeAllSync(1, exempt.map(({ f, why }) =>
+    `  exempt  [${f.category}] ${f.message}\n          ↳ ${why}\n`).join(""));
 }
-for (const { f } of standing) {
-  console.error(`  FINDING [${f.severity}/${f.category}] ${f.message}` +
-    (f.detail ? ` (${f.detail})` : ""));
+if (standing.length > 0) {
+  writeAllSync(2, standing.map(({ f }) =>
+    `  FINDING [${f.severity}/${f.category}] ${f.message}` +
+    (f.detail ? ` (${f.detail})` : "") + "\n").join(""));
 }
 
 if (standing.length > 0) {

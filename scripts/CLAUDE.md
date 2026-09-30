@@ -86,6 +86,22 @@ Two properties the trap deliberately keeps:
   at the moment you need it is hostile to the debugging it exists for. Cleanup happens on
   exit 0 only.
 
+**A gate reports through `writeAllSync`, never `console.error`.** `console.log`/`console.error`
+are asynchronous when the stream is a pipe — which is how CI and every suite here run these
+scripts — and bytes still queued when `process.exit()` fires are discarded with no error
+anywhere. `check-docs.mjs` shipped that for its whole life: a correct "231 documentation
+problem(s)" header over 142 delivered findings, in 10 of 20 runs, intact 8/8 through a shell
+pipeline, so it only ever truncated where nobody was reading. The trigger is the **number of
+queued writes, not the payload size** — a single 128 KB write is intact 20/20, while a
+`console.error` loop starts losing findings around 300 lines and delivers as little as 3% at
+5000. `scripts/write-all-sync.mjs` has the measured curve. Two rules, both load-bearing:
+assemble the whole report as one string and write it through the helper, and set
+`process.exitCode` rather than calling `process.exit()`. Where a script genuinely must
+terminate — `check-module-view.mjs`'s `die()`, whose callers use it as control flow — the exit
+is fine *after* a completed `writeAllSync`, because nothing is left queued.
+`scripts/tests/write-all-sync.test.mjs` enforces this over every `scripts/check-*.mjs`, scope
+globbed rather than listed, since the file that needs the rule is the next one somebody writes.
+
 ## Dependencies
 
 The checkers are **not** dependency-free, and have not been since

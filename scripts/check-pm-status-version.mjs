@@ -35,6 +35,7 @@
 // Usage: node scripts/check-pm-status-version.mjs [-v]
 import fs from "node:fs";
 import path from "node:path";
+import { writeAllSync } from "./write-all-sync.mjs";
 
 // CHECK_VERSION_ROOT points the checker at another tree -- scripts/tests/check-pm-status-version.test.mjs
 // runs it against fixtures built from an empty skills/ tree.
@@ -49,7 +50,9 @@ const PM = "skills/_shared/pm-status.py";
 const PKG = "package.json";
 
 if (!exists(PM)) {
-  console.error(`✗ ${PM} not found`);
+  // Terminating on purpose: everything below reads PM. writeAllSync has already delivered the
+  // message by the time it returns, so process.exit discards nothing.
+  writeAllSync(2, `✗ ${PM} not found\n`);
   process.exit(1);
 }
 const text = read(PM);
@@ -116,16 +119,26 @@ for (const rel of moduleHomes) {
   }
 }
 
+// One buffered write, then `process.exitCode`. This reporter's line count is bounded by the
+// number of module homes, so it is well under the ~300 lines where the console loop starts
+// losing findings -- it follows the rule anyway, because "this one is short enough" is the
+// judgement that has to be re-made correctly every time someone adds a failure. See
+// scripts/write-all-sync.mjs.
 if (failures.length) {
-  console.error(`\n${failures.length} version problem(s):\n`);
-  for (const f of failures) console.error(`  ✗ ${f}\n`);
-  process.exit(1);
+  writeAllSync(2,
+    `\n${failures.length} version problem(s):\n\n` +
+    failures.map((f) => `  ✗ ${f}\n\n`).join(""));
+  process.exitCode = 1;
+} else {
+  // The `else` is load-bearing, not tidying: dropping `process.exit(1)` for `process.exitCode`
+  // means execution FALLS THROUGH, and a failing run would otherwise print "version check
+  // passed" underneath its own failures and exit 1 -- the worst of both.
+  if (verbose) {
+    console.log(`  pm-status-version: ${marker} == PM_STATUS_VERSION == ${PKG}`);
+    console.log(`  module-version: ${moduleChecked} module home(s) at ${pkg}`);
+  }
+  console.log(
+    `pm-status.py version check passed: ${marker} in all three places; ` +
+      `${moduleChecked} module home(s) at ${pkg}.`,
+  );
 }
-if (verbose) {
-  console.log(`  pm-status-version: ${marker} == PM_STATUS_VERSION == ${PKG}`);
-  console.log(`  module-version: ${moduleChecked} module home(s) at ${pkg}`);
-}
-console.log(
-  `pm-status.py version check passed: ${marker} in all three places; ` +
-    `${moduleChecked} module home(s) at ${pkg}.`,
-);

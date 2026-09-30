@@ -25,6 +25,7 @@ import { globSync } from 'node:fs';
 import { spawnSync } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
+import { writeAllSync } from './write-all-sync.mjs';
 
 const ROOT = path.resolve(import.meta.dirname, '..');
 const BMB = 'node_modules/bmad-builder/src/skills/bmad-workflow-builder/scripts';
@@ -180,17 +181,27 @@ export function run(root = ROOT) {
 }
 
 if (process.argv[1] && path.resolve(process.argv[1]) === path.resolve(import.meta.filename)) {
+  // One buffered write per outcome, then `process.exitCode` -- never a console.error loop and
+  // never `process.exit()`. See scripts/write-all-sync.mjs. This reporter is the one with the
+  // most to lose: the scan produces 188 findings on a clean tree and prints none of them only
+  // because every one matches a documented exemption, so the line count here is a property of
+  // the exemption list rather than of the tree.
   const res = run();
-  if (res.fatal) { console.error(res.fatal); process.exit(2); }
-  const bare = noBareBmadInCommands();
-  for (const b of bare) console.error(`bare _bmad/ inside a shell block: ${b}`);
-  for (const f of res.unexempt) {
-    console.error(`[${f.severity}] ${f.skill}/${f.file}:${f.line} (${f.category}) ${f.title}`);
+  if (res.fatal) {
+    writeAllSync(2, `${res.fatal}\n`);
+    process.exitCode = 2;
+  } else {
+    const bare = noBareBmadInCommands();
+    if (res.unexempt.length || bare.length) {
+      writeAllSync(2,
+        bare.map((b) => `bare _bmad/ inside a shell block: ${b}\n`).join("") +
+        res.unexempt.map((f) =>
+          `[${f.severity}] ${f.skill}/${f.file}:${f.line} (${f.category}) ${f.title}\n`).join("") +
+        `\nbmb scan: ${res.unexempt.length} unexempted finding(s), ${bare.length} bare _bmad in commands.\n`);
+      process.exitCode = 1;
+    } else {
+      console.log(`bmb scan passed: ${res.scanners} scanner(s) over ${res.skills} skills, ` +
+                  `${res.total} finding(s), all matched by a documented exemption.`);
+    }
   }
-  if (res.unexempt.length || bare.length) {
-    console.error(`\nbmb scan: ${res.unexempt.length} unexempted finding(s), ${bare.length} bare _bmad in commands.`);
-    process.exit(1);
-  }
-  console.log(`bmb scan passed: ${res.scanners} scanner(s) over ${res.skills} skills, ` +
-              `${res.total} finding(s), all matched by a documented exemption.`);
 }
