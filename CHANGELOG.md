@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file. See [commit-and-tag-version](https://github.com/absolute-version/commit-and-tag-version) for commit guidelines.
 
+## [3.2.1](https://github.com/ravensorb/bmad-extensions/compare/3.2.0...3.2.1) (2026-09-30)
+
+
+### Documentation
+
+* **infra:** the payload manifest covers synced files, not shipped ones ([27d2f9c](https://github.com/ravensorb/bmad-extensions/commit/27d2f9c148fa4a2b8ffb03c3887a0f991d3c6a80))
+
 ## [3.2.0](https://github.com/ravensorb/bmad-extensions/compare/3.1.8...3.2.0) (2026-09-30)
 
 
