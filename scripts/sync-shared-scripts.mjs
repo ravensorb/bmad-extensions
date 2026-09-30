@@ -356,9 +356,13 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
       }
     }
     // Not console.log. check-docs.mjs's check 24 spawns this and JSON.parse's what comes back,
-    // so a write that loses its tail does not produce a visible truncation -- it produces a
-    // parse error in an unrelated gate, or, if the loss happens to land on a record boundary,
-    // a check 24 that quietly judges a narrower scope than it reports.
+    // so a lost tail surfaces as a parse error in an unrelated gate rather than as a visible
+    // truncation here. It is LOUD, not silent: the downstream package truncated the real
+    // output at all 681 interior points and every one threw, and check-docs.mjs:3766 pushes a
+    // failure on the parse error rather than skipping. So the risk is a gate that fails for
+    // reasons unrelated to the tree -- which teaches people to re-run it -- not a scope that
+    // narrows quietly. (An earlier version of this comment claimed the silent case; it was
+    // reasoned, not measured, and it is wrong.)
     writeAllSync(1, JSON.stringify([...deliveries].map(([key, skills]) => {
       const [source, dest] = key.split("\0");
       return {
