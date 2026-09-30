@@ -1,9 +1,9 @@
 {
-  "version": "3.1.8",
+  "version": "3.2.0",
   "generated_from": "skills/_shared/",
   "files": {
     "references/config-resolution.md": "7636a63b75d009634094be83a2a405c9e5df0a52ed1ccbe22a0dda3db0f5757b",
-    "scripts/pm-status.py": "5f07d89cc6f86a8bd4aa7e0a68446db07ef106c6556f1798a27c5f27b7ed9e07",
+    "scripts/pm-status.py": "7c0ca2e8e79775060ae8101e3966c6f31a3f773343bf3d55ca18f4f61d063aa3",
     "scripts/merge-config.py": "22f51eed631c64134d352c236917e0a98ec5b5fe5d0810394f4615905c6ef7dc",
     "scripts/merge-help-csv.py": "44cae89d74a247395cc851970e28b65605e958efa04b632209f9bd5ecbc70d69",
     "scripts/write-module-config.py": "fdc0e81cda51221599907b9023a096b0570e096b7d921fb0c1db2050afa7a80f",

@@ -2,6 +2,38 @@
 
 All notable changes to this project will be documented in this file. See [commit-and-tag-version](https://github.com/absolute-version/commit-and-tag-version) for commit guidelines.
 
+## [3.2.0](https://github.com/ravensorb/bmad-extensions/compare/3.1.8...3.2.0) (2026-09-30)
+
+
+### Features
+
+* **infra:** check that a deprecated forwarder actually forwards ([4160816](https://github.com/ravensorb/bmad-extensions/commit/416081642706bba27c88b75e7a0e630fe7ddba51))
+
+
+### Fixes
+
+* **infra:** stop check-docs truncating its report, and stop it re-walking the same shell ([0548614](https://github.com/ravensorb/bmad-extensions/commit/0548614204a58b0831631d24fda85f69faeb62f4))
+* **infra:** stop the other four gates truncating their reports ([2048ce8](https://github.com/ravensorb/bmad-extensions/commit/2048ce8100e5865f6da2a9bff22c67271888b539))
+* **infra:** widen the flush guard to the two gates its glob could not see ([b3facd3](https://github.com/ravensorb/bmad-extensions/commit/b3facd30d35d7c52e27048b242ed066a023b9c1e))
+* **l3io-pm:** free /l3io-help catalog from a menu code l3io-sync already held ([767c610](https://github.com/ravensorb/bmad-extensions/commit/767c6101d8ed19032c8c94ce605493cf8494d2de))
+
+
+### Performance
+
+* **infra:** cut test:scripts from a quarter-hour to four minutes ([6645ab1](https://github.com/ravensorb/bmad-extensions/commit/6645ab11b822414e90f1d33406293d678b1caad3))
+
+
+### Documentation
+
+* **infra:** make CONTRIBUTING's gate table true, and name the Python suites' real runner ([0df82d1](https://github.com/ravensorb/bmad-extensions/commit/0df82d18b2854b33d3f7a32ab3bfb934b06a4860))
+* **infra:** the --dump-deliveries truncation is loud, not silent ([4f570a4](https://github.com/ravensorb/bmad-extensions/commit/4f570a4dedc963bfbbc6748adcbc9aeea6613cee))
+
+
+### Testing
+
+* **infra:** keep the fixture that produced a failure, and pin the symlink's delete semantics ([fcc78c5](https://github.com/ravensorb/bmad-extensions/commit/fcc78c599a0815755ea869b9553fa195b1a35137))
+* **infra:** make the check-docs fixture a runnable copy, not just a readable one ([a55fc6b](https://github.com/ravensorb/bmad-extensions/commit/a55fc6b763046370b4072e83a3d44f92e969f435))
+
 ## [3.1.8](https://github.com/ravensorb/bmad-extensions/compare/3.1.7...3.1.8) (2026-09-29)
 
 
