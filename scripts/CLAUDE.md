@@ -215,11 +215,34 @@ review gets posted.
 ## Payload manifests
 
 Each skill also carries a **generated** `skills/<skill>/payload-manifest.json` — a SHA-256 per
-payload file, keyed relative to that skill's own root so a consumer who installed one skill can
-verify that skill alone. It is written by `scripts/write-payload-manifest.mjs`, whose scope is
-*imported* from `sync-shared-scripts.mjs` rather than re-listed. **Never hand-edit a manifest,
-and regenerate it whenever a payload file changes** — `npm run sync:scripts` does not do it for
-you. Generation alone gates nothing: the manifests were generated once, later commits edited a
+**sync-delivered** payload file, keyed relative to that skill's own root. It is written by
+`scripts/write-payload-manifest.mjs`, whose scope is *imported* from `sync-shared-scripts.mjs`
+rather than re-listed. **Never hand-edit a manifest, and regenerate it whenever a payload file
+changes** — `npm run sync:scripts` does not do it for you.
+
+**Read that scope literally: it is what a sync group delivers, not what a skill ships.** A file
+is hashed only if some sync group copies it here from `skills/_shared/`. Skill-owned payload —
+authored in the skill, never synced — is **not** in any manifest. Measured 2026-09-30: **69 of
+166 shipped files are hashed; 97 are not.** That includes every skill's own `SKILL.md`, all
+seventeen of `l3io-doctor`'s `steps/` files and eleven of its `scripts/` (the whole migration
+engine and its five readers), and eighteen of `l3io-sec-redteam`'s twenty-three. `pm-status.py`
+and `spec-align.py` *are* hashed, in the same directory as those eleven, because they are synced
+— same skill, same install, opposite coverage, and a consumer cannot tell which is which.
+
+So this is a **sync-drift detector, and it is complete for that job.** It is not a
+consumer-verification artifact, and must not be described as one: an earlier version of this
+paragraph said a consumer "can verify that skill alone," which was false for `l3io-doctor` and
+`l3io-help` the whole time it was written down. Derived-beats-listed was the right principle
+aimed at the wrong question — the scope was derived from *what gets synced*, and what gets
+synced is not what gets shipped.
+
+Note the failure mode before trusting a green run: this omission **reads as a guarantee**, the
+same way the stale hash below did. `check:manifest` prints `Payload manifests are current: 8
+skill(s), 69 file(s)` over an edit to a skill-owned file it cannot see, and regenerating produces
+no diff — which looks like confirmation that the change was covered. It was not. Widening the
+writer to every shipped file is a small change; deciding whether the manifest should be a
+verification artifact is not, and it would make `check:manifest` fail on every skill-owned edit
+until regenerated. That decision is open, and is not this paragraph's to make. Generation alone gates nothing: the manifests were generated once, later commits edited a
 payload file, and HEAD shipped a manifest asserting a hash the file no longer had, which is
 worse than no checksum because it reads as a guarantee. `npm run check:manifest` is now the gate,
 in CI and in `prerelease`, and `postbump` regenerates after the payload re-sync (the bump rewrites
