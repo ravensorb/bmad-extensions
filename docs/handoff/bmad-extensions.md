@@ -59,9 +59,40 @@ not rewritten — treat any stale name elsewhere in it as a transcription error,
   real smoke tree. `payload-manifest.json` reports **0** files under `tests/`, so the guard
   reads as an all-clear on a question it never asks. Options: exclude at install, move the
   suites out of skill dirs, or stop claiming tests are not shipped.
+- [todo] **Ship `docs/upgrading.md` into `l3io-doctor/assets/`** (487 lines, 28 KB, one copy
+  not four). Twice in eight days the REASON for a change existed only in this repo while the
+  consumer could see only the effect — `l3io-util-doctor` in 3.1.3, `l3io-pm-setup` in 3.1.8 —
+  and each time a wrong bug report was avoided only because the consumer asked. The doctor is
+  already the documented post-upgrade entry point. Compare the 224 KB of test files removed
+  from the payload in 3.1.6 for being dead: this is 28 KB that answers a question.
+- [todo] **A note verb for `update-issue`.** `--note` rides only on the severity-change event,
+  so an unchanged severity records nothing (`update_issue_core` says so in its own comment).
+  There is no way to record "the diagnosis stands, the remedy moved". Consumer's case: a
+  Critical whose diagnosis was right and whose stated remedy would have broken a convention
+  used 132 times in one file — the correction lives in a commit message nobody reading the
+  backlog will see.
 - [todo] Peer `docker apps source - agent 1` is on 3.0.1 and needs to update the plugin, not
   re-run self-install — self-install reads the payload copies inside the installed skills, so
   it cannot pull anything newer than the installed plugin.
+
+## Two lessons from the 3.1.3–3.1.8 rename, worth not rediscovering
+
+**Green gates over a platform-dependent defect.** `l3io-pm-setup` shipped as a deprecation
+forwarder in 3.1.3 and had to be withdrawn in 3.1.8: BMad finds a module's setup skill by
+first-match scan with no tie-break, `l3io-pm-setup` sorts before `l3io-setup`, so on any
+filesystem returning sorted entries — APFS, HFS+, many NFS/SMB mounts — the forwarder won,
+BMad registered the module from a directory with no `module.yaml`, and exited 0 silently.
+This repo is on ext4, whose hash ordering happened to return the real home. **Every gate here
+was green over a shape that would have failed for every macOS user.** The iteration order of
+a directory was an input nobody had modelled. Full reasoning: `docs/upgrading.md` → 3.1.8, and
+commit `c5a3e32`.
+
+**The self-explanation paradox.** The obvious way for a withdrawn skill to explain its own
+withdrawal is to leave a stub behind carrying the reason — and a leftover `*-setup` directory
+is precisely what broke module registration. So the explanation cannot live in the thing being
+explained, and a withdrawn name cannot answer for itself at all: the harness reports "unknown
+skill" before any of this package's code runs. That rules out the intuitive fix and is easy to
+rediscover the hard way.
 
 ## Decisions pending (user's, not the agent's)
 
