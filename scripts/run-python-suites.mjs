@@ -22,6 +22,7 @@
 import { globSync } from 'node:fs';
 import { spawnSync } from 'node:child_process';
 import path from 'node:path';
+import { writeAllSync } from './write-all-sync.mjs';
 
 const ROOT = path.resolve(import.meta.dirname, '..');
 // Test suites live under two roots:
@@ -47,25 +48,28 @@ export function discover(root = ROOT) {
 if (process.argv[1] && path.resolve(process.argv[1]) === path.resolve(import.meta.filename)) {
   const suites = discover();
   if (process.argv.includes('--list')) {
-    for (const s of suites) console.log(s);
+    writeAllSync(1, suites.join('\n') + '\n');
     process.exit(0);
   }
   // The scope guard. An empty set is the one result that would make this runner report
   // success over nothing at all -- the exact shape of the failure it was written to stop.
   if (suites.length === 0) {
-    console.error(`No Python suites matched ${PATTERNS.join(' or ')}. Refusing to report success over an ` +
-                  `empty set -- either the pattern is wrong or the suites are gone.`);
+    writeAllSync(2, `No Python suites matched ${PATTERNS.join(' or ')}. Refusing to report success over an ` +
+                    `empty set -- either the pattern is wrong or the suites are gone.\n`);
     process.exit(2);
   }
   let failed = [];
   for (const s of suites) {
-    process.stdout.write(`\n=== ${s}\n`);
+    // writeAllSync, not process.stdout.write, for a second reason on top of the exit race:
+    // the child below inherits this fd and writes to it directly, so an asynchronous parent
+    // write can land AFTER the output of the suite it is supposed to be labelling.
+    writeAllSync(1, `\n=== ${s}\n`);
     const r = spawnSync('uv', ['run', s], { cwd: ROOT, stdio: 'inherit' });
     if (r.status !== 0) failed.push(`${s} (exit ${r.status ?? 'signal ' + r.signal})`);
   }
-  console.log(`\n${suites.length - failed.length}/${suites.length} Python suites passed.`);
+  writeAllSync(1, `\n${suites.length - failed.length}/${suites.length} Python suites passed.\n`);
   if (failed.length) {
-    console.error(`\nFAILED:\n  ${failed.join('\n  ')}`);
+    writeAllSync(2, `\nFAILED:\n  ${failed.join('\n  ')}\n`);
     process.exit(1);
   }
 }

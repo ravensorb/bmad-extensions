@@ -49,6 +49,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { execFileSync } from "node:child_process";
 import { pathToFileURL } from "node:url";
+import { writeAllSync } from "./write-all-sync.mjs";
 
 const repoRoot = process.cwd();
 const check = process.argv.includes("--check");
@@ -354,19 +355,24 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
         }
       }
     }
-    console.log(JSON.stringify([...deliveries].map(([key, skills]) => {
+    // Not console.log. check-docs.mjs's check 24 spawns this and JSON.parse's what comes back,
+    // so a write that loses its tail does not produce a visible truncation -- it produces a
+    // parse error in an unrelated gate, or, if the loss happens to land on a record boundary,
+    // a check 24 that quietly judges a narrower scope than it reports.
+    writeAllSync(1, JSON.stringify([...deliveries].map(([key, skills]) => {
       const [source, dest] = key.split("\0");
       return {
         source: source.split(path.sep).join("/"),
         dest: dest.split(path.sep).join("/"),
         skills: [...skills].sort(),
       };
-    })));
+    })) + "\n");
     process.exit(0);
   }
 
   let drift = 0;
   let written = 0;
+  const report = [];
 
   for (const { files, dirs, skipMissing } of syncGroups) {
     for (const { src, rel } of files) {
@@ -384,7 +390,7 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
         if (check) {
           if (!same) {
             drift += 1;
-            console.error(`DRIFT: ${path.relative(repoRoot, dest)} does not match ${path.relative(repoRoot, src)}`);
+            report.push(`DRIFT: ${path.relative(repoRoot, dest)} does not match ${path.relative(repoRoot, src)}`);
           }
           continue;
         }
@@ -394,33 +400,39 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
         fs.chmodSync(dest, mode);
         execFileSync("git", ["add", dest], { cwd: repoRoot, stdio: "ignore" });
         written += 1;
-        console.log(`Synced ${path.relative(repoRoot, dest)}`);
+        // Written as it happens, not buffered: this arm mutates the tree, and the `git add`
+        // below it can throw. A buffer flushed at the end would lose the record of what had
+        // already been copied on exactly the run where you need it. Calling writeAllSync per
+        // line is still safe -- the rule it enforces is "never queue", not "write once".
+        writeAllSync(1, `Synced ${path.relative(repoRoot, dest)}\n`);
       }
     }
   }
 
   const orphans = findOrphans();
   for (const orphan of orphans) {
-    console.error(`ORPHAN: ${orphan} exists but no sync group targets this skill for this file`);
+    report.push(`ORPHAN: ${orphan} exists but no sync group targets this skill for this file`);
   }
 
   if (check) {
     if (drift > 0 || orphans.length > 0) {
       if (drift > 0) {
-        console.error(`\n${drift} shared-script copy/copies out of sync — run: npm run sync:scripts`);
+        report.push(`\n${drift} shared-script copy/copies out of sync — run: npm run sync:scripts`);
       }
       if (orphans.length > 0) {
-        console.error(`\n${orphans.length} orphaned shared-script copy/copies found — delete them ` +
+        report.push(`\n${orphans.length} orphaned shared-script copy/copies found — delete them ` +
           `(git rm) or, if the file legitimately belongs there now, add that skill to the owning ` +
           `sync group in ${path.basename(import.meta.url)}.`);
       }
+      writeAllSync(2, report.join("\n") + "\n");
       process.exit(1);
     }
-    console.log("Shared-script payload copies are in sync with skills/_shared/, with no orphans.");
+    report.push("Shared-script payload copies are in sync with skills/_shared/, with no orphans.");
   } else {
-    console.log(`Shared-script sync complete (${written} file(s) written).`);
+    report.push(`Shared-script sync complete (${written} file(s) written).`);
     if (orphans.length > 0) {
-      console.log(`${orphans.length} orphaned copy/copies found — sync does not delete; remove them by hand.`);
+      report.push(`${orphans.length} orphaned copy/copies found — sync does not delete; remove them by hand.`);
     }
   }
+  writeAllSync(1, report.join("\n") + "\n");
 }

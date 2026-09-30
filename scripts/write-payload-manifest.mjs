@@ -25,6 +25,7 @@ import { createHash } from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
 import { PAYLOAD_TARGETS } from "./sync-shared-scripts.mjs";
+import { writeAllSync } from "./write-all-sync.mjs";
 
 const check = process.argv.includes("--check");
 const root = path.resolve(import.meta.dirname, "..");
@@ -50,6 +51,7 @@ for (const target of PAYLOAD_TARGETS) {
 let totalFiles = 0;
 let drift = 0;
 let missing = 0;
+const report = [];
 for (const [skill, files] of [...bySkill.entries()].sort(([a], [b]) => a.localeCompare(b))) {
   // Task 11A fix round 1, L-2: a manifest-listed payload file that is missing on disk (e.g.
   // deleted by hand, or a sync group narrowed without a matching `git rm`) used to crash this
@@ -61,7 +63,7 @@ for (const [skill, files] of [...bySkill.entries()].sort(([a], [b]) => a.localeC
   for (const relPath of Object.keys(files)) {
     const abs = path.join(root, "skills", skill, relPath);
     if (!fs.existsSync(abs)) {
-      console.error(`MISSING FILE: skills/${skill}/${relPath} is listed as a payload target but does not exist on disk`);
+      report.push(`MISSING FILE: skills/${skill}/${relPath} is listed as a payload target but does not exist on disk`);
       missing += 1;
       skillHasMissingFile = true;
       continue;
@@ -84,7 +86,7 @@ for (const [skill, files] of [...bySkill.entries()].sort(([a], [b]) => a.localeC
     if (onDisk === rendered) continue;
     drift += 1;
     if (onDisk === null) {
-      console.error(`MISSING: ${manifestRel} has never been generated`);
+      report.push(`MISSING: ${manifestRel} has never been generated`);
       continue;
     }
     // Name the files whose recorded hash is wrong -- "the manifest differs" sends a reader
@@ -93,41 +95,45 @@ for (const [skill, files] of [...bySkill.entries()].sort(([a], [b]) => a.localeC
     try {
       recorded = JSON.parse(onDisk).files || {};
     } catch {
-      console.error(`MALFORMED: ${manifestRel} is not valid JSON`);
+      report.push(`MALFORMED: ${manifestRel} is not valid JSON`);
       continue;
     }
     for (const [relPath, hash] of Object.entries(files)) {
       if (recorded[relPath] !== hash) {
-        console.error(`STALE: ${manifestRel} -> ${relPath} (recorded ${recorded[relPath] ?? "nothing"}, actual ${hash})`);
+        report.push(`STALE: ${manifestRel} -> ${relPath} (recorded ${recorded[relPath] ?? "nothing"}, actual ${hash})`);
       }
     }
     for (const relPath of Object.keys(recorded)) {
-      if (!(relPath in files)) console.error(`STALE: ${manifestRel} -> ${relPath} is no longer a payload file`);
+      if (!(relPath in files)) report.push(`STALE: ${manifestRel} -> ${relPath} is no longer a payload file`);
     }
     const recordedVersion = (() => { try { return JSON.parse(onDisk).version; } catch { return undefined; } })();
     if (recordedVersion !== version) {
-      console.error(`STALE: ${manifestRel} records version ${recordedVersion}, package.json is at ${version}`);
+      report.push(`STALE: ${manifestRel} records version ${recordedVersion}, package.json is at ${version}`);
     }
     continue;
   }
 
   fs.writeFileSync(manifestPath, rendered);
-  console.log(`${manifestRel}: ${count} file(s) at ${version}`);
+  // Written as it happens: this arm has already written the manifest above it, so a buffer
+  // flushed at the end would lose the record of what changed on a run that throws partway.
+  writeAllSync(1, `${manifestRel}: ${count} file(s) at ${version}\n`);
 }
 
 if (missing > 0) {
-  console.error(`\n${missing} payload file(s) listed as a target but missing on disk — fix ` +
+  report.push(`\n${missing} payload file(s) listed as a target but missing on disk — fix ` +
     `the tree (restore the file or narrow the sync group in sync-shared-scripts.mjs), then ` +
     `re-run.`);
+  writeAllSync(2, report.join("\n") + "\n");
   process.exit(1);
 }
 
 if (check) {
   if (drift > 0) {
-    console.error(`\n${drift} payload manifest(s) stale — run: node scripts/write-payload-manifest.mjs`);
+    report.push(`\n${drift} payload manifest(s) stale — run: node scripts/write-payload-manifest.mjs`);
+    writeAllSync(2, report.join("\n") + "\n");
     process.exit(1);
   }
-  console.log(`Payload manifests are current: ${bySkill.size} skill(s), ${totalFiles} file(s) at ${version}.`);
+  writeAllSync(1, `Payload manifests are current: ${bySkill.size} skill(s), ${totalFiles} file(s) at ${version}.\n`);
 } else {
-  console.log(`payload manifests: ${bySkill.size} skill(s), ${totalFiles} file(s) total at ${version}`);
+  writeAllSync(1, `payload manifests: ${bySkill.size} skill(s), ${totalFiles} file(s) total at ${version}\n`);
 }

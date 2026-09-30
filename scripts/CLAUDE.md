@@ -99,8 +99,27 @@ assemble the whole report as one string and write it through the helper, and set
 `process.exitCode` rather than calling `process.exit()`. Where a script genuinely must
 terminate — `check-module-view.mjs`'s `die()`, whose callers use it as control flow — the exit
 is fine *after* a completed `writeAllSync`, because nothing is left queued.
-`scripts/tests/write-all-sync.test.mjs` enforces this over every `scripts/check-*.mjs`, scope
-globbed rather than listed, since the file that needs the rule is the next one somebody writes.
+`scripts/tests/write-all-sync.test.mjs` enforces this, scope derived rather than listed, since
+the file that needs the rule is the next one somebody writes.
+
+**That scope is the union of two derivations, and needs to be.** Every `scripts/check-*.mjs`,
+*plus* every `scripts/*.mjs` a `check:`/`test:` npm script invokes. A glob over filenames alone
+missed two live gates for as long as the rule existed: `check:manifest` is
+`write-payload-manifest.mjs` and `check:scripts` is `sync-shared-scripts.mjs`, both of which
+report one finding per file in a loop and then exit — the manifest one emits a `STALE:` line
+per drifted payload file across 8 skills, which after any `skills/_shared/steps/**` edit is
+well past the 300-line onset. The npm side alone would equally have missed
+`check-module-view.mjs`, which `smoke-install.sh` invokes rather than npm. Both halves are
+anchored separately, not just the union, because a union stays plausibly sized while one of its
+derivations has quietly gone to zero.
+
+The banned set is `console.error`, `console.warn`, and the stream API `process.stdout.write` /
+`process.stderr.write` — the last of these is the same asynchronous writer under a spelling
+that reads deliberate enough to look exempt. **`console.log` is deliberately not banned**: a
+success line on a path that falls through to normal shutdown is flushed by the event loop
+running to completion, so the hazard is the exit, not the writer. Calling `writeAllSync` once
+per line is also fine — the rule is "never queue", not "write once" — and the two mutating
+scripts do exactly that, so a run that throws partway still shows what it had already written.
 
 ## Dependencies
 

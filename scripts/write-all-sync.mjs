@@ -34,19 +34,37 @@
 // than asked, or throw EAGAIN, and either one truncates exactly as silently as the race it
 // replaces. Hence the loop and the retry.
 //
-// This lives in its own module rather than in `check-docs.mjs` because four gate scripts need
+// THE EAGAIN RETRY BACKS OFF; it is not a bare `continue`. EAGAIN means the pipe is full and
+// the reader has not drained it, so a tight spin burns a core waiting for a reader -- and on a
+// loaded box it burns the very CPU that reader needs to drain the pipe, which is a feedback
+// loop that makes the condition it is waiting on last longer. Raised as a code reading by the
+// downstream package; NEITHER OF US HAS DEMONSTRATED IT BITES, and it cannot show up on an idle
+// machine. It is pre-empted rather than proven because the fix is four lines and the failure it
+// avoids is one that would present as an unrelated slowdown.
+//
+// `Atomics.wait` is the sleep because it is the only SYNCHRONOUS one in Node, and this function
+// is synchronous by contract -- an `await` here would put the report back on the event loop,
+// which is the whole thing it exists to stay off. The cap keeps the worst case bounded: a stall
+// costs at most 8 ms per retry, against the tens of seconds a gate run already takes.
+//
+// This lives in its own module rather than in `check-docs.mjs` because every gate script needs
 // it and importing a checker to borrow a utility would run that checker's module scope.
 import fs from "node:fs";
+
+const SLEEP_SLOT = new Int32Array(new SharedArrayBuffer(4));
 
 export function writeAllSync(fd, text) {
   const buf = Buffer.from(text, "utf8");
   let off = 0;
+  let backoffMs = 1;
   while (off < buf.length) {
     try {
       off += fs.writeSync(fd, buf, off, buf.length - off);
+      backoffMs = 1;   // progress resets it; a later stall starts cheap again
     } catch (err) {
-      if (err.code === "EAGAIN") continue;
-      throw err;
+      if (err.code !== "EAGAIN") throw err;
+      Atomics.wait(SLEEP_SLOT, 0, 0, backoffMs);
+      backoffMs = Math.min(backoffMs * 2, 8);
     }
   }
 }

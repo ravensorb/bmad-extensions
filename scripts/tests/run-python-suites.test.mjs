@@ -68,12 +68,18 @@ test('an empty discovery refuses rather than reporting success over nothing', ()
   // Runner resolves ROOT as its own parent dir, so a copy one level down sees empty/skills.
   fs.mkdirSync(path.join(empty, 'scripts'));
   fs.copyFileSync(RUNNER, path.join(empty, 'scripts/run-python-suites.mjs'));
+  // Every sibling the runner imports has to come along, or it dies at module resolution and
+  // exits 1 -- which is a FAILING exit code, so the bare `code !== 0` reading of this test
+  // would have called that a pass. It exits 1 for the wrong reason and proves nothing about
+  // the empty-set guard. Asserting the exact code is what caught it.
+  fs.copyFileSync(path.join(ROOT, 'scripts/write-all-sync.mjs'),
+                  path.join(empty, 'scripts/write-all-sync.mjs'));
   let code = 0, err = '';
   try {
     execFileSync(process.execPath, [path.join(empty, 'scripts/run-python-suites.mjs')],
                  { encoding: 'utf8', stdio: 'pipe' });
   } catch (e) { code = e.status; err = String(e.stderr); }
-  assert.equal(code, 2, 'an empty set must exit 2, not 0');
+  assert.equal(code, 2, `an empty set must exit 2, not ${code}. stderr was:\n${err}`);
   assert.match(err, /Refusing to report success over an empty set/);
   fs.rmSync(empty, { recursive: true, force: true });
 });
