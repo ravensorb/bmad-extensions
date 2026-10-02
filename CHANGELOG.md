@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file. See [commit-and-tag-version](https://github.com/absolute-version/commit-and-tag-version) for commit guidelines.
 
+## [3.2.2](https://github.com/ravensorb/bmad-extensions/compare/3.2.1...3.2.2) (2026-10-02)
+
+
+### Features
+
+* **l3io-pm:** work_type selects vocabulary, not whether a story is reviewed ([810102e](https://github.com/ravensorb/bmad-extensions/commit/810102eb1923e1b0200653f1a5c7680d7d70000c))
+
 ## [3.2.1](https://github.com/ravensorb/bmad-extensions/compare/3.2.0...3.2.1) (2026-09-30)
 
 
