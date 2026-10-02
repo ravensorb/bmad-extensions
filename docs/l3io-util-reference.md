@@ -118,6 +118,7 @@ in the [l3io-pm reference](l3io-pm-reference.md), which documents the whole CLI.
 | `set-status` | `migrate-state`, `bootstrap-state` | The single atomic status write; these modes never edit a state YAML by hand. |
 | `move-epic` | health check (epic placement, check 23) | Moves an epic directory between `planned/`, `active/` and `archived/` so its folder matches its status, preferring `git mv` so history survives. The health check detects the mismatch and proposes this; it never moves an epic without confirmation. |
 | `set-field` | `migrate-state`, `bootstrap-state` | Sets an arbitrary field on an existing node; refuses `completion_evidence.tests_passing` and other derived fields outright (exit 2). Used to fill `title` on bootstrapped epics, and to write `goal` and `superseded_by` after `import-node` when the reader captured them from the source. |
+| `set-lock` | state contract (`references/status-files.md`) | Claims the per-epic write lock for a session, with a TTL. It enforces mutual exclusion itself rather than being a bare write gated by a separate call, so there is no window between checking the lock and taking it. `clear-lock` is its counterpart. |
 | `clear-lock` | `stats` | The stale-lock remedy `stats` prints per affected epic. |
 | `calibration` | `redrive` | `redrive` rebuilds the `scope` and `fix` components through it. |
 | `dispatch` | `triage` | Opens and closes the dispatch record for a subagent the mode fans out to. |

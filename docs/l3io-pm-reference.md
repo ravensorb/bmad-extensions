@@ -285,9 +285,9 @@ Exceeding the `{max_fix_iterations}` cap emits `FAILED` for that story, leaves i
 |---|---|---|---|---|
 | Retrospective | run | run | run | run |
 | Clean release review | run | skip | run | run |
-| Adversarial analysis | run | skip | skip | run |
-| Red team (`l3io-sec-redteam`) | run | skip | skip | run |
-| UX review (legacy `bmad-ux-review`) | run | skip | skip | run |
+| Adversarial analysis | run | skip | run | run |
+| Red team (`l3io-sec-redteam`) | run | skip | run | run |
+| UX review (legacy `bmad-ux-review`) | run | skip | run | run |
 | Sprint architectural drift (`l3io-arch-review` Mode B) | run | skip | run | run |
 | Issue triage | run | run | run | run |
 
@@ -964,7 +964,7 @@ Calibration:  none yet — formula baseline (components calibrate at ≥3 sample
 | Fix loop | legacy `bmad-dev-story` when installed, else this package's in-package agent |
 | Code review | `bmad-code-review` |
 | Retrospective (sprint + epic) | `bmad-retrospective` |
-| Clean release + adversarial (sprint) | `bmad-review` (adversarial lens), tried first; legacy `bmad-review-adversarial-general` used only when `bmad-review` is absent — **one call carrying both scopes** where the phase matrix runs both (CODE/MIXED). CONFIG runs `clean-release` alone, since the matrix skips adversarial there; DOCS runs neither |
+| Clean release + adversarial (sprint) | `bmad-review` (adversarial lens), tried first; legacy `bmad-review-adversarial-general` used only when `bmad-review` is absent — **one call carrying both scopes** where the phase matrix runs both — CODE, CONFIG and MIXED, since ADR-0009 made CONFIG's column identical to CODE's. DOCS runs neither |
 | Architecture gate (epic) | `l3io-arch-review` Mode B **alone**; `bmad-agent-architect` and superpowers escalate in parallel only on a BLOCKER or MAJOR |
 | Architectural drift (sprint + epic) | `l3io-arch-review` Mode B (optional) |
 | Red-team review (sprint + epic) | `l3io-sec-redteam` (optional) |

@@ -105,6 +105,14 @@
 //                    with no edit here. Shell-tagged fences only; a `--dest <path>`
 //                    argument, a `test -f <path>` and a `name: <prefix>` binding are
 //                    mentions, not calls, and each produced a false positive first.
+//  31. no-flags-on-slash-commands  no `/l3io-*` invocation in a markdown file under skills/
+//                    carries a `--flag`. No l3io-* skill parses flags: l3io-execute takes
+//                    `E{nnn}`, `E{nnn}-S{nn}` or nothing, and anything else prints
+//                    "Unrecognized scope argument" and returns BLOCKED. A regression guard over
+//                    SHIPPED files only -- it cannot stop an agent improvising the syntax in
+//                    conversation, which is how the observed instance arose. A literal leading
+//                    `/` is required, so `--agent l3io-util-triage --epic E{epic}` (an agent NAME
+//                    handed to pm-status.py dispatch) is not a slash command and is not judged.
 //
 // ---------------------------------------------------------------------------------------
 // KNOWN GAPS — check 4's reach over skills/
@@ -2243,11 +2251,14 @@ function checkPmStatusSize() {
 // 13. spec-align.py's contract with the docs it mirrors.
 //
 // Its spec kinds are copied from doctor's layout-cleanup heuristic 5 (the spec says one source
-// of truth), and its DIMENSIONS must be the six headings the enrichment prompt tells the agent
-// to write -- check-pointers rejects any other name, so a drift here blocks every story.
+// of truth), and its DIMENSIONS (six) and BUSINESS_DIMENSIONS must be the headings the two
+// enrichment prompts (step-02-story-prep, step-03-story-elaboration) tell the agent to write under
+// '## Technical acceptance criteria' / '## Business acceptance criteria' -- check-pointers rejects
+// any other name, so a drift here blocks every story.
 // ---------------------------------------------------------------------------
 const LAYOUT_CLEANUP = "skills/l3io-doctor/steps/clean-layout.md";
 const STORY_PREP = "skills/_shared/steps/sprint/step-02-story-prep.md";
+const ELABORATION = "skills/_shared/steps/plan/step-03-story-elaboration.md";
 const KIND_LABELS = { architecture: "Architecture", prd: "Requirements / PRD", ux: "UX spec" };
 
 function pyTuple(src, name) {
@@ -2260,8 +2271,9 @@ function checkSpecAlignContract() {
   const src = read(SPEC_ALIGN);
   const kindsBlock = pyTuple(src, "KINDS");
   const dimsBlock = pyTuple(src, "DIMENSIONS");
-  if (!kindsBlock || !dimsBlock) {
-    failures.push(`${SPEC_ALIGN}: KINDS or DIMENSIONS is no longer a literal tuple`);
+  const bdimsBlock = pyTuple(src, "BUSINESS_DIMENSIONS");
+  if (!kindsBlock || !dimsBlock || !bdimsBlock) {
+    failures.push(`${SPEC_ALIGN}: KINDS, DIMENSIONS or BUSINESS_DIMENSIONS is no longer a literal tuple`);
     return;
   }
   const kinds = {};
@@ -2279,24 +2291,40 @@ function checkSpecAlignContract() {
     }
   }
   const dims = [...dimsBlock.matchAll(/"([^"]+)"/g)].map((x) => x[1]);
-  const lines = read(STORY_PREP).split("\n");
-  const at = lines.findIndex((l) => /^\s*## Technical acceptance criteria\s*$/.test(l));
-  if (at < 0) {
-    failures.push(`${STORY_PREP}: no '## Technical acceptance criteria' layout block in the ` +
-      `enrichment prompt — ${SPEC_ALIGN} check-pointers requires it`);
-    return;
+  const bdims = [...bdimsBlock.matchAll(/"([^"]+)"/g)].map((x) => x[1]);
+
+  function promptLayout(file, heading, want) {
+    const lines = read(file).split("\n");
+    const at = lines.findIndex((l) => new RegExp(`^\\s*## ${heading}\\s*$`).test(l));
+    if (at < 0) return null;
+    const out = [];
+    for (const l of lines.slice(at + 1)) {
+      if (/^\s*## /.test(l) || /^\s*```/.test(l) || out.length === want) break;
+      const m = l.match(/^\s*### (.+?)\s*$/);
+      if (m) out.push(m[1]);
+    }
+    return out;
   }
-  const prompt = [];
-  for (const l of lines.slice(at + 1)) {
-    if (/^\s*## /.test(l) || /^\s*```/.test(l) || prompt.length === dims.length) break;
-    const m = l.match(/^\s*### (.+?)\s*$/);
-    if (m) prompt.push(m[1]);
+
+  for (const [file, heading, names, label] of [
+    [STORY_PREP, "Technical acceptance criteria", dims, "DIMENSIONS"],
+    [STORY_PREP, "Business acceptance criteria", bdims, "BUSINESS_DIMENSIONS"],
+    [ELABORATION, "Technical acceptance criteria", dims, "DIMENSIONS"],
+    [ELABORATION, "Business acceptance criteria", bdims, "BUSINESS_DIMENSIONS"],
+  ]) {
+    const prompt = promptLayout(file, heading, names.length);
+    if (prompt === null) {
+      failures.push(`${file}: no '## ${heading}' layout block in the enrichment prompt — ` +
+        `${SPEC_ALIGN} check-pointers requires it`);
+      continue;
+    }
+    if (JSON.stringify(prompt) !== JSON.stringify(names)) {
+      failures.push(`dimensions differ: ${SPEC_ALIGN} ${label} is [${names.join(", ")}], the ` +
+        `enrichment prompt in ${file} lays out [${prompt.join(", ")}]`);
+    }
   }
-  if (JSON.stringify(prompt) !== JSON.stringify(dims)) {
-    failures.push(`dimensions differ: ${SPEC_ALIGN} DIMENSIONS is [${dims.join(", ")}], the ` +
-      `enrichment prompt in ${STORY_PREP} lays out [${prompt.join(", ")}]`);
-  }
-  if (verbose) console.log(`  spec-align-contract: ${Object.keys(KIND_LABELS).length} kinds, ${dims.length} dimensions`);
+  if (verbose) console.log(`  spec-align-contract: ${Object.keys(KIND_LABELS).length} kinds, ` +
+    `${dims.length} technical + ${bdims.length} business dimensions, 2 prompts`);
 }
 
 // ---------------------------------------------------------------------------
@@ -4467,6 +4495,47 @@ function checkSubcommandRequired() {
   }
 }
 
+// ---------------------------------------------------------------------------
+// 31. No `/l3io-*` invocation in a shipped file carries a `--flag`.
+//
+// No l3io-* skill parses flags. l3io-execute accepts `E{nnn}`, `E{nnn}-S{nn}`, or nothing
+// (steps/execute/step-02-scope-resolve.md section 1); anything else prints "Unrecognized scope
+// argument" and returns BLOCKED. A directive reading `/l3io-execute --epic E048` teaches every
+// agent that reads it a syntax that halts, and the user sees a BLOCKED they did not cause.
+// Check 25 validates l3io-doctor's mode KEYWORDS; this validates that no slash command anywhere
+// grew a flag. Scope is every markdown file under skills/ (walked via allSkillDocs, the same
+// set as checks 9, 11 and 17). This is a guard over shipped files only -- it cannot stop an
+// agent improvising the syntax in conversation.
+//
+// The literal leading `/` is what separates a slash command from an agent NAME:
+// `--agent l3io-util-triage --epic E{epic}` is a pm-status.py dispatch argument, not an
+// invocation, and must not be flagged.
+//
+// KNOWN BLIND SPOTS (deliberately left open -- a false positive in a gate costs more here than a
+// miss): a flag after a closing backtick (`/l3io-execute` --epic E1) is not seen; a flag on the
+// line AFTER the invocation is not seen; and the `(\s+word)*` middle could in principle match
+// prose such as "/l3io-help to see --verbose" (zero such hits today).
+// ---------------------------------------------------------------------------
+const SLASH_FLAG_RE = /\/l3io-[a-z0-9-]+((?:\s+[a-z0-9{}[\]._-]+)*)\s+(--[a-z][a-z0-9-]*)/gi;
+
+function checkNoFlagsOnSlashCommands() {
+  const docs = [...allSkillDocs()];
+  const violations = [];
+  for (const rel of docs) {
+    read(rel).split("\n").forEach((line, i) => {
+      for (const m of line.matchAll(SLASH_FLAG_RE)) {
+        violations.push(`${rel}:${i + 1}: \`${m[0].trim()}\` -- l3io-* skills take positional ` +
+          `arguments, not flags; a flag makes the invocation unparseable at runtime`);
+      }
+    });
+  }
+  for (const v of violations) failures.push(`[check 31] ${v}`);
+  if (verbose) {
+    console.log(`  no-flags-on-slash-commands: ${docs.length} file(s), ` +
+                `${violations.length} violation(s)`);
+  }
+}
+
 function checkProbePathParity() {
   const { violations } = probePathParity();
   for (const v of violations) failures.push(`[check 29] ${v}`);
@@ -4513,6 +4582,7 @@ checkChoiceEnumerations();
 checkGateImports();
 checkProbePathParity();
 checkSubcommandRequired();
+checkNoFlagsOnSlashCommands();
 
 for (const note of notes) if (verbose) console.log(`  note: ${note}`);
 

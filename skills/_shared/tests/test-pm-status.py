@@ -1749,6 +1749,32 @@ class TestKeyBasedAddressing(TestLayoutResolution):
         _, node = pm.load_node(pm.sprint_file(self.root, "E001", "S01"))
         self.assertEqual(node["status"], "done")
 
+    def test_set_status_sprint_accepts_review(self):
+        err = io.StringIO()
+        try:
+            with redirect_stdout(io.StringIO()), redirect_stderr(err):
+                code = pm.main(["set-status", "--state-root", self.root, "--epic", "E001",
+                                "--sprint", "S01", "--status", "review"])
+        except SystemExit as e:
+            code = e.code
+        self.assertEqual(code, 0, err.getvalue())
+        _, node = pm.load_node(pm.sprint_file(self.root, "E001", "S01"))
+        self.assertEqual(node["status"], "review")
+
+    def test_set_status_epic_still_rejects_review(self):
+        # Scope guard: an epic spans sprints in different states, so epic-level
+        # `review` has no single meaning and the epic enum is deliberately unchanged.
+        err = io.StringIO()
+        try:
+            with redirect_stdout(io.StringIO()), redirect_stderr(err):
+                code = pm.main(["set-status", "--state-root", self.root,
+                                "--epic", "E001", "--status", "review"])
+        except SystemExit as e:
+            code = e.code
+        self.assertEqual(code, 2, err.getvalue())
+        self.assertIn("invalid epic status 'review'", err.getvalue())
+        self.assertIn("['backlog', 'done', 'in-progress']", err.getvalue())
+
     def test_missing_node_exits_3(self):
         code, _ = self.run_main(
             ["set-status", "--state-root", self.root, "--story", "E001-S01-999", "--status", "done"])

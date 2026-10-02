@@ -286,7 +286,7 @@ except ModuleNotFoundError:  # pragma: no cover - environment guard
 PM_STATUS_VERSION = "3.2.1"  # keep in sync with the top-of-file `# pm-status-version:` marker
 
 VALID_STORY_STATUS = {"backlog", "ready-for-dev", "in-progress", "review", "done", "blocked"}
-VALID_SPRINT_STATUS = {"backlog", "in-progress", "done"}
+VALID_SPRINT_STATUS = {"backlog", "in-progress", "review", "done"}
 VALID_EPIC_STATUS = {"backlog", "in-progress", "done"}
 
 # Story transitions. Enforced per-story only; sprints and epics keep their existing

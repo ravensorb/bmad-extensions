@@ -343,6 +343,33 @@ def full_story(**overrides):
     return story(dims)
 
 
+BUSINESS_DIMS = ["Outcome", "Non-goals"]
+
+
+def business_block(dims):
+    parts = ["## Business acceptance criteria\n"]
+    for name in BUSINESS_DIMS:
+        if name in dims:
+            parts.append(f"### {name}\n\n{dims[name]}\n")
+    return "\n".join(parts)
+
+
+def full_business(**overrides):
+    dims = {"Outcome": f"Support can trace a deploy.\nSpec: {ARCH_REL}#data-model",
+            "Non-goals": "Does not migrate the legacy jobs."}
+    for k, v in overrides.items():
+        dims[k.replace("_", "-")] = v
+    return business_block(dims)
+
+
+def story_with_business(business=None, **tac_overrides):
+    """Business section above the technical one, as the contract requires."""
+    head = "# E001-S01-001: A story\n\nSome prose.\n"
+    body = full_story(**tac_overrides)
+    bus = full_business() if business is None else business
+    return body.replace(head, head + "\n" + bus + "\n", 1)
+
+
 STORY_REL = f"{IMPL}/epic-001/sprint-01/stories/E001-S01-001.md"
 
 
@@ -431,6 +458,120 @@ class TestPointers(Project):
         self.assertEqual(r.returncode, 0, r.stderr)
         self.assertEqual(r.stdout.splitlines(), [f"{ARCH_REL}#data-model L5–8",
                                                  f"{ARCH_REL}#order-api L9–16"])
+
+
+class TestBusinessParsing(Project):
+    def setUp(self):
+        super().setUp()
+        self.write(ARCH_REL, ARCH)
+
+    def check(self, text, rel=STORY_REL):
+        self.write(rel, text)
+        return self.sa("check-pointers", "--story", self.path(rel))
+
+    def test_business_section_is_parsed_and_passes(self):
+        r = self.check(story_with_business())
+        self.assertEqual(r.returncode, 0, r.stderr)
+
+    def test_business_section_absent_is_still_valid(self):
+        r = self.check(full_story())
+        self.assertEqual(r.returncode, 0, r.stderr)
+
+
+class TestBusinessGate(Project):
+    def setUp(self):
+        super().setUp()
+        self.write(ARCH_REL, ARCH)
+
+    def check(self, text, *extra, rel=STORY_REL):
+        self.write(rel, text)
+        return self.sa("check-pointers", "--story", self.path(rel), *extra)
+
+    def test_technical_dimension_under_business_h2_does_not_satisfy_technical_gate(self):
+        # Hand-built: business_block() would drop a name outside BUSINESS_DIMS.
+        misplaced = (
+            "## Business acceptance criteria\n\n"
+            f"### Outcome\n\nSupport can trace a deploy.\nSpec: {ARCH_REL}#data-model\n\n"
+            "### Non-goals\n\nDoes not migrate the legacy jobs.\n\n"
+            f"### Existing-library check\n\nUse the platform.\nSpec: {ARCH_REL}#data-model\n")
+        dims = {d: f"Content for {d}.\nSpec: {ARCH_REL}#data-model"
+                for d in DIMS if d != "Existing-library check"}
+        head = "# E001-S01-001: A story\n\nSome prose.\n"
+        text = story(dims).replace(head, head + "\n" + misplaced + "\n", 1)
+        self.assertEqual(text.count("### Existing-library check"), 1)
+        r = self.check(text)
+        self.assertEqual(r.returncode, 2, r.stderr)
+        self.assertIn("Existing-library check", r.stderr)
+
+    def test_absent_business_is_advisory_by_default(self):
+        r = self.check(full_story())
+        self.assertEqual(r.returncode, 0, r.stderr)
+
+    def test_absent_business_blocks_when_required(self):
+        r = self.check(full_story(), "--business", "required")
+        self.assertEqual(r.returncode, 2)
+        self.assertIn("no '## Business acceptance criteria' section", r.stderr)
+
+    def test_absent_business_warns_when_advisory(self):
+        r = self.check(full_story(), "--business", "advisory")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertIn("INFO ", r.stderr)
+        self.assertIn("no '## Business acceptance criteria'", r.stderr)
+
+    def test_complete_business_passes_when_required(self):
+        r = self.check(story_with_business(), "--business", "required")
+        self.assertEqual(r.returncode, 0, r.stderr)
+
+    def test_missing_business_dimension_blocks_when_required(self):
+        r = self.check(story_with_business(business=business_block({"Outcome": "x\nSpec: none — no spec yet"})),
+                       "--business", "required")
+        self.assertEqual(r.returncode, 2)
+        self.assertIn("Non-goals: missing dimension", r.stderr)
+
+    def test_empty_business_section_blocks_when_required(self):
+        r = self.check(story_with_business(business="## Business acceptance criteria\n"),
+                       "--business", "required")
+        self.assertEqual(r.returncode, 2)
+        self.assertIn("Outcome: missing dimension", r.stderr)
+
+    def test_outcome_needs_a_pointer(self):
+        r = self.check(story_with_business(business=full_business(Outcome="Faster deploys.")),
+                       "--business", "required")
+        self.assertEqual(r.returncode, 2)
+        self.assertIn("Outcome: no Spec: line", r.stderr)
+
+    def test_non_goals_needs_no_pointer(self):
+        r = self.check(story_with_business(), "--business", "required")
+        self.assertEqual(r.returncode, 0, r.stderr)
+
+    def test_non_goals_accepts_not_applicable(self):
+        r = self.check(story_with_business(business=full_business(Non_goals="N/A — scope is a single file.")),
+                       "--business", "required")
+        self.assertEqual(r.returncode, 0, r.stderr)
+
+    def test_business_spec_line_inside_a_fence_does_not_count(self):
+        r = self.check(story_with_business(business=full_business(
+            Outcome=f"Example:\n\n```\nSpec: {ARCH_REL}#data-model\n```\n")), "--business", "required")
+        self.assertEqual(r.returncode, 2)
+        self.assertIn("Outcome: no Spec: line", r.stderr)
+
+    def test_business_present_without_tac_is_still_pre_provenance(self):
+        text = "# E001-S01-001: A story\n\n" + full_business() + "\n"
+        r = self.check(text, "--business", "required")
+        self.assertEqual(r.returncode, 2)
+        self.assertIn("pre-provenance", r.stderr)
+
+    def test_all_mode_pre_business_is_reported_as_info(self):
+        self.write(STORY_REL, full_story())
+        r = self.sa("check-pointers", "--all")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertIn("INFO pre-business", r.stdout)
+
+    def test_all_mode_with_business_required_still_exits_zero(self):
+        self.write(STORY_REL, full_story())
+        r = self.sa("check-pointers", "--all", "--business", "required")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertIn("INFO pre-business", r.stdout)
 
 
 REVIEW = """# Arch drift review

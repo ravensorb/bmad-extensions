@@ -3565,3 +3565,30 @@ test("--dump-subcommand-options emits parseable JSON, not a partial write", asyn
 });
 
 });
+
+// ---- check 31 (no-flags-on-slash-commands) ----
+// No l3io-* skill parses flags; `/l3io-execute --epic E048 --sprint S01` halts with BLOCKED.
+
+test("check 31: a slash command carrying a --flag is caught", async (t) => {
+  const root = fixture(t);
+  write(root, "skills/l3io-help/zz-probe.md",
+        "Run `/l3io-execute --epic E048 --sprint S01` to start building.\n");
+  const r = await run(root);
+  assert.equal(r.status, 1);
+  assert.match(r.stderr, /\[check 31\] skills\/l3io-help\/zz-probe\.md:1: `\/l3io-execute --epic E048 --sprint`/);
+});
+
+test("check 31: a positional slash command passes", async (t) => {
+  const root = fixture(t);
+  write(root, "skills/l3io-help/zz-probe.md", "Run `/l3io-execute E048` to start building.\n");
+  assert.doesNotMatch((await run(root)).stderr, /\[check 31\]/);
+});
+
+// The false-positive guard that matters: these are pm-status.py dispatch arguments where the
+// l3io-* token is an agent NAME. Only the literal leading slash separates them from a command.
+test("check 31: an --agent l3io-* dispatch argument is not a slash command", async (t) => {
+  const root = fixture(t);
+  write(root, "skills/l3io-help/zz-probe.md",
+        "```bash\n  --agent l3io-util-triage --epic E{epic} --session-id {s}\n```\n");
+  assert.doesNotMatch((await run(root)).stderr, /\[check 31\]/);
+});

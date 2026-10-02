@@ -283,9 +283,9 @@ matrix is correct.
 |---|---|---|---|---|
 | Retrospective | run | run | run | run |
 | Clean release review | run | skip | run | run |
-| Adversarial analysis | run | skip | skip | run |
-| Red team (l3io-sec) | run | skip | skip | run |
-| UX review | run | skip | skip | run |
+| Adversarial analysis | run | skip | run | run |
+| Red team (l3io-sec) | run | skip | run | run |
+| UX review | run | skip | run | run |
 | Sprint architectural drift | run | skip | run | run |
 | Issue triage | run | run | run | run |
 
