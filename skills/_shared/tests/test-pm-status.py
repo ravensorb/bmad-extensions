@@ -5180,6 +5180,78 @@ class TestDispatchEvents(Base):
                        "--agent", "dev-story", "--epic", "E001"])
         self.assertEqual(pm.open_dispatches(self.root, 15), [])
 
+    def _raw_event(self, **rec):
+        """Append a record to events.jsonl verbatim, bypassing the write path.
+
+        The defect below cannot be reproduced through the CLI: every close is
+        canonicalised on the way in, so only a record that predates the
+        canonicalisation can sit on the wrong side of the comparison. The log is
+        append-only, so such records are permanent and the fixture has to be the
+        historical bytes, not something the current writer can produce."""
+        with open(pm.events_path(self.root), "a", encoding="utf-8") as fh:
+            fh.write(json.dumps(rec) + "\n")
+
+    def test_close_cancels_an_open_written_before_key_canonicalisation(self):
+        """3.2.4 canonicalised the five dispatch WRITE sites and left the reader
+        comparing raw values, so a close could not cancel an older open.
+
+        Pre-3.2.4 an open stored the caller's spelling: `--sprint 01` wrote '01'.
+        Closes now write 'S01'. `_dispatch_identity` is (agent, epic, sprint,
+        story), so '01' != 'S01' and `pending.pop` missed — the dispatch read as
+        permanently stalled with no CLI route to clear it, because the canonical
+        write path cannot emit a close that matches a non-canonical open.
+
+        Measured on a consumer tree (their commit c4359268): 7 stalled dispatches,
+        the 4 epic-level ones cleared because 'E0nn' is already what
+        canonical_epic_key returns, and all 3 story-level ones did not."""
+        self._raw_event(ts="2026-08-24T10:00:00+00:00", event="dispatch_open",
+                        agent="l3io-pm-story", epic="E013", sprint="01",
+                        story="E013-S01-001")
+        self.assertEqual(len(pm.open_dispatches(self.root, 0)), 1)
+        code, out = self.run_main(["dispatch", "--state-root", self.root, "--event", "close",
+                                   "--agent", "l3io-pm-story", "--epic", "E013",
+                                   "--sprint", "01", "--story", "E013-S01-001"])
+        self.assertEqual(code, 0, out)
+        self.assertEqual(pm.open_dispatches(self.root, 0), [])
+
+    def test_close_cancels_an_open_whose_epic_was_stored_unpadded(self):
+        """The same read-side fix over the epic axis. An open holding '13' or 'e13'
+        is cancelled by a close spelled 'E013' — canonicalising on read makes every
+        historical spelling comparable without rewriting the append-only log."""
+        self._raw_event(ts="2026-08-24T10:00:00+00:00", event="dispatch_open",
+                        agent="code-review", epic="13", sprint="S01")
+        code, out = self.run_main(["dispatch", "--state-root", self.root, "--event", "close",
+                                   "--agent", "code-review", "--epic", "E013",
+                                   "--sprint", "S01"])
+        self.assertEqual(code, 0, out)
+        self.assertEqual(pm.open_dispatches(self.root, 0), [])
+
+    def test_close_says_whether_it_cancelled_an_open(self):
+        """`OK dispatch close` printed unconditionally, so a close that cancelled
+        nothing was indistinguishable from one that worked. An orphan close stays
+        exit 0 — legitimate on a log that may begin mid-run — but it says so."""
+        self.run_main(["dispatch", "--state-root", self.root, "--event", "open",
+                       "--agent", "dev-story", "--epic", "E001", "--sprint", "S01"])
+        code, out = self.run_main(["dispatch", "--state-root", self.root, "--event", "close",
+                                   "--agent", "dev-story", "--epic", "E001", "--sprint", "S01"])
+        self.assertEqual(code, 0, out)
+        self.assertIn("cancelled", out)
+        code, out = self.run_main(["dispatch", "--state-root", self.root, "--event", "close",
+                                   "--agent", "dev-story", "--epic", "E001", "--sprint", "S01"])
+        self.assertEqual(code, 0, out)
+        self.assertIn("no matching open", out)
+
+    def test_malformed_node_key_in_a_record_does_not_crash_the_reader(self):
+        """Canonicalising on read must stay total. `open_dispatches` is the read
+        behind `report --watch`, and its contract is that a torn or hand-edited
+        line is skipped rather than dereferenced — a raise here takes down exactly
+        the stall dashboard the feature exists to provide."""
+        self._raw_event(ts="2026-08-24T10:00:00+00:00", event="dispatch_open",
+                        agent="a", epic="not-a-key!", sprint=["also", "not"])
+        stalled = pm.open_dispatches(self.root, 0)
+        self.assertEqual(len(stalled), 1)
+        self.assertEqual(stalled[0]["agent"], "a")
+
 
 class TestPartialTokenClasses(TestLayoutResolution):
     """I3: under runtime=claude an incomplete class set was zero-filled and then

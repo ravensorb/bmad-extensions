@@ -998,24 +998,71 @@ def cmd_dispatch(args) -> int:
         v = getattr(args, k, None)
         if v:
             payload[k] = _canon[k](v) if k in _canon else v
+    # Resolve the match BEFORE appending: this close is itself a close record, so
+    # a scan taken afterwards has already cancelled the open it is reporting on.
+    matched = None
+    if args.event == "close":
+        matched = _pending_dispatches(args.state_root).get(_dispatch_identity(payload))
     append_event(args.state_root, payload)
-    sys.stdout.write(f"OK dispatch {args.event} {args.agent}\n")
+    if args.event != "close":
+        sys.stdout.write(f"OK dispatch {args.event} {args.agent}\n")
+    elif matched is not None:
+        # An orphan close stays exit 0 -- legitimate on a log that may begin
+        # mid-run -- but the verb could not previously tell the two cases apart,
+        # so a close that cancelled nothing read exactly like one that worked.
+        sys.stdout.write(f"OK dispatch close {args.agent} "
+                         f"(cancelled open from {matched.get('ts')})\n")
+    else:
+        sys.stdout.write(f"OK dispatch close {args.agent} (no matching open found)\n")
     return 0
+
+
+def _dispatch_scalar(v):
+    """A hashable stand-in for a stored field. A dict or list in `agent`/`story`
+    comes from a torn write or a hand edit, and this value becomes a dict key
+    below, so `str()` is the floor -- not a conversion anyone should rely on."""
+    return v if isinstance(v, (str, int, float, bool)) else str(v)
 
 
 def _dispatch_identity(rec: dict) -> tuple:
     """What makes two dispatch records the same dispatch. Agent plus node keys —
     a story-level retry of the same agent reuses the identity deliberately, so a
-    close always cancels the most recent matching open."""
-    return (rec.get("agent"), rec.get("epic"), rec.get("sprint"), rec.get("story"))
+    close always cancels the most recent matching open.
+
+    Node keys are canonicalised HERE, on read, rather than trusted as stored. The
+    write sites canonicalise too, but a write site can only govern records written
+    after it: `events.jsonl` is append-only, so an open written before the
+    write-side fix holds the caller's spelling ('01') while every close now holds
+    'S01'. Comparing the two raw left those dispatches permanently uncloseable,
+    with no CLI route to clear them, because the canonical write path cannot emit
+    a close that matches a non-canonical open. Canonicalising on read makes every
+    historical spelling comparable with no rewrite of the log, which is sound
+    because both key functions are idempotent ('S01' -> 'S01') and total
+    (`_norm_num` falls back to the stripped string rather than raising).
+
+    Every element is forced hashable. This tuple is a dict key on the stall
+    dashboard's read path, and a record whose field held a list used to raise
+    `TypeError: unhashable type` out of `pending[...]` — crashing the exact
+    surface `_pending_dispatches` documents itself as reading defensively for.
+    Guarding the whole record (`isinstance(rec, dict)`) never covered a single
+    field inside it.
+    """
+    agent, epic = rec.get("agent"), rec.get("epic")
+    sprint, story = rec.get("sprint"), rec.get("story")
+    return (None if agent is None else _dispatch_scalar(agent),
+            None if epic is None else canonical_epic_key(epic),
+            None if sprint is None else canonical_sprint_key(sprint),
+            None if story is None else _dispatch_scalar(story))
 
 
-def open_dispatches(state_root: str, threshold_minutes: float, now=None) -> list:
-    """Dispatches opened and never closed, older than the threshold, oldest first.
+def _pending_dispatches(state_root: str) -> dict:
+    """`_dispatch_identity` -> the open record still outstanding for it.
 
-    Cannot interrupt a hang — makes it visible. A close with no matching open is
-    ignored rather than treated as an error: events.jsonl is append-only and may
-    begin mid-run on a pre-existing project.
+    The one scan behind both `open_dispatches` (which then applies an age
+    threshold) and the `dispatch --event close` report, so the question "is there
+    an open matching this close?" is answered by the same matching rule that
+    decides whether a dispatch shows as stalled. Answering it twice, two ways, is
+    how the two could disagree.
 
     Reads defensively, exactly as `build_events_index` does over the same file:
     the log is appended to by concurrent flock'd writers and is documented as
@@ -1023,11 +1070,12 @@ def open_dispatches(state_root: str, threshold_minutes: float, now=None) -> list
     torn write or a hand-edit) must be skipped, not dereferenced, and an OSError
     must warn rather than abort. This is the read behind `report --watch`, the
     stall dashboard — a crash here takes down precisely the surface the stall
-    feature exists to provide.
+    feature exists to provide. `_dispatch_identity` carries the same obligation
+    down to the individual field.
     """
     path = events_path(state_root)
     if not os.path.exists(path):
-        return []
+        return {}
     pending: dict = {}
     try:
         with open(path, "r", encoding="utf-8") as f:
@@ -1048,6 +1096,18 @@ def open_dispatches(state_root: str, threshold_minutes: float, now=None) -> list
                     pending.pop(_dispatch_identity(rec), None)
     except OSError as e:
         sys.stderr.write(f"pm-status.py: warning — could not read event log: {e}\n")
+    return pending
+
+
+def open_dispatches(state_root: str, threshold_minutes: float, now=None) -> list:
+    """Dispatches opened and never closed, older than the threshold, oldest first.
+
+    Cannot interrupt a hang — makes it visible. A close with no matching open is
+    ignored rather than treated as an error: events.jsonl is append-only and may
+    begin mid-run on a pre-existing project. The close verb reports which case it
+    was (see `_dispatch_close_report`), so "ignored" never means "unreported".
+    """
+    pending = _pending_dispatches(state_root)
     if now is None:
         now = datetime.now(UTC)
     out = []
