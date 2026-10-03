@@ -105,8 +105,16 @@ npx bmad-method install \
 > With `--yes` and no `--modules`, the installer selects every module already installed plus
 > the defaults, AND keeps unselected ones — two independent protections instead of a list you
 > have to transcribe correctly, where one omission is an unrecoverable delete. Pin the version:
-> an unpinned `npx` produced a four-way version spread across one fleet. Name `--modules`
-> only when you actually intend to CHANGE the module set.
+> an unpinned `npx` produced a four-way version spread across one fleet.
+>
+> **The trade, stated so you can choose it.** Omitting `--modules` tracks upstream's default
+> set: `getDefaultModules` selects `defaultSelected || installed`, so a module BMad later marks
+> `default_selected: true` arrives on your next upgrade without you asking. For most repos that
+> is the right trade — silently gaining a module is recoverable, silently losing one is not.
+> A fleet that must stay byte-identical should do the opposite: name `--modules` explicitly for
+> determinism, and add a pre-flight that fails loudly if any repo has gained a module the
+> command would delete. Name the flag when you intend to CHANGE the module set, or when a
+> frozen set is worth more to you than the deletion guard.
 >
 > *Found the hard way: a `--modules bmm` upgrade would have removed `cis` and `tea` from a
 > repo that had them. The four `l3io` modules are never at risk — `--custom-source` codes are
