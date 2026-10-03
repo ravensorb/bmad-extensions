@@ -177,8 +177,14 @@ is green either way proves nothing about the property.
 
 These are **devDependencies**. Nothing here ships: payload scope is `skills/<skill>/` (derived
 from `PAYLOAD_TARGETS`), and `node_modules/` is gitignored, so `check:manifest` cannot see them.
-Nothing mechanically asserts that a gate script's imports are declared in `package.json` — that
-follow-up is named in the ADR and is not implemented.
+Every bare import in a gate script **is** mechanically asserted against `package.json` —
+`check-docs.mjs`'s check 28 (`gateImportsDeclared()`, invoked from the check runner), the
+follow-up ADR-0007 named. Its scope is derived: every `.mjs` under `scripts/`, recursively,
+with `node:` builtins and relative paths excluded and a subpath resolved to its package
+(`csv-parse/sync` -> `csv-parse`). This paragraph asserted the opposite until 2026-10-03,
+which is the costlier direction of the §3 failure: a doc that claims a guard exists sends a
+reader to look and they find nothing, while a doc that claims none exists tells them not to
+look. It had already diverged from the root `CLAUDE.md`, which described check 28 correctly.
 
 ### Action versions across `.github/workflows/*.yml`
 

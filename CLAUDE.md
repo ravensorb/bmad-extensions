@@ -202,7 +202,7 @@ Every skill has a `customize.toml`. Use the correct root key:
 
 | Skill type | Root key | When to use |
 |---|---|---|
-| Workflow / utility skill | `[workflow]` | Any skill that is not a persistent memory agent (pm-execute, pm-plan, pm-help, pm-setup, pm-sync, util-doctor, arch-review) |
+| Workflow / utility skill | `[workflow]` | Any skill that is not a persistent memory agent (l3io-execute, l3io-plan, l3io-help, l3io-setup, l3io-sync, l3io-doctor, l3io-arch-review) |
 | Memory agent | `[agent]` | Skills with a named persona, sanctum, and First Breath (l3io-sec-redteam) |
 
 The BMad resolver (`resolve_customization.py`) is called with `--key workflow` or `--key agent` to match. Using the wrong key means team/user overrides are ignored silently.
