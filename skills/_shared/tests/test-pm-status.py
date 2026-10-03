@@ -9716,6 +9716,93 @@ class TestIssueKinds(IssueBase):
         self.assertEqual([f for f in rep["findings"] if f["id"] == "1k"], [])
 
 
+class TestLenientArgsAreStoredCanonical(unittest.TestCase):
+    """Every argument the CLI accepts leniently must be STORED canonically.
+
+    --epic and --sprint accept six spellings each ('3', '03', '003', 'E3', 'E003', 'e003')
+    and all six produce the same correct key -- then the caller's spelling was written to
+    disk. One epic appeared six ways in one file. --status and --story are not here because
+    they are strict: they reject a non-canonical spelling rather than normalising it, so
+    raw already equals canonical.
+
+    This drives the real CLI rather than the helpers, because the defect was never in
+    _norm_num -- it was four call sites that computed the normalised value, used it for the
+    key, and then stored args.* anyway. A helper test would have passed throughout.
+    """
+
+    SPELLINGS = [("3", "1"), ("03", "1"), ("003", "01"),
+                 ("E3", "S1"), ("E003", "S01"), ("e003", "s01")]
+
+    def setUp(self):
+        self.d = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, self.d, True)
+        self.root = os.path.join(self.d, "state")
+        sd = os.path.join(self.root, "active", "epic-003", "sprint-01")
+        os.makedirs(sd)
+        with open(os.path.join(self.root, "active", "epic-003", "epic.yaml"), "w") as f:
+            f.write("key: 'E003'\nstatus: in-progress\n")
+        with open(os.path.join(sd, "sprint.yaml"), "w") as f:
+            f.write("key: 'S01'\nepic: 'E003'\nstatus: in-progress\n")
+
+    def cli(self, *args):
+        import subprocess  # local, matching this file's idiom elsewhere
+        return subprocess.run([sys.executable, SCRIPT, *args],
+                              capture_output=True, text=True, check=False)
+
+    def test_issues_yaml_stores_one_spelling_whatever_was_typed(self):
+        for i, (e, sp) in enumerate(self.SPELLINGS):
+            r = self.cli("append-issue", "--state-root", self.root, "--epic", e,
+                         "--sprint", sp, "--severity", "Low", "--title", f"t{i}",
+                         "--source-phase", "cr", "--source-ref", f"R{i}")
+            self.assertEqual(r.returncode, 0, r.stderr)
+        _, data = pm._load(os.path.join(self.root, "issues.yaml"))
+        items = data["backlog"]        # the open list's key, per IssueStore.backlog
+        epics = {str(it["epic"]) for it in items}
+        sprints = {str(it["sprint"]) for it in items}
+        self.assertEqual(epics, {"003"}, f"six spellings stored as {epics}")
+        self.assertEqual(sprints, {"01"}, f"six spellings stored as {sprints}")
+
+    def test_the_event_log_stores_one_spelling(self):
+        """The functional half: _dispatch_identity is (agent, epic, sprint, story), so a
+        close spelled differently from its open never cancels it."""
+        for e, sp in self.SPELLINGS:
+            self.cli("dispatch", "--state-root", self.root, "--event", "open",
+                     "--agent", "ag", "--epic", e, "--sprint", sp, "--session-id", "s")
+        recs = [json.loads(x) for x in
+                open(os.path.join(self.root, "events.jsonl"), encoding="utf-8") if x.strip()]
+        d = [r for r in recs if str(r.get("event", "")).startswith("dispatch")]
+        self.assertEqual({r["epic"] for r in d}, {"E003"}, "epic spellings leaked into events")
+        self.assertEqual({r["sprint"] for r in d}, {"S01"}, "sprint spellings leaked into events")
+
+    def test_a_close_cancels_its_open_whatever_spelling_either_used(self):
+        self.cli("dispatch", "--state-root", self.root, "--event", "open", "--agent", "ag",
+                 "--epic", "003", "--sprint", "01", "--session-id", "s")
+        self.cli("dispatch", "--state-root", self.root, "--event", "close", "--agent", "ag",
+                 "--epic", "E003", "--sprint", "S01", "--session-id", "s")
+        self.assertEqual(pm.open_dispatches(self.root, 0.0), [],
+                         "a close spelled differently from its open left it open forever")
+
+    def test_the_adr_register_stores_one_spelling(self):
+        adr = os.path.join(self.d, "docs", "adr")
+        os.makedirs(adr)
+        for e, _ in self.SPELLINGS:
+            self.cli("adr-reserve", "--state-root", self.root, "--epic", e,
+                     "--slug", "s", "--adr-dir", adr)
+        _, reg = pm.load_adr_register(self.root)
+        self.assertEqual({str(x["epic"]) for x in reg.get("reserved") or []}, {"E003"})
+
+    def test_strict_arguments_reject_rather_than_normalise(self):
+        """--status and --story are deliberately NOT in the lenient set. If either ever
+        starts accepting a non-canonical spelling, it joins the class above and needs the
+        same storage guarantee."""
+        r = self.cli("set-status", "--state-root", self.root, "--story", "E003-S01-001",
+                     "--status", "DONE")
+        self.assertNotEqual(r.returncode, 0, "--status must reject 'DONE', not normalise it")
+        r = self.cli("set-status", "--state-root", self.root, "--story", "e003-s01-001",
+                     "--status", "done")
+        self.assertNotEqual(r.returncode, 0, "--story must reject a lowercase key")
+
+
 class TestAdrReserveScansDisk(unittest.TestCase):
     """adr-reserve starts at max(register next, highest ADR on disk + 1): docs/adr (the one
     home, ADR-0005) and the old epic-*/arch home, under the register's own lock."""
