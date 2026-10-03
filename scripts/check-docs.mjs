@@ -113,6 +113,12 @@
 //                    conversation, which is how the observed instance arose. A literal leading
 //                    `/` is required, so `--agent l3io-util-triage --epic E{epic}` (an agent NAME
 //                    handed to pm-status.py dispatch) is not a slash command and is not judged.
+//  32. no-recursive-grep  a documented content sweep must not use `grep -r`. ugrep honours
+//                    .gitignore during recursive search and GNU grep does not, so the same
+//                    documented command returns different results on different machines: a
+//                    consuming project whose org root git-ignores its source repos swept
+//                    none of them and reported a clean tree. Build the list with `find` and
+//                    pipe it in. `git grep` is exempt -- it walks the index.
 //
 // ---------------------------------------------------------------------------------------
 // KNOWN GAPS — check 4's reach over skills/
@@ -4486,6 +4492,43 @@ function subcommandRequired() {
   return { violations, scripts, examined };
 }
 
+// --- check 31: no-recursive-grep ------------------------------------------------------ //
+// A documented content sweep must not use `grep -r`. Its recursion semantics differ across
+// the implementations actually on PATH: ugrep honours .gitignore during a recursive search
+// and GNU grep does not. Measured on one box carrying both, same command, one marker in a
+// tracked directory and one in a git-ignored directory -- GNU grep returned both, ugrep
+// returned the tracked one only. A consuming project whose org root git-ignores its six
+// source repositories swept none of them and reported a clean tree.
+//
+// The fix is to build the file list with `find` and pipe it in, so the recursion is find's.
+// This check stops the `grep -r` form coming back, which matters because it LOOKS correct
+// and is correct on whichever grep the author happens to have.
+//
+// Scope: every .md under skills/. Exactly one file used the banned form when this was
+// written and it now uses none, so the check starts green over a real, non-empty scope.
+// `git grep -r` and `rg` are not matched: the rule is about grep's recursive FILE WALK,
+// and git grep walks the index, which has no implementation divergence.
+function recursiveGrepSweeps(root = repoRoot) {
+  const hits = [];
+  for (const rel of walkSkillFiles([".md"])) {
+    read(rel).split("\n").forEach((line, i) => {
+      if (/\bgit\s+grep\b/.test(line)) return;
+      // `grep -r`, `grep -rn`, `grep -rniE` ... as a command, not as prose about one.
+      if (!/(^|[|;&(]|\$\()\s*grep\s+-[A-Za-z]*r/.test(line)) return;
+      hits.push(`${rel}:${i + 1}: a documented sweep uses \`grep -r\`, whose recursion ` +
+                `honours .gitignore under ugrep and not under GNU grep — build the file ` +
+                `list with \`find ... -print0\` and pipe it to \`xargs -0 grep\` instead`);
+    });
+  }
+  return hits;
+}
+
+function checkRecursiveGrep() {
+  const violations = recursiveGrepSweeps();
+  for (const v of violations) failures.push(`[check 32] ${v}`);
+  if (verbose) console.log(`  no-recursive-grep: ${violations.length} violation(s)`);
+}
+
 function checkSubcommandRequired() {
   const { violations, scripts, examined } = subcommandRequired();
   for (const v of violations) failures.push(`[check 30] ${v}`);
@@ -4582,6 +4625,7 @@ checkChoiceEnumerations();
 checkGateImports();
 checkProbePathParity();
 checkSubcommandRequired();
+checkRecursiveGrep();
 checkNoFlagsOnSlashCommands();
 
 for (const note of notes) if (verbose) console.log(`  note: ${note}`);

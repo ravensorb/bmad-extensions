@@ -3592,3 +3592,46 @@ test("check 31: an --agent l3io-* dispatch argument is not a slash command", asy
         "```bash\n  --agent l3io-util-triage --epic E{epic} --session-id {s}\n```\n");
   assert.doesNotMatch((await run(root)).stderr, /\[check 31\]/);
 });
+
+// ---- check 32 (no-recursive-grep) ----
+// harvest-debt's sweep used `grep -rniE ... .` and returned different results on different
+// machines: ugrep honours .gitignore during recursive search, GNU grep does not. A consuming
+// project whose org root git-ignores its six source repos swept none of them and reported a
+// clean tree.
+
+test("check 32: a documented sweep using grep -r is caught", async (t) => {
+  const root = fixture(t);
+  write(root, "skills/l3io-doctor/steps/zz-sweep.md",
+        "```bash\ngrep -rniE 'bmad-defer:' . --exclude-dir=.git\n```\n");
+  const r = await run(root);
+  assert.equal(r.status, 1);
+  assert.match(r.stderr, /\[check 32\].*zz-sweep\.md:2.*grep -r/);
+  assert.match(r.stderr, /honours \.gitignore under ugrep/);
+});
+
+test("check 32: the find | xargs form passes", async (t) => {
+  const root = fixture(t);
+  write(root, "skills/l3io-doctor/steps/zz-sweep.md",
+        "```bash\nfind . -type f -print0 > \"$list\"\n" +
+        "xargs -0 --no-run-if-empty grep -niE 'bmad-defer:' < \"$list\"\n```\n");
+  assert.doesNotMatch((await run(root)).stderr, /\[check 32\]/);
+});
+
+test("check 32: git grep is exempt — it walks the index, not the filesystem", async (t) => {
+  const root = fixture(t);
+  write(root, "skills/l3io-doctor/steps/zz-gg.md",
+        "```bash\ngit grep -rn 'bmad-defer:'\n```\n");
+  assert.doesNotMatch((await run(root)).stderr, /\[check 32\]/);
+});
+
+test("check 32: a non-recursive grep in a pipeline is not a sweep", async (t) => {
+  const root = fixture(t);
+  write(root, "skills/l3io-doctor/steps/zz-pipe.md",
+        "```bash\ncat foo.txt | grep -n 'bmad-defer:'\n```\n");
+  assert.doesNotMatch((await run(root)).stderr, /\[check 32\]/);
+});
+
+test("check 32: the real tree is clean", async () => {
+  const r = await run(REPO);
+  assert.doesNotMatch(r.stderr, /\[check 32\]/);
+});
