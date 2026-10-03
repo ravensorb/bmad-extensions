@@ -86,7 +86,7 @@ explicit `configure` request.
 Run in the project repo where you want to use the extension:
 
 ```bash
-npx bmad-method install \
+npx -y bmad-method@latest install \
   --directory . \
   --custom-source https://github.com/ravensorb/bmad-extensions \
   --modules bmm \
@@ -177,20 +177,29 @@ See [l3io-arch reference](l3io-arch-reference.md) for the standards catalog, the
 
 ## Upgrading
 
-Re-run the same install command to pull the latest version:
+An upgrade is **not** the install command re-run. It is shorter, and it is a different code
+path:
 
 ```bash
-npx bmad-method install \
-  --directory . \
-  --custom-source https://github.com/ravensorb/bmad-extensions \
-  --modules bmm \
-  --tools claude-code \
-  --yes
+npx -y bmad-method@latest install --directory . --action quick-update --yes
 ```
 
-Keeping `--modules bmm` here refreshes the BMad skills alongside the extension. If you would
-rather leave core BMad untouched and update only this package, use the no-prompt form instead:
-`npx bmad-method install --directory . --action quick-update --yes`.
+`--action quick-update` derives the module set and the IDE list off the existing install,
+refreshes custom-source modules, preserves module settings, and performs no selection-driven
+deletion.
+
+**Do not use the first-install form to upgrade.** It passes `--modules` and `--tools`, which
+are authoritative rather than additive: BMad removes every installed module and every IDE tree
+those flags do not name, without confirming.
+
+This page used to say to re-run the install command, and advised keeping `--modules bmm` so
+that BMad's own skills would refresh alongside the extension. That is how a repo with `cis`
+and `tea` installed loses both — and a repo that followed this advice lost the per-module
+`config.yaml` for `core`, `bmm`, `cis` and `tea`. Reach for the first-install form only to
+CHANGE the module or IDE set, deliberately.
+
+`install.sh` at the repository root picks the right command and refuses the wrong one; inside
+an installed project, `/l3io-doctor upgrade` does the same from payload already on disk.
 
 After upgrading, your `_bmad/custom/config.toml` and `config.user.toml` overrides are preserved — the installer never touches those layers.
 

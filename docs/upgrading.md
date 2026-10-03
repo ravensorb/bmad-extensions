@@ -11,7 +11,7 @@ cannot read.
 
 ```bash
 # 1. Refresh the skills
-npx bmad-method install --directory . --action quick-update --yes
+npx -y bmad-method@latest install --directory . --action quick-update --yes
 
 # 2. Migrate the data and refresh the installed pm-status.py — required after every update,
 #    not just once at first migration

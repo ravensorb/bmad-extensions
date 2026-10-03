@@ -74,11 +74,40 @@ with the `--tools` flag (comma-separated codes — no spaces):
 | Claude Code | `claude-code` | `.claude/commands/*` slash commands |
 | GitHub Copilot | `github-copilot` | `.github/agents/*.agent.md` + `.github/copilot-instructions.md` |
 
-Install (or re-run to upgrade) in the current repo — this example installs both IDEs; drop
-whichever code you don't use:
+### One script for all three
+
+`install.sh` at the repository root wraps every command below, picks the right one, and
+refuses the wrong one. It is not skill payload — a first install has no payload to run from —
+so it can be fetched on its own:
 
 ```bash
-npx bmad-method install \
+curl -fsSL https://raw.githubusercontent.com/ravensorb/bmad-extensions/main/install.sh -o install.sh
+less install.sh            # it runs npx and, with --action clean, deletes files
+bash install.sh --action upgrade
+```
+
+| Action | What runs | Requires |
+|---|---|---|
+| `--action upgrade` | BMad's `--action quick-update` | an existing install |
+| `--action install` | the first-install form, with `--custom-source` | **no** existing install |
+| `--action clean` | removes this extension's payload only, dry run until `--apply` | an existing install |
+
+`--action upgrade` and `--action clean` refuse a tree with no install; `--action install`
+refuses one that has it. Those are not conveniences: an upgrade derives its module set from
+the install, and a clean needs the payload manifests to decide what is safe to delete. Both
+would otherwise have to guess, and both guesses are destructive. `-n`/`--dry-run` prints the
+command and runs nothing.
+
+Piping straight to `bash` works and we would rather you did not: the script invokes `npx`
+and, with `--action clean`, deletes files. Download it, read it, then run it. Inside a project
+that already has this extension, `/l3io-doctor upgrade` does the same two things from payload
+already on disk, with no download at all.
+
+**First install** in the current repo — this example installs both IDEs; drop whichever code
+you don't use:
+
+```bash
+npx -y bmad-method@latest install \
   --directory . \
   --custom-source https://github.com/ravensorb/bmad-extensions \
   --modules bmm \
@@ -86,42 +115,46 @@ npx bmad-method install \
   --yes
 ```
 
-> **UPGRADING AN EXISTING INSTALL? OMIT `--modules`, and read `--tools` off the manifest.**
-> The command above is the FIRST-INSTALL form. On a repo that already has BMad,
-> `--modules` is authoritative, not additive: `installer.js` removes every installed module
-> the flag does not name, via `fs.remove`, sparing only `core` and modules with no available
-> source. Passing it also disables the retention `--yes` would otherwise give
-> (`preserveUnselected: options.yes && !options.modules`). `--tools` behaves the same way —
-> deselected IDEs go through `cleanupByList`, which wipes their target directories.
+**Upgrading an existing install is a different command, and it is shorter:**
+
+```bash
+npx -y bmad-method@latest install --directory . --action quick-update --yes
+```
+
+That is the whole command. `--action quick-update` (`install.js:31`, branch at `:114`) is the
+path BMad provides for an existing install, and it **derives** what the longer form makes you
+transcribe: `installer.js:1386 quickUpdate` reads the installed module set and the configured
+IDE list straight off the install via `ExistingInstall.detect`, refreshes custom-source modules
+too (`findModuleSourceByCode`, so all four `l3io` modules update), preserves module settings
+(`moduleConfigs`, `_preserveModules`), and warns loudly about an installed module whose source
+it cannot find instead of dropping it. It performs **no** selection-driven deletion: there is no
+`toRemove`, and its only `fs.remove` is alias-migration cleanup (dropping `_bmad/bauto/` once
+`_bmad/bmad-loop/` is in place).
+
+`@latest`, not a bare `bmad-method`: a bare `npx` reuses whatever it already cached, which is
+how one machine stayed on 6.11.0 while the fleet ran 6.12.0. `@latest` resolves the dist-tag
+every run, so every repo tracks the current BMad release. The trade is that an upstream change
+reaches every repo on its next upgrade — that is chosen, not accidental.
+
+> **Only use the first-install form on an existing repo when you intend to CHANGE the module
+> or IDE set** — and then know what the flags do, because both are authoritative rather than
+> additive. `--modules` makes `installer.js` `fs.remove` every installed module the flag does
+> not name, sparing only `core` and modules with no available source, and passing it disables
+> the retention `--yes` would otherwise give (`preserveUnselected: options.yes && !options.modules`).
+> `--tools` behaves the same way: deselected IDEs go through `cleanupByList`, which wipes their
+> target directories. Neither asks for confirmation.
 >
-> ```bash
-> npx -y bmad-method@6.12.0 install \
->   --directory . \
->   --custom-source https://github.com/ravensorb/bmad-extensions \
->   --tools "$(…the ides: list from _bmad/_config/manifest.yaml, verbatim…)" \
->   --yes
-> ```
+> The four `l3io` modules are never at risk from `--modules` — `--custom-source` codes are
+> appended to the selection regardless of it. Everything else you have installed is.
 >
-> With `--yes` and no `--modules`, the installer selects every module already installed plus
-> the defaults, AND keeps unselected ones — two independent protections instead of a list you
-> have to transcribe correctly, where one omission is an unrecoverable delete. Pin the version:
-> an unpinned `npx` produced a four-way version spread across one fleet.
->
-> **The trade, stated so you can choose it.** Omitting `--modules` tracks upstream's default
-> set: `getDefaultModules` selects `defaultSelected || installed`, so a module BMad later marks
-> `default_selected: true` arrives on your next upgrade without you asking. For most repos that
-> is the right trade — silently gaining a module is recoverable, silently losing one is not.
-> A fleet that must stay byte-identical should do the opposite: name `--modules` explicitly for
-> determinism, and add a pre-flight that fails loudly if any repo has gained a module the
-> command would delete. Name the flag when you intend to CHANGE the module set, or when a
-> frozen set is worth more to you than the deletion guard.
->
-> *Found the hard way: a `--modules bmm` upgrade would have removed `cis` and `tea` from a
-> repo that had them. The four `l3io` modules are never at risk — `--custom-source` codes are
-> appended to the selection regardless of `--modules`.*
+> *Found the hard way, twice. A `--modules bmm` upgrade would have removed `cis` and `tea`
+> from a repo that had them. The "safe" replacement advice — the full form with every module
+> named — was then followed on a repo whose per-module `config.yaml` for core, bmm, cis and tea
+> did not survive it. Both mistakes come from using the install path for an upgrade;
+> `--action quick-update` is the path that cannot make either.*
 
 For a single IDE on a FIRST install, use just that code, e.g. `--tools claude-code`. On an
-upgrade, pass back exactly what the manifest's `ides:` lists.
+upgrade, pass no `--tools` at all: `quick-update` reads the configured list off the install.
 
 **On a first install, name `bmm`.** Without `--yes`, a `--custom-source` install starts from an
 empty module list and brings `core` plus the custom modules only — so you would get the four
@@ -169,7 +202,7 @@ After install, run `/l3io-doctor` once to initialize the runtime and verify your
 Run in the project root — no prompts, no questions:
 
 ```bash
-npx bmad-method install --directory . --action quick-update --yes
+npx -y bmad-method@latest install --directory . --action quick-update --yes
 ```
 
 Reads the stored install config (tools, custom source) so nothing needs to be re-specified. Omitting `--modules` leaves core BMad skills untouched. Your `_bmad/custom/` config overrides are preserved and skills are refreshed in place.

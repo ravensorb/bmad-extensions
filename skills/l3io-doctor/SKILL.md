@@ -47,6 +47,7 @@ Modes (pass as argument to skip directly to that mode):
 - **`check-deps`:** Verifies every BMad skill this package dispatches resolves in this project, reports deprecated shims still in use, and names optional dependencies whose phases will self-skip. No files changed.
 - **`check-pm-status`:** Compares the installed `{project-root}/_bmad/scripts/pm-status.py` against this doctor's `module_version` and reports whether it is current, stale, or absent. Used by `pm-help` at activation to warn about a stale copy; also runnable directly. No files changed.
 - **`version`** (aliases **`--version`**, **`which-version`**): Reports which l3io-extensions version this project is running, read from the manifests the installer writes — per skill and, for the four module homes, per module. Exits 3 on a tree carrying more than one version, which is a partial install. This is the mode that answers "which l3io am I on?"; `check-pm-status` answers the narrower question of whether the self-installed `pm-status.py` is current, and reports STALE for one invocation after a correct upgrade because the installer does not write that copy. No files changed.
+- **`install`** (aliases **`upgrade`**, **`uninstall`**): Runs the right BMad command for the intent and refuses the wrong one. `upgrade` uses `--action quick-update`, which derives the module set and IDE list off the existing install and deletes nothing; `install` is first-install only and refuses an existing install, because its `--modules`/`--tools` are authoritative and BMad deletes every module and IDE tree they do not name without confirming; `clean` removes only this extension's payload, decided by SHA-256 against each skill's `payload-manifest.json`, keeping any file a user has edited and never touching project state. Confirms before every action; `clean` is a dry run until `--apply`.
 
 **One-time migrations (run in this order)**
 - **`migrate-schema`:** *(legacy-only)* Upgrades an existing legacy flat `sprint-status.yaml` to the current field schema — adds missing fields with zero/empty defaults, never overwrites existing values.
@@ -80,8 +81,8 @@ Modes (pass as argument to skip directly to that mode):
 
 **Load exactly one mode file.** Every mode below lives in its own file under `steps/`, and
 only the one the argument selects is ever loaded. That is the point of the layout: this skill
-carries eighteen procedures and a run needs one, so inlining them all charged every
-invocation for seventeen it would not execute. Read this file, match the keyword, load that
+carries nineteen procedures and a run needs one, so inlining them all charged every
+invocation for eighteen it would not execute. Read this file, match the keyword, load that
 one file, and follow it.
 
 **Recognized keywords** — if the user's argument exactly matches any of these, load that
@@ -107,6 +108,7 @@ or module setup.
 | `check-deps` | `steps/check-deps.md` | registered | read-only — verify BMad skill dependencies resolve |
 | `check-pm-status` | `steps/check-pm-status.md` | registered | read-only — verify the installed pm-status.py matches this doctor's module_version |
 | `version`, `--version` or `which-version` | `steps/version.md` | registered | read-only — report the installed l3io-extensions version per skill and per module |
+| `install`, `upgrade` or `uninstall` | `steps/install.md` | registered | runs BMad's installer (`upgrade`/`install`) or deletes this extension's payload (`clean`) — every path confirms first; `clean` reports before it changes anything |
 | `clean-layout` or `layout-cleanup` | `steps/clean-layout.md` | health-check | layout reorganization only. `clean-layout` is the primary; `layout-cleanup` is the DEPRECATED alias from ≤ 3.1.3, kept so old muscle memory still routes. Verb-first (`clean-<noun>`) mirrors `clean-legacy`. |
 | `migrate-schema` | `steps/schema-migration.md` | health-check | legacy-only bridge |
 | `split-status` | `steps/split-status.md` | health-check | legacy-only bridge |

@@ -9,6 +9,7 @@
     "check:bmb": "node scripts/check-bmb.mjs",
     "check:docs": "node scripts/check-docs.mjs",
     "check:lint:py": "uv run --with 'ruff==0.16.9' ruff check .",
+    "check:lint:sh": "node scripts/check-shell.mjs",
     "check:lock": "npm ls --package-lock-only --all --depth=0",
     "check:manifest": "node scripts/write-payload-manifest.mjs --check",
     "check:module": "node scripts/check-module.mjs",

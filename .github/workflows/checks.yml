@@ -59,6 +59,13 @@ jobs:
     # over ~12,000 unlinted lines.
     - name: Python lint (ruff)
       run: npm run check:lint:py
+    # standards-shell.md — a reference this package SHIPS to consumers — requires
+    # "ShellCheck clean in CI, not just locally", and the repo shipped shell with no gate.
+    # The gate FAILS (exit 2) rather than skipping when shellcheck is absent: a linter that
+    # cannot run has told you nothing, and reporting that as a pass is how check:bmb came to
+    # report clean over Python it had never read.
+    - name: Shell lint (bash -n + ShellCheck)
+      run: npm run check:lint:sh
     - name: BMad Builder skill scanners
       run: npm run check:bmb
     # Every Python suite under skills/**/tests/, DISCOVERED FROM DISK. This replaced ten

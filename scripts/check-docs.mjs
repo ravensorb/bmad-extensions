@@ -2461,6 +2461,10 @@ function checkDoctorModeCount() {
 // ---------------------------------------------------------------------------
 const DEP_INVENTORY = "skills/l3io-doctor/assets/bmad-dependencies.json";
 const BMAD_TOKEN_RE = /(?<![\w-])bmad-[a-z0-9-]+/g;
+// npm packages whose names collide with the `bmad-*` skill-name shape. Deliberately a short
+// closed set rather than "anything after npx": a step file that invoked a real skill through
+// npx would still be judged, and that is a mistake worth catching.
+const NPM_PACKAGE_NAMES = new Set(["bmad-method", "bmad-builder"]);
 const DEP_STATUSES = ["required", "optional", "related", "deprecated", "removed", "not-a-skill"];
 
 // A line that BINDS a name as the chosen agent, as opposed to merely probing for it.
@@ -2527,6 +2531,11 @@ function checkBmadDependencyInventory() {
     for (let i = 0; i < lines.length; i += 1) {
       for (const m of lines[i].matchAll(BMAD_TOKEN_RE)) {
         const name = m[0];
+        // An npm PACKAGE spec is not a skill name. `npx -y bmad-method@6.12.0 install …` is
+        // the installer being invoked, not a dependency this package dispatches, and
+        // `bmad-method` will never appear in a skill inventory. Scoped to a line that
+        // actually runs npx/npm so a prose mention of a `bmad-*` skill is still judged.
+        if (/\b(?:npx|npm)\b/.test(lines[i]) && NPM_PACKAGE_NAMES.has(name)) continue;
         checked += 1;
         const e = byName.get(name);
         if (!e) {
