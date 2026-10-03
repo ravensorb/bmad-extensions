@@ -100,6 +100,41 @@ class TestCli(unittest.TestCase):
         code, _, _ = self.run_cli()
         self.assertEqual(code, 0)
 
+    def test_the_program_name_is_not_repeated_in_the_current_line(self):
+        """`--version` renders argparse's banner, which already carries the program
+        name, and the report prefixed it again: `pm-status.py current -- pm-status.py
+        3.2.4 (expected 3.2.4)`. Reported from a real upgraded tree."""
+        self.install(f"pm-status.py {self.expected}")
+        code, out, _ = self.run_cli()
+        self.assertEqual(code, 0)
+        self.assertEqual(out.count("pm-status.py"), 1, out)
+        self.assertIn(f"current -- {self.expected}", out)
+
+    def test_the_program_name_is_not_repeated_in_the_stale_line(self):
+        """The same doubling on the stale path produced `installed pm-status.py 0.0.1,
+        expected 3.2.4`. Worse than cosmetic there: with the versions equal it reads
+        `installed pm-status.py 3.2.4, expected 3.2.4`, which looks self-contradictory
+        and is exactly what a correct upgrade prints before the first self-install."""
+        self.install("pm-status.py 0.0.1")
+        code, out, _ = self.run_cli()
+        self.assertEqual(code, 3)
+        self.assertEqual(out.count("pm-status.py"), 1, out)
+        self.assertIn("installed 0.0.1,", out)
+
+    def test_json_installed_is_a_version_not_a_banner(self):
+        """The JSON field is named `installed`, so it holds a version. It carried the
+        whole banner, which any consumer comparing it to `expected` would mis-handle."""
+        self.install(f"pm-status.py {self.expected}")
+        code, out, _ = self.run_cli("--format", "json")
+        self.assertEqual(code, 0)
+        self.assertEqual(json.loads(out)["installed"], self.expected)
+
+    def test_an_unparseable_installed_string_is_still_shown_verbatim(self):
+        """Extraction must not swallow what it cannot parse: a copy reporting junk is a
+        real condition, and blanking it would hide the only evidence of it."""
+        self.assertEqual(mod._version_text("totally unparseable"), "totally unparseable")
+        self.assertEqual(mod._version_text(""), "")
+
     def test_json_format_carries_status_expected_and_installed(self):
         self.install("0.0.1")
         code, out, _ = self.run_cli("--format", "json")
