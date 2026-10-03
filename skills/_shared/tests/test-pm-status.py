@@ -7891,6 +7891,214 @@ class TestPromoteIssue(IssueBase):
         self.assert_invariants()
 
 
+class TestScheduleIssue(IssueBase):
+    """`schedule-issue` attaches an open backlog key to a story that ALREADY EXISTS.
+
+    Nothing could do this before. `repair-issue --action link` is gated on audit finding
+    1d, which fires only when the story already names the key in `resolves` — so it
+    repairs a half-finished scheduling and provably cannot create one. `promote-issue`
+    only ever allocates a NEW story, so aiming it at an epic that already has the right
+    story produces a second story claiming the same acceptance criteria. `set-field
+    --field resolves` coerces only NUMERIC_NODE_FIELDS, so a list field receives a raw
+    string and the node is corrupted.
+
+    The asymmetry that made this invisible to us: stories created by `promote-issue`
+    carry a populated `resolves`, and every fixture in this file created stories that
+    way. A story authored in `epics.md` and imported carries `resolves: []`, which is
+    the normal case for a project that plans in the artifact first — and exactly the
+    case with no route to a backlog link. A consumer had 88 of 113 open items with no
+    story and 28 with an unambiguous existing target.
+    """
+
+    def authored_story(self, story_key, status="backlog", resolves=None, epic_dir=None):
+        """A story node as the ARTIFACT-FIRST path produces it: `resolves: []`.
+
+        Hand-written on purpose. No verb creates a story with an empty `resolves`, so
+        the real write path cannot produce this fixture — the same reason the
+        pre-canonicalisation dispatch records had to be written as raw bytes. A fixture
+        built only through our own current code can only ever test the states our own
+        current code creates.
+        """
+        ek, sk, _ = pm.parse_story_key(story_key)
+        d = os.path.join(self.root, epic_dir or "active", f"epic-{ek[1:]}",
+                         f"sprint-{sk[1:]}")
+        os.makedirs(d, exist_ok=True)
+        body = [f"key: '{story_key}'", f"epic: '{ek}'", f"sprint: '{sk}'",
+                "title: 'Authored in epics.md'", f"status: {status}",
+                "classification: simple"]
+        items = "[]" if not resolves else "[" + ", ".join(f"'{r}'" for r in resolves) + "]"
+        body.append(f"resolves: {items}")
+        p = os.path.join(d, f"{story_key}.yaml")
+        with open(p, "w", encoding="utf-8") as fh:
+            fh.write("\n".join(body) + "\n")
+        return p
+
+    def story_resolves(self, story_key):
+        return [str(x) for x in (pm.load_node(pm.story_file(self.root, story_key))[1]
+                                 .get("resolves") or [])]
+
+    def schedule(self, key, story, *extra):
+        return self.run_all(["schedule-issue", "--state-root", self.root,
+                             "--key", key, "--story", story, *extra])
+
+    def item(self, key):
+        for i in (self.load_open().get("backlog") or []):
+            if str(i["key"]) == key:
+                return i
+        return None
+
+    def test_attaches_an_open_key_to_an_existing_authored_story(self):
+        self.append("Marker left behind")
+        k = self.open_keys()[0]
+        self.authored_story("E001-S01-005")
+        code, out, err = self.schedule(k, "E001-S01-005")
+        self.assertEqual(code, 0, out + err)
+        self.assertEqual(self.story_resolves("E001-S01-005"), [k])
+        it = self.item(k)
+        self.assertEqual(str(it["status"]), "scheduled")
+        self.assertEqual(str(it["story"]), "E001-S01-005")
+        self.assertIn("scheduled_at", it)
+
+    def test_appends_rather_than_replacing_an_existing_resolves_list(self):
+        """A story may already resolve earlier items. Replacing the list would silently
+        orphan them — they would still point at the story while the story stopped
+        claiming them, which is audit finding 1e."""
+        self.append("First")
+        self.append("Second")
+        k1, k2 = self.open_keys()[0], self.open_keys()[1]
+        self.authored_story("E001-S01-005", resolves=[k1])
+        code, out, err = self.schedule(k2, "E001-S01-005")
+        self.assertEqual(code, 0, out + err)
+        self.assertEqual(self.story_resolves("E001-S01-005"), [k1, k2])
+
+    def test_several_keys_in_one_call(self):
+        self.append("A")
+        self.append("B")
+        ks = self.open_keys()[:2]
+        self.authored_story("E001-S01-005")
+        code, out, err = self.run_all(["schedule-issue", "--state-root", self.root,
+                                       "--key", ks[0], "--key", ks[1],
+                                       "--story", "E001-S01-005"])
+        self.assertEqual(code, 0, out + err)
+        self.assertEqual(self.story_resolves("E001-S01-005"), ks)
+
+    def test_is_idempotent_by_skip_and_says_so(self):
+        """The consumer's 28-item mapping runs as a batch; they would rather re-run the
+        whole thing than track which rows applied. A second run must be a no-op, not a
+        refusal and not a duplicate entry in `resolves`."""
+        self.append("Marker")
+        k = self.open_keys()[0]
+        self.authored_story("E001-S01-005")
+        self.assertEqual(self.schedule(k, "E001-S01-005")[0], 0)
+        code, out, err = self.schedule(k, "E001-S01-005")
+        self.assertEqual(code, 0, out + err)
+        self.assertIn("already", out)
+        self.assertEqual(self.story_resolves("E001-S01-005"), [k])
+        self.assertEqual(len(self.events("issue_scheduled")), 1)
+
+    def test_refuses_a_story_that_does_not_exist(self):
+        self.append("Marker")
+        k = self.open_keys()[0]
+        code, out, err = self.schedule(k, "E001-S01-404")
+        self.assertEqual(code, 3, out + err)
+        self.assertEqual(str(self.item(k)["status"]), "backlog")
+
+    def test_refuses_a_done_story(self):
+        """This is the failure the whole exercise started from: an item acquiring a home
+        that will never be worked. A done story's acceptance criteria are already met and
+        closed, so attaching an unfixed finding to it loses the finding."""
+        self.append("Marker")
+        k = self.open_keys()[0]
+        self.authored_story("E001-S01-005", status="done")
+        code, out, err = self.schedule(k, "E001-S01-005")
+        self.assertEqual(code, 2, out + err)
+        self.assertIn("done", (out + err))
+        self.assertEqual(self.story_resolves("E001-S01-005"), [])
+        self.assertEqual(str(self.item(k)["status"]), "backlog")
+
+    def test_refuses_a_story_in_an_archived_epic(self):
+        """Same failure by a different route, and the one a consumer hit by accident:
+        34 open items keyed to an epic that had been archived. Status alone does not
+        catch it — a story under archived/ can still read `status: backlog`."""
+        self.append("Marker", epic="009")
+        k = self.open_keys()[0]
+        os.makedirs(os.path.join(self.root, "archived", "epic-009"), exist_ok=True)
+        with open(os.path.join(self.root, "archived", "epic-009", "epic.yaml"),
+                  "w", encoding="utf-8") as fh:
+            fh.write("key: 'E009'\ntitle: 'Old'\nstatus: done\n")
+        self.authored_story("E009-S01-002", epic_dir="archived")
+        code, out, err = self.schedule(k, "E009-S01-002")
+        self.assertEqual(code, 2, out + err)
+        self.assertIn("archived", (out + err))
+        self.assertEqual(str(self.item(k)["status"]), "backlog")
+
+    def test_refuses_a_key_already_scheduled_to_a_different_story(self):
+        """Silently moving it would rewrite a scheduling decision somebody made, and
+        leave the old story's `resolves` pointing at an item it no longer owns."""
+        self.append("Marker")
+        k = self.open_keys()[0]
+        self.authored_story("E001-S01-005")
+        self.authored_story("E001-S01-006")
+        self.assertEqual(self.schedule(k, "E001-S01-005")[0], 0)
+        code, out, err = self.schedule(k, "E001-S01-006")
+        self.assertEqual(code, 2, out + err)
+        self.assertIn("E001-S01-005", (out + err))
+        self.assertEqual(self.story_resolves("E001-S01-006"), [])
+
+    def test_refuses_a_non_backlog_key(self):
+        self.authored_story("E001-S01-005")
+        code, out, err = self.schedule("not-a-key", "E001-S01-005")
+        self.assertEqual(code, 2, out + err)
+
+    def test_refuses_an_already_resolved_key(self):
+        self.append("Marker")
+        k = self.open_keys()[0]
+        # --resolution fixed needs --ref (a story key or a commit SHA)
+        rc, o, e = self.run_all(["resolve-issue", "--state-root", self.root, "--key", k,
+                                 "--resolution", "fixed", "--ref", "E001-S01-001"])
+        self.assertEqual(rc, 0, o + e)   # premise: the key really is resolved
+        self.authored_story("E001-S01-005")
+        code, out, err = self.schedule(k, "E001-S01-005")
+        self.assertEqual(code, 2, out + err)
+        self.assertIn("resolved", (out + err))
+
+    def test_refuses_a_spec_item(self):
+        """Spec items are confirmed or rejected in triage, never given a story — the
+        same rule promote-issue enforces."""
+        # a spec kind needs --ref (the docs(spec) SHA or the proposal path)
+        rc, o, e = self.append("A spec change", "001", "01", "Low",
+                               "code-review (E001-S01-001)",
+                               "--kind", "spec-change", "--ref", "a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6e7f8a9b0")
+        self.assertEqual(rc, 0, o + e)   # premise: the spec item exists
+        k = self.open_keys()[0]
+        self.authored_story("E001-S01-005")
+        code, out, err = self.schedule(k, "E001-S01-005")
+        self.assertEqual(code, 2, out + err)
+
+    def test_the_event_names_how_the_scheduling_happened(self):
+        """promote-issue writes no `via`, repair-link writes via=repair-link. A third
+        route needs its own value or the log cannot say how an item got its story."""
+        self.append("Marker")
+        k = self.open_keys()[0]
+        self.authored_story("E001-S01-005")
+        self.assertEqual(self.schedule(k, "E001-S01-005")[0], 0)
+        evs = self.events("issue_scheduled")
+        self.assertEqual(len(evs), 1)
+        self.assertEqual(evs[0].get("via"), "schedule")
+        self.assertEqual(evs[0].get("story"), "E001-S01-005")
+
+    def test_a_refusal_writes_nothing_at_all(self):
+        """Every refusal is checked before the first write, as promote-issue does: a
+        partial apply across two files is the one outcome with no clean recovery."""
+        self.append("Marker")
+        k = self.open_keys()[0]
+        self.authored_story("E001-S01-005", status="done")
+        before = len(self.events())
+        self.assertEqual(self.schedule(k, "E001-S01-005")[0], 2)
+        self.assertEqual(len(self.events()), before)
+        self.assertEqual(self.story_resolves("E001-S01-005"), [])
+
+
 class TestEpicWritersHoldTheEpicLock(IssueBase):
     """Every epic.yaml read-modify-write holds epic_node_lock (batch D1).
 
