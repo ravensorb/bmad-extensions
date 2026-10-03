@@ -32,7 +32,7 @@
 //                    subcommand each parser defines
 //  11. append-issue-pointer every append-issue invocation in skills/ (logical lines, `\`-
 //                    continued lines joined, fenced or not) passes --source and --description
-//  12. pm-status-size skills/_shared/pm-status.py stays within the 8,000-line limit
+//  12. pm-status-size skills/_shared/pm-status.py stays within the 10,000-line limit
 //                    ADR-0001 sets
 //  13. spec-align-contract spec-align.py's spec kinds match layout-cleanup.md heuristic 5, and
 //                    its six DIMENSIONS match the enrichment prompt's layout block
@@ -2230,7 +2230,7 @@ function checkAppendIssuePointer() {
 // revisit point is now a hard, mechanically enforced line count instead of a number that only
 // lives in an ADR's prose. Raising PM_STATUS_LINE_LIMIT is a decision for that ADR, not a
 // number to move here on its own.
-const PM_STATUS_LINE_LIMIT = 8000;
+const PM_STATUS_LINE_LIMIT = 10000;   // raised from 8,000 — ADR-0001 amendment 2026-10-03
 
 function checkPmStatusSize() {
   // Newline count, matching `wc -l` -- not split("\n").length, which overcounts by one on

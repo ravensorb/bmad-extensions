@@ -66,3 +66,59 @@ When check 12 trips, **Option C stays the first candidate** — after evaluating
 bundler (for example `stickytape` or `pinliner`), not a hand-rolled one, per global rule 1.
 The dependency trigger from the original decision (a verb needing a dependency its other
 callers do not) is unchanged and still applies independently of line count.
+
+## Amendment (2026-10-03) — the limit is raised to 10,000, and Option C is withdrawn
+
+Check 12 tripped at 8,025 lines, adding `repair-issue --action normalize-keys`. **Decision:
+raise the hard limit to 10,000 and keep Option A.** Option C is withdrawn as the named
+successor, because the evaluation the 2026-09-11 amendment asked for was finally done and
+the ground it assumed is gone.
+
+**What the evaluation found.** Both bundlers that amendment named are abandoned: `stickytape`
+0.2.1 was last released 2021-01-29 (5.7 years) and `pinliner` 0.2.0 on 2016-04-03 (10.5
+years). Adopting either fails the same global rule 1 that forbids hand-rolling one. The
+maintained alternatives — `shiv`, `pex`, `zipapp` — all produce an archive rather than a text
+script, and that breaks two things this package depends on:
+
+- **PEP 723 provisioning.** `uv` reads inline metadata only from a text script. Measured with
+  identical content in both shapes: a `.pyz` raised `ModuleNotFoundError`, the `.py` printed
+  `Installed 1 package`. Every script here gets `ruamel.yaml` that way, with no venv on the
+  consuming project.
+- **Byte-reproducibility.** Two zipapp builds of unchanged source differ, because zip stores
+  mtimes. That breaks `check:scripts` and the per-file SHA-256 in `payload-manifest.json`.
+
+So Option C has no viable tool, not merely no chosen one.
+
+**Why not Option B instead.** It is cheaper than it was — it was rejected partly for needing a
+multi-file hash guard, and `payload-manifest.json` now is one, verified by `check:manifest`.
+What has not changed is that `self-install` does a single `os.replace`, which is atomic;
+installing N files is not, and a crash mid-install leaves a half-written runtime writing
+project state. A directory-level `os.replace` may answer that, and is the first thing to test
+if this is reopened.
+
+**What 10,000 is and is not.** It is not a judgement that the file is fine at 10,000 lines; it
+is headroom bought deliberately while the structural options are unavailable. The mechanism
+stays exactly as the previous amendment built it — a hard number in check 12, failing the
+build, naming this ADR — because the lesson that produced it still holds: the ~6,000 prose
+trigger was crossed silently, and a number that only lives in an ADR is a number nobody
+enforces. The dependency trigger (a verb needing a dependency its other callers do not) is
+unchanged and still applies independently.
+
+**Option C is RETIRED, not deferred — do not re-evaluate these.** `stickytape`, `pinliner`
+and the archive family (`zipapp`, `shiv`, `pex`) are closed, with the evidence above:
+
+| Candidate | Why it is dead |
+|---|---|
+| `stickytape` | last release 2021-01-29; unmaintained, so global rule 1 forbids it as surely as hand-rolling |
+| `pinliner` | last release 2016-04-03; same |
+| `zipapp` / `shiv` / `pex` | produce an archive, so `uv` cannot read a PEP 723 header from it and the artifact is not byte-reproducible — two mechanisms this package depends on, measured, not assumed |
+
+A future proposal in this space is only worth hearing if it produces a **single text script**
+AND preserves PEP 723 provisioning AND is byte-reproducible AND is maintained. Nothing on the
+table does, and re-testing the four above wastes the evaluation already recorded here.
+
+**Revisit at 10,000 with one option:** Option B, a package directory under
+`_bmad/scripts/`, whose only surviving objection is atomicity — test whether a directory-level
+`os.replace` restores it. If that fails, raising the number again becomes a decision made on
+evidence rather than a default, and it should be argued here before it is taken.
+

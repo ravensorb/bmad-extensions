@@ -253,15 +253,15 @@ test("prose mentioning append-issue is not an invocation", async (t) => {
   assert.equal(r.status, 0, r.stderr + r.stdout);
 });
 
-test("check 12: pm-status.py over the 8,000-line limit is caught", async (t) => {
+test("check 12: pm-status.py over the 10,000-line limit is caught", async (t) => {
   const root = fixture(t);
   // Padded with comment-only lines so every other check that parses this file (cli-surface,
   // cli-docstring, metric-list, append-issue-pointer) still sees the same real content and
   // still passes -- only the line count should trip.
-  write(root, "skills/_shared/pm-status.py", "# pad\n".repeat(8001), true);
+  write(root, "skills/_shared/pm-status.py", "# pad\n".repeat(10001), true);
   const r = await run(root);
   assert.equal(r.status, 1);
-  assert.match(r.stderr, /pm-status\.py: \d+ lines, over the 8000-line limit/);
+  assert.match(r.stderr, /pm-status\.py: \d+ lines, over the 10000-line limit/);
 });
 
 // Pads the fixture's REAL pm-status.py to exactly `total` lines. Lines are counted the way
@@ -274,16 +274,16 @@ function padPmStatusTo(root, total) {
   assert.equal((fs.readFileSync(path.join(root, rel), "utf8").match(/\n/g) || []).length, total);
 }
 
-test("check 12 boundary: exactly 8,000 lines passes", async (t) => {
+test("check 12 boundary: exactly 10,000 lines passes", async (t) => {
   const root = fixture(t);
-  padPmStatusTo(root, 8000);
+  padPmStatusTo(root, 10000);
   const r = await run(root);
   assert.equal(r.status, 0, r.stderr + r.stdout);
 });
 
 test("check 12 boundary: 8,001 lines fails on check 12 alone", async (t) => {
   const root = fixture(t);
-  padPmStatusTo(root, 8001);
+  padPmStatusTo(root, 10001);
   const r = await run(root);
   assert.equal(r.status, 1);
   // check-docs.mjs prints "\n<N> documentation problem(s):\n" and then one "  ✗ <failure>"
@@ -292,7 +292,7 @@ test("check 12 boundary: 8,001 lines fails on check 12 alone", async (t) => {
   assert.match(r.stderr, /^1 documentation problem\(s\):$/m, r.stderr);
   const entries = r.stderr.split("\n").filter((l) => l.startsWith("  ✗ "));
   assert.equal(entries.length, 1, r.stderr);
-  assert.match(entries[0], /pm-status\.py: 8001 lines, over the 8000-line limit .* by 1$/);
+  assert.match(entries[0], /pm-status\.py: 10001 lines, over the 10000-line limit .* by 1$/);
 });
 
 // ---- check 4 (spec-align surface), 13 (spec-align contract), 14 (adr-home) ----
