@@ -972,9 +972,12 @@ def build_events_index(state_root: str) -> dict:
                     continue
                 if ev.get("event") != "status" or not ev.get("key"):
                     continue
-                prev = idx.get(ev["key"])
+                k = _indexable_key(ev["key"])      # a non-empty list is truthy AND unhashable
+                if k is None:
+                    continue
+                prev = idx.get(k)
                 if prev is None or str(ev.get("ts", "")) >= str(prev.get("ts", "")):
-                    idx[ev["key"]] = ev
+                    idx[k] = ev
     except OSError as e:
         sys.stderr.write(f"pm-status.py: warning — could not read event log: {e}\n")
     return idx
@@ -1031,11 +1034,49 @@ def cmd_dispatch(args) -> int:
     return 0
 
 
-def _dispatch_scalar(v):
-    """A hashable stand-in for a stored field. A dict or list in `agent`/`story`
-    comes from a torn write or a hand edit, and this value becomes a dict key
-    below, so `str()` is the floor -- not a conversion anyone should rely on."""
+def _hashable_field(v):
+    """A hashable stand-in for a field read out of `events.jsonl`.
+
+    Used by every reader over that log that keys a dict on a record field. The log is
+    append-only, written by concurrent flock'd writers and documented as possibly torn,
+    so a field can hold any JSON type -- and a list or a dict is unhashable, which turns
+    `idx[rec["key"]]` into `TypeError: unhashable type` and takes down the reader.
+
+    The readers all guarded the RECORD (`isinstance(rec, dict)`) and none guarded a
+    field inside it, so the same defect existed four times over: in
+    `_dispatch_identity`, where it crashed `report --watch`; in `build_events_index`,
+    where `ev.get("key")` was only truthy-checked and a non-empty list is truthy; and in
+    `actual_event_times`, where `k not in idx` raises exactly as a subscript does -- a
+    membership test is not the safe alternative to indexing.
+
+    `str()` is a floor that keeps the scan alive and the record distinguishable, not a
+    conversion any caller should rely on: a malformed field has no correct value, and
+    inventing one would be worse than carrying it through as its own repr.
+
+    Carrying through is right HERE and wrong for an index -- see `_indexable_key`.
+    """
     return v if isinstance(v, (str, int, float, bool)) else str(v)
+
+
+def _indexable_key(v):
+    """A node key usable as an index key, or None when the field cannot be one.
+
+    The counterpart to `_hashable_field`, and the difference is the reader's job, not a
+    preference. `_dispatch_identity` only needs INTERNAL consistency -- an open and its
+    close hashing alike -- so a malformed field carried through under its repr still
+    matches its own close, and dropping it would make that dispatch permanently
+    uncloseable. An index keyed by node key is looked up BY a real node key, so a value
+    that no node could ever have is not a key: carrying it adds a phantom entry
+    corresponding to nothing, and dropping it loses nothing real.
+
+    Returns None for a list, a dict, or an empty/whitespace-only string. The caller
+    skips the record, which is what "a torn line must not kill the read" has always
+    meant one level up.
+    """
+    if not isinstance(v, (str, int, float)) or isinstance(v, bool):
+        return None
+    k = str(v).strip()
+    return k or None
 
 
 def _dispatch_identity(rec: dict) -> tuple:
@@ -1063,10 +1104,10 @@ def _dispatch_identity(rec: dict) -> tuple:
     """
     agent, epic = rec.get("agent"), rec.get("epic")
     sprint, story = rec.get("sprint"), rec.get("story")
-    return (None if agent is None else _dispatch_scalar(agent),
+    return (None if agent is None else _hashable_field(agent),
             None if epic is None else canonical_epic_key(epic),
             None if sprint is None else canonical_sprint_key(sprint),
-            None if story is None else _dispatch_scalar(story))
+            None if story is None else _hashable_field(story))
 
 
 def _pending_dispatches(state_root: str) -> dict:
@@ -2507,6 +2548,9 @@ def actual_event_times(state_root: str) -> dict:
                     continue
                 k = ev.get("key")
                 if not k:
+                    continue
+                k = _indexable_key(k)              # `k not in idx` raises on an unhashable k
+                if k is None:
                     continue
                 ts = str(ev.get("ts", ""))
                 if k not in idx or ts >= idx[k]:

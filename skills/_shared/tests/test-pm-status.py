@@ -7891,6 +7891,127 @@ class TestPromoteIssue(IssueBase):
         self.assert_invariants()
 
 
+class TestEventReadersTolerateMalformedFields(Base):
+    """Every reader over `events.jsonl` documents itself as tolerating a torn line. Each
+    one proves that at the RECORD level -- `json.loads` in a try, then
+    `isinstance(rec, dict)` -- and the guard stops there. None of them looked inside the
+    record, so a well-formed object with one malformed FIELD went straight through.
+
+    That is not hypothetical. `_dispatch_identity` built a dict key from
+    `rec["sprint"]`, and a record whose `sprint` held a list raised
+    `TypeError: unhashable type` out of `pending[...]` -- crashing `report --watch`, the
+    exact surface the docstring promises to protect. The record-level test existed and
+    passed (`test_bare_scalar_line_does_not_crash_open_dispatches`), which is what made
+    the area look covered: a guard was proven, its reach was not (CLAUDE.md §4).
+
+    So the scope here is the READER SET, not one reader, and the planted violation
+    attacks the field rather than the record. The field names are the ones each reader
+    actually keys or compares on, read off the code -- `key` for the status and actuals
+    indexes, `story` for the blocked-hours scan, the four node keys for dispatch.
+    """
+
+    def setUp(self):
+        super().setUp()
+        self.root = os.path.join(self.d, "state")
+        os.makedirs(self.root)
+
+    def write(self, *recs):
+        with open(pm.events_path(self.root), "w", encoding="utf-8") as fh:
+            for r in recs:
+                fh.write(json.dumps(r) + "\n")
+
+    # A list and a dict are the two unhashable JSON types; a nested object is what a
+    # hand-edit or a half-flushed write most plausibly produces.
+    BAD = ([1, 2], {"a": 1})
+
+    def test_build_events_index_survives_an_unhashable_key(self):
+        """`idx[ev["key"]] = ev` -- `ev.get("key")` was only truthy-checked, and a
+        non-empty list is truthy."""
+        for bad in self.BAD:
+            with self.subTest(bad=bad):
+                self.write({"ts": "2026-01-01T00:00:00+00:00", "event": "status",
+                            "key": bad, "to": "done"},
+                           {"ts": "2026-01-02T00:00:00+00:00", "event": "status",
+                            "key": "E001-S01-001", "to": "done"})
+                idx = pm.build_events_index(self.root)
+                self.assertIn("E001-S01-001", idx)
+
+    def test_actual_event_times_survives_an_unhashable_key(self):
+        """`if k not in idx` raises on an unhashable k just as a subscript does -- a
+        membership test is not the safe alternative to indexing."""
+        for bad in self.BAD:
+            with self.subTest(bad=bad):
+                self.write({"ts": "2026-01-01T00:00:00+00:00", "event": "actual",
+                            "node": "story", "key": bad},
+                           {"ts": "2026-01-02T00:00:00+00:00", "event": "actual",
+                            "node": "story", "key": "E001-S01-001"})
+                self.assertIn("E001-S01-001", pm.actual_event_times(self.root))
+
+    def test_pending_dispatches_survives_unhashable_node_keys(self):
+        """Fixed when the read-side canonicalisation landed; kept here so the whole
+        reader set is covered in one place rather than one test per incident."""
+        for field in ("agent", "epic", "sprint", "story"):
+            for bad in self.BAD:
+                with self.subTest(field=field, bad=bad):
+                    rec = {"ts": "2026-01-01T00:00:00+00:00", "event": "dispatch_open",
+                           "agent": "a", "epic": "E001", "sprint": "S01",
+                           "story": "E001-S01-001"}
+                    rec[field] = bad
+                    self.write(rec)
+                    self.assertEqual(len(pm.open_dispatches(self.root, 0)), 1)
+
+    def test_total_blocked_hours_survives_an_unhashable_story(self):
+        """Documented to return 0.0 rather than fail the calibration write path it
+        feeds, so a malformed field must not raise either."""
+        for bad in self.BAD:
+            with self.subTest(bad=bad):
+                self.write({"ts": "2026-01-01T00:00:00+00:00", "event": "block_close",
+                            "story": bad, "duration_hours": 1.0},
+                           {"ts": "2026-01-02T00:00:00+00:00", "event": "block_close",
+                            "story": "E001-S01-001", "duration_hours": 2.0})
+                self.assertIsInstance(
+                    pm._total_blocked_hours(self.root, "E001-S01-001"), float)
+
+    def test_a_malformed_field_does_not_hide_the_records_beside_it(self):
+        """Tolerating a bad record must mean SKIPPING it, not abandoning the scan. A
+        reader that bailed at the first bad line would pass every "does not crash" test
+        while silently reporting over a truncated log -- the false-green shape."""
+        self.write({"ts": "2026-01-01T00:00:00+00:00", "event": "status",
+                    "key": "E001-S01-001", "to": "review"},
+                   {"ts": "2026-01-02T00:00:00+00:00", "event": "status",
+                    "key": {"bad": 1}, "to": "done"},
+                   {"ts": "2026-01-03T00:00:00+00:00", "event": "status",
+                    "key": "E001-S01-002", "to": "done"})
+        idx = pm.build_events_index(self.root)
+        self.assertEqual(sorted(idx), ["E001-S01-001", "E001-S01-002"])
+
+    def test_an_index_drops_a_bad_key_while_a_dispatch_carries_it(self):
+        """The asymmetry is deliberate and easy to "tidy" into a bug, so it is pinned.
+
+        An index is looked up BY a real node key, so a value no node could have is not a
+        key -- carrying it would add a phantom entry for nothing. A dispatch identity
+        only needs an open and its close to hash alike, so carrying a malformed field
+        through under its repr keeps that dispatch closeable, and DROPPING it would
+        recreate the permanently-stalled state the read-side canonicalisation fixed.
+        """
+        self.assertIsNone(pm._indexable_key(["x"]))
+        self.assertIsNone(pm._indexable_key({"x": 1}))
+        self.assertIsNone(pm._indexable_key("   "))
+        self.assertEqual(pm._indexable_key("  E001-S01-001 "), "E001-S01-001")
+        # carried, not dropped: a str() repr is stable, so open and close still match
+        self.assertEqual(pm._hashable_field(["x"]), pm._hashable_field(["x"]))
+        self.assertIsNotNone(pm._hashable_field(["x"]))
+
+        self.write({"ts": "2026-01-01T00:00:00+00:00", "event": "dispatch_open",
+                    "agent": "a", "epic": ["bad"], "story": "E001-S01-009"})
+        self.assertEqual(len(pm.open_dispatches(self.root, 0)), 1)
+        self.write({"ts": "2026-01-01T00:00:00+00:00", "event": "dispatch_open",
+                    "agent": "a", "epic": ["bad"], "story": "E001-S01-009"},
+                   {"ts": "2026-01-01T00:01:00+00:00", "event": "dispatch_close",
+                    "agent": "a", "epic": ["bad"], "story": "E001-S01-009"})
+        self.assertEqual(pm.open_dispatches(self.root, 0), [])
+
+
 class TestScheduleIssue(IssueBase):
     """`schedule-issue` attaches an open backlog key to a story that ALREADY EXISTS.
 
