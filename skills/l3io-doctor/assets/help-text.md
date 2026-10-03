@@ -9,6 +9,7 @@ Diagnostic (read-only)
   backlog / issues   Aliases for stats; always print the per-item backlog table
   check-deps         Verify BMad skill dependencies resolve in this project
   check-pm-status    Verify installed pm-status.py matches this doctor's module_version
+  version            Which l3io-extensions version this project is running
 
 One-time migrations (run in this order)
   migrate-schema     (legacy-only) Add missing fields to a legacy flat sprint-status.yaml

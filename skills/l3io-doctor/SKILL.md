@@ -46,6 +46,7 @@ Modes (pass as argument to skip directly to that mode):
 - **`stats`** (aliases **`backlog`**, **`issues`**): Plan-aware progress dashboard — phase → epic → sprint → story hierarchy with per-status dwell times and stuck-item flags (via `pm-status.py report`), plus backlog size by severity, the per-item backlog table from `{pm_state_root}/issues.yaml` grouped by severity, last closed sprint/epic, and calibration state. Scope it by asking — "what's active", "what's queued", "everything" — which maps to `--status`; counting always covers every epic regardless. No files changed.
 - **`check-deps`:** Verifies every BMad skill this package dispatches resolves in this project, reports deprecated shims still in use, and names optional dependencies whose phases will self-skip. No files changed.
 - **`check-pm-status`:** Compares the installed `{project-root}/_bmad/scripts/pm-status.py` against this doctor's `module_version` and reports whether it is current, stale, or absent. Used by `pm-help` at activation to warn about a stale copy; also runnable directly. No files changed.
+- **`version`** (aliases **`--version`**, **`which-version`**): Reports which l3io-extensions version this project is running, read from the manifests the installer writes — per skill and, for the four module homes, per module. Exits 3 on a tree carrying more than one version, which is a partial install. This is the mode that answers "which l3io am I on?"; `check-pm-status` answers the narrower question of whether the self-installed `pm-status.py` is current, and reports STALE for one invocation after a correct upgrade because the installer does not write that copy. No files changed.
 
 **One-time migrations (run in this order)**
 - **`migrate-schema`:** *(legacy-only)* Upgrades an existing legacy flat `sprint-status.yaml` to the current field schema — adds missing fields with zero/empty defaults, never overwrites existing values.
@@ -79,8 +80,8 @@ Modes (pass as argument to skip directly to that mode):
 
 **Load exactly one mode file.** Every mode below lives in its own file under `steps/`, and
 only the one the argument selects is ever loaded. That is the point of the layout: this skill
-carries seventeen procedures and a run needs one, so inlining them all charged every
-invocation for sixteen it would not execute. Read this file, match the keyword, load that
+carries eighteen procedures and a run needs one, so inlining them all charged every
+invocation for seventeen it would not execute. Read this file, match the keyword, load that
 one file, and follow it.
 
 **Recognized keywords** — if the user's argument exactly matches any of these, load that
@@ -105,6 +106,7 @@ or module setup.
 | `stats`, `backlog` or `issues` | `steps/stats.md` | registered | read-only — plan-aware progress dashboard plus the per-item backlog table |
 | `check-deps` | `steps/check-deps.md` | registered | read-only — verify BMad skill dependencies resolve |
 | `check-pm-status` | `steps/check-pm-status.md` | registered | read-only — verify the installed pm-status.py matches this doctor's module_version |
+| `version`, `--version` or `which-version` | `steps/version.md` | registered | read-only — report the installed l3io-extensions version per skill and per module |
 | `clean-layout` or `layout-cleanup` | `steps/clean-layout.md` | health-check | layout reorganization only. `clean-layout` is the primary; `layout-cleanup` is the DEPRECATED alias from ≤ 3.1.3, kept so old muscle memory still routes. Verb-first (`clean-<noun>`) mirrors `clean-legacy`. |
 | `migrate-schema` | `steps/schema-migration.md` | health-check | legacy-only bridge |
 | `split-status` | `steps/split-status.md` | health-check | legacy-only bridge |
