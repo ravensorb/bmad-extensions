@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file. See [commit-and-tag-version](https://github.com/absolute-version/commit-and-tag-version) for commit guidelines.
 
+## [3.2.4](https://github.com/ravensorb/bmad-extensions/compare/3.2.3...3.2.4) (2026-10-03)
+
+
+### Fixes
+
+* **l3io-util:** harvest-debt searched nothing and called it a clean tree ([f298b92](https://github.com/ravensorb/bmad-extensions/commit/f298b92cfda77a50722b43b21937b4a871ef748a))
+
 ## [3.2.3](https://github.com/ravensorb/bmad-extensions/compare/3.2.2...3.2.3) (2026-10-03)
 
 
