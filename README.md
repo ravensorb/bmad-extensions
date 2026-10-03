@@ -86,14 +86,45 @@ npx bmad-method install \
   --yes
 ```
 
-For a single IDE, use just that code, e.g. `--tools claude-code` or `--tools github-copilot`.
+> **UPGRADING AN EXISTING INSTALL? OMIT `--modules`, and read `--tools` off the manifest.**
+> The command above is the FIRST-INSTALL form. On a repo that already has BMad,
+> `--modules` is authoritative, not additive: `installer.js` removes every installed module
+> the flag does not name, via `fs.remove`, sparing only `core` and modules with no available
+> source. Passing it also disables the retention `--yes` would otherwise give
+> (`preserveUnselected: options.yes && !options.modules`). `--tools` behaves the same way —
+> deselected IDEs go through `cleanupByList`, which wipes their target directories.
+>
+> ```bash
+> npx -y bmad-method@6.12.0 install \
+>   --directory . \
+>   --custom-source https://github.com/ravensorb/bmad-extensions \
+>   --tools "$(…the ides: list from _bmad/_config/manifest.yaml, verbatim…)" \
+>   --yes
+> ```
+>
+> With `--yes` and no `--modules`, the installer selects every module already installed plus
+> the defaults, AND keeps unselected ones — two independent protections instead of a list you
+> have to transcribe correctly, where one omission is an unrecoverable delete. Pin the version:
+> an unpinned `npx` produced a four-way version spread across one fleet. Name `--modules`
+> only when you actually intend to CHANGE the module set.
+>
+> *Found the hard way: a `--modules bmm` upgrade would have removed `cis` and `tea` from a
+> repo that had them. The four `l3io` modules are never at risk — `--custom-source` codes are
+> appended to the selection regardless of `--modules`.*
 
-**`--modules bmm` is not optional.** A `--custom-source` install brings BMad's `core` plus the
-custom modules and nothing else, so without it you get the four `l3io` modules and none of the
-BMad skills they dispatch to — `bmad-code-review`, `bmad-retrospective`,
-`bmad-qa-generate-e2e-tests` and `bmad-sprint-planning` live in the official `bmm` module, not
-in `core`. The failure shows up late: planning works, then the first phase
-that dispatches one of them has nothing to invoke.
+For a single IDE on a FIRST install, use just that code, e.g. `--tools claude-code`. On an
+upgrade, pass back exactly what the manifest's `ides:` lists.
+
+**On a first install, name `bmm`.** Without `--yes`, a `--custom-source` install starts from an
+empty module list and brings `core` plus the custom modules only — so you would get the four
+`l3io` modules and none of the BMad skills they dispatch to. `bmad-code-review`,
+`bmad-retrospective`, `bmad-qa-generate-e2e-tests` and `bmad-sprint-planning` live in the
+official `bmm` module, not in `core`, and the failure shows up late: planning works, then the
+first phase that dispatches one of them has nothing to invoke.
+
+*With `--yes` it is belt and braces rather than strictly required — `bmm` declares
+`default_selected: true`, so the non-interactive path selects it anyway. Naming it costs
+nothing and protects the interactive path, which is why the command above keeps it.*
 
 Add any other official modules to the same comma-separated flag (`--modules bmm,tea`). The full
 set BMad offers:
