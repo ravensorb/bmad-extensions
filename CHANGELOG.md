@@ -2,6 +2,23 @@
 
 All notable changes to this project will be documented in this file. See [commit-and-tag-version](https://github.com/absolute-version/commit-and-tag-version) for commit guidelines.
 
+## [3.2.3](https://github.com/ravensorb/bmad-extensions/compare/3.2.2...3.2.3) (2026-10-03)
+
+
+### Fixes
+
+* **l3io-pm:** store epic and sprint canonically, at every write site ([0ac2960](https://github.com/ravensorb/bmad-extensions/commit/0ac29608072bec5695c047d28fb5c4e4c5d93ba9))
+
+
+### Documentation
+
+* **infra:** record the rename's two lessons and two consumer requests ([ca13384](https://github.com/ravensorb/bmad-extensions/commit/ca133849a7baacdebf17cb652e86a51e8e1eb313))
+
+
+### Maintenance
+
+* **infra:** raise the pm-status.py line cap to 10,000; retire Option C ([99643b8](https://github.com/ravensorb/bmad-extensions/commit/99643b8065856c49ea235fedd407df08e8b0baf1))
+
 ## [3.2.2](https://github.com/ravensorb/bmad-extensions/compare/3.2.1...3.2.2) (2026-10-02)
 
 
