@@ -2,6 +2,31 @@
 
 All notable changes to this project will be documented in this file. See [commit-and-tag-version](https://github.com/absolute-version/commit-and-tag-version) for commit guidelines.
 
+## [3.2.5](https://github.com/ravensorb/bmad-extensions/compare/3.2.4...3.2.5) (2026-10-04)
+
+
+### Features
+
+* install.sh — one entry point that picks the right BMad command ([8769ae1](https://github.com/ravensorb/bmad-extensions/commit/8769ae19235b347a29f2b83010869bcf6ae488d9))
+* **l3io-pm:** schedule-issue attaches a backlog item to an existing story ([12b1c10](https://github.com/ravensorb/bmad-extensions/commit/12b1c10c009631592db79b4ade330bf872580543))
+* **l3io-util:** a version mode that answers "which l3io am I on?" ([7ac7b88](https://github.com/ravensorb/bmad-extensions/commit/7ac7b880258243a418a70e249817eba8cb1d3417))
+
+
+### Fixes
+
+* **l3io-pm:** canonicalise dispatch keys on read, not only on write ([ffadebb](https://github.com/ravensorb/bmad-extensions/commit/ffadebbf9f95601e130943ddf2a999a61fab07c3))
+* **l3io-pm:** two more event readers crashed on a malformed field ([6d2eacb](https://github.com/ravensorb/bmad-extensions/commit/6d2eacbda5d41ffceb6fffa20f5cbe031ba98997))
+* **l3io-util:** check-pm-status reports the version, not argparse's banner ([2c88e14](https://github.com/ravensorb/bmad-extensions/commit/2c88e1401b79f51f9db56126c549c1d195d5aca6))
+* **l3io-util:** install was claimed by two routing rows with no tie-break ([1d7a71d](https://github.com/ravensorb/bmad-extensions/commit/1d7a71d2f01c2b4b000c343a646abfa8bd2cf486))
+
+
+### Documentation
+
+* correct two instruction-file claims that had gone false ([018ceda](https://github.com/ravensorb/bmad-extensions/commit/018ceda6c004ce6cc79a2925acf11d188a729ba9))
+* **infra:** the in-repo handoff stated a release number and went stale again ([309b8d9](https://github.com/ravensorb/bmad-extensions/commit/309b8d932944246020da4d863fb08a62c7477c5d))
+* **readme:** state the trade in omitting --modules, not just the benefit ([8fdcc5a](https://github.com/ravensorb/bmad-extensions/commit/8fdcc5ac2011a75d7296f48832f7f015950c1913))
+* **readme:** the install command is first-install only; upgrading differs ([1dfb97e](https://github.com/ravensorb/bmad-extensions/commit/1dfb97eb09c6e8bbcc61308f28c2e1bbc6fcb89b))
+
 ## [3.2.4](https://github.com/ravensorb/bmad-extensions/compare/3.2.3...3.2.4) (2026-10-03)
 
 
