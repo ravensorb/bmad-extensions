@@ -730,9 +730,12 @@ class TestBaselineDrift(Base):
     def test_default_baseline_matches_this_repos_pinned_values(self):
         # The shipped bmad-baseline.json must actually describe this repo's baseline pair --
         # a stale default would make every real (non-fixture) run report phantom drift.
+        # Pinned LITERALLY on purpose: a baseline bump has to be a deliberate two-file edit,
+        # not something that drifts along with whatever npm calls `latest` that week. Moved
+        # to 6.12.1 when BMad released it and smoke:install verified the install against it.
         default_baseline = json.loads(
             pathlib.Path(SKILL_ROOT, "assets", "bmad-baseline.json").read_text(encoding="utf-8"))
-        self.assertEqual(default_baseline["core_version"], "6.12.0")
+        self.assertEqual(default_baseline["core_version"], "6.12.1")
         self.assertEqual(default_baseline["bmb_version"], "v2.2.2")
 
 
