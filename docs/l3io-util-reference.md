@@ -95,7 +95,7 @@ gitignored. If that upstream constraint is ever lifted, it changes by ADR, not q
 
 | Command | What it does |
 |---------|--------------|
-| `setup` / `configure` / `install` | Registers the `l3io-util` module config for the project. |
+| `setup` / `configure` | Registers the `l3io-util` module config for the project. |
 | `clean-legacy` | Removes migration backup files and directories after confirmation: `*.yaml.legacy` files, the `state/pm-calibration.yaml.v1` calibration schema backup (beside the live calibration file, not under `_bmad/`), `_bmad/pm-calibration.yaml.legacy`, the `_bmad/state.legacy/` directory, and the `_bmad/migration-backup/` directory. |
 | `help` / `?` | Prints the command list and exits — no project scan. |
 

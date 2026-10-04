@@ -156,7 +156,7 @@ See [l3io-pm reference](l3io-pm-reference.md) for the full config schema.
 ### l3io-sec
 
 `/l3io-sec-redteam` is a standalone (single-skill) module and self-registers when you
-explicitly ask it to `setup`, `configure`, or `install` — an absent `l3io-sec` config section
+explicitly ask it to `setup` or `configure` — an absent `l3io-sec` config section
 is normal, not a trigger. The first time you invoke it, it also initializes its sanctum.
 
 For WebSearch to work, ensure the `WebSearch` tool is allowed in your Claude Code permissions.
@@ -164,13 +164,13 @@ For WebSearch to work, ensure the `WebSearch` tool is allowed in your Claude Cod
 ### l3io-util
 
 `/l3io-doctor` is a standalone (single-skill) module and self-registers only when you
-explicitly pass `setup`, `configure`, or `install` — an absent `l3io-util` config section is
+explicitly pass `setup` or `configure` — an absent `l3io-util` config section is
 normal, not a trigger. With no argument it runs its health check directly.
 
 ### l3io-arch
 
 `/l3io-arch-review` is a standalone (single-skill) module and self-registers only when you
-explicitly pass `setup`, `configure`, or `install` — an absent `l3io-arch` config section is
+explicitly pass `setup` or `configure` — an absent `l3io-arch` config section is
 normal, not a trigger. The standards themselves live in the skill's `references/standards-*.md` files — a universal `standards-core.md` plus per-stack overlays that load automatically based on the detected stack. To apply the standards automatically inside core `bmad-architecture` and `bmad-code-review`, run `/bmad-customize` in your project and add the overlays documented in the skill's `assets/customize-architect.md`.
 
 See [l3io-arch reference](l3io-arch-reference.md) for the standards catalog, the three modes, and the customization wiring.

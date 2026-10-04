@@ -119,6 +119,15 @@
 //                    consuming project whose org root git-ignores its source repos swept
 //                    none of them and reported a clean tree. Build the list with `find` and
 //                    pipe it in. `git grep` is exempt -- it walks the index.
+//  33. doctor-keyword-uniqueness  every keyword in l3io-doctor's routing table appears in
+//                    exactly ONE row. `install` was in two -- the installer mode and module
+//                    setup -- and SKILL.md says "matches ANY of these", so there was no
+//                    precedence rule to break the tie and a reader of the losing row learned
+//                    something false. Check 25 validates that a keyword EXISTS; a duplicate
+//                    is strictly worse than a missing one, because the router does something
+//                    plausible and wrong instead of erroring. Reported by the downstream
+//                    package while porting, which carried the collision faithfully rather
+//                    than diverging. Derived from the same table check 25 reads.
 //
 // ---------------------------------------------------------------------------------------
 // KNOWN GAPS — check 4's reach over skills/
@@ -2398,7 +2407,7 @@ export const NUMBER_WORDS = ["zero", "one", "two", "three", "four", "five", "six
   "nine", "ten", "eleven", "twelve", "thirteen", "fourteen", "fifteen", "sixteen",
   "seventeen", "eighteen", "nineteen", "twenty", "twenty-one", "twenty-two", "twenty-three",
   "twenty-four", "twenty-five", "twenty-six", "twenty-seven", "twenty-eight",
-  "twenty-nine", "thirty", "thirty-one", "thirty-two"];
+  "twenty-nine", "thirty", "thirty-one", "thirty-two", "thirty-three", "thirty-four"];
 // Deliberately carries headroom past the current check count. The list previously ended at
 // the exact number of checks, so adding one made every prose count unfixable -- the correct
 // new word was not in the table, and the failure named the doc rather than the table.
@@ -4570,6 +4579,63 @@ function checkSubcommandRequired() {
 // ---------------------------------------------------------------------------
 const SLASH_FLAG_RE = /\/l3io-[a-z0-9-]+((?:\s+[a-z0-9{}[\]._-]+)*)\s+(--[a-z][a-z0-9-]*)/gi;
 
+// ---------------------------------------------------------------------------
+// 33. Every doctor routing keyword appears in exactly one row.
+//
+// doctorRoutingTable() collapses keywords into a Set, so a duplicate is invisible to every
+// caller that uses it -- which is why check 25 could validate that `install` EXISTS while
+// two rows both claimed it. This re-walks the same table counting occurrences instead.
+//
+// The scope is derived from the table, not listed, so a keyword added to a second row is
+// caught in the edit that adds it rather than by a consumer months later.
+// ---------------------------------------------------------------------------
+// Scoped with the SAME header anchor doctorRoutingTable() uses, deliberately: two readers of
+// one table that find its bounds differently can disagree about what the table contains, and
+// then check 25 and this check are validating different things while appearing to agree.
+function doctorKeywordRows() {
+  const skill = read(`${DOCTOR_DIR}/SKILL.md`);
+  const header = skill.match(DOCTOR_ROUTING_HEADER_RE);
+  if (!header) return null;
+  const lines = skill.slice(header.index + header[0].length).split("\n").slice(1);
+  const body = [];
+  for (const line of lines) {
+    if (/^\|\s*-{2,}/.test(line)) continue;
+    if (!line.startsWith("|")) break;
+    body.push(line);
+  }
+  const seen = new Map();
+  for (const line of body) {
+    const m = line.match(/^\| ((?:`[^`|]+`(?:[,/]| or )?\s*)+)\|/);
+    if (!m) continue;
+    const target = (line.split("|")[2] || "").trim() || "(no target)";
+    for (const k of m[1].matchAll(/`([^`]+)`/g)) {
+      const kw = k[1].trim();
+      if (!seen.has(kw)) seen.set(kw, []);
+      seen.get(kw).push(target);
+    }
+  }
+  return seen;
+}
+
+function checkDoctorKeywordUniqueness() {
+  const seen = doctorKeywordRows();
+  // Check 25 owns reporting a table that will not parse; staying silent here keeps that in
+  // one place rather than two checks each deciding it their own way.
+  if (seen === null) return;
+  let dupes = 0;
+  for (const [kw, targets] of seen) {
+    if (targets.length > 1) {
+      dupes++;
+      failures.push(`[check 33] ${DOCTOR_DIR}/SKILL.md: keyword \`${kw}\` is claimed by ` +
+        `${targets.length} rows (${targets.join(", ")}) — the router matches "any of these", ` +
+        `so nothing decides which wins and a reader of the losing row learns something false`);
+    }
+  }
+  if (verbose) {
+    console.log(`  doctor-keyword-uniqueness: ${seen.size} keyword(s), ${dupes} duplicated`);
+  }
+}
+
 function checkNoFlagsOnSlashCommands() {
   const docs = [...allSkillDocs()];
   const violations = [];
@@ -4636,6 +4702,7 @@ checkProbePathParity();
 checkSubcommandRequired();
 checkRecursiveGrep();
 checkNoFlagsOnSlashCommands();
+checkDoctorKeywordUniqueness();
 
 for (const note of notes) if (verbose) console.log(`  note: ${note}`);
 

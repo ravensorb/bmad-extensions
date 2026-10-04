@@ -122,7 +122,7 @@ or module setup.
 | `clean-legacy` | `steps/clean-legacy.md` | health-check | remove migration backup files |
 | `migrate-state` | `steps/migrate-state.md` | health-check | prose around `migrate-engine.py` — confirms before and interprets after the eight-step migration run |
 | `bootstrap-state` | `steps/bootstrap-state.md` | health-check | prose around `migrate-engine.py` with `read-artifacts.py` — creates state nodes from story `.md` files without overwriting existing nodes |
-| `setup`, `configure`, `install` | `assets/module-setup.md` | not-a-capability | then continue to `steps/health-check.md` |
+| `setup` or `configure` | `assets/module-setup.md` | not-a-capability | then continue to `steps/health-check.md`. **`install` is deliberately not here** — it routes to `steps/install.md`, because a user typing it means the extension, not this module's config. It was in both rows until 3.2.5, with no precedence rule to separate them. |
 
 **Everything else** (no argument, unrecognized text, or a natural-language description) →
 load `steps/health-check.md`.
@@ -162,7 +162,7 @@ one artifact tree, and this skill reorganizes the very directories the PM skills
 
 An absent `modules.l3io-util` section is normal and is **not** a first-run trigger: this
 module declares no required settings. Load `assets/module-setup.md` only when the user
-explicitly passes `setup`, `configure`, or `install`.
+explicitly passes `setup` or `configure`.
 
 Then bind the state paths every mode below uses (identical to the PM skills' bindings —
 see `references/status-files.md` §10, the canonical contract):

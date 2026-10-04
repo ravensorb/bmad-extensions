@@ -21,7 +21,7 @@ because the previous prose ran its completeness checks after it, so an empty par
 vacuously and then deleted the source. Check 26 keeps state-path assembly inside
 `pm-status.py`'s resolver section.
 
-Module setup lives at each module's **home**: a dedicated `l3io-setup` skill for `l3io-pm` (the package's only multi-skill module), and the skill itself for the three single-skill modules (`l3io-util`, `l3io-sec`, `l3io-arch`), each of which self-registers. Setup never runs implicitly — only on an explicit `setup`, `configure`, or `install` request. An absent `[modules.<code>]` config section is normal, not a first-run trigger; see `references/config-resolution.md` §5.
+Module setup lives at each module's **home**: a dedicated `l3io-setup` skill for `l3io-pm` (the package's only multi-skill module), and the skill itself for the three single-skill modules (`l3io-util`, `l3io-sec`, `l3io-arch`), each of which self-registers. Setup never runs implicitly — only on an explicit `setup` or `configure` request. **`install` is not a setup trigger** — it routes to `l3io-doctor`'s `steps/install.md`, because a user typing it means the extension, not a module's config. It was both until 3.2.5, in two `l3io-doctor` routing rows with no precedence rule between them. An absent `[modules.<code>]` config section is normal, not a first-run trigger; see `references/config-resolution.md` §5.
 
 ## Skill Directory
 
@@ -34,7 +34,7 @@ Module setup lives at each module's **home**: a dedicated `l3io-setup` skill for
 | `l3io-sec-redteam` | Red team security analysis — five threat lenses + AI poisoning cross-cut, live cloud/platform best practices research |
 | `l3io-doctor` | Project state diagnostics and housekeeping — default is a health check that reports findings and proposes an ordered fix plan; `stats` is the plan-aware progress dashboard; plus `triage`, `migrate-adrs`, `migrate-state`, `split-status`, `harvest-debt`, `sort-status`, `update-ai-rules`, `clean-legacy`, `redrive`. Renamed from `l3io-util-cleanup` in 2.1.0; the deprecated forwarder was removed in 3.0.0 (see `docs/upgrading.md`) |
 | `l3io-arch-review` | Engineering-standards architecture guardrails and review — three modes: design guardrails (new project), architectural review (audit), decision support + ADR recording |
-| `l3io-setup` | Records `l3io-pm`'s project-level settings and registers its capabilities for the help system — the module's dedicated setup skill, run only on an explicit `setup`/`configure`/`install` request |
+| `l3io-setup` | Records `l3io-pm`'s project-level settings and registers its capabilities for the help system — the module's dedicated setup skill, run only on an explicit `setup`/`configure` request |
 
 ## Shared Files
 
@@ -154,7 +154,7 @@ Recorded here so the next `npm ci` warning is a known fact rather than a redisco
 the current list rather than trusting this sentence: the `deprecated` field in
 `package-lock.json`'s `packages` map is the source of truth.
 
-`check:docs` runs thirty-two checks asserting facts that have each drifted in this repo's history.
+`check:docs` runs thirty-three checks asserting facts that have each drifted in this repo's history.
 They are numbered and described in `scripts/check-docs.mjs`'s own header — read them there rather
 than restating them here, **including the `KNOWN GAPS` block** at the end of that header, which
 states in full what check 4 does *not* reach over `skills/`. A numbered entry describes a check's
@@ -226,7 +226,7 @@ not reintroduce a read of one. Module settings the skills write go to the `custo
 only (the installer regenerates the other two). `implementation_artifacts` and
 `planning_artifacts` resolve from `modules.l3io-pm` for *all four* modules — one artifact
 tree, one home for its path. An absent module section is normal and never triggers setup;
-setup runs only on an explicit `setup`/`configure`/`install`. Whether an optional module is
+setup runs only on an explicit `setup`/`configure`. Whether an optional module is
 installed is answered by `_bmad/_config/manifest.yaml`, never by a config section — a module
 can be installed and unconfigured. Full contract: `skills/_shared/config-resolution.md`.
 

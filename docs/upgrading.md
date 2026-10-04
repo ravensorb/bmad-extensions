@@ -355,7 +355,7 @@ habit invokes one of these, switch it to the replacement named here.
 
 **Module setup no longer routes through `l3io-execute`, `l3io-plan`, `l3io-help`,
 or `l3io-sync`.** Those four skills previously loaded `assets/module-setup.md` when you
-passed `setup`, `configure`, or `install`; they no longer carry that file at all — only the
+passed `setup` or `configure`; they no longer carry that file at all — only the
 module's home skill, `l3io-setup`, does. If a team script, alias, or habit invoked module
 setup through one of the other four skills, switch it to `/l3io-setup`. `l3io-sync`'s
 own `setup` mode (GitHub sync setup) is unaffected — it was always a different thing from

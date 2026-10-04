@@ -3635,3 +3635,32 @@ test("check 32: the real tree is clean", async () => {
   const r = await run(REPO);
   assert.doesNotMatch(r.stderr, /\[check 32\]/);
 });
+
+
+// ---- check 33 (doctor-keyword-uniqueness) ----
+// `install` was claimed by the installer row AND the module-setup row, and SKILL.md says the
+// router matches "any of these" -- so nothing decided which won. Check 25 validated that the
+// keyword EXISTS, which a duplicate passes. Reported by the downstream package while porting.
+
+test("check 33: a keyword claimed by two rows is caught", async (t) => {
+  const root = fixture(t);
+  const p = "skills/l3io-doctor/SKILL.md";
+  const src = fs.readFileSync(path.join(root, p), "utf8").replace(
+    /^\| `setup` or `configure` \|/m,
+    "| `setup`, `configure`, `install` |");
+  write(root, p, src);
+  const r = await run(root);
+  assert.equal(r.status, 1);
+  assert.match(r.stderr, /\[check 33\][\s\S]*`install` is claimed by 2 rows/);
+});
+
+// Scope attack: the check must read the ROUTING table only. An unrelated table whose first
+// cell is backticked tokens must not contribute keywords -- that exact mistake once widened
+// check 25's valid set and stopped it catching a stale keyword.
+test("check 33: an unrelated backticked table does not create phantom duplicates", async (t) => {
+  const root = fixture(t);
+  const p = "skills/l3io-doctor/SKILL.md";
+  write(root, p, fs.readFileSync(path.join(root, p), "utf8") +
+    "\n\n## Unrelated\n\n| Old | New |\n|---|---|\n| `triage` | `triage` |\n");
+  assert.doesNotMatch((await run(root)).stderr, /\[check 33\]/);
+});
