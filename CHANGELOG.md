@@ -2,6 +2,20 @@
 
 All notable changes to this project will be documented in this file. See [commit-and-tag-version](https://github.com/absolute-version/commit-and-tag-version) for commit guidelines.
 
+## [3.2.6](https://github.com/ravensorb/bmad-extensions/compare/3.2.5...3.2.6) (2026-10-04)
+
+
+### Fixes
+
+* **infra:** exempt a deprecated forwarder's missing-entry, on evidence ([8b4ad70](https://github.com/ravensorb/bmad-extensions/commit/8b4ad70b0420aff0f29cedd8ce58a045375545c5))
+* **infra:** move the pinned baseline twin to 6.12.1 ([cdd1c08](https://github.com/ravensorb/bmad-extensions/commit/cdd1c084b0243ffdd5a0b901c843dcefb8a0f2e5))
+* **l3io-pm:** don't index YAML frontmatter as a spec section; report BMad version ([0850396](https://github.com/ravensorb/bmad-extensions/commit/0850396dabbdb0c8b6d17c54dadf12f77317210c))
+
+
+### Maintenance
+
+* **deps:** bump brace-expansion 1.1.18 -> 1.1.21 (3 DoS advisories) ([23ba04d](https://github.com/ravensorb/bmad-extensions/commit/23ba04d1ef466010b8ea8c08616a8fc4dbb50292))
+
 ## [3.2.5](https://github.com/ravensorb/bmad-extensions/compare/3.2.4...3.2.5) (2026-10-04)
 
 
