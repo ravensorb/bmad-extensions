@@ -130,6 +130,49 @@ def installed_pm_status(project_root: Path) -> str | None:
     return m.group(1) if m else None
 
 
+_BMAD_MANIFEST = Path("_bmad") / "_config" / "manifest.yaml"
+_REGISTRY = "https://registry.npmjs.org/bmad-method/latest"
+
+
+def installed_bmad(project_root: Path) -> str | None:
+    """The BMad version from `_bmad/_config/manifest.yaml` -> `installation.version`.
+
+    That is the key BMad's own installer writes (tools/installer/core/manifest.js), and it
+    is the only place the core version is recorded: `modules.core.version` mirrors it, and a
+    custom-source module records a git ref instead, which is why we do not read one here.
+    """
+    path = project_root / _BMAD_MANIFEST
+    if not path.is_file():
+        return None
+    data = _load_yaml(path)
+    if not isinstance(data, dict):
+        return None
+    inst = data.get("installation")
+    v = inst.get("version") if isinstance(inst, dict) else None
+    return str(v) if v else None
+
+
+def latest_bmad(timeout: float = 5.0) -> tuple[str | None, str | None]:
+    """(version, error). NEVER raises and never fails the command.
+
+    This is the one network call in a read-only diagnostic, so it is opt-in (--check-latest)
+    and degrades to a reported reason. A version check that turns `/l3io-doctor version`
+    into a failure on a plane is worse than not having it: the offline user still needs the
+    local half of the report, which is the half that answers "which l3io am I on?".
+    """
+    import json as _json
+    import urllib.error
+    import urllib.request
+    try:
+        # _REGISTRY is a fixed https literal, never user input.
+        with urllib.request.urlopen(_REGISTRY, timeout=timeout) as r:
+            return str(_json.loads(r.read()).get("version") or "") or None, None
+    except urllib.error.URLError as e:
+        return None, f"registry unreachable ({e.reason})"
+    except Exception as e:  # noqa: BLE001 -- a diagnostic must not die on an unexpected shape
+        return None, f"{type(e).__name__}: {e}"
+
+
 def main(argv=None) -> int:
     ap = argparse.ArgumentParser(prog="report-version.py", description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
@@ -139,6 +182,9 @@ def main(argv=None) -> int:
     ap.add_argument("--project-root", default=None,
                     help="also report the self-installed pm-status.py under this root")
     ap.add_argument("--format", choices=("text", "json"), default="text")
+    ap.add_argument("--check-latest", action="store_true",
+                    help="also ask the npm registry whether BMad is current (one network "
+                         "call; reports the reason and still succeeds if it cannot reach it)")
     a = ap.parse_args(argv)
 
     skills = discover(Path(a.skills_root))
@@ -146,6 +192,8 @@ def main(argv=None) -> int:
     versions |= {r["module_version"] for r in skills if r["module_version"]}
     pm_installed = (installed_pm_status(Path(a.project_root))
                     if a.project_root else None)
+    bmad_installed = installed_bmad(Path(a.project_root)) if a.project_root else None
+    bmad_latest, bmad_err = latest_bmad() if a.check_latest else (None, None)
 
     if not skills:
         if a.format == "json":
@@ -165,6 +213,10 @@ def main(argv=None) -> int:
                    "version": next(iter(versions)) if len(versions) == 1 else None,
                    "versions": sorted(versions),
                    "installed_pm_status": pm_installed,
+                   "bmad": {"installed": bmad_installed, "latest": bmad_latest,
+                            "current": (None if not (bmad_installed and bmad_latest)
+                                        else bmad_installed == bmad_latest),
+                            "error": bmad_err},
                    "skills": skills}, sys.stdout, indent=2)
         sys.stdout.write("\n")
         return 0 if status == "current" else 3
@@ -189,6 +241,18 @@ def main(argv=None) -> int:
             note = "" if pm_installed in versions else \
                    "  (refreshed at the next skill activation, not by the installer)"
             sys.stdout.write(f"\nself-installed pm-status.py: {pm_installed}{note}\n")
+        if bmad_installed:
+            line = f"BMad: {bmad_installed}"
+            if bmad_latest:
+                line += (" (current)" if bmad_installed == bmad_latest
+                         else f" -- latest is {bmad_latest}")
+            elif bmad_err:
+                line += f" (latest unknown: {bmad_err})"
+            sys.stdout.write(line + "\n")
+        else:
+            sys.stdout.write(
+                "BMad: version not recorded -- no _bmad/_config/manifest.yaml under "
+                "the given --project-root\n")
     return 0 if status == "current" else 3
 
 

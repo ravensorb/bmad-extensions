@@ -88,7 +88,7 @@ pending_check() { echo "  PENDING $1 -- $2"; pending=$((pending + 1)); }
 
 echo "== baseline =="
 check "core version matches the pinned baseline" \
-  "grep -q \"version: $(jq -r .core_version "$pkg/skills/l3io-util-doctor/assets/bmad-baseline.json")\" _bmad/_config/manifest.yaml"
+  "grep -q \"version: $(jq -r .core_version "$pkg/skills/l3io-doctor/assets/bmad-baseline.json")\" _bmad/_config/manifest.yaml"
 
 echo "== plugin skill delivery (marketplace.json) =="
 # Task 11A fix round 1, M-1: the definitive empirical guard is that every skill
@@ -279,7 +279,7 @@ check "the help index exists and the installer owns it" \
 
 echo "== dependency truth =="
 check "no inventory claim contradicts the manifest" \
-  "uv run -q --with 'ruamel.yaml>=0.18' python3 '$pkg/skills/l3io-util-doctor/scripts/bmad-deps.py' verify --project-root . --format json | jq -e '.status_contradictions == []' >/dev/null"
+  "uv run -q --with 'ruamel.yaml>=0.18' python3 '$pkg/skills/l3io-doctor/scripts/bmad-deps.py' verify --project-root . --format json | jq -e '.status_contradictions == []' >/dev/null"
 
 if [ "$fail" -eq 0 ]; then
   [ "$pending" -eq 0 ] && echo "smoke: PASS" || echo "smoke: PASS ($pending pending)"

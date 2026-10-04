@@ -206,6 +206,30 @@ class TestBuild(Project):
         self.assertIn(f"## epics · {PLAN}/epics.md", idx)
         self.assertNotIn("notes.md", idx)
 
+    def test_yaml_frontmatter_is_not_indexed_as_a_section(self):
+        # BMad 6.12.1 writes `status: draft` frontmatter into epics.md. In Markdown, a line
+        # followed by `---` is a SETEXT h2, so the frontmatter parsed as a heading and the
+        # index grew a phantom `#status-draft` section pointing at the YAML block. Pre-existing,
+        # but 6.12.1 made it reach every project that runs the planning skill.
+        self.write(f"{PLAN}/epics.md",
+                   "---\nstatus: draft\nowner: me\n---\n\n# Epics\n\n## Real\n\nText.\n")
+        self.assertEqual(self.sa("build").returncode, 0)
+        idx = self.index()
+        self.assertNotIn("#status-draft", idx)
+        self.assertNotIn("#owner-me", idx)
+        # The real headings still resolve, and their line numbers still point at the real
+        # lines -- the frontmatter is blanked in place, never removed, so nothing shifts.
+        self.assertIn(f"{PLAN}/epics.md#epics", idx)
+        self.assertIn(f"{PLAN}/epics.md#real", idx)
+        self.assertRegex(idx, r"epics\.md#real — Real: Text\. \(L8")
+
+    def test_frontmatter_delimiter_mid_document_is_left_alone(self):
+        # Only a block at the very top is frontmatter. A `---` rule later in the document is
+        # a thematic break, and the line above it IS a legitimate setext heading.
+        self.write(f"{PLAN}/epics.md", "# Epics\n\nIntro.\n\nA Real Setext Heading\n---\n\nText.\n")
+        self.assertEqual(self.sa("build").returncode, 0)
+        self.assertIn("#a-real-setext-heading", self.index())
+
     def test_sharded_directory_is_indexed_whole(self):
         self.write(f"{PLAN}/prd/index.md", "# PRD\n\nOverview.\n")
         self.write(f"{PLAN}/prd/goals.md", "# Goals\n\nShip it.\n")

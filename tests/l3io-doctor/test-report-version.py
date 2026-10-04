@@ -219,5 +219,66 @@ class TestJson(Base):
         self.assertEqual(d["versions"], ["3.2.2", "3.2.4"])
 
 
+
+class TestBmadVersion(Base):
+    """The BMad half: which BMad this project is on, and optionally whether it is current.
+
+    Added when BMad 6.12.1 shipped and nothing in the estate could answer "am I on it?".
+    The installed version comes from `_bmad/_config/manifest.yaml` -> `installation.version`,
+    which is the key BMad's own installer writes.
+    """
+
+    def bmad(self, text):
+        cfg = Path(self.d) / "_bmad" / "_config"
+        cfg.mkdir(parents=True, exist_ok=True)
+        (cfg / "manifest.yaml").write_text(text, encoding="utf-8")
+
+    def test_reports_the_installed_bmad_version(self):
+        self.skill("l3io-doctor", "3.2.5", module="l3io-util")
+        self.bmad("installation:\n  version: 6.12.0\n")
+        code, out, _ = self.run_cli("--project-root", self.d)
+        self.assertEqual(code, 0)
+        self.assertIn("BMad: 6.12.0", out)
+
+    def test_says_so_when_bmad_is_not_recorded(self):
+        # No _bmad/ at all. A consumer who has not installed BMad, or passed a wrong root,
+        # must get a reason rather than a silently absent line.
+        self.skill("l3io-doctor", "3.2.5", module="l3io-util")
+        code, out, _ = self.run_cli("--project-root", self.d)
+        self.assertEqual(code, 0)
+        self.assertIn("version not recorded", out)
+
+    def test_a_corrupt_manifest_does_not_crash(self):
+        self.skill("l3io-doctor", "3.2.5", module="l3io-util")
+        self.bmad("installation: [this is not a mapping]\n")
+        code, out, _ = self.run_cli("--project-root", self.d)
+        self.assertEqual(code, 0)
+        self.assertIn("version not recorded", out)
+
+    def test_no_network_call_without_check_latest(self):
+        # The default must stay offline. Point the registry at a port nothing listens on:
+        # if the default reached the network at all, this would hang or report an error.
+        self.skill("l3io-doctor", "3.2.5", module="l3io-util")
+        self.bmad("installation:\n  version: 6.12.0\n")
+        env = dict(os.environ)
+        r = subprocess.run([sys.executable, _SCRIPT, "--skills-root", str(self.skills),
+                            "--project-root", self.d],
+                           capture_output=True, text=True, env=env, timeout=20)
+        self.assertEqual(r.returncode, 0)
+        self.assertIn("BMad: 6.12.0", r.stdout)
+        self.assertNotIn("latest", r.stdout)
+
+    def test_json_carries_the_bmad_block(self):
+        self.skill("l3io-doctor", "3.2.5", module="l3io-util")
+        self.bmad("installation:\n  version: 6.12.0\n")
+        code, out, _ = self.run_cli("--project-root", self.d, "--format", "json")
+        self.assertEqual(code, 0)
+        b = json.loads(out)["bmad"]
+        self.assertEqual(b["installed"], "6.12.0")
+        # Without --check-latest there is nothing to compare against, so `current` must be
+        # None rather than False -- "unknown" and "out of date" are different answers.
+        self.assertIsNone(b["latest"])
+        self.assertIsNone(b["current"])
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

@@ -24,6 +24,23 @@ uv run {skill-root}/scripts/report-version.py --project-root {project-root}
 where a standard install puts them. Pass it explicitly only when the skills live
 somewhere else.
 
+The report also names the **BMad** version, read from `_bmad/_config/manifest.yaml` →
+`installation.version` (the key BMad's own installer writes). That half needs
+`--project-root`; without it there is no `_bmad/` to read.
+
+Add `--check-latest` when the user asks whether BMad itself is current:
+
+```bash
+uv run {skill-root}/scripts/report-version.py --project-root {project-root} --check-latest
+```
+
+It makes **one** network call to the npm registry. It is opt-in rather than default
+because this mode is otherwise entirely offline, and a diagnostic that fails on a plane is
+worse than one that answers the local half — which is the half that was asked for. An
+unreachable registry reports the reason and still exits 0; it never turns a working report
+into a failure. In `--format json` the `bmad.current` field is `null` when the check did
+not run, which is a different answer from `false`: "unknown" is not "out of date".
+
 ## 2. Report
 
 Print the output as-is. Then:

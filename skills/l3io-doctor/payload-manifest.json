@@ -5,7 +5,7 @@
     "references/config-resolution.md": "ef410e4a7b1468057f72f59738284d6afec102c82be55bd4e78fbea355b8f9d7",
     "scripts/pm-status.py": "983ad9559b66597a537df2501016a293e26925f029bd202ca2adf6ccf0883a3d",
     "references/status-files.md": "fc4f3635980bfdda770d47605969e1af32ebe6c953b608bf823d164c19c6bf8c",
-    "scripts/spec-align.py": "ff4a441bf08fb0819be75d96de0462ef2f46737cc1f808c5e84ed0f748fd5ab4",
+    "scripts/spec-align.py": "bf7385ca6337b3ec3e842716339553f2a5a54a5ca81e721507dce212ed27faec",
     "scripts/merge-config.py": "22f51eed631c64134d352c236917e0a98ec5b5fe5d0810394f4615905c6ef7dc",
     "scripts/merge-help-csv.py": "44cae89d74a247395cc851970e28b65605e958efa04b632209f9bd5ecbc70d69",
     "scripts/write-module-config.py": "fdc0e81cda51221599907b9023a096b0570e096b7d921fb0c1db2050afa7a80f",
