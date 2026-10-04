@@ -1,14 +1,25 @@
 # Handoff — bmad-extensions
 
-**Resume line:** *"You are `bmad-extensions`. Read your handoff note, then continue."*
+**Resume line:** *"You are `bmad extensions - agent 1`. Read your handoff note, then continue."*
 
-**Released:** 3.1.2. For the rest — current HEAD, whether main is in sync, whether the
-tree is clean — run `git log --oneline -5` and `git status -sb`. An earlier revision of
-this line pinned a commit by hand and was stale one commit later, which is the same
-defect the rest of this note is about.
+> **This file is the SLOW half of a deliberate pair.** It carries the durable, repo-shaped
+> knowledge — what this agent owns, the lessons, the standing consumer requests — and it
+> survives the knowledge base being unreachable, which it was for all of 2026-10-03. The
+> fast-moving half (release state, open decisions, blockers, today's traps) lives in
+> basic-memory at `main/bmad-extensions/handoff/handoff-bmad-extensions-agent-1`. **When the
+> two disagree, trust the KB note and `git`, then fix this file.** The duplication is
+> intentional; which one wins is not a judgement call.
 
-> **Naming is an assumption.** No agent name was assigned to this session; `bmad-extensions`
-> is chosen after the repo. Rename the file if the user has another convention.
+**Released:** `3.2.4`, with **9 unreleased commits** on `main` at the time of writing. Do not
+trust either number — run `git describe --tags --abbrev=0` and
+`git rev-list --count $(git describe --tags --abbrev=0)..HEAD`, plus `git status -sb`. An
+earlier revision of this line pinned a commit by hand and was stale one commit later; the
+revision after that said "Released: 3.1.2" and was stale by three releases. The same defect
+the rest of this note is about.
+
+> **The session name is now assigned:** `bmad extensions - agent 1`. It was previously chosen
+> after the repo, as an acknowledged assumption. A fleet audit found that title-derived names
+> are wrong under rename, so the KB note carries `agent:` as the durable handle.
 
 ## What this agent owns
 
