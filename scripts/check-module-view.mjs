@@ -55,7 +55,16 @@
 //     this module (a real typo, a renamed action) still fails, because that one the validator
 //     is entitled to check.
 //
-// Anything else — any other category, any other severity, a `missing-entry`, a
+//   - `missing-entry` is exempt only for a DEPRECATED FORWARDER, and only on evidence from
+//     the installed view: the skill directory ships no `payload-manifest.json` AND its
+//     SKILL.md says DEPRECATED. Both, because either alone is weak — a pure router
+//     legitimately ships no payload, and the word appearing in prose is not a declaration.
+//     A forwarder has no capability to advertise, which is what deprecating it meant; a CSV
+//     row would put the superseded command back in the help menu next to its replacement.
+//     Derived from the install rather than a name list, so it cannot keep exempting a skill
+//     that has stopped being a forwarder, and a real skill whose rows were deleted still fails.
+//
+// Anything else — any other category, any other severity, a non-forwarder `missing-entry`, a
 // `duplicate-menu-code`, a `csv-header` mismatch, a structural `critical` — fails. So does a
 // run this script cannot make sense of: unparseable JSON, a missing `findings` array, an
 // `info` block that does not say where the module's CSV is, or a CSV that is not there. Fail
@@ -80,6 +89,23 @@ const ORPHAN_RE = /^CSV references skill '(.+)' which does not exist in the modu
 const MISSING_FIELD_RE = /^Entry '(.*)' is missing required field: (.+)$/;
 const INVALID_REF_RE =
   /^'(.*)' (?:preceded-by|followed-by) references '(.+)' which is not a valid capability$/;
+const MISSING_ENTRY_RE = /^Skill '(.+)' has no capability entries in the CSV$/;
+
+// Is this skill, as installed in the view under test, a deprecated forwarder?
+//
+// DERIVED FROM THE INSTALL, not from a name list. A list would have to be edited by the same
+// person who adds the next forwarder, and would keep exempting one after it stopped being a
+// forwarder. Both signals must hold, and each alone is insufficient: a skill can legitimately
+// ship no payload (a pure router), and SKILL.md prose mentioning the word DEPRECATED is not by
+// itself a declaration about the skill. Requiring both is what keeps this from waving through
+// a real skill whose CSV rows somebody deleted.
+function isDeprecatedForwarder(skill) {
+  const dir = path.join(viewDir, skill);
+  if (fs.existsSync(path.join(dir, "payload-manifest.json"))) return false;
+  const skillMd = path.join(dir, "SKILL.md");
+  if (!fs.existsSync(skillMd)) return false;
+  return /\bDEPRECATED\b/.test(fs.readFileSync(skillMd, "utf8"));
+}
 
 const META_SKILL = "_meta";
 // The three columns a `_meta` row leaves empty by design. `skill` is NOT here: a `_meta` row
@@ -211,6 +237,14 @@ for (const f of findings) {
       missingFieldBudget.set(field, missingFieldBudget.get(field) - 1);
       why = `a column the \`${META_SKILL}\` row leaves empty by design (it carries only a ` +
         `documentation \`output-location\`)`;
+    }
+  } else if (f.category === "missing-entry") {
+    const m = MISSING_ENTRY_RE.exec(message);
+    if (m && isDeprecatedForwarder(m[1])) {
+      why = `'${m[1]}' is a deprecated forwarder: it ships no payload-manifest.json and its ` +
+        `SKILL.md says DEPRECATED. A forwarder has no capability to advertise — that is what ` +
+        `deprecating it meant — and a CSV row would put the superseded command back in the ` +
+        `help menu beside the one that replaced it`;
     }
   } else if (f.category === "invalid-ref") {
     const m = INVALID_REF_RE.exec(message);

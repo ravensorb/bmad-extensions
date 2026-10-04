@@ -325,3 +325,55 @@ test("no view argument fails", () => {
   assert.equal(r.status, 1);
   assert.match(r.stderr, /usage:/);
 });
+
+// ---- missing-entry: deprecated forwarders ----
+// Four of these fail l3io-pm on every real install: the deprecated forwarders are in
+// marketplace.json but deliberately carry no module-help.csv rows, because a deprecated
+// command has no capability to advertise. The exemption is DERIVED from the installed view,
+// so these tests attack the derivation, not the name.
+
+const missingEntry = (skill) => ({
+  severity: "high",
+  category: "missing-entry",
+  message: `Skill '${skill}' has no capability entries in the CSV`,
+  detail: "",
+});
+
+// Plant a skill directory into an existing view: payload present or absent, SKILL.md text.
+function plantSkill(dir, name, { payload = false, skillMd = null } = {}) {
+  fs.mkdirSync(path.join(dir, name), { recursive: true });
+  if (payload) {
+    fs.writeFileSync(path.join(dir, name, "payload-manifest.json"), '{"files":{}}');
+  }
+  if (skillMd !== null) fs.writeFileSync(path.join(dir, name, "SKILL.md"), skillMd);
+}
+
+test("missing-entry is exempt for a deprecated forwarder (no payload + DEPRECATED)", (t) => {
+  const dir = view(t);
+  plantSkill(dir, "test-fwd", { skillMd: "# fwd\n\nDEPRECATED forwarder for /test-skill.\n" });
+  const r = run(dir, result([...META_FINDINGS, missingEntry("test-fwd")]));
+  assert.equal(r.status, 0, r.stderr);
+  assert.match(r.stderr + r.stdout, /deprecated forwarder/);
+});
+
+// The guard that matters. A REAL skill whose CSV rows somebody deleted must still fail --
+// otherwise this exemption quietly turns missing-entry off for the whole module.
+test("missing-entry still FAILS for a skill that ships payload", (t) => {
+  const dir = view(t);
+  plantSkill(dir, "test-real", { payload: true, skillMd: "# real\n\nDEPRECATED mentioned.\n" });
+  const r = run(dir, result([...META_FINDINGS, missingEntry("test-real")]));
+  assert.notEqual(r.status, 0, "a skill with payload must not be waved through");
+});
+
+test("missing-entry still FAILS when SKILL.md does not say DEPRECATED", (t) => {
+  const dir = view(t);
+  plantSkill(dir, "test-plain", { skillMd: "# plain\n\nA perfectly current router.\n" });
+  const r = run(dir, result([...META_FINDINGS, missingEntry("test-plain")]));
+  assert.notEqual(r.status, 0, "absent payload alone is not evidence of deprecation");
+});
+
+test("missing-entry still FAILS for a skill not in the view at all", (t) => {
+  const dir = view(t);
+  const r = run(dir, result([...META_FINDINGS, missingEntry("test-absent")]));
+  assert.notEqual(r.status, 0, "no directory means no evidence, so nothing to exempt");
+});
