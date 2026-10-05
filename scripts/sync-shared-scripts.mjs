@@ -50,6 +50,7 @@ import path from "node:path";
 import { execFileSync } from "node:child_process";
 import { pathToFileURL } from "node:url";
 import { writeAllSync } from "./write-all-sync.mjs";
+import { declaresForwarder } from "./forwarder-shape.mjs";
 
 const repoRoot = process.cwd();
 const check = process.argv.includes("--check");
@@ -180,12 +181,14 @@ const newUtilDoctorDirs = [
 // added later (or removed at 4.0.0) is picked up without a hand-kept list. Excluding
 // forwarders from allSkillDirs keeps config-resolution.md and other "every skill" payloads out
 // of them; a forwarder does not resolve config, it just dispatches.
+// The bare declaration, from scripts/forwarder-shape.mjs -- the one place that decides what a
+// forwarder is. Deliberately the LOOSEST of the three questions asked of that declaration:
+// tightening it to also demand `for /<target>` would silently start syncing shared payload INTO
+// a forwarder whose sentence was worded differently, which is a change to what ships triggered
+// by a reworded sentence. The line-matched frontmatter read it used to do is gone with it: a
+// quoted or folded description now parses the same as a plain one.
 function isForwarderSkill(skillDir) {
-  const rel = path.join(repoRoot, "skills", skillDir, "SKILL.md");
-  if (!fs.existsSync(rel)) return false;
-  const body = fs.readFileSync(rel, "utf8");
-  const m = body.match(/^description:\s*(.+)$/m);
-  return Boolean(m && /^DEPRECATED forwarder/i.test(m[1].trim()));
+  return declaresForwarder(path.join(repoRoot, "skills", skillDir));
 }
 
 const allSkillDirs = fs.readdirSync(path.join(repoRoot, "skills"), { withFileTypes: true })

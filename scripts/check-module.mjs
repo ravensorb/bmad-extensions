@@ -173,6 +173,7 @@ import YAML from "yaml";
 import { parse as parseCsv } from "csv-parse/sync";
 import { parse as parseToml } from "smol-toml";
 import { writeAllSync } from "./write-all-sync.mjs";
+import { TARGET_RE, FORWARDER_FILES } from "./forwarder-shape.mjs";
 
 // CHECK_MODULE_ROOT points the checker at another tree -- scripts/tests/check-module.test.mjs
 // runs it against fixtures built from an empty skills/ tree.
@@ -1282,8 +1283,12 @@ function checkMenuCodeUnique(skills) {
 // That is a false negative, and it is the honest trade against a hand-kept list. Check 21 in
 // check-docs.mjs separately asserts every SKILL.md frontmatter parses and that `name:` equals
 // the directory, so those are not re-checked here.
-const FORWARDER_RE = /^DEPRECATED forwarder for \/([a-z0-9-]+)/;
-const FORWARDER_ALLOWED_FILES = new Set(["SKILL.md", "customize.toml"]);
+// Both come from scripts/forwarder-shape.mjs, the one place that decides what a forwarder is.
+// This rule's question is the richest of the three -- it resolves the target, rejects chains and
+// checks the body -- so it uses the regex directly rather than the predicate, and keeps its own
+// frontmatter read because it needs the BODY separately from the description.
+const FORWARDER_RE = TARGET_RE;
+const FORWARDER_ALLOWED_FILES = FORWARDER_FILES;
 
 // The frontmatter block of a SKILL.md as an object, or null when there is not one. Tolerant by
 // design: check-docs.mjs check 21 is what fails a SKILL.md whose frontmatter does not parse,

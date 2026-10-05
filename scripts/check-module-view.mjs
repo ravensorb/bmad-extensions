@@ -81,6 +81,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { parse as parseCsv } from "csv-parse/sync";
 import { writeAllSync } from "./write-all-sync.mjs";
+import { forwarderTarget, isBareForwarderShape } from "./forwarder-shape.mjs";
 
 // The validator's message wordings, which are the only machine-readable handle it offers on
 // WHICH row a finding is about. Anchored whole, so a reworded message stops matching and the
@@ -91,20 +92,22 @@ const INVALID_REF_RE =
   /^'(.*)' (?:preceded-by|followed-by) references '(.+)' which is not a valid capability$/;
 const MISSING_ENTRY_RE = /^Skill '(.+)' has no capability entries in the CSV$/;
 
-// Is this skill, as installed in the view under test, a deprecated forwarder?
+// Is this skill, as installed in the view under test, a BARE deprecated forwarder?
 //
-// DERIVED FROM THE INSTALL, not from a name list. A list would have to be edited by the same
-// person who adds the next forwarder, and would keep exempting one after it stopped being a
-// forwarder. Both signals must hold, and each alone is insufficient: a skill can legitimately
-// ship no payload (a pure router), and SKILL.md prose mentioning the word DEPRECATED is not by
-// itself a declaration about the skill. Requiring both is what keeps this from waving through
-// a real skill whose CSV rows somebody deleted.
-function isDeprecatedForwarder(skill) {
+// Both halves come from scripts/forwarder-shape.mjs, the one place in this repo that decides
+// what a forwarder is. This file previously carried its own looser rule -- the word DEPRECATED
+// appearing anywhere in SKILL.md -- which matched neither of the two definitions already in the
+// tree and would have exempted a skill that merely DISCUSSED deprecation.
+//
+// The directory shape is required HERE and nowhere else, and that asymmetry is deliberate: this
+// is the only caller deciding whether to wave a validator finding through, so it wants evidence
+// rather than the skill's own claim about itself. `forwarderTarget` also rejects a self-naming
+// forwarder, so a skill cannot be exempted on the strength of pointing at itself.
+function forwarderInfo(skill) {
   const dir = path.join(viewDir, skill);
-  if (fs.existsSync(path.join(dir, "payload-manifest.json"))) return false;
-  const skillMd = path.join(dir, "SKILL.md");
-  if (!fs.existsSync(skillMd)) return false;
-  return /\bDEPRECATED\b/.test(fs.readFileSync(skillMd, "utf8"));
+  if (!isBareForwarderShape(dir)) return null;
+  const target = forwarderTarget(dir);
+  return target ? { target } : null;
 }
 
 const META_SKILL = "_meta";
@@ -192,6 +195,14 @@ try {
 
 const cell = (row, key) => String(row[key] ?? "").trim();
 const metaRows = rows.filter((r) => cell(r, "skill") === META_SKILL);
+
+// Skills this module's CSV actually catalogues. A forwarder is only waved through when the
+// capability it points at is demonstrably still reachable under its current name -- otherwise
+// the exemption would hide a capability that had gone missing entirely, which is the one case
+// `missing-entry` genuinely exists to catch.
+const catalogued = new Set(
+  rows.map((r) => cell(r, "skill")).filter((s) => s && s !== META_SKILL),
+);
 // The scope guard described in the header: if any ordinary row also has an empty
 // display-name, an unnamed `missing-field` can no longer be attributed to `_meta`.
 const unnamedNonMetaRows = rows.filter(
@@ -240,11 +251,13 @@ for (const f of findings) {
     }
   } else if (f.category === "missing-entry") {
     const m = MISSING_ENTRY_RE.exec(message);
-    if (m && isDeprecatedForwarder(m[1])) {
-      why = `'${m[1]}' is a deprecated forwarder: it ships no payload-manifest.json and its ` +
-        `SKILL.md says DEPRECATED. A forwarder has no capability to advertise — that is what ` +
-        `deprecating it meant — and a CSV row would put the superseded command back in the ` +
-        `help menu beside the one that replaced it`;
+    const fwd = m && forwarderInfo(m[1]);
+    if (fwd && catalogued.has(fwd.target)) {
+      why = `'${m[1]}' is a bare deprecated forwarder to '${fwd.target}' (SKILL.md and ` +
+        `customize.toml only), and '${fwd.target}' is catalogued in this module's CSV — so the ` +
+        `capability is still reachable under its current name. A forwarder has no capability ` +
+        `to advertise; a CSV row would put the superseded command back in the help menu beside ` +
+        `the one that replaced it`;
     }
   } else if (f.category === "invalid-ref") {
     const m = INVALID_REF_RE.exec(message);

@@ -327,10 +327,11 @@ test("no view argument fails", () => {
 });
 
 // ---- missing-entry: deprecated forwarders ----
-// Four of these fail l3io-pm on every real install: the deprecated forwarders are in
-// marketplace.json but deliberately carry no module-help.csv rows, because a deprecated
-// command has no capability to advertise. The exemption is DERIVED from the installed view,
-// so these tests attack the derivation, not the name.
+// Four of these fail l3io-pm on every real install: the forwarders are in marketplace.json but
+// deliberately carry no module-help.csv rows, because a deprecated command has no capability to
+// advertise. The exemption is DERIVED from the installed view via scripts/forwarder-shape.mjs,
+// so these attack the derivation rather than the name. Every negative case below is a clause
+// that, if dropped, would turn missing-entry off for the whole module.
 
 const missingEntry = (skill) => ({
   severity: "high",
@@ -339,41 +340,63 @@ const missingEntry = (skill) => ({
   detail: "",
 });
 
-// Plant a skill directory into an existing view: payload present or absent, SKILL.md text.
-function plantSkill(dir, name, { payload = false, skillMd = null } = {}) {
-  fs.mkdirSync(path.join(dir, name), { recursive: true });
-  if (payload) {
-    fs.writeFileSync(path.join(dir, name, "payload-manifest.json"), '{"files":{}}');
-  }
-  if (skillMd !== null) fs.writeFileSync(path.join(dir, name, "SKILL.md"), skillMd);
+// Plant a skill directory. `files` is the COMPLETE contents, so a case can make the directory
+// un-bare by adding one. `desc` goes in the frontmatter, which is where the declaration lives.
+function plantSkill(dir, name, { desc = null, files = ["customize.toml"], sub = null } = {}) {
+  const d = path.join(dir, name);
+  fs.mkdirSync(d, { recursive: true });
+  const fm = desc === null ? "" : `---\nname: ${name}\ndescription: ${desc}\n---\n`;
+  fs.writeFileSync(path.join(d, "SKILL.md"), `${fm}\n# ${name}\n`);
+  for (const f of files) fs.writeFileSync(path.join(d, f), "");
+  if (sub) fs.mkdirSync(path.join(d, sub), { recursive: true });
 }
 
-test("missing-entry is exempt for a deprecated forwarder (no payload + DEPRECATED)", (t) => {
+test("missing-entry is exempt for a bare forwarder whose target is catalogued", (t) => {
   const dir = view(t);
-  plantSkill(dir, "test-fwd", { skillMd: "# fwd\n\nDEPRECATED forwarder for /test-skill.\n" });
+  plantSkill(dir, "test-fwd", { desc: "DEPRECATED forwarder for /test-skill." });
   const r = run(dir, result([...META_FINDINGS, missingEntry("test-fwd")]));
   assert.equal(r.status, 0, r.stderr);
-  assert.match(r.stderr + r.stdout, /deprecated forwarder/);
+  assert.match(r.stderr + r.stdout, /bare deprecated forwarder to 'test-skill'/);
 });
 
-// The guard that matters. A REAL skill whose CSV rows somebody deleted must still fail --
-// otherwise this exemption quietly turns missing-entry off for the whole module.
-test("missing-entry still FAILS for a skill that ships payload", (t) => {
+test("missing-entry FAILS when the directory is not bare (carries payload)", (t) => {
   const dir = view(t);
-  plantSkill(dir, "test-real", { payload: true, skillMd: "# real\n\nDEPRECATED mentioned.\n" });
-  const r = run(dir, result([...META_FINDINGS, missingEntry("test-real")]));
-  assert.notEqual(r.status, 0, "a skill with payload must not be waved through");
+  plantSkill(dir, "test-fat", {
+    desc: "DEPRECATED forwarder for /test-skill.",
+    files: ["customize.toml", "payload-manifest.json"],
+  });
+  assert.notEqual(run(dir, result([...META_FINDINGS, missingEntry("test-fat")])).status, 0);
 });
 
-test("missing-entry still FAILS when SKILL.md does not say DEPRECATED", (t) => {
+test("missing-entry FAILS when the directory carries a subdirectory", (t) => {
+  // The clause the old no-payload-manifest rule missed: a skill can ship steps/ or references/
+  // and still have no manifest, which is a skill, not a forwarder.
   const dir = view(t);
-  plantSkill(dir, "test-plain", { skillMd: "# plain\n\nA perfectly current router.\n" });
-  const r = run(dir, result([...META_FINDINGS, missingEntry("test-plain")]));
-  assert.notEqual(r.status, 0, "absent payload alone is not evidence of deprecation");
+  plantSkill(dir, "test-sub", { desc: "DEPRECATED forwarder for /test-skill.", sub: "steps" });
+  assert.notEqual(run(dir, result([...META_FINDINGS, missingEntry("test-sub")])).status, 0);
 });
 
-test("missing-entry still FAILS for a skill not in the view at all", (t) => {
+test("missing-entry FAILS when the description does not name a target", (t) => {
   const dir = view(t);
-  const r = run(dir, result([...META_FINDINGS, missingEntry("test-absent")]));
-  assert.notEqual(r.status, 0, "no directory means no evidence, so nothing to exempt");
+  plantSkill(dir, "test-vague", { desc: "DEPRECATED. Use something else." });
+  assert.notEqual(run(dir, result([...META_FINDINGS, missingEntry("test-vague")])).status, 0);
+});
+
+test("missing-entry FAILS when the named target is not in the CSV", (t) => {
+  // Without this clause the exemption would hide a capability that had gone missing entirely,
+  // which is the one case missing-entry genuinely exists to catch.
+  const dir = view(t);
+  plantSkill(dir, "test-dangling", { desc: "DEPRECATED forwarder for /not-catalogued." });
+  assert.notEqual(run(dir, result([...META_FINDINGS, missingEntry("test-dangling")])).status, 0);
+});
+
+test("missing-entry FAILS for a forwarder naming itself", (t) => {
+  const dir = view(t);
+  plantSkill(dir, "test-loop", { desc: "DEPRECATED forwarder for /test-loop." });
+  assert.notEqual(run(dir, result([...META_FINDINGS, missingEntry("test-loop")])).status, 0);
+});
+
+test("missing-entry FAILS for a skill not in the view at all", (t) => {
+  const dir = view(t);
+  assert.notEqual(run(dir, result([...META_FINDINGS, missingEntry("test-absent")])).status, 0);
 });
