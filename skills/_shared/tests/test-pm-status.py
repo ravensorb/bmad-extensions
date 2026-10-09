@@ -11839,6 +11839,31 @@ class TestAgentInstructions(unittest.TestCase):
                          "concurrent writes duplicated the block -- the lock must cover the "
                          "READ as well as the write")
 
+    def _apply_claude(self):
+        return self._run("--runtime", "claude", "--project-root", self.d,
+                         "--body-file", self._body(), "--apply")
+
+    def test_lock_file_is_gitignored_in_bmad(self):
+        self.assertEqual(self._apply_claude().returncode, 0)
+        gi = Path(self.d) / "_bmad" / ".gitignore"
+        self.assertEqual(gi.read_text(encoding="utf-8").splitlines().count("*.lock"), 1)
+        self.assertNotIn(".notices.yaml", gi.read_text(encoding="utf-8"))
+
+    def test_second_run_does_not_duplicate_the_ignore_rule(self):
+        self._apply_claude()
+        self._apply_claude()
+        gi = Path(self.d) / "_bmad" / ".gitignore"
+        self.assertEqual(gi.read_text(encoding="utf-8").splitlines().count("*.lock"), 1)
+
+    def test_existing_bmad_gitignore_is_appended_to_not_clobbered(self):
+        gi = Path(self.d) / "_bmad" / ".gitignore"
+        gi.parent.mkdir()
+        gi.write_text("keep-me\n", encoding="utf-8")
+        self._apply_claude()
+        lines = gi.read_text(encoding="utf-8").splitlines()
+        self.assertIn("keep-me", lines)
+        self.assertEqual(lines.count("*.lock"), 1)
+
     def test_the_read_happens_inside_the_lock(self):
         # The subprocess test above cannot pin this: two racing "created" applies write
         # IDENTICAL text, so a lost update is invisible in the final file. Observe the order

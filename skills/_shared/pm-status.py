@@ -467,12 +467,12 @@ def _lock_rule_present(text: str, pattern: str = _LOCK_IGNORE_LINE) -> bool:
     return present
 
 
-def _missing_ignore_patterns(text: str):
-    """Which of `_GITIGNORE_PATTERNS` git does NOT currently read `text` as ignoring."""
-    return [p for p in _GITIGNORE_PATTERNS if not _lock_rule_present(text, p)]
+def _missing_ignore_patterns(text: str, patterns=_GITIGNORE_PATTERNS):
+    """Which of `patterns` git does NOT currently read `text` as ignoring."""
+    return [p for p in patterns if not _lock_rule_present(text, p)]
 
 
-def _ensure_lock_ignore(state_root: str) -> None:
+def _ensure_lock_ignore(state_root: str, patterns=_GITIGNORE_PATTERNS) -> None:
     """Make `{state_root}/.gitignore` carry every pattern in `_GITIGNORE_PATTERNS` --
     `*.lock` and `.notices.yaml` -- so neither a lock file nor the notices ledger is ever
     committed.
@@ -498,7 +498,10 @@ def _ensure_lock_ignore(state_root: str) -> None:
     for writing. Missing lines are appended after a newline when the file lacks a trailing
     one; existing content is never rewritten or reordered. Best-effort: this runs inside the
     lock path, so an OSError or an undecodable file warns once on stderr and returns -- it
-    never raises and never fails the verb."""
+    never raises and never fails the verb.
+
+    `patterns` narrows what is written, for a directory that is not a state root: the
+    agent-instruction lock under `_bmad/` needs only `*.lock`, not the notices ledger."""
     root = os.path.realpath(state_root or ".")
     if root in _LOCK_IGNORE_CHECKED:
         return
@@ -507,10 +510,10 @@ def _ensure_lock_ignore(state_root: str) -> None:
     try:
         if not os.path.lexists(path) and _atomic_create(
                 path, "# pm-status.py state files -- never commit\n" +
-                      "".join(f"{p}\n" for p in _GITIGNORE_PATTERNS)):
+                      "".join(f"{p}\n" for p in patterns)):
             return
         with open(path, "rb") as fh:                # read first: needs no write access
-            if not _missing_ignore_patterns(fh.read().decode("utf-8-sig")):
+            if not _missing_ignore_patterns(fh.read().decode("utf-8-sig"), patterns):
                 return
         try:
             import fcntl
@@ -522,7 +525,7 @@ def _ensure_lock_ignore(state_root: str) -> None:
             try:
                 fh.seek(0)
                 text = fh.read().decode("utf-8-sig")   # re-check under the flock; BOM skipped
-                missing = _missing_ignore_patterns(text)
+                missing = _missing_ignore_patterns(text, patterns)
                 if not missing:
                     return
                 sep = "" if not text or text.endswith("\n") else "\n"
@@ -533,7 +536,7 @@ def _ensure_lock_ignore(state_root: str) -> None:
                     fcntl.flock(fh, fcntl.LOCK_UN)
     except (OSError, UnicodeDecodeError) as e:
         sys.stderr.write(f"pm-status.py: warning -- could not add "
-                         f"{', '.join(_GITIGNORE_PATTERNS)} to {path}: {e}\n")
+                         f"{', '.join(patterns)} to {path}: {e}\n")
 
 
 def _state_root_of_node(path: str):
@@ -1432,11 +1435,14 @@ def agent_instructions_lock(project_root: str):
 
     Same reasoning as notices_lock: two skills activating at once must not both read the
     pre-write text and let the second overwrite the first's block. The lock file lives under
-    `_bmad/` -- the tool's own directory -- never beside the user's document. state_root is
-    None on purpose: `_ensure_lock_ignore` writes a .gitignore into a state root, and this is
-    not one.
+    `_bmad/` -- the tool's own directory -- never beside the user's document, and `*.lock`
+    is added to `_bmad/.gitignore` on every acquisition (self-healing, additive, via
+    `_ensure_lock_ignore`). state_root is None for `_file_lock` because `_bmad/` is not a
+    state root and would otherwise also receive the notices pattern.
     """
-    with _file_lock(os.path.join(project_root, "_bmad", ".agent-instructions.lock"),
+    bmad = os.path.join(project_root, "_bmad")
+    _ensure_lock_ignore(bmad, (_LOCK_IGNORE_LINE,))
+    with _file_lock(os.path.join(bmad, ".agent-instructions.lock"),
                     _AGENT_INSTR_LOCK, None):
         yield
 
