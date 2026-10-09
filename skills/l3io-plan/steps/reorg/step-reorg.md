@@ -94,8 +94,10 @@ Two findings change what you do next rather than merely informing it:
   This is **a question, never a retirement recommendation.** Leaf work is very often the actual
   deliverable of a plan. If you mention it at all, mention it as a question for the user.
 
-The `critical-path` finding is the primary objective (§7). Record its `elapsed_hours` and its
-node list — that is the "was" number the report compares against.
+The `cross-epic-coupling` and `unbacked-cross-epic-dependency` findings are the objective
+(§7). Record their edge counts — those are the "was" numbers the report compares against. Also
+record the `dependency-chain` finding's `hops`: it is context, not a target, because no move a
+reorg can make shortens it.
 
 ## 4. Stage 2 — write a target placement
 
@@ -141,8 +143,8 @@ allocator realises that sequence as key order. It **cannot reorder a story that 
 the only way to do that is to re-key it, churning its key, its document filename, its
 `previous_keys` and its remote-issue mapping for a purely local sequencing change. Do not
 promise the user more than this in the report. It is also not a loss worth working around:
-within-sprint order is local sequencing, while the objective (§7) is the critical path, which
-is a dependency-chain property that reordering inside a sprint cannot change.
+within-sprint order is local sequencing, while the objective (§7) is the number of
+dependencies crossing an epic boundary, which reordering inside a sprint cannot change.
 
 Propose **one** improvement with its evidence, and stop. This mode is not trying to produce
 the optimal arrangement; it is trying to produce one a user can check in about a minute.
@@ -246,20 +248,29 @@ sprint it came from with a new key, because a vacated key is never reissued.
 Accept this plan? (y / n / moves-only)
 ```
 
-### 7.1 The objective, and the guardrail that is not the objective
+### 7.1 The objective, and the things that are reported but never pursued
 
-**Primary objective: reduce the cost of discovering a problem late** — concretely, minimise the
-critical path, the longest `depends_on` chain weighted by `elapsed_hours`. Every hour on that
-chain is an hour where nothing else can proceed, and a late discovery there invalidates the
-most downstream work. That is the number the report leads with and the one a proposal is
-argued on.
+**Primary objective: reduce the cost of discovering a problem late** — concretely, **minimise
+the dependencies that cross an epic boundary**. Each crossing edge is a serialisation point
+between units that would otherwise be independent, and it is the one thing a re-placement can
+remove: move a story into the epic its dependencies live in and the edge is gone. That is the
+number the report leads with and the one a proposal is argued on (ADR-0011).
 
-**Total effort is a guardrail, not an objective — and saying so is part of the report.** A
-reorg that cuts the critical path by moving work off it has not made the work smaller; it has
-made it more parallel. Total effort can rise slightly while the plan gets better, and that is a
-good trade, so **show the regression and name it a trade rather than hiding it or optimising it
-away**. Treating effort reduction as the goal would make retirement — deleting scope — the
-highest-scoring move available, which is precisely the wrong incentive to give this mode.
+**Report these; never aim at them.** Each is a real property of the plan that **no move this
+mode can make will change**, so presenting one as a target would promise an outcome the move
+set cannot deliver:
+
+- **Dependency chain** (in hops) — a reorg never edits `depends_on`, so no regrouping shortens
+  it. Say how serialised the work is; do not claim to reduce it.
+- **Sprint balance** — a reorg never makes work smaller. This is the balancing pass's input.
+- **Closure overhead** — the only way a reorg moves effort at all, and second-order: fewer,
+  fuller sprints pay fewer closure bands.
+
+**Effort is an impact, not a goal, and not a guardrail either** — a guardrail no legal move can
+breach is not a guardrail. Show any effort change the regrouping causes, and name it as a
+consequence rather than defending it as a trade. Treating effort reduction as the goal would
+make retirement — deleting scope — the highest-scoring move available, which is precisely the
+wrong incentive to give this mode.
 
 Four guardrails are reported when they change, each with the "was" beside it: cross-epic
 coupling (dependency edges crossing an epic boundary), sprint cohesion (overlap of `Spec:`
@@ -484,7 +495,7 @@ No changes made — the proposal was declined. Nothing in planned/ was written.
 
 ```
 Step reorg complete — moved: {move_count}, retired: {retire_count}, journal: {reorg_id}
-DONE — Reorg: {move_count} moved, {retire_count} retired, critical path {old_cp} → {new_cp} hrs
+DONE — Reorg: {move_count} moved, {retire_count} retired, cross-epic edges {old_edges} → {new_edges}
 ```
 
 Use `DONE — Reorg: declined` when the user said no, and `BLOCKED: <one-line reason>` when §5

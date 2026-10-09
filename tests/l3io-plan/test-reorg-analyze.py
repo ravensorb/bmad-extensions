@@ -53,11 +53,11 @@ def ids(result, fid):
     return [f for f in result["findings"] if f["id"] == fid]
 
 
-class TestCriticalPath(unittest.TestCase):
+class TestDependencyChain(unittest.TestCase):
     def test_measures_the_chain_not_the_heaviest_single_story(self):
-        # THE DESIGN POINT. A reorg can only change SHAPE; it cannot make a story smaller.
-        # A lone 40h story is not a critical path -- there is no serialisation in it to
-        # remove -- and reporting it as one would aim the proposal at work it cannot help.
+        # THE DESIGN POINT, now in hops. A story with no dependencies has no serialisation
+        # in it at all, however heavy it is, so it cannot be the longest chain — reporting
+        # it as one would point the reader at work the chain has nothing to do with.
         p = plan([epic("E001", [sprint("S01", [
             story("E001-S01-001", 4, ["E001-S01-002"]),
             story("E001-S01-002", 6, ["E001-S01-003"]),
@@ -65,25 +65,56 @@ class TestCriticalPath(unittest.TestCase):
             story("E001-S01-009", 40),          # heaviest story, depends on nothing
         ])])])
         r = ra.analyze(p)
-        cp = ids(r, "critical-path")[0]
-        self.assertEqual(cp["measured"]["elapsed_hours"], 13.0)
+        cp = ids(r, "dependency-chain")[0]
+        self.assertEqual(cp["measured"]["hops"], 2, "three stories chained is two hops")
         self.assertEqual(len(cp["nodes"]), 3)
         self.assertNotIn("E001-S01-009", cp["nodes"])
+
+    def test_the_chain_is_identical_with_and_without_estimates(self):
+        # WHY HOPS REPLACED HOURS. The weighted path needed data that is usually absent
+        # exactly when a plan is cheapest to reshape, so the objective degraded to nothing
+        # on the plans that most needed it. Hops are the same measurement either way.
+        chain = [story("E001-S01-001", 0, ["E001-S01-002"]),
+                 story("E001-S01-002", 0, ["E001-S01-003"]),
+                 story("E001-S01-003", 0)]
+        bare = plan([epic("E001", [sprint("S01", chain)])])
+        priced = plan([epic("E001", [sprint("S01", [
+            story("E001-S01-001", 4, ["E001-S01-002"]),
+            story("E001-S01-002", 90, ["E001-S01-003"]),
+            story("E001-S01-003", 7)])])])
+        a, b = ids(ra.analyze(bare), "dependency-chain"), \
+            ids(ra.analyze(priced), "dependency-chain")
+        self.assertEqual(a[0]["measured"]["hops"], b[0]["measured"]["hops"])
+        self.assertEqual(a[0]["nodes"], b[0]["nodes"])
+
+    def test_the_chain_is_reported_as_context_not_as_a_target(self):
+        # A reorg never edits depends_on, so no move it can make shortens this chain.
+        # Severity must stay info, and the text must not invite the agent to aim at it.
+        p = plan([epic("E001", [sprint("S01", [
+            story("E001-S01-001", 4, ["E001-S01-002"]), story("E001-S01-002", 6)])])])
+        f = ids(ra.analyze(p), "dependency-chain")[0]
+        self.assertEqual(f["severity"], "info")
+        self.assertIn("cannot shorten it", f["suggests"])
 
     def test_says_so_when_there_is_no_chain_at_all(self):
         p = plan([epic("E001", [sprint("S01", [story("E001-S01-001", 5)])])])
         r = ra.analyze(p)
-        self.assertTrue(ids(r, "no-critical-path"))
-        self.assertFalse(ids(r, "critical-path"))
+        self.assertTrue(ids(r, "no-dependency-chain"))
+        self.assertFalse(ids(r, "dependency-chain"))
 
-    def test_unestimated_stories_contribute_zero_rather_than_blocking(self):
-        # A plan is usually reorganised BEFORE everything is estimated -- which is exactly
-        # when its shape is still cheap to change.
-        p = plan([epic("E001", [sprint("S01", [
-            story("E001-S01-001", 0, ["E001-S01-002"]), story("E001-S01-002", 7),
-        ])])])
-        self.assertEqual(ids(ra.analyze(p), "critical-path")[0]["measured"]["elapsed_hours"],
-                         7.0)
+    def test_an_unestimated_plan_still_yields_actionable_findings(self):
+        # THE PREMISE OF THE WHOLE STRUCTURAL REORIENTATION, pinned. A plan with no estimates
+        # anywhere must still produce something a proposal can be argued from, because that
+        # is the state a plan is usually in when its shape is cheapest to change.
+        p = plan([
+            epic("E001", [sprint("S01", [story("E001-S01-001", 0, ["E003-S01-001"]),
+                                         story("E001-S01-002", 0, ["E003-S01-001"])])]),
+            epic("E003", [sprint("S01", [story("E003-S01-001", 0)])]),
+        ])
+        r = ra.analyze(p)
+        actionable = [f for f in r["findings"] if f["severity"] in ("blocker", "warn")]
+        self.assertTrue(actionable, "a reorg must be arguable before anything is estimated")
+        self.assertIn("cross-epic-coupling", [f["id"] for f in actionable])
 
 
 class TestCycles(unittest.TestCase):
@@ -111,7 +142,7 @@ class TestCycles(unittest.TestCase):
         ])])])
         r = ra.analyze(p)
         self.assertTrue(ids(r, "cycle"))
-        self.assertTrue(ids(r, "critical-path") or ids(r, "no-critical-path"))
+        self.assertTrue(ids(r, "dependency-chain") or ids(r, "no-dependency-chain"))
 
 
 class TestDanglingAndActive(unittest.TestCase):

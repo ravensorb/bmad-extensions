@@ -168,19 +168,34 @@ def analyze(plan: dict) -> dict:
                 add("dangling-dependency", "blocker", [key, d], {},
                     f"{key} depends on {d}, which does not exist in any bucket")
 
-    # --- the primary objective -----------------------------------------------------
-    hours, path = longest_path(story_edges, lambda k: elapsed(stories.get(k, {})))
+    # --- how serialised the work inherently is -------------------------------------
+    #
+    # MEASURED IN HOPS, NOT HOURS, and reported as a fact rather than a target.
+    #
+    # It used to be the weighted critical path and the stated primary objective, which was
+    # wrong twice. Hours are a band times a calibration ratio — two inferences deep — where
+    # `depends_on` is declared about the work; and the hours are usually absent exactly when
+    # a plan is cheapest to reshape, so the objective degraded to nothing on the plans that
+    # most needed it. Hops need no estimates and serve the goal the spec actually states —
+    # "reduce the cost of discovering a problem late" — more directly: each hop is a handoff
+    # where a wrong assumption propagates.
+    #
+    # INFO, because a reorg CANNOT SHORTEN IT. Reorg moves stories between sprints and epics;
+    # it never edits `depends_on`, so no move removes an edge from this chain. It is reported
+    # so a reader knows how much serialisation the work carries, not so the proposal aims at
+    # it. What a reorg can actually act on is which epic a dependency crosses — see
+    # cross-epic-coupling below.
+    hops, path = longest_path(story_edges, lambda _k: 1.0)
     if path:
-        add("critical-path", "info", path,
-            {"elapsed_hours": round(hours, 2), "length": len(path)},
-            "the primary objective: every hour on this chain is an hour nothing else "
-            "proceeds through, and a late discovery here invalidates the most work")
+        add("dependency-chain", "info", path, {"hops": len(path) - 1, "length": len(path)},
+            "the longest chain of story dependencies. A reorg cannot shorten it — it never "
+            "edits depends_on — so this is context for the proposal, not its target")
     else:
-        add("no-critical-path", "info", [], {},
-            "no story depends on another, so there is no serialisation to shorten — a "
-            "reorg here can improve grouping, but not ordering")
+        add("no-dependency-chain", "info", [], {},
+            "no story depends on another, so there is no serialisation at all — a reorg "
+            "here can improve grouping, but there is no ordering to improve")
 
-    # --- guardrails ----------------------------------------------------------------
+    # --- what a reorg can actually change ------------------------------------------
     coupling = {}
     for key, deps in story_edges.items():
         src = story_epic.get(key, (None,))[0]
@@ -226,9 +241,15 @@ def analyze(plan: dict) -> dict:
                  for s in epic.get("sprints", [])]
         sized = [h for _k, h in sizes if h > 0]
         if len(sized) >= 2 and min(sized) > 0 and max(sized) / min(sized) >= 3:
-            add("sprint-imbalance", "warn", [epic["key"]],
+            # INFO, not warn: effort is an impact a reorg reports, never an objective it
+            # pursues (plan decision D4). Reorg cannot make work smaller, so treating load as
+            # a driver would make retirement — deleting scope — the highest-scoring move
+            # available, which is precisely the wrong incentive. This is the balancing pass's
+            # input, not the structural pass's finding.
+            add("sprint-imbalance", "info", [epic["key"]],
                 {"sprints": dict(sizes), "ratio": round(max(sized) / min(sized), 2)},
-                "one sprint is several times another; work may be unevenly grouped")
+                "one sprint is several times another; work may be unevenly grouped. An "
+                "impact to report, not a reason to re-place work on its own")
 
     for key, st in stories.items():
         for d in st.get("depends_on", []):
@@ -249,8 +270,13 @@ def analyze(plan: dict) -> dict:
         "summary": {
             "planned_epics": len(epics),
             "planned_stories": len(stories),
-            "critical_path_hours": round(hours, 2),
+            # Hops, not hours. The weighted critical path is gone: it needed estimates that
+            # are usually absent when a plan is cheapest to reshape, and a reorg cannot
+            # shorten a dependency chain in any case.
+            "dependency_chain_hops": int(hops) - 1 if path else 0,
             "cross_epic_edges": sum(coupling.values()),
+            "unbacked_cross_epic_edges": sum(
+                1 for f in findings if f["id"] == "unbacked-cross-epic-dependency"),
             "blockers": sum(1 for f in findings if f["severity"] == "blocker"),
         },
         "findings": findings,

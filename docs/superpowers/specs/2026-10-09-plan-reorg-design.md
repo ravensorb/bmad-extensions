@@ -50,29 +50,51 @@ tooling's own output and cannot be wrong independently of the target that produc
 - No retirement orphans a dependent that is not also retired.
 - The allocator can supply every new key.
 
-### 2.3 The objective — one primary, stated, with guardrails
+### 2.3 The objective — the structure a reorg can actually change
+
+> **Revised by [ADR-0011](../../adr/0011-reorg-optimises-structure-not-effort.md), 2026-10-09.**
+> This section previously named the `elapsed_hours`-weighted **critical path** as the primary
+> objective, with total effort as a guardrail. Both were wrong for the same reason: a reorg
+> moves stories between sprints and epics, so it never edits `depends_on` and never makes work
+> smaller — **neither quantity is reachable by any move it can make.** The hours were also
+> usually absent exactly when a plan is cheapest to reshape, so the objective degraded to
+> nothing on the plans that most needed it, and `elapsed_hours` is a band times a calibration
+> ratio where `depends_on` is declared about the work. The ADR carries the full argument.
 
 Optimising several things at once produces proposals nobody can argue with or against. So:
 
-**Primary objective: reduce the cost of discovering a problem late.** Concretely, minimise the
-**critical path** — the longest `depends_on` chain weighted by `elapsed_hours` estimate —
-because every hour on it is an hour where nothing else can proceed and a late discovery
-invalidates the most downstream work.
+**Primary objective: reduce the cost of discovering a problem late.** The goal is unchanged —
+only the lever is. Concretely, **minimise the dependencies that cross an epic boundary**, because
+a crossing edge is a serialisation point between units that would otherwise be independent, and
+it is the one thing a re-placement can remove. Moving a story into the epic its dependencies
+live in removes the edge outright.
 
-**Guardrails — a proposal that regresses any of these needs a stated reason in its rationale,
-and the report shows the regression rather than hiding it:**
+**Measured, and acted on:**
 
-| Guardrail | Measured as |
-|---|---|
-| Cross-epic coupling | count of `depends_on` edges crossing an epic boundary |
-| Sprint cohesion | overlap of `Spec:` anchors cited by stories within a sprint |
-| Sprint balance | spread of sprint `elapsed_hours` estimates within an epic |
-| Total effort | summed `estimate-rollup` across all five metrics |
+| Signal | Measured as | Severity |
+|---|---|---|
+| Cross-epic coupling | count of `depends_on` edges crossing an epic boundary | `warn` — the objective |
+| Unbacked cross-epic dependency | a story edge crossing `A → B` with no `A depends_on B` | `warn` — a scheduling error at one edge |
 
-**Total effort is a guardrail, not an objective.** A reorg that reduces the critical path by
-moving work off it has not made the work smaller; it has made it more parallel. Treating effort
-reduction as the goal would make retirement — deleting scope — the highest-scoring move
-available, which is exactly the wrong incentive to give this.
+**Reported as context, never pursued:**
+
+| Signal | Measured as | Why not a target |
+|---|---|---|
+| Dependency chain | longest `depends_on` chain, in **hops** | no move shortens it — reorg never edits `depends_on` |
+| Sprint balance | spread of sprint `elapsed_hours` within an epic | reorg cannot make work smaller; this is the balancing pass's input |
+| Closure overhead | closure + orchestration bands × sprint/epic count | the only way a reorg moves effort at all, and second-order |
+
+**Effort is an impact, not a goal, and not a guardrail either.** A guardrail that no legal move
+can breach is not a guardrail. Reorg's only effect on effort runs through closure and
+orchestration bands as the number of sprints and epics changes — better reported than policed.
+And treating effort reduction as the goal would make retirement — deleting scope — the
+highest-scoring move available, which is exactly the wrong incentive to give this. That the
+analyzer refuses to recommend retirement (`isolated-story` is a `question`, never a signal) was
+holding that line *against* the old objective rather than with it.
+
+**A proposal that regresses a reported signal still needs a stated reason**, and the report
+shows the regression rather than hiding it. The difference is that it is now explaining a
+side effect, not defending a trade against its own objective.
 
 ### 2.4 The output is the proposed plan, rendered the way plans already are
 
@@ -129,8 +151,11 @@ than above it, because the plan is what is being accepted.
 
 ### 2.6 How we will know it worked, after shipping
 
-- A reorg the user **accepts** should show its predicted critical-path reduction in the next
-  plan's phase structure — the prediction is checkable against the plan it produces.
+- A reorg the user **accepts** should show its predicted reduction in cross-epic edges in the
+  next plan's phase structure — fewer edges means fewer epic-level dependencies, which means
+  more epics eligible for the same parallel phase. The prediction is checkable against the plan
+  it produces, which is the point: an objective you cannot verify after the fact is one nobody
+  should have accepted on faith.
 - A reorg the user **rejects** is a signal about the objective function, not a failure of the
   run. Rejections should be rare and, if they are not, the signals are wrong.
 - **`undo` should be nearly unused.** It exists so accepting is safe. Frequent use means the
@@ -298,8 +323,8 @@ churns its key, its document filename, its `previous_keys` and its remote-issue 
 purely local sequencing change.
 
 That trade is not worth taking, and it does not serve the objective: within-sprint order is
-local sequencing, while the primary objective (§2.3) is the critical path, which is a
-dependency-chain property that reordering inside a sprint cannot change. So `order` decides
+local sequencing, while the primary objective (§2.3) is the count of dependencies crossing an
+epic boundary, which reordering inside a sprint cannot change. So `order` decides
 the sequence in which *moved* stories are placed — which the allocator then realises as key
 order — and the report must not promise more than that.
 

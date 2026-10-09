@@ -55,7 +55,7 @@ Input classes the goal implies that no task's happy path exercises. Each has its
 
 Both are live defects today, reachable by a hand-written story dependency with no reorg involved. Stage B cannot be built on top of either.
 
-### - [ ] Task 1: Ordering compares sprint position within an epic
+### - [x] Task 1: Ordering compares sprint position within an epic
 
 `reorg-validate.py`'s ordering rule fires only when two stories share a sprint:
 
@@ -71,7 +71,7 @@ Sprints inside an epic are **always sequential**, so a dependency placed in a la
 - **Tests:** promote today's reproduction verbatim; non-contiguous sprint keys; same-sprint regression must still pass; dependency on active/archived skipped.
 - **Mutation check:** revert the rule to same-sprint-only — the cross-sprint test must fail.
 
-### - [ ] Task 2: An unbacked cross-epic story dependency is reported
+### - [x] Task 2: An unbacked cross-epic story dependency is reported
 
 `E001-S01-001` depending on `E003-S01-001` with no `E001 depends_on E003` is invisible three ways: the analyzer is silent (one crossing edge is below the `cross-epic-coupling` threshold, deliberately), the validator returns `OK`, and the phase graph is built from **epic-level** declarations so both epics land in the same parallel phase. `step-05` checks story-level keys **exist**, never what they imply for ordering.
 
@@ -82,7 +82,7 @@ Per D1 this **warns**, and does not halt.
 - Record in the step file **why** it warns rather than errors, and what would promote it.
 - **Tests:** single unbacked edge is reported (today it is silent); a *backed* edge is not reported; an edge that is both cross-epic and cross-sprint is judged once (Review Focus 1).
 
-### - [ ] Task 3: Phase 1 regression suite
+### - [x] Task 3: Phase 1 regression suite
 
 - Fold Tasks 1–2 tests into `tests/l3io-plan/test-reorg-validate.py` and `test-reorg-analyze.py`.
 - Confirm all 26 Python suites and seven gates pass.
@@ -91,14 +91,14 @@ Per D1 this **warns**, and does not halt.
 
 ## Phase 2 — Reorient the objective
 
-### - [ ] Task 4: Analyzer measures structure
+### - [x] Task 4: Analyzer measures structure
 
 - Keep `cross-epic-coupling`. Add **chain depth in hops** and **cohesion** (stories that depend on each other, or cite the same `Spec:` anchors, belong together).
 - Demote `sprint-imbalance` to an impact: still measured and emitted, severity `info`, never a proposal driver (D4).
 - The weighted critical path stops being the objective. Chain depth in hops serves the spec's stated goal — *"reduce the cost of discovering a problem late"* — better than hours do: each hop is a handoff where a wrong assumption propagates.
 - **Tests:** an **unestimated** plan still yields actionable findings (guarantees today's test A); determinism; `sprint-imbalance` never appears at `warn`.
 
-### - [ ] Task 5: Revise the spec and record the ADR
+### - [x] Task 5: Revise the spec and record the ADR
 
 - `2026-10-09-plan-reorg-design.md` §2: objective becomes dependency structure. State plainly that reorg cannot change effort, and that effort moves only through closure/orchestration overhead.
 - Reorg's report stops using the words "critical path" — it says what it measures. This also removes the two-different-critical-paths-in-one-output problem.

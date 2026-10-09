@@ -178,18 +178,25 @@ Bind `{shape_advisory}` from the `findings` array, by **severity**, in this orde
 
 1. Any finding of severity `blocker` (`cycle`, `dangling-dependency`) →
    `⚠ {n} dependency problem(s) block a clean ordering: {ids}. Fix the depends_on declarations — reorg cannot help here, it never edits dependencies.`
-2. Otherwise, any finding of severity `warn` (`cross-epic-coupling`, `sprint-imbalance`) →
+2. Otherwise, any finding of severity `warn` (`cross-epic-coupling`,
+   `unbacked-cross-epic-dependency`) →
    `↻ This plan's shape could be improved: {the measured reason, from each finding's "measured" and "suggests"}. Run /l3io-plan reorg to see a proposal.`
 3. Otherwise → bind the empty string and print nothing.
 
 **Only `warn` triggers the reorg suggestion, and that is the whole design.** `info`
-(`critical-path`, `no-critical-path`, `blocked-by-active`) and `question` (`isolated-story`)
-fire on healthy plans — a clean three-story plan reports `critical-path` and `isolated-story` —
-so advising on them would print the suggestion after every planning round, and a suggestion that
-always appears is one people learn to skip past. `blocker` gets its own message rather than the
-reorg one because reorg structurally cannot fix either case: it moves work between sprints and
-never touches `depends_on`, and the reorg validator would refuse any target that left the cycle
-standing.
+(`dependency-chain`, `no-dependency-chain`, `blocked-by-active`, `sprint-imbalance`) and
+`question` (`isolated-story`) fire on healthy plans — a clean three-story plan reports
+`dependency-chain` and `isolated-story` — so advising on them would print the suggestion after
+every planning round, and a suggestion that always appears is one people learn to skip past.
+`blocker` gets its own message rather than the reorg one because reorg structurally cannot fix
+either case: it moves work between sprints and never touches `depends_on`, and the reorg
+validator would refuse any target that left the cycle standing.
+
+**The two `warn` findings are the two things a reorg can actually act on.** Moving a story to
+the epic its dependencies live in removes a crossing edge; nothing else here is movable.
+`dependency-chain` and `sprint-imbalance` are both `info` *because* no move changes them — a
+reorg never edits `depends_on`, and it never makes work smaller. They are reported as context
+for the proposal, never as its target.
 
 Say the measured reason, never a bare recommendation. "3 dependency edges cross E007↔E003" is
 checkable by the person reading it; "this plan could be better organised" is not, and a reader
