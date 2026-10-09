@@ -2,6 +2,18 @@
 
 All notable changes to this project will be documented in this file. See [commit-and-tag-version](https://github.com/absolute-version/commit-and-tag-version) for commit guidelines.
 
+## [3.3.1](https://github.com/ravensorb/bmad-extensions/compare/3.3.0...3.3.1) (2026-10-09)
+
+
+### Features
+
+* **l3io-pm:** a plan run now says when its own shape could be better ([d76cb17](https://github.com/ravensorb/bmad-extensions/commit/d76cb173da506481366d8a23afc69144821cc6cb))
+
+
+### Documentation
+
+* document reorg and the instruction block where people actually read ([f16fb33](https://github.com/ravensorb/bmad-extensions/commit/f16fb337ce941f0e71618f2af65184f5838c773f))
+
 ## [3.3.0](https://github.com/ravensorb/bmad-extensions/compare/3.2.6...3.3.0) (2026-10-09)
 
 

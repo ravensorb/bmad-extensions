@@ -1,9 +1,9 @@
 {
-  "version": "3.3.0",
+  "version": "3.3.1",
   "generated_from": "skills/_shared/",
   "files": {
     "references/config-resolution.md": "cada754f77e576cfa0eb51f6719b19d2ab6b3ef08d2db40fcc684783ebd5a384",
-    "scripts/pm-status.py": "1cb92f322c3dbd0b2d2162d91c67744bc60ec1f78dd1dd9ebcba45837393f118",
+    "scripts/pm-status.py": "fbeda45557f03b44d164821f48af1174e47e876d369abf0509e37ae93395386e",
     "assets/agent-instructions.md": "6f31741b68015da8c2b13c7f1d68539111686f3b99b8aa78e7c29f79ec7b5d38",
     "scripts/merge-config.py": "22f51eed631c64134d352c236917e0a98ec5b5fe5d0810394f4615905c6ef7dc",
     "scripts/merge-help-csv.py": "44cae89d74a247395cc851970e28b65605e958efa04b632209f9bd5ecbc70d69",
