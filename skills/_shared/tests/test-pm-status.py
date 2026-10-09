@@ -20,6 +20,7 @@ import sys
 import tempfile
 import unittest
 from contextlib import contextmanager, redirect_stderr, redirect_stdout
+from pathlib import Path
 from unittest import mock
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -11727,6 +11728,152 @@ class TestShippedAsset(unittest.TestCase):
         # Check 31's rule, enforced at the source: no /l3io-* invocation carries a --flag.
         text = self.ASSET.read_text(encoding="utf-8")
         self.assertNotRegex(text, r"/l3io-[a-z0-9-]+[^\n`]*\s--[a-z]")
+
+
+class TestAgentInstructions(unittest.TestCase):
+    """The instruction-block subcommand. Covers Review Focus 4 (non-UTF-8) and 5 (locking).
+
+    Runs the CLI as a SUBPROCESS rather than through Base.run_main: run_main returns
+    (code, stdout) and does not capture stderr, and several assertions here are about the
+    refusal message. The concurrency case needs real processes anyway -- the same shape
+    TestConcurrentNoticeDistinctKeys already uses.
+    """
+
+    def setUp(self):
+        self.d = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, self.d, True)
+
+    def _body(self, text="## l3io\n\nBody.\n"):
+        p = Path(self.d) / "body.md"
+        p.write_text(text, encoding="utf-8")
+        return str(p)
+
+    def _run(self, *argv):
+        import subprocess
+        return subprocess.run([sys.executable, SCRIPT, "sync-agent-instructions", *argv],
+                              capture_output=True, text=True)
+
+    def test_claude_runtime_writes_claude_md(self):
+        r = self._run("--runtime", "claude", "--project-root", self.d,
+                      "--body-file", self._body(), "--version", "9.9.9", "--apply")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertIn("l3io:begin v=9.9.9",
+                      (Path(self.d) / "CLAUDE.md").read_text(encoding="utf-8"))
+
+    def test_copilot_runtime_writes_its_own_file_not_claude(self):
+        self._run("--runtime", "copilot", "--project-root", self.d,
+                  "--body-file", self._body(), "--apply")
+        self.assertTrue((Path(self.d) / ".github" / "copilot-instructions.md").is_file())
+        self.assertFalse((Path(self.d) / "CLAUDE.md").exists(),
+                         "must never write a file for a harness that is not running")
+
+    def test_apply_is_idempotent(self):
+        a = ("--runtime", "claude", "--project-root", self.d,
+             "--body-file", self._body(), "--version", "1.0.0", "--apply")
+        self._run(*a)
+        first = (Path(self.d) / "CLAUDE.md").read_bytes()
+        r = self._run(*a)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertEqual(first, (Path(self.d) / "CLAUDE.md").read_bytes())
+        self.assertIn("unchanged", r.stdout)
+
+    def test_remove_leaves_the_file_and_the_user_content(self):
+        f = Path(self.d) / "CLAUDE.md"
+        f.write_text("# Mine\n\nKeep me.\n", encoding="utf-8")
+        self._run("--runtime", "claude", "--project-root", self.d,
+                  "--body-file", self._body(), "--apply")
+        r = self._run("--runtime", "claude", "--project-root", self.d, "--remove")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertTrue(f.is_file(), "the file must never be deleted")
+        text = f.read_text(encoding="utf-8")
+        self.assertIn("Keep me.", text)
+        self.assertNotIn("l3io:begin", text)
+
+    def test_round_trip_restores_the_file_byte_for_byte(self):
+        f = Path(self.d) / "CLAUDE.md"
+        original = "# Mine\n\nKeep me.\n"
+        f.write_text(original, encoding="utf-8")
+        self._run("--runtime", "claude", "--project-root", self.d,
+                  "--body-file", self._body(), "--apply")
+        self._run("--runtime", "claude", "--project-root", self.d, "--remove")
+        self.assertEqual(f.read_text(encoding="utf-8"), original)
+
+    def test_check_reports_absent_with_exit_1(self):
+        r = self._run("--runtime", "claude", "--project-root", self.d, "--check")
+        self.assertEqual(r.returncode, 1)
+
+    def test_undecodable_file_exits_2_and_writes_nothing(self):
+        # Review Focus 4. An unhandled raise here would abort an otherwise fine install.
+        f = Path(self.d) / "CLAUDE.md"
+        f.write_bytes(b"\xff\xfe not utf-8 \x00")
+        before = f.read_bytes()
+        r = self._run("--runtime", "claude", "--project-root", self.d,
+                      "--body-file", self._body(), "--apply")
+        self.assertEqual(r.returncode, 2)
+        self.assertEqual(f.read_bytes(), before)
+        self.assertIn("utf-8", r.stderr.lower())
+
+    def test_ambiguous_markers_exit_2_and_write_nothing(self):
+        f = Path(self.d) / "CLAUDE.md"
+        dup = ("<!-- l3io:begin v=1 -->\na\n<!-- l3io:end -->\n"
+               "<!-- l3io:begin v=2 -->\nb\n<!-- l3io:end -->\n")
+        f.write_text(dup, encoding="utf-8")
+        r = self._run("--runtime", "claude", "--project-root", self.d,
+                      "--body-file", self._body(), "--apply")
+        self.assertEqual(r.returncode, 2)
+        self.assertEqual(f.read_text(encoding="utf-8"), dup)
+
+    def test_concurrent_applies_do_not_duplicate_the_block(self):
+        # Review Focus 5. Two skills activating at once against one project.
+        import subprocess
+        body = self._body()
+        procs = [subprocess.Popen(
+            [sys.executable, SCRIPT, "sync-agent-instructions", "--runtime", "claude",
+             "--project-root", self.d, "--body-file", body, "--apply"],
+            stdout=subprocess.PIPE, stderr=subprocess.PIPE) for _ in range(4)]
+        for pr in procs:
+            pr.communicate()
+            self.assertEqual(pr.returncode, 0)
+        text = (Path(self.d) / "CLAUDE.md").read_text(encoding="utf-8")
+        self.assertEqual(text.count("l3io:begin"), 1,
+                         "concurrent writes duplicated the block -- the lock must cover the "
+                         "READ as well as the write")
+
+    def test_the_read_happens_inside_the_lock(self):
+        # The subprocess test above cannot pin this: two racing "created" applies write
+        # IDENTICAL text, so a lost update is invisible in the final file. Observe the order
+        # instead, the way TestNoticeReadInsideLock does for notices_lock.
+        events = []
+        real_lock, real_isfile = pm.agent_instructions_lock, os.path.isfile
+        real_write = pm._atomic_text_write
+        target = os.path.join(self.d, "CLAUDE.md")
+
+        @contextmanager
+        def recording_lock(root):
+            with real_lock(root):
+                events.append("lock-acquired")
+                try:
+                    yield
+                finally:
+                    events.append("lock-released")
+
+        def recording_isfile(p):
+            if p == target:
+                events.append("read")
+            return real_isfile(p)
+
+        def recording_write(path, text):
+            events.append("write")
+            return real_write(path, text)
+
+        with mock.patch.object(pm, "agent_instructions_lock", recording_lock), \
+                mock.patch.object(os.path, "isfile", recording_isfile), \
+                mock.patch.object(pm, "_atomic_text_write", recording_write), \
+                redirect_stdout(io.StringIO()):
+            code = pm.main(["sync-agent-instructions", "--runtime", "claude",
+                            "--project-root", self.d, "--body-file", self._body(), "--apply"])
+        self.assertEqual(code, 0)
+        self.assertEqual(events, ["lock-acquired", "read", "write", "lock-released"])
 
 
 if __name__ == "__main__":

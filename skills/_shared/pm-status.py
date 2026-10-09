@@ -267,6 +267,12 @@ Subcommands
                 (never conflated with exit 1); advisory only -- a damaged notices file
                 never blocks the caller, but a failed write is reported, not silently
                 treated as success)
+  sync-agent-instructions  --runtime {claude,codex,copilot,other}  --project-root P
+                [--body-file F] [--version V]  (--apply | --remove | --check)
+                (creates, replaces or removes the marker-wrapped l3io block in the running
+                harness's instruction file, under a lock held across read and write; never
+                deletes the file; exit 1 = --check found no block, exit 2 = usage, an
+                undecodable file, or ambiguous markers)
 
 Exit codes: 0 = success/verified, 1 = notice already emitted for this key
 (notice only), 2 = usage error or, for notice only, an unexpected recording failure,
@@ -384,6 +390,24 @@ def _atomic_dump(y: YAML, data, path: str) -> None:
             os.unlink(tmp)
         except OSError:
             pass
+        raise
+
+
+def _atomic_text_write(path: str, text: str) -> None:
+    """Temp file in the same directory, then os.replace. Unlike `_atomic_dump` this takes
+    no epic lock -- the target is a user-owned document outside the state tree, so the
+    epic-lock invariant does not apply and asserting it would fail every call. `newline=""`
+    is load-bearing: the engine already matched the file's CRLF convention, and Python's
+    default translation would rewrite every line ending."""
+    d = os.path.dirname(path) or "."
+    fd, tmp = tempfile.mkstemp(dir=d, prefix=".l3io-ai-", suffix=".tmp")
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8", newline="") as fh:
+            fh.write(text)
+        os.replace(tmp, path)
+    except BaseException:
+        with contextlib.suppress(OSError):
+            os.unlink(tmp)
         raise
 
 
@@ -1396,6 +1420,24 @@ def notices_lock(state_root: str):
     not been shown yet and each write their own "now recorded" copy, silently dropping one.
     """
     with _file_lock(notices_path(state_root) + ".lock", _NOTICES_LOCK, state_root):
+        yield
+
+
+_AGENT_INSTR_LOCK = {"depth": 0, "fh": None}
+
+
+@contextlib.contextmanager
+def agent_instructions_lock(project_root: str):
+    """Exclusive lock over the whole read-modify-write of an AI instruction file.
+
+    Same reasoning as notices_lock: two skills activating at once must not both read the
+    pre-write text and let the second overwrite the first's block. The lock file lives under
+    `_bmad/` -- the tool's own directory -- never beside the user's document. state_root is
+    None on purpose: `_ensure_lock_ignore` writes a .gitignore into a state root, and this is
+    not one.
+    """
+    with _file_lock(os.path.join(project_root, "_bmad", ".agent-instructions.lock"),
+                    _AGENT_INSTR_LOCK, None):
         yield
 
 
@@ -3228,6 +3270,67 @@ def remove_block(text):
         before = before[:-len(nl)]
     out = before + after
     return out, "removed"
+
+
+_RUNTIME_INSTRUCTION_FILE = {
+    "claude": ("CLAUDE.md",),
+    "copilot": (".github", "copilot-instructions.md"),
+    "codex": ("AGENTS.md",),
+    "other": ("AGENTS.md",),
+}
+
+
+def cmd_sync_agent_instructions(args) -> int:
+    """Create, replace or remove the l3io block in the running harness's instruction file.
+
+    NEVER writes a file for a harness that is not running: the target comes from --runtime
+    alone. That rule is inherited from update-ai-rules Step AR5, where writing AGENTS.md
+    under Claude put a block in a file belonging to another AI system.
+
+    NEVER deletes the file. --remove strips the block and leaves whatever else is there,
+    including nothing.
+
+    Exit 0 = acted or already correct; 1 = --check found the block absent; 2 = usage, an
+    undecodable file, or ambiguous markers -- all cases where we must not write.
+    """
+    target = os.path.join(args.project_root, *_RUNTIME_INSTRUCTION_FILE[args.runtime])
+
+    if not args.remove and not args.check and not args.body_file:
+        sys.stderr.write("pm-status.py: sync-agent-instructions: --apply needs --body-file\n")
+        return 2
+    try:
+        body = ""
+        if args.body_file:
+            with open(args.body_file, encoding="utf-8", newline="") as fh:
+                body = fh.read()
+        # The lock spans the READ as well as the write: otherwise two callers each read the
+        # pre-write text and the second silently overwrites the first's block.
+        with agent_instructions_lock(args.project_root):
+            text = ""
+            if os.path.isfile(target):
+                with open(target, encoding="utf-8", newline="") as fh:
+                    text = fh.read()
+            if args.check:
+                return 0 if find_block(text) else 1
+            if args.remove:
+                out, action = remove_block(text)
+            else:
+                out, action = apply_block(text, body, args.version or PM_STATUS_VERSION)
+            if action not in ("unchanged", "absent"):
+                os.makedirs(os.path.dirname(target) or ".", exist_ok=True)
+                _atomic_text_write(target, out)
+    except UnicodeDecodeError as e:
+        sys.stderr.write(f"pm-status.py: sync-agent-instructions: {target} or the body file "
+                         f"is not valid utf-8 ({e}); refusing to write\n")
+        return 2
+    except BlockError as e:
+        sys.stderr.write(f"pm-status.py: sync-agent-instructions: {target}: {e}\n")
+        return 2
+    except OSError as e:
+        sys.stderr.write(f"pm-status.py: sync-agent-instructions: {e}\n")
+        return 2
+    sys.stdout.write(f"OK sync-agent-instructions {action} {target}\n")
+    return 0
 
 
 def cmd_notice(args) -> int:
@@ -8430,6 +8533,20 @@ def build_parser() -> argparse.ArgumentParser:
     nt.add_argument("--state-root", required=True)
     nt.add_argument("--key", required=True)
     nt.set_defaults(func=cmd_notice)
+
+    ai = sub.add_parser("sync-agent-instructions",
+                        help="create, replace or remove the l3io block in the running "
+                             "harness's AI instruction file")
+    ai.add_argument("--runtime", required=True,
+                    choices=("claude", "codex", "copilot", "other"))
+    ai.add_argument("--project-root", required=True)
+    ai.add_argument("--body-file")
+    ai.add_argument("--version")
+    g = ai.add_mutually_exclusive_group(required=True)
+    g.add_argument("--apply", action="store_true")
+    g.add_argument("--remove", action="store_true")
+    g.add_argument("--check", action="store_true")
+    ai.set_defaults(func=cmd_sync_agent_instructions)
 
     p.add_argument("--version", action="version", version=f"pm-status.py {PM_STATUS_VERSION}")
     return p
