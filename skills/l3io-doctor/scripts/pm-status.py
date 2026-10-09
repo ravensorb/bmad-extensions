@@ -246,6 +246,19 @@ Subcommands
                    node and its document together, preserving any -slug, repoints inbound
                    depends_on and backlog refs, appends the old key to previous_keys, and
                    raises the source sprint's high-water so the vacated key is never reissued)
+  reorg-log     --state-root S  [--hash] [--record FILE] [--list] [--show ID]
+                [--format {text,json}]
+                  (the reorg journal. --hash prints the planned tree's PLACEMENT digest and
+                   is captured BEFORE applying, as the record's pre_hash; --record appends
+                   one reorg's rationale and operations and prints its id. A record whose
+                   operations include a kind undo cannot invert is refused, so an entry never
+                   promises an undo that cannot run.)
+  reorg-undo    --state-root S  --artifacts-root A  --id R0001  [--check]
+                  (inverts a recorded reorg through the same reparent-story/move-epic
+                   primitives, in reverse order. REFUSES if the planned tree's placement
+                   digest no longer matches what was recorded: an undo replays placements
+                   derived from a plan that no longer exists. Restores PLACEMENT, not keys --
+                   the allocator's high-water never decreases, by design.)
   move-epic     --state-root S  --epic ID  --to {planned,active,archived}
   archive-epic  --state-root S  --epic ID   (alias for move-epic --to archived)
   calibration   show  --state-root S  [--format {text,json}]
@@ -8017,6 +8030,15 @@ def reparent_story(state_root: str, artifacts_root: str, story_key: str,
         if dest_sprint_node is None:
             raise PMError(3, f"destination sprint {to_epic}-{to_sprint} does not exist — "
                              f"create it before moving work into it")
+        # BOTH ENDS MUST BE PLANNED, not just the source. `sprint_file` resolves through
+        # `find_epic_dir`, which searches every bucket, so without this a planned story
+        # could be moved INTO an active or archived epic -- past the placement rule, which
+        # says an epic's directory lives in the folder named for its status and its stories
+        # travel with it. The story would then sit in `archived/` while still reading
+        # `status: backlog`, and the next `move-epic` would carry it somewhere nobody chose.
+        if os.sep + "planned" + os.sep not in dest_sprint_node + os.sep:
+            raise PMError(2, f"destination {to_epic}-{to_sprint} is not in planned/ — reorg "
+                             f"writes planned work only, at both ends of a move")
         if (from_epic, from_sprint) == (to_epic, to_sprint):
             return story_key                      # already there; a no-op, not an error
 
@@ -8125,7 +8147,9 @@ def dump_plan(state_root: str) -> dict:
     interface between the resolver and every consumer that wants the shape of a plan.
 
     WHAT IS AND IS NOT INCLUDED. `planned` carries the writable set, with the fields an
-    analyzer reasons over: `depends_on`, `estimate` and `classification`. `active` carries
+    analyzer reasons over: `depends_on`, `estimate`, `classification` and `previous_keys`
+    (the last for `l3io-sync`, which needs it to distinguish re-keyed from deleted).
+    `active` carries
     only KEYS and their dependencies -- enough to constrain ordering, nothing more, because
     active work is read-only input and a consumer that could see its estimates would be
     tempted to re-plan it. Archived work appears only as keys, for dependency satisfaction.
@@ -8179,6 +8203,11 @@ def dump_plan(state_root: str) -> dict:
                     "status": str(st.get("status") or ""),
                     "classification": str(st.get("classification") or ""),
                     "depends_on": [str(v) for v in (st.get("depends_on") or [])],
+                    # The whole chain, oldest first. `l3io-sync` reads this to tell a
+                    # RE-KEYED story from a DELETED one: without it a reorg produces a
+                    # `missing_local` for the old key AND an `unmapped_local` for the new,
+                    # which pushes as a duplicate issue plus an orphaned one.
+                    "previous_keys": [str(v) for v in (st.get("previous_keys") or [])],
                     "estimate": _plain(st.get("estimate")),
                 })
             epic["sprints"].append(sprint)
@@ -8256,6 +8285,307 @@ def cmd_reparent_story(args) -> int:
     except (ValueError, FileExistsError) as e:
         _die_usage(str(e))
     sys.stdout.write(f"OK reparent-story {args.story} -> {new_key}\n")
+    return 0
+
+
+# --------------------------------------------------------------------------------------
+# The reorg journal: what was done, why, and enough to put it back.
+# --------------------------------------------------------------------------------------
+
+REORG_LOG_FILENAME = "reorg-log.yaml"
+_REORG_OP_FIELDS = {
+    "reparent-story": {"story", "new_key", "from_epic", "from_sprint",
+                       "to_epic", "to_sprint"},
+    "retire-epic": {"epic", "reason", "from_status"},
+    "create-sprint": {"epic", "sprint"},
+}
+
+
+def reorg_log_path(state_root: str) -> str:
+    return os.path.join(state_root, REORG_LOG_FILENAME)
+
+
+_REORG_LOG_LOCK = {"depth": 0, "fh": None}
+
+
+@contextlib.contextmanager
+def reorg_log_lock(state_root: str):
+    """Exclusive lock over a whole reorg-log read-modify-write cycle.
+
+    Same reasoning as issues_lock: allocate an id -> append -> save is not atomic, and the
+    log is a single shared append target. The log file itself is COMMITTED -- it is the
+    traceback record a human reads months later -- so only its `.lock` sidecar is ignored,
+    which `_ensure_lock_ignore`'s existing `*.lock` rule already covers.
+
+    NEVER HELD ACROSS A MOVE. `reparent_story` and `move_epic` take `epic_node_lock`, and
+    the enforced order is epic-lock-first. `reorg-undo` therefore takes this lock to claim
+    an entry, RELEASES it, performs the moves, and takes it again to record the result.
+    """
+    with _file_lock(reorg_log_path(state_root) + ".lock", _REORG_LOG_LOCK, state_root):
+        yield
+
+
+def plan_shape_hash(state_root: str) -> str:
+    """A digest of WHERE planned work sits -- epic, sprint and story placement, nothing else.
+
+    THE GUARD UNDO RESTS ON. An undo computed against a tree that has moved on since the
+    reorg would put stories somewhere neither the user nor the journal intended: it replays
+    placements derived from a plan that no longer exists. Comparing this digest before acting
+    turns that from a silent wrong answer into a refusal.
+
+    PLACEMENT ONLY, DELIBERATELY. Estimates, titles, statuses and dependencies are excluded
+    because an undo moves nodes and nothing else -- re-estimating a story between the reorg
+    and the undo is ordinary work, and refusing over it would make the guard fire constantly
+    for a change it does not care about. Adding or removing a story DOES change placement,
+    and that is exactly the case the guard must catch.
+    """
+    plan = dump_plan(state_root)
+    rows = []
+    for e in plan.get("planned", []):
+        rows.append(f"E\t{e['key']}")
+        for sp in e.get("sprints", []):
+            rows.append(f"S\t{e['key']}\t{sp['key']}")
+            for st in sp.get("stories", []):
+                rows.append(f"T\t{e['key']}\t{sp['key']}\t{st['key']}")
+    body = "\n".join(sorted(rows))
+    return "sha256:" + hashlib.sha256(body.encode("utf-8")).hexdigest()
+
+
+def _load_reorg_log(state_root: str):
+    y, node = _load(reorg_log_path(state_root))
+    if not isinstance(node, dict):
+        node = {"version": 1, "next": 1, "entries": []}
+    node.setdefault("version", 1)
+    node.setdefault("next", 1)
+    if not isinstance(node.get("entries"), list):
+        node["entries"] = []
+    return y, node
+
+
+def _validate_reorg_record(rec) -> list:
+    """Every reason to refuse a record. Empty means accept.
+
+    AN OP WE CANNOT INVERT MUST NOT BE JOURNALED. The log's only purpose is to make an undo
+    possible, so recording an operation of a kind undo does not understand would hand a user
+    an entry that looks undoable and is not. Unknown kinds and missing fields are refusals.
+    """
+    errs = []
+    if not isinstance(rec, dict):
+        return ["the record must be a mapping with `rationale`, `pre_hash` and `operations`"]
+    if not str(rec.get("rationale") or "").strip():
+        errs.append("`rationale` is required and must be the proposal the user accepted, "
+                    "verbatim — an entry nobody can read is not a traceback record")
+    if not str(rec.get("pre_hash") or "").strip():
+        errs.append("`pre_hash` is required — capture it with `reorg-log --hash` BEFORE "
+                    "applying the first operation")
+    ops = rec.get("operations")
+    if not isinstance(ops, list) or not ops:
+        errs.append("`operations` must be a non-empty list")
+        return errs
+    for i, op in enumerate(ops):
+        if not isinstance(op, dict):
+            errs.append(f"operations[{i}]: each operation must be a mapping")
+            continue
+        kind = str(op.get("op") or "")
+        if kind not in _REORG_OP_FIELDS:
+            errs.append(f"operations[{i}]: unknown op {kind!r} — undo would not know how to "
+                        f"invert it, so journaling it would promise an undo that cannot run")
+            continue
+        missing = _REORG_OP_FIELDS[kind] - set(op)
+        if missing:
+            errs.append(f"operations[{i}] ({kind}): missing {sorted(missing)}")
+    return errs
+
+
+def record_reorg(state_root: str, rec: dict) -> str:
+    """Append one reorg to the journal. Returns the new entry id."""
+    errs = _validate_reorg_record(rec)
+    if errs:
+        raise PMError(2, "refusing this reorg record:\n  " + "\n  ".join(errs))
+    from ruamel.yaml.scalarstring import LiteralScalarString as LS
+    from ruamel.yaml.scalarstring import SingleQuotedScalarString as SQ
+    post = plan_shape_hash(state_root)
+    # A block scalar, not an escaped one-liner. The rationale is the proposal a human reads
+    # months later to decide whether to undo; `"...\n...\n"` is technically the same text and
+    # unreadable in the file it lives in. Block style needs every line to end in one.
+    rationale = str(rec["rationale"])
+    if "\n" in rationale:
+        rationale = LS(rationale if rationale.endswith("\n") else rationale + "\n")
+    with reorg_log_lock(state_root):
+        y, log = _load_reorg_log(state_root)
+        try:
+            n = int(log.get("next") or 1)
+        except (TypeError, ValueError):
+            n = 1
+        n = max(n, 1)
+        entry_id = f"R{n:04d}"
+        log["next"] = n + 1
+        log["entries"].append({
+            "id": SQ(entry_id),
+            "at": SQ(_now_iso()),
+            "rationale": rationale,
+            "pre_hash": SQ(str(rec["pre_hash"])),
+            "post_hash": SQ(post),
+            "operations": _plain(rec["operations"]),
+        })
+        _atomic_dump(y, log, reorg_log_path(state_root))
+    return entry_id
+
+
+def _find_entry(log: dict, entry_id: str):
+    for e in log.get("entries", []):
+        if isinstance(e, dict) and str(e.get("id")) == entry_id:
+            return e
+    return None
+
+
+def undo_reorg(state_root: str, artifacts_root: str, entry_id: str,
+               check_only: bool = False) -> dict:
+    """Put a recorded reorg back. Returns a result mapping.
+
+    UNDO IS THE FORWARD PATH RUN BACKWARDS, not a special restore. Each operation is inverted
+    with the same `reparent_story` / `move_epic` primitives that applied it, so an undo takes
+    the same locks, the same gates and the same git-mv handling. A bespoke restore path would
+    be a second implementation of the riskiest code in the file, exercised only in the rare
+    case nobody tests by hand.
+
+    REVERSE ORDER, for the same reason the forward order exists: a story that left a retiring
+    epic has to come back AFTER that epic is un-archived, or it has nowhere to land.
+
+    KEYS ARE NOT RESTORED, AND CANNOT BE. The allocator's high-water never decreases -- that
+    is what stops a freed key being reissued to different work and silently retargeting its
+    remote issue. So an undone story returns to its original SPRINT with a new number, and the
+    chain of `previous_keys` records the whole journey. Undo restores placement, not keys; the
+    result mapping names every key that changed so the caller can say so.
+
+    A CREATED SPRINT IS LEFT STANDING. Undoing it would mean deleting a directory, and
+    deletion is the one thing this feature never does unasked. An empty sprint is inert; the
+    result reports it so a user can remove it deliberately.
+    """
+    with reorg_log_lock(state_root):
+        y, log = _load_reorg_log(state_root)
+        entry = _find_entry(log, entry_id)
+        if entry is None:
+            raise PMError(3, f"no reorg journal entry {entry_id} in "
+                             f"{reorg_log_path(state_root)}")
+        if entry.get("undone_at"):
+            raise PMError(2, f"{entry_id} was already undone at {entry['undone_at']}")
+        if entry.get("undo_started_at") and not check_only:
+            raise PMError(2, f"{entry_id} has an undo in flight since "
+                             f"{entry['undo_started_at']} — if it failed part way, the "
+                             f"journal and `dump-plan` together say how far it got")
+        now_hash = plan_shape_hash(state_root)
+        want = str(entry.get("post_hash") or "")
+        if now_hash != want:
+            raise PMError(2,
+                          f"refusing to undo {entry_id}: the planned tree has changed since "
+                          f"the reorg was applied (recorded {want}, now {now_hash}). An undo "
+                          f"replays placements derived from a plan that no longer exists, so "
+                          f"it would move work somewhere nobody chose. Re-plan instead.")
+        if check_only:
+            return {"id": entry_id, "undoable": True, "hash": now_hash,
+                    "operations": len(entry.get("operations") or [])}
+        from ruamel.yaml.scalarstring import SingleQuotedScalarString as SQ
+        entry["undo_started_at"] = SQ(_now_iso())
+        _atomic_dump(y, log, reorg_log_path(state_root))
+
+    # --- the moves, with NO journal lock held: they take epic locks, which come first ---
+    restored, left_standing = {}, []
+    for op in reversed(list(entry.get("operations") or [])):
+        kind = str(op.get("op") or "")
+        if kind == "retire-epic":
+            move_epic(state_root, str(op["epic"]), str(op.get("from_status") or "planned"))
+            with epic_node_lock(state_root, str(op["epic"])):
+                p = epic_file(state_root, str(op["epic"]))
+                if p:
+                    ey, en = load_node(p)
+                    if isinstance(en, dict):
+                        en.pop("retired_reason", None)
+                        en.pop("retired_at", None)
+                        save_node(ey, en, p)
+        elif kind == "reparent-story":
+            back = reparent_story(state_root, artifacts_root, str(op["new_key"]),
+                                  str(op["from_epic"]), str(op["from_sprint"]))
+            restored[str(op["new_key"])] = back
+        elif kind == "create-sprint":
+            left_standing.append(f"{op['epic']}-{op['sprint']}")
+
+    from ruamel.yaml.scalarstring import SingleQuotedScalarString as SQ
+    after = plan_shape_hash(state_root)
+    with reorg_log_lock(state_root):
+        y, log = _load_reorg_log(state_root)
+        entry = _find_entry(log, entry_id) or {}
+        entry["undone_at"] = SQ(_now_iso())
+        entry["undo_restored"] = {str(k): SQ(v) for k, v in sorted(restored.items())}
+        entry["post_undo_hash"] = SQ(after)
+        _atomic_dump(y, log, reorg_log_path(state_root))
+    return {"id": entry_id, "undone": True, "restored": restored,
+            "sprints_left_standing": left_standing, "hash": after}
+
+
+def cmd_reorg_log(args) -> int:
+    if args.hash:
+        sys.stdout.write(plan_shape_hash(args.state_root) + "\n")
+        return 0
+    if args.record:
+        from ruamel.yaml.error import YAMLError
+        y = _yaml()
+        try:
+            with open(args.record, encoding="utf-8") as fh:
+                rec = y.load(fh)
+        except FileNotFoundError:
+            _die_notfound(f"record file {args.record}")
+        except (OSError, UnicodeDecodeError, YAMLError) as e:
+            _die_usage(f"could not read the record file {args.record}: {e}")
+        entry_id = record_reorg(args.state_root, _plain(rec))
+        sys.stdout.write(f"OK reorg-log recorded {entry_id}\n")
+        return 0
+
+    _, log = _load_reorg_log(args.state_root)
+    entries = [e for e in log.get("entries", []) if isinstance(e, dict)]
+    if args.show:
+        e = _find_entry(log, args.show)
+        if e is None:
+            _die_notfound(f"reorg journal entry {args.show}")
+        entries = [e]
+    if args.format == "json":
+        sys.stdout.write(json.dumps({"entries": [_plain(e) for e in entries]},
+                                    indent=2) + "\n")
+        return 0
+    if not entries:
+        sys.stdout.write("no reorgs recorded\n")
+        return 0
+    for e in entries:
+        state = "undone" if e.get("undone_at") else "applied"
+        sys.stdout.write(f"{e.get('id')}  {e.get('at')}  {state}  "
+                         f"{len(e.get('operations') or [])} operation(s)\n")
+        if args.show:
+            sys.stdout.write("\n" + str(e.get("rationale") or "").rstrip() + "\n\n")
+            for op in e.get("operations") or []:
+                sys.stdout.write(f"  - {json.dumps(_plain(op), sort_keys=True)}\n")
+    return 0
+
+
+def cmd_reorg_undo(args) -> int:
+    try:
+        res = undo_reorg(args.state_root, args.artifacts_root, args.id, args.check)
+    except PMError:
+        raise
+    except FileNotFoundError as e:
+        _die_notfound(str(e))
+    except (ValueError, FileExistsError) as e:
+        _die_usage(str(e))
+    if args.check:
+        sys.stdout.write(f"OK {res['id']} can be undone "
+                         f"({res['operations']} operation(s))\n")
+        return 0
+    sys.stdout.write(f"OK reorg-undo {res['id']} — {len(res['restored'])} story(ies) "
+                     f"restored\n")
+    for old, new in sorted(res["restored"].items()):
+        sys.stdout.write(f"  {old} -> {new}\n")
+    if res["sprints_left_standing"]:
+        sys.stdout.write("  sprints created by the reorg were left in place (empty, never "
+                         "deleted unasked): " + ", ".join(res["sprints_left_standing"]) + "\n")
     return 0
 
 
@@ -9076,6 +9406,28 @@ def build_parser() -> argparse.ArgumentParser:
     rp.add_argument("--to-epic", required=True)
     rp.add_argument("--to-sprint", required=True)
     rp.set_defaults(func=cmd_reparent_story)
+
+    rl = sub.add_parser("reorg-log",
+                        help="the reorg journal: hash the plan, record a reorg, list or show")
+    rl.add_argument("--state-root", required=True)
+    rl.add_argument("--hash", action="store_true",
+                    help="print the planned tree's placement digest and exit (read-only); "
+                         "capture this BEFORE applying, as the record's pre_hash")
+    rl.add_argument("--record", default="",
+                    help="a YAML record (rationale, pre_hash, operations) to append")
+    rl.add_argument("--list", action="store_true", help="list recorded reorgs (the default)")
+    rl.add_argument("--show", default="", help="show one entry in full, by id")
+    rl.add_argument("--format", choices=("text", "json"), default="text")
+    rl.set_defaults(func=cmd_reorg_log)
+
+    ru = sub.add_parser("reorg-undo",
+                        help="put a recorded reorg back, if the plan has not moved on since")
+    ru.add_argument("--state-root", required=True)
+    ru.add_argument("--artifacts-root", required=True)
+    ru.add_argument("--id", required=True, help="the journal entry id, e.g. R0001")
+    ru.add_argument("--check", action="store_true",
+                    help="test the guard and report, without moving anything")
+    ru.set_defaults(func=cmd_reorg_undo)
 
     nt = sub.add_parser("notice",
                         help="record a one-time-ever advisory notice; exit 1 if already shown")

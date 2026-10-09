@@ -12213,6 +12213,22 @@ class TestReparentStory(unittest.TestCase):
         self.assertIsNotNone(pm.story_file(self.sr, "E001-S01-001"),
                              "a refusal must leave the source in place")
 
+    def test_refuses_a_destination_that_is_not_planned(self):
+        # `sprint_file` resolves through `find_epic_dir`, which searches EVERY bucket, so
+        # gating only the source would let planned work be moved into an archived epic:
+        # it would sit under archived/ still reading `status: backlog`, and the next
+        # move-epic would carry it somewhere nobody chose.
+        self._story("E001-S01-001")
+        self._w(os.path.join(self.sr, "archived", "epic-041", "epic.yaml"),
+                "key: 'E041'\nstatus: done\n")
+        self._w(os.path.join(self.sr, "archived", "epic-041", "sprint-01", "sprint.yaml"),
+                "key: 'S01'\nepic: 'E041'\nstatus: done\n")
+        with self.assertRaises(pm.PMError) as cm:
+            self._move("E001-S01-001", "E041", "S01")
+        self.assertIn("planned", str(cm.exception))
+        self.assertIsNotNone(pm.story_file(self.sr, "E001-S01-001"),
+                             "a refusal must leave the source in place")
+
     def test_a_move_to_where_it_already_is_is_a_no_op(self):
         self._story("E001-S01-001")
         self.assertEqual(self._move("E001-S01-001", "E001", "S01"), "E001-S01-001")
@@ -12303,6 +12319,368 @@ class TestRetireEpic(unittest.TestCase):
     def test_a_missing_epic_is_not_found(self):
         with self.assertRaises(FileNotFoundError):
             pm.retire_epic(self.sr, "E099", "r")
+
+
+class TestPlanShapeHash(unittest.TestCase):
+    """The digest undo rests on. It must move for exactly the changes undo cares about.
+
+    Too sensitive and the guard fires on ordinary re-estimation, which trains people to work
+    around it. Too insensitive and an undo silently replays placements against a plan that
+    has gained or lost stories since.
+    """
+
+    def setUp(self):
+        self.d = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, self.d, True)
+        self.sr = os.path.join(self.d, "state")
+        p = os.path.join(self.sr, "planned", "epic-001", "sprint-01")
+        os.makedirs(p)
+        self._w(os.path.join(self.sr, "planned", "epic-001", "epic.yaml"),
+                "key: 'E001'\nstatus: backlog\n")
+        self._w(os.path.join(p, "sprint.yaml"), "key: 'S01'\nepic: 'E001'\nstatus: backlog\n")
+        self.story = os.path.join(p, "E001-S01-001.yaml")
+        self._w(self.story,
+                "key: 'E001-S01-001'\nepic: 'E001'\nsprint: 'S01'\nstatus: backlog\n")
+
+    def _w(self, path, text):
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        with open(path, "w", encoding="utf-8") as fh:
+            fh.write(text)
+
+    def test_is_stable_across_repeated_reads(self):
+        self.assertEqual(pm.plan_shape_hash(self.sr), pm.plan_shape_hash(self.sr))
+
+    def test_re_estimating_a_story_does_not_move_it(self):
+        # An undo moves nodes and nothing else. Refusing over an estimate written between
+        # the reorg and the undo would make the guard fire for a change it does not care
+        # about -- and a guard that fires constantly gets worked around.
+        before = pm.plan_shape_hash(self.sr)
+        self._w(self.story, "key: 'E001-S01-001'\nepic: 'E001'\nsprint: 'S01'\n"
+                            "status: backlog\nestimate:\n  elapsed_hours: 9\n")
+        self.assertEqual(before, pm.plan_shape_hash(self.sr))
+
+    def test_adding_a_story_moves_it(self):
+        before = pm.plan_shape_hash(self.sr)
+        self._w(os.path.join(self.sr, "planned", "epic-001", "sprint-01",
+                             "E001-S01-002.yaml"),
+                "key: 'E001-S01-002'\nepic: 'E001'\nsprint: 'S01'\nstatus: backlog\n")
+        self.assertNotEqual(before, pm.plan_shape_hash(self.sr),
+                            "a story that appeared since the reorg is exactly the case the "
+                            "guard exists to catch")
+
+    def test_removing_a_story_moves_it(self):
+        before = pm.plan_shape_hash(self.sr)
+        os.remove(self.story)
+        self.assertNotEqual(before, pm.plan_shape_hash(self.sr))
+
+    def test_active_and_archived_work_is_not_part_of_it(self):
+        # Reorg writes planned work only, so nothing else can invalidate an undo.
+        before = pm.plan_shape_hash(self.sr)
+        self._w(os.path.join(self.sr, "active", "epic-005", "epic.yaml"),
+                "key: 'E005'\nstatus: in-progress\n")
+        self.assertEqual(before, pm.plan_shape_hash(self.sr))
+
+
+class TestReorgJournal(unittest.TestCase):
+    """Recording a reorg, and putting it back.
+
+    The journal's only purpose is to make an undo possible, so every test here is really
+    about one question: can a human get back to where they were, and does the tooling refuse
+    clearly when it cannot?
+    """
+
+    def setUp(self):
+        self.d = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, self.d, True)
+        self.sr = os.path.join(self.d, "state")
+        self.ar = os.path.join(self.d, "art")
+        subprocess.run(["git", "init", "-q", self.d], check=True, capture_output=True)
+        self._epic("001", "01")
+        self._epic("003", "02")
+
+    def _epic(self, epic, sprint):
+        p = os.path.join(self.sr, "planned", f"epic-{epic}", f"sprint-{sprint}")
+        os.makedirs(p, exist_ok=True)
+        self._w(os.path.join(self.sr, "planned", f"epic-{epic}", "epic.yaml"),
+                f"key: 'E{epic}'\nstatus: backlog\n")
+        self._w(os.path.join(p, "sprint.yaml"),
+                f"key: 'S{sprint}'\nepic: 'E{epic}'\nstatus: backlog\n")
+
+    def _w(self, path, text):
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        with open(path, "w", encoding="utf-8") as fh:
+            fh.write(text)
+
+    def _story(self, key):
+        e, sp, _ = key.split("-")
+        self._w(os.path.join(self.sr, "planned", f"epic-{e[1:]}", f"sprint-{sp[1:]}",
+                             f"{key}.yaml"),
+                f"key: '{key}'\nepic: '{e}'\nsprint: '{sp}'\nstatus: backlog\n")
+
+    def _apply_one_move(self, key, to_epic, to_sprint):
+        """Do a real reorg of one story and return the record for it."""
+        pre = pm.plan_shape_hash(self.sr)
+        from_epic, from_sprint, _ = pm.parse_story_key(key)
+        new = pm.reparent_story(self.sr, self.ar, key, to_epic, to_sprint)
+        return new, {
+            "rationale": "Moved to shorten the critical path.",
+            "pre_hash": pre,
+            "operations": [{"op": "reparent-story", "story": key, "new_key": new,
+                            "from_epic": from_epic, "from_sprint": from_sprint,
+                            "to_epic": to_epic, "to_sprint": to_sprint}],
+        }
+
+    # --- recording ------------------------------------------------------------------
+
+    def test_records_an_entry_and_hands_back_its_id(self):
+        self._story("E001-S01-001")
+        _new, rec = self._apply_one_move("E001-S01-001", "E003", "S02")
+        self.assertEqual(pm.record_reorg(self.sr, rec), "R0001")
+        _, log = pm._load_reorg_log(self.sr)
+        self.assertEqual(len(log["entries"]), 1)
+        self.assertEqual(str(log["entries"][0]["post_hash"]), pm.plan_shape_hash(self.sr))
+
+    def test_ids_are_sequential_and_next_never_goes_backwards(self):
+        self._story("E001-S01-001")
+        self._story("E001-S01-002")
+        _n, r1 = self._apply_one_move("E001-S01-001", "E003", "S02")
+        self.assertEqual(pm.record_reorg(self.sr, r1), "R0001")
+        _n2, r2 = self._apply_one_move("E001-S01-002", "E003", "S02")
+        self.assertEqual(pm.record_reorg(self.sr, r2), "R0002")
+
+    def test_the_rationale_is_stored_verbatim(self):
+        # It is the only part of the entry a human reads months later.
+        self._story("E001-S01-001")
+        _n, rec = self._apply_one_move("E001-S01-001", "E003", "S02")
+        rec["rationale"] = "E003 now owns the auth surface,\nso S02 absorbs the dependent."
+        pm.record_reorg(self.sr, rec)
+        _, log = pm._load_reorg_log(self.sr)
+        self.assertEqual(str(log["entries"][0]["rationale"]).rstrip("\n"),
+                         rec["rationale"].rstrip("\n"))
+        with open(pm.reorg_log_path(self.sr), encoding="utf-8") as fh:
+            raw = fh.read()
+        self.assertIn("rationale: |", raw,
+                      "an escaped one-liner is the same text and unreadable in the file a "
+                      "human opens months later to decide whether to undo")
+        self.assertIn("\n    so S02 absorbs the dependent.", raw)
+
+    def test_refuses_an_operation_kind_undo_cannot_invert(self):
+        # An entry that looks undoable and is not is worse than no entry at all.
+        with self.assertRaises(pm.PMError) as cm:
+            pm.record_reorg(self.sr, {"rationale": "r", "pre_hash": "sha256:x",
+                                      "operations": [{"op": "delete-everything"}]})
+        self.assertIn("invert", str(cm.exception))
+
+    def test_refuses_an_operation_missing_the_fields_undo_needs(self):
+        with self.assertRaises(pm.PMError) as cm:
+            pm.record_reorg(self.sr, {"rationale": "r", "pre_hash": "sha256:x",
+                                      "operations": [{"op": "reparent-story",
+                                                      "story": "E001-S01-001"}]})
+        self.assertIn("missing", str(cm.exception))
+
+    def test_refuses_an_empty_rationale_and_a_missing_pre_hash(self):
+        for rec in ({"rationale": "  ", "pre_hash": "sha256:x", "operations": [
+                        {"op": "create-sprint", "epic": "E003", "sprint": "S09"}]},
+                    {"rationale": "r", "operations": [
+                        {"op": "create-sprint", "epic": "E003", "sprint": "S09"}]}):
+            with self.assertRaises(pm.PMError):
+                pm.record_reorg(self.sr, rec)
+        self.assertFalse(os.path.exists(pm.reorg_log_path(self.sr)),
+                         "a refused record must not create the journal")
+
+    # --- undo -----------------------------------------------------------------------
+
+    def test_undo_puts_the_story_back_in_its_original_sprint(self):
+        self._story("E001-S01-001")
+        new, rec = self._apply_one_move("E001-S01-001", "E003", "S02")
+        rid = pm.record_reorg(self.sr, rec)
+        res = pm.undo_reorg(self.sr, self.ar, rid)
+        back = res["restored"][new]
+        self.assertTrue(back.startswith("E001-S01-"))
+        self.assertIsNotNone(pm.story_file(self.sr, back))
+        self.assertIsNone(pm.story_file(self.sr, new))
+
+    def test_undo_restores_placement_but_not_the_original_key(self):
+        # The allocator's high-water never decreases -- that is what stops a freed key
+        # being reissued to different work and silently retargeting its remote issue. So
+        # the story comes home with a new number, and the result says which.
+        self._story("E001-S01-001")
+        new, rec = self._apply_one_move("E001-S01-001", "E003", "S02")
+        rid = pm.record_reorg(self.sr, rec)
+        back = pm.undo_reorg(self.sr, self.ar, rid)["restored"][new]
+        self.assertNotEqual(back, "E001-S01-001")
+        self.assertEqual(back, "E001-S01-002")
+
+    def test_undo_keeps_the_whole_previous_keys_chain(self):
+        self._story("E001-S01-001")
+        new, rec = self._apply_one_move("E001-S01-001", "E003", "S02")
+        rid = pm.record_reorg(self.sr, rec)
+        back = pm.undo_reorg(self.sr, self.ar, rid)["restored"][new]
+        _, node = pm.load_node(pm.story_file(self.sr, back))
+        self.assertEqual(list(node["previous_keys"]), ["E001-S01-001", new],
+                         "sync reconciles on previous_keys, so the undo hop must be in it "
+                         "too or the mapping is lost a second time")
+
+    def test_undo_refuses_when_the_plan_has_moved_on_since(self):
+        self._story("E001-S01-001")
+        _new, rec = self._apply_one_move("E001-S01-001", "E003", "S02")
+        rid = pm.record_reorg(self.sr, rec)
+        self._story("E001-S01-009")                   # somebody adds work afterwards
+        with self.assertRaises(pm.PMError) as cm:
+            pm.undo_reorg(self.sr, self.ar, rid)
+        self.assertIn("changed since", str(cm.exception))
+        self.assertIsNotNone(pm.story_file(self.sr, "E003-S02-001"),
+                             "a refusal must move nothing")
+
+    def test_undo_refuses_a_second_time(self):
+        self._story("E001-S01-001")
+        _new, rec = self._apply_one_move("E001-S01-001", "E003", "S02")
+        rid = pm.record_reorg(self.sr, rec)
+        pm.undo_reorg(self.sr, self.ar, rid)
+        with self.assertRaises(pm.PMError) as cm:
+            pm.undo_reorg(self.sr, self.ar, rid)
+        self.assertIn("already undone", str(cm.exception))
+
+    def test_undo_refuses_an_unknown_entry(self):
+        with self.assertRaises(pm.PMError) as cm:
+            pm.undo_reorg(self.sr, self.ar, "R9999")
+        self.assertEqual(cm.exception.code, 3)
+
+    def test_check_reports_without_moving_anything(self):
+        self._story("E001-S01-001")
+        new, rec = self._apply_one_move("E001-S01-001", "E003", "S02")
+        rid = pm.record_reorg(self.sr, rec)
+        before = pm.plan_shape_hash(self.sr)
+        res = pm.undo_reorg(self.sr, self.ar, rid, check_only=True)
+        self.assertTrue(res["undoable"])
+        self.assertEqual(before, pm.plan_shape_hash(self.sr))
+        _, log = pm._load_reorg_log(self.sr)
+        self.assertIsNone(log["entries"][0].get("undone_at"),
+                          "--check must not claim the entry")
+
+    def test_an_epic_is_un_retired_before_work_moves_back_into_it(self):
+        # THE ORDERING TEST. Forward order retires last; undo must therefore un-retire
+        # FIRST, or the story has nowhere to land and the undo fails halfway.
+        self._epic("041", "01")
+        self._story("E041-S01-001")
+        pre = pm.plan_shape_hash(self.sr)
+        new = pm.reparent_story(self.sr, self.ar, "E041-S01-001", "E001", "S01")
+        pm.retire_epic(self.sr, "E041", "emptied by this reorg")
+        rid = pm.record_reorg(self.sr, {
+            "rationale": "E041 is empty once its one story moves.",
+            "pre_hash": pre,
+            "operations": [
+                {"op": "reparent-story", "story": "E041-S01-001", "new_key": new,
+                 "from_epic": "E041", "from_sprint": "S01",
+                 "to_epic": "E001", "to_sprint": "S01"},
+                {"op": "retire-epic", "epic": "E041", "reason": "emptied by this reorg",
+                 "from_status": "planned"},
+            ]})
+        res = pm.undo_reorg(self.sr, self.ar, rid)
+        self.assertIn("planned", pm.find_epic_dir(self.sr, "E041"))
+        back = res["restored"][new]
+        self.assertTrue(back.startswith("E041-S01-"))
+        _, enode = pm.load_node(pm.epic_file(self.sr, "E041"))
+        self.assertNotIn("retired_reason", enode,
+                         "an un-retired epic that still claims a retirement reason would "
+                         "read as retired to every later audit")
+
+    def test_a_sprint_the_reorg_created_is_left_standing_never_deleted(self):
+        # Deletion is the one thing this feature never does unasked. An empty sprint is
+        # inert; reporting it lets a human remove it deliberately.
+        self._story("E001-S01-001")
+        pre = pm.plan_shape_hash(self.sr)
+        os.makedirs(os.path.join(self.sr, "planned", "epic-003", "sprint-09"))
+        self._w(os.path.join(self.sr, "planned", "epic-003", "sprint-09", "sprint.yaml"),
+                "key: 'S09'\nepic: 'E003'\nstatus: backlog\n")
+        new = pm.reparent_story(self.sr, self.ar, "E001-S01-001", "E003", "S09")
+        rid = pm.record_reorg(self.sr, {
+            "rationale": "A new sprint for the extracted work.", "pre_hash": pre,
+            "operations": [
+                {"op": "create-sprint", "epic": "E003", "sprint": "S09"},
+                {"op": "reparent-story", "story": "E001-S01-001", "new_key": new,
+                 "from_epic": "E001", "from_sprint": "S01",
+                 "to_epic": "E003", "to_sprint": "S09"},
+            ]})
+        res = pm.undo_reorg(self.sr, self.ar, rid)
+        self.assertEqual(res["sprints_left_standing"], ["E003-S09"])
+        self.assertIsNotNone(pm.sprint_file(self.sr, "E003", "S09"))
+
+    def test_the_journal_is_not_gitignored(self):
+        # It is the traceback record a human reads months later; only the .lock sidecar
+        # is ignored.
+        self._story("E001-S01-001")
+        _n, rec = self._apply_one_move("E001-S01-001", "E003", "S02")
+        pm.record_reorg(self.sr, rec)
+        with open(os.path.join(self.sr, ".gitignore"), encoding="utf-8") as fh:
+            ignore = fh.read()
+        self.assertNotIn("reorg-log.yaml\n", ignore)
+        self.assertIn("*.lock", ignore)
+
+
+class TestReorgJournalCli(unittest.TestCase):
+    """The surface the skill actually calls."""
+
+    def setUp(self):
+        self.d = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, self.d, True)
+        self.sr = os.path.join(self.d, "state")
+        p = os.path.join(self.sr, "planned", "epic-001", "sprint-01")
+        os.makedirs(p)
+        for path, text in (
+            (os.path.join(self.sr, "planned", "epic-001", "epic.yaml"),
+             "key: 'E001'\nstatus: backlog\n"),
+            (os.path.join(p, "sprint.yaml"), "key: 'S01'\nepic: 'E001'\nstatus: backlog\n"),
+        ):
+            with open(path, "w", encoding="utf-8") as fh:
+                fh.write(text)
+
+    def _run(self, argv):
+        out, err = io.StringIO(), io.StringIO()
+        code = 0
+        try:
+            with redirect_stdout(out), redirect_stderr(err):
+                code = pm.main(argv)
+        except SystemExit as e:
+            code = e.code if isinstance(e.code, int) else 1
+        except pm.PMError as e:
+            code, _ = e.code, err.write(str(e))
+        return code, out.getvalue(), err.getvalue()
+
+    def test_hash_prints_a_digest_and_writes_nothing(self):
+        code, out, _err = self._run(["reorg-log", "--state-root", self.sr, "--hash"])
+        self.assertEqual(code, 0)
+        self.assertTrue(out.strip().startswith("sha256:"))
+        self.assertFalse(os.path.exists(pm.reorg_log_path(self.sr)))
+
+    def test_list_on_an_empty_project_says_so_rather_than_failing(self):
+        code, out, _err = self._run(["reorg-log", "--state-root", self.sr, "--list"])
+        self.assertEqual(code, 0)
+        self.assertIn("no reorgs recorded", out)
+
+    def test_record_reads_a_yaml_file_and_prints_the_id(self):
+        rec = os.path.join(self.d, "rec.yaml")
+        with open(rec, "w", encoding="utf-8") as fh:
+            fh.write("rationale: 'Shorter critical path.'\n"
+                     f"pre_hash: '{pm.plan_shape_hash(self.sr)}'\n"
+                     "operations:\n"
+                     "- op: create-sprint\n  epic: E001\n  sprint: S09\n")
+        code, out, _err = self._run(["reorg-log", "--state-root", self.sr, "--record", rec])
+        self.assertEqual(code, 0)
+        self.assertIn("R0001", out)
+
+    def test_a_missing_record_file_exits_3(self):
+        code, _o, err = self._run(["reorg-log", "--state-root", self.sr,
+                                  "--record", os.path.join(self.d, "absent.yaml")])
+        self.assertEqual(code, 3)
+        self.assertIn("absent.yaml", err)
+
+    def test_json_format_is_machine_readable(self):
+        code, out, _e = self._run(["reorg-log", "--state-root", self.sr,
+                                  "--list", "--format", "json"])
+        self.assertEqual(code, 0)
+        self.assertEqual(json.loads(out), {"entries": []})
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)
