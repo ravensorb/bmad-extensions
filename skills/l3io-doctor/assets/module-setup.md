@@ -128,21 +128,23 @@ Choose it by the detection procedure in `l3io-execute/steps/shared/step-00-activ
 criterion is a capability, not a brand check. If `{pm_status}` is not installed
 yet, skip this step and say so — setup never fails on it.
 
-The target is the running harness's instruction file (for example `CLAUDE.md`), which belongs
-to the user. Check it before writing:
+Bind `{file}` from `{runtime}`, relative to `{project-root}` (the same mapping `pm-status.py`
+uses): `claude` → `CLAUDE.md`, `copilot` → `.github/copilot-instructions.md`,
+`codex` or `other` → `AGENTS.md`. That file belongs to the user. Check it before writing:
 
 ```bash
 uv run {pm_status} sync-agent-instructions --runtime {runtime} \
   --project-root {project-root} --check
 ```
 
-- **Exit 0** — the block is already there. Refresh it with the `--apply` below, no prompt.
-- **Exit 1, and the file does not exist** — `--apply` will create it. No confirmation needed.
-- **Exit 1, and the file exists with no markers** — ADR-0004: an existing human-authored
+- **Exit 0** — the block is already there. Go to the `--apply` below, no prompt.
+- **Exit 1, and `{file}` does not exist** — `--apply` will create it. No confirmation needed.
+- **Exit 1, and `{file}` exists with no markers** — ADR-0004: an existing human-authored
   document is proposed to, never silently appended to. Show the user the full body from
-  `{skill-root}/assets/agent-instructions.md` and the file it would be appended to, ask
-  `Add this block to {file}? (y/N)`, and run `--apply` only on a yes. On a no, skip and say
-  the block can be added later by re-running setup.
+  `{skill-root}/assets/agent-instructions.md` and the path `{file}`, ask
+  `Add this block to {file}? (y/N)`, and run the `--apply` below only on a yes. On a no,
+  do not run it: skip the rest of this step and say the block can be added later by
+  re-running setup or an upgrade.
 
 ```bash
 uv run {pm_status} sync-agent-instructions --runtime {runtime} \

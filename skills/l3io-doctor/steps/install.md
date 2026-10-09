@@ -48,26 +48,22 @@ Show the command, ask `Run this? (y/N)`, then run it.
 ### 2.1 Refresh the agent instruction block
 
 The upgrade may have changed the block body. Refresh it in the running harness's instruction
-file — this rewrites only the region between the `l3io:begin`/`l3io:end` markers, and writes
-nothing at all when the body is unchanged. `{runtime}` is exactly one of `claude`, `codex`,
-`copilot` or `other`, chosen by the detection procedure in
-`l3io-execute/steps/shared/step-00-activate.md`:
+file by following `assets/module-setup.md` §6 — it binds `{pm_status}`, `{runtime}` and
+`{file}`, runs `--check`, asks for confirmation when `{file}` exists without markers, and only
+then runs `--apply`. Do not run `--apply` outside that procedure: on a file with no markers it
+appends to a document the user wrote. When the body is unchanged `--apply` writes nothing.
 
-```bash
-uv run {pm_status} sync-agent-instructions --runtime {runtime} \
-  --project-root {project-root} \
-  --body-file {skill-root}/assets/agent-instructions.md --apply
-```
-
-Exit 2 means the file has ambiguous markers or is not valid UTF-8; report it and continue —
-a documentation block must never fail an upgrade that otherwise succeeded.
-
-If the instruction file exists but carries no markers (a project that predates the block),
-do not append silently: follow the confirmation in `assets/module-setup.md` §6 first.
+Exit 2 from it means ambiguous markers or invalid UTF-8; report it and continue — a
+documentation block must never fail an upgrade that otherwise succeeded.
 
 ## 3. Clean — remove the instruction block, then this extension's payload
 
 ### 3.1 Remove the agent instruction block first
+
+Bind `{pm_status}` = `{project-root}/_bmad/scripts/pm-status.py`, and `{runtime}` = exactly one
+of `claude`, `codex`, `copilot` or `other`, chosen by the detection procedure in
+`l3io-execute/steps/shared/step-00-activate.md`. A guessed runtime targets the wrong
+harness's file.
 
 The block is **not payload** — it lives in a user-owned file and is not covered by the
 SHA-256 comparison below, so the payload sweep cannot see it. It goes first because the
