@@ -196,6 +196,7 @@ orchestration_sampled_at: '2026-08-16T22:34:03Z'  # replay guard; set-actual --b
 # state/active/epic-001/sprint-01/sprint.yaml
 key: 'S01'
 epic: 'E001'                              # back-reference; path must agree
+next: 7                                   # story-key high-water; pm-status.py only
 title: 'Sprint 01 — Foundation'
 status: in-progress
 estimate:
@@ -220,6 +221,17 @@ actual:
   model: claude-sonnet-5
 # no `stories:` — E001-S01-*.yaml files are the list
 ```
+
+**`next` on a sprint is a high-water mark and never decreases.** Story keys are allocated as
+`max(sprint.next, highest-on-disk + 1)`, so a vacated number is never reissued. Deriving from
+the disk alone was safe only while stories could merely appear; the moment one can MOVE, a
+freed key handed to a different story silently retargets that key's remote issue in
+`l3io-sync`'s mapping — nothing errors, and the issue now tracks different work. The disk is
+still consulted alongside `next`, which is what makes this need no migration (an absent `next`
+behaves exactly as before) and no repair verb (a `next` that is somehow too low cannot cause a
+reuse, because the disk floor still applies). The only visible consequence is that keys go
+sparse where a story is deleted, instead of the next one backfilling the hole.
+
 
 **Sprint status lifecycle:** `backlog → in-progress → review → done`. `review` means **every
 child story is at `review` and none has been closed** — the sprint's work is written and

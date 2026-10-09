@@ -6583,7 +6583,14 @@ def cmd_update_issue(args) -> int:
     return _run_core(run)
 
 
-_STORY_FILE_RE = re.compile(r"^E\d{3}-S\d{2}-(\d{3})\.(yaml|md)$")
+# A story FILE in either tree. The optional `-slug` is the documented artifact shape
+# (CLAUDE.md gives `E032-S01-001-centralized-file-config.md` as its own example), and it was
+# not matched here -- so a slugged document did NOT count toward the allocator's disk floor,
+# and its key could be handed out again. `story_doc_path` only ever generates the UNSLUGGED
+# name, so promote-issue's existence check could not see the collision either. One consumer
+# (the disk floor), and widening it can only ever ADD to that floor, which is the safe
+# direction: more things reserve a key, nothing releases one.
+_STORY_FILE_RE = re.compile(r"^E\d{3}-S\d{2}-(\d{3})(?:-[^.]*)?\.(yaml|md)$")
 
 
 def _unevaluable_lock_reason(lock, session_id):
@@ -6642,13 +6649,15 @@ def _foreign_lock_error(epath: str, session_id, epic_key: str):
                       f"lock to expire")
 
 
-def _next_story_key(state_root, artifacts_root, epic_key, sprint_key) -> str:
-    """Highest story number in the sprint across the state directory AND the artifact
-    stories/ directory, plus one: a document without a state node still owns its key."""
+def _highest_story_on_disk(state_root, artifacts_root, epic_key, sprint_key) -> int:
+    """Highest story number present in the sprint, across the state directory AND the
+    artifact stories/ directory. A document without a state node still owns its key."""
     prefix = f"{epic_key}-{sprint_key}-"
-    dirs = [os.path.join(find_epic_dir(state_root, epic_key), sprint_dirname(sprint_key)),
-            os.path.join(artifacts_root, epic_dirname(epic_key), sprint_dirname(sprint_key),
+    epic_dir = find_epic_dir(state_root, epic_key)
+    dirs = [os.path.join(artifacts_root, epic_dirname(epic_key), sprint_dirname(sprint_key),
                          "stories")]
+    if epic_dir is not None:
+        dirs.insert(0, os.path.join(epic_dir, sprint_dirname(sprint_key)))
     highest = 0
     for d in dirs:
         if not os.path.isdir(d):
@@ -6657,7 +6666,52 @@ def _next_story_key(state_root, artifacts_root, epic_key, sprint_key) -> str:
             m = _STORY_FILE_RE.match(name)
             if m and name.startswith(prefix):
                 highest = max(highest, int(m.group(1)))
-    return f"{prefix}{highest + 1:03d}"
+    return highest
+
+
+def _next_story_key(state_root, artifacts_root, epic_key, sprint_key) -> str:
+    """Allocate the sprint's next story key: `max(sprint.next, highest-on-disk + 1)`.
+
+    WHY A HIGH-WATER AND NOT JUST THE DISK. Deriving from the disk alone makes a vacated
+    number immediately reusable. That is harmless while stories only ever appear, but it is a
+    live defect the moment one can MOVE: a story leaving E032-S01-001 frees that key, the next
+    story takes it, and `l3io-sync`'s mapping still points that key's remote issue at what is
+    now DIFFERENT WORK. Nothing errors -- the issue is silently retargeted. `issues.yaml`
+    carries a per-epic `next:` for exactly this reason, documented there as "a high-water mark
+    that never decreases, so a deleted or resolved key is never reused".
+
+    WHY STILL CONSULT THE DISK. Taking the max of both, rather than trusting `next` alone, is
+    what keeps this small. An absent `next` (every project today) behaves exactly as before,
+    so there is no migration. A `next` that is somehow too LOW cannot cause a reuse, because
+    the disk floor still applies -- it is self-healing, which is why this needs no audit
+    finding and no reseed verb, unlike the allocator it is modelled on. A `next` that is too
+    high is honoured: it wastes a number, which is the safe direction.
+
+    The only consequence for an ordinary project is that keys become sparse where a story is
+    deleted, instead of the next one backfilling the hole.
+
+    Callers hold the epic write lock (see cmd_promote_issue), so the read-modify-write below
+    is already serialised; it takes no lock of its own.
+    """
+    prefix = f"{epic_key}-{sprint_key}-"
+    floor = _highest_story_on_disk(state_root, artifacts_root, epic_key, sprint_key) + 1
+
+    spath = sprint_file(state_root, epic_key, sprint_key)
+    y = node = None
+    stored = 0
+    if spath is not None:
+        y, node = load_node(spath)
+        if isinstance(node, dict):
+            try:
+                stored = int(node.get("next") or 0)
+            except (TypeError, ValueError):
+                stored = 0          # unparseable is treated as absent; the disk floor holds
+
+    number = max(stored, floor)
+    if isinstance(node, dict):
+        node["next"] = number + 1   # never decreases: number >= stored, so this only grows
+        save_node(y, node, spath)
+    return f"{prefix}{number:03d}"
 
 
 def _yaml_error_reason(e) -> str:

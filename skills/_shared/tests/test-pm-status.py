@@ -11977,5 +11977,122 @@ class TestNoticeIsPerHarness(unittest.TestCase):
                          "copilot must still be offered after claude was satisfied")
 
 
+
+class TestStoryKeyAllocator(unittest.TestCase):
+    """`_next_story_key` is a high-water allocator, not a scan of the disk.
+
+    The bug it closes only becomes reachable when a story can MOVE: deriving from the disk
+    alone makes a vacated number reusable, and a reused key silently retargets that key's
+    remote issue in `l3io-sync`'s mapping to different work, with nothing erroring.
+    """
+
+    def setUp(self):
+        self.d = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, self.d, True)
+        self.sr = os.path.join(self.d, "state")
+        self.ar = os.path.join(self.d, "artifacts")
+        self.sprint_dir = os.path.join(self.sr, "planned", "epic-001", "sprint-01")
+        os.makedirs(self.sprint_dir)
+        self.sfile = os.path.join(self.sprint_dir, "sprint.yaml")
+
+    def _sprint(self, text="key: 'S01'\nepic: 'E001'\nstatus: backlog\n"):
+        with open(self.sfile, "w", encoding="utf-8") as fh:
+            fh.write(text)
+
+    def _story(self, n):
+        with open(os.path.join(self.sprint_dir, f"E001-S01-{n:03d}.yaml"), "w",
+                  encoding="utf-8") as fh:
+            fh.write(f"key: 'E001-S01-{n:03d}'\nepic: 'E001'\nsprint: 'S01'\n")
+
+    def _next(self):
+        return pm._next_story_key(self.sr, self.ar, "E001", "S01")
+
+    def _stored_next(self):
+        _, node = pm.load_node(self.sfile)
+        return node.get("next")
+
+    def test_a_vacated_key_is_never_reissued(self):
+        # THE BUG. Allocate 001 and 002, then delete 002 the way a re-parent would, and
+        # allocate again. The disk-only allocator returned 002 here.
+        self._sprint()
+        self.assertEqual(self._next(), "E001-S01-001")
+        self._story(1)
+        self.assertEqual(self._next(), "E001-S01-002")
+        self._story(2)
+        os.unlink(os.path.join(self.sprint_dir, "E001-S01-002.yaml"))
+        self.assertEqual(self._next(), "E001-S01-003",
+                         "a vacated key must never be reissued -- a reused key silently "
+                         "retargets its remote issue to different work")
+
+    def test_absent_next_behaves_exactly_as_before(self):
+        # Every project today has no `next`. There must be no migration.
+        self._sprint()
+        self._story(1)
+        self._story(2)
+        self.assertEqual(self._next(), "E001-S01-003")
+
+    def test_a_too_low_next_cannot_cause_a_reuse(self):
+        # Self-healing: the disk floor still applies, which is why this needs no audit
+        # finding and no reseed verb, unlike the allocator it is modelled on.
+        self._sprint("key: 'S01'\nepic: 'E001'\nstatus: backlog\nnext: 2\n")
+        self._story(1)
+        self._story(2)
+        self._story(3)
+        self.assertEqual(self._next(), "E001-S01-004")
+
+    def test_an_unparseable_next_falls_back_to_the_disk_floor(self):
+        self._sprint("key: 'S01'\nepic: 'E001'\nstatus: backlog\nnext: not-a-number\n")
+        self._story(1)
+        self.assertEqual(self._next(), "E001-S01-002")
+
+    def test_a_high_next_is_honoured_and_wastes_rather_than_reuses(self):
+        self._sprint("key: 'S01'\nepic: 'E001'\nstatus: backlog\nnext: 50\n")
+        self._story(1)
+        self.assertEqual(self._next(), "E001-S01-050")
+
+    def test_next_never_decreases_across_allocations(self):
+        self._sprint()
+        seen = []
+        for _ in range(4):
+            seen.append(int(self._next().rsplit("-", 1)[1]))
+            self._story(seen[-1])
+        self.assertEqual(seen, sorted(seen), "allocations must be monotonic")
+        self.assertEqual(len(set(seen)), len(seen), "an allocation was repeated")
+        self.assertGreater(self._stored_next(), seen[-1])
+
+    def test_an_artifact_document_without_a_state_node_still_owns_its_key(self):
+        # Pre-existing behaviour that must survive: the artifacts stories/ dir is part of the
+        # disk floor, so a document with no state node is not overwritten.
+        self._sprint()
+        sd = os.path.join(self.ar, "epic-001", "sprint-01", "stories")
+        os.makedirs(sd)
+        with open(os.path.join(sd, "E001-S01-007-some-slug.md"), "w", encoding="utf-8") as fh:
+            fh.write("# story\n")
+        self.assertEqual(self._next(), "E001-S01-008")
+
+    def test_an_unslugged_artifact_document_also_counts(self):
+        self._sprint()
+        sd = os.path.join(self.ar, "epic-001", "sprint-01", "stories")
+        os.makedirs(sd)
+        with open(os.path.join(sd, "E001-S01-004.md"), "w", encoding="utf-8") as fh:
+            fh.write("# story\n")
+        self.assertEqual(self._next(), "E001-S01-005")
+
+    def test_a_non_story_file_in_the_stories_dir_is_ignored(self):
+        # The widened regex must not start counting arbitrary files.
+        self._sprint()
+        sd = os.path.join(self.ar, "epic-001", "sprint-01", "stories")
+        os.makedirs(sd)
+        for junk in ("README.md", "E001-S01-9.md", "notes.yaml"):
+            with open(os.path.join(sd, junk), "w", encoding="utf-8") as fh:
+                fh.write("x\n")
+        self.assertEqual(self._next(), "E001-S01-001")
+
+    def test_a_missing_sprint_node_still_allocates(self):
+        # bootstrap-state can create stories before a sprint node exists; allocation must not
+        # require one, it just cannot persist a high-water in that case.
+        self._story(3)
+        self.assertEqual(self._next(), "E001-S01-004")
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)
