@@ -231,6 +231,11 @@ Subcommands
                 unschedule writes an issue_unscheduled event; a story node that does
                 not parse, is not valid UTF-8 or is not a mapping exits 2 naming the
                 file, before any write)
+  reparent-story  --state-root S  --artifacts-root A  --story K  --to-epic E  --to-sprint SP
+                  (moves a PLANNED story to another sprint, re-keying it; moves the state
+                   node and its document together, preserving any -slug, repoints inbound
+                   depends_on and backlog refs, appends the old key to previous_keys, and
+                   raises the source sprint's high-water so the vacated key is never reissued)
   move-epic     --state-root S  --epic ID  --to {planned,active,archived}
   archive-epic  --state-root S  --epic ID   (alias for move-epic --to archived)
   calibration   show  --state-root S  [--format {text,json}]
@@ -7829,6 +7834,291 @@ def _move_epic_locked(state_root: str, epic_key: str, to_status: str) -> str:
     return dest
 
 
+def _story_doc_on_disk(artifacts_root: str, story_key: str):
+    """The story's document path, whatever its filename shape, or None.
+
+    `story_doc_path` only ever GENERATES the unslugged name, but the documented artifact
+    shape allows an optional trailing slug (`E032-S01-001-centralized-file-config.md`). A
+    re-parent must find and move whichever shape is actually there, and must preserve the
+    slug across the rename -- the key prefix is canonical, the slug is UX.
+    """
+    try:
+        epic_key, sprint_key, _ = parse_story_key(story_key)
+    except ValueError:
+        return None
+    d = os.path.join(artifacts_root, epic_dirname(epic_key), sprint_dirname(sprint_key),
+                     "stories")
+    if not os.path.isdir(d):
+        return None
+    for name in sorted(os.listdir(d)):
+        if not name.endswith(".md"):
+            continue
+        # Exactly the key, or the key followed by a slug separator. `startswith(story_key)`
+        # alone would also match a longer key sharing this one's prefix, which cannot happen
+        # with fixed-width keys today but costs nothing to exclude.
+        if name == f"{story_key}.md" or name.startswith(f"{story_key}-"):
+            return os.path.join(d, name)
+    return None
+
+
+def _doc_slug(path: str, story_key: str) -> str:
+    """The `-slug` part of a story document filename, or '' -- preserved across a re-parent."""
+    base = os.path.basename(path)
+    stem = base.removesuffix(".md")
+    return stem[len(story_key):] if stem.startswith(story_key) else ""
+
+
+def _rewrite_references(state_root: str, old_key: str, new_key: str) -> int:
+    """Repoint every reference to `old_key` at `new_key`. Returns how many it changed.
+
+    A re-key invalidates references the moving node does not own, and they are the half of
+    this operation most likely to rot silently: a `depends_on` naming a key that no longer
+    exists does not fail until something tries to order it, and a backlog `ref` pointing at
+    a vanished story reads as an unlinked promotion in `audit-issues` rather than as damage
+    this operation did.
+
+    Two kinds, both rewritten here: `depends_on` lists on any story or epic node, and the
+    `ref` field on open and resolved backlog items.
+    """
+    changed = 0
+    for _k, _sdir, node, path in _walk_story_nodes(state_root):
+        dep = node.get("depends_on")
+        if isinstance(dep, list) and old_key in dep:
+            for i, v in enumerate(dep):
+                if v == old_key:
+                    dep[i] = new_key
+            y, n = load_node(path)
+            if isinstance(n, dict) and isinstance(n.get("depends_on"), list):
+                n["depends_on"] = [new_key if v == old_key else v for v in n["depends_on"]]
+                save_node(y, n, path)
+                changed += 1
+
+    open_path = os.path.join(state_root, ISSUES_FILENAME)
+    if os.path.exists(open_path):
+        with issues_lock(open_path):
+            store = IssueStore(open_path)
+            hit = False
+            for lst in (store.backlog(), store.resolved()):
+                for item in lst:
+                    if isinstance(item, dict) and item.get("ref") == old_key:
+                        item["ref"] = new_key
+                        hit = True
+            if hit:
+                store.save_open()
+                store.save_resolved()
+                changed += 1
+    return changed
+
+
+def _raise_sprint_high_water(state_root: str, epic_key: str, sprint_key: str,
+                             at_least: int) -> None:
+    """Raise a sprint's story-key high-water, so a departing key is never reissued.
+
+    WHY THIS IS NEEDED ON TOP OF THE ALLOCATOR. `_next_story_key`'s high-water only protects
+    keys it ISSUED. Every story that exists today predates it, so its sprint carries no
+    `next:` at all -- and once such a story moves away, nothing on disk or in the node
+    remembers its number and the floor drops back. The departure is the moment we learn the
+    key was in use, so that is where it gets recorded.
+
+    Monotonic by construction: it only ever raises. The caller holds the sprint's epic lock,
+    because a lost update here WOULD matter -- two concurrent departures raising to 5 and 7
+    could leave 5, and 6 would then be reissued to different work.
+    """
+    spath = sprint_file(state_root, epic_key, sprint_key)
+    if spath is None:
+        return                                   # no sprint node to record it on
+    y, node = load_node(spath)
+    if not isinstance(node, dict):
+        return
+    try:
+        stored = int(node.get("next") or 0)
+    except (TypeError, ValueError):
+        stored = 0
+    if stored >= at_least:
+        return
+    node["next"] = at_least
+    save_node(y, node, spath)
+
+
+def reparent_story(state_root: str, artifacts_root: str, story_key: str,
+                   to_epic: str, to_sprint: str) -> str:
+    """Move one planned story to another sprint, re-keying it. Returns the new key.
+
+    BOTH TREES MOVE TOGETHER. The state node and the story document are siblings with an
+    identical path suffix, and a re-parent that moved one without the other would break the
+    mirror the whole layout depends on. The document may not exist yet (a story planned but
+    not elaborated), which is fine; what is not fine is moving one of two that both exist.
+
+    GATE BEFORE WRITE. Everything that can refuse -- scope, existence, destination, key
+    availability -- is checked before the first byte moves. `migrate-engine.py` runs its
+    completeness checks after the write once, and an empty parse passed vacuously and then
+    deleted the source; this orders it the other way for the same reason.
+
+    PLANNED WORK ONLY. A story under `active/` or `archived/` carries actuals, calibration
+    samples and `events.jsonl` history keyed to its current key, none of which this moves.
+    Refusing is the scope rule, not a limitation to work around.
+    """
+    state_root = os.path.abspath(state_root)
+    artifacts_root = os.path.abspath(artifacts_root)
+    from_epic, from_sprint, _ = parse_story_key(story_key)
+    to_epic = canonical_epic_key(to_epic)
+    to_sprint = canonical_sprint_key(to_sprint)
+
+    # TWO LOCKS, SEQUENTIALLY, NEVER NESTED. `epic_node_lock` refuses to hold two epics at
+    # once and that guard is right: its re-entrancy counter is per lock FAMILY rather than per
+    # epic, so a nested acquire would silently skip the second flock and hand back the illusion
+    # of a lock. Taking them one after the other respects it and needs nothing widened.
+    #
+    # Phase 1 records the departing key in the SOURCE sprint's high-water. Between the phases
+    # another process can only read a source whose high-water is already raised, or race the
+    # same move and fail on a missing source -- both safe.
+    src_probe = story_file(state_root, from_epic + "-" + from_sprint + "-" + story_key[-3:])
+    if src_probe is not None and os.sep + "planned" + os.sep in src_probe + os.sep:
+        with epic_node_lock(state_root, from_epic):
+            _raise_sprint_high_water(state_root, from_epic, from_sprint,
+                                     int(story_key[-3:]) + 1)
+
+    # THE DESTINATION EPIC'S LOCK FOR THE REST.
+    #
+    # `epic_node_lock` refuses to hold two epics at once, and that guard is right: its
+    # re-entrancy counter is per lock FAMILY rather than per epic, so a nested acquire of a
+    # second epic would silently skip its flock and hand back the illusion of a lock. The
+    # answer is not to widen the primitive but to need less of it.
+    #
+    # What this operation actually read-modify-writes is the DESTINATION sprint's allocator.
+    # Nothing in the source epic is read-modify-written: its `epic.yaml` is untouched, and its
+    # sprint's `next` is a high-water that never decreases, so a departing story changes
+    # nothing there. `_require_epic_lock` guards `epic.yaml` writes specifically, and a
+    # re-parent makes none.
+    #
+    # The source side is safe without a lock because the move is a single rename: a concurrent
+    # second re-parent of the same story finds the source gone and fails cleanly, rather than
+    # both succeeding.
+    with epic_node_lock(state_root, to_epic):
+        # --- GATE -------------------------------------------------------------------
+        src_node = story_file(state_root, story_key)
+        if src_node is None:
+            raise PMError(3, f"story {story_key} not found under {state_root}")
+        if os.sep + "planned" + os.sep not in src_node + os.sep:
+            raise PMError(2, f"{story_key} is not in planned/ — reorg writes planned work "
+                             f"only; its actuals, calibration samples and events.jsonl "
+                             f"history are keyed to its current key and are not moved")
+        dest_sprint_node = sprint_file(state_root, to_epic, to_sprint)
+        if dest_sprint_node is None:
+            raise PMError(3, f"destination sprint {to_epic}-{to_sprint} does not exist — "
+                             f"create it before moving work into it")
+        if (from_epic, from_sprint) == (to_epic, to_sprint):
+            return story_key                      # already there; a no-op, not an error
+
+        new_key = _next_story_key(state_root, artifacts_root, to_epic, to_sprint)
+        dest_node = os.path.join(os.path.dirname(dest_sprint_node), f"{new_key}.yaml")
+        if os.path.exists(dest_node):
+            raise PMError(2, f"allocator handed out {new_key} but {dest_node} exists")
+
+        src_doc = _story_doc_on_disk(artifacts_root, story_key)
+        dest_doc = None
+        if src_doc is not None:
+            slug = _doc_slug(src_doc, story_key)
+            dest_doc = os.path.join(artifacts_root, epic_dirname(to_epic),
+                                    sprint_dirname(to_sprint), "stories",
+                                    f"{new_key}{slug}.md")
+            if os.path.exists(dest_doc):
+                raise PMError(2, f"destination document already exists: {dest_doc}")
+
+        # --- WRITE ------------------------------------------------------------------
+        _git_or_plain_move(src_node, dest_node, state_root)
+        if src_doc is not None:
+            os.makedirs(os.path.dirname(dest_doc), exist_ok=True)
+            _git_or_plain_move(src_doc, dest_doc, artifacts_root)
+
+        from ruamel.yaml.scalarstring import SingleQuotedScalarString as SQ
+        y, node = load_node(dest_node)
+        if not isinstance(node, dict):
+            raise PMError(2, f"{dest_node} did not parse after the move")
+        node["key"] = SQ(new_key)
+        node["epic"] = SQ(to_epic)
+        node["sprint"] = SQ(to_sprint)
+        prev = node.get("previous_keys")
+        if not isinstance(prev, list):
+            prev = []
+        prev.append(story_key)                     # ordered, oldest first; never replaced
+        node["previous_keys"] = prev
+        node["updated_at"] = _now_iso()
+        save_node(y, node, dest_node)
+
+        if dest_doc is not None:
+            _rewrite_doc_key(dest_doc, story_key, new_key)
+
+        _rewrite_references(state_root, story_key, new_key)
+
+        # --- VERIFY -----------------------------------------------------------------
+        if story_file(state_root, story_key) is not None:
+            raise PMError(2, f"{story_key} still resolves after the move")
+        if story_file(state_root, new_key) is None:
+            raise PMError(2, f"{new_key} does not resolve after the move")
+        return new_key
+
+
+def _rewrite_doc_key(path: str, old_key: str, new_key: str) -> None:
+    """Repoint the story document's frontmatter `key:` at the new key.
+
+    Touches that one field and nothing else: the document is human-authored and everything
+    below the frontmatter belongs to its author.
+    """
+    try:
+        with open(path, encoding="utf-8") as fh:
+            text = fh.read()
+    except (OSError, UnicodeDecodeError):
+        return                                    # a doc we cannot read is not ours to fix
+    out = re.sub(rf"^(key:\s*['\"]?){re.escape(old_key)}(['\"]?\s*)$",
+                 rf"\g<1>{new_key}\g<2>", text, count=1, flags=re.MULTILINE)
+    if out != text:
+        _atomic_text_write(path, out)
+
+
+def _git_or_plain_move(src: str, dest: str, cwd: str) -> None:
+    """`git mv`, falling back to a filesystem move with a LOUD warning.
+
+    Same contract as move_epic's: preserving history is why this moves files rather than
+    rewriting them, so a silent degradation to delete+add would defeat the point.
+    """
+    os.makedirs(os.path.dirname(dest), exist_ok=True)
+    moved = False
+    reason = "git mv was not attempted"
+    try:
+        import subprocess
+        r = subprocess.run(["git", "mv", os.path.abspath(src), os.path.abspath(dest)],
+                           cwd=os.path.abspath(cwd), capture_output=True, check=False,
+                           text=True)
+        moved = r.returncode == 0
+        if not moved:
+            reason = (r.stderr.strip() or r.stdout.strip()
+                      or f"git mv exited {r.returncode}").replace("\n", " ")
+    except (OSError, ImportError) as e:
+        reason = f"could not run git: {e}"
+    if not moved:
+        import shutil
+        sys.stderr.write(
+            f"pm-status.py: WARNING — `git mv` failed ({reason}); falling back to a plain "
+            f"move of {src} -> {dest}. Git will see this as delete+add, not a rename, so "
+            f"`git log --follow` will not cross it.\n")
+        shutil.move(src, dest)
+
+
+def cmd_reparent_story(args) -> int:
+    try:
+        new_key = reparent_story(args.state_root, args.artifacts_root, args.story,
+                                 args.to_epic, args.to_sprint)
+    except PMError:
+        raise
+    except FileNotFoundError as e:
+        _die_notfound(str(e))
+    except (ValueError, FileExistsError) as e:
+        _die_usage(str(e))
+    sys.stdout.write(f"OK reparent-story {args.story} -> {new_key}\n")
+    return 0
+
+
 def cmd_move_epic(args) -> int:
     to = getattr(args, "to", None) or "archived"
     try:
@@ -8625,6 +8915,15 @@ def build_parser() -> argparse.ArgumentParser:
     ar.add_argument("--adr-dir", dest="adr_dir", default="",
                     help="the one ADR home to scan (default: <git top-level>/docs/adr)")
     ar.set_defaults(func=cmd_adr_reserve)
+
+    rp = sub.add_parser("reparent-story",
+                        help="move a planned story to another sprint, re-keying it")
+    rp.add_argument("--state-root", required=True)
+    rp.add_argument("--artifacts-root", required=True)
+    rp.add_argument("--story", required=True)
+    rp.add_argument("--to-epic", required=True)
+    rp.add_argument("--to-sprint", required=True)
+    rp.set_defaults(func=cmd_reparent_story)
 
     nt = sub.add_parser("notice",
                         help="record a one-time-ever advisory notice; exit 1 if already shown")

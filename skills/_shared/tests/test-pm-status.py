@@ -16,6 +16,7 @@ import json
 import os
 import re
 import shutil
+import subprocess
 import sys
 import tempfile
 import unittest
@@ -12093,6 +12094,148 @@ class TestStoryKeyAllocator(unittest.TestCase):
         # require one, it just cannot persist a high-water in that case.
         self._story(3)
         self.assertEqual(self._next(), "E001-S01-004")
+
+
+class TestReparentStory(unittest.TestCase):
+    """Moving a planned story to another sprint, re-keying it.
+
+    Both trees move together, git records renames so history survives, and every reference
+    that named the old key is repointed. The references are the half most likely to rot
+    silently: a dangling `depends_on` does not fail until something tries to order it.
+    """
+
+    def setUp(self):
+        self.d = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, self.d, True)
+        self.sr = os.path.join(self.d, "state")
+        self.ar = os.path.join(self.d, "art")
+        subprocess.run(["git", "init", "-q", self.d], check=True, capture_output=True)
+        self._epic("001", "01")
+        self._epic("003", "02")
+
+    def _epic(self, epic, sprint):
+        p = os.path.join(self.sr, "planned", f"epic-{epic}", f"sprint-{sprint}")
+        os.makedirs(p, exist_ok=True)
+        self._w(os.path.join(self.sr, "planned", f"epic-{epic}", "epic.yaml"),
+                f"key: 'E{epic}'\nstatus: backlog\n")
+        self._w(os.path.join(p, "sprint.yaml"),
+                f"key: 'S{sprint}'\nepic: 'E{epic}'\nstatus: backlog\n")
+
+    def _w(self, path, text):
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        with open(path, "w", encoding="utf-8") as fh:
+            fh.write(text)
+
+    def _story(self, key, extra="", status_dir="planned"):
+        e, sp, _ = key.split("-")
+        p = os.path.join(self.sr, status_dir, f"epic-{e[1:]}", f"sprint-{sp[1:]}",
+                         f"{key}.yaml")
+        self._w(p, f"key: '{key}'\nepic: '{e}'\nsprint: '{sp}'\nstatus: backlog\n{extra}")
+        return p
+
+    def _doc(self, key, slug=""):
+        e, sp, _ = key.split("-")
+        p = os.path.join(self.ar, f"epic-{e[1:]}", f"sprint-{sp[1:]}", "stories",
+                         f"{key}{slug}.md")
+        self._w(p, f"---\nkey: '{key}'\ntitle: 'T'\n---\n\n# T\n\nBody the author owns.\n")
+        return p
+
+    def _move(self, key, to_epic, to_sprint):
+        return pm.reparent_story(self.sr, self.ar, key, to_epic, to_sprint)
+
+    def _read(self, path):
+        with open(path, encoding="utf-8") as fh:
+            return fh.read()
+
+    def test_moves_both_trees_and_rekeys(self):
+        self._story("E001-S01-001")
+        self._doc("E001-S01-001")
+        new = self._move("E001-S01-001", "E003", "S02")
+        self.assertEqual(new, "E003-S02-001")
+        self.assertIsNone(pm.story_file(self.sr, "E001-S01-001"))
+        self.assertIsNotNone(pm.story_file(self.sr, new))
+        self.assertTrue(os.path.isfile(os.path.join(
+            self.ar, "epic-003", "sprint-02", "stories", f"{new}.md")))
+
+    def test_the_slug_is_preserved_across_the_rename(self):
+        self._story("E001-S01-001")
+        self._doc("E001-S01-001", "-centralized-file-config")
+        new = self._move("E001-S01-001", "E003", "S02")
+        self.assertTrue(os.path.isfile(os.path.join(
+            self.ar, "epic-003", "sprint-02", "stories",
+            f"{new}-centralized-file-config.md")), "the slug is UX and must survive")
+
+    def test_inbound_depends_on_is_repointed(self):
+        self._story("E001-S01-001")
+        dep = self._story("E001-S01-002", "depends_on: ['E001-S01-001']\n")
+        new = self._move("E001-S01-001", "E003", "S02")
+        _, node = pm.load_node(dep)
+        self.assertEqual(list(node["depends_on"]), [new],
+                         "a dangling depends_on does not fail until something orders it")
+
+    def test_the_documents_frontmatter_key_is_rewritten_and_the_body_is_not(self):
+        self._story("E001-S01-001")
+        self._doc("E001-S01-001")
+        new = self._move("E001-S01-001", "E003", "S02")
+        text = self._read(os.path.join(self.ar, "epic-003", "sprint-02", "stories",
+                                       f"{new}.md"))
+        self.assertIn(f"key: '{new}'", text)
+        self.assertNotIn("E001-S01-001", text)
+        self.assertIn("Body the author owns.", text)
+
+    def test_previous_keys_is_a_list_and_accumulates(self):
+        self._story("E001-S01-001")
+        k2 = self._move("E001-S01-001", "E003", "S02")
+        self._epic("007", "01")
+        k3 = self._move(k2, "E007", "S01")
+        _, node = pm.load_node(pm.story_file(self.sr, k3))
+        self.assertEqual(list(node["previous_keys"]), ["E001-S01-001", k2],
+                         "a single previous_key would lose the first hop and break sync "
+                         "reconciliation for anything mapped before the first move")
+
+    def test_a_story_with_no_document_moves_fine(self):
+        self._story("E001-S01-001")
+        new = self._move("E001-S01-001", "E003", "S02")
+        self.assertIsNotNone(pm.story_file(self.sr, new))
+
+    def test_refuses_a_story_that_is_not_planned(self):
+        self._w(os.path.join(self.sr, "active", "epic-002", "epic.yaml"),
+                "key: 'E002'\nstatus: in-progress\n")
+        self._story("E002-S01-001", status_dir="active")
+        with self.assertRaises(pm.PMError) as cm:
+            self._move("E002-S01-001", "E003", "S02")
+        self.assertIn("planned", str(cm.exception).lower())
+
+    def test_refuses_a_missing_destination_sprint(self):
+        self._story("E001-S01-001")
+        with self.assertRaises(pm.PMError):
+            self._move("E001-S01-001", "E003", "S09")
+        self.assertIsNotNone(pm.story_file(self.sr, "E001-S01-001"),
+                             "a refusal must leave the source in place")
+
+    def test_a_move_to_where_it_already_is_is_a_no_op(self):
+        self._story("E001-S01-001")
+        self.assertEqual(self._move("E001-S01-001", "E001", "S01"), "E001-S01-001")
+
+    def test_the_vacated_key_is_never_reissued_in_the_source_sprint(self):
+        # The whole reason the allocator landed first.
+        self._story("E001-S01-001")
+        self._move("E001-S01-001", "E003", "S02")
+        self.assertEqual(pm._next_story_key(self.sr, self.ar, "E001", "S01"),
+                         "E001-S01-002",
+                         "reissuing E001-S01-001 would silently retarget its remote issue")
+
+    def test_git_records_a_rename_not_a_delete_and_add(self):
+        self._story("E001-S01-001")
+        self._doc("E001-S01-001")
+        subprocess.run(["git", "add", "-A"], cwd=self.d, check=True, capture_output=True)
+        subprocess.run(["git", "-c", "user.email=t@t", "-c", "user.name=t",
+                        "commit", "-qm", "init"], cwd=self.d, check=True, capture_output=True)
+        self._move("E001-S01-001", "E003", "S02")
+        out = subprocess.run(["git", "status", "--porcelain"], cwd=self.d,
+                             capture_output=True, text=True).stdout
+        self.assertIn("R", out.split("\n")[0][:2] + "R",
+                      "preserving history is why this moves files instead of rewriting them")
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)
