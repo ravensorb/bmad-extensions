@@ -109,6 +109,97 @@ nor `.notices.yaml` matches the directory itself.
 Find your starting version and read forward. `npx bmad-method install` upgrades across any
 number of these at once, but the migrations must still run.
 
+### → 3.3.0
+
+**The extension now offers to write a block into your project's own AI instruction file.**
+On install or upgrade it detects the harness you are running — Claude, Copilot, Gemini,
+Cursor, or the generic `AGENTS.md` convention — and offers to add a marked `l3io` block to
+that file, carrying what an agent needs to use this extension: the state layout, the
+estimates-and-actuals rule, the fact that estimation calibrates itself from your own history,
+and a prompt to check current model rates rather than trusting a stale table.
+
+It is **offered, never silently applied**, and the markers are the point: the block can be
+found, replaced on the next upgrade, or removed outright without touching a line you wrote
+around it. If you start a session in a different harness later, the extension notices that
+harness's file has no block and offers to add one there too, so a project used from both
+Claude Code and Copilot ends up with both files current.
+
+This is **not** `/l3io-doctor update-ai-rules`, which has existed since 3.1.3 and does a
+different job. Both touch instruction files; only this one owns a marked block.
+
+**What to do:** nothing required. Accept the offer when you see it, or decline — the extension
+works either way. `/l3io-doctor uninstall` removes the block before it removes the payload, so
+uninstalling does not leave an orphaned block behind. If you want only the block gone, delete
+everything between its markers, inclusive; that is what the markers are for, and nothing else
+in the file is the extension's to care about.
+
+**`/l3io-plan reorg` proposes a better shape for a plan you already have.** Not a re-plan: it
+measures the plan's current shape — critical path, cross-epic dependency edges, sprint
+balance — proposes one improvement with the measured evidence behind it, and renders the
+result as an ordinary plan summary you accept or reject in about a minute.
+
+Three things worth knowing before you run it:
+
+- It writes **planned work only.** Active and archived epics are read for ordering context and
+  never modified.
+- **Moved stories are re-keyed.** `E007-S02-004` becomes something like `E003-S01-005`, because
+  the key encodes its epic and sprint. The old key is kept in the story's `previous_keys`, and
+  `/l3io-sync` uses that to re-point an existing GitHub issue rather than opening a second one.
+  If you have an old key written down somewhere, the proposal tells you what it became.
+- **Nothing is deleted.** Retiring an epic moves it to `archived/` with the reason recorded.
+
+Every reorg is journaled to `state/reorg-log.yaml`, so you can ask to undo one in plain words
+— "undo that reorg". Undo restores *where work sits*, not its numbers: a story returns to the
+sprint it came from with a new key, because a vacated key is never reissued to different work.
+Undo refuses outright if the plan has changed since the reorg was applied.
+
+**What to do:** nothing required — reorg is opt-in and runs only when you ask for it.
+
+### → 3.2.6
+
+Read this whole section if you are coming from 3.1.x; the first item changes what an epic
+costs.
+
+**A `CONFIG` epic now runs the phases it used to skip, and will cost roughly what a `CODE`
+epic costs (ADR-0009, shipped in 3.2.2).** The phase matrix's `CONFIG` column had been filled
+by analogy to `DOCS`, which is wrong: a documentation epic genuinely has no code to review and
+no architecture to drift from, but infrastructure work has interfaces, failure modes, security
+exposure and architectural consequence. So a `CONFIG` epic was silently skipping story
+elaboration, the technical-AC gate, per-story code review, the epic architecture gate,
+architectural drift review, security review and adversarial analysis — and finishing **green**,
+because a skipped phase reports skipped, not failed. The symptom in one project was an
+infrastructure epic with twenty well-formed state nodes and zero story documents.
+
+**What to do:** nothing to migrate, but **expect your `CONFIG` estimates to under-predict
+until new calibration samples accumulate.** Every existing `CONFIG` sample was recorded from a
+run that skipped most of its phases, so the learned ratios describe work that is no longer what
+runs. They correct themselves as new samples accumulate — the model weights recent samples more
+heavily (exponential decay), so the old ones fade rather than having to be purged.
+
+**`install` no longer means "configure a module".** It was claimed by two `/l3io-doctor`
+routing rows with no tie-break between them, so which one won was not defined. A user typing
+`install` means the extension, not a module's settings, so it now routes to the doctor's
+install procedure. Module setup runs only on an explicit `setup` or `configure`.
+
+**New in 3.2.5:** `install.sh`, one entry point that picks the right BMad command for a first
+install versus an upgrade; `/l3io-doctor version`, which answers "which l3io am I on?"; and
+`schedule-issue`, which attaches a backlog item to a story that **already exists** — previously
+the only way to act on a backlog item was `promote-issue`, which creates a new story, so an
+item you had already planned into existing work had nowhere to go.
+
+**Epic and sprint keys are now stored canonically at every write site (3.2.3).** `--epic` and
+`--sprint` accept six spellings each — `3`, `03`, `003`, `E3`, `E003`, `e003` — and all six
+resolve to the same node, but the caller's spelling was being written to disk. One project had
+116 bare-digit against 7 `E`-prefixed records in a single `issues.yaml`. Five write sites were
+affected, not the two first reported.
+
+**What to do:** nothing. Reads canonicalise too, so existing mixed-spelling records keep
+resolving; new writes are uniform from here.
+
+**Security:** 3.2.6 bumps `brace-expansion` past three DoS advisories. 3.3.0 adds a daily
+scheduled `npm audit` gate, because the push-triggered one never runs in a week with no
+commits — which is exactly the week an advisory lands.
+
 ### → 3.1.8
 
 **`/l3io-pm-setup` is gone — and if you are on macOS, `l3io-pm` module registration was

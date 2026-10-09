@@ -12,12 +12,12 @@ execution engine, on your behalf, at points where their judgement is needed.
 |---|---|---|
 | `l3io-doctor` | "Is this project in a shape the other skills can read?" | **Run it first**, after every install and upgrade |
 | `l3io-arch-review` | "Is this design sound, and is the decision recorded?" | Directly at design time; otherwise **automatic** inside execution |
-| `l3io-plan` | "What order should this work run in, and how long will it take?" | Once per planning round |
+| `l3io-plan` | "What order should this work run in, and how long will it take?" | Once per planning round; `reorg` when the plan is grouped badly |
 | `l3io-execute` | "Actually do the work, and don't let it close sloppily" | The engine — most of your runs |
 | `l3io-sec-redteam` | "What would an adversary do with this?" | **Automatic** at closure; directly for ad-hoc reviews |
 | `l3io-help` | "What should I do next? Where is everything?" | Any time you are unsure. Read-only |
 | `l3io-sync` | "Keep GitHub Issues in step with this state" | Opt-in, when your team lives in Issues |
-| `l3io-setup` | "Record l3io-pm's project-level settings" | Only when you explicitly run `/l3io-setup`, `configure`, or `install` |
+| `l3io-setup` | "Record l3io-pm's project-level settings" | Only when you explicitly run `/l3io-setup` or `configure`. **Not** `install` — that means the extension, and routes to `/l3io-doctor` |
 
 ## Why each one exists
 
@@ -63,7 +63,15 @@ It exists because ordering decided up front is far cheaper than ordering discove
 run, and because an estimate recorded before the work is the only thing that makes the actual
 recorded afterwards meaningful.
 
-Reach for it: whenever you have more than one epic, or after adding work.
+A plan can be legal and still be badly shaped, which is what `/l3io-plan reorg` is for: it
+measures the current plan, proposes one regrouping with its evidence — critical path, cross-epic
+dependencies — and shows you the proposed plan to accept or reject. It writes planned work only,
+never adds or splits work, and never deletes: a retired epic is archived with its reason
+recorded, moved stories are re-keyed with the old key kept in `previous_keys`, and every reorg
+is journaled so "undo that reorg" works as a plain request rather than a keyword.
+
+Reach for it: whenever you have more than one epic, after adding work, and with `reorg` when the
+plan is ordered correctly but grouped badly.
 
 ### `l3io-execute` — the engine
 
@@ -187,6 +195,7 @@ authoritative. See [Upgrading](upgrading.md) for the ordered sequence and the ro
 
 ### Any time, independently
 
+- `/l3io-plan reorg` — propose a better shape for a plan that is legal but badly grouped
 - `/l3io-arch-review decision` — weigh a choice against the standards and record the ADR
 - `/l3io-sec-redteam` — an ad-hoc adversarial review
 - `/l3io-doctor triage` — close backlog items that are already fixed

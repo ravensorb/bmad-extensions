@@ -28,7 +28,7 @@ Module setup lives at each module's **home**: a dedicated `l3io-setup` skill for
 | Skill | Purpose |
 |-------|---------|
 | `l3io-execute` | Full epic + sprint lifecycle: elaboration → dev → code review → QA → fix loop, then sprint and epic closure reviews |
-| `l3io-plan` | Cross-epic planning — validates readiness, elaborates stories, estimates, builds dependency graph, and produces a phased parallel-optimized execution plan |
+| `l3io-plan` | Cross-epic planning — validates readiness, elaborates stories, estimates, builds dependency graph, and produces a phased parallel-optimized execution plan. Two further modes: `estimate` re-estimates only, and `reorg` proposes a better **shape** for a plan that is already legal (measures → proposes a target placement → validates → derives operations → applies), writing planned work only and journaling to `state/reorg-log.yaml` so an undo is possible |
 | `l3io-help` | Reads project state and recommends the exact next l3io-pm action |
 | `l3io-sync` | Bidirectional sync between l3io-pm state and GitHub Issues — setup, push, pull, sync, and status modes |
 | `l3io-sec-redteam` | Red team security analysis — five threat lenses + AI poisoning cross-cut, live cloud/platform best practices research |

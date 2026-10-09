@@ -124,6 +124,34 @@ the project, and prints a findings table — so a clean report confirms both tha
 resolved and that your project state is readable. If the command is not found, the installer
 did not generate a surface for your IDE: re-run the install with the right `--tools` value.
 
+### The agent instruction block
+
+On install, on upgrade, and whenever you run a module's setup, the extension offers to write a
+marked `l3io` block into the instruction file of the harness you are actually running —
+`CLAUDE.md` under Claude Code, `.github/copilot-instructions.md` under Copilot, `AGENTS.md`
+otherwise. It never creates a file for a harness that is not running.
+
+The block is short, and it holds what an agent cannot infer from the skills themselves: that PM
+state is machine-written and must never be hand-edited, that these skills take plain intent or a
+scope token like `E007` rather than `--flags`, which command does what, that estimates and
+actuals are both mandatory, that calibration derives its ratios from the actuals you record — so
+an inaccurate one degrades every later estimate — and that cost is tokens × the model's rates,
+with the rate card worth re-checking whenever a model appears that it does not name.
+
+That file is yours, so the block is wrapped in `l3io:begin` / `l3io:end` HTML-comment markers and
+everything outside them is left alone. A file that already exists with no markers is **proposed
+to, never silently appended to** — you are shown the body and asked first. A later upgrade
+replaces the block in place, and only when its text actually changed. `/l3io-doctor uninstall`
+strips the block before it removes any payload, and never deletes the file. Edits you make
+*inside* the markers are overwritten on the next refresh; keep your own notes outside them.
+
+If you run the extension from a second harness later, that harness's instruction file has no
+block yet — the PM skills say so once, at activation, and otherwise stay out of the way.
+
+This is not the same thing as `/l3io-doctor update-ai-rules`, which is older and narrower: that
+mode rewrites *your own* prose where it still describes a legacy state layout. One maintains a
+region this package owns; the other corrects text you wrote.
+
 ## First-Run Configuration
 
 Core settings live in installer-owned `{project-root}/_bmad/config.toml` and `config.user.toml`. Your own module settings go in `{project-root}/_bmad/custom/config.toml` (team, committed) and `custom/config.user.toml` (personal, gitignored), under `[modules.<module-code>]`.
@@ -262,6 +290,38 @@ epic: 'E003'
 sprint: 'S01'
 depends_on: ['E001-S02-003']
 ```
+
+### Optional: reshape a plan that is legal but badly grouped
+
+A plan can pass every validation and still be the wrong shape — a longer critical path than it
+needs, or work scattered across epics that depend on each other. `/l3io-plan reorg` measures the
+plan you have, proposes **one** improvement with the evidence behind it (critical path,
+cross-epic dependency count, epic and story counts), and renders it as a plan summary you can
+accept or reject in about a minute. Nothing is applied until you say yes.
+
+What it may change is deliberately narrow:
+
+- **Planned work only.** Epics in `planned/`, their sprints and their stories. Active and
+  archived work is read — an epic in flight still constrains what can be scheduled against it —
+  and never written.
+- **Placement and grouping only.** It moves, regroups and retires work that already exists; it
+  never adds, splits, re-estimates, or edits a story's title or `depends_on`.
+- **Nothing is deleted.** Retiring an epic archives it with the reason recorded.
+
+A moved story is re-keyed to its new home — `E007-S02-004` becomes something like
+`E003-S01-005` — with the old key appended to `previous_keys` and the vacated key never
+reissued. Its story document travels with the state node, and inbound `depends_on` and backlog
+references are repointed.
+
+Every reorg is journaled, so undo is conversational: ask to "undo that reorg" and the skill
+resolves which entry you mean and inverts it. There is no undo keyword. Undo restores
+*placement*, not keys — key numbers never go backwards, so a story comes home to its original
+sprint under a new number with the whole journey in `previous_keys` — and it refuses outright if
+the planned tree's shape has changed since, because it would otherwise replay placements derived
+from a plan that no longer exists.
+
+Reorg writes state but never a plan snapshot, which is immutable once written. Run `/l3io-plan`
+afterwards for a snapshot that reflects the new shape.
 
 ## First Sprint Run
 

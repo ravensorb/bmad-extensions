@@ -49,6 +49,22 @@ Copilot, and `N/A` rather than a guess elsewhere; see the
 maintains instruction files for Claude, Copilot, Gemini, Cursor and the generic `AGENTS.md`
 convention.
 
+On install, on upgrade, and on a module's setup, the extension also **offers to write a marked
+`l3io` block** into the instruction file of the harness you are actually running — `CLAUDE.md`,
+`.github/copilot-instructions.md`, or `AGENTS.md` — and never one for a harness that is not. The
+block carries what an agent cannot infer from the skills themselves: that PM state is
+machine-written and must never be hand-edited, that these skills take plain intent or a scope
+token rather than flags, that estimates and actuals are both mandatory, that calibration learns
+from the actuals you record, and that cost is derived from tokens at a rate table worth
+re-checking. It is wrapped in `l3io:begin` / `l3io:end` HTML-comment markers so it can be found,
+refreshed or stripped cleanly with nothing outside them touched; a file you already wrote is
+proposed to, never silently appended to, and `/l3io-doctor uninstall` removes the block before
+it removes any payload.
+
+That is a **different feature** from `update-ai-rules` above, and the two only look alike
+because they touch the same files: the block is a region this package owns and rewrites,
+whereas `update-ai-rules` edits *your own* prose where it still describes a legacy state layout.
+
 **Owner:** Shawn Anderson (shawn@eye-catcher.com)
 
 **Support disclaimer:** LiquidLogicLabs does not provide default support, SLA, or managed services for this extension unless explicitly agreed in writing.
