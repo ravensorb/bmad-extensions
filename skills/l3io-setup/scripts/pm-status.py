@@ -231,6 +231,12 @@ Subcommands
                 unschedule writes an issue_unscheduled event; a story node that does
                 not parse, is not valid UTF-8 or is not a mapping exits 2 naming the
                 file, before any write)
+  dump-plan     --state-root S
+                  (the planned tree plus read-only context, as JSON. The one read interface
+                   for consumers that need a plan's SHAPE: check 26 forbids any file under
+                   skills/ from assembling a state path, so the reorg analyzer asks for the
+                   tree rather than walking it. Active and archived appear as keys and
+                   dependencies only -- they are read-only input.)
   retire-epic   --state-root S  --epic ID  --reason TEXT
                   (move-epic --to archived plus retired_reason/retired_at; epic-level only,
                    because planned/active/archived are folders of EPIC directories and a
@@ -8109,6 +8115,91 @@ def _git_or_plain_move(src: str, dest: str, cwd: str) -> None:
         shutil.move(src, dest)
 
 
+def dump_plan(state_root: str) -> dict:
+    """The planned tree plus its read-only context, as one JSON-able structure.
+
+    WHY THIS VERB EXISTS. The reorg analyzer lives in `l3io-plan`'s own `scripts/` (ADR-0001:
+    single-consumer code lives in its skill), and check 26 forbids any file under `skills/`
+    from assembling a state path -- `pm-status.py` is the only place that resolves a key to a
+    location. So the analyzer cannot walk the tree; it asks for it. One read verb is the whole
+    interface between the resolver and every consumer that wants the shape of a plan.
+
+    WHAT IS AND IS NOT INCLUDED. `planned` carries the writable set, with the fields an
+    analyzer reasons over: `depends_on`, `estimate` and `classification`. `active` carries
+    only KEYS and their dependencies -- enough to constrain ordering, nothing more, because
+    active work is read-only input and a consumer that could see its estimates would be
+    tempted to re-plan it. Archived work appears only as keys, for dependency satisfaction.
+
+    Read-only: takes no lock and writes nothing.
+    """
+    out = {"planned": [], "active": [], "archived": []}
+    for bucket, epic_key, epic_dir in iter_epic_dirs(state_root):
+        epath = os.path.join(epic_dir, "epic.yaml")
+        enode = {}
+        if os.path.exists(epath):
+            _, n = load_node(epath)
+            if isinstance(n, dict):
+                enode = n
+        if bucket != "planned":
+            out[bucket].append({
+                "key": epic_key,
+                "status": str(enode.get("status") or ""),
+                "depends_on": [str(v) for v in (enode.get("depends_on") or [])],
+            })
+            continue
+
+        epic = {
+            "key": epic_key,
+            "status": str(enode.get("status") or ""),
+            "depends_on": [str(v) for v in (enode.get("depends_on") or [])],
+            "estimate": _plain(enode.get("estimate")),
+            "sprints": [],
+        }
+        for sname in sorted(os.listdir(epic_dir)):
+            sdir = os.path.join(epic_dir, sname)
+            spath = os.path.join(sdir, "sprint.yaml")
+            if not os.path.isdir(sdir) or not os.path.exists(spath):
+                continue
+            _, sn = load_node(spath)
+            sn = sn if isinstance(sn, dict) else {}
+            sprint = {
+                "key": str(sn.get("key") or ""),
+                "status": str(sn.get("status") or ""),
+                "estimate": _plain(sn.get("estimate")),
+                "stories": [],
+            }
+            for fname in sorted(os.listdir(sdir)):
+                if fname == "sprint.yaml" or not fname.endswith(".yaml"):
+                    continue
+                _, st = load_node(os.path.join(sdir, fname))
+                if not isinstance(st, dict):
+                    continue
+                sprint["stories"].append({
+                    "key": str(st.get("key") or ""),
+                    "status": str(st.get("status") or ""),
+                    "classification": str(st.get("classification") or ""),
+                    "depends_on": [str(v) for v in (st.get("depends_on") or [])],
+                    "estimate": _plain(st.get("estimate")),
+                })
+            epic["sprints"].append(sprint)
+        out["planned"].append(epic)
+    return out
+
+
+def _plain(v):
+    """ruamel's CommentedMap/Seq -> plain dict/list/scalar, so json.dumps can take it."""
+    if isinstance(v, dict):
+        return {str(k): _plain(x) for k, x in v.items()}
+    if isinstance(v, list):
+        return [_plain(x) for x in v]
+    return v
+
+
+def cmd_dump_plan(args) -> int:
+    sys.stdout.write(json.dumps(dump_plan(args.state_root), indent=2) + "\n")
+    return 0
+
+
 def retire_epic(state_root: str, epic_key: str, reason: str) -> str:
     """Retire an epic: move it to `archived/` and record why. Returns the destination.
 
@@ -8964,6 +9055,11 @@ def build_parser() -> argparse.ArgumentParser:
     ar.add_argument("--adr-dir", dest="adr_dir", default="",
                     help="the one ADR home to scan (default: <git top-level>/docs/adr)")
     ar.set_defaults(func=cmd_adr_reserve)
+
+    dp = sub.add_parser("dump-plan",
+                        help="the planned tree plus read-only context, as JSON (read-only)")
+    dp.add_argument("--state-root", required=True)
+    dp.set_defaults(func=cmd_dump_plan)
 
     re_ = sub.add_parser("retire-epic",
                          help="move an epic to archived/ and record why (never deletes)")
