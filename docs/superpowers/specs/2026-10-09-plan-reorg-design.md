@@ -74,33 +74,50 @@ moving work off it has not made the work smaller; it has made it more parallel. 
 reduction as the goal would make retirement — deleting scope — the highest-scoring move
 available, which is exactly the wrong incentive to give this.
 
-### 2.4 What a good *report* contains
+### 2.4 The output is the proposed plan, rendered the way plans already are
 
-Because §2.1 makes the report part of the deliverable rather than a byproduct:
+**The report is a human-readable version of the proposed plan — not a changelog of moves.**
+
+This is the decision that resolves §2.1. Asking "are these four moves right?" makes the user
+reason about operations. Asking "is this a good plan?" is the question they actually have, and
+it is the one they are equipped to answer.
+
+It also uses a format they already read. `step-06-plan-output.md` §5 prints a plan summary
+after every normal plan run — phases, per-phase estimates, critical path, readiness. **The
+reorg's output is that same summary, for the proposed shape**, so no new reading skill is
+required and the two are directly comparable side by side.
 
 ```
-REORG PROPOSAL — 4 moves, 1 retirement
-================================================================
-Critical path   18.5h → 12.0h   (-6.5h, -35%)
-Cross-epic deps        7 → 3
-Sprint cohesion     0.41 → 0.68   (spec-anchor overlap)
-Total effort          — unchanged beyond the retirement (-3.0h)
-Cost              $41.20 → $38.10
+📋 Reorg proposal — 1 retirement, 4 stories re-placed
+
+Scope: 11 epics across 3 phases          (was 12 epics across 5 phases)
+
+Phase 1 (parallel): E001, E002, E003     — est. 6.0–8.5 hrs wall-clock, $12.40–$17.10
+Phase 2 (parallel): E007, E012           — est. 4.0–5.5 hrs wall-clock, $9.80–$13.20
+Phase 3 (sequential): E019               — est. 2.0–3.0 hrs wall-clock, $4.10–$6.00
+
+Critical path: E001 → E007 → E019 (12.0–17.0 hrs)    (was 18.5–24.0)
+
+Readiness: green
 
 WHY
-  E007-S02 blocks three epics and contains one story that does not
-  belong to it: E007-S02-004 cites only auth.md#token-refresh, which
-  E003's stories also cite. Moving it to E003-S01 removes the block.
-  → evidence: 3 depends_on edges removed; anchor overlap 0.0 → 0.8
+  E007-S02 blocked three epics and held one story that did not belong to it:
+  E007-S02-004 cites only auth.md#token-refresh, which E003's stories also cite.
+  → 3 cross-epic dependencies removed; sprint anchor overlap 0.0 → 0.8
 
-MOVES
-  E007-S02-004  →  E003-S01-005    (new key; was E007-S02-004)
-  …
-RETIRE
-  E041  "Legacy export shim"  — nothing depends on it, resolves no
-        backlog item, and its spec anchor was removed in docs/adr/0008
-        → archived/, not deleted; recoverable with `undo`
+  E041 "Legacy export shim" is retired: nothing depends on it, it resolves no
+  backlog item, and its spec anchor was removed in docs/adr/0008.
+  → archived, never deleted; recoverable with undo
+
+Accept this plan? (y / n / moves-only)
 ```
+
+**Changed items are marked inline where they appear**, so a reader sees a plan first and
+notices what moved second. The `(was …)` annotations carry the comparison without turning the
+output into a diff.
+
+**The rationale stays, and stays evidence-backed** (§2.1) — but it sits *below* the plan rather
+than above it, because the plan is what is being accepted.
 
 ### 2.5 Explicit non-goals — what "good" does *not* mean
 
@@ -197,17 +214,18 @@ Re-assessed. Two of the four original failure modes are now substantially harder
    **Reduced.** The validator judges the post-state derived from the target rather than
    reasoning forward through an operation list, so a dangling reference is a property of a tree
    that can be checked directly.
-4. **The user cannot evaluate the proposal.** **Unchanged, and now the largest risk in the
-   feature.** It is the failure §2 is written to prevent and the one least likely to appear in
-   any test, because every test asserts a property the code has; none asserts that a human
-   understood the output. The only real mitigations are that the report leads with the delta,
-   every move cites measured evidence, and rejection is cheap.
+4. **The user cannot evaluate the proposal.** **Substantially reduced by §2.4.** Rendering the
+   output as a plan summary in the format `step-06-plan-output.md` already prints means the
+   user is reading a familiar artifact and answering the question they actually have — "is this
+   a good plan?" — rather than adjudicating a list of moves. No test can assert that a human
+   understood something, so this is never fully closed; but the residual risk is now about
+   wording, not about asking the wrong question.
 
-**A risk the target-state model introduces:** the target is *total*, so a proposal touching four
-stories still enumerates every planned story. A reviewer skimming it could miss a row that moved
-among dozens that did not. This is why the **report is rendered from the derived diff, never
-from the target** — the user reads moves, not the placement table. If that ever inverts, the
-feature loses the property §2.1 exists to protect.
+**A risk the target-state model introduces, and how §2.4 disposes of it:** the target is
+*total*, so a proposal touching four stories still enumerates every planned story. A reviewer
+handed that table would skim it and miss the four rows that moved. **The target is never shown.**
+The user sees a plan summary (§2.4) with changed items marked inline; the placement table is an
+internal artifact that only the validator and the derivation read.
 
 ## 4. Scope
 
