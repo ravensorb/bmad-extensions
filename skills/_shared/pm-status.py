@@ -3223,8 +3223,7 @@ def remove_block(text):
     before, after = text[:start], text[end:]
     # Touch only the seam: the block's own line terminator, plus at most one separator blank
     # line that `apply_block` put there. Blank lines anywhere else belong to the user.
-    if after.startswith(nl):
-        after = after[len(nl):]
+    after = after.removeprefix(nl)
     if before.endswith(nl + nl) and (after == "" or after.startswith(nl)):
         before = before[:-len(nl)]
     out = before + after
