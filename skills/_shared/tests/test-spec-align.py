@@ -1562,9 +1562,23 @@ class TestMigrateAdrs(Project):
         threading.Thread(target=drop_lock_once_moved, daemon=True).start()
         r = self.sa("migrate-adrs", "--apply")
         self.assertEqual(r.returncode, 2, r.stderr)
-        self.assertIn("stayed locked", r.stderr)
+
+        # THE CONTRACT THIS TEST GUARDS is the touched-path report: a half-applied migration
+        # that does not say what it touched leaves a human to find the moved files by hand.
+        # That is asserted exactly.
         self.assertIn("paths already moved or rewritten in this run", r.stderr)
         self.assertIn("docs/adr/0004-cache.md", r.stderr)
+
+        # WHICH git failure got us here is NOT pinned, deliberately. Planting .git/index.lock
+        # from another thread while git is running is a race by construction: land between
+        # git's own operations and the commit fails cleanly with "stayed locked"; land while
+        # git holds the lock and the empty file corrupts the index instead, so the generic
+        # "git commit failed" branch fires. CI hit the second. Both are correct handling of a
+        # failed commit, and the report above is the guarantee either way — asserting the
+        # specific message made a real contract depend on subprocess timing.
+        self.assertTrue(
+            "stayed locked" in r.stderr or "git commit failed" in r.stderr,
+            f"expected a reported commit failure, got: {r.stderr}")
 
 
 if __name__ == "__main__":
