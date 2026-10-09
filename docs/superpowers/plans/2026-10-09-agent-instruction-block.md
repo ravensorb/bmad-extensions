@@ -562,6 +562,7 @@ class TestAgentInstructions(unittest.TestCase):
                          "concurrent writes duplicated the block -- the lock must cover the "
                          "READ as well as the write")
 
+```
 
 - [ ] **Step 2: Run to verify they fail**
 
@@ -715,7 +716,7 @@ git commit -s -m "feat(l3io-pm): sync-agent-instructions writes the block into t
 
 In `skills/l3io-doctor/steps/install.md` §2, after the upgrade command succeeds, add:
 
-```markdown
+````markdown
 ### 2.1 Refresh the agent instruction block
 
 The upgrade may have changed the block body. Refresh it in the running harness's instruction
@@ -730,13 +731,13 @@ uv run {pm_status} sync-agent-instructions --runtime {runtime} \
 
 Exit 2 means the file has ambiguous markers or is not valid UTF-8; report it and continue —
 a documentation block must never fail an upgrade that otherwise succeeded.
-```
+````
 
 - [ ] **Step 2: Add the clean directive**
 
 In `skills/l3io-doctor/steps/install.md` §3, after the payload removal, add:
 
-```markdown
+````markdown
 ### 3.1 Remove the agent instruction block
 
 The block is **not payload** — it lives in a user-owned file and is not covered by the
@@ -748,7 +749,7 @@ uv run {pm_status} sync-agent-instructions --runtime {runtime} \
 ```
 
 This never deletes the file, only the block. A file left empty is left empty.
-```
+````
 
 - [ ] **Step 3: Add the install path**
 
@@ -786,7 +787,7 @@ git commit -s -m "feat(l3io-util): maintain the instruction block across install
 
 In `skills/_shared/steps/shared/step-00-activate.md`, after §2.5:
 
-```markdown
+````markdown
 ## 2.6 Offer the agent instruction block, once per harness
 
 A project installed under one harness has no block in another harness's file. Check, and if
@@ -803,7 +804,7 @@ uv run {pm_status} sync-agent-instructions --runtime {runtime} \
 When `notice` exits 0, print one line offering to add it and continue. When it exits 1 it has
 already been offered for this harness; say nothing. Keying per harness is the point — a single
 global flag would mean the second harness is never asked.
-```
+````
 
 - [ ] **Step 1a: Write the per-harness notice test**
 
