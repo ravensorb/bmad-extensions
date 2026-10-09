@@ -11864,6 +11864,61 @@ class TestAgentInstructions(unittest.TestCase):
         self.assertIn("keep-me", lines)
         self.assertEqual(lines.count("*.lock"), 1)
 
+    def test_file_mode_is_preserved(self):
+        f = Path(self.d) / "CLAUDE.md"
+        f.write_text("# Mine\n", encoding="utf-8")
+        os.chmod(f, 0o644)
+        self.assertEqual(self._apply_claude().returncode, 0)
+        self.assertEqual(os.stat(f).st_mode & 0o777, 0o644)
+
+    def test_new_file_gets_umask_mode_not_0600(self):
+        self.assertEqual(self._apply_claude().returncode, 0)
+        mode = os.stat(Path(self.d) / "CLAUDE.md").st_mode & 0o777
+        um = os.umask(0)
+        os.umask(um)
+        self.assertEqual(mode, 0o666 & ~um)
+
+    def test_symlinked_target_stays_a_symlink_and_real_file_is_updated(self):
+        real = Path(self.d) / "AGENTS.md"
+        real.write_text("# Shared\n", encoding="utf-8")
+        link = Path(self.d) / "CLAUDE.md"
+        os.symlink("AGENTS.md", link)
+        self.assertEqual(self._apply_claude().returncode, 0)
+        self.assertTrue(os.path.islink(link))
+        self.assertIn("l3io:begin", real.read_text(encoding="utf-8"))
+        self.assertIn("# Shared", link.read_text(encoding="utf-8"))
+
+    def test_remove_and_check_ignore_a_bad_body_file(self):
+        self._apply_claude()
+        bad = Path(self.d) / "bad.md"
+        bad.write_bytes(b"\xff\xfe\x00")
+        r = self._run("--runtime", "claude", "--project-root", self.d, "--check",
+                      "--body-file", str(Path(self.d) / "missing.md"))
+        self.assertEqual(r.returncode, 0, r.stderr)
+        r = self._run("--runtime", "claude", "--project-root", self.d, "--remove",
+                      "--body-file", str(bad))
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertNotIn("l3io:begin", (Path(self.d) / "CLAUDE.md").read_text(encoding="utf-8"))
+
+    def test_check_writes_nothing_to_a_pristine_directory(self):
+        r = self._run("--runtime", "claude", "--project-root", self.d, "--check")
+        self.assertEqual(r.returncode, 1)
+        self.assertEqual(os.listdir(self.d), [])
+        ghost = os.path.join(self.d, "typo", "deeper")
+        r = self._run("--runtime", "claude", "--project-root", ghost, "--check")
+        self.assertEqual(r.returncode, 1)
+        self.assertFalse(os.path.exists(os.path.join(self.d, "typo")))
+
+    def test_crlf_body_leaves_no_stray_cr_in_an_lf_file(self):
+        body = Path(self.d) / "crlf.md"
+        body.write_bytes(b"## l3io\r\n\r\nBody.\r\n")
+        f = Path(self.d) / "CLAUDE.md"
+        f.write_bytes(b"# Mine\n")
+        r = self._run("--runtime", "claude", "--project-root", self.d,
+                      "--body-file", str(body), "--apply")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertNotIn(b"\r", f.read_bytes())
+
     def test_the_read_happens_inside_the_lock(self):
         # The subprocess test above cannot pin this: two racing "created" applies write
         # IDENTICAL text, so a lost update is invisible in the final file. Observe the order

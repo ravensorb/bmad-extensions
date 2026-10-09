@@ -289,6 +289,7 @@ import io
 import json
 import os
 import re
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -394,16 +395,31 @@ def _atomic_dump(y: YAML, data, path: str) -> None:
 
 
 def _atomic_text_write(path: str, text: str) -> None:
-    """Temp file in the same directory, then os.replace. Unlike `_atomic_dump` this takes
+    """Temp file beside the target, fsync, then os.replace. Unlike `_atomic_dump` this takes
     no epic lock -- the target is a user-owned document outside the state tree, so the
     epic-lock invariant does not apply and asserting it would fail every call. `newline=""`
     is load-bearing: the engine already matched the file's CRLF convention, and Python's
-    default translation would rewrite every line ending."""
+    default translation would rewrite every line ending.
+
+    We are a guest in the user's file, so two things are preserved: a symlink (the path is
+    resolved first, so the link's real target is what changes and the link survives, with
+    the temp file in the RESOLVED directory so os.replace cannot cross devices) and the
+    file's mode (mkstemp makes 0600; an existing file's mode is copied, a new file gets
+    0666 & ~umask)."""
+    path = os.path.realpath(path)
     d = os.path.dirname(path) or "."
     fd, tmp = tempfile.mkstemp(dir=d, prefix=".l3io-ai-", suffix=".tmp")
     try:
         with os.fdopen(fd, "w", encoding="utf-8", newline="") as fh:
             fh.write(text)
+            fh.flush()
+            os.fsync(fh.fileno())
+        if os.path.exists(path):
+            shutil.copymode(path, tmp)
+        else:
+            umask = os.umask(0)
+            os.umask(umask)
+            os.chmod(tmp, 0o666 & ~umask)
         os.replace(tmp, path)
     except BaseException:
         with contextlib.suppress(OSError):
@@ -3304,20 +3320,46 @@ def cmd_sync_agent_instructions(args) -> int:
     if not args.remove and not args.check and not args.body_file:
         sys.stderr.write("pm-status.py: sync-agent-instructions: --apply needs --body-file\n")
         return 2
-    try:
-        body = ""
-        if args.body_file:
-            with open(args.body_file, encoding="utf-8", newline="") as fh:
+    def _undecodable(path, e):
+        sys.stderr.write(f"pm-status.py: sync-agent-instructions: {path} is not valid "
+                         f"utf-8 ({e}); refusing to write\n")
+        return 2
+
+    body = ""
+    if not args.remove and not args.check:
+        try:
+            # Default universal newlines: the body is normalised, only the TARGET keeps its
+            # own convention (a CRLF body would otherwise leave a stray \r in an LF file).
+            with open(args.body_file, encoding="utf-8") as fh:
                 body = fh.read()
+        except UnicodeDecodeError as e:
+            return _undecodable(args.body_file, e)
+        except OSError as e:
+            sys.stderr.write(f"pm-status.py: sync-agent-instructions: {e}\n")
+            return 2
+
+    def _read_target():
+        if not os.path.isfile(target):
+            return ""
+        with open(target, encoding="utf-8", newline="") as fh:
+            return fh.read()
+
+    try:
+        if args.check:
+            # A pure query: no lock, so it never creates _bmad/ or a lock file (it runs at
+            # every skill activation, and under a mistyped --project-root). Its answer is
+            # advisory and inherently racy, so the lock would buy nothing.
+            try:
+                return 0 if find_block(_read_target()) else 1
+            except UnicodeDecodeError as e:
+                return _undecodable(target, e)
         # The lock spans the READ as well as the write: otherwise two callers each read the
         # pre-write text and the second silently overwrites the first's block.
         with agent_instructions_lock(args.project_root):
-            text = ""
-            if os.path.isfile(target):
-                with open(target, encoding="utf-8", newline="") as fh:
-                    text = fh.read()
-            if args.check:
-                return 0 if find_block(text) else 1
+            try:
+                text = _read_target()
+            except UnicodeDecodeError as e:
+                return _undecodable(target, e)
             if args.remove:
                 out, action = remove_block(text)
             else:
@@ -3325,10 +3367,6 @@ def cmd_sync_agent_instructions(args) -> int:
             if action not in ("unchanged", "absent"):
                 os.makedirs(os.path.dirname(target) or ".", exist_ok=True)
                 _atomic_text_write(target, out)
-    except UnicodeDecodeError as e:
-        sys.stderr.write(f"pm-status.py: sync-agent-instructions: {target} or the body file "
-                         f"is not valid utf-8 ({e}); refusing to write\n")
-        return 2
     except BlockError as e:
         sys.stderr.write(f"pm-status.py: sync-agent-instructions: {target}: {e}\n")
         return 2
