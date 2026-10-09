@@ -50,8 +50,8 @@ Show the command, ask `Run this? (y/N)`, then run it.
 The upgrade may have changed the block body. Refresh it in the running harness's instruction
 file — this rewrites only the region between the `l3io:begin`/`l3io:end` markers, and writes
 nothing at all when the body is unchanged. `{runtime}` is exactly one of `claude`, `codex`,
-`copilot` or `other`: `claude` when `$CLAUDE_CODE_SESSION_ID` is set, otherwise the harness
-you are running in, else `other`:
+`copilot` or `other`, chosen by the detection procedure in
+`l3io-execute/steps/shared/step-00-activate.md`:
 
 ```bash
 uv run {pm_status} sync-agent-instructions --runtime {runtime} \
@@ -65,7 +65,25 @@ a documentation block must never fail an upgrade that otherwise succeeded.
 If the instruction file exists but carries no markers (a project that predates the block),
 do not append silently: follow the confirmation in `assets/module-setup.md` §6 first.
 
-## 3. Clean — remove this extension's payload only
+## 3. Clean — remove the instruction block, then this extension's payload
+
+### 3.1 Remove the agent instruction block first
+
+The block is **not payload** — it lives in a user-owned file and is not covered by the
+SHA-256 comparison below, so the payload sweep cannot see it. It goes first because the
+payload sweep removes the self-installed `pm-status.py` this call needs. Remove it by its
+markers:
+
+```bash
+uv run {pm_status} sync-agent-instructions --runtime {runtime} \
+  --project-root {project-root} --remove
+```
+
+This never deletes the file, only the block. A file left empty is left empty. If
+`pm-status.py` is already gone, report that the block was left in place and name its
+`l3io:begin`/`l3io:end` markers so the user can delete it by hand.
+
+### 3.2 Remove the payload
 
 ```bash
 uv run {skill-root}/scripts/clean-payload.py --project-root {project-root}
@@ -82,21 +100,6 @@ uv run {skill-root}/scripts/clean-payload.py --project-root {project-root} --app
 ```
 
 Exit codes: `0` done · `2` usage error · `4` no payload found.
-
-### 3.1 Remove the agent instruction block
-
-The block is **not payload** — it lives in a user-owned file and is not covered by the
-SHA-256 comparison above, so the payload sweep cannot see it. Remove it by its markers:
-
-```bash
-uv run {pm_status} sync-agent-instructions --runtime {runtime} \
-  --project-root {project-root} --remove
-```
-
-This never deletes the file, only the block. A file left empty is left empty. Run it
-**before** the payload `--apply`, which removes the self-installed `pm-status.py` this call
-needs. If `pm-status.py` is already gone, report that the block was left in place and name
-its `l3io:begin`/`l3io:end` markers so the user can delete it by hand.
 
 ## 4. After an upgrade, migrate the data
 

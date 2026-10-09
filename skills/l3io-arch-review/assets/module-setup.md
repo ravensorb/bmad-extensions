@@ -123,8 +123,9 @@ selected values, when conditional), followed by `module_greeting`.
 ## 6. Write the agent instruction block
 
 Bind `{pm_status}` = `{project-root}/_bmad/scripts/pm-status.py` and `{runtime}` = exactly one
-of `claude`, `codex`, `copilot` or `other` (`claude` when `$CLAUDE_CODE_SESSION_ID` is set,
-otherwise the harness you are running in, else `other`). If `{pm_status}` is not installed
+of `claude`, `codex`, `copilot` or `other` (`pm-status.py` rejects anything else with exit 2).
+Choose it by the detection procedure in `l3io-execute/steps/shared/step-00-activate.md` — the
+criterion is a capability, not a brand check. If `{pm_status}` is not installed
 yet, skip this step and say so — setup never fails on it.
 
 The target is the running harness's instruction file (for example `CLAUDE.md`), which belongs
