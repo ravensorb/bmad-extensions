@@ -9,7 +9,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { resolverInvariant, NUMBER_WORDS } from "../check-docs.mjs";
+import { resolverInvariant, NUMBER_WORDS, RESOLVER_START_MARKER, RESOLVER_END_MARKER } from "../check-docs.mjs";
 
 const REPO = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..");
 const CHECK = path.join(REPO, "scripts", "check-docs.mjs");
@@ -3345,12 +3345,43 @@ test('check 26: the exemption follows the marker across a rename', async () => {
     'a file that opts in as canonical-contract must be exempt regardless of its filename')
 })
 
+// The plant line is DERIVED from pm-status.py, never hardcoded: a hardcoded line broke once
+// when ordinary growth moved a docstring over it. A plant is only meaningful if it lands in
+// code outside the resolver section, so both conditions are chosen for AND asserted.
+function pmStatusPlantLine() {
+  const lines = fs.readFileSync(path.join(REPO, 'skills/_shared/pm-status.py'), 'utf8').split('\n')
+  const start = lines.findIndex((l) => l.includes(RESOLVER_START_MARKER))
+  const end = lines.findIndex((l) => l.includes(RESOLVER_END_MARKER))
+  // inDoc[k] = docstring state after processing the first k lines (same rule as the check)
+  const inDoc = [false]
+  for (const l of lines) {
+    const t = (l.match(/"""|'''/g) || []).length
+    inDoc.push(t % 2 === 1 ? !inDoc[inDoc.length - 1] : inDoc[inDoc.length - 1])
+  }
+  // Text planted at line L precedes original line L, so context is the state after L-1 lines.
+  const line = (start >= 0 && end >= 0)
+    ? Array.from({ length: lines.length }, (_, i) => i + 1).find((L) => L > end + 2 && !inDoc[L - 1])
+    : undefined
+  return { line, start, end, inDocstring: line === undefined ? undefined : inDoc[line - 1] }
+}
+
+test('check 26: the derived plant line is outside the resolver section and any docstring', () => {
+  const { line, start, end, inDocstring } = pmStatusPlantLine()
+  assert.ok(start >= 0 && end >= 0, 'resolver markers not found in pm-status.py')
+  assert.ok(line !== undefined, 'no plantable line exists after the resolver section')
+  assert.ok(!(line > start + 1 && line < end + 1),
+    `plant line ${line} is INSIDE the resolver section (${start + 1}-${end + 1}); the plant would be allowed`)
+  assert.equal(inDocstring, false,
+    `plant line ${line} is INSIDE a docstring; check 26 skips docstrings so the plant would be ignored`)
+})
+
 test('check 26: a planted pm-status.py violation outside the resolver section is caught', async () => {
+  const { line } = pmStatusPlantLine()
   const { violations } = resolverInvariant({
-    plantInPmStatus: { line: 4000, text: '    d = os.path.join(state_root, "planned", "epic-{nnn}")' },
+    plantInPmStatus: { line, text: '    d = os.path.join(state_root, "planned", "epic-{nnn}")' },
   })
-  assert.ok(violations.some(v => v.includes('pm-status.py:4000')),
-    `expected the planted pm-status violation, got: ${JSON.stringify(violations)}`)
+  assert.ok(violations.some(v => v.includes(`pm-status.py:${line}`)),
+    `expected the planted pm-status violation at ${line}, got: ${JSON.stringify(violations)}`)
 })
 
 test('check 26: SKILL.md is exempt', async () => {

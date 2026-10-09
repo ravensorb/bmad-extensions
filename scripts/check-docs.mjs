@@ -4113,9 +4113,9 @@ function checkDoctorModeKeywords() {
 //   skills/l3io-help/steps/mode-list-plan.md   — ls -d to find which bucket holds the epic
 //   skills/l3io-doctor/steps/health-check.md — diff <(ls ...) state/artifact mirror check
 
-const RESOLVER_START_MARKER =
+export const RESOLVER_START_MARKER =
   'Sharded layout resolution — the ONLY place that knows where nodes live'
-const RESOLVER_END_MARKER =
+export const RESOLVER_END_MARKER =
   'computed roll-ups — sprint/epic aggregates over per-story child files'
 
 const STATE_PATH_RE =
