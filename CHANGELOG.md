@@ -2,6 +2,64 @@
 
 All notable changes to this project will be documented in this file. See [commit-and-tag-version](https://github.com/absolute-version/commit-and-tag-version) for commit guidelines.
 
+## [3.3.0](https://github.com/ravensorb/bmad-extensions/compare/3.2.6...3.3.0) (2026-10-09)
+
+
+### Features
+
+* **ci-cd:** gate on npm audit, on push and on a daily schedule ([60efc5e](https://github.com/ravensorb/bmad-extensions/commit/60efc5ed27fdcfbd005c2d2ff466d59744553d71))
+* **l3io-pm:** /l3io-plan reorg, end to end — journal, undo, sync reconciliation ([8e60e49](https://github.com/ravensorb/bmad-extensions/commit/8e60e49926da510ad0ca5f619f7b54b5a8470c7b))
+* **l3io-pm:** derive reorg operations from the target, in a safe order ([281800c](https://github.com/ravensorb/bmad-extensions/commit/281800ca19c67136057b4fa66a3e32a99e7b1bd3))
+* **l3io-pm:** marker engine for the agent instruction block ([a3ac470](https://github.com/ravensorb/bmad-extensions/commit/a3ac470934e41919bd5224265e8b22ec3b4382e6))
+* **l3io-pm:** offer the instruction block once per harness ([c8b071e](https://github.com/ravensorb/bmad-extensions/commit/c8b071e2e68a9ac61b770f25bffc646e078f7603))
+* **l3io-pm:** reparent-story moves a planned story between sprints, re-keying it ([ab53741](https://github.com/ravensorb/bmad-extensions/commit/ab53741db1fe03c61c425afcd370c813e499a19a))
+* **l3io-pm:** retire-epic archives an epic and records why ([eb78e4c](https://github.com/ravensorb/bmad-extensions/commit/eb78e4c1625f32b1e15df0664e47e4ded0d84efe))
+* **l3io-pm:** ship the agent instruction block body as a shared asset ([9d687ff](https://github.com/ravensorb/bmad-extensions/commit/9d687ff3841abd2e067259d84d5f365bc7b4fa5e))
+* **l3io-pm:** sync-agent-instructions writes the block into the harness file ([aff88ff](https://github.com/ravensorb/bmad-extensions/commit/aff88ff04487181e4c3efcfef6c991cfcd4aee80))
+* **l3io-pm:** the reorg analyzer, and dump-plan to feed it ([ae6dc93](https://github.com/ravensorb/bmad-extensions/commit/ae6dc933ed3e7727488a4704303cf75f529ce589))
+* **l3io-pm:** the reorg target validator — drift is unrepresentable, not merely rejected ([d185f70](https://github.com/ravensorb/bmad-extensions/commit/d185f70de008bfb1a197d58c61a4f7b25f754223))
+* **l3io-pm:** write an l3io instruction block into the project's AI instruction file ([c7ea136](https://github.com/ravensorb/bmad-extensions/commit/c7ea136390fcaa25fa7c6745baa21979e70f0930))
+* **l3io-util:** maintain the instruction block across install, upgrade and clean ([26b559f](https://github.com/ravensorb/bmad-extensions/commit/26b559fa8eced14f16acef4a4a2590c6c1f9a7bd))
+
+
+### Fixes
+
+* **infra:** check 31 could not see the one place the defect actually was ([1bda383](https://github.com/ravensorb/bmad-extensions/commit/1bda383e891b0289cdf75506970f17a5a6412aca))
+* **l3io-pm:** gitignore the agent-instruction lock file under _bmad ([e40a8b5](https://github.com/ravensorb/bmad-extensions/commit/e40a8b5e199f1185e2152f7045a6658a463b7044))
+* **l3io-pm:** marker engine touches only the seam, normalises CRLF bodies, pairs fences by kind ([6ff9a1c](https://github.com/ravensorb/bmad-extensions/commit/6ff9a1c1850a070818e45571c89375086b054b88))
+* **l3io-pm:** story keys come from a high-water allocator, never from the disk alone ([abb75b6](https://github.com/ravensorb/bmad-extensions/commit/abb75b649eaa642ef654569194512637fb25ea45))
+* **l3io-pm:** sync-agent-instructions no longer damages the user's file ([c59f7fb](https://github.com/ravensorb/bmad-extensions/commit/c59f7fbff16a7173f67a899261f115ff2582ee63))
+* **l3io-pm:** use removeprefix in remove_block ([4ead584](https://github.com/ravensorb/bmad-extensions/commit/4ead584e0833bac93b9e12c7cd88675c268319ea))
+* **l3io-util:** cite the runtime detection procedure and order block removal before payload sweep ([9bc0c3d](https://github.com/ravensorb/bmad-extensions/commit/9bc0c3d793578c2cf9a7e1b63ec2b49d50fd6f0a))
+* **l3io-util:** gate the upgrade apply behind the confirmation and bind runtime and file ([34d91f7](https://github.com/ravensorb/bmad-extensions/commit/34d91f7efbfed7f243f8448f2c96d410fc601d26))
+
+
+### Refactoring
+
+* **infra:** one definition of what a DEPRECATED forwarder is ([025ba55](https://github.com/ravensorb/bmad-extensions/commit/025ba55162a50b965a17221e651d09c096213b95))
+
+
+### Documentation
+
+* **plan:** agent instruction block — implementation plan ([779a1ab](https://github.com/ravensorb/bmad-extensions/commit/779a1aba0caa213121929c33170417e4429e56bf))
+* **plan:** close an unbalanced fence that hid Tasks 4 and 5 ([6f31d42](https://github.com/ravensorb/bmad-extensions/commit/6f31d42bab208e3363308857376148b9cdc0dca8))
+* **readme:** l3io-plan now ships a scripts/ directory ([7a8380a](https://github.com/ravensorb/bmad-extensions/commit/7a8380acf7af4889edf5598ecfc3c06cd2d36e9e))
+* **spec:** /l3io-plan reorg — design, with acceptance criteria and a complexity assessment ([154ed3d](https://github.com/ravensorb/bmad-extensions/commit/154ed3d5d3af50aba973dc59139ec6293b00ea25))
+* **spec:** agent instruction block — design ([0fc5fac](https://github.com/ravensorb/bmad-extensions/commit/0fc5fac3b76659d734787b53a2ef0c6135a571ea))
+* **spec:** reorg proposes a target placement, not operations ([d7c7ff8](https://github.com/ravensorb/bmad-extensions/commit/d7c7ff8df8b9c3a946fb420fe68f062034d36062))
+* **spec:** the reorg output is the proposed plan, not a changelog of moves ([76dabad](https://github.com/ravensorb/bmad-extensions/commit/76dabad7f87b997ba4a016e5aa1864b6dc2aa1a4))
+
+
+### Maintenance
+
+* **deps:** handlebars 4.7.9 -> 4.7.10, closing three critical advisories ([d7d73a4](https://github.com/ravensorb/bmad-extensions/commit/d7d73a4ce4400abdfe2f1ee365ff686a4f132fc4))
+
+
+### Testing
+
+* **infra:** derive check 26's plant line instead of hardcoding it ([ece97e1](https://github.com/ravensorb/bmad-extensions/commit/ece97e1cc2726c33fe28dffd4e1f4d1332a0c45c))
+* **l3io-pm:** stop pinning migrate-adrs' commit failure to one racy cause ([85b7de4](https://github.com/ravensorb/bmad-extensions/commit/85b7de4f6f7b72f80bdf2211400d857147d8e91a))
+
 ## [3.2.6](https://github.com/ravensorb/bmad-extensions/compare/3.2.5...3.2.6) (2026-10-04)
 
 
