@@ -190,6 +190,8 @@ orchestration:                            # sprint/epic only — the orchestrato
   model: claude-sonnet-5
 orchestration_sampled_at: '2026-08-16T22:34:03Z'  # replay guard; set-actual --block orchestration
 # no `sprints:` — sprint-NN/ directories are the list
+retired_reason: 'nothing depends on it'   # retire-epic only; why it went
+retired_at: '2026-10-09T16:00:00Z'
 ```
 
 ```yaml
@@ -245,6 +247,8 @@ an epic spans sprints that can be in different states, so it has no single meani
 key: 'E001-S01-003'
 epic: 'E001'                              # back-references; path must agree
 sprint: 'S01'
+previous_keys:                            # append-only, oldest first; written by reparent-story
+- 'E007-S02-004'                          #   a single previous_key would lose the first hop
 title: 'Implement token ledger'
 status: review
 classification: complex

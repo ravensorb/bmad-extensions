@@ -231,6 +231,10 @@ Subcommands
                 unschedule writes an issue_unscheduled event; a story node that does
                 not parse, is not valid UTF-8 or is not a mapping exits 2 naming the
                 file, before any write)
+  retire-epic   --state-root S  --epic ID  --reason TEXT
+                  (move-epic --to archived plus retired_reason/retired_at; epic-level only,
+                   because planned/active/archived are folders of EPIC directories and a
+                   single retired story has nowhere to go. Never deletes.)
   reparent-story  --state-root S  --artifacts-root A  --story K  --to-epic E  --to-sprint SP
                   (moves a PLANNED story to another sprint, re-keying it; moves the state
                    node and its document together, preserving any -slug, repoints inbound
@@ -8105,6 +8109,51 @@ def _git_or_plain_move(src: str, dest: str, cwd: str) -> None:
         shutil.move(src, dest)
 
 
+def retire_epic(state_root: str, epic_key: str, reason: str) -> str:
+    """Retire an epic: move it to `archived/` and record why. Returns the destination.
+
+    RETIREMENT IS EPIC-LEVEL, and that is the layout's doing rather than a simplification.
+    `planned/`, `active/` and `archived/` are folders of EPIC directories; sprints and stories
+    live inside one and have nowhere else to be. There is no place to put a single retired
+    story, so there is no verb for it.
+
+    A THIN WRAPPER OVER `move_epic`, deliberately. The move itself -- git mv, the lock, the
+    status write -- is already correct there and must not be reimplemented; this adds only the
+    two fields that distinguish "retired by a reorg, for this reason" from "archived because it
+    finished". Without them an undo could restore the directory but not the fact that a human
+    was told why it went.
+
+    NEVER DELETES. The spec is explicit: retire moves, and only an explicit request deletes.
+    """
+    if not str(reason or "").strip():
+        raise PMError(2, "retire-epic requires a --reason: an epic retired without one leaves "
+                         "nobody able to judge later whether it should come back")
+    dest = move_epic(state_root, epic_key, "archived")
+    with epic_node_lock(state_root, epic_key):
+        p = os.path.join(dest, "epic.yaml")
+        if os.path.exists(p):
+            from ruamel.yaml.scalarstring import SingleQuotedScalarString as SQ
+            y, node = load_node(p)
+            if isinstance(node, dict):
+                node["retired_reason"] = SQ(str(reason).strip())
+                node["retired_at"] = SQ(_now_iso())
+                save_node(y, node, p)
+    return dest
+
+
+def cmd_retire_epic(args) -> int:
+    try:
+        dest = retire_epic(args.state_root, args.epic, args.reason)
+    except PMError:
+        raise
+    except FileNotFoundError as e:
+        _die_notfound(str(e))
+    except (ValueError, FileExistsError) as e:
+        _die_usage(str(e))
+    sys.stdout.write(f"OK retire-epic {args.epic} -> {dest}\n")
+    return 0
+
+
 def cmd_reparent_story(args) -> int:
     try:
         new_key = reparent_story(args.state_root, args.artifacts_root, args.story,
@@ -8915,6 +8964,13 @@ def build_parser() -> argparse.ArgumentParser:
     ar.add_argument("--adr-dir", dest="adr_dir", default="",
                     help="the one ADR home to scan (default: <git top-level>/docs/adr)")
     ar.set_defaults(func=cmd_adr_reserve)
+
+    re_ = sub.add_parser("retire-epic",
+                         help="move an epic to archived/ and record why (never deletes)")
+    re_.add_argument("--state-root", required=True)
+    re_.add_argument("--epic", required=True)
+    re_.add_argument("--reason", required=True)
+    re_.set_defaults(func=cmd_retire_epic)
 
     rp = sub.add_parser("reparent-story",
                         help="move a planned story to another sprint, re-keying it")

@@ -12237,5 +12237,72 @@ class TestReparentStory(unittest.TestCase):
         self.assertIn("R", out.split("\n")[0][:2] + "R",
                       "preserving history is why this moves files instead of rewriting them")
 
+
+class TestRetireEpic(unittest.TestCase):
+    """Retirement: move to archived/, record why, never delete.
+
+    Epic-level only, and that follows from the layout rather than being a simplification:
+    planned/active/archived are folders of EPIC directories, so a single retired story has
+    nowhere to go.
+    """
+
+    def setUp(self):
+        self.d = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, self.d, True)
+        self.sr = os.path.join(self.d, "state")
+        p = os.path.join(self.sr, "planned", "epic-041", "sprint-01")
+        os.makedirs(p)
+        self._w(os.path.join(self.sr, "planned", "epic-041", "epic.yaml"),
+                "key: 'E041'\ntitle: 'Legacy export shim'\nstatus: backlog\n")
+        self._w(os.path.join(p, "sprint.yaml"), "key: 'S01'\nepic: 'E041'\nstatus: backlog\n")
+        self._w(os.path.join(p, "E041-S01-001.yaml"),
+                "key: 'E041-S01-001'\nepic: 'E041'\nsprint: 'S01'\nstatus: backlog\n")
+
+    def _w(self, path, text):
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        with open(path, "w", encoding="utf-8") as fh:
+            fh.write(text)
+
+    def test_moves_to_archived_and_records_the_reason(self):
+        dest = pm.retire_epic(self.sr, "E041", "nothing depends on it; spec anchor removed")
+        self.assertIn(os.path.join("archived", "epic-041"), dest)
+        _, node = pm.load_node(os.path.join(dest, "epic.yaml"))
+        self.assertEqual(node["status"], "done")
+        self.assertIn("nothing depends on it", str(node["retired_reason"]))
+        self.assertTrue(str(node["retired_at"]))
+
+    def test_the_whole_directory_travels(self):
+        # The placement rule: sprints and stories travel with their epic, never separately.
+        dest = pm.retire_epic(self.sr, "E041", "r")
+        self.assertTrue(os.path.isfile(os.path.join(dest, "sprint-01", "E041-S01-001.yaml")))
+
+    def test_nothing_is_deleted(self):
+        # Counts only the epic's own content. Taking the lock also writes `epic-041.lock`
+        # and a `.gitignore` at the state root -- infrastructure, not the epic's files.
+        def content():
+            out = set()
+            for root, _d, files in os.walk(self.sr):
+                for f in files:
+                    if f.endswith((".lock",)) or f == ".gitignore":
+                        continue
+                    out.add(f)
+            return out
+        before = content()
+        pm.retire_epic(self.sr, "E041", "r")
+        self.assertEqual(before, content(),
+                         "retire moves; only an explicit request deletes")
+
+    def test_refuses_an_empty_reason(self):
+        for bad in ("", "   "):
+            with self.assertRaises(pm.PMError):
+                pm.retire_epic(self.sr, "E041", bad)
+        self.assertIsNotNone(pm.find_epic_dir(self.sr, "E041"))
+        self.assertIn("planned", pm.find_epic_dir(self.sr, "E041"),
+                      "a refusal must leave the epic where it was")
+
+    def test_a_missing_epic_is_not_found(self):
+        with self.assertRaises(FileNotFoundError):
+            pm.retire_epic(self.sr, "E099", "r")
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)
