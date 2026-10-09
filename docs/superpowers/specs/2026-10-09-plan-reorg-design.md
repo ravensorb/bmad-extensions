@@ -279,7 +279,7 @@ target:
   - key: E007-S02-004        # the node's CURRENT key — the agent never writes a new one
     epic: E003               # where it belongs
     sprint: S01              # sprint within that epic; may not exist yet
-    order: 5                 # position within the sprint
+    order: 5                 # relative order AMONG THE STORIES THIS TARGET MOVES — see below
   - key: E007-S02-005
     epic: E007
     sprint: S02
@@ -288,6 +288,20 @@ retire:
   - key: E041
     reason: "…"
 ```
+
+**`order` is relative among moving stories, and cannot reorder stories that stay put.**
+This is a real limit, stated here rather than discovered later. `status-files.md` is explicit
+that the 3-digit key sequence *is* the processing order, and that the layout deliberately has
+"no separate ordering field to maintain and no way for order to drift out of sync with
+intent". So the only way to reorder a story that is not moving is to **re-key it**, which
+churns its key, its document filename, its `previous_keys` and its remote-issue mapping for a
+purely local sequencing change.
+
+That trade is not worth taking, and it does not serve the objective: within-sprint order is
+local sequencing, while the primary objective (§2.3) is the critical path, which is a
+dependency-chain property that reordering inside a sprint cannot change. So `order` decides
+the sequence in which *moved* stories are placed — which the allocator then realises as key
+order — and the report must not promise more than that.
 
 **Placement and ordering are the only things expressible.** No titles, no estimates, no
 `depends_on` edits, no new keys. This is the whole safety argument for handing a target tree to
