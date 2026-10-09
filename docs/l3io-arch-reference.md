@@ -82,7 +82,12 @@ A directory listing shows who has finished, not who is in flight, so parallel wr
 
 Fill `Epic:` (`n/a` outside an epic) and `Departs from spec:` with the `path#anchor` of the spec section the decision departs from, or `n/a`.
 
-Invocation shortcuts: `/l3io-arch-review design|review|decision [--stack python|nodejs|dotnet|github-actions]`.
+Invocation shortcuts: `/l3io-arch-review design`, `/l3io-arch-review review`, `/l3io-arch-review decision`.
+
+**The stack is conversational, not a flag.** This skill takes no flags — it detects the stacks in
+scope and loads their overlays, and honours a stack you name in the request over its own
+detection (`SKILL.md` §2). Say "review this as a Python project"; there is no `--stack`. An
+earlier version of this line documented one, which would have halted on use.
 
 ### `pm-status.py` subcommands this skill runs
 

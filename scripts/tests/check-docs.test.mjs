@@ -3664,3 +3664,33 @@ test("check 33: an unrelated backticked table does not create phantom duplicates
     "\n\n## Unrelated\n\n| Old | New |\n|---|---|\n| `triage` | `triage` |\n");
   assert.doesNotMatch((await run(root)).stderr, /\[check 33\]/);
 });
+
+
+// ---- check 31 scope: LIVE_DOCS, not just skills/ ----
+// The live defect was in docs/l3io-arch-reference.md, which documented a `--stack` flag
+// l3io-arch-review has never parsed. Scoped to skills/ alone, check 31 could not see it.
+
+test("check 31: a flag in docs/ is caught, not just one under skills/", async (t) => {
+  const root = fixture(t);
+  write(root, "docs/zz-probe.md", "Run `/l3io-plan reorg undo --id R-0003` to revert.\n");
+  const r = await run(root);
+  assert.equal(r.status, 1);
+  assert.match(r.stderr, /\[check 31\] docs\/zz-probe\.md:1/);
+});
+
+// The two pattern widenings, each pinned: `cmd a|b [--flag]` is how a doc writes an optional
+// argument, and without both the real defect did not match at all.
+test("check 31: catches a flag written as an optional argument after alternatives", async (t) => {
+  const root = fixture(t);
+  write(root, "docs/zz-probe.md",
+        "Shortcuts: `/l3io-arch-review design|review|decision [--stack python]`.\n");
+  assert.match((await run(root)).stderr, /\[check 31\][\s\S]*--stack/);
+});
+
+test("check 31: a markdown table of slash commands is not a false positive", async (t) => {
+  // Allowing `|` inside a token must not make table cell separators match across columns.
+  const root = fixture(t);
+  write(root, "docs/zz-probe.md",
+        "| Command | Notes |\n|---|---|\n| `/l3io-plan` | pass `--verbose` to nothing |\n");
+  assert.doesNotMatch((await run(root)).stderr, /\[check 31\]/);
+});

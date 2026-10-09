@@ -105,14 +105,19 @@
 //                    with no edit here. Shell-tagged fences only; a `--dest <path>`
 //                    argument, a `test -f <path>` and a `name: <prefix>` binding are
 //                    mentions, not calls, and each produced a false positive first.
-//  31. no-flags-on-slash-commands  no `/l3io-*` invocation in a markdown file under skills/
-//                    carries a `--flag`. No l3io-* skill parses flags: l3io-execute takes
+//  31. no-flags-on-slash-commands  no `/l3io-*` invocation in LIVE_DOCS or in a markdown
+//                    file under skills/ carries a `--flag`. No l3io-* skill parses flags: l3io-execute takes
 //                    `E{nnn}`, `E{nnn}-S{nn}` or nothing, and anything else prints
 //                    "Unrecognized scope argument" and returns BLOCKED. A regression guard over
 //                    SHIPPED files only -- it cannot stop an agent improvising the syntax in
 //                    conversation, which is how the observed instance arose. A literal leading
 //                    `/` is required, so `--agent l3io-util-triage --epic E{epic}` (an agent NAME
 //                    handed to pm-status.py dispatch) is not a slash command and is not judged.
+//                    Scope was skills/ alone until it was widened: the live defect was in
+//                    docs/, where a reference doc taught a `--stack` flag l3io-arch-review has
+//                    never parsed. The pattern also allows `|` inside a token and one optional
+//                    `[` or `(` before the flag, because `cmd a|b [--flag]` is how docs write
+//                    an optional argument -- without those two the real defect did not match.
 //  32. no-recursive-grep  a documented content sweep must not use `grep -r`. ugrep honours
 //                    .gitignore during recursive search and GNU grep does not, so the same
 //                    documented command returns different results on different machines: a
@@ -4577,7 +4582,7 @@ function checkSubcommandRequired() {
 // line AFTER the invocation is not seen; and the `(\s+word)*` middle could in principle match
 // prose such as "/l3io-help to see --verbose" (zero such hits today).
 // ---------------------------------------------------------------------------
-const SLASH_FLAG_RE = /\/l3io-[a-z0-9-]+((?:\s+[a-z0-9{}[\]._-]+)*)\s+(--[a-z][a-z0-9-]*)/gi;
+const SLASH_FLAG_RE = /\/l3io-[a-z0-9-]+((?:\s+[a-z0-9{}[\]._|-]+)*)\s+[[(]?(--[a-z][a-z0-9-]*)/gi;
 
 // ---------------------------------------------------------------------------
 // 33. Every doctor routing keyword appears in exactly one row.
@@ -4637,7 +4642,15 @@ function checkDoctorKeywordUniqueness() {
 }
 
 function checkNoFlagsOnSlashCommands() {
-  const docs = [...allSkillDocs()];
+  // Scope is LIVE_DOCS *plus* every markdown file under skills/. It was skills/ alone, which
+  // left the reference docs unguarded -- and that is where the defect actually was:
+  // docs/l3io-arch-reference.md documented `/l3io-arch-review ... [--stack python|...]` for a
+  // flag l3io-arch-review has never parsed (its SKILL.md detects the stack, or honours one the
+  // user NAMES conversationally). A flag taught in a reference doc misleads a user at least as
+  // effectively as one in a step file -- the step file is read by an agent that may recover,
+  // the reference doc is read by a person who then types it. LIVE_DOCS is the same corpus
+  // check 25 uses for this class of question; deduped because the two sets can overlap.
+  const docs = [...new Set([...LIVE_DOCS, ...allSkillDocs()])];
   const violations = [];
   for (const rel of docs) {
     read(rel).split("\n").forEach((line, i) => {
