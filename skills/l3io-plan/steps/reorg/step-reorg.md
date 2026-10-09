@@ -153,8 +153,13 @@ the optimal arrangement; it is trying to produce one a user can check in about a
 
 ```bash
 uv run {skill-root}/scripts/reorg-validate.py --target {reorg_run}-target.yaml \
-  < {reorg_run}-current.json
+  --stage {reorg_stage} < {reorg_run}-current.json
 ```
+
+`{reorg_stage}` is `structure` on the first pass and `balance` on the second (§11). Under
+`balance` the validator additionally refuses any row that changes a story's **epic**, which is
+what stops the balancing pass undoing the structural one — see §11 for why that is a refusal
+rather than an instruction.
 
 Exit 0 means the target is legal. Exit 2 means it is refused **whole**, and every offending row
 is named on stderr so one pass fixes them all. A partly-applied target is neither the old plan
@@ -330,7 +335,7 @@ is a command-line argument.
 
 - **y** — apply the whole proposal.
 - **n** — apply nothing. Say so plainly and stop; rejecting is free and costs the user nothing.
-  Print the status line in §11 with `declined`.
+  Print the status line in §13 with `declined`.
 - **moves-only** — apply the reparenting and skip every retirement. Rewrite the target with
   `retire:` emptied and **re-run §5** before deriving: a target with retirements removed is a
   different target, and the one that was validated is not the one you would be applying. The
@@ -383,7 +388,7 @@ that file, not a formatting choice:
    ```
 
    It prints `OK reparent-story {old_key} -> {new_key}`. **Record every old → new pair** — the
-   report in §11 needs it, and so does the journal. Both trees move together under one lock:
+   report in §12 needs it, and so does the journal. Both trees move together under one lock:
    the state node and the story document, with the document's frontmatter `key:` rewritten and
    its optional `-slug` filename suffix preserved.
 
@@ -468,7 +473,81 @@ different rate card than the plan did.
 `l3io-execute` may be reading one. Tell the user to run `/l3io-plan` for a snapshot that
 reflects the new shape, exactly as `/l3io-plan estimate` does.
 
-## 11. Output
+## 11. Stage B — balance sprint load, inside the structure you just built
+
+Run this **after** §10 has recorded the structural pass, and only then. Bind `{reorg_stage}` =
+`balance` and run §3 through §10 a second time, with the differences below. Everything else —
+the target format, the validator, the derivation, the apply loop — is unchanged, because
+balancing is the same operation against a narrower move set.
+
+### 11.1 Skip it unless there is something to balance
+
+Two conditions, both checked before anything is proposed:
+
+1. **The plan carries estimates.** `sprint-imbalance` is measured from `elapsed_hours`; with
+   none recorded there is nothing to level and nothing to level it against. Say so and stop:
+
+   ```
+   Balancing skipped — no story estimates recorded yet, so sprint load cannot be compared.
+   Run /l3io-plan to estimate, then ask for a reorg again if you want the sprints levelled.
+   ```
+
+2. **The analyzer reports at least one `sprint-imbalance` finding.** No finding, no proposal —
+   do not invent a rebalance because the stage exists.
+
+Either way this is a **normal, silent-ish outcome**, never a failure. The structural pass has
+already been applied and recorded; a skipped Stage B changes nothing about that.
+
+### 11.2 The move set is narrower, and the validator enforces it
+
+A balancing target may move a story **between sprints of the same epic**. It may not:
+
+- change a story's **epic** — `reorg-validate.py --stage balance` refuses the row
+- **retire** anything — retirement is a structural decision, refused under this stage
+- violate any dependency, which the ordinary ordering rules already prevent: a dependency must
+  sit in an earlier sprint of the epic, or the same sprint at a lower `order`
+
+**Why a refusal and not an instruction.** The structural pass spends its entire proposal moving
+stories to remove dependencies that cross an epic boundary. A balancing pass free to move them
+back could undo that while legitimately levelling load, and the result would pass every other
+check, because both placements are individually legal. Making the epic change unrepresentable
+means the composition cannot regress what the first pass achieved — the same argument the
+target format makes everywhere else (§5.3.1): drift is not mitigated, it is impossible.
+
+### 11.3 The report says what it is
+
+Use the §7 report shape, with the objective line replaced — this pass is not claiming to change
+structure:
+
+```
+⚖ Balance proposal — {move_count} stories re-placed within {epic_count} epic(s)
+
+{epic}: S01 {old}→{new} hrs · S02 {old}→{new} hrs · S03 {old}→{new} hrs   (ratio {old_ratio} → {new_ratio})
+
+WHY
+  {one paragraph per epic, citing its sprint-imbalance finding}
+
+MOVES
+  {what moves between which sprints, and what stays}
+
+Cross-epic edges: unchanged — a balancing pass cannot move work between epics.
+Total effort: unchanged except for closure overhead, if the number of sprints changed.
+```
+
+State the unchanged lines explicitly. A reader who has just accepted a structural proposal needs
+to know this pass is not quietly revisiting it.
+
+### 11.4 One journal entry, not two
+
+Record **both** passes in a single `reorg-log` entry (§10), with the structural operations first
+and the balancing operations after, in the order they were applied. Undo then reverses the whole
+reorg as one act, which is what a user who says "undo that reorg" means — they are not thinking
+in stages, and an undo that reverted only the balancing half would leave a tree matching neither
+the plan they had nor the one they accepted.
+
+The `rationale` holds both reports, verbatim, in order.
+
+## 12. Output
 
 ```
 ✅ Reorg applied — {move_count} stories re-placed, {retire_count} retired
@@ -491,7 +570,7 @@ If the user declined, print instead:
 No changes made — the proposal was declined. Nothing in planned/ was written.
 ```
 
-## 12. Output status line
+## 13. Output status line
 
 ```
 Step reorg complete — moved: {move_count}, retired: {retire_count}, journal: {reorg_id}

@@ -118,7 +118,7 @@ Per D1 this **warns**, and does not halt.
 
 ## Phase 4 — Dependency-safe balancing
 
-### - [ ] Task 7: Stage B
+### - [x] Task 7: Stage B
 
 Per D2, a second pass inside `reorg`, running only when estimates exist.
 

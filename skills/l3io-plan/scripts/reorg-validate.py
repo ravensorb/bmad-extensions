@@ -107,8 +107,16 @@ def has_cycle(edges: dict) -> list:
     return found
 
 
-def validate(plan: dict, target) -> list:
-    """Every reason to refuse. Empty means accept."""
+def validate(plan: dict, target, stage: str = "structure") -> list:
+    """Every reason to refuse. Empty means accept.
+
+    `stage` narrows the legal move set. `structure` is the full one: a story may be placed in
+    any planned epic and sprint. `balance` additionally refuses any row that changes a story's
+    EPIC, which is what makes "the balancing pass cannot undo the structural pass" a property
+    of the format rather than a convention somebody has to remember. Balancing is levelling
+    sprint load inside an epic; moving work across an epic boundary is the structural pass's
+    job and its decision to own.
+    """
     errs = []
 
     def bad(where, why):
@@ -168,6 +176,26 @@ def validate(plan: dict, target) -> list:
             bad(where, f"{row['key']} is retired with no reason — nobody could judge later "
                        f"whether it should come back")
         retired[str(row["key"])] = row
+
+    # --- the balancing pass may not cross an epic boundary --------------------------
+    #
+    # UNREPRESENTABLE, NOT MERELY DISCOURAGED — the same argument the target format makes
+    # everywhere else. The structural pass spends its whole proposal moving stories to remove
+    # dependencies that cross an epic boundary; a balancing pass free to move them back could
+    # undo that silently while legitimately levelling sprint load, and the result would pass
+    # every other check here because both placements are individually legal. Refusing the
+    # epic change outright means the composition cannot regress what the first pass achieved.
+    if stage == "balance":
+        for key, row in placed.items():
+            was = stories.get(key)
+            if was and str(row.get("epic")) != was[0]:
+                bad(f"target[{key}]", f"moves from {was[0]} to {row.get('epic')} — a "
+                                      f"balancing pass levels sprint load WITHIN an epic and "
+                                      f"may not cross an epic boundary. Crossing one is the "
+                                      f"structural pass's decision to make")
+        if retires:
+            bad("retire", "a balancing pass does not retire epics — retirement is a "
+                          "structural decision")
 
     # --- every key must resolve, and must be planned --------------------------------
     for key, row in placed.items():
@@ -277,6 +305,9 @@ def main(argv=None) -> int:
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--target", required=True, help="the proposed target placement (YAML)")
     ap.add_argument("--format", choices=("text", "json"), default="text")
+    ap.add_argument("--stage", choices=("structure", "balance"), default="structure",
+                    help="`balance` additionally refuses any row that changes a story's epic, "
+                         "so a balancing pass cannot undo the structural pass")
     a = ap.parse_args(argv)
 
     try:
@@ -295,7 +326,7 @@ def main(argv=None) -> int:
         sys.stderr.write(f"reorg-validate.py: {err}\n")
         return 2
 
-    errs = validate(plan, target)
+    errs = validate(plan, target, a.stage)
     if a.format == "json":
         sys.stdout.write(json.dumps({"ok": not errs, "errors": errs}, indent=2) + "\n")
     elif errs:

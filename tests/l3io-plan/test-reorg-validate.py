@@ -285,6 +285,63 @@ class TestCrossSprintOrdering(unittest.TestCase):
                       "a dependency moved into a newly created later sprint is still backward")
 
 
+class TestBalanceStage(unittest.TestCase):
+    """The balancing pass's move set, narrowed so it cannot undo the structural pass.
+
+    The structural pass spends its whole proposal moving stories to remove dependencies that
+    cross an epic boundary. A balancing pass free to move them back could undo that silently
+    while legitimately levelling sprint load — and the result would pass every other check,
+    because both placements are individually legal. Refusing the epic change outright makes
+    the composition safe by construction rather than by anyone remembering.
+    """
+
+    TWO = plan([epic("E001", [
+        sprint("S01", [story("E001-S01-001")]),
+        sprint("S02", [story("E001-S02-001")]),
+    ])])
+
+    def test_levelling_load_within_an_epic_is_accepted(self):
+        rows = [{"key": "E001-S01-001", "epic": "E001", "sprint": "S02", "order": 1},
+                {"key": "E001-S02-001", "epic": "E001", "sprint": "S01", "order": 1}]
+        self.assertEqual(rv.validate(self.TWO, {"target": rows}, "balance"), [])
+
+    def test_crossing_an_epic_boundary_is_refused(self):
+        rows = [dict(r) for r in TOTAL]
+        rows[0]["epic"] = "E003"
+        self.assertIn("may not cross an epic boundary",
+                      why(rv.validate(BASE, {"target": rows}, "balance")))
+
+    def test_the_same_target_is_accepted_under_the_structural_stage(self):
+        # The stage gate is the ONLY difference. If this ever fails, the balance rule has
+        # started refusing something structurally illegal and the message will be wrong.
+        rows = [dict(r) for r in TOTAL]
+        rows[0]["epic"] = "E003"
+        self.assertEqual(rv.validate(BASE, {"target": rows}, "structure"), [])
+
+    def test_a_balancing_pass_does_not_retire_epics(self):
+        errs = rv.validate(BASE, {"target": list(TOTAL),
+                                  "retire": [{"key": "E003", "reason": "r"}]}, "balance")
+        self.assertIn("does not retire", why(errs))
+
+    def test_structure_is_the_default_stage(self):
+        rows = [dict(r) for r in TOTAL]
+        rows[0]["epic"] = "E003"
+        self.assertEqual(rv.validate(BASE, {"target": rows}), [],
+                         "an unstaged call must keep the full move set")
+
+    def test_a_balancing_move_past_a_dependent_is_refused(self):
+        # THE PAYOFF FOR TASK 1, and the reason it had to land first. Moving a story forward
+        # past the thing that depends on it is the single most natural balancing move, and
+        # before the sprint-position rule existed this returned `OK target is valid`.
+        p = plan([epic("E001", [
+            sprint("S01", [story("E001-S01-001", ["E001-S02-001"])]),
+            sprint("S02", [story("E001-S02-001")]),
+        ])])
+        rows = [{"key": "E001-S01-001", "epic": "E001", "sprint": "S01", "order": 1},
+                {"key": "E001-S02-001", "epic": "E001", "sprint": "S02", "order": 1}]
+        self.assertIn("LATER sprint", why(rv.validate(p, {"target": rows}, "balance")))
+
+
 class TestMalformedInput(unittest.TestCase):
     def test_a_non_mapping_target_is_refused(self):
         self.assertTrue(rv.validate(BASE, ["not", "a", "mapping"]))
