@@ -37,14 +37,16 @@ That has three consequences, and they drive the design more than the algorithm d
 
 ### 2.2 Hard constraints — a proposal that violates any of these is refused, not shown
 
-These are mechanical and non-negotiable. Validation refuses the whole proposal and names the
-offending operation.
+These are mechanical and non-negotiable. Validation judges the **target state** (§5.3.1) and
+refuses it whole, naming the offending row — not the derived operations, which are this
+tooling's own output and cannot be wrong independently of the target that produced them.
 
 - The resulting epic graph is **acyclic**.
 - No story or epic is ordered before something it `depends_on`.
 - **Nothing outside `planned/` is written.** Active and archived work is read-only input.
-- Every key referenced by the proposal resolves, and every target epic or sprint either exists
-  or is created by an operation in the same proposal.
+- Every `key` in the target resolves to a node that exists today in `planned/`.
+- The target is **total**: every planned story appears exactly once across `target` and
+  `retire`. An omitted node is an error, never an implied "leave it alone".
 - No retirement orphans a dependent that is not also retired.
 - The allocator can supply every new key.
 
@@ -159,30 +161,53 @@ is a second axis they never considered, and amending them needs an ADR.
 
 ### 3.3 Rough size
 
-| Piece | Size | Risk |
-|---|---|---|
-| Per-sprint key allocator (prerequisite) | small | **high** — changes key allocation for every story created from then on |
-| `reparent-story` / `reparent-sprint` / `retire-node` verbs | large | **high** — moves two trees atomically under one lock |
-| Analyzer (mechanical signals) | medium | low — pure functions over fixtures |
-| Proposal validator | medium | **high** — it is the only thing between an agent's output and the user's state |
-| Journal + `undo` with the tree-hash guard | medium | medium |
-| Sync reconciliation via `previous_keys` | small | medium — touches a second skill |
-| Mode prose, report rendering, confirmation | medium | low |
+Re-assessed after the target-state change (§5.3). That change does **not** make this smaller —
+it adds a format, a validator for it, and a derivation step. It makes it **safer**, by moving
+work out of the agent's hands and into testable mechanical code. That is the trade, stated
+plainly.
 
-**Five to seven tasks.** The allocator should land and be released *separately*, ahead of the
-rest, because it changes behaviour for every project whether or not they ever reorganise.
+| Piece | Size | Risk | Changed by target-state? |
+|---|---|---|---|
+| Per-sprint key allocator (prerequisite) | small | **high** | — |
+| `reparent-story` / `reparent-sprint` / `retire-node` verbs | large | **high** | — |
+| Analyzer (mechanical signals) | medium | low | — |
+| Target format + parser + validator | small | medium | **new** |
+| Derivation: current ⊖ target → ordered operations | medium | medium | **new** |
+| ~~Proposal (operation-list) validator~~ | — | — | **removed** |
+| Journal + `undo` | small | low | **simpler** — undo is the previous target re-applied |
+| Sync reconciliation via `previous_keys` | small | medium | — |
+| Mode prose, report rendering, confirmation | medium | low | — |
+
+**Six to eight tasks**, one more than before. The allocator still lands and releases
+*separately*, ahead of everything else, because it changes key allocation for every project
+whether or not they ever reorganise.
 
 ### 3.4 Where this most likely goes wrong
 
-1. **A partial apply.** Half the moves land and the tree is neither the old shape nor the new
-   one. Mitigated by the migration engine's existing ordering — gate before write — and by one
-   epic write lock around the whole application.
-2. **The objective rewards the wrong thing.** See §2.3: effort as an objective makes deletion
-   the best move.
-3. **Silent reference rot.** A `depends_on` or `ref` pointing at a key that no longer exists.
-   The validator must check the *post-state*, not just the operations.
-4. **The user cannot evaluate the proposal** and either accepts blindly or stops using it. This
-   is the failure §2 is written to prevent, and the one least likely to show up in tests.
+Re-assessed. Two of the four original failure modes are now substantially harder to reach.
+
+1. **A partial apply.** Half the operations land and the tree is neither shape.
+   **Reduced.** Still possible, but no longer silent: re-diffing current against the target
+   answers "what is left?" exactly. Mitigated further by one epic write lock around the
+   application and the migration engine's gate-before-write ordering.
+2. **The objective rewards the wrong thing.** See §2.3 — effort as an objective makes deleting
+   scope the best available move. **Unchanged, and still the subtlest risk here.** No amount of
+   mechanical validation catches a proposal that is legal, correctly applied, and wrong.
+3. **Silent reference rot** — a `depends_on` or `ref` pointing at a key that no longer exists.
+   **Reduced.** The validator judges the post-state derived from the target rather than
+   reasoning forward through an operation list, so a dangling reference is a property of a tree
+   that can be checked directly.
+4. **The user cannot evaluate the proposal.** **Unchanged, and now the largest risk in the
+   feature.** It is the failure §2 is written to prevent and the one least likely to appear in
+   any test, because every test asserts a property the code has; none asserts that a human
+   understood the output. The only real mitigations are that the report leads with the delta,
+   every move cites measured evidence, and rejection is cheap.
+
+**A risk the target-state model introduces:** the target is *total*, so a proposal touching four
+stories still enumerates every planned story. A reviewer skimming it could miss a row that moved
+among dozens that did not. This is why the **report is rendered from the derived diff, never
+from the target** — the user reads moves, not the placement table. If that ever inverts, the
+feature loses the property §2.1 exists to protect.
 
 ## 4. Scope
 
@@ -212,16 +237,65 @@ write lock; if either half fails, neither commits.
 stay — that is the existing placement rule, unchanged. **Never deleted** unless explicitly
 asked.
 
-### 5.3 The engine — mechanical, agent, mechanical
+### 5.3 The engine — target state in, operations derived
+
+**The agent proposes a target placement. It never proposes operations, and it never names a
+new key.** The tooling diffs current against target and derives the operations itself.
 
 1. **Analyze** (script): emits findings, each with an id, the nodes involved, a *measured*
    value, and what it suggests. Signals per §2.3 plus cycles, inversions and blocked-by-active.
    **An orphan — a story nothing depends on — is reported as a question, never as a retirement
    finding.** Leaf work is often the actual deliverable.
 2. **Propose** (agent): reads the findings plus story content and the spec index, writes a
-   proposal file — operations with rationale per group, in the §2.4 shape.
-3. **Validate** (script): refuses the whole proposal against §2.2, naming the offending
-   operation. Agent output never reaches disk unvalidated.
+   **target placement** (§5.3.1) with rationale per group.
+3. **Validate** (script): judges the *target* against §2.2 and refuses it whole, naming the
+   offending row. Agent output never reaches disk unvalidated.
+4. **Derive** (script): diffs the current planned tree against the target and emits the
+   operation list — re-parents, creations, retirements — in dependency-safe order.
+5. **Apply** (script): executes that list under one lock, gate before write.
+
+#### 5.3.1 The target format, and why it is deliberately impoverished
+
+```yaml
+target:
+  - key: E007-S02-004        # the node's CURRENT key — the agent never writes a new one
+    epic: E003               # where it belongs
+    sprint: S01              # sprint within that epic; may not exist yet
+    order: 5                 # position within the sprint
+  - key: E007-S02-005
+    epic: E007
+    sprint: S02
+    order: 1                 # unchanged rows are allowed and are a no-op
+retire:
+  - key: E041
+    reason: "…"
+```
+
+**Placement and ordering are the only things expressible.** No titles, no estimates, no
+`depends_on` edits, no new keys. This is the whole safety argument for handing a target tree to
+an agent: drift is not mitigated, it is **unrepresentable**. An agent that wanted to quietly
+reword a story has nowhere to put the words.
+
+It is also *smaller* than the operation list it replaces, because an unchanged row is one line
+and a move is the same one line with different values.
+
+**The target must be total over the planned set.** Every planned story appears exactly once in
+`target` or once in `retire`. An omission is a **validation error, not an implied "leave it
+alone"** — silence is the one thing a target state must never mean, because an agent that
+forgets a node and an agent that intends to leave it are indistinguishable, and the second is
+far more common.
+
+#### 5.3.2 What the derivation handles that an operation list hid
+
+- **A target sprint or epic that does not exist yet** is created as part of the derived
+  operations, in dependency order, before anything moves into it.
+- **Key assignment is entirely the allocator's.** The derivation asks for the next key in the
+  destination sprint; the agent's target never contains one.
+- **Ordering within a sprint** is normalised from `order` to the allocator's sequence, so the
+  agent may use any monotonic integers — gaps and ties are resolved mechanically rather than
+  being an error it has to avoid.
+- **"What is left?"** is answerable at any time by re-diffing current against target, which is
+  what makes a partial apply detectable rather than silent.
 
 ### 5.4 Impact
 
@@ -248,6 +322,11 @@ for anything mapped before the first reorg.
 `undo` recomputes the planned-tree hash and **refuses if anything changed since**, listing what
 differs. Because keys are never reused, undo restores the *exact* prior key.
 
+Under the target-state model undo is simply **the previous placement re-applied**: the journal
+stores the pre-reorg placement as a target, and undo runs the same derive-and-apply path
+forward. There is no separate inverse-operation code to write, and therefore no second code
+path that can be wrong in a way the forward path is not.
+
 ### 5.7 Sync reconciliation
 
 One rule added to `l3io-sync` step-04: before treating a `missing_local` as a deletion, look for
@@ -271,7 +350,14 @@ taken from `adr-reserve` at implementation time** — not chosen here, per ADR-0
 - Sync reconciliation for the **two-hop** case — the one a single `previous_key` would break.
 - Allocator: a vacated key is never reissued; a stale `next` is audited and repairable.
 - **Partial-apply survival:** kill the application mid-way and assert the tree is the old shape,
-  not a hybrid.
+  not a hybrid. Then assert a re-diff against the target reports exactly the outstanding work —
+  the property the target-state model exists to provide.
+- **The target format cannot express drift:** a target carrying a `title`, an `estimate` or a
+  `depends_on` is rejected by the parser, not ignored by it.
+- **Totality:** a target omitting one planned story is refused, and the message names the story.
+- **Derivation:** a target requiring a sprint that does not exist creates it before moving into
+  it; `order` values with gaps and ties normalise deterministically.
+- **The agent never supplies a key:** a target whose row carries a destination key is refused.
 
 ## 8. Out of scope
 
