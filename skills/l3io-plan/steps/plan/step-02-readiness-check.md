@@ -118,12 +118,50 @@ For each story, evaluate the following checks:
 | Check | Green | Amber | Red |
 |-------|-------|-------|-----|
 | Classification | `classification` is `simple`, `standard`, or `complex` | — | Missing or unrecognized value |
-| Technical ACs | If `{work_type}` is CODE, CONFIG or MIXED: story file exists with non-empty "Acceptance Criteria" section containing technical details (interfaces, data model, error handling) | Story has only functional ACs (no technical details), **or the story document does not exist yet** | Story document exists but carries no AC section at all |
+| Technical ACs | If `{work_type}` is CODE, CONFIG or MIXED: story file exists, carries `## Technical acceptance criteria`, and **every one of the six dimensions** below is present and either filled or marked `N/A — <reason>` | **Any applicable dimension missing or empty**, or the story document does not exist yet | Story document exists but carries no `## Technical acceptance criteria` heading at all |
+| Business ACs | `## Business acceptance criteria` is present with a non-empty `### Outcome` | Section absent, or `### Outcome` empty | — |
 | Estimate block | `estimate` block present with at least `man_hours` or `man_hours_low` | **Absent** — `steps/shared/step-estimate.md` writes it later in this same run | — |
 | `depends_on` validity | All referenced keys exist in scope and are not `done` | — | Any key missing from any state file, or a cycle detected |
 | Sprint assignment | Story is assigned to a named sprint in its epic | — | Orphaned story (not in any sprint) |
 
 Technical ACs check applies when `{work_type}` is CODE, CONFIG or MIXED. For DOCS only, skip this check for all stories. It must run for CONFIG: step 03 elaborates only the stories this check grades Amber, so skipping CONFIG here would leave `{readiness}` green and elaborate nothing for an infrastructure epic.
+
+**The six dimensions, and why this check must name all six.** They are the headings step 03's
+enricher writes, and the canonical reference is `references/ac-dimensions.md`, which both this
+skill and `l3io-execute` carry so the two cannot drift:
+
+| # | `###` heading | Covers |
+|---|---|---|
+| 1 | Interface contracts | signatures, data model, what callers see |
+| 2 | Error and edge case handling | what fails, how, and what the caller gets |
+| 3 | Observability requirements | logging, metrics, tracing the change must emit |
+| 4 | Security considerations | auth, validation, data handling |
+| 5 | Testability approach | test entry points and mock boundaries |
+| 6 | Existing-library check | which library or platform capability covers this, or why custom code is warranted |
+
+This check previously named three of them — interfaces, data model, error handling — while the
+elaborator four steps later wrote all six and `l3io-execute`'s story gate **blocks**
+`ready-for-dev` on any applicable dimension left unfilled. The enricher and the checker in one
+skill disagreed about what "ready" means, and the stricter of the two was the one that did not
+gate. The effect was not a missed warning: a thin story was graded Amber, estimated, placed on
+the critical path, and only then blocked at execution — so the schedule had been built around
+work that could not start. Grading the same six here makes that block predictable at plan time
+and tells step 03 exactly which dimensions to fill.
+
+**A dimension marked `N/A — <reason>` is Green, not Amber.** "Does not apply, and here is why"
+is a filled dimension; an unfilled one is a gap. Omitting the heading entirely is never
+acceptable — that is indistinguishable from not having considered it.
+
+**Both AC rows are Amber, never Red, for the reason the next two notes give**: step 03 runs
+immediately after and exists to close exactly these gaps. Red would halt the run before the
+step that fixes it.
+
+**Spec pointers are deliberately NOT checked here.** In plan mode `Spec: none — <reason>` is the
+expected answer for every applicable dimension: `spec_alignment` and `spec_paths` are
+`l3io-execute` keys, and `l3io-plan` passes no spec index (see `step-03-story-elaboration.md`).
+Running `spec-align.py check-pointers` at plan time would fail every story by design, and
+`l3io-plan` does not carry that script in any case. Pointer resolution is `l3io-execute`'s gate,
+where the index exists.
 
 **An absent story document is Amber, not Red, deliberately.** Red halts this step with `BLOCKED` and forbids loading the next one (§6) — and the next one, step 03, is exactly where §4 says "if the file does not yet exist at the given path, create it first" before enriching it. Grading a missing document Red therefore blocked the only step that could produce it, and left that create-it-first branch unreachable by any input: Amber requires a file to exist, so no story could ever arrive at it. Amber is the grade for a gap elaboration closes, and a missing document is one. A document that exists but carries no AC section stays Red — that is a story someone wrote and left empty, which is a content decision rather than a missing artifact.
 
