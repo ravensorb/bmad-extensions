@@ -108,7 +108,7 @@ Per D1 this **warns**, and does not halt.
 
 ## Phase 3 — Move the check to where its data is
 
-### - [ ] Task 6: Structural check early, weighted check late
+### - [x] Task 6: Structural check early, weighted check late
 
 - Structural shape check after `step-05` — needs `depends_on` only, so it is available there. If findings, suggest `/l3io-plan reorg` **before** estimation and snapshot generation, so a user is not paying for a shape they are about to change.
 - `step-06` §5.1 keeps only what needs estimates.

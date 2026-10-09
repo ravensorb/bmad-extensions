@@ -147,7 +147,52 @@ No hours on this line. Estimates are written two steps later, so any duration pr
 would either be the previous generation's or invented — and the two `estimated_hours_*` tokens
 this line used to carry were never bound anywhere, so it printed the token text verbatim.
 
-## 6. Output status line
+## 6. Check the plan's shape — here, before anything is estimated
+
+**This is the earliest point the check can run, and the earliest is where it belongs.** Every
+finding a reorg can act on is structural — it needs `depends_on` and nothing else — so the
+shape of the plan is fully knowable now, three steps before `step-estimate` and four before a
+snapshot is written. Reporting it later would mean telling a user their grouping is wrong only
+after they have paid to estimate it and generate a snapshot of the shape they are about to
+change.
+
+Read-only; writes nothing and takes no lock:
+
+```bash
+uv run {pm_status} dump-plan --state-root {pm_state_root} \
+  | uv run {skill-root}/scripts/reorg-analyze.py
+```
+
+Bind `{shape_advisory}` from the `findings` array, by **severity**, in this order:
+
+1. Any finding of severity `blocker` (`cycle`, `dangling-dependency`) → §2 above has already
+   halted on these. Nothing further to say here.
+2. Otherwise, any finding of severity `warn` (`cross-epic-coupling`,
+   `unbacked-cross-epic-dependency`) →
+   `↻ This plan's shape could be improved: {the measured reason, from each finding's "measured" and "suggests"}. Run /l3io-plan reorg to see a proposal.`
+3. Otherwise → bind the empty string and print nothing.
+
+**Only `warn` triggers the suggestion, and those two findings are the two things a reorg can
+act on.** Moving a story into the epic its dependencies live in removes a crossing edge; nothing
+else here is movable. `dependency-chain` and `isolated-story` are `info` and `question`
+precisely because no move changes them — a reorg never edits `depends_on` — and they fire on
+perfectly healthy plans, so advising on them would print the suggestion after every planning
+round. A suggestion that always appears is one people learn to skip past.
+
+**`sprint-imbalance` is not checked here**, and that is not an oversight: it needs
+`elapsed_hours`, which `step-estimate` has not written yet. It is checked in
+`step-06-plan-output.md` §5.1, where the numbers exist.
+
+Say the measured reason, never a bare recommendation. "3 dependency edges cross E007↔E003" is
+checkable by the person reading it; "this plan could be better organised" is not, and a reader
+who cannot check it has to either trust it or ignore it.
+
+If the analyzer fails or is absent, bind the empty string and carry on — a missing advisory must
+never fail a plan run that otherwise succeeded.
+
+Print `{shape_advisory}` after the graph report above, omitting the line entirely when empty.
+
+## 7. Output status line
 
 ```
 Step 05 complete — phases: {phase_count}, epics in graph: {in_scope_epic_count}, longest chain: {longest_chain_epics joined by " → "}

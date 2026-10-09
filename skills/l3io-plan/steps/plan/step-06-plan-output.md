@@ -161,49 +161,37 @@ estimates yet — and a re-plan printed the previous generation's, overwritten t
 `{critical_path_str}`, `{total_time_low}` and `{total_time_high}` were never bound anywhere
 either: each appeared exactly once, at its use site below.
 
-### 5.1 Measure the plan's shape first
+### 5.1 Check sprint load — the one signal that needs the estimates
 
-A plan can pass every validation here and still be shaped badly. Measure it, so the summary can
-say so when it is true — the alternative is that `reorg` is reachable only by a user who already
-knows it exists, which is no use to the one who needs it.
+**The structural check already ran, at `step-05-dependency-graph.md` §6.** Every finding a
+reorg can act on needs only `depends_on`, so it is reported three steps earlier, before a user
+pays to estimate a shape they may be about to change. Do not repeat it here.
 
-Read-only; writes nothing and takes no lock:
+What could not run there is sprint load, because it needs the `elapsed_hours` that
+`step-estimate` has only just written:
 
 ```bash
 uv run {pm_status} dump-plan --state-root {pm_state_root} \
   | uv run {skill-root}/scripts/reorg-analyze.py
 ```
 
-Bind `{shape_advisory}` from the `findings` array, by **severity**, in this order:
+Bind `{balance_advisory}` from the `sprint-imbalance` findings alone:
 
-1. Any finding of severity `blocker` (`cycle`, `dangling-dependency`) →
-   `⚠ {n} dependency problem(s) block a clean ordering: {ids}. Fix the depends_on declarations — reorg cannot help here, it never edits dependencies.`
-2. Otherwise, any finding of severity `warn` (`cross-epic-coupling`,
-   `unbacked-cross-epic-dependency`) →
-   `↻ This plan's shape could be improved: {the measured reason, from each finding's "measured" and "suggests"}. Run /l3io-plan reorg to see a proposal.`
-3. Otherwise → bind the empty string and print nothing.
+- One or more present →
+  `⚖ Sprint load is uneven: {epic} sprints range {low}–{high} hrs (ratio {ratio}). /l3io-plan reorg can rebalance them within the dependency graph.`
+- None → bind the empty string and print nothing.
 
-**Only `warn` triggers the reorg suggestion, and that is the whole design.** `info`
-(`dependency-chain`, `no-dependency-chain`, `blocked-by-active`, `sprint-imbalance`) and
-`question` (`isolated-story`) fire on healthy plans — a clean three-story plan reports
-`dependency-chain` and `isolated-story` — so advising on them would print the suggestion after
-every planning round, and a suggestion that always appears is one people learn to skip past.
-`blocker` gets its own message rather than the reorg one because reorg structurally cannot fix
-either case: it moves work between sprints and never touches `depends_on`, and the reorg
-validator would refuse any target that left the cycle standing.
+**`sprint-imbalance` is `info`, not `warn`, and this advisory is the reason it still exists.**
+A reorg cannot make work smaller, so load is never a reason to re-place work on its own — it is
+an impact, reported (ADR-0011). But an epic whose sprints differ several-fold is still worth
+saying out loud, because rebalancing *within* the structure is a legal move and the user has no
+other way to learn that it is available.
 
-**The two `warn` findings are the two things a reorg can actually act on.** Moving a story to
-the epic its dependencies live in removes a crossing edge; nothing else here is movable.
-`dependency-chain` and `sprint-imbalance` are both `info` *because* no move changes them — a
-reorg never edits `depends_on`, and it never makes work smaller. They are reported as context
-for the proposal, never as its target.
+**Ignore every other finding here.** The `warn` ones were reported at step-05 and acting on
+them twice in one run would train a reader to skip both.
 
-Say the measured reason, never a bare recommendation. "3 dependency edges cross E007↔E003" is
-checkable by the person reading it; "this plan could be better organised" is not, and a reader
-who cannot check it has to either trust it or ignore it.
-
-If the analyzer fails or is absent, bind the empty string and carry on — a missing advisory
-must never fail a plan run that otherwise succeeded.
+If the analyzer fails or is absent, bind the empty string and carry on — a missing advisory must
+never fail a plan run that otherwise succeeded.
 
 ### 5.2 Print it
 
@@ -220,14 +208,14 @@ Phase 2 (sequential): {epic_keys} — est. {time_low}–{time_high} hrs wall-clo
 Critical path: {critical_path_str} ({total_time_low}–{total_time_high} hrs)
 
 Readiness: {readiness}
-{shape_advisory}
+{balance_advisory}
 Plan written to: {planning_artifacts}/{plan_filename}
 Stable pointer: {planning_artifacts}/plan-output-meta.yaml
 
 Next: run /l3io-execute to start execution.
 ```
 
-When `{shape_advisory}` is empty, omit the line entirely rather than printing a blank one.
+When `{balance_advisory}` is empty, omit the line entirely rather than printing a blank one.
 
 If `{plan_output}` is `console`, skip writing files in steps 3 and 4 — print only.
 
