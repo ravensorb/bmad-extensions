@@ -11590,7 +11590,7 @@ class TestAgentInstructionsEngine(unittest.TestCase):
         self.assertEqual(text[start:end], text.rstrip("\n"))  # the span excludes the trailing newline
 
     def test_crlf_file_is_found(self):
-        # Review Focus 1. A Windows-authored instruction file.
+        # A Windows-authored instruction file.
         text = f"<!-- l3io:begin v=3.2.6 -->\n{self.BODY}<!-- l3io:end -->\n".replace("\n", "\r\n")
         self.assertIsNotNone(pm.find_block(text))
         # and a replace keeps the file CRLF throughout
@@ -11599,13 +11599,13 @@ class TestAgentInstructionsEngine(unittest.TestCase):
         self.assertNotIn("\n", out.replace("\r\n", ""))
 
     def test_marker_inside_a_fenced_code_block_is_not_a_block(self):
-        # Review Focus 2. Our own docs show this syntax; it must not match.
+        # Our own docs show this syntax; it must not match.
         text = ("# Docs\n\n```markdown\n<!-- l3io:begin v=1.0.0 -->\nexample\n"
                 "<!-- l3io:end -->\n```\n")
         self.assertIsNone(pm.find_block(text))
 
     def test_two_opening_markers_raise(self):
-        # Review Focus 3. A bad merge. "Between the markers" is undefined; refuse.
+        # A bad merge. "Between the markers" is undefined; refuse.
         text = ("<!-- l3io:begin v=1 -->\na\n<!-- l3io:end -->\n"
                 "<!-- l3io:begin v=2 -->\nb\n<!-- l3io:end -->\n")
         with self.assertRaises(pm.BlockError):
@@ -11664,6 +11664,37 @@ class TestAgentInstructionsEngine(unittest.TestCase):
         self.assertNotIn("l3io:begin", out)
         self.assertIn("TOP", out)
         self.assertIn("BOTTOM", out)
+
+    def test_remove_leaves_blank_runs_elsewhere_byte_for_byte(self):
+        keep = "top\n\n\n\nkeep\n```\na\n\n\n\nb\n```\n"
+        text = keep + pm.apply_block("", self.BODY, "3.2.6")[0]
+        out, action = pm.remove_block(text)
+        self.assertEqual(action, "removed")
+        self.assertEqual(out, keep)
+
+    def test_multiline_body_in_crlf_file_has_no_bare_lf_and_is_stable(self):
+        text = "# Mine\r\n"
+        once, action = pm.apply_block(text, self.BODY, "3.2.6")
+        self.assertEqual(action, "created")
+        self.assertNotIn("\n", once.replace("\r\n", ""))
+        twice, action = pm.apply_block(once, self.BODY, "3.2.6")
+        self.assertEqual(action, "unchanged")
+        self.assertEqual(twice, once)
+
+    def test_four_backtick_fence_containing_three_backticks_hides_marker(self):
+        text = ("````markdown\n```\n<!-- l3io:begin v=1 -->\nx\n<!-- l3io:end -->\n```\n````\n")
+        self.assertIsNone(pm.find_block(text))
+        out, action = pm.apply_block(text, self.BODY, "3.2.6")
+        self.assertEqual(action, "created")
+        self.assertIsNotNone(pm.find_block(out))
+
+    def test_tilde_fence_is_not_closed_by_backticks(self):
+        text = "~~~\n```\n<!-- l3io:begin v=1 -->\nx\n<!-- l3io:end -->\n~~~\n"
+        self.assertIsNone(pm.find_block(text))
+
+    def test_block_after_a_properly_closed_fence_is_found(self):
+        text = "```\ncode\n```\n" + pm.apply_block("", self.BODY, "3.2.6")[0]
+        self.assertIsNotNone(pm.find_block(text))
 
     def test_absent_block_is_not_an_error(self):
         out, action = pm.remove_block("# Nothing here\n")

@@ -3126,7 +3126,7 @@ def cmd_adr_reserve(args) -> int:
 BEGIN_RE = re.compile(r"^<!--\s*l3io:begin(?:\s+v=(?P<v>[^\s>]+))?\s*-->[ \t]*(?=\r?$)", re.MULTILINE)
 END_RE = re.compile(r"^<!--\s*l3io:end\s*-->[ \t]*(?=\r?$)", re.MULTILINE)
 # `(?=\r?$)`, not `$`: with re.MULTILINE `$` stops only before "\n", so a CRLF file's markers never matched.
-_FENCE_RE = re.compile(r"^[ \t]*(?:```|~~~)", re.MULTILINE)
+_FENCE_RE = re.compile(r"^[ \t]*(?P<run>`{3,}|~{3,})(?P<rest>[^\r\n]*)", re.MULTILINE)
 
 
 class BlockError(Exception):
@@ -3134,16 +3134,19 @@ class BlockError(Exception):
 
 
 def _fenced_spans(text):
-    """Character ranges inside fenced code blocks. Fences toggle; an unclosed fence runs to
-    the end of the file, which is what a markdown renderer does too."""
-    spans, open_at = [], None
+    """Character ranges inside fenced code blocks. A fence closes only on the same character,
+    at least as long as the opener, with nothing after it but whitespace (CommonMark) -- so a
+    four-backtick fence may contain a three-backtick line, and a tilde fence is not closed by
+    backticks. An unclosed fence runs to the end of the file, as a renderer treats it."""
+    spans, opener, open_at = [], None, None
     for m in _FENCE_RE.finditer(text):
-        if open_at is None:
-            open_at = m.start()
-        else:
+        run = m.group("run")
+        if opener is None:
+            opener, open_at = run, m.start()
+        elif run[0] == opener[0] and len(run) >= len(opener) and not m.group("rest").strip():
             spans.append((open_at, m.end()))
-            open_at = None
-    if open_at is not None:
+            opener = open_at = None
+    if opener is not None:
         spans.append((open_at, len(text)))
     return spans
 
@@ -3173,8 +3176,13 @@ def find_block(text):
     return b.start(), e.end(), b.group("v")
 
 
+def _normalise_nl(text, nl):
+    """Every line ending in `text` becomes `nl`, whatever it was."""
+    return text.replace("\r\n", "\n").replace("\n", nl)
+
+
 def _render(body, version, nl):
-    body = body.strip("\n")
+    body = _normalise_nl(body.strip("\n"), nl)
     return nl.join([f"<!-- l3io:begin v={version} -->", body, "<!-- l3io:end -->"])
 
 
@@ -3195,7 +3203,7 @@ def apply_block(text, body, version):
     current = text[start:end]
     # Compare BODY, not version: a release that does not change the text must not rewrite a
     # file in the user's repo just to bump a string they did not ask about.
-    if _strip_markers(current, nl) == _strip_markers(rendered, nl):
+    if _strip_markers(_normalise_nl(current, nl), nl) == _strip_markers(rendered, nl):
         return text, "unchanged"
     return text[:start] + rendered + text[end:], "replaced"
 
@@ -3212,9 +3220,14 @@ def remove_block(text):
         return text, "absent"
     nl = _newline(text)
     start, end, _ = found
-    out = text[:start] + text[end:]
-    while (nl + nl + nl) in out:
-        out = out.replace(nl + nl + nl, nl + nl)
+    before, after = text[:start], text[end:]
+    # Touch only the seam: the block's own line terminator, plus at most one separator blank
+    # line that `apply_block` put there. Blank lines anywhere else belong to the user.
+    if after.startswith(nl):
+        after = after[len(nl):]
+    if before.endswith(nl + nl) and (after == "" or after.startswith(nl)):
+        before = before[:-len(nl)]
+    out = before + after
     return out, "removed"
 
 
