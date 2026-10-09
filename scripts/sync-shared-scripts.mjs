@@ -79,6 +79,12 @@ const specAlignFiles = [
 // The canonical story AC dimension reference, shipped to the two skills that enrich stories.
 const acDimensionFiles = [{ src: path.join(sharedDir, "ac-dimensions.md"), rel: "references/ac-dimensions.md" }];
 
+// The agent instruction block body, shipped to each module home so install/upgrade can write
+// it into the consuming project's own instruction file.
+const agentInstructionFiles = [
+  { src: path.join(sharedDir, "agent-instructions.md"), rel: "assets/agent-instructions.md" },
+];
+
 // Files every l3io skill ships, regardless of module: the config contract every skill
 // resolves. Setup itself -- module-setup.md and the script that writes its config -- is a
 // module-home concern; see moduleHomeFiles below.
@@ -277,6 +283,8 @@ const syncGroups = [
   { files: specAlignFiles, dirs: [...newPmExecuteDirs, ...newUtilDoctorDirs] },
   // the canonical AC dimension reference into the two skills that enrich stories
   { files: acDimensionFiles, dirs: [...newPmPlanDirs, ...newPmExecuteDirs], skipMissing: true },
+  // the agent instruction block body, into each module's home only
+  { files: agentInstructionFiles, dirs: moduleHomeDirs },
   // The two BMad-validator-required merge scripts, into each module's home only.
   { files: moduleHomeFiles, dirs: moduleHomeDirs },
 ];

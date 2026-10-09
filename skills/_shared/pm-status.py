@@ -267,6 +267,12 @@ Subcommands
                 (never conflated with exit 1); advisory only -- a damaged notices file
                 never blocks the caller, but a failed write is reported, not silently
                 treated as success)
+  sync-agent-instructions  --runtime {claude,codex,copilot,other}  --project-root P
+                [--body-file F] [--version V]  (--apply | --remove | --check)
+                (creates, replaces or removes the marker-wrapped l3io block in the running
+                harness's instruction file, under a lock held across read and write; never
+                deletes the file; exit 1 = --check found no block, exit 2 = usage, an
+                undecodable file, or ambiguous markers)
 
 Exit codes: 0 = success/verified, 1 = notice already emitted for this key
 (notice only), 2 = usage error or, for notice only, an unexpected recording failure,
@@ -283,6 +289,7 @@ import io
 import json
 import os
 import re
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -387,6 +394,39 @@ def _atomic_dump(y: YAML, data, path: str) -> None:
         raise
 
 
+def _atomic_text_write(path: str, text: str) -> None:
+    """Temp file beside the target, fsync, then os.replace. Unlike `_atomic_dump` this takes
+    no epic lock -- the target is a user-owned document outside the state tree, so the
+    epic-lock invariant does not apply and asserting it would fail every call. `newline=""`
+    is load-bearing: the engine already matched the file's CRLF convention, and Python's
+    default translation would rewrite every line ending.
+
+    We are a guest in the user's file, so two things are preserved: a symlink (the path is
+    resolved first, so the link's real target is what changes and the link survives, with
+    the temp file in the RESOLVED directory so os.replace cannot cross devices) and the
+    file's mode (mkstemp makes 0600; an existing file's mode is copied, a new file gets
+    0666 & ~umask)."""
+    path = os.path.realpath(path)
+    d = os.path.dirname(path) or "."
+    fd, tmp = tempfile.mkstemp(dir=d, prefix=".l3io-ai-", suffix=".tmp")
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8", newline="") as fh:
+            fh.write(text)
+            fh.flush()
+            os.fsync(fh.fileno())
+        if os.path.exists(path):
+            shutil.copymode(path, tmp)
+        else:
+            umask = os.umask(0)
+            os.umask(umask)
+            os.chmod(tmp, 0o666 & ~umask)
+        os.replace(tmp, path)
+    except BaseException:
+        with contextlib.suppress(OSError):
+            os.unlink(tmp)
+        raise
+
+
 def _atomic_create(path: str, text: str) -> bool:
     """Create `path` with `text` only if it does not already exist -- atomically and without
     ever clobbering: write a temp file in the same directory, fsync it, then os.link it into
@@ -443,12 +483,12 @@ def _lock_rule_present(text: str, pattern: str = _LOCK_IGNORE_LINE) -> bool:
     return present
 
 
-def _missing_ignore_patterns(text: str):
-    """Which of `_GITIGNORE_PATTERNS` git does NOT currently read `text` as ignoring."""
-    return [p for p in _GITIGNORE_PATTERNS if not _lock_rule_present(text, p)]
+def _missing_ignore_patterns(text: str, patterns=_GITIGNORE_PATTERNS):
+    """Which of `patterns` git does NOT currently read `text` as ignoring."""
+    return [p for p in patterns if not _lock_rule_present(text, p)]
 
 
-def _ensure_lock_ignore(state_root: str) -> None:
+def _ensure_lock_ignore(state_root: str, patterns=_GITIGNORE_PATTERNS) -> None:
     """Make `{state_root}/.gitignore` carry every pattern in `_GITIGNORE_PATTERNS` --
     `*.lock` and `.notices.yaml` -- so neither a lock file nor the notices ledger is ever
     committed.
@@ -474,7 +514,10 @@ def _ensure_lock_ignore(state_root: str) -> None:
     for writing. Missing lines are appended after a newline when the file lacks a trailing
     one; existing content is never rewritten or reordered. Best-effort: this runs inside the
     lock path, so an OSError or an undecodable file warns once on stderr and returns -- it
-    never raises and never fails the verb."""
+    never raises and never fails the verb.
+
+    `patterns` narrows what is written, for a directory that is not a state root: the
+    agent-instruction lock under `_bmad/` needs only `*.lock`, not the notices ledger."""
     root = os.path.realpath(state_root or ".")
     if root in _LOCK_IGNORE_CHECKED:
         return
@@ -483,10 +526,10 @@ def _ensure_lock_ignore(state_root: str) -> None:
     try:
         if not os.path.lexists(path) and _atomic_create(
                 path, "# pm-status.py state files -- never commit\n" +
-                      "".join(f"{p}\n" for p in _GITIGNORE_PATTERNS)):
+                      "".join(f"{p}\n" for p in patterns)):
             return
         with open(path, "rb") as fh:                # read first: needs no write access
-            if not _missing_ignore_patterns(fh.read().decode("utf-8-sig")):
+            if not _missing_ignore_patterns(fh.read().decode("utf-8-sig"), patterns):
                 return
         try:
             import fcntl
@@ -498,7 +541,7 @@ def _ensure_lock_ignore(state_root: str) -> None:
             try:
                 fh.seek(0)
                 text = fh.read().decode("utf-8-sig")   # re-check under the flock; BOM skipped
-                missing = _missing_ignore_patterns(text)
+                missing = _missing_ignore_patterns(text, patterns)
                 if not missing:
                     return
                 sep = "" if not text or text.endswith("\n") else "\n"
@@ -509,7 +552,7 @@ def _ensure_lock_ignore(state_root: str) -> None:
                     fcntl.flock(fh, fcntl.LOCK_UN)
     except (OSError, UnicodeDecodeError) as e:
         sys.stderr.write(f"pm-status.py: warning -- could not add "
-                         f"{', '.join(_GITIGNORE_PATTERNS)} to {path}: {e}\n")
+                         f"{', '.join(patterns)} to {path}: {e}\n")
 
 
 def _state_root_of_node(path: str):
@@ -1396,6 +1439,27 @@ def notices_lock(state_root: str):
     not been shown yet and each write their own "now recorded" copy, silently dropping one.
     """
     with _file_lock(notices_path(state_root) + ".lock", _NOTICES_LOCK, state_root):
+        yield
+
+
+_AGENT_INSTR_LOCK = {"depth": 0, "fh": None}
+
+
+@contextlib.contextmanager
+def agent_instructions_lock(project_root: str):
+    """Exclusive lock over the whole read-modify-write of an AI instruction file.
+
+    Same reasoning as notices_lock: two skills activating at once must not both read the
+    pre-write text and let the second overwrite the first's block. The lock file lives under
+    `_bmad/` -- the tool's own directory -- never beside the user's document, and `*.lock`
+    is added to `_bmad/.gitignore` on every acquisition (self-healing, additive, via
+    `_ensure_lock_ignore`). state_root is None for `_file_lock` because `_bmad/` is not a
+    state root and would otherwise also receive the notices pattern.
+    """
+    bmad = os.path.join(project_root, "_bmad")
+    _ensure_lock_ignore(bmad, (_LOCK_IGNORE_LINE,))
+    with _file_lock(os.path.join(bmad, ".agent-instructions.lock"),
+                    _AGENT_INSTR_LOCK, None):
         yield
 
 
@@ -3106,6 +3170,210 @@ def cmd_adr_reserve(args) -> int:
         reg["next"] = start + args.count
         _atomic_dump(yaml, reg, adr_register_path(args.state_root))
     sys.stdout.write("\n".join(f"{n:04d}" for n in numbers) + "\n")
+    return 0
+
+
+# --------------------------------------------------------------------------- #
+# agent instruction block -- the marker engine: pure string transforms, no I/O
+#
+# Kept in this file, not a sibling module: `self-install` copies this one file into a
+# consuming project, so a sibling would not be there (ADR-0001).
+#
+# WHY THE MARKERS ARE HTML COMMENTS. They render invisibly, survive a markdown reformat, and
+# are greppable. The repo already uses body markers this way (`resolver-invariant:
+# canonical-contract`), so this follows a precedent rather than inventing a form.
+#
+# WHY A FENCED BLOCK IS EXCLUDED. This package's own documentation shows the marker syntax. A
+# naive search would match the example and splice the wrong region of whatever file documented
+# the feature -- including, eventually, a user's own notes about it.
+# --------------------------------------------------------------------------- #
+BEGIN_RE = re.compile(r"^<!--\s*l3io:begin(?:\s+v=(?P<v>[^\s>]+))?\s*-->[ \t]*(?=\r?$)", re.MULTILINE)
+END_RE = re.compile(r"^<!--\s*l3io:end\s*-->[ \t]*(?=\r?$)", re.MULTILINE)
+# `(?=\r?$)`, not `$`: with re.MULTILINE `$` stops only before "\n", so a CRLF file's markers never matched.
+_FENCE_RE = re.compile(r"^[ \t]*(?P<run>`{3,}|~{3,})(?P<rest>[^\r\n]*)", re.MULTILINE)
+
+
+class BlockError(Exception):
+    """The file's markers are not a single well-formed pair."""
+
+
+def _fenced_spans(text):
+    """Character ranges inside fenced code blocks. A fence closes only on the same character,
+    at least as long as the opener, with nothing after it but whitespace (CommonMark) -- so a
+    four-backtick fence may contain a three-backtick line, and a tilde fence is not closed by
+    backticks. An unclosed fence runs to the end of the file, as a renderer treats it."""
+    spans, opener, open_at = [], None, None
+    for m in _FENCE_RE.finditer(text):
+        run = m.group("run")
+        if opener is None:
+            opener, open_at = run, m.start()
+        elif run[0] == opener[0] and len(run) >= len(opener) and not m.group("rest").strip():
+            spans.append((open_at, m.end()))
+            opener = open_at = None
+    if opener is not None:
+        spans.append((open_at, len(text)))
+    return spans
+
+
+def _outside_fences(matches, spans):
+    return [m for m in matches
+            if not any(lo <= m.start() < hi for lo, hi in spans)]
+
+
+def find_block(text):
+    """(start, end, version) of the block, or None. Raises BlockError when the markers are
+    not exactly one well-formed pair -- a duplicated or stranded marker makes "between the
+    markers" undefined, and guessing would truncate the user's own content."""
+    spans = _fenced_spans(text)
+    begins = _outside_fences(list(BEGIN_RE.finditer(text)), spans)
+    ends = _outside_fences(list(END_RE.finditer(text)), spans)
+    if not begins and not ends:
+        return None
+    if len(begins) != 1 or len(ends) != 1:
+        raise BlockError(
+            f"expected exactly one l3io:begin/l3io:end pair, found "
+            f"{len(begins)} begin and {len(ends)} end marker(s). Fix the file by hand: "
+            f"replacing between ambiguous markers could delete content that is not ours.")
+    b, e = begins[0], ends[0]
+    if e.start() < b.start():
+        raise BlockError("l3io:end appears before l3io:begin")
+    return b.start(), e.end(), b.group("v")
+
+
+def _normalise_nl(text, nl):
+    """Every line ending in `text` becomes `nl`, whatever it was."""
+    return text.replace("\r\n", "\n").replace("\n", nl)
+
+
+def _render(body, version, nl):
+    body = _normalise_nl(body.strip("\n"), nl)
+    return nl.join([f"<!-- l3io:begin v={version} -->", body, "<!-- l3io:end -->"])
+
+
+def _newline(text):
+    """Match the file's existing convention so a CRLF file stays CRLF."""
+    return "\r\n" if "\r\n" in text else "\n"
+
+
+def apply_block(text, body, version):
+    """Create, replace, or leave alone. Returns (text, 'created'|'replaced'|'unchanged')."""
+    nl = _newline(text)
+    found = find_block(text)
+    rendered = _render(body, version, nl)
+    if found is None:
+        sep = "" if text == "" else (nl if text.endswith(nl) else nl + nl)
+        return text + sep + rendered + nl, "created"
+    start, end, _ = found
+    current = text[start:end]
+    # Compare BODY, not version: a release that does not change the text must not rewrite a
+    # file in the user's repo just to bump a string they did not ask about.
+    if _strip_markers(_normalise_nl(current, nl), nl) == _strip_markers(rendered, nl):
+        return text, "unchanged"
+    return text[:start] + rendered + text[end:], "replaced"
+
+
+def _strip_markers(block, nl):
+    lines = block.split(nl)
+    return nl.join(lines[1:-1]).strip()
+
+
+def remove_block(text):
+    """Returns (text, 'removed'|'absent'). Never deletes anything outside the pair."""
+    found = find_block(text)
+    if found is None:
+        return text, "absent"
+    nl = _newline(text)
+    start, end, _ = found
+    before, after = text[:start], text[end:]
+    # Touch only the seam: the block's own line terminator, plus at most one separator blank
+    # line that `apply_block` put there. Blank lines anywhere else belong to the user.
+    after = after.removeprefix(nl)
+    if before.endswith(nl + nl) and (after == "" or after.startswith(nl)):
+        before = before[:-len(nl)]
+    out = before + after
+    return out, "removed"
+
+
+_RUNTIME_INSTRUCTION_FILE = {
+    "claude": ("CLAUDE.md",),
+    "copilot": (".github", "copilot-instructions.md"),
+    "codex": ("AGENTS.md",),
+    "other": ("AGENTS.md",),
+}
+
+
+def cmd_sync_agent_instructions(args) -> int:
+    """Create, replace or remove the l3io block in the running harness's instruction file.
+
+    NEVER writes a file for a harness that is not running: the target comes from --runtime
+    alone. That rule is inherited from update-ai-rules Step AR5, where writing AGENTS.md
+    under Claude put a block in a file belonging to another AI system.
+
+    NEVER deletes the file. --remove strips the block and leaves whatever else is there,
+    including nothing.
+
+    Exit 0 = acted or already correct; 1 = --check found the block absent; 2 = usage, an
+    undecodable file, or ambiguous markers -- all cases where we must not write.
+    """
+    target = os.path.join(args.project_root, *_RUNTIME_INSTRUCTION_FILE[args.runtime])
+
+    if not args.remove and not args.check and not args.body_file:
+        sys.stderr.write("pm-status.py: sync-agent-instructions: --apply needs --body-file\n")
+        return 2
+    def _undecodable(path, e):
+        sys.stderr.write(f"pm-status.py: sync-agent-instructions: {path} is not valid "
+                         f"utf-8 ({e}); refusing to write\n")
+        return 2
+
+    body = ""
+    if not args.remove and not args.check:
+        try:
+            # Default universal newlines: the body is normalised, only the TARGET keeps its
+            # own convention (a CRLF body would otherwise leave a stray \r in an LF file).
+            with open(args.body_file, encoding="utf-8") as fh:
+                body = fh.read()
+        except UnicodeDecodeError as e:
+            return _undecodable(args.body_file, e)
+        except OSError as e:
+            sys.stderr.write(f"pm-status.py: sync-agent-instructions: {e}\n")
+            return 2
+
+    def _read_target():
+        if not os.path.isfile(target):
+            return ""
+        with open(target, encoding="utf-8", newline="") as fh:
+            return fh.read()
+
+    try:
+        if args.check:
+            # A pure query: no lock, so it never creates _bmad/ or a lock file (it runs at
+            # every skill activation, and under a mistyped --project-root). Its answer is
+            # advisory and inherently racy, so the lock would buy nothing.
+            try:
+                return 0 if find_block(_read_target()) else 1
+            except UnicodeDecodeError as e:
+                return _undecodable(target, e)
+        # The lock spans the READ as well as the write: otherwise two callers each read the
+        # pre-write text and the second silently overwrites the first's block.
+        with agent_instructions_lock(args.project_root):
+            try:
+                text = _read_target()
+            except UnicodeDecodeError as e:
+                return _undecodable(target, e)
+            if args.remove:
+                out, action = remove_block(text)
+            else:
+                out, action = apply_block(text, body, args.version or PM_STATUS_VERSION)
+            if action not in ("unchanged", "absent"):
+                os.makedirs(os.path.dirname(target) or ".", exist_ok=True)
+                _atomic_text_write(target, out)
+    except BlockError as e:
+        sys.stderr.write(f"pm-status.py: sync-agent-instructions: {target}: {e}\n")
+        return 2
+    except OSError as e:
+        sys.stderr.write(f"pm-status.py: sync-agent-instructions: {e}\n")
+        return 2
+    sys.stdout.write(f"OK sync-agent-instructions {action} {target}\n")
     return 0
 
 
@@ -8309,6 +8577,20 @@ def build_parser() -> argparse.ArgumentParser:
     nt.add_argument("--state-root", required=True)
     nt.add_argument("--key", required=True)
     nt.set_defaults(func=cmd_notice)
+
+    ai = sub.add_parser("sync-agent-instructions",
+                        help="create, replace or remove the l3io block in the running "
+                             "harness's AI instruction file")
+    ai.add_argument("--runtime", required=True,
+                    choices=("claude", "codex", "copilot", "other"))
+    ai.add_argument("--project-root", required=True)
+    ai.add_argument("--body-file")
+    ai.add_argument("--version")
+    g = ai.add_mutually_exclusive_group(required=True)
+    g.add_argument("--apply", action="store_true")
+    g.add_argument("--remove", action="store_true")
+    g.add_argument("--check", action="store_true")
+    ai.set_defaults(func=cmd_sync_agent_instructions)
 
     p.add_argument("--version", action="version", version=f"pm-status.py {PM_STATUS_VERSION}")
     return p

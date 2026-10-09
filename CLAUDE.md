@@ -46,6 +46,7 @@ Files in `skills/_shared/` are the canonical sources for content shared across P
 | `skills/_shared/spec-align.py` | `scripts/spec-align.py` | pm-execute, **l3io-doctor** — run from each skill's own copy, never self-installed; its suite `tests/test-spec-align.py` stays in `_shared/tests/` |
 | `skills/_shared/status-files.md` | `references/status-files.md` | pm-execute, pm-plan, pm-sync, **l3io-doctor** (state layout only — it ships this contract but not `metrics-contract.md`/`calibration-model.md`; six of its directives named it, including `SKILL.md`, and it did not carry it) |
 | `skills/_shared/ac-dimensions.md` | `references/ac-dimensions.md` | pm-plan, pm-execute — the canonical story-AC dimension reference (which dimensions apply to CODE, to CONFIG, and to every work type), loaded by both enrichment prompts so the two cannot drift apart |
+| `skills/_shared/agent-instructions.md` | `assets/agent-instructions.md` | each module's HOME only: `l3io-setup`, `l3io-doctor`, `l3io-sec-redteam`, `l3io-arch-review` — the block body written into a consuming project's AI instruction file |
 | `skills/_shared/metrics-contract.md` | `references/metrics-contract.md` | pm-execute, pm-plan, pm-sync |
 | `skills/_shared/calibration-model.md` | `references/calibration-model.md` | pm-execute, pm-plan, pm-sync |
 | `skills/_shared/steps/**` | `steps/**` | pm-execute, pm-plan, pm-sync |

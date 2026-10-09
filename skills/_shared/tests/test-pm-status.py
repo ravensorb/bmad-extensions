@@ -20,6 +20,7 @@ import sys
 import tempfile
 import unittest
 from contextlib import contextmanager, redirect_stderr, redirect_stdout
+from pathlib import Path
 from unittest import mock
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -11572,6 +11573,408 @@ class TestBlockedShowAndReport(Base):
         self.assertIsNotNone(found)
         self.assertEqual(found["status"], "blocked")
         self.assertEqual(found["blocked_reason"], "wait")
+
+
+class TestAgentInstructionsEngine(unittest.TestCase):
+    """The marker engine for the agent instruction block (pure string transforms)."""
+
+    BODY = "## LiquidLogicLabs Extensions (l3io)\n\nState is machine-written.\n"
+
+    # -- find_block --
+    def test_absent_returns_none(self):
+        self.assertIsNone(pm.find_block("# My Project\n\nNotes.\n"))
+
+    def test_finds_and_reports_version(self):
+        text = f"<!-- l3io:begin v=3.2.6 -->\n{self.BODY}<!-- l3io:end -->\n"
+        start, end, version = pm.find_block(text)
+        self.assertEqual(version, "3.2.6")
+        self.assertEqual(text[start:end], text.rstrip("\n"))  # the span excludes the trailing newline
+
+    def test_crlf_file_is_found(self):
+        # A Windows-authored instruction file.
+        text = f"<!-- l3io:begin v=3.2.6 -->\n{self.BODY}<!-- l3io:end -->\n".replace("\n", "\r\n")
+        self.assertIsNotNone(pm.find_block(text))
+        # and a replace keeps the file CRLF throughout
+        out, action = pm.apply_block(text, "## New\n", "3.3.0")
+        self.assertEqual(action, "replaced")
+        self.assertNotIn("\n", out.replace("\r\n", ""))
+
+    def test_marker_inside_a_fenced_code_block_is_not_a_block(self):
+        # Our own docs show this syntax; it must not match.
+        text = ("# Docs\n\n```markdown\n<!-- l3io:begin v=1.0.0 -->\nexample\n"
+                "<!-- l3io:end -->\n```\n")
+        self.assertIsNone(pm.find_block(text))
+
+    def test_two_opening_markers_raise(self):
+        # A bad merge. "Between the markers" is undefined; refuse.
+        text = ("<!-- l3io:begin v=1 -->\na\n<!-- l3io:end -->\n"
+                "<!-- l3io:begin v=2 -->\nb\n<!-- l3io:end -->\n")
+        with self.assertRaises(pm.BlockError):
+            pm.find_block(text)
+
+    def test_opening_without_closing_raises(self):
+        with self.assertRaises(pm.BlockError):
+            pm.find_block("<!-- l3io:begin v=1 -->\nstranded\n")
+
+    # -- apply_block --
+    def test_creates_on_empty_file(self):
+        out, action = pm.apply_block("", self.BODY, "3.2.6")
+        self.assertEqual(action, "created")
+        self.assertIn("<!-- l3io:begin v=3.2.6 -->", out)
+        self.assertIn("<!-- l3io:end -->", out)
+
+    def test_appends_without_disturbing_existing_content(self):
+        before = "# My Project\n\nUser notes.\n"
+        out, action = pm.apply_block(before, self.BODY, "3.2.6")
+        self.assertEqual(action, "created")
+        self.assertTrue(out.startswith(before))
+
+    def test_identical_body_is_unchanged_even_when_version_differs(self):
+        # Spec 2.1: upgrade compares the BODY. A version bump alone must not rewrite
+        # a file in the user's repo.
+        text, _ = pm.apply_block("", self.BODY, "3.2.6")
+        out, action = pm.apply_block(text, self.BODY, "9.9.9")
+        self.assertEqual(action, "unchanged")
+        self.assertEqual(out, text)
+
+    def test_changed_body_is_replaced_in_place(self):
+        text, _ = pm.apply_block("prefix\n", self.BODY, "3.2.6")
+        out, action = pm.apply_block(text, "## New\n\nDifferent.\n", "3.3.0")
+        self.assertEqual(action, "replaced")
+        self.assertTrue(out.startswith("prefix\n"))
+        self.assertIn("v=3.3.0", out)
+        self.assertNotIn("State is machine-written", out)
+
+    def test_content_outside_the_markers_survives_replacement(self):
+        before = "TOP\n\n" + pm.apply_block("", self.BODY, "3.2.6")[0] + "\nBOTTOM\n"
+        out, _ = pm.apply_block(before, "## New\n\nX.\n", "3.3.0")
+        self.assertTrue(out.startswith("TOP\n\n"))
+        self.assertTrue(out.rstrip().endswith("BOTTOM"))
+
+    def test_is_idempotent(self):
+        once, _ = pm.apply_block("", self.BODY, "3.2.6")
+        twice, action = pm.apply_block(once, self.BODY, "3.2.6")
+        self.assertEqual(action, "unchanged")
+        self.assertEqual(once, twice)
+
+    # -- remove_block --
+    def test_removes_only_the_block(self):
+        text = "TOP\n\n" + pm.apply_block("", self.BODY, "3.2.6")[0] + "\nBOTTOM\n"
+        out, action = pm.remove_block(text)
+        self.assertEqual(action, "removed")
+        self.assertNotIn("l3io:begin", out)
+        self.assertIn("TOP", out)
+        self.assertIn("BOTTOM", out)
+
+    def test_remove_leaves_blank_runs_elsewhere_byte_for_byte(self):
+        keep = "top\n\n\n\nkeep\n```\na\n\n\n\nb\n```\n"
+        text = keep + pm.apply_block("", self.BODY, "3.2.6")[0]
+        out, action = pm.remove_block(text)
+        self.assertEqual(action, "removed")
+        self.assertEqual(out, keep)
+
+    def test_multiline_body_in_crlf_file_has_no_bare_lf_and_is_stable(self):
+        text = "# Mine\r\n"
+        once, action = pm.apply_block(text, self.BODY, "3.2.6")
+        self.assertEqual(action, "created")
+        self.assertNotIn("\n", once.replace("\r\n", ""))
+        twice, action = pm.apply_block(once, self.BODY, "3.2.6")
+        self.assertEqual(action, "unchanged")
+        self.assertEqual(twice, once)
+
+    def test_four_backtick_fence_containing_three_backticks_hides_marker(self):
+        text = ("````markdown\n```\n<!-- l3io:begin v=1 -->\nx\n<!-- l3io:end -->\n```\n````\n")
+        self.assertIsNone(pm.find_block(text))
+        out, action = pm.apply_block(text, self.BODY, "3.2.6")
+        self.assertEqual(action, "created")
+        self.assertIsNotNone(pm.find_block(out))
+
+    def test_tilde_fence_is_not_closed_by_backticks(self):
+        text = "~~~\n```\n<!-- l3io:begin v=1 -->\nx\n<!-- l3io:end -->\n~~~\n"
+        self.assertIsNone(pm.find_block(text))
+
+    def test_block_after_a_properly_closed_fence_is_found(self):
+        text = "```\ncode\n```\n" + pm.apply_block("", self.BODY, "3.2.6")[0]
+        self.assertIsNotNone(pm.find_block(text))
+
+    def test_absent_block_is_not_an_error(self):
+        out, action = pm.remove_block("# Nothing here\n")
+        self.assertEqual(action, "absent")
+        self.assertEqual(out, "# Nothing here\n")
+
+
+class TestShippedAsset(unittest.TestCase):
+    from pathlib import Path as _Path
+    ASSET = _Path(__file__).resolve().parent.parent / "agent-instructions.md"
+
+    def test_asset_exists(self):
+        self.assertTrue(self.ASSET.is_file(), f"missing {self.ASSET}")
+
+    def test_stays_under_2kb(self):
+        # This block enters every agent's context in the consuming project, on every
+        # invocation, forever. l3io-doctor's SKILL.md once reached 96,980 B and every
+        # invocation paid for procedures it never ran; the same discipline applies harder
+        # here, because this is not even our file.
+        size = self.ASSET.stat().st_size
+        self.assertLess(size, 2048, f"asset is {size} B; budget is 2048 B")
+
+    def test_covers_the_six_required_points(self):
+        text = self.ASSET.read_text(encoding="utf-8")
+        for needle in ["pm-status.py", "never hand-edit", "conversational",
+                       "actual", "calibrat", "rates"]:
+            self.assertIn(needle.lower(), text.lower(), f"asset omits {needle!r}")
+
+    def test_contains_no_flagged_invocation(self):
+        # Check 31's rule, enforced at the source: no /l3io-* invocation carries a --flag.
+        text = self.ASSET.read_text(encoding="utf-8")
+        self.assertNotRegex(text, r"/l3io-[a-z0-9-]+[^\n`]*\s--[a-z]")
+
+
+class TestAgentInstructions(unittest.TestCase):
+    """The instruction-block subcommand. Covers Review Focus 4 (non-UTF-8) and 5 (locking).
+
+    Runs the CLI as a SUBPROCESS rather than through Base.run_main: run_main returns
+    (code, stdout) and does not capture stderr, and several assertions here are about the
+    refusal message. The concurrency case needs real processes anyway -- the same shape
+    TestConcurrentNoticeDistinctKeys already uses.
+    """
+
+    def setUp(self):
+        self.d = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, self.d, True)
+
+    def _body(self, text="## l3io\n\nBody.\n"):
+        p = Path(self.d) / "body.md"
+        p.write_text(text, encoding="utf-8")
+        return str(p)
+
+    def _run(self, *argv):
+        import subprocess
+        return subprocess.run([sys.executable, SCRIPT, "sync-agent-instructions", *argv],
+                              capture_output=True, text=True)
+
+    def test_claude_runtime_writes_claude_md(self):
+        r = self._run("--runtime", "claude", "--project-root", self.d,
+                      "--body-file", self._body(), "--version", "9.9.9", "--apply")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertIn("l3io:begin v=9.9.9",
+                      (Path(self.d) / "CLAUDE.md").read_text(encoding="utf-8"))
+
+    def test_copilot_runtime_writes_its_own_file_not_claude(self):
+        self._run("--runtime", "copilot", "--project-root", self.d,
+                  "--body-file", self._body(), "--apply")
+        self.assertTrue((Path(self.d) / ".github" / "copilot-instructions.md").is_file())
+        self.assertFalse((Path(self.d) / "CLAUDE.md").exists(),
+                         "must never write a file for a harness that is not running")
+
+    def test_apply_is_idempotent(self):
+        a = ("--runtime", "claude", "--project-root", self.d,
+             "--body-file", self._body(), "--version", "1.0.0", "--apply")
+        self._run(*a)
+        first = (Path(self.d) / "CLAUDE.md").read_bytes()
+        r = self._run(*a)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertEqual(first, (Path(self.d) / "CLAUDE.md").read_bytes())
+        self.assertIn("unchanged", r.stdout)
+
+    def test_remove_leaves_the_file_and_the_user_content(self):
+        f = Path(self.d) / "CLAUDE.md"
+        f.write_text("# Mine\n\nKeep me.\n", encoding="utf-8")
+        self._run("--runtime", "claude", "--project-root", self.d,
+                  "--body-file", self._body(), "--apply")
+        r = self._run("--runtime", "claude", "--project-root", self.d, "--remove")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertTrue(f.is_file(), "the file must never be deleted")
+        text = f.read_text(encoding="utf-8")
+        self.assertIn("Keep me.", text)
+        self.assertNotIn("l3io:begin", text)
+
+    def test_round_trip_restores_the_file_byte_for_byte(self):
+        f = Path(self.d) / "CLAUDE.md"
+        original = "# Mine\n\nKeep me.\n"
+        f.write_text(original, encoding="utf-8")
+        self._run("--runtime", "claude", "--project-root", self.d,
+                  "--body-file", self._body(), "--apply")
+        self._run("--runtime", "claude", "--project-root", self.d, "--remove")
+        self.assertEqual(f.read_text(encoding="utf-8"), original)
+
+    def test_check_reports_absent_with_exit_1(self):
+        r = self._run("--runtime", "claude", "--project-root", self.d, "--check")
+        self.assertEqual(r.returncode, 1)
+
+    def test_undecodable_file_exits_2_and_writes_nothing(self):
+        # Review Focus 4. An unhandled raise here would abort an otherwise fine install.
+        f = Path(self.d) / "CLAUDE.md"
+        f.write_bytes(b"\xff\xfe not utf-8 \x00")
+        before = f.read_bytes()
+        r = self._run("--runtime", "claude", "--project-root", self.d,
+                      "--body-file", self._body(), "--apply")
+        self.assertEqual(r.returncode, 2)
+        self.assertEqual(f.read_bytes(), before)
+        self.assertIn("utf-8", r.stderr.lower())
+
+    def test_ambiguous_markers_exit_2_and_write_nothing(self):
+        f = Path(self.d) / "CLAUDE.md"
+        dup = ("<!-- l3io:begin v=1 -->\na\n<!-- l3io:end -->\n"
+               "<!-- l3io:begin v=2 -->\nb\n<!-- l3io:end -->\n")
+        f.write_text(dup, encoding="utf-8")
+        r = self._run("--runtime", "claude", "--project-root", self.d,
+                      "--body-file", self._body(), "--apply")
+        self.assertEqual(r.returncode, 2)
+        self.assertEqual(f.read_text(encoding="utf-8"), dup)
+
+    def test_concurrent_applies_do_not_duplicate_the_block(self):
+        # Review Focus 5. Two skills activating at once against one project.
+        import subprocess
+        body = self._body()
+        procs = [subprocess.Popen(
+            [sys.executable, SCRIPT, "sync-agent-instructions", "--runtime", "claude",
+             "--project-root", self.d, "--body-file", body, "--apply"],
+            stdout=subprocess.PIPE, stderr=subprocess.PIPE) for _ in range(4)]
+        for pr in procs:
+            pr.communicate()
+            self.assertEqual(pr.returncode, 0)
+        text = (Path(self.d) / "CLAUDE.md").read_text(encoding="utf-8")
+        self.assertEqual(text.count("l3io:begin"), 1,
+                         "concurrent writes duplicated the block -- the lock must cover the "
+                         "READ as well as the write")
+
+    def _apply_claude(self):
+        return self._run("--runtime", "claude", "--project-root", self.d,
+                         "--body-file", self._body(), "--apply")
+
+    def test_lock_file_is_gitignored_in_bmad(self):
+        self.assertEqual(self._apply_claude().returncode, 0)
+        gi = Path(self.d) / "_bmad" / ".gitignore"
+        self.assertEqual(gi.read_text(encoding="utf-8").splitlines().count("*.lock"), 1)
+        self.assertNotIn(".notices.yaml", gi.read_text(encoding="utf-8"))
+
+    def test_second_run_does_not_duplicate_the_ignore_rule(self):
+        self._apply_claude()
+        self._apply_claude()
+        gi = Path(self.d) / "_bmad" / ".gitignore"
+        self.assertEqual(gi.read_text(encoding="utf-8").splitlines().count("*.lock"), 1)
+
+    def test_existing_bmad_gitignore_is_appended_to_not_clobbered(self):
+        gi = Path(self.d) / "_bmad" / ".gitignore"
+        gi.parent.mkdir()
+        gi.write_text("keep-me\n", encoding="utf-8")
+        self._apply_claude()
+        lines = gi.read_text(encoding="utf-8").splitlines()
+        self.assertIn("keep-me", lines)
+        self.assertEqual(lines.count("*.lock"), 1)
+
+    def test_file_mode_is_preserved(self):
+        f = Path(self.d) / "CLAUDE.md"
+        f.write_text("# Mine\n", encoding="utf-8")
+        os.chmod(f, 0o644)
+        self.assertEqual(self._apply_claude().returncode, 0)
+        self.assertEqual(os.stat(f).st_mode & 0o777, 0o644)
+
+    def test_new_file_gets_umask_mode_not_0600(self):
+        self.assertEqual(self._apply_claude().returncode, 0)
+        mode = os.stat(Path(self.d) / "CLAUDE.md").st_mode & 0o777
+        um = os.umask(0)
+        os.umask(um)
+        self.assertEqual(mode, 0o666 & ~um)
+
+    def test_symlinked_target_stays_a_symlink_and_real_file_is_updated(self):
+        real = Path(self.d) / "AGENTS.md"
+        real.write_text("# Shared\n", encoding="utf-8")
+        link = Path(self.d) / "CLAUDE.md"
+        os.symlink("AGENTS.md", link)
+        self.assertEqual(self._apply_claude().returncode, 0)
+        self.assertTrue(os.path.islink(link))
+        self.assertIn("l3io:begin", real.read_text(encoding="utf-8"))
+        self.assertIn("# Shared", link.read_text(encoding="utf-8"))
+
+    def test_remove_and_check_ignore_a_bad_body_file(self):
+        self._apply_claude()
+        bad = Path(self.d) / "bad.md"
+        bad.write_bytes(b"\xff\xfe\x00")
+        r = self._run("--runtime", "claude", "--project-root", self.d, "--check",
+                      "--body-file", str(Path(self.d) / "missing.md"))
+        self.assertEqual(r.returncode, 0, r.stderr)
+        r = self._run("--runtime", "claude", "--project-root", self.d, "--remove",
+                      "--body-file", str(bad))
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertNotIn("l3io:begin", (Path(self.d) / "CLAUDE.md").read_text(encoding="utf-8"))
+
+    def test_check_writes_nothing_to_a_pristine_directory(self):
+        r = self._run("--runtime", "claude", "--project-root", self.d, "--check")
+        self.assertEqual(r.returncode, 1)
+        self.assertEqual(os.listdir(self.d), [])
+        ghost = os.path.join(self.d, "typo", "deeper")
+        r = self._run("--runtime", "claude", "--project-root", ghost, "--check")
+        self.assertEqual(r.returncode, 1)
+        self.assertFalse(os.path.exists(os.path.join(self.d, "typo")))
+
+    def test_crlf_body_leaves_no_stray_cr_in_an_lf_file(self):
+        body = Path(self.d) / "crlf.md"
+        body.write_bytes(b"## l3io\r\n\r\nBody.\r\n")
+        f = Path(self.d) / "CLAUDE.md"
+        f.write_bytes(b"# Mine\n")
+        r = self._run("--runtime", "claude", "--project-root", self.d,
+                      "--body-file", str(body), "--apply")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertNotIn(b"\r", f.read_bytes())
+
+    def test_the_read_happens_inside_the_lock(self):
+        # The subprocess test above cannot pin this: two racing "created" applies write
+        # IDENTICAL text, so a lost update is invisible in the final file. Observe the order
+        # instead, the way TestNoticeReadInsideLock does for notices_lock.
+        events = []
+        real_lock, real_isfile = pm.agent_instructions_lock, os.path.isfile
+        real_write = pm._atomic_text_write
+        target = os.path.join(self.d, "CLAUDE.md")
+
+        @contextmanager
+        def recording_lock(root):
+            with real_lock(root):
+                events.append("lock-acquired")
+                try:
+                    yield
+                finally:
+                    events.append("lock-released")
+
+        def recording_isfile(p):
+            if p == target:
+                events.append("read")
+            return real_isfile(p)
+
+        def recording_write(path, text):
+            events.append("write")
+            return real_write(path, text)
+
+        with mock.patch.object(pm, "agent_instructions_lock", recording_lock), \
+                mock.patch.object(os.path, "isfile", recording_isfile), \
+                mock.patch.object(pm, "_atomic_text_write", recording_write), \
+                redirect_stdout(io.StringIO()):
+            code = pm.main(["sync-agent-instructions", "--runtime", "claude",
+                            "--project-root", self.d, "--body-file", self._body(), "--apply"])
+        self.assertEqual(code, 0)
+        self.assertEqual(events, ["lock-acquired", "read", "write", "lock-released"])
+
+
+class TestNoticeIsPerHarness(unittest.TestCase):
+    """A notice satisfied for one harness must not satisfy another, or a project opened
+    under a second harness is never offered the block."""
+
+    def setUp(self):
+        self.d = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, self.d, True)
+
+    def _notice(self, key):
+        import subprocess
+        return subprocess.run(
+            [sys.executable, SCRIPT, "notice", "--state-root", self.d, "--key", key],
+            capture_output=True, text=True).returncode
+
+    def test_claude_and_copilot_keys_are_independent(self):
+        self.assertEqual(self._notice("ai-rules-missing:claude"), 0, "first claude = emit")
+        self.assertEqual(self._notice("ai-rules-missing:claude"), 1, "second claude = silent")
+        self.assertEqual(self._notice("ai-rules-missing:copilot"), 0,
+                         "copilot must still be offered after claude was satisfied")
 
 
 if __name__ == "__main__":

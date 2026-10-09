@@ -125,6 +125,7 @@ in the [l3io-pm reference](l3io-pm-reference.md), which documents the whole CLI.
 | `clear-lock` | `stats` | The stale-lock remedy `stats` prints per affected epic. |
 | `calibration` | `redrive` | `redrive` rebuilds the `scope` and `fix` components through it. |
 | `dispatch` | `triage` | Opens and closes the dispatch record for a subagent the mode fans out to. |
+| `sync-agent-instructions` | `upgrade`, `uninstall`, and module setup | Writes, refreshes (`--apply`), checks (`--check`) or strips (`--remove`) the marker-wrapped l3io block in the running harness's AI instruction file. Idempotent; never deletes the file; exit 1 from `--check` means the block is absent, exit 2 leaves the file byte-unchanged. |
 
 ## Project Health Check
 
