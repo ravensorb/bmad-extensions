@@ -11956,5 +11956,26 @@ class TestAgentInstructions(unittest.TestCase):
         self.assertEqual(events, ["lock-acquired", "read", "write", "lock-released"])
 
 
+class TestNoticeIsPerHarness(unittest.TestCase):
+    """A notice satisfied for one harness must not satisfy another, or a project opened
+    under a second harness is never offered the block."""
+
+    def setUp(self):
+        self.d = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, self.d, True)
+
+    def _notice(self, key):
+        import subprocess
+        return subprocess.run(
+            [sys.executable, SCRIPT, "notice", "--state-root", self.d, "--key", key],
+            capture_output=True, text=True).returncode
+
+    def test_claude_and_copilot_keys_are_independent(self):
+        self.assertEqual(self._notice("ai-rules-missing:claude"), 0, "first claude = emit")
+        self.assertEqual(self._notice("ai-rules-missing:claude"), 1, "second claude = silent")
+        self.assertEqual(self._notice("ai-rules-missing:copilot"), 0,
+                         "copilot must still be offered after claude was satisfied")
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)
