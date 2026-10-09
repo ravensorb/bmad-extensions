@@ -168,6 +168,64 @@ class TestGuardrails(unittest.TestCase):
                          "a zero is 'not estimated yet', not 'infinitely smaller'")
 
 
+class TestUnbackedCrossEpicDependency(unittest.TestCase):
+    """A crossing edge the phase graph cannot see.
+
+    Phases are built from EPIC-level `depends_on`. A story dependency crossing E001 -> E003
+    with no `E001 depends_on E003` behind it leaves both epics in the same parallel phase,
+    running concurrently, while one needs the other finished. Nothing caught this before:
+    the validator accepted it, step-05 checked only that the story key existed, and this
+    analyzer was silent because one crossing edge sits below the coupling threshold.
+    """
+
+    def _pair(self, epic_deps=()):
+        return plan([
+            epic("E001", [sprint("S01", [story("E001-S01-001", 1, ["E003-S01-001"])])],
+                 epic_deps),
+            epic("E003", [sprint("S01", [story("E003-S01-001", 1)])]),
+        ])
+
+    def test_a_single_unbacked_edge_is_reported(self):
+        # THE REGRESSION. One edge, previously reported by nothing at all.
+        f = ids(ra.analyze(self._pair()), "unbacked-cross-epic-dependency")
+        self.assertTrue(f)
+        self.assertEqual(f[0]["severity"], "warn")
+        self.assertEqual(f[0]["measured"]["stories"], ["E001-S01-001"])
+
+    def test_no_threshold_unlike_coupling(self):
+        # Coupling needs >=2 because "is this boundary wrong?" tolerates one edge. This asks
+        # whether the epic graph KNOWS about the edge, where one is already an error.
+        r = ra.analyze(self._pair())
+        self.assertFalse(ids(r, "cross-epic-coupling"), "one edge is below coupling's bar")
+        self.assertTrue(ids(r, "unbacked-cross-epic-dependency"), "but not below this one")
+
+    def test_a_backed_edge_is_not_reported(self):
+        self.assertFalse(ids(ra.analyze(self._pair(("E003",))),
+                             "unbacked-cross-epic-dependency"))
+
+    def test_the_finding_names_the_declaration_that_would_fix_it(self):
+        f = ids(ra.analyze(self._pair()), "unbacked-cross-epic-dependency")[0]
+        self.assertIn("depends_on", f["suggests"])
+        self.assertIn("E003", f["suggests"])
+
+    def test_it_is_reported_alongside_coupling_when_both_apply(self):
+        # Two unbacked edges: both findings fire, measuring different things.
+        p = plan([
+            epic("E001", [sprint("S01", [story("E001-S01-001", 1, ["E003-S01-001"]),
+                                         story("E001-S01-002", 1, ["E003-S01-001"])])]),
+            epic("E003", [sprint("S01", [story("E003-S01-001", 1)])]),
+        ])
+        r = ra.analyze(p)
+        self.assertTrue(ids(r, "cross-epic-coupling"))
+        self.assertEqual(ids(r, "unbacked-cross-epic-dependency")[0]["measured"]["edges"], 2)
+
+    def test_a_dependency_on_active_work_is_not_an_unbacked_edge(self):
+        # Active epics are read-only input and carry no planned stories to cross into.
+        p = plan([epic("E001", [sprint("S01", [story("E001-S01-001", 1, ["E005"])])])],
+                 active=["E005"])
+        self.assertFalse(ids(ra.analyze(p), "unbacked-cross-epic-dependency"))
+
+
 class TestOrphansAreQuestions(unittest.TestCase):
     def test_an_isolated_story_is_a_question_not_a_retirement(self):
         # The single most dangerous thing this script could get wrong: scoring "nothing

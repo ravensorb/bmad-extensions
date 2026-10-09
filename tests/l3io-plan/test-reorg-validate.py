@@ -155,8 +155,15 @@ class TestDestinations(unittest.TestCase):
 
     def test_a_sprint_created_by_the_same_target_is_accepted(self):
         # The derivation creates it before moving into it; the validator must allow that.
+        #
+        # Moves the DEPENDENT (E001-S01-002) forward, not the thing it depends on. This test
+        # used to move rows[0] — E001-S01-001 — into the new later sprint while 002 stayed in
+        # S01, which is a backward dependency across sequential sprints. It passed only
+        # because the ordering rule compared `order` within a sprint and never sprint
+        # position, so it encoded the hole it was written beside. Its subject is destination
+        # creation; an incidental ordering violation is TestCrossSprintOrdering's to assert.
         rows = [dict(r) for r in TOTAL]
-        rows[0]["sprint"] = "S04"
+        rows[1]["sprint"] = "S04"
         self.assertEqual(rv.validate(BASE, {"target": rows}), [])
 
     def test_placing_into_an_epic_being_retired_is_refused(self):
@@ -199,6 +206,83 @@ class TestResultingGraph(unittest.TestCase):
         rows = [{"key": "E001-S01-001", "epic": "E001", "sprint": "S01", "order": 1}]
         self.assertEqual(rv.validate(p, {"target": rows}), [],
                          "ordering against in-flight work is not this target's to decide")
+
+
+class TestCrossSprintOrdering(unittest.TestCase):
+    """Sprints inside an epic run sequentially, so position is (sprint_index, order).
+
+    The rule used to compare `order` alone and fire only when two stories shared a sprint,
+    which left the commoner violation accepted outright. Moving a story forward past its
+    dependent is the canonical balancing move, so the gap sat exactly where a balancing pass
+    would land.
+    """
+
+    TWO = plan([epic("E001", [
+        sprint("S01", [story("E001-S01-001", ["E001-S02-001"])]),
+        sprint("S02", [story("E001-S02-001")]),
+    ])])
+
+    def rows(self, a_sprint, b_sprint):
+        return [{"key": "E001-S01-001", "epic": "E001", "sprint": a_sprint, "order": 1},
+                {"key": "E001-S02-001", "epic": "E001", "sprint": b_sprint, "order": 1}]
+
+    def test_a_dependency_in_a_later_sprint_of_the_same_epic_is_refused(self):
+        # Returned `OK target is valid`, exit 0, before this rule existed.
+        errs = rv.validate(self.TWO, {"target": self.rows("S01", "S02")})
+        self.assertTrue(errs)
+        self.assertIn("LATER sprint", why(errs))
+
+    def test_the_same_pair_placed_in_dependency_order_is_accepted(self):
+        # The dependency moves to the earlier sprint: legal, and must stay legal.
+        self.assertEqual(rv.validate(self.TWO, {"target": self.rows("S02", "S01")}), [])
+
+    def test_both_in_one_sprint_falls_back_to_order_and_is_refused(self):
+        rows = self.rows("S01", "S01")
+        rows[0]["order"] = 1          # the dependent
+        rows[1]["order"] = 2          # what it depends on — later: illegal
+        self.assertIn("same sprint", why(rv.validate(self.TWO, {"target": rows})))
+
+    def test_sprint_index_comes_from_sorted_key_order_not_arithmetic(self):
+        # S01, S03, S07 are indices 0, 1, 2. Subtracting the numbers would read S03 and S07
+        # as four apart and S01/S03 as adjacent — neither is a fact about execution order.
+        p = plan([epic("E001", [
+            sprint("S01", [story("E001-S01-001")]),
+            sprint("S03", [story("E001-S03-001", ["E001-S07-001"])]),
+            sprint("S07", [story("E001-S07-001")]),
+        ])])
+        rows = [{"key": "E001-S01-001", "epic": "E001", "sprint": "S01", "order": 1},
+                {"key": "E001-S03-001", "epic": "E001", "sprint": "S03", "order": 1},
+                {"key": "E001-S07-001", "epic": "E001", "sprint": "S07", "order": 1}]
+        self.assertIn("LATER sprint", why(rv.validate(p, {"target": rows})),
+                      "non-contiguous sprint keys must still order by position")
+
+    def test_a_cross_epic_dependency_is_not_judged_by_this_rule(self):
+        # The PHASE graph orders epics, and epics in one phase run concurrently. An unbacked
+        # cross-epic edge is the analyzer's to report, not this rule's to refuse.
+        p = plan([
+            epic("E001", [sprint("S01", [story("E001-S01-001", ["E003-S01-001"])])]),
+            epic("E003", [sprint("S01", [story("E003-S01-001")])]),
+        ])
+        rows = [{"key": "E001-S01-001", "epic": "E001", "sprint": "S01", "order": 1},
+                {"key": "E003-S01-001", "epic": "E003", "sprint": "S01", "order": 1}]
+        self.assertEqual(rv.validate(p, {"target": rows}), [])
+
+    def test_a_dependency_on_active_work_is_still_skipped(self):
+        p = plan([epic("E001", [sprint("S01", [story("E001-S01-001", ["E009"])])])],
+                 active=["E009"])
+        rows = [{"key": "E001-S01-001", "epic": "E001", "sprint": "S01", "order": 1}]
+        self.assertEqual(rv.validate(p, {"target": rows}), [],
+                         "ordering against in-flight work is not this target's to decide")
+
+    def test_a_sprint_the_target_creates_is_indexed_too(self):
+        # The destination may not exist yet; the index spans existing plus created sprints.
+        p = plan([epic("E001", [
+            sprint("S01", [story("E001-S01-001", ["E001-S01-002"]), story("E001-S01-002")]),
+        ])])
+        rows = [{"key": "E001-S01-001", "epic": "E001", "sprint": "S01", "order": 1},
+                {"key": "E001-S01-002", "epic": "E001", "sprint": "S09", "order": 1}]
+        self.assertIn("LATER sprint", why(rv.validate(p, {"target": rows})),
+                      "a dependency moved into a newly created later sprint is still backward")
 
 
 class TestMalformedInput(unittest.TestCase):

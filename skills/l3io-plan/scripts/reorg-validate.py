@@ -218,7 +218,30 @@ def validate(plan: dict, target) -> list:
                                      f"retire the dependent too, or keep {d}")
 
     # --- ordering ---------------------------------------------------------------------
+    #
+    # SPRINTS INSIDE AN EPIC ARE SEQUENTIAL, so position is (sprint_index, order) and not
+    # `order` alone. This rule used to fire only when two stories shared a sprint, which left
+    # the commoner violation accepted outright: a story in S01 depending on one in S02 of the
+    # same epic returned `OK target is valid`. Moving a story forward past its dependent is
+    # the canonical balancing move, so the gap was exactly where a balancing pass would land.
+    #
+    # SPRINT INDEX COMES FROM SORTED KEY ORDER, never from arithmetic on the number. An epic
+    # whose sprints are S01, S03, S07 has indices 0, 1, 2; subtracting keys would read S03 and
+    # S07 as four apart and S01/S03 as adjacent, neither of which is a fact about execution
+    # order. The target may also create a sprint, so the index is built over the union of the
+    # epic's existing sprints and any this target introduces.
+    def sprint_order_index(plan_sprints, created_sprints):
+        by_epic = {}
+        for e, sp in set(plan_sprints) | set(created_sprints):
+            by_epic.setdefault(e, set()).add(sp)
+        return {(e, sp): i
+                for e, sps in by_epic.items()
+                for i, sp in enumerate(sorted(sps))}
+
+    sprint_idx = sprint_order_index(sprints, created)
+
     def place_of(k):
+        """(epic, sprint, order) for a story, from the target when placed, else from state."""
         if k in placed:
             r = placed[k]
             return str(r.get("epic")), str(r.get("sprint")), r.get("order")
@@ -230,8 +253,20 @@ def validate(plan: dict, target) -> list:
             if d not in stories:
                 continue                        # active/archived: ordering is not ours
             de, ds, do = place_of(d)
-            if (ke, ks) == (de, ds) and isinstance(ko, int) and isinstance(do, int) \
-                    and ko <= do:
+            if ke != de:
+                continue                        # cross-epic: the PHASE graph orders epics,
+                                                # and epics in one phase run concurrently.
+                                                # An unbacked cross-epic edge is reported by
+                                                # the analyzer, not judged here.
+            ki, di = sprint_idx.get((ke, ks)), sprint_idx.get((de, ds))
+            if ki is None or di is None:
+                continue                        # an unresolvable destination is already an
+                                                # error above; do not report it twice
+            if di > ki:
+                bad(f"target[{key}]", f"placed in {ke}-{ks} but depends on {d} in {de}-{ds}, "
+                                      f"a LATER sprint of the same epic — sprints run "
+                                      f"sequentially, so a dependency cannot come after")
+            elif di == ki and isinstance(ko, int) and isinstance(do, int) and ko <= do:
                 bad(f"target[{key}]", f"ordered at {ko} but depends on {d} at {do} in the "
                                       f"same sprint — a dependency cannot come later")
     return errs

@@ -194,6 +194,33 @@ def analyze(plan: dict) -> dict:
                 f"{n} story dependencies cross {a} -> {b}; the boundary may be in the "
                 f"wrong place")
 
+    # --- a crossing edge the PHASE GRAPH cannot see --------------------------------
+    #
+    # NO THRESHOLD HERE, unlike coupling above, and that difference is the point. Coupling
+    # asks "is this boundary in the wrong place?", where one crossing edge is ordinary and
+    # reporting it would be noise. This asks a different question: does the epic graph KNOW
+    # about the edge? Phases are built from epic-level `depends_on`, so a story dependency
+    # crossing E001 -> E003 with no `E001 depends_on E003` behind it leaves both epics in the
+    # same parallel phase, running concurrently, while one needs the other finished. One such
+    # edge is already a scheduling error, so one is already worth reporting.
+    #
+    # Reported, not refused (plan decision D1): existing projects likely carry one, and a
+    # hand-written story dependency produces it with no reorg involved. Erroring on upgrade
+    # would block runs on a defect the user did not cause. The finding names the epic-level
+    # declaration that would back it, so the fix is a line of YAML rather than an
+    # investigation.
+    for (a, b) in sorted(coupling):
+        if b not in epic_edges.get(a, ()):
+            edges = sorted(k for k, deps in story_edges.items()
+                           if story_epic.get(k, (None,))[0] == a
+                           and any(story_epic.get(d, (None,))[0] == b for d in deps))
+            add("unbacked-cross-epic-dependency", "warn", [a, b],
+                {"edges": len(edges), "stories": edges},
+                f"stories in {a} depend on {b}, but {a} does not declare "
+                f"`depends_on: [{b}]`. Phases come from epic-level dependencies, so the two "
+                f"can be scheduled into the same parallel phase and run concurrently. Add "
+                f"{b} to {a}'s depends_on.")
+
     for epic in plan.get("planned", []):
         sizes = [(s["key"], sum(elapsed(st) for st in s.get("stories", [])))
                  for s in epic.get("sprints", [])]

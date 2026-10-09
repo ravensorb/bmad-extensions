@@ -21,6 +21,38 @@ Story-level `depends_on`:
 - Each key must exist in `{story_index}`.
 - Unknown story keys → flag as error.
 
+### 1.1 A story dependency that crosses epics must be backed by the epic graph
+
+**Existing is not the same as scheduled.** The checks above ask only whether a story key
+resolves. Phases, built in §3, come from **epic-level** `depends_on` — so a story dependency
+crossing `E001 → E003` with no `E001 depends_on E003` behind it leaves both epics with no
+edge between them, lands them in the **same parallel phase**, and runs them concurrently while
+one needs the other finished.
+
+For each story-level `depends_on` whose target sits in a different epic, check that the
+depending story's epic declares that epic in its own `depends_on`. Report each one that does
+not:
+
+```
+⚠️  {n} story dependency(ies) cross an epic boundary the epic graph does not know about:
+      E001-S01-001 → E003-S01-001   (E001 does not declare depends_on: [E003])
+    Phases come from epic-level dependencies, so these epics can be scheduled to run
+    concurrently. Add the epic-level dependency, or move the story.
+```
+
+**Report, never halt.** A hand-written story dependency produces this with no reorg involved,
+so existing projects are likely to carry one; halting would block a plan run on a defect the
+user did not cause. The message names the one line of YAML that fixes it. This is expected to
+become an error in a later release once projects are clean — until then it must not change
+`{readiness}` or stop the run.
+
+**Do not auto-derive the epic dependency.** Inferring `E001 depends_on E003` from the story
+edge would silently rewrite the declared graph, and a story dependency that was itself wrong
+would become a wrong phase plan with no trace of where it came from.
+
+`/l3io-plan reorg` reports the same thing as `unbacked-cross-epic-dependency`, from the same
+rule, so the two agree by construction.
+
 ## 2. Detect cycles (epic level)
 
 Run a depth-first cycle detection over the epic dependency edges:
