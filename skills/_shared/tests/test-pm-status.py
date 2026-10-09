@@ -11702,5 +11702,32 @@ class TestAgentInstructionsEngine(unittest.TestCase):
         self.assertEqual(out, "# Nothing here\n")
 
 
+class TestShippedAsset(unittest.TestCase):
+    from pathlib import Path as _Path
+    ASSET = _Path(__file__).resolve().parent.parent / "agent-instructions.md"
+
+    def test_asset_exists(self):
+        self.assertTrue(self.ASSET.is_file(), f"missing {self.ASSET}")
+
+    def test_stays_under_2kb(self):
+        # This block enters every agent's context in the consuming project, on every
+        # invocation, forever. l3io-doctor's SKILL.md once reached 96,980 B and every
+        # invocation paid for procedures it never ran; the same discipline applies harder
+        # here, because this is not even our file.
+        size = self.ASSET.stat().st_size
+        self.assertLess(size, 2048, f"asset is {size} B; budget is 2048 B")
+
+    def test_covers_the_six_required_points(self):
+        text = self.ASSET.read_text(encoding="utf-8")
+        for needle in ["pm-status.py", "never hand-edit", "conversational",
+                       "actual", "calibrat", "rates"]:
+            self.assertIn(needle.lower(), text.lower(), f"asset omits {needle!r}")
+
+    def test_contains_no_flagged_invocation(self):
+        # Check 31's rule, enforced at the source: no /l3io-* invocation carries a --flag.
+        text = self.ASSET.read_text(encoding="utf-8")
+        self.assertNotRegex(text, r"/l3io-[a-z0-9-]+[^\n`]*\s--[a-z]")
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)
