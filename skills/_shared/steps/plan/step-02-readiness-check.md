@@ -64,6 +64,53 @@ For each epic, list its sprint directories and each sprint's story `.yaml` files
 For each story, record: `key`, `classification`, `status`, `estimate` (present/absent),
 `depends_on`, and whether it is assigned to a sprint.
 
+### 1.1 Guard: there must be something to plan
+
+**Check the scope set is non-empty before validating anything in it.** Every check in §2 is
+stated per story, so over an empty set all of them hold — no Red finding, no Amber finding — and
+§4's `All Green → green` is reached **vacuously**. A run with nothing in it would otherwise
+report green readiness, write a snapshot of 0 epics across 0 phases, and tell the user to run
+`/l3io-execute`, which is the one piece of advice that cannot possibly be right.
+
+This guard is **ours and not the external readiness checker's**, for three reasons that are
+worth keeping here: the legacy `bmad-check-implementation-readiness` is invoked *per story*, so
+with zero stories it is invoked zero times and structurally cannot report their absence;
+`bmad-sprint-planning` reads BMad's own scope, not `{pm_state_root}`; and §3 is skipped entirely
+when neither resolves, which would make the guard disappear on exactly the installs least likely
+to notice. §1 computes the set, so §1 is where its emptiness is known.
+
+If **no epics** are in scope — nothing under `active/` with `status: in-progress`, nothing under
+`planned/` with `status: backlog` — halt with `{readiness}` = `red`:
+
+```
+🔴 Readiness check FAILED — there is nothing to plan.
+
+No epics are in scope: {pm_state_root}/active/ holds no epic with status in-progress,
+and {pm_state_root}/planned/ holds none with status backlog.
+
+Fix: create epics and break them into stories first. If you already have epic or story
+documents in {implementation_artifacts}, they have no state nodes yet — run
+/l3io-doctor bootstrap-state to create them.
+```
+
+If epics are in scope but **together they hold zero stories**, halt with `{readiness}` = `red`
+and **name them** — an epic that was declared and never decomposed is the common way to reach
+this, and the user needs to know which:
+
+```
+🔴 Readiness check FAILED — {epic_count} epic(s) in scope hold no stories.
+
+{list each epic key and title}
+
+An epic with no stories contributes nothing to a plan: it has no estimate to roll up and
+no work to order. Break these down into stories first.
+```
+
+If **some** epics hold stories and others hold none, do not halt — the plan is still
+producible. Record one **Amber** finding per empty epic, so it appears in §5's report and
+carries into `{readiness}`. An empty epic otherwise rolls up as a zero-cost epic in the
+estimate and reads as cheap rather than as undecomposed.
+
 ## 2. Run validation checks
 
 For each story, evaluate the following checks:
@@ -114,7 +161,13 @@ Fold "not ready" findings into the gate:
 
 - Any Red finding on any story → `{readiness}` = `red`
 - Any Amber finding, no Red → `{readiness}` = `amber`
-- All Green → `{readiness}` = `green`
+- All Green **over a non-empty scope set** → `{readiness}` = `green`
+
+**Green requires stories to have been checked, not merely no failures to have been found.**
+§1.1 already halts on an empty set, so this restatement is belt and braces — but the two
+clauses fail independently, and the one that is easy to delete by accident is the guard. Every
+check in §2 is universally quantified over the stories, so without the qualifier here, deleting
+§1.1 would silently restore a green verdict over nothing rather than producing an error.
 
 ## 5. Write readiness-report.md
 
@@ -129,11 +182,15 @@ Stories checked: {total_story_count}
 
 ## Findings
 
-| Story | Check | Result | Detail |
+| Node | Check | Result | Detail |
 |-------|-------|--------|--------|
 | E001-S01-001 | Technical ACs | 🟡 Amber | Functional ACs only — no interface specs |
 | E002-S01-003 | Estimate | 🔴 Red | Missing estimate block |
 | E001-S02-001 | depends_on | 🟢 Green | — |
+| E004 | Decomposition | 🟡 Amber | Epic holds no stories — contributes nothing to the plan |
+
+The first column is a **node** key, not only a story key: §1.1's empty-epic finding is recorded
+against the epic, because that is the node the user has to act on.
 
 ## Summary
 
