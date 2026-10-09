@@ -323,7 +323,7 @@ skills/
                          write-module-config.py, tests/, status-files.md, metrics-contract.md,
                          calibration-model.md, config-resolution.md, module-setup.md, steps/
   l3io-setup/         SKILL.md, customize.toml, references/, assets/ (module.yaml, module-setup.md, module-help.csv), scripts/
-  l3io-plan/          SKILL.md, customize.toml, references/, steps/
+  l3io-plan/          SKILL.md, customize.toml, references/, scripts/, steps/
   l3io-execute/       SKILL.md, customize.toml, references/, scripts/, steps/
   l3io-help/          SKILL.md, customize.toml, references/, steps/
   l3io-sync/          SKILL.md, customize.toml, references/, assets/, scripts/, steps/
