@@ -11574,5 +11574,102 @@ class TestBlockedShowAndReport(Base):
         self.assertEqual(found["blocked_reason"], "wait")
 
 
+class TestAgentInstructionsEngine(unittest.TestCase):
+    """The marker engine for the agent instruction block (pure string transforms)."""
+
+    BODY = "## LiquidLogicLabs Extensions (l3io)\n\nState is machine-written.\n"
+
+    # -- find_block --
+    def test_absent_returns_none(self):
+        self.assertIsNone(pm.find_block("# My Project\n\nNotes.\n"))
+
+    def test_finds_and_reports_version(self):
+        text = f"<!-- l3io:begin v=3.2.6 -->\n{self.BODY}<!-- l3io:end -->\n"
+        start, end, version = pm.find_block(text)
+        self.assertEqual(version, "3.2.6")
+        self.assertEqual(text[start:end], text.rstrip("\n"))  # the span excludes the trailing newline
+
+    def test_crlf_file_is_found(self):
+        # Review Focus 1. A Windows-authored instruction file.
+        text = f"<!-- l3io:begin v=3.2.6 -->\n{self.BODY}<!-- l3io:end -->\n".replace("\n", "\r\n")
+        self.assertIsNotNone(pm.find_block(text))
+        # and a replace keeps the file CRLF throughout
+        out, action = pm.apply_block(text, "## New\n", "3.3.0")
+        self.assertEqual(action, "replaced")
+        self.assertNotIn("\n", out.replace("\r\n", ""))
+
+    def test_marker_inside_a_fenced_code_block_is_not_a_block(self):
+        # Review Focus 2. Our own docs show this syntax; it must not match.
+        text = ("# Docs\n\n```markdown\n<!-- l3io:begin v=1.0.0 -->\nexample\n"
+                "<!-- l3io:end -->\n```\n")
+        self.assertIsNone(pm.find_block(text))
+
+    def test_two_opening_markers_raise(self):
+        # Review Focus 3. A bad merge. "Between the markers" is undefined; refuse.
+        text = ("<!-- l3io:begin v=1 -->\na\n<!-- l3io:end -->\n"
+                "<!-- l3io:begin v=2 -->\nb\n<!-- l3io:end -->\n")
+        with self.assertRaises(pm.BlockError):
+            pm.find_block(text)
+
+    def test_opening_without_closing_raises(self):
+        with self.assertRaises(pm.BlockError):
+            pm.find_block("<!-- l3io:begin v=1 -->\nstranded\n")
+
+    # -- apply_block --
+    def test_creates_on_empty_file(self):
+        out, action = pm.apply_block("", self.BODY, "3.2.6")
+        self.assertEqual(action, "created")
+        self.assertIn("<!-- l3io:begin v=3.2.6 -->", out)
+        self.assertIn("<!-- l3io:end -->", out)
+
+    def test_appends_without_disturbing_existing_content(self):
+        before = "# My Project\n\nUser notes.\n"
+        out, action = pm.apply_block(before, self.BODY, "3.2.6")
+        self.assertEqual(action, "created")
+        self.assertTrue(out.startswith(before))
+
+    def test_identical_body_is_unchanged_even_when_version_differs(self):
+        # Spec 2.1: upgrade compares the BODY. A version bump alone must not rewrite
+        # a file in the user's repo.
+        text, _ = pm.apply_block("", self.BODY, "3.2.6")
+        out, action = pm.apply_block(text, self.BODY, "9.9.9")
+        self.assertEqual(action, "unchanged")
+        self.assertEqual(out, text)
+
+    def test_changed_body_is_replaced_in_place(self):
+        text, _ = pm.apply_block("prefix\n", self.BODY, "3.2.6")
+        out, action = pm.apply_block(text, "## New\n\nDifferent.\n", "3.3.0")
+        self.assertEqual(action, "replaced")
+        self.assertTrue(out.startswith("prefix\n"))
+        self.assertIn("v=3.3.0", out)
+        self.assertNotIn("State is machine-written", out)
+
+    def test_content_outside_the_markers_survives_replacement(self):
+        before = "TOP\n\n" + pm.apply_block("", self.BODY, "3.2.6")[0] + "\nBOTTOM\n"
+        out, _ = pm.apply_block(before, "## New\n\nX.\n", "3.3.0")
+        self.assertTrue(out.startswith("TOP\n\n"))
+        self.assertTrue(out.rstrip().endswith("BOTTOM"))
+
+    def test_is_idempotent(self):
+        once, _ = pm.apply_block("", self.BODY, "3.2.6")
+        twice, action = pm.apply_block(once, self.BODY, "3.2.6")
+        self.assertEqual(action, "unchanged")
+        self.assertEqual(once, twice)
+
+    # -- remove_block --
+    def test_removes_only_the_block(self):
+        text = "TOP\n\n" + pm.apply_block("", self.BODY, "3.2.6")[0] + "\nBOTTOM\n"
+        out, action = pm.remove_block(text)
+        self.assertEqual(action, "removed")
+        self.assertNotIn("l3io:begin", out)
+        self.assertIn("TOP", out)
+        self.assertIn("BOTTOM", out)
+
+    def test_absent_block_is_not_an_error(self):
+        out, action = pm.remove_block("# Nothing here\n")
+        self.assertEqual(action, "absent")
+        self.assertEqual(out, "# Nothing here\n")
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

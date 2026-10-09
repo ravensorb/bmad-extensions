@@ -3109,6 +3109,115 @@ def cmd_adr_reserve(args) -> int:
     return 0
 
 
+# --------------------------------------------------------------------------- #
+# agent instruction block -- the marker engine: pure string transforms, no I/O
+#
+# Kept in this file, not a sibling module: `self-install` copies this one file into a
+# consuming project, so a sibling would not be there (ADR-0001).
+#
+# WHY THE MARKERS ARE HTML COMMENTS. They render invisibly, survive a markdown reformat, and
+# are greppable. The repo already uses body markers this way (`resolver-invariant:
+# canonical-contract`), so this follows a precedent rather than inventing a form.
+#
+# WHY A FENCED BLOCK IS EXCLUDED. This package's own documentation shows the marker syntax. A
+# naive search would match the example and splice the wrong region of whatever file documented
+# the feature -- including, eventually, a user's own notes about it.
+# --------------------------------------------------------------------------- #
+BEGIN_RE = re.compile(r"^<!--\s*l3io:begin(?:\s+v=(?P<v>[^\s>]+))?\s*-->[ \t]*(?=\r?$)", re.MULTILINE)
+END_RE = re.compile(r"^<!--\s*l3io:end\s*-->[ \t]*(?=\r?$)", re.MULTILINE)
+# `(?=\r?$)`, not `$`: with re.MULTILINE `$` stops only before "\n", so a CRLF file's markers never matched.
+_FENCE_RE = re.compile(r"^[ \t]*(?:```|~~~)", re.MULTILINE)
+
+
+class BlockError(Exception):
+    """The file's markers are not a single well-formed pair."""
+
+
+def _fenced_spans(text):
+    """Character ranges inside fenced code blocks. Fences toggle; an unclosed fence runs to
+    the end of the file, which is what a markdown renderer does too."""
+    spans, open_at = [], None
+    for m in _FENCE_RE.finditer(text):
+        if open_at is None:
+            open_at = m.start()
+        else:
+            spans.append((open_at, m.end()))
+            open_at = None
+    if open_at is not None:
+        spans.append((open_at, len(text)))
+    return spans
+
+
+def _outside_fences(matches, spans):
+    return [m for m in matches
+            if not any(lo <= m.start() < hi for lo, hi in spans)]
+
+
+def find_block(text):
+    """(start, end, version) of the block, or None. Raises BlockError when the markers are
+    not exactly one well-formed pair -- a duplicated or stranded marker makes "between the
+    markers" undefined, and guessing would truncate the user's own content."""
+    spans = _fenced_spans(text)
+    begins = _outside_fences(list(BEGIN_RE.finditer(text)), spans)
+    ends = _outside_fences(list(END_RE.finditer(text)), spans)
+    if not begins and not ends:
+        return None
+    if len(begins) != 1 or len(ends) != 1:
+        raise BlockError(
+            f"expected exactly one l3io:begin/l3io:end pair, found "
+            f"{len(begins)} begin and {len(ends)} end marker(s). Fix the file by hand: "
+            f"replacing between ambiguous markers could delete content that is not ours.")
+    b, e = begins[0], ends[0]
+    if e.start() < b.start():
+        raise BlockError("l3io:end appears before l3io:begin")
+    return b.start(), e.end(), b.group("v")
+
+
+def _render(body, version, nl):
+    body = body.strip("\n")
+    return nl.join([f"<!-- l3io:begin v={version} -->", body, "<!-- l3io:end -->"])
+
+
+def _newline(text):
+    """Match the file's existing convention so a CRLF file stays CRLF."""
+    return "\r\n" if "\r\n" in text else "\n"
+
+
+def apply_block(text, body, version):
+    """Create, replace, or leave alone. Returns (text, 'created'|'replaced'|'unchanged')."""
+    nl = _newline(text)
+    found = find_block(text)
+    rendered = _render(body, version, nl)
+    if found is None:
+        sep = "" if text == "" else (nl if text.endswith(nl) else nl + nl)
+        return text + sep + rendered + nl, "created"
+    start, end, _ = found
+    current = text[start:end]
+    # Compare BODY, not version: a release that does not change the text must not rewrite a
+    # file in the user's repo just to bump a string they did not ask about.
+    if _strip_markers(current, nl) == _strip_markers(rendered, nl):
+        return text, "unchanged"
+    return text[:start] + rendered + text[end:], "replaced"
+
+
+def _strip_markers(block, nl):
+    lines = block.split(nl)
+    return nl.join(lines[1:-1]).strip()
+
+
+def remove_block(text):
+    """Returns (text, 'removed'|'absent'). Never deletes anything outside the pair."""
+    found = find_block(text)
+    if found is None:
+        return text, "absent"
+    nl = _newline(text)
+    start, end, _ = found
+    out = text[:start] + text[end:]
+    while (nl + nl + nl) in out:
+        out = out.replace(nl + nl + nl, nl + nl)
+    return out, "removed"
+
+
 def cmd_notice(args) -> int:
     """Record a one-time-ever advisory notice for this project. Exit 0 = emit it now (and
     record it), exit 1 = already emitted for this key, exit 2 = usage error OR an unexpected
