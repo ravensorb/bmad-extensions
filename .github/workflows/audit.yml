@@ -1,0 +1,39 @@
+name: audit
+# The scheduled half of the dependency gate, and the half that actually closes the gap.
+#
+# WHY THIS EXISTS SEPARATELY FROM checks.yml. Both advisories this repo has hit appeared with
+# no commit of ours: brace-expansion (3 DoS advisories, found 2026-10-04) and handlebars
+# (3 critical injection advisories, found 2026-10-09). The gate in checks.yml runs on push and
+# pull_request, so in a week with no commits it never runs at all -- which is exactly the week
+# an advisory lands. Five days passed between those two findings and the only reason either was
+# noticed is that somebody thought to run `npm audit` by hand.
+#
+# Dependabot alerts are DISABLED on this repository: GET /repos/.../vulnerability-alerts
+# returns 404 (checked 2026-09-30 and again 2026-10-09, unchanged). Enabling them is a
+# repository-settings change and the owner's call; until it happens this cron is the only thing
+# watching. If alerts are later turned on, this workflow becomes redundant rather than wrong --
+# delete it then, deliberately, rather than letting two mechanisms drift.
+on:
+  schedule:
+    # 06:17 UTC daily. Not on the hour: GitHub drops scheduled runs under load at popular times,
+    # and a gate that silently does not run is the failure mode this file exists to prevent.
+    - cron: '17 6 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v7
+    - uses: actions/setup-node@v7
+      with:
+        node-version: '24'
+        cache: npm
+    # `npm audit` resolves against package-lock.json and queries the registry; it does not need
+    # node_modules. Skipping `npm ci` keeps this job to a few seconds, which matters for
+    # something that runs every day forever.
+    - name: Dependency audit (high and critical)
+      run: npm run check:audit

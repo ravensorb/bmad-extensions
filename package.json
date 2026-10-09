@@ -6,6 +6,8 @@
   "license": "MIT",
   "private": true,
   "scripts": {
+    "changelog": "conventional-changelog -p angular -i CHANGELOG.md -s",
+    "check:audit": "npm audit --audit-level=high",
     "check:bmb": "node scripts/check-bmb.mjs",
     "check:docs": "node scripts/check-docs.mjs",
     "check:lint:py": "uv run --with 'ruff==0.16.9' ruff check .",
@@ -15,7 +17,6 @@
     "check:module": "node scripts/check-module.mjs",
     "check:scripts": "node scripts/sync-shared-scripts.mjs --check",
     "check:version": "node scripts/check-pm-status-version.mjs",
-    "changelog": "conventional-changelog -p angular -i CHANGELOG.md -s",
     "ci:local": "node scripts/ci-local.mjs",
     "postbump": "node scripts/sync-bmad-versions.mjs && node scripts/sync-shared-scripts.mjs && node scripts/write-payload-manifest.mjs && git add -u",
     "release": "commit-and-tag-version",

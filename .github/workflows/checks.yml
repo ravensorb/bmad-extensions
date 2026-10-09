@@ -33,6 +33,15 @@ jobs:
       run: npm ls --package-lock-only --all --depth=0
     - name: Install check-tooling dependencies
       run: npm ci
+    # Fails on high/critical only. Both advisories this repo actually hit (brace-expansion,
+    # handlebars) were high or critical and both were dev-only transitives of the
+    # conventional-changelog tree -- so a dev-only finding DOES fail the build here, which is
+    # deliberate: it is how we find out. Moderate and low are excluded because that same
+    # legacy subtree generates them steadily, and a gate people learn to ignore is worse than
+    # no gate. This step only runs on push/PR; audit.yml carries the scheduled half, which is
+    # the one that catches an advisory published in a week with no commits.
+    - name: Dependency audit (high and critical)
+      run: npm run check:audit
     - name: Verify shared-script payload copies are in sync
       run: npm run check:scripts
     - name: Verify documentation matches the code it describes
