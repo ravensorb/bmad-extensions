@@ -75,17 +75,26 @@ phases:
 
 `parallel` is true if the phase has more than one epic, or if a single-epic phase has no ordering constraint (always true for Phase 1 with one epic).
 
-## 4. Identify critical path
+## 4. Identify the longest dependency chain (structural)
 
-The critical path is the sequence of phases with the highest cumulative wall-clock estimate. If estimates are present on epics, compute:
+**This step does not compute the weighted critical path, and must not try.** `step-estimate`
+runs *after* this one, so the epic estimates a weighted path needs do not exist here on a first
+plan, and on a re-plan they are the previous generation's — about to be overwritten two steps
+later. This section used to read `estimate.elapsed_hours_high` from state and fall back to "all
+epics in phase order, no differentiation" when it found nothing, which is what every first plan
+got: a headline critical path that was just the epic list. The weighted path is computed in
+`step-06-plan-output.md` §5, from the per-phase estimate blocks that step builds **after**
+estimates are written.
 
-```
-critical_path_phases = phases with the largest Σ estimate.elapsed_hours_high
-```
+What *is* computable here, because it needs no estimates, is the structural one: the longest
+chain of `depends_on` edges. It is the ordering constraint the graph imposes no matter what
+anything costs.
 
-Record as `{critical_path_epics}` = the epics on the critical path in order.
+Walk the dependency edges and record the longest path by **edge count**:
 
-If no estimates are present, `{critical_path_epics}` = all epics in phase order (no differentiation).
+Record as `{longest_chain_epics}` = the epics on that chain, in dependency order. A graph with
+no edges at all has no chain — record an empty list and say so rather than listing every epic,
+which would imply an ordering constraint that does not exist.
 
 ## 5. Report graph
 
@@ -99,11 +108,15 @@ Phase 1 (parallel — {count} epics):
 Phase 2 (parallel — {count} epics):
   • E003 "Mobile App" — depends on: E001 ✅, E002 ✅
 
-Critical path: E001 → E003  ({estimated_hours_low}–{estimated_hours_high} hrs)
+Longest dependency chain: E001 → E003  (3 epics)
 ```
+
+No hours on this line. Estimates are written two steps later, so any duration printed here
+would either be the previous generation's or invented — and the two `estimated_hours_*` tokens
+this line used to carry were never bound anywhere, so it printed the token text verbatim.
 
 ## 6. Output status line
 
 ```
-Step 05 complete — phases: {phase_count}, epics in graph: {in_scope_epic_count}, critical path: {critical_path_epics joined by " → "}
+Step 05 complete — phases: {phase_count}, epics in graph: {in_scope_epic_count}, longest chain: {longest_chain_epics joined by " → "}
 ```

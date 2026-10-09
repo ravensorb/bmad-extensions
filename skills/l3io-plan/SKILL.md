@@ -73,7 +73,7 @@ Bind `{scope}` = `all` before loading step-estimate.
 ```
 {skill-root}/steps/plan/step-backlog-intake.md         ← offers backlog → story promotion; never automatic
 {skill-root}/steps/plan/step-02-readiness-check.md
-{skill-root}/steps/plan/step-03-story-elaboration.md   ← skipped if work_type is DOCS or CONFIG
+{skill-root}/steps/plan/step-03-story-elaboration.md   ← no-op when readiness is green
 {skill-root}/steps/plan/step-04-load-state.md
 {skill-root}/steps/plan/step-05-dependency-graph.md
 {skill-root}/steps/shared/step-estimate.md

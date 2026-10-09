@@ -128,6 +128,39 @@ per-epic belongs in `{plan_filename}` only.
 
 ## 5. Output plan summary
 
+### 5.0 Compute the critical path, here and not earlier
+
+`step-05` deliberately computes only the **structural** longest chain, because the estimates a
+weighted path needs are written by `step-estimate`, which runs after it. This step builds the
+per-phase estimate blocks in §2 from epic estimates read *after* that, so this is the first
+point in the run where the numbers are both present and current. Compute it from the §2 blocks
+you already have — do not re-read state, and do not inherit a binding from `step-05`.
+
+Phases run in order and epics inside a `parallel: true` phase run concurrently, so:
+
+- `{total_time_low}` = Σ over phases of that phase's `elapsed_hours_low`
+- `{total_time_high}` = Σ over phases of that phase's `elapsed_hours_high`
+
+  These are the §2 phase values, which already apply the right rule per phase — `max` of the
+  phase's epics when parallel, `sum` when sequential. Summing them across phases is correct
+  because phases themselves are always sequential.
+
+- `{critical_path_str}` = the **pacesetter chain**: in each phase, the epic with the largest
+  `estimate.elapsed_hours_high`, joined in phase order with ` → `. That epic is the one whose
+  duration the phase cannot finish before, so it is what a phase's wall-clock is actually made
+  of. A sequential phase contributes its single epic.
+
+If no epic carries an estimate — possible only if `step-estimate` was skipped — bind
+`{critical_path_str}` to the structural `{longest_chain_epics}` from step-05 and omit the hours
+in parentheses. Say "structural" on the line so nobody reads an unweighted chain as a costed
+one.
+
+**Why this moved.** Reading the path from `step-05` meant a first plan always printed "all
+epics in phase order, no differentiation" — step-05's own fallback, taken because state held no
+estimates yet — and a re-plan printed the previous generation's, overwritten two steps later.
+`{critical_path_str}`, `{total_time_low}` and `{total_time_high}` were never bound anywhere
+either: each appeared exactly once, at its use site below.
+
 ### 5.1 Measure the plan's shape first
 
 A plan can pass every validation here and still be shaped badly. Measure it, so the summary can
