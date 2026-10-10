@@ -1,0 +1,185 @@
+# Every Recommended Action Has a Command — Implementation Plan
+
+> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+
+**Goal:** Never ask a user to hand-edit something this package writes. Every finding and every
+blocked path names the command that resolves it, and that command is verified to exist and to
+behave as the message claims.
+
+## What the goal does and does not cover
+
+Three cases came out of the sweep, and they are not the same.
+
+| Case | Rule | Why |
+|---|---|---|
+| **Our machine-written state and artifacts** — `state/**`, `plan-output-meta.yaml`, `epic.yaml` | **Never** ask for a hand edit. If no command exists, that is the defect | We own the writer. Free-form YAML edits under parallelism are what `pm-status.py` exists to prevent |
+| **The user's own documents** — their `CLAUDE.md`, `AGENTS.md` | A **precise diagnosis** is the right answer, not auto-repair | The marker engine refuses an ambiguous file on purpose. Guessing which `l3io:begin` is real is exactly the damage it was written to avoid. "Two markers, lines 42 and 118" turns an investigation into ten seconds |
+| **Human judgement** — "check these ADR mentions still read correctly" | Legitimately human; not an edit at all | Nothing mechanical can decide whether prose still makes sense |
+
+## The defect that started this
+
+A reorg's stated objective is to remove dependencies crossing an epic boundary, so the epic
+dependency becomes unnecessary and more epics land in one parallel phase. **Measured, the second
+arrow does not happen:**
+
+| | cross-epic edges | phases |
+|---|---|---|
+| Before reorg | 2 | `[1:[E003]], [2:[E001]]` |
+| After reorg | **0** | `[1:[E003]], [2:[E001]]` — **identical** |
+
+Phases come from **epic-level** `depends_on`. Reorg cannot touch it — `TARGET_FIELDS` is
+`{key, epic, sprint, order}` and the derivation emits only `create-sprint`, `reparent-story`,
+`retire-epic`. So the now-vestigial `E001 depends_on E003` keeps serialising two epics that no
+longer need it, and `max_parallel_subagents` never engages because no phase gained an epic.
+
+**And the obvious remedy does not exist.** `set-depends-on` is append-only (`--add KEY`,
+repeatable), and `set-field` refuses list fields outright — its own help says it would store
+`"['E001']"` as a string "which a reader takes for a scalar". So today the only way to drop an
+epic dependency is to hand-edit `epic.yaml`, which the state contract forbids.
+
+## Decisions
+
+Settled in discussion 2026-10-10.
+
+| # | Decision | Rationale |
+|---|---|---|
+| D1 | The finding surfaces in **reorg's post-apply report**, not on every plan run | It is contextual, not continuous. A long-standing epic dependency with no story edges is often deliberate — "ship the API before the client" is real sequencing with zero technical edges — so firing every plan run is noise on exactly the projects that organised most carefully. The moment a reorg removed the last justifying edge, it is near-certain |
+| D2 | **Report-only.** Reorg does not gain an operation that drops a dependency | The target format's safety argument is that it is impoverished — a row says only *where a node belongs*. Dropping a dependency is a semantic edit to the plan graph, and ADR-0011's argument rests on the move set being pure re-placement |
+| D3 | Every such message **names the command**, and the command is verified to exist | This whole plan exists because a recommendation was nearly written for an action the toolchain could not perform |
+
+## Global Constraints
+
+- **This repo's `CLAUDE.md` does not ship.** A consuming project sees only payload, so every rule a consuming agent must follow belongs in a step file, a script docstring, or the shipped instruction block — never here.
+- `skills/_shared/` is canonical. **Edit there, then `npm run sync:scripts`.** Per-skill edits are silently overwritten.
+- **Regenerate manifests** with `node scripts/write-payload-manifest.mjs` after any skill file changes; `check:manifest` now fails on any skill edit until you do.
+- **Check 26:** no file under `skills/` assembles a state path.
+- **Check 31:** no `/l3io-*` invocation in markdown carries a `--flag`.
+- `pm-status.py` is the only writer of `state/**`, and takes **no graph library** (ADR-0011 rationale: 616 ms import against 92 call sites).
+- Conventional Commits, every commit signed off (`git commit -s`).
+
+## Review Focus
+
+1. **Removing a dependency that is still justified.** The inverse mistake: dropping `E001 depends_on E003` while story edges still cross that boundary leaves the phase graph unable to order work it must order. → Task 1 must refuse or loudly warn, and the check is already computable.
+2. **Removing the last entry.** `depends_on: []` and an absent `depends_on` must mean the same thing to every reader. → Task 1.
+3. **A command named in a message but never run.** The `suggests` strings and step-file remedies are prose today; nothing asserts they parse. → Task 4.
+4. **Readiness override is a deliberate act.** Making it a command must not make it *casual* — the friction is the point, only the mechanism changes. → Task 5.
+5. **An ambiguous instruction file must still not be auto-repaired.** Task 6 improves the diagnosis only; a task that starts editing the user's prose has misread the goal.
+
+---
+
+## Execution order
+
+Task 1 is a hard prerequisite: Tasks 2 and 3 are inert without it, because the message they
+emit would name a command that does not exist — the exact defect this plan fixes. Tasks 5 and
+6 are independent and may land in any order.
+
+```
+1 (verb) ──> 2 (finding) ──> 3 (report names it) ──> 4 (gate: every named command parses)
+5 (readiness override)   ── independent
+6 (marker diagnosis)     ── independent
+```
+
+### - [ ] Task 1: `set-depends-on --remove KEY`
+
+The missing verb. Mirrors `--add`'s existing contract — repeatable, idempotent, order
+preserved, all-or-nothing, every key validated before anything is written.
+
+- Removing a key that is not present is a no-op, not an error (idempotent, like `--add`).
+- **Refuse** when live story edges still cross that boundary (Review Focus 1), naming them.
+  `--force` may override, because a deliberate business sequencing removal is legitimate.
+- `--add` and `--remove` in one call: decide and document. Simplest is to refuse the
+  combination rather than define an order nobody will remember.
+- An emptied list: write `depends_on: []`, and confirm every reader treats it as absent
+  (Review Focus 2).
+- **Tests:** removes; idempotent on absent; refuses while justified; `--force` overrides;
+  emptied list reads back as no dependencies; a sprint node still exits 2.
+
+### - [ ] Task 2: the `unneeded-epic-dependency` finding
+
+`plan-graph.py analyze` gains the inverse of `unbacked-cross-epic-dependency`: an epic
+declaring `depends_on: [X]` with **zero** story edges crossing into X.
+
+- Severity `info` per D1 — it must not trigger the plan-run reorg advisory, which routes on
+  severity alone and would otherwise recommend a tool that structurally cannot fix it.
+- `measured` carries the epic pair and the edge count (zero), so the report can be specific.
+- **Tests:** fires on a declared-but-unjustified dependency; silent when edges justify it;
+  silent on an epic with no `depends_on`; never appears at `warn`.
+
+### - [ ] Task 3: reorg's post-apply report names the next two commands
+
+After apply, re-run `analyze` and report any `unneeded-epic-dependency` the reorg **caused** —
+present now, absent before. Both measurements already exist in the flow (§3 and §6).
+
+The message is the deliverable, and it is two commands and a reason:
+
+```
+↯ This reorg removed the last 2 story dependencies justifying E001 depends_on E003.
+  Dropping it would let E001 and E003 run in the same parallel phase.
+
+    uv run {pm_status} set-depends-on --state-root {pm_state_root} --epic E001 --remove E003
+    /l3io-plan        # rebuild the snapshot so execution picks up the new order
+```
+
+Not a hand edit, not a description of a problem. State plainly that it is **optional** — the
+dependency may be a deliberate sequencing decision this tool cannot see.
+
+### - [ ] Task 4: a gate that every recommended command exists
+
+The reason this plan exists is that a recommendation was nearly shipped for an action the
+toolchain could not perform. Close the class, do not just fix the instance.
+
+Extend check 4's argparse extractor to the analyzer's `suggests` strings and to step-file
+remedy lines, so a command named in a message is validated against the real surface exactly as
+a step-file invocation already is. A message naming a flag that does not exist then fails the
+build rather than reaching a user.
+
+### - [ ] Task 5: readiness override stops being a hand edit
+
+`step-03-load-plan.md` currently tells the user to *"edit `readiness:` in
+`plan-output-meta.yaml` to amber"*. That file is **agent-written** (step-06 §4), not
+`pm-status.py`-written, so the agent can set it — no new verb needed, only prose.
+
+Keep the friction and move the mechanism: on explicit confirmation that the risk is accepted,
+the agent rewrites the field and says so. A hand edit is not safer here, only more
+error-prone — wrong field, wrong file, damaged YAML — and the confirmation is just as
+deliberate.
+
+### - [ ] Task 6: diagnose the ambiguous instruction file precisely
+
+`step-00-activate.md` §2 says `repair it by hand — see /l3io-doctor`, and **no doctor mode
+exists for it** — the pointer is hollow.
+
+Per the table above this stays a hand edit, because the file is the user's and auto-repair
+means guessing which `l3io:begin` is real — the exact thing the marker engine refuses to do.
+What changes is the diagnosis: name the markers and their line numbers, so the fix is obvious.
+Drop the hollow `see /l3io-doctor` or give it a real mode; do not leave it pointing at nothing.
+
+---
+
+## Validation Strategy
+
+| Probe | Asserts |
+|---|---|
+| Build the before/after trees from the defect above, run `set-depends-on --remove`, re-run `phases` | the parallelism gain actually materialises — the whole point |
+| `--remove` while a story edge still crosses | refused, and the message names the edges |
+| Every command in a `suggests` string, extracted and parsed | Task 4's gate catches a named flag that does not exist |
+| `grep` the shipped tree for hand-edit instructions after Tasks 5–6 | only the two legitimate classes remain |
+
+**Mutation testing required** for Task 1 (drop the still-justified refusal → its test must
+fail) and Task 4 (plant a bad command in a `suggests` string → the gate must fail).
+
+**Gates:** all seven, `npm run test:python`, `smoke:install` before release.
+
+## Risks
+
+- **Task 1 removes an ordering constraint.** It is the one change here that can make a plan
+  run work in parallel that previously ran in sequence. The still-justified refusal is the
+  guard; `--force` is the deliberate escape, and the report says the dependency may be
+  intentional.
+- **More parallelism meets a known limitation.** Concurrent epics share one working tree with
+  no source-file independence check (`docs/superpowers/specs/2026-08-17-adaptive-parallelism-design.md`,
+  unimplemented). Succeeding at this plan's goal pushes directly on that. Worth saying in the
+  reorg report rather than discovering at dispatch.
+- **Task 4 widens a gate over prose.** A false positive there blocks a build over a sentence.
+  Scope it to lines that are already code-formatted commands, the same qualifier check 4 uses
+  to stay off ordinary prose.
