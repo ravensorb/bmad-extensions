@@ -1,9 +1,28 @@
 #!/usr/bin/env -S uv run --quiet --script
 # /// script
 # requires-python = ">=3.11"
-# dependencies = []
+# dependencies = ["networkx>=3.6"]
 # ///
-"""reorg-analyze.py -- measure the shape of a plan. Read-only; emits findings, never advice.
+"""plan-graph.py -- every question about a plan that is a GRAPH question. Read-only.
+
+Two modes, one graph:
+
+    uv run {pm_status} dump-plan --state-root S | plan-graph.py analyze   -> findings JSON
+    uv run {pm_status} dump-plan --state-root S | plan-graph.py phases    -> phases JSON
+
+Both read `dump-plan` output on stdin and assemble no paths of their own, which is why they
+can live here rather than inside pm-status.py.
+
+WHY networkx AND NOT pm-status.py. The graph algorithms here were hand-written -- cycle
+detection twice, longest path once, about 112 lines -- and networkx does all of it, plus
+things that were simply absent: `transitive_reduction` for a redundant depends_on, and
+`weakly_connected_components` for cohesion. It is NOT faster: measured on a 2000-story graph
+it is slower than the hand-rolled version, and its import alone costs ~616 ms. That is
+irrelevant at once-per-plan and would be ruinous in pm-status.py, which runs from 92 call
+sites at ~0.21 s startup. So the dependency lives here and pm-status.py takes no graph
+library at all. Do not "consolidate" them.
+
+-- analyze ------------------------------------------------------------------------------
 
 WHAT THIS IS FOR. `/l3io-plan reorg` proposes a better plan shape. The proposal itself needs
 judgment -- which stories belong together, what is worth retiring -- and that is the agent's
@@ -24,13 +43,14 @@ WHY IT TAKES JSON ON STDIN RATHER THAN READING THE TREE. Check 26 forbids any fi
 to a location. So the shape of the plan arrives via `pm-status.py dump-plan`, and this script
 never touches the state tree:
 
-    uv run {pm_status} dump-plan --state-root S | uv run reorg-analyze.py
+    uv run {pm_status} dump-plan --state-root S | uv run plan-graph.py analyze
 
 THE PRIMARY OBJECTIVE IS THE CRITICAL PATH. The spec's one objective is to reduce the cost of
 discovering a problem late, measured as the longest dependency chain weighted by elapsed
 hours: every hour on it is an hour nothing else can proceed through, and a late discovery
 there invalidates the most downstream work. Everything else here is a guardrail.
 """
+import argparse
 import json
 import sys
 
@@ -64,84 +84,103 @@ def index(plan: dict):
     return stories, epics, story_epic
 
 
-def find_cycles(edges: dict) -> list:
-    """Every dependency cycle, as a list of node lists. Iterative DFS with a colour map.
+def _digraph(edges: dict):
+    """{node: [things it depends on]} -> DiGraph with dependency -> dependent edges.
 
-    Reported rather than raised. `step-05-dependency-graph.md` halts on a cycle, which is
-    correct for planning and is also the end of the help it offers; here a cycle is a finding
-    the proposal can be built to break.
+    Edge direction is EXECUTION order, so a path reads in the order work happens and
+    `dag_longest_path` returns it that way round. Dependencies on nodes outside the set
+    (active, archived, dangling) are dropped here -- they are reported separately and are not
+    this graph's to order.
     """
-    WHITE, GREY, BLACK = 0, 1, 2
-    colour = dict.fromkeys(edges, WHITE)
-    cycles, stack = [], []
+    import networkx as nx
+    g = nx.DiGraph()
+    g.add_nodes_from(edges)
+    g.add_edges_from((d, n) for n, deps in edges.items() for d in deps if d in edges)
+    return g
 
-    def walk(start):
-        frames = [(start, iter(edges.get(start, ())))]
-        colour[start] = GREY
-        stack.append(start)
-        while frames:
-            node, it = frames[-1]
-            nxt = next(it, None)
-            if nxt is None:
-                colour[node] = BLACK
-                stack.pop()
-                frames.pop()
-                continue
-            if nxt not in colour:
-                continue                      # a dangling reference; reported separately
-            if colour[nxt] == GREY:
-                cycles.append(stack[stack.index(nxt):] + [nxt])
-            elif colour[nxt] == WHITE:
-                colour[nxt] = GREY
-                stack.append(nxt)
-                frames.append((nxt, iter(edges.get(nxt, ()))))
 
-    for n in list(edges):
-        if colour.get(n) == WHITE:
-            walk(n)
-    return cycles
+def find_cycles(edges: dict) -> list:
+    """Every simple cycle, each closed (first node repeated at the end).
+
+    ALL of them, not the first. The analyzer reports every cycle it finds, and a plan with
+    two broken clusters that surfaced one at a time would be half-fixed, re-run, and fail
+    again. `graphlib.CycleError` carries exactly one cycle, which is why it is not used here.
+    """
+    import networkx as nx
+    return [list(c) + [c[0]] for c in nx.simple_cycles(_digraph(edges))]
 
 
 def longest_path(edges: dict, weight, min_len: int = 2) -> tuple:
-    """(hours, path) of the heaviest dependency CHAIN of at least `min_len` nodes.
+    """(total weight, path) for the longest chain. Empty when nothing chains.
 
-    MIN_LEN IS 2 ON PURPOSE, and it is the difference between measuring the right thing and
-    the wrong one. A reorg can only change the SHAPE of a plan; it cannot make a story
-    smaller. So a single heavy story is not a critical path -- there is no serialisation in
-    it to remove, and reporting it as one would point the proposal at work it cannot help.
-    What matters is the longest chain of work that must happen IN ORDER, because that is the
-    part a regrouping can actually shorten.
+    `min_len=2` excludes a lone node: a story that depends on nothing and is depended on by
+    nothing has no serialisation in it, however heavy, and naming it a chain points the
+    reader at work the chain has nothing to do with.
 
-    Memoised; safe on a cyclic graph.
-
-    A cycle makes "longest" undefined, so a node already being evaluated contributes 0 and
-    the cycle is reported by `find_cycles` instead. Returning a wrong number silently would
-    be worse than returning a short one beside an explicit cycle finding.
+    TOTAL ON A CYCLIC GRAPH, deliberately. `nx.dag_longest_path` raises NetworkXUnfeasible
+    on one, but the analyzer reports a cycle AND still reports a chain -- a run that returned
+    nothing but the cycle would hide every other fact about the plan. Cyclic input is reduced
+    to its condensation, which is a DAG by construction, and the heaviest node of each
+    collapsed group represents it.
     """
-    best, visiting = {}, set()
+    import networkx as nx
+    g = _digraph(edges)
+    if not nx.is_directed_acyclic_graph(g):
+        cond = nx.condensation(g)
+        rep = {}
+        for n, members in cond.nodes(data="members"):
+            rep[n] = max(members, key=lambda m: (weight(m), m))
+        g = nx.relabel_nodes(cond, rep, copy=True)
+    for u, v in g.edges:
+        g.edges[u, v]["w"] = weight(v)
+    path = nx.dag_longest_path(g, weight="w", default_weight=0)
+    if len(path) < min_len:
+        return 0.0, []
+    return sum(weight(n) for n in path), path
 
-    def walk(n):
-        if n in best:
-            return best[n]
-        if n in visiting:
-            return 0.0, []
-        visiting.add(n)
-        top_h, top_p = 0.0, []
-        for d in edges.get(n, ()):
-            if d in edges:
-                h, p = walk(d)
-                if h > top_h:
-                    top_h, top_p = h, p
-        visiting.discard(n)
-        best[n] = (weight(n) + top_h, [n] + top_p)
-        return best[n]
 
-    out = (0.0, [])
-    for n in edges:
-        h, p = walk(n)
-        if len(p) >= min_len and h > out[0]:
-            out = (h, p)
-    return out
+def phases(plan: dict) -> dict:
+    """Epics grouped into the order they may run in. The plan snapshot's `phases` list.
+
+    This replaces a hand-executed Kahn's algorithm: step-05 used to describe the algorithm in
+    prose for an agent to run in its head, over the whole epic set, every plan run. It is the
+    computation that decides what runs CONCURRENTLY, which makes it the worst candidate in the
+    system for being done from memory.
+
+    `nx.topological_generations` IS that grouping: generation N is exactly the set whose
+    dependencies all sit in generations before it.
+
+    `parallel` IS `len(epics) > 1`, and nothing else. The old prose said "more than one epic,
+    or a single-epic phase with no ordering constraint", and its own worked example then
+    marked a one-epic phase parallel and another one-epic phase sequential -- the rule and
+    the example disagreed. It never mattered, because `l3io-execute`'s epic loop guards on
+    `parallel_flag=true AND len(epics) > 1` independently, so the flag alone has never caused
+    a concurrent dispatch of one epic. Making it mean the one thing it can act on removes the
+    contradiction without changing behaviour.
+
+    Epics are ordered within a generation, and generations among themselves, so the same plan
+    yields the same phases twice running.
+    """
+    import networkx as nx
+    epics = {e["key"]: e for e in plan.get("planned", [])}
+    edges = {k: [d for d in (v.get("depends_on") or []) if d in epics]
+             for k, v in epics.items()}
+    g = _digraph(edges)
+
+    out = []
+    if not nx.is_directed_acyclic_graph(g):
+        # A cycle has no topological order at all. Say so and emit nothing rather than a
+        # plausible-looking ordering over a graph that does not have one; `analyze` reports
+        # the cycles themselves.
+        return {"phases": [], "error": "the epic dependency graph has a cycle, so it has no "
+                                       "execution order — run `analyze` for the cycles"}
+    for i, gen in enumerate(nx.topological_generations(g), start=1):
+        keys = sorted(gen)
+        deps = sorted({d for k in keys for d in edges[k]})
+        out.append({"phase": i, "parallel": len(keys) > 1, "epics": keys,
+                    "dependencies": deps})
+    return {"phases": out, "phase_count": len(out),
+            "epic_count": sum(len(p["epics"]) for p in out)}
 
 
 def analyze(plan: dict) -> dict:
@@ -284,21 +323,29 @@ def analyze(plan: dict) -> dict:
 
 
 def main(argv=None) -> int:
-    argv = sys.argv[1:] if argv is None else argv
-    if argv and argv[0] in ("-h", "--help"):
-        sys.stdout.write(__doc__ + "\nusage: pm-status.py dump-plan ... | reorg-analyze.py\n")
-        return 0
+    ap = argparse.ArgumentParser(prog="plan-graph.py", description=__doc__,
+                                 formatter_class=argparse.RawDescriptionHelpFormatter)
+    ap.add_argument("mode", choices=("analyze", "phases"),
+                    help="analyze: measured findings. phases: the execution order.")
+    ap.add_argument("--pretty", action="store_true",
+                    help="indent the JSON for reading by hand")
+    a = ap.parse_args(sys.argv[1:] if argv is None else argv)
+
     try:
         plan = json.load(sys.stdin)
     except json.JSONDecodeError as e:
-        sys.stderr.write(f"reorg-analyze.py: stdin is not valid JSON ({e}). Pipe "
+        sys.stderr.write(f"plan-graph.py: stdin is not valid JSON ({e}). Pipe "
                          f"`pm-status.py dump-plan --state-root S` into this.\n")
         return 2
     if not isinstance(plan, dict) or "planned" not in plan:
-        sys.stderr.write("reorg-analyze.py: expected dump-plan output (an object with a "
-                         "`planned` key); refusing to analyse an unknown shape.\n")
+        sys.stderr.write("plan-graph.py: expected dump-plan output (an object with a "
+                         "`planned` key); refusing to read an unknown shape.\n")
         return 2
-    sys.stdout.write(json.dumps(analyze(plan), indent=2) + "\n")
+
+    result = analyze(plan) if a.mode == "analyze" else phases(plan)
+    sep = None if a.pretty else (",", ":")
+    sys.stdout.write(json.dumps(result, indent=2 if a.pretty else None,
+                                separators=sep) + "\n")
     return 0
 
 

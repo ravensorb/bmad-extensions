@@ -53,59 +53,65 @@ would become a wrong phase plan with no trace of where it came from.
 `/l3io-plan reorg` reports the same thing as `unbacked-cross-epic-dependency`, from the same
 rule, so the two agree by construction.
 
-## 2. Detect cycles (epic level)
+## 2. Detect cycles, and 3. group epics into phases — one command
 
-Run a depth-first cycle detection over the epic dependency edges:
+Both answers come from the same graph, so they come from the same call. It reads `dump-plan`
+on stdin, writes nothing, and takes no lock:
 
-For each epic E with `depends_on: [A, B, ...]`:
-- Traverse the dependency chain recursively.
-- If E is encountered again during traversal → cycle detected.
-
-Report all cycles found:
-```
-🔴 Dependency cycle detected: E001 → E003 → E001
+```bash
+uv run {pm_status} dump-plan --state-root {pm_state_root} \
+  | uv run {skill-root}/scripts/plan-graph.py phases
 ```
 
-If any cycle or invalid reference is found, set `{cycle_detected}` = true and halt:
+**Do not compute this by hand.** This used to describe a depth-first cycle search and Kahn's
+algorithm in prose, for you to run in your head over the whole epic set, on every plan run.
+It is the computation that decides what runs **concurrently** — the one thing in this step an
+execution run acts on directly — which makes it the worst possible candidate for being done
+from memory.
+
+### On a cycle
+
+The command returns `phases: []` with an `error` naming the cycle. A cyclic graph has no
+topological order at all, so there is nothing to emit; set `{cycle_detected}` = true and halt:
+
 ```
+🔴 Dependency cycle detected — the epic graph has no execution order.
 BLOCKED: dependency graph has errors — resolve before continuing.
 ```
 
-## 3. Topological sort → phases
+Run `plan-graph.py analyze` for the cycles themselves: it reports **every** simple cycle, not
+the first one found, so a plan with two broken clusters is fixed in one pass rather than
+surfacing one, being fixed, and failing again.
 
-If no errors, group epics into parallel phases using Kahn's algorithm:
+Halt here for an invalid reference from §1 as well.
 
-1. Start with all epics that have no `depends_on` (or all dependencies done/archived). → **Phase 1**
-2. Remove those epics from the pending set. Any epic whose all dependencies are now in completed phases is eligible for the next phase. → **Phase 2**
-3. Repeat until all backlog epics are assigned.
+### Otherwise
 
-**Parallel within a phase:** Epics in the same phase have no dependencies on each other and can run concurrently.
+Bind `{phases}` to the command's `phases` array, `{phase_count}` to `phase_count`. The shape:
 
-**Example output:**
-```
-Phase 1 (parallel): E001, E002
-Phase 2 (parallel): E003           ← depends on E001 + E002
-Phase 3 (sequential): E004         ← depends on E003 only
-```
-
-Record as `{phases}`:
-```
+```yaml
 phases:
   - phase: 1
     parallel: true
     epics: ["E001", "E002"]
     dependencies: []
   - phase: 2
-    parallel: true
+    parallel: false
     epics: ["E003"]
     dependencies: ["E001", "E002"]
-  - phase: 3
-    parallel: false
-    epics: ["E004"]
-    dependencies: ["E003"]
 ```
 
-`parallel` is true if the phase has more than one epic, or if a single-epic phase has no ordering constraint (always true for Phase 1 with one epic).
+**`parallel` is `len(epics) > 1`, and nothing else.** One epic cannot run concurrently with
+itself. (`l3io-execute`'s epic loop guards on `parallel_flag=true AND len(epics) > 1`
+independently, so this flag has never been able to cause a concurrent dispatch of a single
+epic on its own.)
+
+`dependencies` lists what the phase waited for — the union of its epics' `depends_on` within
+the planned set. A dependency on active or archived work does not order a phase: those epics
+are read-only context and have no phase of their own.
+
+Pass `{phases}` to `step-06-plan-output.md`, which writes it into the plan snapshot. That
+snapshot is what `l3io-execute` reads; it never recomputes the order.
 
 ## 4. Identify the longest dependency chain (structural)
 
@@ -160,7 +166,7 @@ Read-only; writes nothing and takes no lock:
 
 ```bash
 uv run {pm_status} dump-plan --state-root {pm_state_root} \
-  | uv run {skill-root}/scripts/reorg-analyze.py
+  | uv run {skill-root}/scripts/plan-graph.py analyze
 ```
 
 Bind `{shape_advisory}` from the `findings` array, by **severity**, in this order:

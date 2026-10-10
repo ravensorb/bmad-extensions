@@ -172,7 +172,7 @@ What could not run there is sprint load, because it needs the `elapsed_hours` th
 
 ```bash
 uv run {pm_status} dump-plan --state-root {pm_state_root} \
-  | uv run {skill-root}/scripts/reorg-analyze.py
+  | uv run {skill-root}/scripts/plan-graph.py analyze
 ```
 
 Bind `{balance_advisory}` from the `sprint-imbalance` findings alone:

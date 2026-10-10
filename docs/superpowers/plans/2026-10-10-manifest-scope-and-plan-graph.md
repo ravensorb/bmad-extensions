@@ -108,7 +108,7 @@ the claim it corrects.
 
 ## Phase B — `plan-graph.py`
 
-### - [ ] Task B1: Rename, add networkx, add the `phases` mode
+### - [x] Task B1: Rename, add networkx, add the `phases` mode
 
 - `reorg-analyze.py` → `plan-graph.py`. Modes: `analyze` (today's findings) and `phases`.
 - PEP-723 header gains `networkx>=3.6` — the floor that still supports Python 3.11, so **no interpreter change is needed**. (uv provisions interpreters on demand if we ever do want one; verified.)
@@ -116,13 +116,13 @@ the claim it corrects.
 - `phases` mode emits the `{phases}` structure via `nx.topological_generations`.
 - **Tests:** rename the suite to `test-plan-graph.py`; every existing analyze assertion must still pass unchanged; `phases` matches a hand-computed expectation on a known graph; a cyclic graph does not crash the chain finding.
 
-### - [ ] Task B2: `step-05` calls the script instead of describing the algorithm
+### - [x] Task B2: `step-05` calls the script instead of describing the algorithm
 
 - §3 currently tells the agent to execute Kahn's algorithm in prose — ~2,949 B of step-05 is hand-executed algorithm, and this is the computation that decides what runs in parallel.
 - Replace with a `plan-graph.py phases` call. Keep the worked example: a reader still needs to know what the output means.
 - **The emitted shape must be byte-compatible with what `step-06` §2 and `l3io-execute` step-03 consume** (Review Focus 6). Assert this, do not assume it.
 
-### - [ ] Task B3: Update every caller and regenerate
+### - [x] Task B3: Update every caller and regenerate
 
 - `step-05` (structural advisory), `step-06` §5.1 (balance advisory), `steps/reorg/step-reorg.md`.
 - `npm run sync:scripts` then `node scripts/write-payload-manifest.mjs` — and after A1 the manifest now covers the renamed script, so a stale name fails the gate rather than shipping.

@@ -76,7 +76,7 @@ state tree, and neither decides anything.
 
 ```bash
 uv run {pm_status} dump-plan --state-root {pm_state_root} > {reorg_run}-current.json
-uv run {skill-root}/scripts/reorg-analyze.py < {reorg_run}-current.json > {reorg_run}-findings.json
+uv run {skill-root}/scripts/plan-graph.py analyze < {reorg_run}-current.json > {reorg_run}-findings.json
 ```
 
 Read `{reorg_run}-findings.json`. Every finding carries an `id`, a `severity`, the `nodes`
@@ -189,7 +189,7 @@ files other than by a story having moved between sprint lists, that is a bug in 
 not a proposal — fix it rather than reporting it.
 
 ```bash
-uv run {skill-root}/scripts/reorg-analyze.py < {reorg_run}-proposed.json > {reorg_run}-proposed-findings.json
+uv run {skill-root}/scripts/plan-graph.py analyze < {reorg_run}-proposed.json > {reorg_run}-proposed-findings.json
 ```
 
 You now have the same measurements for both shapes: `critical_path_hours`,
