@@ -10,11 +10,20 @@ behave as the message claims.
 
 Three cases came out of the sweep, and they are not the same.
 
+**The rule is one sentence: the human decides, the agent edits.** "Go and edit this yourself"
+is never an acceptable outcome, in any file. What varies is only how much the agent may decide
+on its own before acting.
+
 | Case | Rule | Why |
 |---|---|---|
-| **Our machine-written state and artifacts** — `state/**`, `plan-output-meta.yaml`, `epic.yaml` | **Never** ask for a hand edit. If no command exists, that is the defect | We own the writer. Free-form YAML edits under parallelism are what `pm-status.py` exists to prevent |
-| **The user's own documents** — their `CLAUDE.md`, `AGENTS.md` | A **precise diagnosis** is the right answer, not auto-repair | The marker engine refuses an ambiguous file on purpose. Guessing which `l3io:begin` is real is exactly the damage it was written to avoid. "Two markers, lines 42 and 118" turns an investigation into ten seconds |
-| **Human judgement** — "check these ADR mentions still read correctly" | Legitimately human; not an edit at all | Nothing mechanical can decide whether prose still makes sense |
+| **Our machine-written state and artifacts** — `state/**`, `plan-output-meta.yaml`, `epic.yaml` | Agent acts. **Never** ask for a hand edit; if no command exists, that is the defect | We own the writer. Free-form YAML edits under parallelism are what `pm-status.py` exists to prevent |
+| **The user's own documents** — their `CLAUDE.md`, `AGENTS.md` | Agent **shows the ambiguity, asks which reading is right, then makes the edit** | Never *guess* — the marker engine refuses an ambiguous file precisely so nothing picks a `l3io:begin` at random. But once a human has resolved the ambiguity, locating and splicing the lines is mechanical work there is no reason to hand back |
+| **Human judgement** — "check these ADR mentions still read correctly" | Agent surfaces each one with its context, the human rules on it, **the agent applies the ruling** | Only the *decision* is human. Making the user then go and perform the edit is handing back the easy half |
+
+An earlier draft of this plan exempted the middle row entirely, on the grounds that the file
+is the user's. That conflated two different things — *deciding* what the file should say, which
+is theirs, and *performing the edit*, which is not. Refusing to guess does not require refusing
+to type.
 
 ## The defect that started this
 
@@ -149,10 +158,22 @@ deliberate.
 `step-00-activate.md` §2 says `repair it by hand — see /l3io-doctor`, and **no doctor mode
 exists for it** — the pointer is hollow.
 
-Per the table above this stays a hand edit, because the file is the user's and auto-repair
-means guessing which `l3io:begin` is real — the exact thing the marker engine refuses to do.
-What changes is the diagnosis: name the markers and their line numbers, so the fix is obvious.
-Drop the hollow `see /l3io-doctor` or give it a real mode; do not leave it pointing at nothing.
+**This must stop being a hand edit, without the engine ever guessing.** Both are achievable,
+because they are different steps:
+
+1. **Show the ambiguity concretely** — "two `l3io:begin` at lines 42 and 118; the one at 42 has
+   no matching `l3io:end`" — with the surrounding lines, so the user can see what they are
+   deciding about.
+2. **Ask which reading is right.** This is the part the marker engine correctly refuses to
+   decide, and the only part that needs a human.
+3. **Make the edit.** Once a human has said which block is real, removing the other is
+   mechanical, and handing that back is handing back the easy half.
+
+Nothing outside the resolved markers is touched, and the file is never rewritten on a guess —
+if the user declines to choose, say so and continue, exactly as today.
+
+Drop the hollow `see /l3io-doctor`, or give it a real mode that performs the three steps above.
+Do not leave it pointing at nothing.
 
 ---
 
@@ -163,7 +184,7 @@ Drop the hollow `see /l3io-doctor` or give it a real mode; do not leave it point
 | Build the before/after trees from the defect above, run `set-depends-on --remove`, re-run `phases` | the parallelism gain actually materialises — the whole point |
 | `--remove` while a story edge still crosses | refused, and the message names the edges |
 | Every command in a `suggests` string, extracted and parsed | Task 4's gate catches a named flag that does not exist |
-| `grep` the shipped tree for hand-edit instructions after Tasks 5–6 | only the two legitimate classes remain |
+| `grep` the shipped tree for hand-edit instructions after Tasks 5–6 | **zero remain** — every path either runs a command or asks a question and then runs one |
 
 **Mutation testing required** for Task 1 (drop the still-justified refusal → its test must
 fail) and Task 4 (plant a bad command in a `suggests` string → the gate must fail).
