@@ -125,13 +125,16 @@ from there. This package used to vendor byte-identical copies of all three into 
 `scripts/` directories where nothing invoked them — dead payload that duplicated core and
 would rot on the next BMad release.
 
-Each skill **that has payload** carries a **generated** `skills/<skill>/payload-manifest.json` —
-a SHA-256 per payload file, keyed relative to that skill's own root so a consumer who installed
-one skill can verify that skill alone. Eight of the twelve skills have one; the four deprecated
-forwarders do not, and should not — they ship no payload at all, and the manifest writer derives
-its scope from the sync groups rather than from the list of skill directories. **Never
-hand-edit a manifest, and regenerate it whenever a payload file changes** — `npm run
-sync:scripts` does not do it for you. The manifest contract, the sync/verify
+Each skill carries a **generated** `skills/<skill>/payload-manifest.json` — a SHA-256 for
+**every file that skill ships**, keyed relative to that skill's own root so a consumer who
+installed one skill can verify that skill alone. **All twelve** have one, the four deprecated
+forwarders included: a forwarder ships a `SKILL.md`, which is payload, and `clean-payload.py`
+cannot see a directory with no manifest. The writer walks the skill directory rather than
+reading the sync groups — until 2026-10-10 it did the latter, which left 123 of 198 shipped
+files unhashed and made `/l3io-doctor uninstall` walk past every skill-local file, including
+`clean-payload.py` itself. **Never hand-edit a manifest, and regenerate it whenever a payload
+file changes** — `npm run sync:scripts` does not do it for you, and `check:manifest` now fails
+after any skill edit until you do. The manifest contract, the sync/verify
 commands and the release gates live in `scripts/CLAUDE.md`.
 
 **The check tooling has npm dependencies, and CI installs them.** `.github/workflows/checks.yml`

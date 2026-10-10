@@ -175,8 +175,8 @@ across ~90 simultaneous failures, and no message anywhere named `node_modules`. 
 plants a library import into the copy and asserts the checker still runs, because a suite that
 is green either way proves nothing about the property.
 
-These are **devDependencies**. Nothing here ships: payload scope is `skills/<skill>/` (derived
-from `PAYLOAD_TARGETS`), and `node_modules/` is gitignored, so `check:manifest` cannot see them.
+These are **devDependencies**. Nothing here ships: payload scope is a walk of `skills/<skill>/`,
+and `node_modules/` is neither under a skill nor tracked, so `check:manifest` cannot see them.
 Every bare import in a gate script **is** mechanically asserted against `package.json` —
 `check-docs.mjs`'s check 28 (`gateImportsDeclared()`, invoked from the check runner), the
 follow-up ADR-0007 named. Its scope is derived: every `.mjs` under `scripts/`, recursively,
@@ -220,35 +220,50 @@ review gets posted.
 
 ## Payload manifests
 
-Each skill also carries a **generated** `skills/<skill>/payload-manifest.json` — a SHA-256 per
-**sync-delivered** payload file, keyed relative to that skill's own root. It is written by
-`scripts/write-payload-manifest.mjs`, whose scope is *imported* from `sync-shared-scripts.mjs`
-rather than re-listed. **Never hand-edit a manifest, and regenerate it whenever a payload file
+Each skill carries a **generated** `skills/<skill>/payload-manifest.json` — a SHA-256 for
+**every file that skill ships**, keyed relative to that skill's own root. It is written by
+`scripts/write-payload-manifest.mjs`, whose scope is a **walk of the skill directory**, with
+three exclusions: `payload-manifest.json` (a file cannot contain its own hash), `tests/` (never
+shipped as payload; no shipped skill has one today, so it is a guard rather than a live filter)
+and `__pycache__/`. **Never hand-edit a manifest, and regenerate it whenever a payload file
 changes** — `npm run sync:scripts` does not do it for you.
 
-**Read that scope literally: it is what a sync group delivers, not what a skill ships.** A file
-is hashed only if some sync group copies it here from `skills/_shared/`. Skill-owned payload —
-authored in the skill, never synced — is **not** in any manifest. Measured 2026-09-30: **69 of
-166 shipped files are hashed; 97 are not.** That includes every skill's own `SKILL.md`, all
-seventeen of `l3io-doctor`'s `steps/` files and eleven of its `scripts/` (the whole migration
-engine and its five readers), and eighteen of `l3io-sec-redteam`'s twenty-three. `pm-status.py`
-and `spec-align.py` *are* hashed, in the same directory as those eleven, because they are synced
-— same skill, same install, opposite coverage, and a consumer cannot tell which is which.
+A skill is a directory with a `SKILL.md`. That is what BMad installs and what the marketplace
+declares, and it excludes `skills/_shared/`, which ships nothing. All twelve skills have a
+manifest, the four deprecated forwarders included: a forwarder ships a `SKILL.md`, so it is
+payload, and `clean-payload.py` cannot see a directory that has no manifest. `check:module`'s
+bare-forwarder rule therefore allows `payload-manifest.json` as a third file — it is a
+*description* of payload rather than payload, and a second module home is made by
+`module.yaml`/`module-help.csv`, which BMad's PluginResolver reads, never by a checksum file
+nothing in BMad reads at all.
 
-So this is a **sync-drift detector, and it is complete for that job.** It is not a
-consumer-verification artifact, and must not be described as one: an earlier version of this
-paragraph said a consumer "can verify that skill alone," which was false for `l3io-doctor` and
-`l3io-help` the whole time it was written down. Derived-beats-listed was the right principle
-aimed at the wrong question — the scope was derived from *what gets synced*, and what gets
-synced is not what gets shipped.
+**This scope was wrong until 2026-10-10, and the way it was wrong is worth keeping.** It
+imported `PAYLOAD_TARGETS` from the sync script, making the scope "files that arrived here by
+being synced from `_shared/`". That was every payload file once. Then skill-local files appeared
+— `SKILL.md`, `customize.toml`, skill-local `steps/` and `scripts/` — and were invisible to it.
+**123 of 198 shipped files went unhashed; the manifest covered 38% of what ships.** Derived-beats-
+listed was the right principle aimed at the wrong question: the scope was derived from *how a
+file got here*, and that is not what "which files are ours" asks.
 
-Note the failure mode before trusting a green run: this omission **reads as a guarantee**, the
-same way the stale hash below did. `check:manifest` prints `Payload manifests are current: 8
-skill(s), 69 file(s)` over an edit to a skill-owned file it cannot see, and regenerating produces
-no diff — which looks like confirmation that the change was covered. It was not. Widening the
-writer to every shipped file is a small change; deciding whether the manifest should be a
-verification artifact is not, and it would make `check:manifest` fail on every skill-owned edit
-until regenerated. That decision is open, and is not this paragraph's to make. Generation alone gates nothing: the manifests were generated once, later commits edited a
+The consequence was not academic. `clean-payload.py` derives its delete set from this manifest
+and treats anything absent as *"not ours. Not touched, not mentioned"* — so `/l3io-doctor
+uninstall` silently left behind `migrate-engine.py` (which deletes a project's source layout),
+`sync-state.py`, `init-sanctum.py`, every reorg script, all four forwarder directories, **and
+`clean-payload.py` itself**: the file whose own docstring calls this manifest "the answer to
+which files are ours" was a file the manifest did not claim.
+
+It also **read as a guarantee**. `check:manifest` printed `Payload manifests are current` over an
+edit to a file it could not see, and regenerating produced no diff — which looks like
+confirmation the change was covered.
+
+Two consequences of the fix, both intended. `check:manifest` now fails after **any** skill edit
+until regenerated, including a `SKILL.md` edit, which is a workflow change every contributor
+meets; the failure message names the command. And `clean-payload.py` accepts **two**
+`generated_from` markers — `skills/<skill>/` and the older `skills/_shared/` — because
+recognising only the new one would walk past every project installed before the change,
+reporting `none-found` and removing nothing, which reads exactly like a clean uninstall.
+
+Generation alone gates nothing: the manifests were generated once, later commits edited a
 payload file, and HEAD shipped a manifest asserting a hash the file no longer had, which is
 worse than no checksum because it reads as a guarantee. `npm run check:manifest` is now the gate,
 in CI and in `prerelease`, and `postbump` regenerates after the payload re-sync (the bump rewrites

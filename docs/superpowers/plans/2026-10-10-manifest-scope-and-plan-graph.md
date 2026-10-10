@@ -78,13 +78,13 @@ Input classes the goal implies that no happy path exercises.
 
 ## Phase A — the manifest covers what ships
 
-### - [ ] Task A1: Derive manifest scope from the skill directory
+### - [x] Task A1: Derive manifest scope from the skill directory
 
 - `write-payload-manifest.mjs`: replace the sync-group-derived scope with a walk of each skill directory, applying D2's exclusions.
 - Keep the existing key shape — relative to the skill's own root — so a consumer who installed one skill can still verify that skill alone.
 - **Tests:** a skill-local script is hashed; a synced file is still hashed; `tests/` and `__pycache__` are excluded; `payload-manifest.json` does not appear in its own file list.
 
-### - [ ] Task A2: Confirm `clean-payload.py` behaves correctly with the wider set
+### - [x] Task A2: Confirm `clean-payload.py` behaves correctly with the wider set
 
 No code change expected — the point is to prove the widened manifest does what the docstring
 already promises, and to see the three outcomes on files that previously had none.
@@ -92,12 +92,12 @@ already promises, and to see the three outcomes on files that previously had non
 - **Tests:** an unmodified skill-local script is removed; a modified one is **reported, never removed**; a file outside the manifest is still untouched and unmentioned.
 - Check the report wording for Review Focus 2 — a modified `customize.toml` must read as a deliberate hand-off, not a failure.
 
-### - [ ] Task A3: Correct the documentation the gap made false
+### - [x] Task A3: Correct the documentation the gap made false
 
 - `CLAUDE.md` claims each manifest carries "a SHA-256 per payload file". True after A1; record that it was not, and why, so the next reader does not re-derive it.
 - Make `check:manifest`'s failure message name `node scripts/write-payload-manifest.mjs` (Review Focus 1).
 
-### - [ ] Task A4: Decide the forwarders explicitly
+### - [x] Task A4: Decide the forwarders explicitly
 
 They ship a `SKILL.md` and uninstall currently leaves four directories behind. Either they gain
 a manifest (and uninstall removes them), or they are excluded by name with a stated reason.
@@ -127,7 +127,7 @@ the claim it corrects.
 - `step-05` (structural advisory), `step-06` §5.1 (balance advisory), `steps/reorg/step-reorg.md`.
 - `npm run sync:scripts` then `node scripts/write-payload-manifest.mjs` — and after A1 the manifest now covers the renamed script, so a stale name fails the gate rather than shipping.
 
-### - [ ] Task B4 (optional): Compact `dump-plan` output
+### - [x] Task B4: Compact `dump-plan` output
 
 `json.dumps(..., indent=2)` measures 16,895 B where compact separators give 8,349 B on the same
 10-epic/40-story tree — 51% of the JSON, no information lost. Every plan run pipes this.

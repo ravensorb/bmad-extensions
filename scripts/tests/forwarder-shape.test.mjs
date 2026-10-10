@@ -69,10 +69,16 @@ test("a trailing sentence period is not part of the target", (t) => {
   assert.equal(TARGET_RE.exec("DEPRECATED forwarder for /l3io-plan.")[1], "l3io-plan");
 });
 
-test("bare shape is SKILL.md + customize.toml and nothing else", (t) => {
+test("bare shape is SKILL.md + customize.toml + payload-manifest.json, nothing else", (t) => {
   assert.equal(isBareForwarderShape(skill(t, {})), true);
+  // payload-manifest.json joined the set when the manifest's scope widened to everything a
+  // skill ships: a forwarder without one is a directory `clean-payload.py` walks past and
+  // `/l3io-doctor uninstall` leaves standing. It is a DESCRIPTION of payload, not payload,
+  // and a module home is made by module.yaml / module-help.csv, never by a checksum file.
   assert.equal(isBareForwarderShape(skill(t, { files: ["customize.toml", "payload-manifest.json"] })),
-               false);
+               true);
+  assert.equal(isBareForwarderShape(skill(t, { files: ["customize.toml", "module.yaml"] })),
+               false, "a module.yaml IS how a second module home appears");
   // The case the old no-payload-manifest rule missed entirely: a directory can carry steps/ or
   // references/ and still have no manifest. That is a skill, not a forwarder.
   assert.equal(isBareForwarderShape(skill(t, { sub: "steps" })), false);

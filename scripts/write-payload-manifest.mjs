@@ -8,9 +8,26 @@
 // skills/<skill>/payload-manifest.json, keyed by paths relative to that skill's own root
 // (a consumer's disk has no skills/<skill>/ prefix once the skill is installed).
 //
-// The scope is IMPORTED from the sync script, never re-listed here. A second hand-kept list
-// would drift from the first, and this file's whole purpose is to detect drift -- a drifting
-// drift-detector reports success over the wrong set.
+// THE SCOPE IS WHAT SHIPS, not what is synced. BMad's installer copies the whole skill
+// directory (`_copyResolvedSkills` -> `copyModuleWithFiltering`, which filters only shim and
+// `-sidecar` directories), so every file under skills/<skill>/ lands on a consumer's disk and
+// every one of them is ours.
+//
+// This used to import PAYLOAD_TARGETS from the sync script, which made the scope "files that
+// arrived here by being synced from _shared/". That was true of all payload once, and then
+// skill-local files appeared -- SKILL.md, customize.toml, skill-local steps/ and scripts/ --
+// and were invisible to it. 123 shipped files went unhashed; the manifest covered 38% of what
+// ships. The consequence was not academic: clean-payload.py derives its delete set from this
+// manifest and treats anything absent as "not ours. Not touched, not mentioned", so
+// /l3io-doctor uninstall silently left behind migrate-engine.py, sync-state.py, every reorg
+// script -- and clean-payload.py itself, the file whose own docstring calls this manifest "the
+// answer to which files are ours".
+//
+// How a file got here is not the question the manifest answers. Deriving from the directory
+// means a new skill-local file is covered the moment it exists, with nothing to remember.
+//
+// A skill is a directory with a SKILL.md. That excludes skills/_shared/, which is the
+// canonical source tree and ships nothing.
 //
 // Usage:
 //   node scripts/write-payload-manifest.mjs            # regenerate every per-skill manifest
@@ -24,28 +41,50 @@
 import { createHash } from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
-import { PAYLOAD_TARGETS } from "./sync-shared-scripts.mjs";
 import { writeAllSync } from "./write-all-sync.mjs";
 
 const check = process.argv.includes("--check");
 const root = path.resolve(import.meta.dirname, "..");
 const version = JSON.parse(fs.readFileSync(path.join(root, "package.json"))).version;
 
-// Group repo-relative targets ("skills/<skill>/<rest>") by skill, keeping only the
-// skill-relative remainder as the manifest key. A target that is not under skills/<skill>/
-// can't belong to any per-skill manifest and is skipped -- PAYLOAD_TARGETS never produces
-// one today, but this keeps the grouping honest rather than assuming the shape.
+// Excluded from the scope, each for its own reason:
+//
+//   payload-manifest.json  a file cannot contain its own hash.
+//   tests/                 never shipped as payload (root CLAUDE.md). No shipped skill has
+//                          one today -- suites live in tests/<skill>/ at the repo root -- so
+//                          this is a guard against a future one, not a live filter.
+//   __pycache__/           build detritus from importing a script, already gitignored.
+const EXCLUDED_DIRS = new Set(["tests", "__pycache__"]);
+const EXCLUDED_FILES = new Set(["payload-manifest.json"]);
+
+function walkSkill(skillDir, rel = "") {
+  const out = [];
+  for (const entry of fs.readdirSync(path.join(skillDir, rel), { withFileTypes: true })) {
+    const childRel = rel ? `${rel}/${entry.name}` : entry.name;
+    if (entry.isDirectory()) {
+      if (EXCLUDED_DIRS.has(entry.name)) continue;
+      out.push(...walkSkill(skillDir, childRel));
+    } else if (entry.isFile()) {
+      if (!rel && EXCLUDED_FILES.has(entry.name)) continue;
+      out.push(childRel);
+    }
+    // Anything else (symlink, socket, fifo) is not payload we can hash meaningfully.
+  }
+  return out;
+}
+
 const bySkill = new Map();
-for (const target of PAYLOAD_TARGETS) {
-  const parts = target.split(path.sep);
-  if (parts[0] !== "skills" || parts.length < 3) continue;
-  const skill = parts[1];
-  const relPath = parts.slice(2).join(path.sep);
-  // Defensive: never let a manifest hash itself, even if a future sync group somehow
-  // targeted this filename.
-  if (relPath === "payload-manifest.json") continue;
-  if (!bySkill.has(skill)) bySkill.set(skill, {});
-  bySkill.get(skill)[relPath] = null; // placeholder; hashed below
+const skillsDir = path.join(root, "skills");
+for (const entry of fs.readdirSync(skillsDir, { withFileTypes: true }).sort((a, b) => a.name.localeCompare(b.name))) {
+  if (!entry.isDirectory()) continue;
+  const skillDir = path.join(skillsDir, entry.name);
+  // A skill is a directory with a SKILL.md. That is what BMad installs and what the
+  // marketplace declares; it excludes skills/_shared/, the canonical source tree, which
+  // ships nothing and carries the test suites.
+  if (!fs.existsSync(path.join(skillDir, "SKILL.md"))) continue;
+  const files = {};
+  for (const relPath of walkSkill(skillDir).sort()) files[relPath] = null; // hashed below
+  bySkill.set(entry.name, files);
 }
 
 let totalFiles = 0;
@@ -77,7 +116,7 @@ for (const [skill, files] of [...bySkill.entries()].sort(([a], [b]) => a.localeC
   // field drifts too, and byte-comparing what would be written is the only comparison that
   // cannot miss a field this script starts emitting later.
   const rendered =
-    JSON.stringify({ version, generated_from: "skills/_shared/", files }, null, 2) + "\n";
+    JSON.stringify({ version, generated_from: "skills/<skill>/", files }, null, 2) + "\n";
   const count = Object.keys(files).length;
   totalFiles += count;
 
@@ -121,7 +160,7 @@ for (const [skill, files] of [...bySkill.entries()].sort(([a], [b]) => a.localeC
 
 if (missing > 0) {
   report.push(`\n${missing} payload file(s) listed as a target but missing on disk — fix ` +
-    `the tree (restore the file or narrow the sync group in sync-shared-scripts.mjs), then ` +
+    `the tree (restore the file, or remove it if it should no longer ship), then ` +
     `re-run.`);
   writeAllSync(2, report.join("\n") + "\n");
   process.exit(1);

@@ -139,6 +139,23 @@ class TestNeverTouches(Base):
         self.assertIn("KEEPING", out)
         self.assertIn("edited.py", out)
 
+    def test_both_generated_from_markers_are_recognised_as_ours(self):
+        """The manifest's scope widened from "synced from _shared/" to "what the skill
+        ships", and `generated_from` moved with it. Accepting only the new value would walk
+        past every project installed before the change — reporting `none-found` and removing
+        nothing, which reads exactly like a clean uninstall and is the most dangerous way to
+        be wrong on this path."""
+        self.skill("l3io-plan", {"scripts/a.py": ("payload\n", None)},
+                   generated_from="skills/<skill>/")
+        self.skill("l3io-doctor", {"scripts/b.py": ("payload\n", None)},
+                   generated_from="skills/_shared/")
+        code, out, err = self.run_cli("--apply")
+        self.assertEqual(code, 0, out + err)
+        self.assertFalse(self.exists(".claude/skills/l3io-plan/scripts/a.py"),
+                         "a manifest written after the scope change must be recognised")
+        self.assertFalse(self.exists(".claude/skills/l3io-doctor/scripts/b.py"),
+                         "a manifest written before it must still be recognised")
+
     def test_a_foreign_skill_is_untouched_and_unmentioned(self):
         """BMad core skills sit in the same directory and carry their own manifests.
         Identity is our `generated_from`, not a name prefix."""

@@ -47,7 +47,18 @@ export const DECLARATION_RE = /^DEPRECATED forwarder/i;
 export const TARGET_RE = /^DEPRECATED forwarder for \/([a-z0-9-]+)/;
 // The complete contents of a bare forwarder. Anything else means it carries payload, and a skill
 // that carries payload is a skill.
-export const FORWARDER_FILES = new Set(["SKILL.md", "customize.toml"]);
+//
+// `payload-manifest.json` is in the set, and is the one member that is not payload itself.
+// It is a DESCRIPTION of payload, and a forwarder's description names exactly the two files
+// above. It is listed here because the rule this set enforces exists to stop a second module
+// home appearing, and a module home is made by `module.yaml` / `module-help.csv` — which
+// BMad's PluginResolver reads — never by a checksum file, which nothing in BMad reads at all.
+//
+// A forwarder needs one for the same reason every other skill does: `clean-payload.py`
+// derives its delete set from the manifest and treats anything absent as "not ours. Not
+// touched, not mentioned", so a forwarder without one is a directory `/l3io-doctor uninstall`
+// walks straight past and leaves standing.
+export const FORWARDER_FILES = new Set(["SKILL.md", "customize.toml", "payload-manifest.json"]);
 
 // The frontmatter `description`, or null. Parsed as YAML rather than line-matched so a quoted,
 // folded or block-scalar description reads the same as a plain one.

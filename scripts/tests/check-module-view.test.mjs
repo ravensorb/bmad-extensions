@@ -360,10 +360,15 @@ test("missing-entry is exempt for a bare forwarder whose target is catalogued", 
 });
 
 test("missing-entry FAILS when the directory is not bare (carries payload)", (t) => {
+  // `module.yaml`, not `payload-manifest.json`. A manifest stopped marking a directory as
+  // fat when the manifest's scope widened to everything a skill ships — every skill carries
+  // one now, forwarders included, because clean-payload.py cannot see a directory without
+  // it. A module.yaml is the thing that actually makes a second module home, which is what
+  // this rule exists to catch.
   const dir = view(t);
   plantSkill(dir, "test-fat", {
     desc: "DEPRECATED forwarder for /test-skill.",
-    files: ["customize.toml", "payload-manifest.json"],
+    files: ["customize.toml", "module.yaml"],
   });
   assert.notEqual(run(dir, result([...META_FINDINGS, missingEntry("test-fat")])).status, 0);
 });
