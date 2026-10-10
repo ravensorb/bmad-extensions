@@ -83,10 +83,13 @@ emit would name a command that does not exist — the exact defect this plan fix
 6 are independent and may land in any order.
 
 ```
-1 (verb) ──> 2 (finding) ──> 3 (report names it) ──> 4 (gate: every named command parses)
-5 (readiness override)   ── independent
-6 (marker diagnosis)     ── independent
+1 (verb) ──> 2 (finding) ──> 3 (step file renders the command) ──> 4 (check 4 covers it, free)
+5 (readiness override) ──┐
+6 (marker diagnosis)   ──┴──> 7 (check 34 locks it in — must land after both)
 ```
+
+Task 7 last by necessity: a check that forbids the two instances cannot pass until they are
+gone.
 
 ### - [ ] Task 1: `set-depends-on --remove KEY`
 
@@ -132,15 +135,25 @@ The message is the deliverable, and it is two commands and a reason:
 Not a hand edit, not a description of a problem. State plainly that it is **optional** — the
 dependency may be a deliberate sequencing decision this tool cannot see.
 
-### - [ ] Task 4: a gate that every recommended command exists
+### - [ ] Task 4: put every recommended command where the existing gate already looks
 
 The reason this plan exists is that a recommendation was nearly shipped for an action the
 toolchain could not perform. Close the class, do not just fix the instance.
 
-Extend check 4's argparse extractor to the analyzer's `suggests` strings and to step-file
-remedy lines, so a command named in a message is validated against the real surface exactly as
-a step-file invocation already is. A message naming a flag that does not exist then fails the
-build rather than reaching a user.
+**This needs no new checker.** Check 4 already judges every code-formatted `pm-status.py`
+invocation in `skills/**/*.md` against the real argparse surface — its own header records that
+the forward arm missed exactly these and was widened to cover "the commands agents actually
+execute". So the rule is a placement rule, not a tooling one:
+
+**The finding says what is wrong; the STEP FILE says what to run.** A command belongs in a
+step file's code block, never in the analyzer's `suggests` string. `suggests` is a Python
+string literal that no gate reads; the same text in a step file is validated for free, and a
+message naming a flag that does not exist fails the build instead of reaching a user.
+
+- Task 2's finding states the condition and names the epics. It does not carry a command.
+- Task 3's step file renders the command, in a fenced block, from the finding's `measured`.
+- **Tests:** plant a bad flag in that block and confirm check 4 fails (the discipline the
+  check-docs suite already applies 113 times over).
 
 ### - [ ] Task 5: readiness override stops being a hand edit
 
@@ -175,6 +188,24 @@ if the user declines to choose, say so and continue, exactly as today.
 Drop the hollow `see /l3io-doctor`, or give it a real mode that performs the three steps above.
 Do not leave it pointing at nothing.
 
+### - [ ] Task 7: check 34 — no runtime directive asks a user to hand-edit
+
+Lands **after** Tasks 5 and 6, which remove the two instances; this is what stops them coming
+back. A grep for known phrasings is a hand-kept list, which is the thing this repo distrusts —
+but four existing checks are already this exact shape (**9** no directive reads
+`skills/_shared/`, **14** no directive names the old ADR home, **17** no live doc does X,
+**31** no `/l3io-*` invocation carries a `--flag`), so the pattern is idiomatic rather than
+novel.
+
+Scope it to runtime directives under `skills/` that tell a user to edit a path **this package
+writes** — the state tree, `plan-output-meta.yaml`, `epic.yaml`. A directive about the user's
+own document is judged by whether it ends in a command, not by whether it mentions editing.
+
+Per this repo's own standard, the check carries a planted violation it must catch, and the
+header must state what it does **not** reach: it reads phrasing, so a directive that asks for
+a hand edit in words nobody anticipated will pass. It narrows the opening; it does not close
+it.
+
 ---
 
 ## Validation Strategy
@@ -184,10 +215,25 @@ Do not leave it pointing at nothing.
 | Build the before/after trees from the defect above, run `set-depends-on --remove`, re-run `phases` | the parallelism gain actually materialises — the whole point |
 | `--remove` while a story edge still crosses | refused, and the message names the edges |
 | Every command in a `suggests` string, extracted and parsed | Task 4's gate catches a named flag that does not exist |
-| `grep` the shipped tree for hand-edit instructions after Tasks 5–6 | **zero remain** — every path either runs a command or asks a question and then runs one |
+| check 34 over the shipped tree | **zero remain** — every path either runs a command or asks a question and then runs one |
+| a planted bad flag in Task 3's command block | check 4 fails the build, with no new checker written |
+| a planted hand-edit directive | check 34 fails the build |
 
 **Mutation testing required** for Task 1 (drop the still-justified refusal → its test must
-fail) and Task 4 (plant a bad command in a `suggests` string → the gate must fail).
+fail), Task 4 (plant a bad flag in the step file's command block → check 4 must fail) and
+Task 7 (plant a hand-edit directive → check 34 must fail).
+
+**What cannot be validated, stated rather than glossed.** Tasks 5 and 6 are prose, and no gate
+proves an agent follows prose. The split is worth being precise about, because the half that
+would actually cause damage is the half that *is* mechanical:
+
+- **Safety is guaranteed in code.** The marker engine refuses an ambiguous file. That is
+  tested, and nothing in Task 6 can make it guess.
+- **Wiring is guaranteed in code.** A doctor mode added by Task 6 needs a `module-help.csv`
+  row and a routing-table entry, or `check:module` rule 9 fails; check 15 counts the modes.
+- **The interaction is not.** That the agent asks before splicing, rather than doing either
+  half alone, rests on the step file being unambiguous. Check 34 proves the old instruction is
+  gone; nothing proves the new one is obeyed.
 
 **Gates:** all seven, `npm run test:python`, `smoke:install` before release.
 
