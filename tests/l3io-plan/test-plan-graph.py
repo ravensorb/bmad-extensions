@@ -257,6 +257,54 @@ class TestUnbackedCrossEpicDependency(unittest.TestCase):
         self.assertFalse(ids(pg.analyze(p), "unbacked-cross-epic-dependency"))
 
 
+class TestUnneededEpicDependency(unittest.TestCase):
+    """The signal a reorg produces, and the one it cannot act on itself.
+
+    A reorg removes dependencies crossing an epic boundary, but cannot edit epic-level
+    `depends_on` — the target format has no field for it. So the declaration outlives the
+    edges that earned it, phases come from the declaration, and the parallelism the reorg
+    was for never arrives.
+    """
+
+    def _pair(self, epic_deps=(), story_deps=()):
+        return plan([
+            epic("E001", [sprint("S01", [story("E001-S01-001", 1, story_deps)])], epic_deps),
+            epic("E003", [sprint("S01", [story("E003-S01-001", 1)])]),
+        ])
+
+    def test_fires_when_no_story_edge_justifies_the_declaration(self):
+        f = ids(pg.analyze(self._pair(epic_deps=("E003",))), "unneeded-epic-dependency")
+        self.assertTrue(f)
+        self.assertEqual(f[0]["nodes"], ["E001", "E003"])
+        self.assertEqual(f[0]["measured"]["edges"], 0)
+
+    def test_silent_while_a_story_edge_justifies_it(self):
+        self.assertFalse(ids(pg.analyze(self._pair(epic_deps=("E003",),
+                                                   story_deps=("E003-S01-001",))),
+                             "unneeded-epic-dependency"))
+
+    def test_silent_when_the_epic_declares_nothing(self):
+        self.assertFalse(ids(pg.analyze(self._pair()), "unneeded-epic-dependency"))
+
+    def test_it_is_info_and_never_warn(self):
+        # THE ROUTING CONSTRAINT. The plan-run advisory maps `warn` to "run /l3io-plan
+        # reorg", and reorg is exactly the tool that cannot fix this — it never edits
+        # epic-level depends_on. At `warn` this would point a user at a refusal.
+        f = ids(pg.analyze(self._pair(epic_deps=("E003",))), "unneeded-epic-dependency")
+        self.assertEqual(f[0]["severity"], "info")
+
+    def test_a_dangling_declaration_is_left_to_the_dangling_finding(self):
+        # depends_on an epic that does not exist is a different problem with its own report.
+        r = pg.analyze(self._pair(epic_deps=("E099",)))
+        self.assertFalse(ids(r, "unneeded-epic-dependency"))
+        self.assertTrue(ids(r, "dangling-dependency"))
+
+    def test_it_never_recommends_dropping_without_the_caveat(self):
+        # An epic dependency can encode sequencing no story edge expresses.
+        f = ids(pg.analyze(self._pair(epic_deps=("E003",))), "unneeded-epic-dependency")[0]
+        self.assertIn("sequencing decision", f["suggests"])
+
+
 class TestOrphansAreQuestions(unittest.TestCase):
     def test_an_isolated_story_is_a_question_not_a_retirement(self):
         # The single most dangerous thing this script could get wrong: scoring "nothing

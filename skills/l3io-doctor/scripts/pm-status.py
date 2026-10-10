@@ -83,8 +83,9 @@ Subcommands
                 cost is DERIVED from tokens x rates — --cost/--cost-low/--cost-high are
                 declared but always rejected; use estimate-story/estimate-rollup instead)
                 [--confidence {low,medium,high}] [--flock]
-  set-depends-on --state-root S  (--story KEY | --epic ID)  --add KEY [--add KEY ...]
-                (appends to depends_on, the one LIST-shaped field: epic keys on an epic
+  set-depends-on --state-root S  (--story KEY | --epic ID)
+                (--add KEY [--add KEY ...] | --remove KEY [--remove KEY ...] [--force])
+                (adds to or removes from depends_on, the one LIST-shaped field: epic keys on an epic
                 node, story keys on a story node -- status-files.md §11. set-field would
                 store a list as the string "['E001']", which a reader takes for a scalar.
                 Idempotent, order preserved, all-or-nothing: every key is validated
@@ -4819,7 +4820,7 @@ DEPENDS_ON_KEY_RE = {"epic": EPIC_KEY_RE, "story": STORY_KEY_RE}
 
 
 def cmd_set_depends_on(args) -> int:
-    """Append epic keys to an epic's `depends_on` list.
+    """Add or remove keys on a node's `depends_on` list.
 
     `depends_on` is epic-only and list-shaped (status-files.md §11). `set-field --value` takes a
     single string, so routing a list through it would store "['E001']" as a scalar -- worse than
@@ -4829,6 +4830,21 @@ def cmd_set_depends_on(args) -> int:
     All-or-nothing: every key is validated before anything is written, because a half-applied
     dependency list is a worse artefact than an absent one -- l3io-plan topologically sorts
     on it, so a missing edge silently reorders a phase.
+
+    --remove EXISTS BECAUSE ITS ABSENCE FORCED A HAND EDIT. This verb was append-only, and
+    `set-field` refuses a list, so the only way to drop a dependency was to open epic.yaml and
+    edit it -- which the state contract forbids, and for the reason this whole script exists:
+    free-form YAML edits were dropped and malformed under parallel execution. A reorg that
+    removes the last story edge justifying `E001 depends_on E003` leaves that declaration
+    standing, and phases come from epic-level depends_on, so the two epics keep serialising
+    and the reorg's whole purpose goes unrealised. There was no command to recommend.
+
+    REMOVING A STILL-JUSTIFIED DEPENDENCY IS REFUSED. If any story under this node still
+    depends on a story under the key being removed, dropping the edge tells the planner the
+    two can run concurrently when they cannot. `--force` overrides, because an epic
+    dependency can also encode a sequencing decision no story edge expresses ("ship the API
+    before the client"), and this script cannot tell those apart -- but it can make the
+    difference deliberate.
     """
     from ruamel.yaml.comments import CommentedSeq
     from ruamel.yaml.scalarstring import SingleQuotedScalarString as SQ
@@ -4841,15 +4857,49 @@ def cmd_set_depends_on(args) -> int:
     self_key = args.epic if kind == "epic" else args.story
 
     keys = list(args.add or [])
-    if not keys:
-        _die_usage("set-depends-on needs at least one --add KEY")
-    for k in keys:
+    drops = list(getattr(args, "remove", None) or [])
+    if not keys and not drops:
+        _die_usage("set-depends-on needs at least one --add KEY or --remove KEY")
+    if keys and drops:
+        # Refused rather than ordered. Whichever order were chosen, half the readers of a
+        # later command would assume the other, and the two are trivially separable calls.
+        _die_usage("--add and --remove in one call is refused: the result would depend on an "
+                   "order nobody can see. Run them as two commands")
+    for k in keys + drops:
         if not key_re.match(k):
-            _die_usage(f"--add {k!r} is not a {kind} key (expected {key_re.pattern}); "
+            flag = "--add" if k in keys else "--remove"
+            _die_usage(f"{flag} {k!r} is not a {kind} key (expected {key_re.pattern}); "
                        f"nothing written")
+    for k in keys:
         if k == self_key:
             _die_usage(f"--add {k!r} is the node itself -- it cannot depend on itself; "
                        f"nothing written")
+
+    # The justification check runs BEFORE the lock, because it reads the whole epic tree and
+    # refusing is the common outcome on a mistaken call -- taking a write lock to then refuse
+    # would block a concurrent legitimate write for no reason.
+    if drops and kind == "epic" and not getattr(args, "force", False):
+        # Only keys actually PRESENT can be refused. Removing one that is not there is a
+        # no-op, and a no-op must not be blocked by a justification for an edge that is
+        # already gone -- a caller acting on a stale read would otherwise get an error for
+        # asking for a state the tree is already in.
+        _p = epic_file(args.state_root, canonical_epic_key(self_key))
+        _cur = []
+        if _p:
+            _, _n = load_node(_p)
+            if isinstance(_n, dict):
+                _cur = [str(e) for e in (_n.get("depends_on") or [])]
+        present = [k for k in drops if str(k) in _cur]
+        blocked = _justifying_story_edges(args.state_root, self_key, present) if present else []
+        if blocked:
+            shown = ", ".join(f"{a} -> {b}" for a, b in blocked[:5])
+            more = f" (+{len(blocked) - 5} more)" if len(blocked) > 5 else ""
+            _die_usage(f"refusing to remove {sorted({b for _a, b in blocked})} from "
+                       f"{self_key}: {len(blocked)} story dependency(ies) still cross that "
+                       f"boundary — {shown}{more}. Dropping the edge would tell the planner "
+                       f"these epics can run concurrently when they cannot. Move the stories "
+                       f"first (/l3io-plan reorg), or pass --force if this dependency is a "
+                       f"sequencing decision no story edge expresses")
 
     with _epic_write_lock(args, kind):
         y, node, path, label = _load_checked(args.state_root, args, kind)
@@ -4857,16 +4907,53 @@ def cmd_set_depends_on(args) -> int:
         if not isinstance(existing, list):
             existing = CommentedSeq()
             node["depends_on"] = existing
-        added = []
+        added, removed = [], []
         for k in keys:
             if str(k) not in [str(e) for e in existing]:
                 existing.append(SQ(k))
                 added.append(k)
+        for k in drops:
+            # Idempotent, like --add: removing a key that is not there is a no-op, not an
+            # error. A caller acting on a stale read should not have to care.
+            hits = [e for e in existing if str(e) == str(k)]
+            for h in hits:
+                existing.remove(h)
+            if hits:
+                removed.append(k)
+        # An emptied list is written as `depends_on: []` rather than dropped, so a reader
+        # sees "declared, and empty" exactly as it sees "never declared" -- both mean no
+        # dependencies, and every reader here treats a missing key and [] the same way.
         node["updated_at"] = _now_iso()
         save_node(y, node, path, getattr(args, "flock", False))
 
-    sys.stdout.write(f"OK set-depends-on {label} += {added or '(nothing new)'}\n")
+    if drops:
+        sys.stdout.write(f"OK set-depends-on {label} -= {removed or '(nothing present)'}\n")
+    else:
+        sys.stdout.write(f"OK set-depends-on {label} += {added or '(nothing new)'}\n")
     return 0
+
+
+def _justifying_story_edges(state_root: str, epic_key: str, targets: list) -> list:
+    """(story, target_epic) for every story edge crossing from epic_key into one of targets.
+
+    What makes an epic-level dependency earned: a story under this epic depending on a story
+    under that one. Zero such edges is what `plan-graph.py` reports as
+    `unneeded-cross-epic-dependency`, and what makes a removal safe.
+    """
+    want = {canonical_epic_key(t) for t in targets}
+    out = []
+    for story_key, path in iter_story_files(state_root, canonical_epic_key(epic_key)):
+        _, node = load_node(path)
+        if not isinstance(node, dict):
+            continue
+        for dep in (node.get("depends_on") or []):
+            try:
+                dep_epic, _sp, _n = parse_story_key(str(dep))
+            except ValueError:
+                continue
+            if dep_epic in want:
+                out.append((story_key, dep_epic))
+    return sorted(out)
 
 
 def cmd_import_node(args) -> int:
@@ -8997,14 +9084,20 @@ def build_parser() -> argparse.ArgumentParser:
     di.set_defaults(func=cmd_story_doc_init)
 
     sdo = sub.add_parser("set-depends-on",
-                         help="append dependency keys to an epic or story node's depends_on list")
+                         help="add or remove dependency keys on an epic or story node's depends_on list")
     sdo.add_argument("--state-root", required=True)
     sdo.add_argument("--epic")
     sdo.add_argument("--story", help="a story node's depends_on takes story keys")
     sdo.add_argument("--sprint")
-    sdo.add_argument("--add", action="append", required=True, metavar="KEY",
+    sdo.add_argument("--add", action="append", metavar="KEY",
                      help="repeatable; idempotent, order preserved. Epic keys for an epic "
                           "node, story keys for a story node")
+    sdo.add_argument("--remove", action="append", metavar="KEY",
+                     help="repeatable; idempotent. Refused while story edges still cross "
+                          "that boundary, unless --force")
+    sdo.add_argument("--force", action="store_true",
+                     help="remove even while story edges justify it — for a sequencing "
+                          "decision no story edge expresses")
     sdo.set_defaults(func=cmd_set_depends_on)
 
     imp = sub.add_parser("import-node",

@@ -275,6 +275,35 @@ def analyze(plan: dict) -> dict:
                 f"can be scheduled into the same parallel phase and run concurrently. Add "
                 f"{b} to {a}'s depends_on.")
 
+    # --- an epic dependency nothing justifies any more ----------------------------
+    #
+    # THE INVERSE of unbacked-cross-epic-dependency above, and the signal a reorg produces.
+    # A reorg's objective is to remove dependencies crossing an epic boundary -- but it
+    # cannot edit epic-level `depends_on`, so the declaration survives the edges that earned
+    # it. Phases come from that declaration, so the two epics keep serialising and the
+    # parallelism the reorg was for never arrives.
+    #
+    # INFO, NOT WARN, and the reason is routing rather than importance: the plan-run advisory
+    # maps `warn` to "run /l3io-plan reorg", and reorg is precisely the tool that CANNOT fix
+    # this. Surfacing it there would point at a refusal. It is reported where it is
+    # actionable -- in reorg's own post-apply report, which knows the edges were there a
+    # moment ago.
+    #
+    # Never auto-dropped. An epic dependency can encode sequencing no story edge expresses
+    # ("ship the API before the client"), and nothing here can tell that from a leftover.
+    for epic in plan.get("planned", []):
+        declared = [str(d) for d in (epic.get("depends_on") or [])]
+        for target in sorted(set(declared)):
+            if target not in epics:
+                continue                       # dangling-dependency already covers it
+            if coupling.get((epic["key"], target), 0) == 0:
+                add("unneeded-epic-dependency", "info", [epic["key"], target],
+                    {"edges": 0},
+                    f"{epic['key']} declares depends_on: [{target}] but no story in "
+                    f"{epic['key']} depends on one in {target}. Dropping it would let them "
+                    f"share a parallel phase — unless the dependency is a sequencing "
+                    f"decision no story edge expresses, which this cannot tell.")
+
     for epic in plan.get("planned", []):
         sizes = [(s["key"], sum(elapsed(st) for st in s.get("stories", [])))
                  for s in epic.get("sprints", [])]

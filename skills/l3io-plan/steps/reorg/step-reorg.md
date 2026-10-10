@@ -473,6 +473,46 @@ different rate card than the plan did.
 `l3io-execute` may be reading one. Tell the user to run `/l3io-plan` for a snapshot that
 reflects the new shape, exactly as `/l3io-plan estimate` does.
 
+## 10.1 Report the epic dependencies this reorg made unnecessary
+
+**A reorg cannot finish its own job, and this is where it says so.** Its objective is to
+remove dependencies crossing an epic boundary — but it never edits epic-level `depends_on`,
+because the target format has no field for one. So after the last story edge between two epics
+is gone, `E001 depends_on E003` is still declared, phases are built from that declaration, and
+the two epics keep running in sequence. The parallelism the whole proposal was for does not
+arrive until somebody drops the edge.
+
+Compare the `unneeded-epic-dependency` findings in §6's measurement of the proposed plan
+against §3's measurement of the plan you started with. Report only the ones **this reorg
+caused** — present now, absent before. A declaration that was already unjustified before the
+reorg is not this run's business and is noise here.
+
+For each, print the two commands, filled in:
+
+```bash
+uv run {pm_status} set-depends-on --state-root {pm_state_root} --epic {epic} --remove {target}
+```
+
+Then `/l3io-plan`, to rebuild the snapshot so execution picks up the new order.
+
+```
+↯ This reorg removed the last {n} story dependency(ies) justifying {epic} depends_on {target}.
+  Dropping it would let {epic} and {target} run in the same parallel phase.
+  Optional — the dependency may be a sequencing decision no story edge expresses.
+```
+
+**Say "optional" and mean it.** "Ship the API before the client" is a real ordering with zero
+story edges behind it, and nothing measured here can tell that from a leftover. Offer the
+command; do not run it as part of the reorg, and do not treat declining as an unfinished step.
+
+`set-depends-on --remove` refuses on its own if a story edge still crosses — so a stale
+measurement cannot cause a wrong removal. `--force` exists for the sequencing case.
+
+**If more epics end up sharing a phase, say so once.** Epics in one parallel phase are
+dispatched concurrently into a single working tree, and nothing checks that their source files
+are independent. That is a known limit worth naming at the moment parallelism increases,
+rather than at the moment two concurrent epics collide.
+
 ## 11. Stage B — balance sprint load, inside the structure you just built
 
 Run this **after** §10 has recorded the structural pass, and only then. Bind `{reorg_stage}` =

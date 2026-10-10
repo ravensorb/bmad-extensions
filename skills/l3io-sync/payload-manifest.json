@@ -12,7 +12,7 @@
     "scripts/detect-platform.py": "8a1a8d23d792a01ef24ec9b52b4de28bfbad651cfa119aab82d662bd4dab3635",
     "scripts/drift-report.py": "8c1b7708472d1cd95827221836489333925c2821fc60faabe609c4b9d4d47ff7",
     "scripts/sync-state.py": "f7431a9e858d63b8c07f9c6134afa1f31d7408eb59394cee7d9c1126e622ba54",
-    "steps/shared/step-00-activate.md": "447516d828f46b1f20c1f675a18c3019fa9129511857f87c457cb1583fcc24ee",
+    "steps/shared/step-00-activate.md": "17219274207a62a1074086ac22174f14e0503ece3cac127e9846839e2ed25865",
     "steps/shared/step-00-digest.md": "27af27894b622e1da2ffade4cd6d292d207bf4d114ef0f1bb5706be86ee0146d",
     "steps/shared/step-01-classify-work.md": "53b6c3df3744f01fc4f7bc38fbf56e27f54ec13ba1cc67fbf5334d26bfb9a12c",
     "steps/shared/step-estimate.md": "dc361f48af47290aace3c10e9aa42cfd4201941cd976ea200f4ec7c25a8ea94a",

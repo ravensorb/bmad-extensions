@@ -91,7 +91,7 @@ emit would name a command that does not exist — the exact defect this plan fix
 Task 7 last by necessity: a check that forbids the two instances cannot pass until they are
 gone.
 
-### - [ ] Task 1: `set-depends-on --remove KEY`
+### - [x] Task 1: `set-depends-on --remove KEY`
 
 The missing verb. Mirrors `--add`'s existing contract — repeatable, idempotent, order
 preserved, all-or-nothing, every key validated before anything is written.
@@ -106,7 +106,7 @@ preserved, all-or-nothing, every key validated before anything is written.
 - **Tests:** removes; idempotent on absent; refuses while justified; `--force` overrides;
   emptied list reads back as no dependencies; a sprint node still exits 2.
 
-### - [ ] Task 2: the `unneeded-epic-dependency` finding
+### - [x] Task 2: the `unneeded-epic-dependency` finding
 
 `plan-graph.py analyze` gains the inverse of `unbacked-cross-epic-dependency`: an epic
 declaring `depends_on: [X]` with **zero** story edges crossing into X.
@@ -117,7 +117,7 @@ declaring `depends_on: [X]` with **zero** story edges crossing into X.
 - **Tests:** fires on a declared-but-unjustified dependency; silent when edges justify it;
   silent on an epic with no `depends_on`; never appears at `warn`.
 
-### - [ ] Task 3: reorg's post-apply report names the next two commands
+### - [x] Task 3: reorg's post-apply report names the next two commands
 
 After apply, re-run `analyze` and report any `unneeded-epic-dependency` the reorg **caused** —
 present now, absent before. Both measurements already exist in the flow (§3 and §6).
@@ -135,7 +135,7 @@ The message is the deliverable, and it is two commands and a reason:
 Not a hand edit, not a description of a problem. State plainly that it is **optional** — the
 dependency may be a deliberate sequencing decision this tool cannot see.
 
-### - [ ] Task 4: put every recommended command where the existing gate already looks
+### - [x] Task 4: put every recommended command where the existing gate already looks
 
 The reason this plan exists is that a recommendation was nearly shipped for an action the
 toolchain could not perform. Close the class, do not just fix the instance.
@@ -155,7 +155,7 @@ message naming a flag that does not exist fails the build instead of reaching a 
 - **Tests:** plant a bad flag in that block and confirm check 4 fails (the discipline the
   check-docs suite already applies 113 times over).
 
-### - [ ] Task 5: readiness override stops being a hand edit
+### - [x] Task 5: readiness override stops being a hand edit
 
 `step-03-load-plan.md` currently tells the user to *"edit `readiness:` in
 `plan-output-meta.yaml` to amber"*. That file is **agent-written** (step-06 §4), not
@@ -166,7 +166,7 @@ the agent rewrites the field and says so. A hand edit is not safer here, only mo
 error-prone — wrong field, wrong file, damaged YAML — and the confirmation is just as
 deliberate.
 
-### - [ ] Task 6: diagnose the ambiguous instruction file precisely
+### - [x] Task 6: diagnose the ambiguous instruction file precisely
 
 `step-00-activate.md` §2 says `repair it by hand — see /l3io-doctor`, and **no doctor mode
 exists for it** — the pointer is hollow.
@@ -188,7 +188,7 @@ if the user declines to choose, say so and continue, exactly as today.
 Drop the hollow `see /l3io-doctor`, or give it a real mode that performs the three steps above.
 Do not leave it pointing at nothing.
 
-### - [ ] Task 7: check 34 — no runtime directive asks a user to hand-edit
+### - [x] Task 7: check 34 — no runtime directive asks a user to hand-edit
 
 Lands **after** Tasks 5 and 6, which remove the two instances; this is what stops them coming
 back. A grep for known phrasings is a hand-kept list, which is the thing this repo distrusts —

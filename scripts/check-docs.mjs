@@ -105,6 +105,8 @@
 //                    with no edit here. Shell-tagged fences only; a `--dest <path>`
 //                    argument, a `test -f <path>` and a `name: <prefix>` binding are
 //                    mentions, not calls, and each produced a false positive first.
+//  34. no-hand-edit-directives  no runtime directive tells a user to hand-edit a file
+//                              this package writes — the human decides, the agent edits
 //  31. no-flags-on-slash-commands  no `/l3io-*` invocation in LIVE_DOCS or in a markdown
 //                    file under skills/ carries a `--flag`. No l3io-* skill parses flags: l3io-execute takes
 //                    `E{nnn}`, `E{nnn}-S{nn}` or nothing, and anything else prints
@@ -4667,6 +4669,86 @@ function checkNoFlagsOnSlashCommands() {
   }
 }
 
+// 34. No runtime directive tells a user to hand-edit a file this package writes.
+//
+// The rule across this package is that the HUMAN DECIDES AND THE AGENT EDITS. "Go and change
+// it yourself" is never an acceptable outcome for a file we write: state/** is machine-written
+// through pm-status.py precisely because free-form YAML edits were dropped and malformed under
+// parallel execution, and plan-output-meta.yaml is the sole authority l3io-execute reads for
+// which plan is current. Telling a user to open either by hand invites the wrong field, the
+// wrong file, or damaged YAML -- and it is only ever said because a command was missing, which
+// is the defect, not the remedy.
+//
+// Two instances motivated this and are now gone: step-03-load-plan told the user to "edit
+// readiness: in plan-output-meta.yaml to amber" (the agent writes that file; it can set the
+// field), and step-00-activate said "repair it by hand" for an ambiguous instruction block
+// (the agent now shows the ambiguity, asks which block is real, and splices).
+//
+// WHAT IT DOES NOT REACH, stated because a guard that overstates its coverage stops the next
+// reader looking. This matches PHRASING, so a directive that asks for a hand edit in words
+// nobody anticipated passes. It narrows the opening; it does not close it. It also judges only
+// files under skills/ -- a reference doc telling a reader to edit state would not be caught,
+// and that is a deliberate scope choice rather than an oversight: reference docs describe, step
+// files instruct.
+//
+// A directive about the USER'S OWN document is not a violation. The distinction is the path,
+// not the verb: editing their CLAUDE.md is their call to make, and the rule there is that we
+// must not guess, never that we must not help.
+// The trigger is HAND-EDIT PHRASING, never a path on its own. An earlier draft also fired on
+// any directive naming one of our files beside an edit verb, which flagged `## 4. Update
+// plan-output-meta.yaml` -- a heading telling the AGENT to write it, which is the correct
+// behaviour this rule exists to produce. Our step files instruct the agent to write our files
+// constantly; that is the point, and a path cannot distinguish it.
+//
+// Deliberately NOT path-constrained either. "Go and edit this yourself" is unacceptable for
+// the user's own document too -- not because we may rewrite it unasked, but because once a
+// human has decided what it should say, locating and splicing the lines is work there is no
+// reason to hand back.
+// TWO signals, because the two instances looked nothing alike. "repair it by hand" carries
+// the phrasing and no path; "edit readiness: in plan-output-meta.yaml to amber" names the path
+// and never says "by hand".
+const BY_HAND_RE =
+  /\b(edit|change|update|modify|fix|repair|correct|adjust)\b[^.\n]{0,60}\bby hand\b|\bby hand\b[^.\n]{0,40}\b(edit|repair|fix|change)\b/i;
+// The NOUN forms -- "a hand-edit", "hand-edited", "hand-editing" -- are how this package
+// DESCRIBES the thing, not how it asks for it: "a currency-prefixed figure is a hand-edit by
+// definition", "hand-editing while no consumer benefited". Matching them flagged five lines
+// that teach the rule. Only the imperative shapes above count.
+const OURS_PATH_RE =
+  /(state\/|plan-output-meta\.yaml|epic\.yaml|sprint\.yaml|issues\.yaml|pm-calibration\.yaml|reorg-log\.yaml)/i;
+// `edit` and `modify` only. The wider list -- set, change, update, adjust, correct -- matched
+// nineteen lines that do nothing of the kind: `set-actual`/`set-status` are VERB NAMES, "Set
+// `{pm_issues_file}` = ..." binds a variable, and "`sprint.yaml` has `status: done`" merely
+// describes a field. A guard over prose pays for every extra synonym in false positives, and a
+// false positive here blocks a build over a sentence.
+const EDIT_VERB_RE = /\b(edit|modify)\b/i;
+
+function checkNoHandEditDirectives() {
+  const violations = [];
+  for (const rel of allSkillDocs()) {
+    read(rel).split("\n").forEach((line, i) => {
+      // A heading names a section; it does not instruct a user. `## 4. Update
+      // plan-output-meta.yaml` tells the AGENT to write that file, which is the behaviour
+      // this rule exists to produce.
+      if (/^\s*#/.test(line)) return;
+      const asksByHand = BY_HAND_RE.test(line);
+      const asksOnOurPath = OURS_PATH_RE.test(line) && EDIT_VERB_RE.test(line);
+      if (!asksByHand && !asksOnOurPath) return;
+      // A line that forbids the thing is not the thing. "never edit by hand", "rather than
+      // hand-editing" and "do not edit ... by hand" are how this rule is TAUGHT, and a guard
+      // that flagged its own statement would be unusable.
+      if (/\b(never|not|rather than|instead of|do not|don't|cannot|must not|no longer)\b/i.test(line)) return;
+      violations.push(`${rel}:${i + 1}: asks for a hand edit -- the human decides and the ` +
+        `agent edits. If no command exists for it, that missing command is the defect: ` +
+        `\`${line.trim().slice(0, 90)}\``);
+    });
+  }
+  for (const v of violations) failures.push(`[check 34] ${v}`);
+  if (verbose) {
+    console.log(`  no-hand-edit-directives: ${allSkillDocs().length} file(s), ` +
+                `${violations.length} violation(s)`);
+  }
+}
+
 function checkProbePathParity() {
   const { violations } = probePathParity();
   for (const v of violations) failures.push(`[check 29] ${v}`);
@@ -4711,6 +4793,7 @@ checkDoctorModeKeywords();
 checkResolverInvariant();
 checkChoiceEnumerations();
 checkGateImports();
+checkNoHandEditDirectives();
 checkProbePathParity();
 checkSubcommandRequired();
 checkRecursiveGrep();

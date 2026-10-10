@@ -10424,6 +10424,106 @@ class TestSetDependsOn(Base):
     def _node(self, key):
         return pm.load_node(pm.epic_file(self.d, key))[1]
 
+    def _story(self, story_key, deps=()):
+        """A story node under its epic, with optional cross-epic depends_on."""
+        e, sp, _ = story_key.split("-")
+        self.run_main(["import-node", "--state-root", self.d, "--epic", e,
+                       "--sprint", sp, "--status", "backlog", "--title", sp])
+        self.run_main(["import-node", "--state-root", self.d, "--story", story_key,
+                       "--status", "backlog", "--title", story_key])
+        if deps:
+            self.run_main(["set-depends-on", "--state-root", self.d, "--story", story_key,
+                           *[x for d in deps for x in ("--add", d)]])
+
+    # --- removal -------------------------------------------------------------------
+    #
+    # This verb was append-only, and set-field refuses a list, so dropping a dependency meant
+    # hand-editing epic.yaml -- which the state contract forbids, for the reason this whole
+    # script exists. The concrete cost: a reorg that removes the last story edge justifying
+    # `E001 depends_on E003` leaves the declaration standing, phases come from epic-level
+    # depends_on, so the epics keep serialising and the reorg's purpose goes unrealised.
+
+    def test_remove_drops_the_key(self):
+        self._epic("E010")
+        self.run_main(["set-depends-on", "--state-root", self.d, "--epic", "E010",
+                       "--add", "E011", "--add", "E012"])
+        code, out = self.run_main(["set-depends-on", "--state-root", self.d,
+                                   "--epic", "E010", "--remove", "E011"])
+        self.assertEqual(code, 0, out)
+        self.assertEqual(list(self._node("E010")["depends_on"]), ["E012"])
+
+    def test_remove_is_idempotent_on_a_key_that_is_not_there(self):
+        # A caller acting on a stale read asked for a state the tree is already in.
+        self._epic("E013")
+        code, out = self.run_main(["set-depends-on", "--state-root", self.d,
+                                   "--epic", "E013", "--remove", "E099"])
+        self.assertEqual(code, 0, out)
+        self.assertIn("nothing present", out)
+
+    def test_removing_the_last_key_leaves_an_empty_list_not_a_missing_field(self):
+        self._epic("E014")
+        self.run_main(["set-depends-on", "--state-root", self.d, "--epic", "E014",
+                       "--add", "E015"])
+        self.run_main(["set-depends-on", "--state-root", self.d, "--epic", "E014",
+                       "--remove", "E015"])
+        node = self._node("E014")
+        self.assertIn("depends_on", node)
+        self.assertEqual(list(node["depends_on"]), [],
+                         "[] and absent both mean no dependencies; every reader agrees")
+
+    def test_removing_a_still_justified_dependency_is_refused(self):
+        # THE GUARD. Dropping the edge tells the planner these epics may run concurrently
+        # when a story in one still needs a story in the other.
+        self._epic("E020")
+        self._epic("E021")
+        self._story("E020-S01-001", ["E021-S01-001"])
+        self._story("E021-S01-001")
+        self.run_main(["set-depends-on", "--state-root", self.d, "--epic", "E020",
+                       "--add", "E021"])
+        code, out = self.run_main(["set-depends-on", "--state-root", self.d,
+                                   "--epic", "E020", "--remove", "E021"])
+        self.assertEqual(code, 2, out)
+        self.assertEqual(list(self._node("E020")["depends_on"]), ["E021"],
+                         "a refusal writes nothing")
+
+    def test_force_removes_a_still_justified_dependency(self):
+        # An epic dependency can encode sequencing no story edge expresses ("ship the API
+        # before the client"). This script cannot tell those apart, only make it deliberate.
+        self._epic("E022")
+        self._epic("E023")
+        self._story("E022-S01-001", ["E023-S01-001"])
+        self._story("E023-S01-001")
+        self.run_main(["set-depends-on", "--state-root", self.d, "--epic", "E022",
+                       "--add", "E023"])
+        code, out = self.run_main(["set-depends-on", "--state-root", self.d, "--epic",
+                                   "E022", "--remove", "E023", "--force"])
+        self.assertEqual(code, 0, out)
+        self.assertEqual(list(self._node("E022")["depends_on"]), [])
+
+    def test_removing_an_unjustified_dependency_needs_no_force(self):
+        # The post-reorg case this verb exists for: no story edge crosses any more.
+        self._epic("E024")
+        self._epic("E025")
+        self._story("E024-S01-001")
+        self.run_main(["set-depends-on", "--state-root", self.d, "--epic", "E024",
+                       "--add", "E025"])
+        code, out = self.run_main(["set-depends-on", "--state-root", self.d,
+                                   "--epic", "E024", "--remove", "E025"])
+        self.assertEqual(code, 0, out)
+        self.assertEqual(list(self._node("E024")["depends_on"]), [])
+
+    def test_add_and_remove_in_one_call_is_refused(self):
+        self._epic("E026")
+        code, out = self.run_main(["set-depends-on", "--state-root", self.d, "--epic",
+                                   "E026", "--add", "E027", "--remove", "E028"])
+        self.assertEqual(code, 2, out)
+
+    def test_neither_add_nor_remove_is_refused(self):
+        self._epic("E028")
+        code, _out = self.run_main(["set-depends-on", "--state-root", self.d,
+                                    "--epic", "E028"])
+        self.assertEqual(code, 2)
+
     def test_add_creates_the_list_when_absent(self):
         self._epic("E002")
         code, out = self.run_main(["set-depends-on", "--state-root", self.d,

@@ -3725,3 +3725,61 @@ test("check 31: a markdown table of slash commands is not a false positive", asy
         "| Command | Notes |\n|---|---|\n| `/l3io-plan` | pass `--verbose` to nothing |\n");
   assert.doesNotMatch((await run(root)).stderr, /\[check 31\]/);
 });
+
+// ---- check 34 (no-hand-edit-directives) ----
+// The human decides and the agent edits. "Go and change it yourself" is never an acceptable
+// outcome; a missing command is the defect, not the remedy.
+
+test("check 34: telling a user to repair a file by hand is caught", async (t) => {
+  const root = fixture(t);
+  write(root, "skills/l3io-help/zz-probe.md",
+        "If the markers are ambiguous, repair it by hand — see /l3io-doctor.\n");
+  const r = await run(root);
+  assert.equal(r.status, 1);
+  assert.match(r.stderr, /\[check 34\] skills\/l3io-help\/zz-probe\.md:1: asks for a hand edit/);
+});
+
+// The second instance looked nothing like the first: it names the path and never says
+// "by hand", which is why the check carries two signals rather than one pattern.
+test("check 34: telling a user to edit one of our files is caught without the words 'by hand'",
+     async (t) => {
+  const root = fixture(t);
+  write(root, "skills/l3io-help/zz-probe.md",
+        "Having accepted the risk, edit readiness: in plan-output-meta.yaml to amber.\n");
+  assert.match((await run(root)).stderr, /\[check 34\]/);
+});
+
+// --- the false positives that shaped the pattern. Each of these is how the rule is TAUGHT
+//     or how the package DESCRIBES the thing; a guard that flagged them would be unusable.
+
+test("check 34: a heading naming one of our files is not a directive", async (t) => {
+  const root = fixture(t);
+  write(root, "skills/l3io-help/zz-probe.md", "## 4. Update plan-output-meta.yaml\n");
+  assert.doesNotMatch((await run(root)).stderr, /\[check 34\]/);
+});
+
+test("check 34: the noun forms describe rather than instruct", async (t) => {
+  const root = fixture(t);
+  write(root, "skills/l3io-help/zz-probe.md",
+        "A currency-prefixed figure is a hand-edit by definition.\n" +
+        "This repeated the list, giving it two sources that diverge under hand-editing.\n" +
+        "A hand-edited `cost` fails here.\n");
+  assert.doesNotMatch((await run(root)).stderr, /\[check 34\]/);
+});
+
+test("check 34: a set-* verb name beside one of our paths is not an edit instruction",
+     async (t) => {
+  const root = fixture(t);
+  write(root, "skills/l3io-help/zz-probe.md",
+        "`set-status` and `set-actual` both append a line to `state/events.jsonl`.\n" +
+        "- Set `{pm_issues_file}` = `{pm_state_root}/issues.yaml`\n");
+  assert.doesNotMatch((await run(root)).stderr, /\[check 34\]/);
+});
+
+test("check 34: a line forbidding hand edits is not a hand edit", async (t) => {
+  const root = fixture(t);
+  write(root, "skills/l3io-help/zz-probe.md",
+        "Never edit these files by hand — they are machine-written.\n" +
+        "Regenerate rather than hand-editing the manifest.\n");
+  assert.doesNotMatch((await run(root)).stderr, /\[check 34\]/);
+});
