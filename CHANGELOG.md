@@ -2,6 +2,30 @@
 
 All notable changes to this project will be documented in this file. See [commit-and-tag-version](https://github.com/absolute-version/commit-and-tag-version) for commit guidelines.
 
+## [3.4.1](https://github.com/ravensorb/bmad-extensions/compare/3.4.0...3.4.1) (2026-10-11)
+
+
+### Features
+
+* **l3io-pm:** lanes — the field, the schema, and the cross-lane finding ([71fef44](https://github.com/ravensorb/bmad-extensions/commit/71fef44311b5b4fce8e1c37681bf9c834cdf5daf))
+* **l3io-pm:** setup asks the lane mode, and plan-graph proposes a partition ([75390bf](https://github.com/ravensorb/bmad-extensions/commit/75390bffd9b5e6b001b57c9873d2a9059a88b397))
+* **l3io-pm:** the lanes mode, the protocol, and the union merge driver ([4a173c1](https://github.com/ravensorb/bmad-extensions/commit/4a173c1d3d1e3bc1dea73db3f430716869822ab9))
+
+
+### Fixes
+
+* **l3io-pm:** the lanes row's followed-by names a capability that exists ([3a0ae37](https://github.com/ravensorb/bmad-extensions/commit/3a0ae372f8e5705b77fef7e6caff16bd069d6f18))
+
+
+### Documentation
+
+* lanes reach the docs, and a shipped gap the sweep found ([0dc148b](https://github.com/ravensorb/bmad-extensions/commit/0dc148bb387d5aa74b595a3f46dac5ac16441ec5))
+* **plan:** parallel lanes — seven tasks, with the three questions answered ([b2c811d](https://github.com/ravensorb/bmad-extensions/commit/b2c811d96eb7dc1106d49fa4b5fe1051d06bb2ed))
+* **spec,plan:** lanes — acceptance criterion, measured premise, two specified tasks ([1fab49b](https://github.com/ravensorb/bmad-extensions/commit/1fab49bd732e2f631f0838cc07b8900a5cf3c471))
+* **spec,plan:** the lane mode is asked at setup, never inferred ([779c78b](https://github.com/ravensorb/bmad-extensions/commit/779c78b0a390333763e9ccd04ea3ddce6a4b636b))
+* **spec:** parallel lanes — one epic, one lane ([ccd7a5b](https://github.com/ravensorb/bmad-extensions/commit/ccd7a5b74a5adcfd852957848f012419d4072449))
+* **upgrading:** uninstall was incomplete on 3.2.5–3.3.1, and said otherwise ([9bb4653](https://github.com/ravensorb/bmad-extensions/commit/9bb46535f94a057e0935901f5829d33c683a6c67))
+
 ## [3.4.0](https://github.com/ravensorb/bmad-extensions/compare/3.3.1...3.4.0) (2026-10-11)
 
 
