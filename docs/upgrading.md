@@ -109,6 +109,44 @@ nor `.notices.yaml` matches the directory itself.
 Find your starting version and read forward. `npx bmad-method install` upgrades across any
 number of these at once, but the migrations must still run.
 
+### → 3.4.2
+
+**`reparent-story` crashed on any project with a backlog, and `/l3io-plan reorg` could not
+complete.** Affects **3.3.0, 3.4.0 and 3.4.1**. If your project has a `state/issues.yaml` —
+any project that has ever deferred an issue — every `reparent-story` raised
+`TypeError: 'CommentedSeq' object is not callable` and exited 1.
+
+**The crash landed mid-write, which is why it matters after the fix.** By the time it raised,
+the story node had been renamed, its key rewritten, `previous_keys` appended, its document
+moved and `depends_on` repointed across other nodes. Only the backlog `ref` fields were
+missed. So a failed move still *moved* — leaving a story at its new key with backlog items
+still naming the old one.
+
+**What to do:** upgrade. New moves are correct.
+
+**If you already ran one, check for the residue.** A story that moved carries its old key in
+`previous_keys`; a backlog item still naming that old key is stale:
+
+```bash
+uv run {pm_status} dump-plan --state-root {state-root} --pretty
+```
+
+Look for stories with a non-empty `previous_keys`, then search `state/issues.yaml` and
+`state/issues-resolved.yaml` for a `ref` matching any of those old keys.
+
+**There is currently no command to repoint a stale `ref`, and that is a known gap.**
+`update-issue` changes only severity, `repair-issue --action link` is gated on an audit
+finding that does not hold here, and `audit-issues` does not report this case at all. We do
+not ask users to hand-edit state, so a repair verb and the audit finding that should have
+caught it are both follow-up work — tracked, not forgotten. Until then, contact us rather
+than editing `issues.yaml` directly if the residue matters to you.
+
+**Why no test caught it:** `_rewrite_references` guards the backlog block with
+`if os.path.exists(issues.yaml)`, and no fixture in the reparent suite created one — so the
+crashing line was unreachable from the suite by construction. Three regression tests now
+create a real backlog item, and the existing `depends_on` test turned out to cover only the
+*first* half of that function.
+
 ### → 3.4.1
 
 **Several developers can now work one plan concurrently, and nothing changes if you are one
