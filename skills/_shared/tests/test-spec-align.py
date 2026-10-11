@@ -1540,45 +1540,38 @@ class TestMigrateAdrs(Project):
         self.assertEqual(self.git("status", "--porcelain"), before)             # tree unchanged
 
     def test_apply_reports_touched_paths_when_the_commit_fails(self):
-        # The move loop must succeed -- every ADR already moved and rewritten on disk -- with
-        # only the final commit failing (a stuck index.lock, the pattern TestCommit uses). A
-        # lock present from the start would also fail the loop's own `git mv`/`git add`, so a
-        # background watcher drops it the instant the second move's destination file appears
-        # on disk (git mv having already renamed it), leaving plenty of remaining move-loop
-        # work (the epic-line write, the md_files rewrite pass, the rewritten/commit-paths
-        # split) as headroom before the real commit attempt.
-        lock = self.path(".git/index.lock")
-        self.addCleanup(lambda: os.path.exists(lock) and os.remove(lock))
-        target = self.path("docs/adr/0004-cache.md")
+        """The move loop succeeds, every ADR is moved and rewritten, and only the final
+        commit fails. What this guards is the touched-path report: a half-applied migration
+        that does not say what it touched leaves a human to find the moved files by hand.
 
-        def drop_lock_once_moved():
-            deadline = time.time() + 5
-            while not os.path.exists(target) and time.time() < deadline:
-                time.sleep(0.01)
-            if os.path.exists(target):
-                with open(lock, "w"):
-                    pass
+        THE COMMIT IS FAILED DETERMINISTICALLY, by a `pre-commit` hook that exits 1. Two
+        earlier versions planted `.git/index.lock` from a background thread and raced the
+        subprocess, which failed in CI two different ways within three days: landing while
+        git held the lock corrupted the index so the generic `git commit failed` branch fired
+        instead of "stayed locked", and landing not at all let the commit SUCCEED, so the
+        test saw returncode 0. A gate that fails for a reason unrelated to its subject is
+        worse than no gate, and relaxing the assertion twice was treating the symptom.
 
-        threading.Thread(target=drop_lock_once_moved, daemon=True).start()
+        A hook is exact: `git mv` and `git add` do not run hooks, so the move loop is
+        untouched and only `git commit` fails — which is precisely the state this test wants
+        and the thread was approximating.
+        """
+        hooks = self.path(".git/hooks")
+        os.makedirs(hooks, exist_ok=True)
+        hook = os.path.join(hooks, "pre-commit")
+        with open(hook, "w", encoding="utf-8") as fh:
+            fh.write("#!/bin/sh\nexit 1\n")
+        os.chmod(hook, 0o755)
+        self.addCleanup(lambda: os.path.exists(hook) and os.remove(hook))
+
         r = self.sa("migrate-adrs", "--apply")
         self.assertEqual(r.returncode, 2, r.stderr)
 
-        # THE CONTRACT THIS TEST GUARDS is the touched-path report: a half-applied migration
-        # that does not say what it touched leaves a human to find the moved files by hand.
-        # That is asserted exactly.
+        # THE CONTRACT: every path already touched is named, so a human can inspect or
+        # revert exactly those rather than hunting for them.
         self.assertIn("paths already moved or rewritten in this run", r.stderr)
         self.assertIn("docs/adr/0004-cache.md", r.stderr)
-
-        # WHICH git failure got us here is NOT pinned, deliberately. Planting .git/index.lock
-        # from another thread while git is running is a race by construction: land between
-        # git's own operations and the commit fails cleanly with "stayed locked"; land while
-        # git holds the lock and the empty file corrupts the index instead, so the generic
-        # "git commit failed" branch fires. CI hit the second. Both are correct handling of a
-        # failed commit, and the report above is the guarantee either way — asserting the
-        # specific message made a real contract depend on subprocess timing.
-        self.assertTrue(
-            "stayed locked" in r.stderr or "git commit failed" in r.stderr,
-            f"expected a reported commit failure, got: {r.stderr}")
+        self.assertIn("git commit failed", r.stderr)
 
 
 if __name__ == "__main__":

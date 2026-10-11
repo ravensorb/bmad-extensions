@@ -8048,7 +8048,13 @@ def _rewrite_references(state_root: str, old_key: str, new_key: str) -> int:
         with issues_lock(open_path):
             store = IssueStore(open_path)
             hit = False
-            for lst in (store.backlog(), store.resolved()):
+            # PROPERTIES, not methods. `store.backlog()` raised
+            # `TypeError: 'CommentedSeq' object is not callable` and left the move
+            # half-applied -- the node had already been renamed and its key rewritten, so
+            # the tree kept a story at its new key with every reference still naming the
+            # old one. Every other call site in this file reads them correctly; this was
+            # the only one, and no test reached it because none created an issues.yaml.
+            for lst in (store.backlog, store.resolved):
                 for item in lst:
                     if isinstance(item, dict) and item.get("ref") == old_key:
                         item["ref"] = new_key

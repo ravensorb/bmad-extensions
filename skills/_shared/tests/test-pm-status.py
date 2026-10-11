@@ -12343,6 +12343,70 @@ class TestReparentStory(unittest.TestCase):
                          "a single previous_key would lose the first hop and break sync "
                          "reconciliation for anything mapped before the first move")
 
+    def test_a_backlog_ref_to_the_moved_story_is_repointed(self):
+        """THE REGRESSION. Reported from a live project, 2026-10-11.
+
+        `_rewrite_references` called `store.backlog()` and `store.resolved()` as methods
+        where both are `@property`, so every reparent-story against a state root with an
+        issues file raised `TypeError: 'CommentedSeq' object is not callable`. Fifteen other
+        call sites in the same file read them correctly; this was the only one.
+
+        The failure was worse than a crash because it landed MID-WRITE: the node had already
+        been renamed, its key rewritten, `previous_keys` appended and the document moved, so
+        the tree kept a story at its new key with every backlog reference still naming the
+        old one — and the command exited 1 without printing the `OK <old> -> <new>` line the
+        reorg apply loop reads the new key from. No journal entry was recorded, so the undo
+        could not reverse the moves that had landed.
+
+        WHY ELEVEN TESTS PASSED OVER IT: `_rewrite_references` guards the whole block with
+        `if os.path.exists(issues.yaml)`, and not one fixture here created one. The crash was
+        unreachable from this suite by construction, which is exactly the shape of gap a
+        precondition-guarded branch produces.
+        """
+        self._story("E001-S01-001")
+        code, out = pm.main(["append-issue", "--state-root", self.sr, "--epic", "E001",
+                             "--sprint", "S01", "--severity", "Low", "--source",
+                             "code-review", "--title", "deferred thing",
+                             "--ref", "E001-S01-001"]), None
+        self.assertEqual(code, 0, out)
+        new = self._move("E001-S01-001", "E003", "S02")
+
+        _, issues = pm.load_node(os.path.join(self.sr, "issues.yaml"))
+        refs = [i.get("ref") for i in issues["backlog"]]
+        self.assertEqual(refs, [new],
+                         "a backlog ref left on the old key reads as an unlinked promotion "
+                         "in audit-issues rather than as damage this operation did")
+
+    def test_a_resolved_ref_to_the_moved_story_is_repointed(self):
+        # The resolved file is the second half of the same bug: `store.resolved` was called
+        # the same way, so a project with any closed issue hit it identically.
+        self._story("E001-S01-001")
+        pm.main(["append-issue", "--state-root", self.sr, "--epic", "E001", "--sprint",
+                 "S01", "--severity", "Low", "--source", "code-review",
+                 "--title", "done thing", "--ref", "E001-S01-001"])
+        # `--resolution fixed` requires --ref: a resolved item records WHAT fixed it, and
+        # that ref is a story key, so it is exactly the field a re-key must repoint.
+        pm.main(["resolve-issue", "--state-root", self.sr, "--key", "BL-E001-001",
+                 "--resolution", "fixed", "--ref", "E001-S01-001", "--note", "n"])
+        new = self._move("E001-S01-001", "E003", "S02")
+        _, res = pm.load_node(os.path.join(self.sr, "issues-resolved.yaml"))
+        self.assertEqual([i.get("ref") for i in res["resolved"]], [new])
+
+    def test_the_move_succeeds_and_prints_the_new_key_with_an_issues_file_present(self):
+        # The reorg apply loop reads the new key from this line. Without it the whole
+        # proposal stops with no journal entry, so there is nothing to undo.
+        self._story("E001-S01-001")
+        pm.main(["append-issue", "--state-root", self.sr, "--epic", "E001", "--sprint",
+                 "S01", "--severity", "Low", "--source", "code-review",
+                 "--title", "t", "--ref", "E001-S01-001"])
+        buf = io.StringIO()
+        with redirect_stdout(buf):
+            code = pm.main(["reparent-story", "--state-root", self.sr, "--artifacts-root",
+                            self.ar, "--story", "E001-S01-001", "--to-epic", "E003",
+                            "--to-sprint", "S02"])
+        self.assertEqual(code, 0)
+        self.assertIn("OK reparent-story E001-S01-001 -> E003-S02-001", buf.getvalue())
+
     def test_a_story_with_no_document_moves_fine(self):
         self._story("E001-S01-001")
         new = self._move("E001-S01-001", "E003", "S02")
