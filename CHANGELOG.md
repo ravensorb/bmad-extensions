@@ -2,6 +2,18 @@
 
 All notable changes to this project will be documented in this file. See [commit-and-tag-version](https://github.com/absolute-version/commit-and-tag-version) for commit guidelines.
 
+## [3.4.2](https://github.com/ravensorb/bmad-extensions/compare/3.4.1...3.4.2) (2026-10-11)
+
+
+### Fixes
+
+* **l3io-pm:** reparent-story crashed mid-write on any project with a backlog ([e768555](https://github.com/ravensorb/bmad-extensions/commit/e768555c2b6b0986ea5753c251ae81d62758bb11))
+
+
+### Documentation
+
+* **upgrading:** the reparent-story crash, and the residue it leaves ([8bd4803](https://github.com/ravensorb/bmad-extensions/commit/8bd4803f059c3891d55f945ccb1e2d0aa2c02c33))
+
 ## [3.4.1](https://github.com/ravensorb/bmad-extensions/compare/3.4.0...3.4.1) (2026-10-11)
 
 
