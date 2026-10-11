@@ -55,7 +55,7 @@ Input classes the goal implies that no happy path exercises.
 
 ## Phase A — the field and the config
 
-### - [ ] Task 1: `lane` on the epic node, with validation
+### - [x] Task 1: `lane` on the epic node, with validation
 
 - Schema in `skills/_shared/status-files.md`: `lane` is an optional scalar on an **epic** node only. Sprints and stories inherit it from their directory and must never carry one.
 - Writing it: `set-field --epic E001 --field lane --value A` already works mechanically. Add a field-specific rule, the same shape as the existing refusal of `completion_evidence.tests_passing`: reject a value containing `@`, or longer than a short token, naming D2's reasoning. A convention nothing enforces is a convention that erodes.
@@ -86,12 +86,12 @@ from *"they chose one developer"*.
 
 ## Phase B — making lanes visible
 
-### - [ ] Task 3: `dump-plan` emits `lane`
+### - [x] Task 3: `dump-plan` emits `lane`
 
 One line, same shape as adding `previous_keys` to stories. Without it nothing downstream can
 see lanes, since check 26 forbids them reading state directly.
 
-### - [ ] Task 4: `cross-lane-dependency` in `plan-graph.py`
+### - [x] Task 4: `cross-lane-dependency` in `plan-graph.py`
 
 - Map epic → lane, relabel the existing `coupling` dict. **No new traversal.**
 - New finding `cross-lane-dependency`, mirroring `cross-epic-coupling`, carrying the lane pair and edge count.

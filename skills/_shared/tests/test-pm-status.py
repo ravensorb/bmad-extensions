@@ -6259,6 +6259,56 @@ class TestSetFieldTyping(TestLayoutResolution):
             code = e.code if isinstance(e.code, int) else 1
         return code, buf.getvalue()
 
+    # --- lane -------------------------------------------------------------------------
+    #
+    # `lane` partitions planned work across developers who each have their OWN clone, where
+    # every flock in this script is useless because there is no shared filesystem. The field
+    # is what lets tooling check a lane is writing only what it owns.
+
+    def test_lane_accepts_a_number(self):
+        code, out = self.run_main(["set-field", "--state-root", self.root,
+                                   "--epic", "E001", "--field", "lane", "--value", "2"])
+        self.assertEqual(code, 0, out)
+        _, node = pm.load_node(pm.epic_file(self.root, "E001"))
+        self.assertEqual(str(node["lane"]), "2")
+
+    def test_lane_refuses_a_persons_name(self):
+        # THE POINT OF NUMBERING. A word-shaped token cannot be screened — `backend` and
+        # `sarah` are the same shape, so any regex permitting the second permits the first,
+        # and a list of names to reject would be brittle and culturally parochial. Numbers
+        # make "never a person" mechanical rather than hopeful, which matters because who
+        # works a lane is recorded in the GITIGNORED user layer precisely so that a name
+        # cannot reach the repository.
+        for bad in ("sarah", "Sarah Chen", "s@example.com", "backend", "lane-2"):
+            code, _out = self.run_main(["set-field", "--state-root", self.root,
+                                        "--epic", "E001", "--field", "lane",
+                                        "--value", bad])
+            self.assertEqual(code, 2, f"{bad!r} must be refused")
+
+    def test_lane_refuses_zero_and_out_of_range(self):
+        for bad in ("0", "1000", "-1", ""):
+            code, _out = self.run_main(["set-field", "--state-root", self.root,
+                                        "--epic", "E001", "--field", "lane",
+                                        "--value", bad])
+            self.assertEqual(code, 2, f"{bad!r} must be refused")
+
+    def test_lane_is_refused_on_a_story(self):
+        # 1 epic = 1 lane is the invariant everything else rests on: sprints and stories
+        # inherit their epic's lane from the directory they live in. A story with its own
+        # lane would make the lane graph a DIFFERENT graph from the epic graph, so every
+        # cross-lane question would need its own traversal instead of relabelling one.
+        code, out = self.run_main(["set-field", "--state-root", self.root,
+                                   "--story", "E001-S01-003", "--field", "lane",
+                                   "--value", "1"])
+        self.assertEqual(code, 2, out)
+
+    def test_a_refused_lane_writes_nothing(self):
+        before = pm.load_node(pm.epic_file(self.root, "E001"))[1].get("lane")
+        self.run_main(["set-field", "--state-root", self.root, "--epic", "E001",
+                       "--field", "lane", "--value", "sarah"])
+        after = pm.load_node(pm.epic_file(self.root, "E001"))[1].get("lane")
+        self.assertEqual(before, after)
+
     def test_set_field_stores_fix_iterations_as_a_number(self):
         code, out = self.run_main(["set-field", "--state-root", self.root,
                                    "--story", "E001-S01-003",

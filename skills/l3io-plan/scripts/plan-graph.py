@@ -275,6 +275,33 @@ def analyze(plan: dict) -> dict:
                 f"can be scheduled into the same parallel phase and run concurrently. Add "
                 f"{b} to {a}'s depends_on.")
 
+    # --- dependencies that cross a LANE boundary -----------------------------------
+    #
+    # THE WHOLE LANE FEATURE RIDES ON ONE RELABEL. `coupling` above is already keyed by epic
+    # pair, and `1 epic = 1 lane` makes the lane graph the epic graph with relabelled nodes
+    # -- a colouring, not a second graph -- so this needs no traversal of its own. Had a
+    # story been lane-assignable independently of its epic, the two graphs would differ and
+    # every question here would need its own walk.
+    #
+    # SILENT WHEN LANES ARE OFF, which is the majority of projects. An epic with no `lane`
+    # contributes nothing, so a tree that never declared one produces no findings at all.
+    #
+    # WARN, unlike unneeded-epic-dependency: a reorg CAN act on this, by moving the story to
+    # an epic the other lane owns. That is the one remedy, and it is a reorg rather than a
+    # field change, because moving between lanes means moving between epics.
+    lane_of = {e["key"]: e.get("lane") for e in plan.get("planned", [])}
+    lane_cross = {}
+    for (a, b), n in coupling.items():
+        la, lb = lane_of.get(a), lane_of.get(b)
+        if la and lb and str(la) != str(lb):
+            lane_cross[(str(la), str(lb))] = lane_cross.get((str(la), str(lb)), 0) + n
+    for (la, lb), n in sorted(lane_cross.items(), key=lambda kv: (-kv[1], kv[0])):
+        add("cross-lane-dependency", "warn", [f"lane {la}", f"lane {lb}"], {"edges": n},
+            f"{n} story dependency(ies) cross from lane {la} into lane {lb}. Lane {la} waits "
+            f"on lane {lb} for those, so the two developers are not working independently. "
+            f"Move the story to an epic lane {lb} owns (/l3io-plan reorg), or accept the "
+            f"coupling deliberately.")
+
     # --- an epic dependency nothing justifies any more ----------------------------
     #
     # THE INVERSE of unbacked-cross-epic-dependency above, and the signal a reorg produces.

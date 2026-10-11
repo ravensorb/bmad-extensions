@@ -40,9 +40,12 @@ def plan(epics, active=(), archived=()):
     }
 
 
-def epic(key, sprints, deps=()):
-    return {"key": key, "status": "backlog", "depends_on": list(deps),
-            "estimate": {}, "sprints": sprints}
+def epic(key, sprints, deps=(), lane=None):
+    e = {"key": key, "status": "backlog", "depends_on": list(deps),
+         "estimate": {}, "sprints": sprints}
+    if lane is not None:
+        e["lane"] = lane
+    return e
 
 
 def sprint(key, stories):
@@ -255,6 +258,67 @@ class TestUnbackedCrossEpicDependency(unittest.TestCase):
         p = plan([epic("E001", [sprint("S01", [story("E001-S01-001", 1, ["E005"])])])],
                  active=["E005"])
         self.assertFalse(ids(pg.analyze(p), "unbacked-cross-epic-dependency"))
+
+
+class TestCrossLaneDependency(unittest.TestCase):
+    """Lanes ride on the epic graph by relabelling, never by a second traversal.
+
+    `1 epic = 1 lane` makes the lane graph the epic graph with relabelled nodes, so
+    `coupling` — already keyed by epic pair — becomes a lane-pair count for free. Had a story
+    been lane-assignable independently of its epic, the two graphs would differ and this would
+    need its own walk.
+    """
+
+    def _two_lanes(self, lane_a="1", lane_b="2", deps=("E003-S01-001",)):
+        return plan([
+            epic("E001", [sprint("S01", [story("E001-S01-001", 1, deps)])], lane=lane_a),
+            epic("E003", [sprint("S01", [story("E003-S01-001", 1)])], lane=lane_b),
+        ])
+
+    def test_a_story_edge_crossing_a_lane_boundary_is_reported(self):
+        f = ids(pg.analyze(self._two_lanes()), "cross-lane-dependency")
+        self.assertTrue(f)
+        self.assertEqual(f[0]["severity"], "warn")
+        self.assertEqual(f[0]["nodes"], ["lane 1", "lane 2"])
+        self.assertEqual(f[0]["measured"]["edges"], 1)
+
+    def test_an_edge_within_one_lane_is_not_reported(self):
+        self.assertFalse(ids(pg.analyze(self._two_lanes(lane_a="1", lane_b="1")),
+                             "cross-lane-dependency"))
+
+    def test_lanes_off_produces_no_lane_findings_at_all(self):
+        # THE MAJORITY CASE. A single-developer project never declares a lane and must not
+        # be able to tell this feature exists.
+        p = plan([
+            epic("E001", [sprint("S01", [story("E001-S01-001", 1, ["E003-S01-001"])])]),
+            epic("E003", [sprint("S01", [story("E003-S01-001", 1)])]),
+        ])
+        self.assertFalse(ids(pg.analyze(p), "cross-lane-dependency"))
+
+    def test_a_partially_assigned_tree_reports_only_edges_between_assigned_epics(self):
+        # One epic declares a lane, the other does not. Nothing is assumed about the
+        # unassigned one, so no crossing is claimed.
+        self.assertFalse(ids(pg.analyze(self._two_lanes(lane_b=None)),
+                             "cross-lane-dependency"))
+
+    def test_edges_are_summed_per_lane_pair_not_per_epic_pair(self):
+        # Two epics in lane 1 both depending into lane 2 is ONE finding of two edges, not
+        # two findings — a lane is the unit a developer cares about.
+        p = plan([
+            epic("E001", [sprint("S01", [story("E001-S01-001", 1, ["E009-S01-001"])])],
+                 lane="1"),
+            epic("E003", [sprint("S01", [story("E003-S01-001", 1, ["E009-S01-001"])])],
+                 lane="1"),
+            epic("E009", [sprint("S01", [story("E009-S01-001", 1)])], lane="2"),
+        ])
+        f = ids(pg.analyze(p), "cross-lane-dependency")
+        self.assertEqual(len(f), 1)
+        self.assertEqual(f[0]["measured"]["edges"], 2)
+
+    def test_the_finding_names_the_remedy_and_that_it_is_a_reorg(self):
+        f = ids(pg.analyze(self._two_lanes()), "cross-lane-dependency")[0]
+        self.assertIn("reorg", f["suggests"])
+        self.assertIn("waits on", f["suggests"])
 
 
 class TestUnneededEpicDependency(unittest.TestCase):

@@ -6076,8 +6076,48 @@ def cmd_set_field(args) -> int:
                    f"{DERIVED_NODE_FIELDS[contained]}")
 
     kind = _infer_kind(args)
+    _check_lane_value(args, kind)
     with _epic_write_lock(args, kind):
         return _set_field(args, kind)
+
+
+# A lane is a NUMBER, 1..999. Not a style choice -- it is what makes "never a person"
+# mechanical instead of hopeful. A word-shaped token cannot be screened: `sarah` and
+# `backend` are the same shape, so any regex permitting the second permits the first, and a
+# list of names to reject would be both brittle and culturally parochial. Numbering closes
+# the question by construction, and it matches the rest of the design: `lane_count` is a
+# count, and a lane is a slot in `1..lane_count`.
+_LANE_RE = re.compile(r"^[1-9][0-9]{0,2}$")
+
+
+def _check_lane_value(args, kind) -> None:
+    """Guard the `lane` field: epic-only, and never a person's name.
+
+    WHY THE FIELD IS `lane` AND NOT `owner`. `owner` attracts names — somebody commits
+    `owner: sarah` and the generic concept erodes by default rather than by decision. A lane
+    is a slot in a partition; who fills it lives in the gitignored user layer, so a human's
+    name cannot reach the repository at all. The vocabulary is the guardrail, and this
+    function is what stops the vocabulary being the ONLY guardrail.
+
+    EPIC-ONLY, because `1 epic = 1 lane` is the invariant everything else rests on: sprints
+    and stories live under their epic's directory and inherit its lane by construction. A
+    story carrying its own lane would make the lane graph a different graph from the epic
+    graph, and every cross-lane question would need its own traversal instead of relabelling
+    the epic one.
+    """
+    if getattr(args, "field", None) != "lane":
+        return
+    if kind != "epic":
+        _die_usage(f"`lane` lives on an epic node, not a {kind}. Sprints and stories inherit "
+                   f"their epic's lane from the directory they are in — one epic is one lane, "
+                   f"and a story with its own lane would break that")
+    value = str(getattr(args, "value", "") or "")
+    if not _LANE_RE.match(value):
+        _die_usage(f"lane {value!r} is not a lane number. A lane is a SLOT in a partition — "
+                   f"1, 2, 3 — never a person: who works a lane is recorded in the gitignored "
+                   f"user config, so a name cannot reach the repository. Numbering is what "
+                   f"makes that mechanical: a word-shaped token cannot be screened, because "
+                   f"`backend` and `sarah` are the same shape. Expected 1-999")
 
 
 def _set_field(args, kind) -> int:
@@ -8263,6 +8303,10 @@ def dump_plan(state_root: str) -> dict:
             "key": epic_key,
             "status": str(enode.get("status") or ""),
             "depends_on": [str(v) for v in (enode.get("depends_on") or [])],
+            # Absent when lanes are not in use, which is the normal single-developer state.
+            # Consumers cannot read state directly (check 26), so this is the only way the
+            # partition reaches plan-graph.py.
+            "lane": str(enode["lane"]) if enode.get("lane") is not None else None,
             "estimate": _plain(enode.get("estimate")),
             "sprints": [],
         }
