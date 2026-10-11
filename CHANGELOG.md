@@ -2,6 +2,41 @@
 
 All notable changes to this project will be documented in this file. See [commit-and-tag-version](https://github.com/absolute-version/commit-and-tag-version) for commit guidelines.
 
+## [3.4.0](https://github.com/ravensorb/bmad-extensions/compare/3.3.1...3.4.0) (2026-10-11)
+
+
+### Features
+
+* **l3io-pm:** balancing pass that cannot undo the structural one ([d82164f](https://github.com/ravensorb/bmad-extensions/commit/d82164fc5d7f066d3311c0557da39163f2af9ed8))
+* **l3io-pm:** check the plan's shape before paying to estimate it ([45ff71d](https://github.com/ravensorb/bmad-extensions/commit/45ff71def01f9665bc669187886536d34e1083ee))
+* **l3io-pm:** plan-graph.py — the phase order is computed, not recited ([3091ed8](https://github.com/ravensorb/bmad-extensions/commit/3091ed85821eefd3417928f1a781e9b1912c78ac))
+* **l3io-pm:** reorg optimises structure it can change, not effort it cannot ([a4d58ce](https://github.com/ravensorb/bmad-extensions/commit/a4d58ce1e973028d9ae00ac190f4668ed4d08a83))
+* **l3io-pm:** reorg's parallelism gain actually lands, and no step asks for a hand edit ([e88d66c](https://github.com/ravensorb/bmad-extensions/commit/e88d66cac0e94506d4b438cb94041c7d71dcc33a))
+
+
+### Fixes
+
+* **infra:** the payload manifest covers what ships, not what was synced ([9cc1bda](https://github.com/ravensorb/bmad-extensions/commit/9cc1bda4f1faf757d226f4598cf2d5f91cff032c))
+* **l3io-pm:** a plan run with nothing in it no longer reports green ([918b401](https://github.com/ravensorb/bmad-extensions/commit/918b40148d19484b47b48e59801bc50434c83a29))
+* **l3io-pm:** close two dependency holes that let a plan schedule work wrongly ([5a73946](https://github.com/ravensorb/bmad-extensions/commit/5a739469dd1b8da6c0a4310e6212fe6a3b89b195))
+* **l3io-pm:** compute the critical path after the estimates it is made of ([9fab82b](https://github.com/ravensorb/bmad-extensions/commit/9fab82b563c468d23af6b5a57e9583d018d26621))
+* **l3io-pm:** plan's readiness check now grades what its own enricher writes ([95b44f2](https://github.com/ravensorb/bmad-extensions/commit/95b44f2b24f1f9e01e7d45b0ca43521dd140f956))
+
+
+### Documentation
+
+* **plan:** every recommended action gets a command that exists ([8333dc1](https://github.com/ravensorb/bmad-extensions/commit/8333dc1dfd7598d969835a32c1353097ccdf98c3))
+* **plan:** manifest covers what ships; fold phases into plan-graph.py ([4a2a1a8](https://github.com/ravensorb/bmad-extensions/commit/4a2a1a8aa61da24bff854edfeffefe011f1f5d4c))
+* **plan:** reorg's objective is dependency structure, not effort ([865a57f](https://github.com/ravensorb/bmad-extensions/commit/865a57f4358ae7765bd426adc2ba8a7cc0aa6f2b))
+* **plan:** the human decides, the agent edits — no carve-outs ([716e8ca](https://github.com/ravensorb/bmad-extensions/commit/716e8ca8e86eb90f357df010ed3ed56d80b9f61b))
+* **plan:** the line cap is a tripwire, not a design input ([3342d45](https://github.com/ravensorb/bmad-extensions/commit/3342d453e0bcf17f6a35f11a974ba51afa4b7404))
+* **plan:** validate by the gates that already exist, and say what cannot be ([3a0f529](https://github.com/ravensorb/bmad-extensions/commit/3a0f5298cd2f6bafdffedc0fb4f16b82c12390ae))
+
+
+### Maintenance
+
+* **infra:** move the pinned baseline to BMad 6.12.2, on evidence ([f337d4e](https://github.com/ravensorb/bmad-extensions/commit/f337d4e578d37bbe7efeed35397019f9ba1abff5))
+
 ## [3.3.1](https://github.com/ravensorb/bmad-extensions/compare/3.3.0...3.3.1) (2026-10-09)
 
 
