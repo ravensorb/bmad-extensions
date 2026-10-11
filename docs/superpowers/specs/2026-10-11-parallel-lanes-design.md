@@ -148,13 +148,41 @@ The better division, when we get there, is not to widen it into a database: the 
 "who is doing what, and is it done"** — the question a team actually needs — while estimates and
 calibration stay local history that merges by union and degrades gracefully.
 
-## 10. Open questions
+## 10. Resolved
 
-1. **Does a lane own epics, or do epics declare a lane?** Written above as the latter (a field
-   on the epic). The former would need a registry file, which is a fifth shared file and a new
-   merge surface. Stated to be rejected deliberately rather than by omission.
-2. **Should `plan-graph.py` propose the partition?** It has the dependency graph, and lanes are
-   a partition minimising cross-lane edges — the same question reorg asks one level up. Likely
-   yes, but it is a second feature, not part of making lanes work.
-3. **Is the hand-off artifact a filter or a document?** "The plan, Lane 2's view" is a filter
-   over the existing snapshot. A separate document is a second source of truth.
+Settled 2026-10-11.
+
+**1. The epic declares its lane.** A registry (`state/lanes.yaml`: lane → epics) would be a
+*fifth* shared file, and the one file **every** lane writes — reassigning any epic touches it,
+so it collides precisely when lanes are most active. A field on `epic.yaml` lives in a file only
+its owning lane writes. The cost is that "what does Lane 2 own" is derived by scanning epics
+rather than read from one place; that is a `dump-plan` query, not a problem.
+
+**2. `plan-graph.py` proposes the partition — when there is something to propose.** The trigger
+is `lane_count > 1` **and no epic declares a lane**. That second condition is self-describing:
+"never been set" needs no ledger, because an unset tree says so. Once lanes are assigned the
+proposal never fires again — an existing partition is a decision, not a gap.
+
+**3. The hand-off artifact is a filter.** "The plan, Lane 2's view" is generated from the
+snapshot on demand. A per-lane document would be a second source of truth and would go stale
+the first time the plan is re-run — the problem `estimates_as_of` already exists to make
+visible. It may be *rendered* to a file, but the rendering carries the snapshot's identity so a
+printed copy says which plan it came from.
+
+## 11. Proposing a partition
+
+`nx.community.greedy_modularity_communities(U, best_n=k, cutoff=k)` over the **undirected**
+epic graph — crossing is direction-free — yields exactly `k` groups. Measured on an eight-epic
+fixture with two natural clusters: `k=2` finds them with **zero** cross-lane edges; `k=3` costs
+**two**.
+
+**That second number is the point.** Asking for more lanes than the work supports has a price,
+and the proposal must state it: *"You asked for 3 lanes. The work splits naturally into 2; a
+third costs 2 cross-lane dependencies."* A lead deciding whether to put a third person on this
+needs that before assigning, not after.
+
+**Report two things, because they are different objectives.** Minimising cross-lane edges and
+keeping every lane busy are not the same: a partition perfect by connectivity can leave Lane 2
+with nothing until Lane 1 finishes. So the proposal reports cross-lane edges **and** per-lane
+phase coverage — a lane owning epics in phases 1–3 is busy throughout; one owning only phase-3
+epics waits.
