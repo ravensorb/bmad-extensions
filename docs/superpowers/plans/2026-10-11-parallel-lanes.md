@@ -118,25 +118,58 @@ comes from setup.
 
 ### - [ ] Task 6: the per-lane view
 
-A **filter** over the plan snapshot (D7), not a new document. Shows the lane's epics, its
-phases, what it waits for, what waits on it, and its reserved ADR block.
+A **filter** over the plan snapshot (D7), not a new document.
 
-May be rendered to a file, but the rendering carries the snapshot's identity so a printed copy
-says which plan it came from — the problem `estimates_as_of` exists to make visible.
+**Where it lives:** a mode on `l3io-plan` — `/l3io-plan lanes` with no argument shows every
+lane; the `{lane}` binding from the user layer selects one when set. Not a new skill, and not a
+flag (check 31 forbids flags on `/l3io-*` invocations).
+
+**What it emits**, in the shape `step-06-plan-output.md` §5 already prints so no new reading
+skill is needed:
+
+```
+📋 Lane 2 — 3 epics across phases 1–3
+
+Phase 1 (parallel): E005, E006 — est. {low}–{high} hrs
+Phase 3 (sequential): E008 — est. {low}–{high} hrs
+
+Waits for:  nothing
+Waited on by: Lane 1 (E004 depends on E006)
+ADR block:  0014–0019 (reserved)
+Idle in:    phase 2 — no epic owned
+```
+
+`Waits for` / `Waited on by` come from the cross-lane edges Task 4 already computes. `Idle in`
+is the phase-coverage gap from Task 5 — a lane with nothing in a phase is the signal that the
+partition left it waiting, and it belongs on the lane's own view rather than only in the
+proposal that created it.
+
+**Rendering to a file is allowed and carries the snapshot's identity**, so a printed copy says
+which plan it came from — the problem `estimates_as_of` exists to make visible. A rendered copy
+is never read back by any step.
 
 ### - [ ] Task 7: the execution protocol, written down
 
 - `.gitattributes` with `merge=union` for `state/events.jsonl` — append-only and line-oriented, so union is literally the right semantics. There is no `.gitattributes` in the repo today.
-- A step file documenting the protocol: commit and push before execution; each lane writes only its own epic directories; `adr-reserve --count N` per lane at plan time, **before the fork**, because a reservation made before the fork needs no lock.
+- **`l3io-plan` owns the protocol step**, as `steps/lanes/step-lane-protocol.md`, loaded by the `lanes` mode. It is single-consumer: `l3io-plan` is where a partition is proposed and where the per-lane view is rendered, so the protocol belongs beside them rather than in `l3io-setup`, which answers *how many lanes* once and is not consulted again. Keeping it out of `_shared/` also keeps it out of three other skills' payload.
+- Content: commit and push before execution; each lane writes only its own epic directories; `adr-reserve --count N` per lane at plan time, **before the fork**, because a reservation made before the fork needs no lock.
 - State plainly what this does **not** solve: source-file collisions. The phase graph says nothing about two lanes both rewriting `auth/session.py` — the failure that makes teams abandon parallel work, invisible to every signal here.
 
 ---
 
 ## Validation Strategy
 
+**The premise is measured, not assumed.** Run 2026-10-11 against the tree before any lane code
+existed: two clones, lane 1 on `E001`, lane 2 on `E003`, real `pm-status.py` transitions, then a
+merge. Epic directories **merged clean**; the only conflict was `state/events.jsonl`;
+`merge=union` reduced that to **zero conflicts with all four events preserved**. Re-run it as a
+regression after each phase — it is the only probe that exercises what this feature is for.
+
 | Probe | Asserts |
 |---|---|
-| A tree with no `lane_count` | every lane behaviour inert — the majority case |
+| **Two clones, disjoint lanes, merge** | **the premise** — no epic-directory conflict, and `events.jsonl` union-merges with both sides intact |
+| Two clones both touching `issues.yaml` / `pm-calibration.yaml` | the predicted *textual, non-semantic* conflict — **untested, still a hypothesis** |
+| A tree with no `lane_count` | every lane behaviour inert, and **nothing prompts** — the majority case |
 | Two natural clusters, `k=2` then `k=3` | the partition is found, and over-partitioning reports its price |
 | A story edge crossing a lane boundary | `cross-lane-dependency` fires with the lane pair |
 | A partially assigned tree | no re-proposal; unassigned epics visible |

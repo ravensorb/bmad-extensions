@@ -9,6 +9,48 @@ discovered at integration.
 
 ---
 
+## 0. What good looks like
+
+This is the acceptance criterion. Everything below serves it.
+
+**Two developers work the same plan for a week and never touch the same file. At the end,
+integration is a merge nobody has to think about.**
+
+That is observable, so it can be checked rather than argued:
+
+1. **No epic directory ever conflicts.** Each lane writes only its own
+   `state/{status}/epic-{nnn}/`, so git has nothing to reconcile there. A conflict in one means
+   the partition was wrong, not that merging is hard.
+2. **The shared files reconcile without judgement.** Not "without conflict" — `events.jsonl`
+   needs a union driver — but no human decides which side wins.
+3. **No lane silently waits on another.** If the partition serialises two lanes, the plan run
+   says so *before* anyone starts, not at the moment one is blocked.
+4. **A single-developer project cannot tell this feature exists.** No prompt, no extra field, no
+   changed output.
+
+### 0.1 Measured, before any of it was built
+
+Run on 2026-10-11 against the tree as it stood, so the design rests on an observation rather
+than an argument. Two clones of one repo, lane 1 working `E001`, lane 2 working `E003`, both
+running real `pm-status.py` status transitions, then a merge:
+
+| | Result |
+|---|---|
+| Files each lane touched | its own two story nodes, plus `state/events.jsonl` |
+| Merge without `.gitattributes` | **one conflict**, `events.jsonl`, `add/add` |
+| Epic directories | **merged clean** — git had nothing to reconcile |
+| Merge with `state/events.jsonl merge=union` | **zero conflicts**; 2 lines + 2 lines = 4 |
+| Event identities after union | all four preserved, both lanes' stories present |
+
+So the core claim — *disjoint epic ownership plus commit-before-execute leaves a four-file
+surface, and the append-only member of it union-merges* — is **true on the current tree**, with
+one `.gitattributes` line and no other change.
+
+What this did **not** test, and what therefore remains a hypothesis: concurrent writes to
+`issues.yaml`, `pm-calibration.yaml` and `adr-register.yaml`. The first two are predicted to
+conflict textually without semantic damage; the third is the one real collision and the reason
+`adr-reserve --count` runs before the fork.
+
 ## 1. The assumption that breaks
 
 Every concurrency guarantee in this package is `flock`: `epic_node_lock`, `issues_lock`,
