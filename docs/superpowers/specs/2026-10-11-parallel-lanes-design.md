@@ -63,11 +63,29 @@ constraint.
 Reinforced mechanically: reject a `lane` value containing `@`, or longer than a short token.
 Cheap, and it fails when someone tries rather than at review.
 
-### 3.2 Setup asks
+### 3.2 Setup asks the mode, explicitly
 
-`/l3io-setup` asks how many lanes the project runs and writes `lane_count` to the team layer.
-**Absent or `1` means lanes are off**, and nothing in this design applies — single-developer
-use is the overwhelming majority and must not pay for a feature it does not use.
+**`/l3io-setup` asks whether this project is single-developer or multi-lane, and the answer is
+recorded — it is never inferred.** On multi-lane it then asks how many, and writes `lane_count`
+to the team layer. Single-developer writes `lane_count: 1`.
+
+Three states, and the first two are **not** the same thing:
+
+| `lane_count` | Means | Behaviour |
+|---|---|---|
+| absent | setup has not been run, or predates lanes | lanes off |
+| `1` | **single-developer, chosen deliberately** | lanes off |
+| `N > 1` | multi-lane | lanes on |
+
+Behaviourally the first two are identical, and that is required: `config-resolution.md` §5 is
+explicit that an absent `modules.l3io-pm` section is a valid permanent state and **never** a
+first-run trigger, so an absent key cannot be allowed to prompt. But they are different facts,
+and conflating them is what the explicit question prevents — *"we never asked"* is not the same
+record as *"they said one developer"*.
+
+**Asking is also how the feature becomes known.** A user who is never shown the question does
+not learn lanes exist; inferring the mode from whether a number happens to be set means the
+capability is discoverable only by reading documentation.
 
 Individuals set their own `lane` in the gitignored user layer; nothing asks them to commit it.
 
@@ -158,10 +176,15 @@ so it collides precisely when lanes are most active. A field on `epic.yaml` live
 its owning lane writes. The cost is that "what does Lane 2 own" is derived by scanning epics
 rather than read from one place; that is a `dump-plan` query, not a problem.
 
-**2. `plan-graph.py` proposes the partition — when there is something to propose.** The trigger
-is `lane_count > 1` **and no epic declares a lane**. That second condition is self-describing:
-"never been set" needs no ledger, because an unset tree says so. Once lanes are assigned the
-proposal never fires again — an existing partition is a decision, not a gap.
+**2. `plan-graph.py` proposes the partition — when the configured mode says there is something
+to propose.** The trigger is **configured, not inferred**: `lane_count > 1`, which is a setup
+answer rather than a guess from the shape of the tree. Scanning epics for lane fields would
+make the *mode* a derived property, so a project that had simply not assigned yet would be
+indistinguishable from one that runs single-developer.
+
+A second condition — no epic declares a lane yet — gates only whether assignment has **already
+happened**, so the proposal does not re-fire over a decision already taken. That is a guard on
+the action, not the source of the mode.
 
 **3. The hand-off artifact is a filter.** "The plan, Lane 2's view" is generated from the
 snapshot on demand. A per-lane document would be a second source of truth and would go stale

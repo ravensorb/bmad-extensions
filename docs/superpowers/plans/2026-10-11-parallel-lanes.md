@@ -21,10 +21,10 @@ Settled 2026-10-10/11. Recorded so no task re-opens them.
 |---|---|---|
 | D1 | **The epic declares its lane** (`lane:` on `epic.yaml`) | A registry would be a fifth shared file, and the one file *every* lane writes — colliding precisely when lanes are most active |
 | D2 | **Field is `lane`, never `owner`** | `owner` attracts names; `lane` makes `sarah` look wrong in it. The vocabulary is the guardrail |
-| D3 | **`lane_count` asked at setup** (team layer); **`lane` identity in the gitignored user layer** | A person's name cannot reach the repo, because the only file that knows it is untracked |
-| D4 | **Unset means unrestricted** | Single-developer use is the overwhelming majority and must not pay for a feature it does not use |
+| D3 | **Setup ASKS the mode** — single-developer or multi-lane — and records `lane_count` in the team layer; **`lane` identity in the gitignored user layer** | The mode is a decision, not an inference. A person's name cannot reach the repo, because the only file that knows it is untracked |
+| D4 | **`lane_count` absent or `1` → lanes off.** Absent means never asked; `1` means deliberately single. Behaviourally identical, factually different | Single-developer use is the majority and must not pay for a feature it does not use. Absent cannot prompt — `config-resolution.md` §5 makes an absent module section a valid permanent state |
 | D5 | **Warn, never refuse**, on cross-lane dependency; `--force` on any enforcement | A hard refusal with no escape gets worked around by deleting the field |
-| D6 | **Propose a partition when `lane_count > 1` and no epic declares a lane** | "Never been set" is self-describing; an existing partition is a decision, not a gap |
+| D6 | **The mode is CONFIGURED, never inferred.** Propose when `lane_count > 1`; the epic scan only gates whether assignment already happened | Deriving the mode from epic state makes "not assigned yet" indistinguishable from "runs single-developer" |
 | D7 | **Hand-off is a filter, not a document** | A per-lane document is a second source of truth and goes stale on the next plan run |
 | D8 | **Moving work between lanes is a reorg** | 1 epic = 1 lane means a lane move is an epic move, which re-keys the story. Heavier than a field change, and deliberately so |
 
@@ -44,7 +44,7 @@ Settled 2026-10-10/11. Recorded so no task re-opens them.
 
 Input classes the goal implies that no happy path exercises.
 
-1. **A project with `lane_count` unset, or set to 1.** Every lane behaviour must be inert. This is the majority case and the one most likely to be broken by a feature that assumes it is on. → Tasks 1 and 4.
+1. **A project with `lane_count` unset, or set to 1.** Every lane behaviour must be inert, and **unset must prompt nothing** — an absent module section is a valid permanent state, so a feature that treats it as a first-run breaks that contract. This is the majority case and the one most likely to be broken by a feature that assumes it is on. → Tasks 1, 2 and 4.
 2. **An epic with a `lane` the config does not know about** — `lane_count: 2` and an epic declaring lane 3, after someone lowered the count. Report; do not crash. → Task 2.
 3. **A partially assigned tree** — some epics carry `lane`, some do not. D6's trigger is "no epic declares a lane", so this must *not* re-propose, and the unassigned epics must be visible rather than silently lane-less. → Task 5.
 4. **More lanes than the graph supports.** `k=3` on a two-cluster graph cost 2 cross-lane edges in testing. The proposal must state the price, not silently produce a worse partition. → Task 5.
@@ -61,13 +61,26 @@ Input classes the goal implies that no happy path exercises.
 - Writing it: `set-field --epic E001 --field lane --value A` already works mechanically. Add a field-specific rule, the same shape as the existing refusal of `completion_evidence.tests_passing`: reject a value containing `@`, or longer than a short token, naming D2's reasoning. A convention nothing enforces is a convention that erodes.
 - **Tests:** accepted on an epic; refused on a sprint or story; a name-shaped value is refused; absent is normal and never an error.
 
-### - [ ] Task 2: `lane_count` at setup, `lane` in the user layer
+### - [ ] Task 2: setup asks the mode; `lane` in the user layer
 
-- `l3io-setup` asks how many lanes the project runs; writes `modules.l3io-pm.lane_count` to the **team** layer (`custom/config.toml`).
-- `{lane}` resolves from `modules.l3io-pm.lane` in the **user** layer (`custom/config.user.toml`, gitignored). Document in `config-resolution.md` that it belongs there and why — the name must not reach the repo.
-- **Absent or `1` means lanes are off** (D4).
+**`l3io-setup` asks whether the project is single-developer or multi-lane, and records the
+answer.** On multi-lane it asks how many and writes `modules.l3io-pm.lane_count` to the **team**
+layer (`custom/config.toml`); single-developer writes `lane_count: 1`.
+
+The question is the point. Inferring the mode from whether a number happens to be set makes
+lanes discoverable only by reading documentation, and makes *"we never asked"* indistinguishable
+from *"they chose one developer"*.
+
+- Three states, two behaviours: **absent** (never asked) and **`1`** (deliberately single) both
+  mean lanes off; `N > 1` means on. Absent must **never prompt** — `config-resolution.md` §5
+  makes an absent `modules.l3io-pm` section a valid permanent state.
+- `{lane}` resolves from `modules.l3io-pm.lane` in the **user** layer
+  (`custom/config.user.toml`, gitignored). Document in `config-resolution.md` that it belongs
+  there and why: the name must not reach the repo.
 - An epic declaring a lane outside `1..lane_count` is **reported, not fatal** (Review Focus 2).
-- **Tests:** unset behaves exactly as today; `lane_count: 1` likewise; an out-of-range lane is reported.
+- **Tests:** unset behaves exactly as today and prompts nothing; `lane_count: 1` likewise;
+  `N > 1` turns lanes on; an out-of-range lane is reported; setup run twice does not duplicate
+  or re-ask destructively.
 
 ---
 
@@ -88,7 +101,10 @@ see lanes, since check 26 forbids them reading state directly.
 
 ### - [ ] Task 5: propose a partition when there is one to propose
 
-Trigger: `lane_count > 1` **and** no epic declares a lane (D6).
+Trigger: **`lane_count > 1`** — the configured mode (D6), never inferred from the tree. A
+second condition, *no epic declares a lane yet*, gates only whether assignment has already
+happened, so an existing partition is not re-proposed. That is a guard on the action; the mode
+comes from setup.
 
 - `nx.community.greedy_modularity_communities(U, best_n=k, cutoff=k)` over the **undirected** epic graph — crossing is direction-free.
 - Report **both objectives**, because they differ (Review Focus 5): cross-lane edge count, and per-lane phase coverage. A lane owning only phase-3 epics waits.
