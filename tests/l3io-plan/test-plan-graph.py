@@ -516,5 +516,75 @@ class TestPhases(unittest.TestCase):
         self.assertEqual(code, 0, err.getvalue())
         self.assertEqual(json.loads(out.getvalue())["phase_count"], 1)
 
+
+class TestPartition(unittest.TestCase):
+    """Proposing which lane owns which epic.
+
+    The mode is CONFIGURED (lane_count from setup), never inferred: a project set up for three
+    lanes that has not assigned any yet looks exactly like a single-developer project if you
+    only scan epics.
+    """
+
+    def _two_clusters(self):
+        def e(k, deps): return epic(k, [], deps)
+        return plan([e("E001", []), e("E002", ["E001"]), e("E003", ["E001"]),
+                     e("E004", ["E002", "E003"]), e("E005", []), e("E006", ["E005"]),
+                     e("E007", ["E005"]), e("E008", ["E006", "E007"])])
+
+    def test_two_natural_clusters_split_with_no_crossings(self):
+        r = pg.partition(self._two_clusters(), 2)
+        self.assertEqual(r["cross_lane_edges"], 0)
+        self.assertEqual(sorted(len(L["epics"]) for L in r["lanes"]), [4, 4])
+
+    def test_over_partitioning_reports_its_price(self):
+        # THE POINT. Asking for more lanes than the work supports forces splits through real
+        # dependencies, and a lead deciding whether to add a third person needs that BEFORE
+        # assigning rather than after.
+        r = pg.partition(self._two_clusters(), 3)
+        self.assertEqual(r["cross_lane_edges"], 2)
+        self.assertEqual(len(r["crossings"]), 2)
+
+    def test_idle_phases_are_reported_because_they_are_a_different_objective(self):
+        # Minimising crossings and keeping lanes busy are not the same thing: a partition
+        # perfect by connectivity can leave a lane with nothing until another finishes.
+        r = pg.partition(self._two_clusters(), 3)
+        self.assertTrue(any(L["idle_phases"] for L in r["lanes"]),
+                        "k=3 strands at least one lane for a phase; that must be visible")
+
+    def test_every_epic_is_assigned_exactly_once(self):
+        r = pg.partition(self._two_clusters(), 3)
+        allocated = [e for L in r["lanes"] for e in L["epics"]]
+        self.assertEqual(len(allocated), len(set(allocated)), "no epic in two lanes")
+        self.assertEqual(len(allocated), 8, "no epic left unassigned")
+
+    def test_more_lanes_than_epics_is_capped_and_says_so(self):
+        r = pg.partition(plan([epic("E001", []), epic("E002", [])]), 5)
+        self.assertEqual(r["lane_count"], 2)
+        self.assertIn("cannot each own one", r["note"])
+
+    def test_an_empty_plan_partitions_to_nothing(self):
+        r = pg.partition(plan([]), 3)
+        self.assertEqual(r["lanes"], [])
+
+    def test_the_cli_refuses_a_lane_count_that_means_lanes_are_off(self):
+        for n in (0, 1):
+            out, err = io.StringIO(), io.StringIO()
+            stdin = sys.stdin
+            sys.stdin = io.StringIO(json.dumps(plan([epic("E001", [])])))
+            try:
+                with redirect_stdout(out), redirect_stderr(err):
+                    code = pg.main(["partition", "--lanes", str(n)])
+            finally:
+                sys.stdin = stdin
+            self.assertEqual(code, 2, f"--lanes {n} must refuse")
+            self.assertIn("lanes are off", err.getvalue())
+
+    def test_the_same_plan_partitions_the_same_way_twice(self):
+        p = self._two_clusters()
+        self.assertEqual(json.dumps(pg.partition(p, 2), sort_keys=True),
+                         json.dumps(pg.partition(p, 2), sort_keys=True))
+
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

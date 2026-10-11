@@ -61,7 +61,7 @@ Input classes the goal implies that no happy path exercises.
 - Writing it: `set-field --epic E001 --field lane --value A` already works mechanically. Add a field-specific rule, the same shape as the existing refusal of `completion_evidence.tests_passing`: reject a value containing `@`, or longer than a short token, naming D2's reasoning. A convention nothing enforces is a convention that erodes.
 - **Tests:** accepted on an epic; refused on a sprint or story; a name-shaped value is refused; absent is normal and never an error.
 
-### - [ ] Task 2: setup asks the mode; `lane` in the user layer
+### - [x] Task 2: setup asks the mode; `lane` in the user layer
 
 **`l3io-setup` asks whether the project is single-developer or multi-lane, and records the
 answer.** On multi-lane it asks how many and writes `modules.l3io-pm.lane_count` to the **team**
@@ -99,7 +99,7 @@ see lanes, since check 26 forbids them reading state directly.
 - **Silent when lanes are off** (Review Focus 1).
 - **Tests:** fires on a story edge crossing a lane boundary; silent within a lane; silent when no epic declares a lane; the lane pair is reported, not just the epic pair.
 
-### - [ ] Task 5: propose a partition when there is one to propose
+### - [x] Task 5: propose a partition when there is one to propose
 
 Trigger: **`lane_count > 1`** — the configured mode (D6), never inferred from the tree. A
 second condition, *no epic declares a lane yet*, gates only whether assignment has already
