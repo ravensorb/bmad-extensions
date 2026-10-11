@@ -109,6 +109,47 @@ nor `.notices.yaml` matches the directory itself.
 Find your starting version and read forward. `npx bmad-method install` upgrades across any
 number of these at once, but the migrations must still run.
 
+### → 3.4.3
+
+**The repair the 3.4.2 note said did not exist now exists, and a second, quieter bug in the
+same place is fixed.** If you never ran a `reparent-story` or a `/l3io-plan reorg`, nothing
+here applies to you.
+
+**The quiet bug first, because it is the one that was still happening.** `reparent-story`
+repointed a moved story's `depends_on` and the backlog `ref` fields, but not the `story` field
+on a *scheduled* backlog item. The moved story kept the item in its `resolves:` list under its
+new key while the item still pointed at the old one — so every reparent of a scheduled story
+left a broken link. Unlike the 3.4.2 crash this never raised; the move reported success. Reorg
+moves stories as a matter of course, so this fired on ordinary use.
+
+It was not silent, though — `audit-issues` reported it as finding `1b`. The problem was the
+repair: `1b`'s only action is `unschedule`, which **discards the scheduling** instead of
+restoring it. A clean audit was reachable, at the price of the link.
+
+**New: audit finding `1l`, and `repair-issue --action repoint`.** `1l` reports a backlog
+item whose `story` or `ref` still names a story key that no story carries any more **and**
+that some story records in its `previous_keys` — which is exactly the fingerprint of a
+re-key. When one story records the old key, the finding names it and `repoint` rewrites every
+stale field on that item. When several do, the finding is report-only: which story the
+reference means is not derivable, and we do not guess.
+
+A scheduled item with an heir now reports as `1l`, **not** `1b` — otherwise triage would be
+handed two repairs that undo each other, the lossy one first. A dangling key that no story
+records is still `1b` alone, because there `unschedule` is the correct answer.
+
+**What to do if you ran a reparent on an affected version:**
+
+```bash
+/l3io-doctor triage
+```
+
+Triage runs `audit-issues`, lists every `1l`, and offers the `repoint` for each one that has
+an heir. Nothing to decide and nothing to edit.
+
+**It covers both issue files.** A resolved entry carries `story` and `ref` too, and its `ref`
+is the field a re-key invalidates most often, because a resolution outlives the story's
+placement.
+
 ### → 3.4.2
 
 **`reparent-story` crashed on any project with a backlog, and `/l3io-plan reorg` could not
@@ -134,12 +175,10 @@ uv run {pm_status} dump-plan --state-root {state-root} --pretty
 Look for stories with a non-empty `previous_keys`, then search `state/issues.yaml` and
 `state/issues-resolved.yaml` for a `ref` matching any of those old keys.
 
-**There is currently no command to repoint a stale `ref`, and that is a known gap.**
-`update-issue` changes only severity, `repair-issue --action link` is gated on an audit
-finding that does not hold here, and `audit-issues` does not report this case at all. We do
-not ask users to hand-edit state, so a repair verb and the audit finding that should have
-caught it are both follow-up work — tracked, not forgotten. Until then, contact us rather
-than editing `issues.yaml` directly if the residue matters to you.
+**At 3.4.2 there was no command to repoint a stale `ref`. 3.4.3 added one** — audit finding
+`1l` detects the residue and `repair-issue --action repoint` fixes it, both reachable through
+`/l3io-doctor triage`. Upgrade past 3.4.2 and run triage rather than working through the
+check below. The manual check is kept here only for reading a 3.4.2 project in place.
 
 **Why no test caught it:** `_rewrite_references` guards the backlog block with
 `if os.path.exists(issues.yaml)`, and no fixture in the reparent suite created one — so the

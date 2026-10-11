@@ -8832,6 +8832,62 @@ class TestAuditIssues(IssueBase):
                           "--status", st])
         self.found("1j", "BL-E001-001")
 
+    def rekey_story(self, old, new):
+        """Leave the residue a re-key produces: the story carries `new` and records `old` in
+        previous_keys, and every backlog field still names `old`. Built by hand rather than
+        by calling reparent-story, because reparent only moves PLANNED stories and `promote`
+        lands its story under active/ -- and because the residue is what matters here, not
+        the operation that produced it (3.3.0-3.4.1 produced it by crashing mid-write)."""
+        p = pm.story_file(self.root, old)
+        y, n = pm.load_node(p)
+        n["key"] = new
+        n["previous_keys"] = [old]
+        pm.save_node(y, n, p)
+        os.rename(p, os.path.join(os.path.dirname(p), f"{new}.yaml"))
+
+    def test_1l_a_scheduled_item_left_on_a_re_keyed_story(self):
+        """The residue of the 3.4.2 crash, and of every pre-3.4.3 reparent of a SCHEDULED
+        story: the item still names the old key, which no story carries any more."""
+        self.append("A")
+        self.promote()
+        self.rekey_story("E001-S02-001", "E001-S02-009")
+        self.found("1l", "BL-E001-001")
+        f = next(x for x in self.audit()[1] if x["id"] == "1l")
+        self.assertEqual(f["story"], "E001-S02-009", "the finding must name the heir")
+        self.assertIn("repoint", f["repair"])
+
+    def test_1l_displaces_1b_when_the_old_key_has_an_heir(self):
+        """1b's only repair is `unschedule`, which DISCARDS the scheduling. Emitting both
+        would hand triage two repairs that undo each other, and the lossy one first."""
+        self.append("A")
+        self.promote()
+        self.rekey_story("E001-S02-001", "E001-S02-009")
+        self.assertNotIn(("1b", "BL-E001-001"), {(f["id"], f["key"]) for f in self.audit()[1]})
+
+    def test_a_dangling_key_no_story_records_is_1b_only_not_1l(self):
+        """A deleted story is the ordinary shape of a dangling key, not re-key residue, and
+        `unschedule` is the right answer precisely because there is no key to point at
+        instead. Emitting 1l as well would put a second, repairless finding on every one."""
+        self.append("A")
+        self.promote()
+        os.remove(pm.story_file(self.root, "E001-S02-001"))
+        self.assertEqual([(f["id"], f["key"]) for f in self.audit()[1]],
+                         [("1b", "BL-E001-001")])
+
+    def test_1l_ignores_a_ref_that_is_not_a_story_key(self):
+        """`ref` is overloaded: a spec-change item's ref is a commit SHA or a proposal
+        path, and neither is a broken story pointer."""
+        self.append("A", "001", "01", "Low", "code-review", "--kind", "spec-change",
+                    "--ref", "deadbeef1234")
+        self.assertEqual(self.audit(), (0, []))
+
+    def test_1l_ignores_a_key_that_still_names_a_live_story(self):
+        self.append("A")
+        self.promote()
+        self.edit_story("E001-S02-001", lambda n: n.__setitem__("previous_keys",
+                                                                ["E001-S02-001"]))
+        self.assertNotIn("1l", {f["id"] for f in self.audit()[1]})
+
     def test_text_format_names_the_repair(self):
         self.append("A")
         self.edit_open(lambda d: d["backlog"][0].__setitem__("status", "weird"))
@@ -8961,6 +9017,75 @@ class TestRepairIssue(TestAuditIssues):
         self.assertEqual(code, 0, err)
         self.assertIn("no legacy status found", out)
         self.assertEqual(self.events("issue_status_normalized"), [])
+
+    def test_repoint_restores_a_scheduling_a_re_key_orphaned(self):
+        """The recovery the 3.4.2 note said did not exist. `update-issue` changes only
+        severity, `link` is gated on 1d (which does not hold -- the item is already
+        scheduled), and `unschedule` loses the link rather than repairing it."""
+        self.append("A")
+        self.promote()
+        self.rekey_story("E001-S02-001", "E001-S02-009")
+        code, out, err = self.repair("BL-E001-001", "repoint")
+        self.assertEqual(code, 0, err)
+        self.assertIn("story E001-S02-001 -> E001-S02-009", out)
+        it = self.load_open()["backlog"][0]
+        self.assertEqual((str(it["story"]), str(it["status"])), ("E001-S02-009", "scheduled"),
+                         "the scheduling is restored, not discarded")
+        self.assertEqual(self.ids(), set(), "the repair must leave a clean audit")
+        self.assertEqual(len(self.events("issue_repointed")), 1)
+        self.assert_invariants()
+
+    def test_repoint_fixes_a_stale_ref_on_a_resolved_item(self):
+        """A resolved entry's `ref` is what fixed the item -- the field a re-key invalidates
+        most often, because resolution outlives the story's placement."""
+        self.append("A")
+        self.promote()
+        # The ordinary route: marking the story done resolves its `resolves:` list as
+        # fixed, with ref = the story key. That is the field the later re-key invalidates.
+        self.run_all(["set-status", "--state-root", self.root, "--story", "E001-S02-001",
+                      "--status", "done"])
+        self.rekey_story("E001-S02-001", "E001-S02-009")
+        code, out, err = self.repair("BL-E001-001", "repoint")
+        self.assertEqual(code, 0, err)
+        entry = self.load_resolved()["resolved"][0]
+        self.assertEqual(str(entry["ref"]), "E001-S02-009")
+        self.assertEqual(self.ids(), set())
+        self.assert_invariants()
+
+    def test_repoint_refuses_when_nothing_records_the_old_key(self):
+        """A key no story carries is never guessed at -- that state is 1b, and its repair
+        is unschedule."""
+        self.append("A")
+        self.promote()
+        os.remove(pm.story_file(self.root, "E001-S02-001"))
+        before = self.load_open()["backlog"][0]["story"]
+        code, _, err = self.repair("BL-E001-001", "repoint")
+        self.assertEqual(code, 2)
+        self.assertIn("1l does not hold", err)
+        self.assertEqual(self.load_open()["backlog"][0]["story"], before, "nothing written")
+
+    def test_repoint_refuses_when_1l_does_not_hold(self):
+        """The gate every repair action carries."""
+        self.append("A")
+        self.promote()
+        code, _, err = self.repair("BL-E001-001", "repoint")
+        self.assertEqual(code, 2)
+        self.assertIn("1l does not hold", err)
+
+    def test_repoint_refuses_an_ambiguous_old_key(self):
+        """Two stories recording the same previous key cannot both be the heir, so 1l is
+        report-only and the repair must refuse rather than pick the first."""
+        self.append("A")
+        self.promote()
+        self.rekey_story("E001-S02-001", "E001-S02-009")
+        p = os.path.join(self.root, "active", "epic-001", "sprint-02", "E001-S02-010.yaml")
+        with open(p, "w", encoding="utf-8") as fh:
+            fh.write("key: 'E001-S02-010'\nepic: 'E001'\nsprint: 'S02'\nstatus: backlog\n"
+                     "previous_keys: ['E001-S02-001']\n")
+        f = next(x for x in self.audit()[1] if x["id"] == "1l")
+        self.assertIn("report only", f["repair"])
+        code, _, err = self.repair("BL-E001-001", "repoint")
+        self.assertEqual(code, 2, err)
 
     def _archive_epic(self, epic="001"):
         """Put the item's epic in archived/, i.e. status done."""
@@ -12406,6 +12531,44 @@ class TestReparentStory(unittest.TestCase):
                             "--to-sprint", "S02"])
         self.assertEqual(code, 0)
         self.assertIn("OK reparent-story E001-S01-001 -> E003-S02-001", buf.getvalue())
+
+    def test_a_scheduled_items_story_field_is_repointed(self):
+        """The third stale field, missed until 3.4.3 and live in every version before it —
+        unlike the `ref` bug, this one never crashed. The moved story keeps the item in its
+        `resolves:` under the NEW key while the item still points at the old one, so every
+        reparent of a scheduled story manufactured audit finding 1b, whose only repair
+        (`unschedule`) throws the scheduling away instead of restoring it. Reorg moves
+        stories as a matter of course, so this fired on ordinary use, not just after a crash.
+        """
+        self._story("E001-S01-001", "resolves: ['BL-E001-001']\n")
+        pm.main(["append-issue", "--state-root", self.sr, "--epic", "E001", "--sprint",
+                 "S01", "--severity", "Low", "--source", "code-review", "--title", "t"])
+        pm.main(["schedule-issue", "--state-root", self.sr, "--key", "BL-E001-001",
+                 "--story", "E001-S01-001"])
+        new = self._move("E001-S01-001", "E003", "S02")
+        _, issues = pm.load_node(os.path.join(self.sr, "issues.yaml"))
+        self.assertEqual([i.get("story") for i in issues["backlog"]], [new])
+        buf = io.StringIO()
+        with redirect_stdout(buf):
+            code = pm.main(["audit-issues", "--state-root", self.sr])
+        self.assertEqual((code, buf.getvalue().strip()),
+                         (0, "audit-issues: no integrity findings"),
+                         "a correct move leaves nothing for audit-issues to repair")
+
+    def test_a_resolved_ref_is_repointed_with_no_open_issues_file(self):
+        """The guard was `if os.path.exists(issues.yaml)`, so a project whose every issue is
+        closed — no open file at all — had its resolved refs skipped silently. That is the
+        same precondition-guarded shape that hid the 3.4.2 crash from eleven tests, so it is
+        asserted rather than assumed."""
+        self._story("E001-S01-001")
+        self._w(os.path.join(self.sr, "issues-resolved.yaml"),
+                "resolved:\n- key: BL-E001-001\n  epic: '001'\n  title: t\n"
+                "  source: code-review\n  severity: Low\n  status: resolved\n"
+                "  resolution: fixed\n  ref: E001-S01-001\n")
+        self.assertFalse(os.path.exists(os.path.join(self.sr, "issues.yaml")))
+        new = self._move("E001-S01-001", "E003", "S02")
+        _, res = pm.load_node(os.path.join(self.sr, "issues-resolved.yaml"))
+        self.assertEqual([i.get("ref") for i in res["resolved"]], [new])
 
     def test_a_story_with_no_document_moves_fine(self):
         self._story("E001-S01-001")

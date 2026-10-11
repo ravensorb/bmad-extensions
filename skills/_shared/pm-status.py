@@ -206,7 +206,7 @@ Subcommands
                 decisive check through the save; every refusal is checked before the first
                 write)
   audit-issues  --state-root S  [--format {text,json}]
-                (read-only integrity checks 1a-1k over both issue files and the story
+                (read-only integrity checks 1a-1l over both issue files and the story
                 nodes' resolves:, read under issues_lock when either issue file exists;
                 otherwise the story walk still runs, unlocked, over an empty store;
                 a key with a resolved entry is not evaluated for 1b, 1c, 1d, 1f
@@ -216,14 +216,22 @@ Subcommands
                 story under archived/ that is not done; 1j fires only when the
                 ref story's resolves: lists the key; 1e also reports every
                 non-canonical alias key in next (1 or '1' for '001') whatever its
-                value, and any next above 1000; exit 4 when anything is
+                value, and any next above 1000; 1l reports a `story` or `ref`
+                field holding a story key no story carries any more, and names
+                the heir when exactly one story records it in previous_keys --
+                a scheduled item with such an heir is 1l, NOT 1b, because
+                repointing restores the scheduling that unschedule discards;
+                exit 4 when anything is
                 found, and on a malformed issue file or a story node that does
                 not parse, is not valid UTF-8 or is not a mapping, where
                 --format json prints {"findings": [], "error": MSG})
-  repair-issue  --state-root S  --key K  --action {unschedule,link,reseed,reopen}
+  repair-issue  --state-root S  --key K  --action {unschedule,link,repoint,reseed,reopen}
                 [--story KEY] [--session-id ID] [--cause C]
                 (each action refuses unless its audit finding holds: unschedule 1b/1g,
-                link 1d (--story must be the story that lists K), reseed 1e, reopen 1j;
+                link 1d (--story must be the story that lists K), repoint 1l with an
+                heir (it repoints every stale story-key field of the one item the key
+                resolves to, resolved entry first, and writes an issue_repointed event),
+                reseed 1e, reopen 1j;
                 unschedule and link also refuse a key with a resolved entry -- rerun
                 resolve-issue to clear the stale open copy (1a); reseed merges
                 non-canonical aliases of the epic's next key by max, drops them, and
@@ -245,7 +253,8 @@ Subcommands
   reparent-story  --state-root S  --artifacts-root A  --story K  --to-epic E  --to-sprint SP
                   (moves a PLANNED story to another sprint, re-keying it; moves the state
                    node and its document together, preserving any -slug, repoints inbound
-                   depends_on and backlog refs, appends the old key to previous_keys, and
+                   depends_on and both backlog story-key fields (`story` and `ref`, in both
+                   issue files), appends the old key to previous_keys, and
                    raises the source sprint's high-water so the vacated key is never reissued)
   reorg-log     --state-root S  [--hash] [--record FILE] [--list] [--show ID]
                 [--format {text,json}]
@@ -6617,6 +6626,14 @@ def _append_issue(args) -> int:
 _STORY_KEY_RE = re.compile(r"^E\d{3}-S\d{2}-\d{3}$")
 _SHA_RE = re.compile(r"^[0-9a-f]{7,40}$")
 
+# The backlog fields that hold a STORY key, and so go stale when a story is re-keyed:
+# `story` (an open item's scheduling target, copied through to its resolved entry) and
+# `ref` (what resolved it). `ref` is overloaded -- for a spec-change/spec-proposal item it
+# is a commit SHA or a proposal path -- so every reader here must match _STORY_KEY_RE first
+# and never treat a non-key ref as a broken pointer. Ordered: `story` is the field whose
+# loss costs the most, so it is named first in messages.
+STORY_REF_FIELDS = ("story", "ref")
+
 
 def _validate_resolution_flags(resolution, ref, note) -> None:
     if resolution not in RESOLUTIONS:
@@ -7299,17 +7316,48 @@ def _schedule_issue(args) -> int:
 _BL_NEXT_MAX = 1000
 
 
-def _audit_findings(state_root, store) -> list:
-    """Structural integrity findings 1a-1k (spec §3.1). The caller holds issues_lock."""
-    findings = []
+def _stale_story_refs(item, stories, moved) -> list:
+    """The (field, old_key, new_key | None) triples on one backlog item whose story key no
+    longer exists AND is recorded in some story's `previous_keys`. `new_key` is that story
+    when exactly one records it, and None when more than one does (ambiguous: reported,
+    never guessed at).
 
-    def add(fid, key, detail, repair, story=None, epic=None):
-        findings.append({"id": fid, "key": key, "story": story, "epic": epic,
-                         "detail": detail, "repair": repair})
+    WHY A DANGLING KEY NOTHING RECORDS IS NOT REPORTED HERE. That is the ordinary shape of
+    a story whose directory was removed or whose epic was retired, it is not damage any
+    verb here can repair, and the one case that IS actionable -- an open item scheduled to
+    a story that no longer exists -- is finding 1b, whose `unschedule` repair is correct
+    precisely because there is no key to point at instead. Reporting it as 1l as well put a
+    second, repairless finding on every such item.
 
-    # claims: every story listing a key (1b and 1j read it). live: the same minus dead claims
-    # (_dead_claim) -- 1d and 1h read only live claims, so the 1g repair leaves a clean audit.
-    stories, claims, live = {}, {}, {}
+    A field is only considered when its value PARSES as a story key: `ref` also carries a
+    commit SHA or a proposal path for a spec-change item, and neither is a broken pointer.
+    A key that still names a live story is never stale -- including the case where the key
+    was re-issued to different work, which reads as resolved and is indistinguishable from
+    here. The allocator's high-water is what prevents that, not this check.
+    """
+    out = []
+    for field in STORY_REF_FIELDS:
+        v = str(item.get(field) or "")
+        if not _STORY_KEY_RE.match(v) or v in stories:
+            continue
+        heirs = moved.get(v, [])
+        if heirs:
+            out.append((field, v, heirs[0] if len(heirs) == 1 else None))
+    return out
+
+
+def _story_index(state_root):
+    """One walk of every story node, as the four maps the backlog checks read.
+
+    stories: key -> (status folder, status).
+    claims:  BL key -> every story listing it in `resolves` (1b and 1j read it).
+    live:    the same minus dead claims (`_dead_claim`) -- 1d and 1h read only live claims,
+             so the 1g repair leaves a clean audit.
+    moved:   old story key -> the stories that now carry it in `previous_keys`, which is how
+             a reference orphaned by reparent-story is told apart from one that never
+             resolved at all (1l).
+    """
+    stories, claims, live, moved = {}, {}, {}, {}
     for skey, sdir, node, _ in _walk_story_nodes(state_root):
         stories[skey] = (sdir, str(node.get("status", "")))
         dead = _dead_claim(sdir, node)
@@ -7317,6 +7365,28 @@ def _audit_findings(state_root, store) -> list:
             claims.setdefault(str(k), []).append(skey)
             if not dead:
                 live.setdefault(str(k), []).append(skey)
+        for pk in node.get("previous_keys") or []:
+            moved.setdefault(str(pk), []).append(skey)
+    return stories, claims, live, moved
+
+
+def _story_key_maps(state_root):
+    """`(stories, moved)` -- the two maps `_stale_story_refs` needs. The repoint repair
+    re-derives them from the same walk audit-issues used, so the gate and the write can
+    never disagree about which story carries an old key."""
+    stories, _claims, _live, moved = _story_index(state_root)
+    return stories, moved
+
+
+def _audit_findings(state_root, store) -> list:
+    """Structural integrity findings 1a-1l (spec §3.1). The caller holds issues_lock."""
+    findings = []
+
+    def add(fid, key, detail, repair, story=None, epic=None):
+        findings.append({"id": fid, "key": key, "story": story, "epic": epic,
+                         "detail": detail, "repair": repair})
+
+    stories, claims, live, moved = _story_index(state_root)
     open_by, res_by = {}, {}
     for lst, by in ((store.backlog, open_by), (store.resolved, res_by)):
         for it in lst:
@@ -7334,6 +7404,39 @@ def _audit_findings(state_root, store) -> list:
         if k in res_by:
             add("1a", k, "present in both issue files",
                 "resolve-issue rerun -- it clears the open copy")
+
+    # 1l -- a story-key field left pointing at a key that a re-key moved. Computed BEFORE
+    # the loops below because 1b defers to it: a scheduled item whose story was re-keyed
+    # must be REPOINTED, and emitting 1b as well would hand triage a second repair
+    # (`unschedule`) that throws the scheduling away instead of restoring it. A dangling
+    # key no story records is not 1l at all (see `_stale_story_refs`), so 1b still owns
+    # every case where unschedule is the right answer.
+    stale = {}
+    for by, fname in ((open_by, ISSUES_FILENAME), (res_by, RESOLVED_FILENAME)):
+        for k, its in by.items():
+            if len(its) != 1:
+                continue        # 1i: an ambiguous key is never evaluated
+            if by is open_by and k in res_by:
+                continue        # Ruling 8, resolved first: the open copy is 1a, and the
+                                # rerun that clears it would discard any repoint done here
+            for fld, old, new in _stale_story_refs(its[0], stories, moved):
+                stale.setdefault(k, []).append((fld, old, new, fname))
+    for k in sorted(stale):
+        for fld, old, new, fname in stale[k]:
+            if new is not None:
+                add("1l", k, f"{fld}: {old} in {fname} names no story; {new} records it in "
+                             f"previous_keys (it was re-keyed by reparent-story)",
+                    f"repair-issue --action repoint --key {k}", story=new)
+            else:
+                add("1l", k, f"{fld}: {old} in {fname} names no story, and {len(moved[old])} "
+                             f"stories record it in previous_keys "
+                             f"({', '.join(sorted(moved[old]))})",
+                    "report only -- which story this means is not derivable; the duplicate "
+                    "previous_keys entry is the defect, so fix that and rerun repoint")
+
+    def repointable(k) -> bool:
+        return any(f == "story" and n is not None for f, _o, n, _fn in stale.get(k, []))
+
     for k in open_by:
         if k in res_by:
             continue            # Ruling 8, resolved first: the stale open copy is 1a only
@@ -7354,7 +7457,9 @@ def _audit_findings(state_root, store) -> list:
         elif str(kind) in SPEC_ISSUE_KINDS and not str(it.get("ref") or "").strip():
             add("1k", k, f"{kind} item has no ref",
                 "report only -- add the commit SHA or the proposal path by hand")
-        if st == "scheduled":
+        if st == "scheduled" and repointable(k):
+            pass                # 1l owns it: repoint, do not unschedule
+        elif st == "scheduled":
             sk = str(it.get("story", "") or "")
             if sk not in stories or sk not in claims.get(k, []):
                 add("1b", k, f"scheduled to {sk or '(none)'}, which is missing or does not "
@@ -7482,7 +7587,10 @@ def cmd_repair_issue(args) -> int:
     audit finding holds for --key, so it can only move the backlog toward a state
     audit-issues accepts -- never invent one it would flag. `unschedule` and `link` act on
     an open item, so they also refuse a key with a resolved entry (Ruling 8, resolved
-    first): a stale open copy is finding 1a, cleared by a resolve-issue rerun."""
+    first): a stale open copy is finding 1a, cleared by a resolve-issue rerun. `repoint`
+    acts on whichever file holds the item -- the resolved entry when there is one, for the
+    same reason: repointing an open copy a resolve-issue rerun is about to delete is work
+    thrown away."""
     return _run_core(lambda: _repair_issue(args))
 
 
@@ -7719,6 +7827,35 @@ def _repair_issue(args) -> int:
                 msg = f"{k} {was} -> resolved as deferred (its epic is closed)"
             else:
                 msg = f"{k} {was} -> {it['status']} (legacy status normalized)"
+        elif act == "repoint":
+            # Gated like the rest, but on 1l AND on there being exactly one heir to point
+            # at: a key no story records is reported, never guessed at. The heir is
+            # re-derived here rather than read off the finding, so the gate and the write
+            # cannot disagree about which story that is.
+            if not holds({"1l"}):
+                raise PMError(2, f"repoint: audit finding 1l does not hold for {k}")
+            opens, done = store.open_items(k), store.resolved_items(k)
+            # Ruling 8, resolved first: repointing an open copy that a resolve-issue rerun
+            # is about to delete would be work thrown away, and 1l skips it for that reason.
+            items = [done[-1]] if done else opens
+            if len(items) != 1:
+                raise PMError(2, f"repoint: {k} does not resolve to one item")
+            stories, moved = _story_key_maps(args.state_root)
+            fixes = [(f, o, n) for f, o, n in _stale_story_refs(items[0], stories, moved)
+                     if n is not None]
+            if not fixes:
+                raise PMError(2, f"repoint: {k} has a stale story key, but no story records "
+                                 f"it in previous_keys -- there is nothing to repoint it to")
+            for field, old, new in fixes:
+                items[0][field] = new
+            if done:
+                store.save_resolved()
+            else:
+                store.save_open()
+            _issue_event(store.state_root, "issue_repointed", items[0], args.session_id,
+                         args.cause, story=str(items[0].get("story") or "") or None,
+                         fields={f: [o, n] for f, o, n in fixes})
+            msg = f"{k} " + ", ".join(f"{f} {o} -> {n}" for f, o, n in fixes)
         elif act == "reseed":
             if not any(f["id"] == "1e" and (f["epic"] == epic or f["key"] == "next")
                        for f in findings):
@@ -8028,7 +8165,13 @@ def _rewrite_references(state_root: str, old_key: str, new_key: str) -> int:
     this operation did.
 
     Two kinds, both rewritten here: `depends_on` lists on any story or epic node, and the
-    `ref` field on open and resolved backlog items.
+    two story-key fields on backlog items -- `ref` (what fixed it) and `story` (what it is
+    scheduled to) -- in BOTH issue files. `story` was missed until 3.4.3: the moved story
+    kept the item in its `resolves:` under its new key while the item still pointed at the
+    old one, so every reparent of a SCHEDULED story manufactured audit finding 1b, whose
+    only repair -- `unschedule` -- throws the scheduling away rather than restoring it.
+    A resolved entry carries `story` too (`resolve_issue_core` copies every field of the
+    open item), so both files need both fields.
     """
     changed = 0
     for _k, _sdir, node, path in _walk_story_nodes(state_root):
@@ -8043,8 +8186,13 @@ def _rewrite_references(state_root: str, old_key: str, new_key: str) -> int:
                 save_node(y, n, path)
                 changed += 1
 
-    open_path = os.path.join(state_root, ISSUES_FILENAME)
-    if os.path.exists(open_path):
+    # EITHER file, not just the open one: a project whose every issue is closed still has a
+    # resolved `ref` to repoint, and gating on issues.yaml alone would skip it silently --
+    # the same precondition-guarded shape that hid the 3.4.2 crash from eleven tests.
+    # cmd_audit_issues takes no lock when neither exists because it is read-only; this is a
+    # write path, so creating the lock file is correct.
+    open_path, res_path = issues_paths(state_root)
+    if os.path.exists(open_path) or os.path.exists(res_path):
         with issues_lock(open_path):
             store = IssueStore(open_path)
             hit = False
@@ -8056,9 +8204,12 @@ def _rewrite_references(state_root: str, old_key: str, new_key: str) -> int:
             # the only one, and no test reached it because none created an issues.yaml.
             for lst in (store.backlog, store.resolved):
                 for item in lst:
-                    if isinstance(item, dict) and item.get("ref") == old_key:
-                        item["ref"] = new_key
-                        hit = True
+                    if not isinstance(item, dict):
+                        continue
+                    for field in STORY_REF_FIELDS:
+                        if item.get(field) == old_key:
+                            item[field] = new_key
+                            hit = True
             if hit:
                 store.save_open()
                 store.save_resolved()
@@ -9436,8 +9587,8 @@ def build_parser() -> argparse.ArgumentParser:
     rp.add_argument("--key", default=None,
                     help="the item; for reseed, any key of the epic; omit with --all-legacy")
     rp.add_argument("--action", required=True,
-                    choices=["unschedule", "link", "reseed", "reopen", "normalize-status",
-                             "normalize-keys"])
+                    choices=["unschedule", "link", "repoint", "reseed", "reopen",
+                             "normalize-status", "normalize-keys"])
     rp.add_argument("--story", default=None, help="with --action link")
     rp.add_argument("--all-legacy", dest="all_legacy", action="store_true",
                     help="with --action normalize-status: every legacy status in one pass")
