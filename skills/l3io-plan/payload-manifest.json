@@ -2,7 +2,7 @@
   "version": "3.4.0",
   "generated_from": "skills/<skill>/",
   "files": {
-    "SKILL.md": "d80d2707d3a22828a92430d13a2cd060268dffc2a034b3e5328ed5fc60e51ec2",
+    "SKILL.md": "adb2996c1ffdf17962fc4ee2751e2b47510198988093efc9ec40de38ab6032f1",
     "customize.toml": "fca175b99ad4d5e45ea3b699486d0895ccab16179b84c9d044d1cf5325ea11b4",
     "references/ac-dimensions.md": "89d2579b8cb9a445617d0b1b4fe4d9f6a54ac1940f9d149030785f36149d3c09",
     "references/calibration-model.md": "e3fc8d9fc41285bca19257f0ac796856e025e9992ce6401a5c41437f55830f27",
@@ -12,6 +12,7 @@
     "scripts/plan-graph.py": "611816ddf4edff590e08f9f06eabdfaa7cdf192924731a114bfe75b3ddd577e9",
     "scripts/reorg-derive.py": "cd412e592ad051fcaf860dde0e8de5df1c2902f4979c8b401b1be2f8bbd19862",
     "scripts/reorg-validate.py": "345b96e16244601b3365fd73fb6b7a7d162789c6cb0aa97a2561164024ba4b60",
+    "steps/lanes/step-lanes.md": "1e9e2caed3fff2454b9aa0a0a1e1315f5892cd6a20053007a047bcef12e24156",
     "steps/plan/step-02-readiness-check.md": "dd28b9f0d8eb947f64e69fba2c0d3da91df03fd127e3e289571ab781c5d102b1",
     "steps/plan/step-03-story-elaboration.md": "31346cd096d0b6f38eb0b1c1d56e461965f5630e303b594e6225307ae7785d4b",
     "steps/plan/step-04-load-state.md": "82458b69ba91e38d4b5df46df12d9c8582621dba2fa6320850ce72ad5eb66004",

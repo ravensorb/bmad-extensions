@@ -116,7 +116,7 @@ comes from setup.
 
 ## Phase C — the hand-off
 
-### - [ ] Task 6: the per-lane view
+### - [x] Task 6: the per-lane view
 
 A **filter** over the plan snapshot (D7), not a new document.
 
@@ -148,7 +148,7 @@ proposal that created it.
 which plan it came from — the problem `estimates_as_of` exists to make visible. A rendered copy
 is never read back by any step.
 
-### - [ ] Task 7: the execution protocol, written down
+### - [x] Task 7: the execution protocol, written down
 
 - `.gitattributes` with `merge=union` for `state/events.jsonl` — append-only and line-oriented, so union is literally the right semantics. There is no `.gitattributes` in the repo today.
 - **`l3io-plan` owns the protocol step**, as `steps/lanes/step-lane-protocol.md`, loaded by the `lanes` mode. It is single-consumer: `l3io-plan` is where a partition is proposed and where the per-lane view is rendered, so the protocol belongs beside them rather than in `l3io-setup`, which answers *how many lanes* once and is not consulted again. Keeping it out of `_shared/` also keeps it out of three other skills' payload.

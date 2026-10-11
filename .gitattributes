@@ -1,0 +1,15 @@
+# The event log is append-only and line-oriented, so a union merge is literally its
+# semantics: two developers working different epics each append their own transitions, and
+# both sets are correct. Without this, every multi-developer merge conflicts on this file
+# alone — measured 2026-10-11 on two clones working two epics: the state tree merged clean
+# and this was the single conflict, which union reduced to none with all four events intact.
+#
+# It is the only state file that takes a merge driver. The others are deliberately left to
+# conflict: issues.yaml allocates per-epic so disjoint owners never collide semantically,
+# pm-calibration.yaml loses at worst a sample (degrading an estimate, never corrupting
+# state), and adr-register.yaml is a global allocator whose answer is `adr-reserve --count`
+# BEFORE the fork, not a merge strategy after it.
+#
+# Requires nothing of the user: `union` is built into git.
+_bmad-output/implementation-artifacts/state/events.jsonl merge=union
+**/state/events.jsonl                                   merge=union
