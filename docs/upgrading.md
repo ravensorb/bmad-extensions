@@ -109,6 +109,48 @@ nor `.notices.yaml` matches the directory itself.
 Find your starting version and read forward. `npx bmad-method install` upgrades across any
 number of these at once, but the migrations must still run.
 
+### → 3.4.0
+
+**If you uninstalled this extension on 3.2.5 through 3.3.1, it did not fully uninstall — and
+it told you it had.** `/l3io-doctor uninstall` derives what to remove from each skill's
+`payload-manifest.json`, treating anything absent as "not ours, not touched, not mentioned".
+The manifest's scope was derived from the *sync groups* rather than from what a skill ships, so
+it covered only files synced from `skills/_shared/` — 38% of the payload. Everything
+skill-local was invisible to it: every skill's own `SKILL.md` and `customize.toml`, all of
+`l3io-doctor`'s migration engine and its readers, `l3io-sync`'s three scripts, the reorg
+scripts, all four deprecated forwarder directories — **and `clean-payload.py` itself**, the
+script doing the uninstalling.
+
+**What to do if you uninstalled on one of those versions:** reinstall 3.4.0 and uninstall
+again. The reinstall restores the skill directories with manifests that now cover everything
+they ship, and the second uninstall removes the lot. Do **not** delete the leftovers by hand —
+a modified file is reported rather than removed, and that distinction is lost if you clear the
+directories yourself.
+
+Nothing is wrong with a project that simply **upgraded** through those versions. The defect is
+confined to removal.
+
+**`reorg-analyze.py` is now `plan-graph.py`, and it takes a mode argument.** If you scripted
+`reorg-analyze.py` directly — unlikely, it is invoked by step files — use
+`plan-graph.py analyze`. The new `plan-graph.py phases` computes the execution order that
+`/l3io-plan` previously worked out in prose.
+
+**Reorg optimises a different thing (ADR-0011).** Its objective was the `elapsed_hours`-weighted
+critical path; it is now the number of dependencies crossing an epic boundary. The reason is
+that a reorg moves stories between sprints and epics — it never edits `depends_on` and never
+makes work smaller, so **neither the chain nor the effort was reachable by any move it can
+make.** Expect proposals to read differently: "removes three serialisation points" rather than
+"saves eleven hours". The second was never something the tool could stand behind.
+
+**A reorg can now tell you when it has made an epic dependency unnecessary**, and give you the
+command to drop it (`set-depends-on --remove`, which did not exist before). This is what makes
+a reorg's parallelism gain actually arrive: removing the last story edge between two epics left
+the epic-level `depends_on` standing, and phases are built from that, so the two epics kept
+running in sequence.
+
+**What to do:** nothing required. The reorg report offers the command and says plainly that
+dropping the dependency is optional — it may be a sequencing decision no story edge expresses.
+
 ### → 3.3.0
 
 **The extension now offers to write a block into your project's own AI instruction file.**
