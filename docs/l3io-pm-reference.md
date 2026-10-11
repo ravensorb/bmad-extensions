@@ -113,8 +113,13 @@ Scalars override; arrays append. The root key is `[workflow]` for all four PM sk
 | `/l3io-plan estimate` | Estimate only, all scope |
 | `/l3io-plan estimate E{nnn}` | Estimate only, one epic |
 | `/l3io-plan estimate E{nnn}-S{nn}` | Estimate only, one sprint |
+| `/l3io-plan reorg` | Propose a better **shape** for a plan that is already legal: measure → target placement → validate → derive operations → apply. Writes planned work only, archives rather than deletes, and journals every reorg so "undo that reorg" works |
+| `/l3io-plan lanes` | Who owns what when several developers share one plan. Proposes a partition, shows a lane's view, carries the two-clone protocol. **Inert** unless `lane_count` > 1 |
 
-Story elaboration is skipped when the classified `work_type` is `DOCS` or `CONFIG`, and is a no-op when readiness is already green.
+Story elaboration is a no-op when readiness is already green. It is **not** gated by
+`work_type`: since ADR-0009 the only suppressing type is `DOCS`, and even there `work_type`
+selects the enricher's vocabulary rather than whether the step runs. (This line claimed
+`DOCS` **or** `CONFIG` until 3.4.1 — the same stale claim ADR-0009 corrected elsewhere.)
 
 ### Output
 
@@ -130,6 +135,60 @@ Full plan mode writes an **immutable, versioned snapshot** plus a stable pointer
 Each phase in the snapshot carries a roll-up estimate. For **parallel** phases wall-clock (`elapsed_hours`) is `max(epic.elapsed_hours)`; for **sequential** phases it is the sum. Man-hours, hitl-hours, tokens, and cost always sum.
 
 `arch_gate_summary.ran` is always `false` at plan time — the architecture gate runs in `l3io-execute`, not here.
+
+### Lanes — several developers, one plan
+
+Each developer works their **own clone**. That is the whole problem: every `flock` in
+`pm-status.py` guards one filesystem, and two clones share none, so between developers
+concurrency is mediated by `git merge` rather than by locks.
+
+| Fact | Where | Committed |
+|---|---|---|
+| How many lanes this project runs | `modules.l3io-pm.lane_count`, asked at setup | yes — team |
+| Which lane owns an epic | `lane:` on `epic.yaml` (1–999) | yes — state |
+| **Which lane you are** | `modules.l3io-pm.lane`, **user layer** | **no — gitignored** |
+
+**`1 epic = 1 lane`.** Sprints and stories inherit their lane from the directory they live in,
+so disjoint ownership means disjoint paths and git has nothing to reconcile in the state tree.
+Moving work between lanes means moving a story between epics — a reorg, which re-keys it.
+
+**A lane is a number because a word cannot be screened.** `backend` and `sarah` are the same
+shape, so any pattern permitting the first permits the second. Numbering makes "a lane is a
+slot, never a person" mechanical; `set-field` refuses anything else, and refuses `lane` on a
+sprint or story.
+
+**`lane_count` absent or `1` means lanes are off** — no prompt, no proposal, no finding. An
+absent module config section is a valid permanent state, so a single-developer project cannot
+tell the feature exists.
+
+Four state files are shared and merge differently: `events.jsonl` wants `merge=union` — literally
+its semantics, since it is append-only — but **the extension cannot ship a `.gitattributes`
+into your repository**, so `/l3io-plan lanes` offers to add the line instead; `pm-calibration.yaml`
+loses at worst a sample, degrading an estimate without corrupting state; `issues.yaml`
+allocates **per-epic**, so disjoint owners never collide semantically; and `adr-register.yaml`
+is a global allocator whose answer is `adr-reserve --count` **before** the fork rather than a
+merge strategy after it.
+
+**What lanes do not solve:** source-file collisions. The dependency graph proves two epics have
+no `depends_on` between them and says nothing about whether both rewrite the same module.
+Lanes partition work, not code.
+
+### The scripts `l3io-plan` ships
+
+Single-consumer, so they live in the skill rather than `skills/_shared/` (ADR-0001). Each reads
+`pm-status.py dump-plan` output on **stdin** and assembles no state paths of its own, which is
+what lets them live outside `pm-status.py` at all (check 26).
+
+| Script | Modes | Purpose |
+|---|---|---|
+| `plan-graph.py` | `analyze` | Measured findings over the plan graph — cycles, dangling and unbacked cross-epic dependencies, coupling, cross-lane edges, chain depth, sprint load |
+| | `phases` | The execution order: epics grouped into phases, `parallel` true when a phase holds more than one. This is what the snapshot carries and `l3io-execute` reads |
+| | `partition` | `--lanes N` — propose which lane owns which epic, reporting **both** cross-lane edges and per-lane idle phases |
+| `reorg-validate.py` | `--stage structure\|balance` | Judge a reorg target whole. `balance` additionally refuses any row that changes a story's epic, so a balancing pass cannot undo a structural one |
+| `reorg-derive.py` | — | Diff current against target to compute the ordered operation list. Nobody writes operations; they are derived |
+
+`plan-graph.py` takes **networkx**; `pm-status.py` deliberately takes no graph library, because
+its import costs ~616 ms against 92 call sites while `plan-graph.py` runs once per plan.
 
 ### Declaring dependencies
 

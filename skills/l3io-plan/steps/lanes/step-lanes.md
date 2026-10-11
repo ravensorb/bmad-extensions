@@ -113,10 +113,33 @@ two lanes working two epics produced **no conflict at all** in the state tree.
 
 | File | Behaviour |
 |---|---|
-| `state/events.jsonl` | Both lanes append. `merge=union` in `.gitattributes` is literally the right semantics — measured: 2 lines + 2 lines = 4, all identities preserved |
+| `state/events.jsonl` | Both lanes append. `merge=union` is literally the right semantics — measured: 2 lines + 2 lines = 4, all identities preserved. **This project needs the rule added; see below** |
 | `state/pm-calibration.yaml` | Order-independent samples. A lost one degrades estimates without corrupting state |
 | `state/issues.yaml` | `next:` is **per-epic**, so disjoint owners never collide semantically |
 | `state/adr-register.yaml` | A **global** allocator — the one real collision |
+
+### The one line this project must add
+
+**The extension does not ship a `.gitattributes` into your repository, and cannot** — that file
+belongs to your project, not to an installed skill. Without the rule, **every** multi-developer
+merge conflicts on `state/events.jsonl` alone, and the conflict looks alarming while being
+entirely mechanical.
+
+Check whether it is already there, and offer to add it if not:
+
+```bash
+grep -q 'events.jsonl' .gitattributes 2>/dev/null && echo present || echo missing
+```
+
+The line to add — `union` is built into git and needs nothing installed:
+
+```
+**/state/events.jsonl merge=union
+```
+
+Ask before writing it: it is the user's file. Then write it yourself rather than handing them
+the editing — once they have agreed, locating the file and appending a line is mechanical work
+there is no reason to give back. Append; never rewrite a `.gitattributes` that already exists.
 
 **Reserve ADR blocks before the fork**, which is why the allocator's inability to cross clones
 stops mattering — a reservation made before anyone diverges needs no lock:

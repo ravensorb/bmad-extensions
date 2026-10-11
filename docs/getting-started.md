@@ -166,10 +166,15 @@ activation via `_bmad/scripts/resolve_config.py` and uses sensible defaults when
 `modules.l3io-pm` is absent — which is the normal state for a fresh install, not a trigger for
 setup to run automatically.
 
-Key settings (with defaults) — the two `/l3io-setup` collects and writes:
+Key settings (with defaults) — what `/l3io-setup` collects and writes:
 
 - `implementation_artifacts` — default: `{output_folder}/implementation-artifacts`
 - `planning_artifacts` — default: `{output_folder}/planning-artifacts`
+- `lane_count` — default: `1`. How many developers will work this plan in parallel, each in
+  their own clone. `1` keeps lanes entirely off; see
+  [setting up for several developers](#optional-set-up-for-several-developers-at-once)
+- `lane` — which lane *you* are, asked only when more than one is configured. It is written to
+  the personal, gitignored layer and never to the committed one
 
 `output_folder` (default `{project-root}/_bmad-output`) is **not** one of them. It is a core
 setting (`core.output_folder`) that the BMad installer owns, and `/l3io-setup` deliberately
@@ -322,6 +327,64 @@ from a plan that no longer exists.
 
 Reorg writes state but never a plan snapshot, which is immutable once written. Run `/l3io-plan`
 afterwards for a snapshot that reflects the new shape.
+
+### Optional: set up for several developers at once
+
+Skip this if one person runs the plan. Lanes are off by default and stay completely inert —
+no prompt, no proposal, no extra field — until you ask for them.
+
+Everything else in this package relies on `flock` to keep concurrent agents from colliding, and
+a `flock` guards one filesystem. Two developers with their **own clones** share none, and state
+is committed to git, so between developers concurrency is mediated by `git merge` instead. Lanes
+are how the plan is partitioned so that merge has nothing to decide.
+
+Turn them on by running `/l3io-setup` and answering its question about how many developers will
+work this project. The answer is recorded as `lane_count` in the committed team config layer —
+`1` means single-developer, deliberately, and is behaviourally identical to never having been
+asked. Each developer then records *which* lane they are in their own gitignored
+`_bmad/custom/config.user.toml`, and nowhere else: a lane is a slot in a partition, never a
+person, which is why it is a number rather than a name and why no name reaches the repository.
+
+With `lane_count` above 1, `/l3io-plan lanes` proposes the partition:
+
+```
+/l3io-plan lanes
+```
+
+It groups the epics into that many lanes, then reports two numbers that are different
+objectives — the **cross-lane dependencies** it had to accept, which turn two parallel
+developers into a queue, and the **phases each lane is idle in**, because a partition can be
+perfect by connectivity and still leave one developer waiting for another to finish. If more
+lanes than the work supports costs crossings, the proposal says what fewer would have cost.
+It warns and never refuses; sometimes accepting the serialisation is the right call.
+
+On your agreement it writes each epic's lane for you — the skill runs
+`pm-status.py set-field --state-root S --epic E001 --field lane --value 2` per epic; do not edit
+the node files by hand. The rule is **one epic, one lane**: sprints and stories inherit the lane
+from the directory they live in, and `set-field` refuses `lane` on a sprint or story outright.
+Moving work between lanes therefore means moving a story between epics, which is a reorg and
+gets a reorg's full scrutiny. Re-run `/l3io-plan lanes` any time to see one lane's view of the
+current plan — a filter over the plan you have, never a second document that could go stale.
+
+Three things make a shared run safe, and the mode restates all of them:
+
+- **Commit and push everything before execution begins.** That does not remove the merge; it
+  bounds it to a known surface by making everyone fork from one commit.
+- **Add one line to `.gitattributes`** — `{implementation_artifacts}/state/events.jsonl
+  merge=union`. The event log is append-only, so union is literally the right semantics. This
+  was measured: two clones, two lanes, real work, then a merge — one `add/add` conflict on that
+  file without the line, **zero conflicts with it**, all four events preserved, and the epic
+  directories merged clean with nothing for git to reconcile.
+- **Reserve ADR numbers before the fork.** `state/adr-register.yaml` has a single global
+  allocator and is the one genuine collision; a block reserved by whoever assembles the
+  assignment, and committed in the push everyone starts from, needs no lock at all.
+
+What lanes do **not** solve is source-file collisions. The dependency graph proves two epics
+have no `depends_on` between them. It says nothing about whether both of them rewrite
+`auth/session.py`. Two lanes can be perfectly independent in the plan and still spend a week
+diverging on the same file — the failure that makes teams abandon parallel work, and the one
+invisible to every signal here. Partition the work with lanes; agree the file boundaries
+between yourselves.
 
 ## First Sprint Run
 

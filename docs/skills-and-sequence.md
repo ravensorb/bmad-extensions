@@ -12,7 +12,7 @@ execution engine, on your behalf, at points where their judgement is needed.
 |---|---|---|
 | `l3io-doctor` | "Is this project in a shape the other skills can read?" | **Run it first**, after every install and upgrade |
 | `l3io-arch-review` | "Is this design sound, and is the decision recorded?" | Directly at design time; otherwise **automatic** inside execution |
-| `l3io-plan` | "What order should this work run in, and how long will it take?" | Once per planning round; `reorg` when the plan is grouped badly |
+| `l3io-plan` | "What order should this work run in, and how long will it take?" | Once per planning round; `reorg` when the plan is grouped badly; `lanes` when several developers share the plan |
 | `l3io-execute` | "Actually do the work, and don't let it close sloppily" | The engine — most of your runs |
 | `l3io-sec-redteam` | "What would an adversary do with this?" | **Automatic** at closure; directly for ad-hoc reviews |
 | `l3io-help` | "What should I do next? Where is everything?" | Any time you are unsure. Read-only |
@@ -70,8 +70,32 @@ never adds or splits work, and never deletes: a retired epic is archived with it
 recorded, moved stories are re-keyed with the old key kept in `previous_keys`, and every reorg
 is journaled so "undo that reorg" works as a plain request rather than a keyword.
 
-Reach for it: whenever you have more than one epic, after adding work, and with `reorg` when the
-plan is ordered correctly but grouped badly.
+A plan can also be shared. `/l3io-plan lanes` partitions it across developers who each have
+their **own clone**, which is the case the rest of the package does not cover: every `flock` in
+`pm-status.py` guards one filesystem, and two clones share none, so between developers
+concurrency is mediated by `git merge` rather than by a lock. The invariant that makes that safe
+is **one epic, one lane** — sprints and stories inherit the lane from the directory they live
+in, each lane writes only its own `state/{status}/epic-{nnn}/`, and git merges disjoint paths
+with nothing to reconcile. Measured on two clones running real work for two lanes: zero
+conflicts, every event preserved, with one `.gitattributes` line putting `merge=union` on
+`state/events.jsonl`.
+
+The mode proposes which epics each lane owns and reports what that partition costs — cross-lane
+dependencies, which turn two parallel developers into a queue, and lanes left idle in a phase.
+It warns rather than refuses; sometimes accepting the serialisation is right. It also shows one
+lane's view of the plan as a filter over the current snapshot, never as a second document. A
+lane is a **number**, never a person: who works which lane lives in each developer's own
+gitignored config, so a name never reaches the repository. Moving work between lanes means
+moving a story between epics, which is a reorg with all of a reorg's scrutiny.
+
+What lanes do **not** solve is source-file collisions. The dependency graph proves two epics
+have no `depends_on` between them; it says nothing about whether both rewrite the same module.
+Two lanes can be perfectly independent in the plan and still spend a week diverging on one file.
+
+Reach for it: whenever you have more than one epic, after adding work, with `reorg` when the
+plan is ordered correctly but grouped badly, and with `lanes` when more than one developer will
+work this plan at once. Lanes stay entirely inert — no prompt, no proposal — unless `/l3io-setup`
+recorded a `lane_count` above 1.
 
 ### `l3io-execute` — the engine
 
@@ -196,6 +220,8 @@ authoritative. See [Upgrading](upgrading.md) for the ordered sequence and the ro
 ### Any time, independently
 
 - `/l3io-plan reorg` — propose a better shape for a plan that is legal but badly grouped
+- `/l3io-plan lanes` — partition the plan across developers with their own clones, or show one
+  lane's view (silent unless setup recorded `lane_count` above 1)
 - `/l3io-arch-review decision` — weigh a choice against the standards and record the ADR
 - `/l3io-sec-redteam` — an ad-hoc adversarial review
 - `/l3io-doctor triage` — close backlog items that are already fixed

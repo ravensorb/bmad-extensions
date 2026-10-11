@@ -109,6 +109,43 @@ nor `.notices.yaml` matches the directory itself.
 Find your starting version and read forward. `npx bmad-method install` upgrades across any
 number of these at once, but the migrations must still run.
 
+### → 3.4.1
+
+**Several developers can now work one plan concurrently, and nothing changes if you are one
+developer.** `lane_count` absent or `1` means lanes are off: no prompt, no proposal, no
+finding, no extra field. If you never ask for lanes you cannot tell the feature shipped.
+
+**What it is for.** Every lock in `pm-status.py` guards one filesystem, and two developers'
+clones share none — state is committed to git, so between them concurrency is mediated by
+`git merge`. Lanes make that safe by partitioning **whole epics**: each lane writes only its
+own `state/{status}/epic-{nnn}/` directory, so git has nothing to reconcile. Measured on two
+clones working two epics: the state tree merged with **zero conflicts**.
+
+**`/l3io-setup` now asks how many developers will work the plan in parallel.** Answer 1 and
+lanes stay out of your way. Answer more and it proposes which lane owns which epic, reporting
+both numbers that matter — how many dependencies still cross a lane boundary, **and** which
+lanes sit idle in which phases. Those are different problems: a split that is perfect by
+connectivity can still leave one developer waiting on another.
+
+**A lane is a number, never a name.** Who works a lane lives in your own gitignored config, so
+it never reaches the repository. The field is numeric because a word cannot be screened —
+`backend` and `sarah` are the same shape.
+
+**One new file: `.gitattributes`**, carrying a single rule. `state/events.jsonl` is append-only,
+so `merge=union` is literally its semantics; without it, every multi-developer merge conflicts
+on that file alone. If you already have a `.gitattributes`, the line is additive.
+
+**What to do:** nothing, unless you want lanes. Then run `/l3io-setup`, answer the lane count,
+and `/l3io-plan lanes`.
+
+**What lanes do not solve, stated because it is the thing that bites:** source-file collisions.
+The dependency graph proves two epics have no dependency between them and says **nothing** about
+whether both rewrite the same module. Lanes partition work, not code.
+
+Also in this release: `/l3io-plan reorg` and `plan-graph.py` reached
+`docs/l3io-pm-reference.md`, which had documented neither, and that file's claim that story
+elaboration is skipped for `CONFIG` is corrected — it has not been true since ADR-0009.
+
 ### → 3.4.0
 
 **If you uninstalled this extension on 3.2.5 through 3.3.1, it did not fully uninstall — and
