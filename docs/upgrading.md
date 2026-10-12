@@ -109,6 +109,35 @@ nor `.notices.yaml` matches the directory itself.
 Find your starting version and read forward. `npx bmad-method install` upgrades across any
 number of these at once, but the migrations must still run.
 
+### → Unreleased
+
+<!-- HEADING IS A PLACEHOLDER ON PURPOSE. The release number is derived from commit types at
+     tag time and is not knowable while work is still landing: one `feat` turns a patch into
+     a minor after this line is written. Rename this to the tag the release actually cuts. -->
+
+**`promote-issue` now refuses the same `--key` twice instead of silently collapsing it.**
+This can stop a call that worked before, so it leads this entry.
+
+```bash
+--key BL-E001-001 --key BL-E001-001   # was: promoted one item, no --title asked for
+                                      # now: exit 2, naming what the duplicate would skip
+--key BL-E001-001 --key BL-E001-002   # unchanged — still requires --title
+```
+
+**Why the duplicate mattered.** Promoting several items into one story requires `--title`,
+and that rule reads the key count **after** de-duplication. So a repeated key collapsed to
+one and skipped the check: the call asked for two items, produced one story titled from the
+first, and never prompted. A user who meant two items and mistyped the second as the first
+got a silently smaller result than they asked for.
+
+**`schedule-issue` is deliberately unchanged** and still de-duplicates. Nothing downstream of
+it reads the key count, so a repeat there changes nothing observable. The same code shape with
+a different consequence, and the comment at each site now says which and why — this is not an
+inconsistency to tidy up.
+
+**If you script `promote-issue`,** pass each key once. The refusal names the key and the
+check it would have skipped.
+
 ### → 3.4.4
 
 **A single-dependency `depends_on` written as a plain string silently dropped the dependency,

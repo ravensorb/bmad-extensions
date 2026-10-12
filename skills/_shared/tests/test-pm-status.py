@@ -7574,20 +7574,33 @@ class TestPromoteIssue(IssueBase):
         self.assertEqual(self.promote("BL-E001-001", "BL-E001-001x")[0], 2)   # bad key
         self.assertEqual(_tree_snapshot(self.d), before)
 
-    def test_one_key_given_twice_collapses_to_one_and_needs_no_title(self):
-        """CHARACTERISATION, not an endorsement. `--key X --key X` is deduped by
-        `if k not in keys`, so it promotes as a single key and never trips the
-        several-keys-need-a-title rule. That is what the code does; whether a repeated key
-        should instead be refused as the scripting typo it probably is has not been decided.
-        Asserted here so that if the answer becomes "refuse", this test fails and the change
-        is visible rather than silent."""
+    def test_one_key_given_twice_is_refused_naming_what_it_would_have_skipped(self):
+        """Replaces a characterisation test that pinned the previous behaviour (collapse to
+        one, no --title demanded). That test failed the moment this changed, which is what it
+        was for -- a user-facing contract moved loudly instead of silently.
+
+        The message must name `--title`, because the cost of the duplicate is not the
+        duplicate: it is the check the duplicate skips. The caller is usually an agent
+        assembling this list from prose, so the message is read by something that can act
+        on it."""
         self.append("A")
-        code, out, err = self.promote("BL-E001-001", "BL-E001-001")
+        before = _tree_snapshot(self.d)
+        code, _out, err = self.promote("BL-E001-001", "BL-E001-001")
+        self.assertEqual(code, 2, err)
+        self.assertIn("given twice", err)
+        self.assertIn("--title", err, "the message must say what the duplicate would skip")
+        self.assertEqual(_tree_snapshot(self.d), before, "a refusal writes nothing")
+
+    def test_two_distinct_keys_with_a_title_still_promote(self):
+        """The refusal must not catch the case it exists to protect: two real items folded
+        into one story, with the --title that makes it deliberate."""
+        self.append("A")
+        self.append("B")
+        k1, k2 = self.open_keys()[0], self.open_keys()[1]
+        code, out, err = self.promote(k1, k2, extra=("--title", "Both of them"))
         self.assertEqual(code, 0, err)
         self.assertIn("E001-S02-001", out)
-        self.assertEqual(list(self.story()["resolves"]), ["BL-E001-001"],
-                         "deduped before the story is written, not after")
-        self.assertEqual(len(self.load_open()["backlog"]), 1)
+        self.assertEqual(sorted(str(x) for x in self.story()["resolves"]), sorted([k1, k2]))
 
     def test_a_refusal_the_advisory_pass_catches_never_takes_the_epic_lock(self):
         """promote resolves its items TWICE — once before the epic lock as an advisory

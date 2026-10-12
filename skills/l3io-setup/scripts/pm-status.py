@@ -178,7 +178,10 @@ Subcommands
                 --sprint S  --classification {simple,standard,complex}  [--title T]
                 [--model M] [--token-rates JSON] [--session-id ID] [--cause C]
                 (creates an estimated story whose `resolves:` lists the items, writes its
-                document, rolls up sprint and epic, then marks the items scheduled; every
+                document, rolls up sprint and epic, then marks the items scheduled; a key
+                given TWICE is refused (exit 2) rather than deduped, because --title is
+                required on len(keys) > 1 and collapsing a repeat would skip it --
+                schedule-issue still dedups, since nothing there reads the count; every
                 refusal is checked before the first write; a retry after an interrupted
                 run resumes the existing story -- only with the same --epic/--sprint (a
                 claimant elsewhere exits 2 naming them), and a dead claim (a story under
@@ -7183,8 +7186,21 @@ def _promote_issue(args) -> int:
         k = canonical_bl_key(raw)
         if k is None:
             raise PMError(2, f"--key {raw!r} is not a backlog key")
-        if k not in keys:
-            keys.append(k)
+        # REFUSED, not deduped. The --title rule below reads len(keys), so collapsing a
+        # repeat would disarm the one guard that makes a multi-item promotion deliberate:
+        # the call asks for two items, yields one, and is never prompted for the title two
+        # distinct keys would demand. The caller here is usually an agent assembling this
+        # list from a user's prose (steps/plan/step-backlog-intake.md §3), which is exactly
+        # the caller that can name one item twice.
+        #
+        # schedule-issue keeps the dedup on purpose: nothing downstream of it reads the key
+        # count, so a repeat there changes nothing observable. Same shape, different
+        # decision, because the consequence differs -- not an inconsistency to tidy up.
+        if k in keys:
+            raise PMError(2, f"--key {k} was given twice. Promoting several items into one "
+                             f"story needs --title, and a repeated key would skip that "
+                             f"check by collapsing to one. Pass each key once.")
+        keys.append(k)
     if len(keys) > 1 and not args.title:
         raise PMError(2, "promoting several items into one story needs --title")
     model = args.model or DEFAULT_ESTIMATE_MODEL
