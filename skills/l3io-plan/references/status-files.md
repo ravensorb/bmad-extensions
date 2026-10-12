@@ -695,3 +695,11 @@ must be `status: done` before this story starts. Lives in that story's own file.
 
 `l3io-plan` validates all referenced keys exist and detects cycles before writing the
 plan.
+
+**`depends_on` must always be a YAML list, even for a single dependency** — `['E001']`, never
+`'E001'`. A scalar is refused (exit 2, naming the file) by `pm-status.py` and by
+`plan-graph.py`; it is not coerced, because a bare string could equally have been meant as
+one key or as several. The refusal exists because a string *iterates character by character*:
+a scalar `'E001'` is read as the four keys `E`, `0`, `0`, `1`, none of which match an epic, so
+the dependency is dropped entirely and the epic reads as having none — the planner then marks
+its phase `parallel: true` and the two epics run concurrently in one working tree.

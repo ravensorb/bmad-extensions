@@ -2,11 +2,10 @@
 // Run: npm run test:scripts
 //
 // Each test runs the REAL checker (via CHECK_TYPES_ROOT) against a fixture holding a COPY of
-// the real pm-status.py, mutated. Copying the real file rather than writing a toy one is the
-// point: the defect this gate exists for was invisible on a minimal repro — an annotated
-// property DOES flag the bad call in five lines of Python, and does NOT in pm-status.py,
-// because that file imports ruamel lazily and the annotation degrades to `Any`. A fixture
-// that does not reproduce the lazy import would pass while the real gate was blind.
+// the real pm-status.py, mutated. Copying the real file rather than writing a toy one is
+// load-bearing: an annotated property DOES flag the bad call in five lines of Python and does
+// NOT in pm-status.py, because that file imports ruamel lazily and the annotation degrades to
+// `Any`. A fixture without the lazy import would pass while the real gate was blind.
 //
 // These spawn mypy through uv and so are slower than the rest of the suite. That is the cost
 // of testing the gate rather than a model of it.
@@ -49,7 +48,7 @@ test("the real file passes", (t) => {
   assert.match(r.stdout, /Type checks passed/);
 });
 
-test("a @property read as a method fails — the 3.4.2 reparent-story crash", (t) => {
+test("a @property read as a method fails", (t) => {
   const root = fixture(t, (s) => {
     const n = s.replaceAll(ACCESSOR_LOOP, "for lst in (store.backlog(), store.resolved()):");
     assert.notEqual(n, s, "the accessor loop moved; update ACCESSOR_LOOP");
@@ -58,12 +57,12 @@ test("a @property read as a method fails — the 3.4.2 reparent-story crash", (t
   const r = run(root);
   assert.equal(r.status, 1);
   assert.match(r.stderr, /"CommentedSeq" not callable/);
-  assert.match(r.stderr, /reparent-story crash/);
+  assert.match(r.stderr, /runtime TypeError/);
 });
 
 test("BOTH accessor call sites are reported, not just the first", (t) => {
   // A checker that sees one of two is one you will trust past the one it cannot see. The
-  // second site is _rewrite_references, added by the 3.4.3 fix; the first is _normalize_keys.
+  // two sites are _normalize_keys and _rewrite_references.
   const root = fixture(t, (s) =>
     s.replaceAll(ACCESSOR_LOOP, "for lst in (store.backlog(), store.resolved()):"));
   const r = run(root);
@@ -72,10 +71,8 @@ test("BOTH accessor call sites are reported, not just the first", (t) => {
 
 test("deleting the TYPE_CHECKING import fails instead of going quietly blind", (t) => {
   // THE LOAD-BEARING TEST. Without that import the annotations resolve to `Any`, calling
-  // `Any` is permitted, and this gate reports success over the very bug it exists for —
-  // measured: 0 findings. A no-op that still prints a pass is the most dangerous shape a
-  // check can have, and this repo has shipped it twice (a manifest covering 38% of the
-  // payload; a bmb scan passing because ruff could not spawn).
+  // `Any` is permitted, and this gate reports success over the very bug it exists for. A
+  // no-op that still prints a pass is the most dangerous shape a check can have.
   const root = fixture(t, (s) => {
     assert.ok(s.includes(TC_IMPORT), "the TYPE_CHECKING import moved; update TC_IMPORT");
     return s.replace(TC_IMPORT, "");
@@ -101,8 +98,8 @@ test("the inert-annotation state does NOT report the bug — why the second clas
 
 test("the file's other 65 findings are NOT gated", (t) => {
   // Scope is the whole design: gating on a clean file would mean a large unrelated cleanup
-  // first, and until it landed there would be no gate at all. If this starts failing, someone
-  // widened the gate — decide that deliberately rather than discovering it in CI.
+  // first, and until it landed there would be no gate at all. If this starts failing, the
+  // gate was widened — decide that deliberately rather than discovering it in CI.
   const r = run(fixture(t), ["-v"]);
   assert.equal(r.status, 0, r.stderr);
   assert.match(r.stdout, /ungated finding\(s\) not checked/);
@@ -110,8 +107,8 @@ test("the file's other 65 findings are NOT gated", (t) => {
 });
 
 test("a pre-existing [operator] finding is not enough to fail — the cut is the message", (t) => {
-  // The obvious narrow cut, "fail on any [operator] finding", would fail on an unmodified
-  // file: it carries 4 of them (`Unsupported operand types for + ("object" and "int")`).
+  // The obvious narrow cut, "fail on any [operator] finding", fails on an unmodified file:
+  // it carries 4 of them (`Unsupported operand types for + ("object" and "int")`).
   const r = run(fixture(t), ["-v"]);
   assert.equal(r.status, 0);
   assert.match(r.stdout, /operator=\d+/, "the ungated tally should still show operator findings");

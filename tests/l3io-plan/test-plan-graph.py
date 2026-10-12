@@ -441,6 +441,29 @@ class TestCli(unittest.TestCase):
         self.assertEqual(code, 0)
         self.assertIn("findings", json.loads(out))
 
+    def test_a_non_list_depends_on_is_refused_rather_than_read_as_characters(self):
+        """A string iterates character by character, so `if d in epics` drops every one and
+        the epic reads as independent. dump-plan refuses this at source; this guard covers a
+        plan assembled any other way, because stdin is where the parallel decision is fed."""
+        bad = {"planned": [{"key": "E003", "depends_on": "E001", "sprints": []}]}
+        code, out, err = self._run(json.dumps(bad))
+        self.assertEqual(code, 2)
+        self.assertEqual(out, "")
+        self.assertIn("not a list", err)
+        self.assertIn("E003", err)
+
+    def test_a_non_list_depends_on_on_a_STORY_is_refused_too(self):
+        bad = {"planned": [{"key": "E003", "depends_on": [], "sprints": [
+            {"key": "S01", "stories": [{"key": "E003-S01-001",
+                                        "depends_on": "E001-S01-001"}]}]}]}
+        code, _o, err = self._run(json.dumps(bad))
+        self.assertEqual(code, 2)
+        self.assertIn("E003-S01-001", err)
+
+    def test_an_absent_depends_on_is_fine(self):
+        ok = {"planned": [{"key": "E003", "sprints": []}]}
+        self.assertEqual(self._run(json.dumps(ok))[0], 0)
+
 
 class TestPhases(unittest.TestCase):
     """The execution order, which used to be an agent running Kahn's algorithm from prose.

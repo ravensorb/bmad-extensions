@@ -334,18 +334,15 @@ import tempfile
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING
 
-# TYPE-CHECKING ONLY, and load-bearing. Every other ruamel import in this file is lazy --
-# inside the function that uses it -- so the `except ModuleNotFoundError` guard below can
-# print a readable message instead of a traceback. That leaves `CommentedSeq` out of scope
-# at module level, and an annotation naming a type mypy cannot resolve degrades to `Any`:
-# `reveal_type(store.backlog)` prints `Any`, calling `Any` is permitted, and IssueStore's
-# accessors type-check nothing at all. That is not hypothetical -- `store.backlog()` on a
-# @property shipped a crash in 3.4.2, and an annotation without this import does NOT catch
-# it (measured: 0 findings with the lazy import, 2 with this one).
+# Type-checking only, and load-bearing. Every other ruamel import here is lazy -- inside
+# the function that uses it -- so the `except ModuleNotFoundError` guard below can print a
+# readable message instead of a traceback. That leaves `CommentedSeq` out of scope at module
+# level, and an annotation naming a type mypy cannot resolve degrades silently to `Any`:
+# calling `Any` is permitted, so IssueStore's accessors would type-check nothing.
 #
 # TYPE_CHECKING is False at runtime, so nothing is imported and the guard below is
-# untouched. `check:types` fails on [name-defined], which is exactly what removing this
-# import looks like -- the gate protects the mechanism that makes the gate work.
+# untouched. `check:types` fails on [name-defined], which is what removing this import
+# looks like, so the gate cannot go blind without failing.
 if TYPE_CHECKING:
     from ruamel.yaml.comments import CommentedSeq
 
@@ -4913,7 +4910,7 @@ def cmd_set_depends_on(args) -> int:
         if _p:
             _, _n = load_node(_p)
             if isinstance(_n, dict):
-                _cur = [str(e) for e in (_n.get("depends_on") or [])]
+                _cur = [str(e) for e in deps_list(_n, _p)]
         present = [k for k in drops if str(k) in _cur]
         blocked = _justifying_story_edges(args.state_root, self_key, present) if present else []
         if blocked:
@@ -4971,7 +4968,7 @@ def _justifying_story_edges(state_root: str, epic_key: str, targets: list) -> li
         _, node = load_node(path)
         if not isinstance(node, dict):
             continue
-        for dep in (node.get("depends_on") or []):
+        for dep in deps_list(node, path):
             try:
                 dep_epic, _sp, _n = parse_story_key(str(dep))
             except ValueError:
@@ -6329,9 +6326,9 @@ class IssueStore:
                                  f"a list that cannot say what is recorded cannot be trusted "
                                  f"to receive more. Fix or restore it by hand, then retry.")
 
-    # Annotated so `store.backlog()` -- reading a @property as a method -- is a type error
-    # rather than a runtime TypeError discovered by a user. See the TYPE_CHECKING import at
-    # the top of this file: without it these annotations resolve to `Any` and check nothing.
+    # Annotated so reading these as methods -- `store.backlog()` -- is a type error rather
+    # than a runtime TypeError. The annotations only bind because of the TYPE_CHECKING
+    # import at the top of this file; without it they resolve to `Any` and check nothing.
     @property
     def backlog(self) -> CommentedSeq:
         return self.open["backlog"]
@@ -6645,12 +6642,11 @@ def _append_issue(args) -> int:
 _STORY_KEY_RE = re.compile(r"^E\d{3}-S\d{2}-\d{3}$")
 _SHA_RE = re.compile(r"^[0-9a-f]{7,40}$")
 
-# The backlog fields that hold a STORY key, and so go stale when a story is re-keyed:
-# `story` (an open item's scheduling target, copied through to its resolved entry) and
-# `ref` (what resolved it). `ref` is overloaded -- for a spec-change/spec-proposal item it
-# is a commit SHA or a proposal path -- so every reader here must match _STORY_KEY_RE first
-# and never treat a non-key ref as a broken pointer. Ordered: `story` is the field whose
-# loss costs the most, so it is named first in messages.
+# The backlog fields holding a STORY key, and so the fields a re-key invalidates: `story`
+# (an open item's scheduling target, copied through to its resolved entry) and `ref` (what
+# resolved it). `ref` is overloaded -- on a spec-change/spec-proposal item it is a commit
+# SHA or a proposal path -- so every reader must match _STORY_KEY_RE before treating a
+# value as a story pointer. `story` is named first in messages: its loss costs more.
 STORY_REF_FIELDS = ("story", "ref")
 
 
@@ -6912,6 +6908,30 @@ def _yaml_error_reason(e) -> str:
     if mark is None:
         return problem
     return f"{problem} (line {mark.line + 1}, column {mark.column + 1})"
+
+
+def deps_list(node, path) -> list:
+    """A node's `depends_on` as a list, refusing (PMError 2) anything else.
+
+    A scalar is not a near-miss, it is an erasure: `depends_on: 'E001'` iterates as
+    CHARACTERS, so consumers see `["E", "0", "0", "1"]` and plan-graph's `if d in epics`
+    filter drops every one. The epic then reads as having NO dependencies, its phase is
+    marked `parallel: true`, and two epics declared sequential are dispatched concurrently
+    into one working tree. Phantom dependencies would fail on the first lookup; an empty
+    list is indistinguishable from a correct independent epic, so this must refuse.
+
+    Refusing, not coercing: a scalar may have been meant as a one-element list or as a
+    string of keys, and promoting it picks one without evidence.
+    """
+    dep = node.get("depends_on")
+    if dep is None or isinstance(dep, list):
+        return list(dep or [])
+    shown = repr(dep)
+    hint = f"[{dep!r}]" if isinstance(dep, str) else "[...]"
+    raise PMError(2, f"{path}: depends_on is {type(dep).__name__} ({shown}), not a list -- "
+                     f"write it as {hint}. A non-list is read character by character by "
+                     f"every consumer, which silently DROPS the dependency and lets the "
+                     f"planner run these epics concurrently; fix the file by hand")
 
 
 def _walk_story_nodes(state_root):
@@ -7341,12 +7361,11 @@ def _stale_story_refs(item, stories, moved) -> list:
     when exactly one records it, and None when more than one does (ambiguous: reported,
     never guessed at).
 
-    WHY A DANGLING KEY NOTHING RECORDS IS NOT REPORTED HERE. That is the ordinary shape of
-    a story whose directory was removed or whose epic was retired, it is not damage any
-    verb here can repair, and the one case that IS actionable -- an open item scheduled to
-    a story that no longer exists -- is finding 1b, whose `unschedule` repair is correct
-    precisely because there is no key to point at instead. Reporting it as 1l as well put a
-    second, repairless finding on every such item.
+    A dangling key that NO story records is deliberately not reported here: that is the
+    ordinary shape of a story whose directory was removed or whose epic was retired, no
+    verb here can repair it, and the one actionable case -- an open item scheduled to a
+    story that no longer exists -- is finding 1b, whose `unschedule` repair is correct
+    precisely because there is no key to point at instead.
 
     A field is only considered when its value PARSES as a story key: `ref` also carries a
     commit SHA or a proposal path for a spec-change item, and neither is a broken pointer.
@@ -7424,12 +7443,11 @@ def _audit_findings(state_root, store) -> list:
             add("1a", k, "present in both issue files",
                 "resolve-issue rerun -- it clears the open copy")
 
-    # 1l -- a story-key field left pointing at a key that a re-key moved. Computed BEFORE
-    # the loops below because 1b defers to it: a scheduled item whose story was re-keyed
-    # must be REPOINTED, and emitting 1b as well would hand triage a second repair
-    # (`unschedule`) that throws the scheduling away instead of restoring it. A dangling
-    # key no story records is not 1l at all (see `_stale_story_refs`), so 1b still owns
-    # every case where unschedule is the right answer.
+    # 1l -- a story-key field pointing at a key a re-key moved. Computed before the loops
+    # below because 1b defers to it: a scheduled item with a repointable heir must be
+    # repointed, and 1b's `unschedule` would discard the scheduling instead. A dangling key
+    # no story records is not 1l at all (see `_stale_story_refs`), so 1b still owns every
+    # case where unschedule is the right answer.
     stale = {}
     for by, fname in ((open_by, ISSUES_FILENAME), (res_by, RESOLVED_FILENAME)):
         for k, its in by.items():
@@ -8174,8 +8192,8 @@ def _doc_slug(path: str, story_key: str) -> str:
     return stem[len(story_key):] if stem.startswith(story_key) else ""
 
 
-def _rewrite_references(state_root: str, old_key: str, new_key: str) -> int:
-    """Repoint every reference to `old_key` at `new_key`. Returns how many it changed.
+def _rewrite_references(state_root: str, old_key: str, new_key: str) -> None:
+    """Repoint every reference to `old_key` at `new_key`.
 
     A re-key invalidates references the moving node does not own, and they are the half of
     this operation most likely to rot silently: a `depends_on` naming a key that no longer
@@ -8183,44 +8201,30 @@ def _rewrite_references(state_root: str, old_key: str, new_key: str) -> int:
     a vanished story reads as an unlinked promotion in `audit-issues` rather than as damage
     this operation did.
 
-    Two kinds, both rewritten here: `depends_on` lists on any story or epic node, and the
-    two story-key fields on backlog items -- `ref` (what fixed it) and `story` (what it is
-    scheduled to) -- in BOTH issue files. `story` was missed until 3.4.3: the moved story
-    kept the item in its `resolves:` under its new key while the item still pointed at the
-    old one, so every reparent of a SCHEDULED story manufactured audit finding 1b, whose
-    only repair -- `unschedule` -- throws the scheduling away rather than restoring it.
-    A resolved entry carries `story` too (`resolve_issue_core` copies every field of the
-    open item), so both files need both fields.
+    Two kinds: `depends_on` lists on story nodes, and the two story-key fields on backlog
+    items -- `ref` (what fixed it) and `story` (what it is scheduled to) -- in BOTH issue
+    files. Both fields in both files, because a resolved entry carries `story` as well
+    (`resolve_issue_core` copies every field of the open item), and a `story` left on the
+    old key reads as audit finding 1b, whose repair discards the scheduling rather than
+    restoring it.
     """
-    changed = 0
     for _k, _sdir, node, path in _walk_story_nodes(state_root):
-        dep = node.get("depends_on")
-        if isinstance(dep, list) and old_key in dep:
-            for i, v in enumerate(dep):
-                if v == old_key:
-                    dep[i] = new_key
+        # deps_list, not an isinstance guard: a guard would skip a malformed `depends_on`
+        # silently, leaving the stale key behind. reparent_story pre-flights the same check
+        # before its first write, so this cannot raise mid-move.
+        if old_key in deps_list(node, path):
             y, n = load_node(path)
-            if isinstance(n, dict) and isinstance(n.get("depends_on"), list):
-                n["depends_on"] = [new_key if v == old_key else v for v in n["depends_on"]]
-                save_node(y, n, path)
-                changed += 1
+            n["depends_on"] = [new_key if v == old_key else v for v in deps_list(n, path)]
+            save_node(y, n, path)
 
-    # EITHER file, not just the open one: a project whose every issue is closed still has a
-    # resolved `ref` to repoint, and gating on issues.yaml alone would skip it silently --
-    # the same precondition-guarded shape that hid the 3.4.2 crash from eleven tests.
-    # cmd_audit_issues takes no lock when neither exists because it is read-only; this is a
-    # write path, so creating the lock file is correct.
+    # Either file, not just the open one: a project whose every issue is closed still has
+    # resolved refs to repoint. cmd_audit_issues takes no lock when neither exists because
+    # it is read-only; this is a write path, so creating the lock file is correct.
     open_path, res_path = issues_paths(state_root)
     if os.path.exists(open_path) or os.path.exists(res_path):
         with issues_lock(open_path):
             store = IssueStore(open_path)
             hit = False
-            # PROPERTIES, not methods. `store.backlog()` raised
-            # `TypeError: 'CommentedSeq' object is not callable` and left the move
-            # half-applied -- the node had already been renamed and its key rewritten, so
-            # the tree kept a story at its new key with every reference still naming the
-            # old one. Every other call site in this file reads them correctly; this was
-            # the only one, and no test reached it because none created an issues.yaml.
             for lst in (store.backlog, store.resolved):
                 for item in lst:
                     if not isinstance(item, dict):
@@ -8232,8 +8236,6 @@ def _rewrite_references(state_root: str, old_key: str, new_key: str) -> int:
             if hit:
                 store.save_open()
                 store.save_resolved()
-                changed += 1
-    return changed
 
 
 def _raise_sprint_high_water(state_root: str, epic_key: str, sprint_key: str,
@@ -8360,6 +8362,12 @@ def reparent_story(state_root: str, artifacts_root: str, story_key: str,
             if os.path.exists(dest_doc):
                 raise PMError(2, f"destination document already exists: {dest_doc}")
 
+        # Every node `_rewrite_references` will read, validated before the first move: it
+        # runs after the node and document have been renamed, so a refusal raised there
+        # would leave the move half-applied.
+        for _k, _sd, _n, _p in _walk_story_nodes(state_root):
+            deps_list(_n, _p)
+
         # --- WRITE ------------------------------------------------------------------
         _git_or_plain_move(src_node, dest_node, state_root)
         if src_doc is not None:
@@ -8471,14 +8479,14 @@ def dump_plan(state_root: str) -> dict:
             out[bucket].append({
                 "key": epic_key,
                 "status": str(enode.get("status") or ""),
-                "depends_on": [str(v) for v in (enode.get("depends_on") or [])],
+                "depends_on": [str(v) for v in deps_list(enode, epath)],
             })
             continue
 
         epic = {
             "key": epic_key,
             "status": str(enode.get("status") or ""),
-            "depends_on": [str(v) for v in (enode.get("depends_on") or [])],
+            "depends_on": [str(v) for v in deps_list(enode, epath)],
             # Absent when lanes are not in use, which is the normal single-developer state.
             # Consumers cannot read state directly (check 26), so this is the only way the
             # partition reaches plan-graph.py.
@@ -8502,14 +8510,17 @@ def dump_plan(state_root: str) -> dict:
             for fname in sorted(os.listdir(sdir)):
                 if fname == "sprint.yaml" or not fname.endswith(".yaml"):
                     continue
-                _, st = load_node(os.path.join(sdir, fname))
+                stpath = os.path.join(sdir, fname)
+                _, st = load_node(stpath)
                 if not isinstance(st, dict):
                     continue
                 sprint["stories"].append({
                     "key": str(st.get("key") or ""),
                     "status": str(st.get("status") or ""),
                     "classification": str(st.get("classification") or ""),
-                    "depends_on": [str(v) for v in (st.get("depends_on") or [])],
+                    # stpath, not spath: a refusal must name the file that holds the defect,
+                    # and the sprint.yaml beside it is not where anyone would look.
+                    "depends_on": [str(v) for v in deps_list(st, stpath)],
                     # The whole chain, oldest first. `l3io-sync` reads this to tell a
                     # RE-KEYED story from a DELETED one: without it a reorg produces a
                     # `missing_local` for the old key AND an `unmapped_local` for the new,
@@ -8541,9 +8552,15 @@ def cmd_dump_plan(args) -> int:
     # thing lost is readability for a person running it by hand, which `--pretty` restores.
     pretty = bool(getattr(args, "pretty", False))
     sep = None if pretty else (",", ":")
-    sys.stdout.write(json.dumps(dump_plan(args.state_root),
-                                indent=2 if pretty else None, separators=sep) + "\n")
-    return 0
+
+    # Through _run_core: dump_plan refuses a malformed `depends_on` (deps_list). Every
+    # consumer is a script reading stdout, so a refusal has to be exit 2 with stdout empty
+    # -- parseable -- rather than a traceback.
+    def run():
+        sys.stdout.write(json.dumps(dump_plan(args.state_root),
+                                    indent=2 if pretty else None, separators=sep) + "\n")
+        return 0
+    return _run_core(run)
 
 
 def retire_epic(state_root: str, epic_key: str, reason: str) -> str:
@@ -8592,17 +8609,20 @@ def cmd_retire_epic(args) -> int:
 
 
 def cmd_reparent_story(args) -> int:
-    try:
-        new_key = reparent_story(args.state_root, args.artifacts_root, args.story,
-                                 args.to_epic, args.to_sprint)
-    except PMError:
-        raise
-    except FileNotFoundError as e:
-        _die_notfound(str(e))
-    except (ValueError, FileExistsError) as e:
-        _die_usage(str(e))
-    sys.stdout.write(f"OK reparent-story {args.story} -> {new_key}\n")
-    return 0
+    # Through _run_core, like every other verb: main() has no PMError handler, so a
+    # re-raise here would reach the caller as a traceback and exit 1 rather than one stderr
+    # line and exit 2. This verb's refusals are usage errors and must read as such.
+    def run():
+        try:
+            new_key = reparent_story(args.state_root, args.artifacts_root, args.story,
+                                     args.to_epic, args.to_sprint)
+        except FileNotFoundError as e:
+            _die_notfound(str(e))
+        except (ValueError, FileExistsError) as e:
+            _die_usage(str(e))
+        sys.stdout.write(f"OK reparent-story {args.story} -> {new_key}\n")
+        return 0
+    return _run_core(run)
 
 
 # --------------------------------------------------------------------------------------

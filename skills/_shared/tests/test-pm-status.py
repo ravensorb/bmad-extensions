@@ -8846,8 +8846,8 @@ class TestAuditIssues(IssueBase):
         os.rename(p, os.path.join(os.path.dirname(p), f"{new}.yaml"))
 
     def test_1l_a_scheduled_item_left_on_a_re_keyed_story(self):
-        """The residue of the 3.4.2 crash, and of every pre-3.4.3 reparent of a SCHEDULED
-        story: the item still names the old key, which no story carries any more."""
+        """A scheduled item left naming a key no story carries any more, where exactly one
+        story records that key in previous_keys."""
         self.append("A")
         self.promote()
         self.rekey_story("E001-S02-001", "E001-S02-009")
@@ -9019,9 +9019,9 @@ class TestRepairIssue(TestAuditIssues):
         self.assertEqual(self.events("issue_status_normalized"), [])
 
     def test_repoint_restores_a_scheduling_a_re_key_orphaned(self):
-        """The recovery the 3.4.2 note said did not exist. `update-issue` changes only
-        severity, `link` is gated on 1d (which does not hold -- the item is already
-        scheduled), and `unschedule` loses the link rather than repairing it."""
+        """Repoint is the only verb that restores this: `update-issue` changes severity
+        only, `link` is gated on 1d (which does not hold -- the item is already scheduled),
+        and `unschedule` drops the link rather than repairing it."""
         self.append("A")
         self.promote()
         self.rekey_story("E001-S02-001", "E001-S02-009")
@@ -12500,8 +12500,7 @@ class TestReparentStory(unittest.TestCase):
         """The `if not isinstance(item, dict): continue` arm. A hand-edited or
         externally-round-tripped issues file can hold a bare scalar in that list, and a
         re-key must step over it rather than raise — this function runs mid-move, so a raise
-        here leaves the story moved and its references half-rewritten, which is precisely the
-        failure mode of the 3.4.2 crash."""
+        here leaves the story moved and its references half-rewritten."""
         self._story("E001-S01-001")
         pm.main(["append-issue", "--state-root", self.sr, "--epic", "E001", "--sprint",
                  "S01", "--severity", "Low", "--source", "code-review", "--title", "t",
@@ -12536,24 +12535,11 @@ class TestReparentStory(unittest.TestCase):
                          "reconciliation for anything mapped before the first move")
 
     def test_a_backlog_ref_to_the_moved_story_is_repointed(self):
-        """THE REGRESSION. Reported from a live project, 2026-10-11.
+        """A backlog `ref` naming the moved story is repointed.
 
-        `_rewrite_references` called `store.backlog()` and `store.resolved()` as methods
-        where both are `@property`, so every reparent-story against a state root with an
-        issues file raised `TypeError: 'CommentedSeq' object is not callable`. Fifteen other
-        call sites in the same file read them correctly; this was the only one.
-
-        The failure was worse than a crash because it landed MID-WRITE: the node had already
-        been renamed, its key rewritten, `previous_keys` appended and the document moved, so
-        the tree kept a story at its new key with every backlog reference still naming the
-        old one — and the command exited 1 without printing the `OK <old> -> <new>` line the
-        reorg apply loop reads the new key from. No journal entry was recorded, so the undo
-        could not reverse the moves that had landed.
-
-        WHY ELEVEN TESTS PASSED OVER IT: `_rewrite_references` guards the whole block with
-        `if os.path.exists(issues.yaml)`, and not one fixture here created one. The crash was
-        unreachable from this suite by construction, which is exactly the shape of gap a
-        precondition-guarded branch produces.
+        The reference half of the move is what rots silently: this runs after the node and
+        document have been renamed, so anything it fails to rewrite leaves the tree holding
+        a story at its new key with a reference still naming the old one.
         """
         self._story("E001-S01-001")
         code, out = pm.main(["append-issue", "--state-root", self.sr, "--epic", "E001",
@@ -12600,12 +12586,11 @@ class TestReparentStory(unittest.TestCase):
         self.assertIn("OK reparent-story E001-S01-001 -> E003-S02-001", buf.getvalue())
 
     def test_a_scheduled_items_story_field_is_repointed(self):
-        """The third stale field, missed until 3.4.3 and live in every version before it —
-        unlike the `ref` bug, this one never crashed. The moved story keeps the item in its
-        `resolves:` under the NEW key while the item still points at the old one, so every
-        reparent of a scheduled story manufactured audit finding 1b, whose only repair
-        (`unschedule`) throws the scheduling away instead of restoring it. Reorg moves
-        stories as a matter of course, so this fired on ordinary use, not just after a crash.
+        """A scheduled item's `story` field is repointed, not just its `ref`.
+
+        The moved story keeps the item in its `resolves:` under the NEW key, so a `story`
+        left on the old one is audit finding 1b — whose repair (`unschedule`) discards the
+        scheduling rather than restoring it.
         """
         self._story("E001-S01-001", "resolves: ['BL-E001-001']\n")
         pm.main(["append-issue", "--state-root", self.sr, "--epic", "E001", "--sprint",
@@ -12623,10 +12608,8 @@ class TestReparentStory(unittest.TestCase):
                          "a correct move leaves nothing for audit-issues to repair")
 
     def test_a_resolved_ref_is_repointed_with_no_open_issues_file(self):
-        """The guard was `if os.path.exists(issues.yaml)`, so a project whose every issue is
-        closed — no open file at all — had its resolved refs skipped silently. That is the
-        same precondition-guarded shape that hid the 3.4.2 crash from eleven tests, so it is
-        asserted rather than assumed."""
+        """A project whose every issue is closed has no open file, and its resolved refs
+        must still be repointed — the issues arm is guarded on EITHER file existing."""
         self._story("E001-S01-001")
         self._w(os.path.join(self.sr, "issues-resolved.yaml"),
                 "resolved:\n- key: BL-E001-001\n  epic: '001'\n  title: t\n"
@@ -12636,6 +12619,33 @@ class TestReparentStory(unittest.TestCase):
         new = self._move("E001-S01-001", "E003", "S02")
         _, res = pm.load_node(os.path.join(self.sr, "issues-resolved.yaml"))
         self.assertEqual([i.get("ref") for i in res["resolved"]], [new])
+
+    def test_a_scalar_depends_on_is_refused_before_anything_moves(self):
+        """A scalar `depends_on` iterates as characters, which drops the edge entirely (see
+        deps_list). It is checked in the CHECK phase because `_rewrite_references` reads
+        these nodes AFTER the move — refusing there would half-apply it."""
+        self._story("E001-S01-001")
+        self._story("E001-S01-002", "depends_on: 'E001-S01-001'\n")
+        with self.assertRaises(pm.PMError) as cm:
+            self._move("E001-S01-001", "E003", "S02")
+        self.assertEqual(cm.exception.code, 2)
+        self.assertIn("not a list", cm.exception.msg)
+        self.assertIsNotNone(pm.story_file(self.sr, "E001-S01-001"), "nothing moved")
+
+    def test_a_refusal_is_one_stderr_line_and_exit_2_not_a_traceback(self):
+        """`except PMError: raise` re-raised out of main(), which has no handler, so every
+        refusal this verb makes reached a CLI user as a traceback and exit 1 — on the one
+        verb whose real crash had just taught everyone to read a traceback as data loss."""
+        self._story("E009-S01-001", status_dir="archived")
+        out, err = io.StringIO(), io.StringIO()
+        with redirect_stdout(out), redirect_stderr(err):
+            code = pm.main(["reparent-story", "--state-root", self.sr, "--artifacts-root",
+                            self.ar, "--story", "E009-S01-001", "--to-epic", "E003",
+                            "--to-sprint", "S02"])
+        self.assertEqual(code, 2, "a refusal is a usage error, not an unexpected failure")
+        self.assertEqual(out.getvalue(), "")
+        self.assertEqual(len(err.getvalue().strip().splitlines()), 1, err.getvalue())
+        self.assertTrue(err.getvalue().startswith("pm-status.py: "))
 
     def test_a_story_with_no_document_moves_fine(self):
         self._story("E001-S01-001")

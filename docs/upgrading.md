@@ -109,6 +109,37 @@ nor `.notices.yaml` matches the directory itself.
 Find your starting version and read forward. `npx bmad-method install` upgrades across any
 number of these at once, but the migrations must still run.
 
+### → 3.4.4
+
+**A single-dependency `depends_on` written as a plain string silently dropped the dependency,
+and the planner then ran those epics in parallel.** If every `depends_on` in your project is
+written as a list — which is what `set-depends-on` writes, and what every example shows — none
+of this affects you. Only a hand-authored or externally-round-tripped file can hold a scalar.
+
+```yaml
+depends_on: 'E001'      # WRONG — silently dropped
+depends_on: ['E001']    # correct
+```
+
+**Why a string is worse than a typo.** Iterating a string yields its characters, so `'E001'`
+was read as four dependencies — `E`, `0`, `0`, `1` — none of which name an epic. The filter
+that drops unknown keys then removed all four, leaving the epic with *no* dependencies at all.
+A typo would have failed on the first lookup; this reads exactly like a correctly independent
+epic. The phase was marked `parallel: true` and `l3io-execute` would dispatch both epics
+concurrently into one working tree.
+
+**What changed.** `pm-status.py` and `plan-graph.py` now both refuse a non-list `depends_on`,
+naming the file and the fix. They refuse rather than coerce: a bare string could have been
+meant as one key or as several, and picking one would be a guess. `reparent-story` checks every
+node *before* its first move, so a refusal can never leave a move half-applied.
+
+**If you have one on disk,** the next `/l3io-plan` or `dump-plan` will stop and name the file.
+Change the value to a list.
+
+**Also in this release:** `reparent-story`'s refusals now print one line and exit 2, like every
+other command. They previously escaped as a Python traceback with exit 1, which read like a
+crash rather than a refusal.
+
 ### → 3.4.3
 
 **The repair the 3.4.2 note said did not exist now exists, and a second, quieter bug in the
