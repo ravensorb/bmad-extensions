@@ -7574,6 +7574,37 @@ class TestPromoteIssue(IssueBase):
         self.assertEqual(self.promote("BL-E001-001", "BL-E001-001x")[0], 2)   # bad key
         self.assertEqual(_tree_snapshot(self.d), before)
 
+    def test_one_key_given_twice_collapses_to_one_and_needs_no_title(self):
+        """CHARACTERISATION, not an endorsement. `--key X --key X` is deduped by
+        `if k not in keys`, so it promotes as a single key and never trips the
+        several-keys-need-a-title rule. That is what the code does; whether a repeated key
+        should instead be refused as the scripting typo it probably is has not been decided.
+        Asserted here so that if the answer becomes "refuse", this test fails and the change
+        is visible rather than silent."""
+        self.append("A")
+        code, out, err = self.promote("BL-E001-001", "BL-E001-001")
+        self.assertEqual(code, 0, err)
+        self.assertIn("E001-S02-001", out)
+        self.assertEqual(list(self.story()["resolves"]), ["BL-E001-001"],
+                         "deduped before the story is written, not after")
+        self.assertEqual(len(self.load_open()["backlog"]), 1)
+
+    def test_a_refusal_the_advisory_pass_catches_never_takes_the_epic_lock(self):
+        """promote resolves its items TWICE — once before the epic lock as an advisory
+        refusal, once under it as the decisive one. Deleting the advisory call leaves every
+        refusal still correct, so nothing else here notices: the only observable difference
+        is that the doomed call takes the epic lock on its way to failing, which contends
+        with whatever is actually working that epic. `_tree_snapshot` cannot see it, because
+        it skips `.lock` files by design."""
+        self.append("A", "001", "01", "Low", "code-review (E001-S01-001)",
+                    "--kind", "spec-change", "--ref", "deadbeef1234")
+        lock = pm.epic_lock_path(self.root, "E001")
+        self.assertFalse(os.path.exists(lock))
+        code, _o, err = self.promote("BL-E001-001")
+        self.assertEqual(code, 2, err)
+        self.assertFalse(os.path.exists(lock),
+                         "the advisory pass must refuse before the epic lock is taken")
+
     def test_two_keys_need_a_title(self):
         self.append("A")
         self.append("B", "001", "02")
