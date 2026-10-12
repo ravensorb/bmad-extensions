@@ -12043,6 +12043,86 @@ class TestAgentInstructions(unittest.TestCase):
         self.assertFalse((Path(self.d) / "CLAUDE.md").exists(),
                          "must never write a file for a harness that is not running")
 
+    # --- our block in ANOTHER harness's file ---------------------------------------- #
+    # A project that changes harness, or one set up before the target was decided by
+    # --runtime alone, keeps our block where the old harness read it. It carries our version
+    # marker, so leaving it stale puts two disagreeing copies of our instructions in one
+    # repo — and harnesses commonly read more than one of these files.
+
+    def _stale_agents_md(self, version="1.0.0", keep="# Project rules\n\nMine.\n"):
+        """AGENTS.md holding our block at `version`, under the user's own content."""
+        (Path(self.d) / "AGENTS.md").write_text(keep, encoding="utf-8")
+        self._run("--runtime", "other", "--project-root", self.d,
+                  "--body-file", self._body("Old body.\n"), "--version", version, "--apply")
+        return Path(self.d) / "AGENTS.md"
+
+    def test_apply_refreshes_our_block_in_another_harnesses_file(self):
+        agents = self._stale_agents_md()
+        r = self._run("--runtime", "claude", "--project-root", self.d,
+                      "--body-file", self._body("New body.\n"), "--version", "9.9.9",
+                      "--apply")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        text = agents.read_text(encoding="utf-8")
+        self.assertIn("l3io:begin v=9.9.9", text)
+        self.assertIn("New body.", text)
+        self.assertIn("Mine.", text, "the user's own content survives")
+        self.assertIn("AGENTS.md", r.stdout, "the extra write is reported, never silent")
+
+    def test_apply_never_CREATES_a_block_in_another_harnesses_file(self):
+        """The rule that keeps the refresh above from becoming colonisation: a file with no
+        block of ours is not ours to write to, whether or not it exists."""
+        other = Path(self.d) / "AGENTS.md"
+        other.write_text("# codex rules\n\nnothing of ours.\n", encoding="utf-8")
+        before = other.read_bytes()
+        self._run("--runtime", "claude", "--project-root", self.d,
+                  "--body-file", self._body(), "--apply")
+        self.assertEqual(other.read_bytes(), before)
+
+    def test_apply_does_not_bring_another_harnesses_file_into_existence(self):
+        self._run("--runtime", "claude", "--project-root", self.d,
+                  "--body-file", self._body(), "--apply")
+        self.assertFalse((Path(self.d) / "AGENTS.md").exists())
+
+    def test_check_reports_a_stale_copy_as_exit_3_not_as_clean(self):
+        """Exit 0 here is what made this invisible: the doctor's health check reported ✓
+        over a repo carrying a stale block, so the upgrade looked complete."""
+        self._stale_agents_md()
+        self._run("--runtime", "claude", "--project-root", self.d,
+                  "--body-file", self._body(), "--version", "9.9.9", "--apply")
+        (Path(self.d) / "AGENTS.md").write_text(
+            (Path(self.d) / "AGENTS.md").read_text(encoding="utf-8")
+            .replace("v=9.9.9", "v=1.0.0"), encoding="utf-8")
+        r = self._run("--runtime", "claude", "--project-root", self.d,
+                      "--version", "9.9.9", "--check")
+        self.assertEqual(r.returncode, 3)
+        self.assertIn("AGENTS.md", r.stderr)
+        self.assertIn("v=1.0.0", r.stderr)
+
+    def test_check_is_clean_once_both_are_current(self):
+        self._stale_agents_md()
+        self._run("--runtime", "claude", "--project-root", self.d,
+                  "--body-file", self._body(), "--version", "9.9.9", "--apply")
+        r = self._run("--runtime", "claude", "--project-root", self.d,
+                      "--version", "9.9.9", "--check")
+        self.assertEqual(r.returncode, 0, r.stderr)
+
+    def test_check_still_reports_absent_for_this_harness_over_a_foreign_block(self):
+        """Exit 1 keeps its meaning: a block somewhere else is not a block here."""
+        self._stale_agents_md()
+        r = self._run("--runtime", "claude", "--project-root", self.d, "--check")
+        self.assertEqual(r.returncode, 1)
+
+    def test_remove_strips_our_block_from_every_file_that_has_one(self):
+        agents = self._stale_agents_md()
+        self._run("--runtime", "claude", "--project-root", self.d,
+                  "--body-file", self._body(), "--apply")
+        r = self._run("--runtime", "claude", "--project-root", self.d, "--remove")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertNotIn("l3io:begin", agents.read_text(encoding="utf-8"))
+        self.assertNotIn("l3io:begin",
+                         (Path(self.d) / "CLAUDE.md").read_text(encoding="utf-8"))
+        self.assertIn("Mine.", agents.read_text(encoding="utf-8"))
+
     def test_apply_is_idempotent(self):
         a = ("--runtime", "claude", "--project-root", self.d,
              "--body-file", self._body(), "--version", "1.0.0", "--apply")

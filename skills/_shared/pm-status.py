@@ -309,8 +309,12 @@ Subcommands
                 [--body-file F] [--version V]  (--apply | --remove | --check)
                 (creates, replaces or removes the marker-wrapped l3io block in the running
                 harness's instruction file, under a lock held across read and write; never
-                deletes the file; exit 1 = --check found no block, exit 2 = usage, an
-                undecodable file, or ambiguous markers)
+                deletes the file. A block already present in ANOTHER harness's instruction
+                file is refreshed in place by --apply and stripped by --remove -- ours to
+                keep current wherever it is -- but never created there. exit 1 = --check
+                found no block for this harness, exit 2 = usage, an undecodable file, or
+                ambiguous markers, exit 3 = --check found another harness's file holding a
+                stale copy)
 
 Exit codes: 0 = success/verified, 1 = notice already emitted for this key
 (notice only), 2 = usage error or, for notice only, an unexpected recording failure,
@@ -3353,18 +3357,66 @@ _RUNTIME_INSTRUCTION_FILE = {
 }
 
 
+def _other_instruction_files(project_root: str, runtime: str) -> list:
+    """Every known instruction file that is NOT the running harness's, deduplicated.
+
+    `codex` and `other` share AGENTS.md, so the distinct paths are fewer than the runtimes.
+    Order is stable for reproducible output.
+    """
+    mine = os.path.join(project_root, *_RUNTIME_INSTRUCTION_FILE[runtime])
+    seen, out = {mine}, []
+    for rt in sorted(_RUNTIME_INSTRUCTION_FILE):
+        p = os.path.join(project_root, *_RUNTIME_INSTRUCTION_FILE[rt])
+        if p not in seen:
+            seen.add(p)
+            out.append(p)
+    return out
+
+
+def _foreign_blocks(project_root: str, runtime: str) -> list:
+    """`(path, version)` for every OTHER harness's instruction file already holding our block.
+
+    A project that switches harness -- or that was set up before the target was decided by
+    `--runtime` alone -- keeps our block in the file the old harness used. That block is ours
+    and carries our version marker, so leaving it is not neutrality: two blocks that disagree
+    are two sets of instructions, and harnesses routinely read more than one of these files.
+    A file with no block of ours is not listed; it is simply not ours to touch.
+    """
+    out = []
+    for p in _other_instruction_files(project_root, runtime):
+        if not os.path.isfile(p):
+            continue
+        try:
+            with open(p, encoding="utf-8", newline="") as fh:
+                found = find_block(fh.read())
+        except (UnicodeDecodeError, OSError, BlockError):
+            continue        # unreadable or ambiguous: reported by the running file's own path
+        if found:
+            out.append((p, found[2]))       # (start, end, version)
+    return out
+
+
 def cmd_sync_agent_instructions(args) -> int:
     """Create, replace or remove the l3io block in the running harness's instruction file.
 
-    NEVER writes a file for a harness that is not running: the target comes from --runtime
-    alone. That rule is inherited from update-ai-rules Step AR5, where writing AGENTS.md
-    under Claude put a block in a file belonging to another AI system.
+    NEVER CREATES a file for a harness that is not running: the target comes from --runtime
+    alone, so running under Claude never puts a block into AGENTS.md.
 
-    NEVER deletes the file. --remove strips the block and leaves whatever else is there,
-    including nothing.
+    ALWAYS REFRESHES a block already present in another harness's file. The two rules are
+    not in tension -- the first is about whose file we may colonise, the second about our own
+    content. A project that switches harness, or that predates the --runtime rule, keeps our
+    block where the old harness read it; that block carries our version marker, and leaving
+    it stale means two sets of our instructions disagreeing in one repo, which harnesses
+    that read several of these files will both pick up. Refreshing, not removing, because a
+    project may genuinely still use the other harness.
 
-    Exit 0 = acted or already correct; 1 = --check found the block absent; 2 = usage, an
-    undecodable file, or ambiguous markers -- all cases where we must not write.
+    NEVER deletes the file. --remove strips the block from every file that has one and
+    leaves whatever else is there, including nothing.
+
+    Exit 0 = acted or already correct; 1 = --check found the block absent for this harness;
+    2 = usage, an undecodable file, or ambiguous markers -- all cases where we must not
+    write; 3 = --check found this harness's block current but another harness's file holding
+    a STALE copy, which --apply repairs.
     """
     target = os.path.join(args.project_root, *_RUNTIME_INSTRUCTION_FILE[args.runtime])
 
@@ -3376,6 +3428,7 @@ def cmd_sync_agent_instructions(args) -> int:
                          f"utf-8 ({e}); refusing to write\n")
         return 2
 
+    extra = []
     body = ""
     if not args.remove and not args.check:
         try:
@@ -3401,9 +3454,19 @@ def cmd_sync_agent_instructions(args) -> int:
             # every skill activation, and under a mistyped --project-root). Its answer is
             # advisory and inherently racy, so the lock would buy nothing.
             try:
-                return 0 if find_block(_read_target()) else 1
+                here = find_block(_read_target())
             except UnicodeDecodeError as e:
                 return _undecodable(target, e)
+            if not here:
+                return 1
+            stale = [(p, v) for p, v in _foreign_blocks(args.project_root, args.runtime)
+                     if v != (args.version or PM_STATUS_VERSION)]
+            for p, v in stale:
+                sys.stderr.write(f"pm-status.py: sync-agent-instructions: {p} holds an l3io "
+                                 f"block at v={v}, not v="
+                                 f"{args.version or PM_STATUS_VERSION} -- --apply refreshes "
+                                 f"it\n")
+            return 3 if stale else 0
         # The lock spans the READ as well as the write: otherwise two callers each read the
         # pre-write text and the second silently overwrites the first's block.
         with agent_instructions_lock(args.project_root):
@@ -3418,13 +3481,28 @@ def cmd_sync_agent_instructions(args) -> int:
             if action not in ("unchanged", "absent"):
                 os.makedirs(os.path.dirname(target) or ".", exist_ok=True)
                 _atomic_text_write(target, out)
+            # Our block in the other harnesses' files, refreshed in place. Existing blocks
+            # only -- `apply_block` is never reached for a file without one, so no file is
+            # created here and a file we never wrote to stays untouched.
+            for p, _v in _foreign_blocks(args.project_root, args.runtime):
+                with open(p, encoding="utf-8", newline="") as fh:
+                    ftext = fh.read()
+                if args.remove:
+                    fout, faction = remove_block(ftext)
+                else:
+                    fout, faction = apply_block(ftext, body,
+                                                args.version or PM_STATUS_VERSION)
+                if faction not in ("unchanged", "absent"):
+                    _atomic_text_write(p, fout)
+                    extra.append(f"{faction} {p}")
     except BlockError as e:
         sys.stderr.write(f"pm-status.py: sync-agent-instructions: {target}: {e}\n")
         return 2
     except OSError as e:
         sys.stderr.write(f"pm-status.py: sync-agent-instructions: {e}\n")
         return 2
-    sys.stdout.write(f"OK sync-agent-instructions {action} {target}\n")
+    tail = ("; also " + ", ".join(extra)) if extra else ""
+    sys.stdout.write(f"OK sync-agent-instructions {action} {target}{tail}\n")
     return 0
 
 
