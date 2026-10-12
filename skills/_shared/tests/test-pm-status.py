@@ -7599,7 +7599,7 @@ class TestPromoteIssue(IssueBase):
         self.append("A", "001", "01", "Low", "code-review (E001-S01-001)",
                     "--kind", "spec-change", "--ref", "deadbeef1234")
         lock = pm.epic_lock_path(self.root, "E001")
-        self.assertFalse(os.path.exists(lock))
+        self.assertFalse(os.path.exists(lock), "precondition: no epic lock yet")
         code, _o, err = self.promote("BL-E001-001")
         self.assertEqual(code, 2, err)
         self.assertFalse(os.path.exists(lock),
@@ -8392,17 +8392,19 @@ class TestScheduleIssue(IssueBase):
         inside the issues lock but before the epic lock, which masks the second half of the
         effect and is how this was first mis-measured."""
         self.append("A")
-        issues_lock = self.issues + ".lock"
-        # append-issue took that lock itself, so the file already exists. Clear it: the
-        # claim is that THIS call does not take it, not that it has never been taken.
-        if os.path.exists(issues_lock):
-            os.remove(issues_lock)
-        epic_lock = pm.epic_lock_path(self.root, "E001")
+        # append-issue took the issues lock itself, so its file exists from fixture setup.
+        # Clear every lock: the claim is that THIS call takes none, not that none has ever
+        # been taken.
+        for dp, _, files in os.walk(self.d):
+            for f in files:
+                if f.endswith(".lock"):
+                    os.remove(os.path.join(dp, f))
         code, _o, err = self.schedule(self.open_keys()[0], "E001-S01-099")
         self.assertEqual(code, 3, err)
-        self.assertFalse(os.path.exists(issues_lock),
-                         "the target check runs before the issues lock is taken")
-        self.assertFalse(os.path.exists(epic_lock), "and before the epic lock")
+        # Asserted as a SET, not as two named paths: naming them can only check the locks
+        # this test's author thought of, and the claim is that no lock at all is taken.
+        left = [f for dp, _, fs in os.walk(self.d) for f in fs if f.endswith(".lock")]
+        self.assertEqual(left, [], "refused before any lock is taken")
 
     def test_the_event_names_how_the_scheduling_happened(self):
         """promote-issue writes no `via`, repair-link writes via=repair-link. A third

@@ -7233,6 +7233,12 @@ def _promote_issue(args) -> int:
                                      f"-- retry with --epic {c_epic[1:]} --sprint {c_sprint[1:]}")
             else:
                 story_key = _next_story_key(sr, ar, epic_key, sprint_key)
+                # DEFENSIVE, and deliberately kept without a fixture. `_next_story_key` above
+                # already skips a key whose artifact document exists, so the key it just
+                # returned cannot have one -- this arm is unreachable from inside the call.
+                # It is not dead, though: it guards against a writer outside our locks, and
+                # agents in this system do author story documents directly. The two locks
+                # held here exclude another promote, never an external author.
                 if os.path.exists(story_doc_path(ar, story_key)):
                     raise PMError(2, f"story document for {story_key} already exists -- "
                                      f"refusing to adopt it")
