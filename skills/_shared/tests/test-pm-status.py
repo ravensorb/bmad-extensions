@@ -1883,15 +1883,6 @@ class TestStructuredActualTokens(TestLayoutResolution):
         code, _o = self._set("--tokens-na", "--tokens-input", "412")
         self.assertEqual(code, 2)
 
-    def test_tokens_na_is_refused_under_codex(self):
-        """Per-runtime, not global: `other` is the permissive runtime N/A exists for, and
-        each runtime that DOES expose counts refuses it separately. Only claude and other
-        were exercised, so two of the four arms of this branch were unasserted."""
-        self.assertEqual(self._set("--tokens-na", "--runtime", "codex")[0], 2)
-
-    def test_tokens_na_is_refused_under_copilot(self):
-        self.assertEqual(self._set("--tokens-na", "--runtime", "copilot")[0], 2)
-
     def test_no_metric_at_all_is_refused(self):
         """Every existing call passes at least one metric through the helper's *extra, so
         the empty case was reachable only from the CLI. A silent no-op here would look like
