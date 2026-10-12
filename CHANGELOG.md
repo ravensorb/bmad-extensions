@@ -2,6 +2,41 @@
 
 All notable changes to this project will be documented in this file. See [commit-and-tag-version](https://github.com/absolute-version/commit-and-tag-version) for commit guidelines.
 
+## [3.4.4](https://github.com/ravensorb/bmad-extensions/compare/3.4.3...3.4.4) (2026-10-12)
+
+
+### Fixes
+
+* **l3io-pm:** refresh the l3io block left in another harness's file ([10c5d63](https://github.com/ravensorb/bmad-extensions/commit/10c5d635ea7130b4e3f3285f61a788b7f89f38cf))
+* **l3io-pm:** refuse a non-list depends_on instead of dropping the edge ([cfb96be](https://github.com/ravensorb/bmad-extensions/commit/cfb96be40ac7bb85800eee3e1ab50a528a130556))
+
+
+### Documentation
+
+* **infra:** disarm the NUMBER_WORDS trap and correct a stale gap note ([c08cefa](https://github.com/ravensorb/bmad-extensions/commit/c08cefad394435b83ea2cba8b2ca1ff2377d6254))
+* **infra:** record why check 35 stays scoped to forwarders ([330d6c1](https://github.com/ravensorb/bmad-extensions/commit/330d6c1770d7264033fee9f57aa58c3f4330563f))
+* the l3io-util-cleanup forwarder was removed in 3.0.0, not "next release" ([a37c30d](https://github.com/ravensorb/bmad-extensions/commit/a37c30dde225813f4030a257f63df6d84376440e))
+* **upgrading:** fold the two pending entries into one 3.4.4 ([4ed5e0b](https://github.com/ravensorb/bmad-extensions/commit/4ed5e0b0de486543e541ea2f7ecbfd9e399ea87b))
+
+
+### Testing
+
+* **infra:** check 35 — a forwarder's rename version must name a real release ([30e3a38](https://github.com/ravensorb/bmad-extensions/commit/30e3a388f16c4e874f9558612e6a757f21ca35a6))
+* **infra:** scoped type gate for pm-status.py's accessor contracts ([8c4bcda](https://github.com/ravensorb/bmad-extensions/commit/8c4bcdaf55a297b36d9f4d0df41162eb5478dc04))
+* **l3io-pm:** adopt three improvements found by reading the peer tree directly ([3220227](https://github.com/ravensorb/bmad-extensions/commit/32202277df3054102995089d547d3319fa3c08e5))
+* **l3io-pm:** close the resolve-issue branch gaps, restore a cross-reference ([326a15a](https://github.com/ravensorb/bmad-extensions/commit/326a15a910afe00d62c750c3406800757c03bbb1))
+* **l3io-pm:** close the schedule-issue branch gaps ([5e9cf69](https://github.com/ravensorb/bmad-extensions/commit/5e9cf69b1a06d4d711f7044c1af023017687f8c6))
+* **l3io-pm:** close the set-actual refusal gaps ([e61db10](https://github.com/ravensorb/bmad-extensions/commit/e61db1087612c7b2bfc0b9383b2943ab2e106f25))
+* **l3io-pm:** correct the advisory measurement, and assert both locks ([f05d4d4](https://github.com/ravensorb/bmad-extensions/commit/f05d4d420c921088d184bf4414286626284f12fc))
+* **l3io-pm:** drop two redundant set-actual tests, weaker than what existed ([e706880](https://github.com/ravensorb/bmad-extensions/commit/e7068808bcdeb99006e71db3f7916b787404df43))
+* **l3io-pm:** pin both of schedule-issue's advisory refusal passes ([9b8092b](https://github.com/ravensorb/bmad-extensions/commit/9b8092b4ef38d49412cad777c5b36b4d779dad24))
+* **l3io-pm:** promote's advisory refusal pass, and the key-dedup characterisation ([046d5a8](https://github.com/ravensorb/bmad-extensions/commit/046d5a8c2bb151da1bd6ce95e4e59b1bafd752d6))
+
+
+### CI/CD
+
+* enable Dependabot alerts and security updates; audit.yml stays, weekly ([83b6fa1](https://github.com/ravensorb/bmad-extensions/commit/83b6fa1df0bcd67c593666db174bd5337228e59e))
+
 ## [3.4.3](https://github.com/ravensorb/bmad-extensions/compare/3.4.2...3.4.3) (2026-10-12)
 
 
