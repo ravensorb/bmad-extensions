@@ -1,5 +1,26 @@
 name: reviewdog
 on: [pull_request]
+# Least-privilege, per standards-github-actions.md, which this package SHIPS as a review
+# checklist item.
+#
+# `pull-requests: write` is a privilege INCREASE, not a tightening, and is deliberate: the
+# `github-pr-review` reporter posts its findings as PR review comments, and without that
+# scope the scan runs, finds, and silently cannot report -- which is indistinguishable from
+# a clean scan. That is the failure this repo keeps finding in other forms, so it is the one
+# shape not to leave in a SECRET scanner.
+#
+# `contents: read` is all the checkout needs. Naming both replaces the inherited
+# `default_workflow_permissions`, a repository setting invisible to the tree, with a set that
+# is reviewable in a diff.
+#
+# NOTE: this workflow has never executed. It triggers on `pull_request` and this repository
+# has had no pull requests -- work lands directly on main. It is a control for a workflow the
+# project does not currently use, kept so that opening a PR does not silently skip secret
+# scanning rather than because it runs today.
+permissions:
+  contents: read
+  pull-requests: write
+
 jobs:
   detect-secrets:
     runs-on: ubuntu-latest
