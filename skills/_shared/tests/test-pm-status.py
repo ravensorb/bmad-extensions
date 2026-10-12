@@ -8366,6 +8366,36 @@ class TestScheduleIssue(IssueBase):
         self.assertEqual(code, 0, out + err)
         self.assertEqual(self.story_resolves("E001-S01-005"), [k])
 
+    def test_an_item_refusal_never_takes_the_epic_lock(self):
+        """schedule-issue resolves its items twice — advisory before the epic lock, decisive
+        under it. Deleting the advisory call leaves every refusal correct, so nothing else
+        notices; the only observable difference is that the doomed call takes the epic lock
+        on its way to failing, contending with whatever is working that epic."""
+        self.append("A", "001", "01", "Low", "code-review (E001-S01-001)",
+                    "--kind", "spec-change", "--ref", "deadbeef1234")
+        self.authored_story("E001-S01-005")
+        lock = pm.epic_lock_path(self.root, "E001")
+        code, _o, err = self.schedule(self.open_keys()[0], "E001-S01-005")
+        self.assertEqual(code, 2, err)
+        self.assertFalse(os.path.exists(lock),
+                         "the advisory items pass must refuse before the epic lock")
+
+    def test_a_bad_story_never_even_opens_the_issues_file(self):
+        """The SECOND advisory pass, and it guards a different lock. `_schedule_target` runs
+        before `issues_lock` is taken at all, so a story that does not exist is refused
+        without ever touching issues.yaml — removing it moves that refusal behind the issues
+        lock, which every other backlog verb contends on."""
+        self.append("A")
+        issues_lock = self.issues + ".lock"
+        # append-issue took that lock itself, so the file already exists. Clear it: the
+        # claim is that THIS call does not take it, not that it has never been taken.
+        if os.path.exists(issues_lock):
+            os.remove(issues_lock)
+        code, _o, err = self.schedule(self.open_keys()[0], "E001-S01-099")
+        self.assertEqual(code, 3, err)
+        self.assertFalse(os.path.exists(issues_lock),
+                         "the target check runs before the issues lock is taken")
+
     def test_the_event_names_how_the_scheduling_happened(self):
         """promote-issue writes no `via`, repair-link writes via=repair-link. A third
         route needs its own value or the log cannot say how an item got its story."""
