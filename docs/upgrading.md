@@ -109,11 +109,7 @@ nor `.notices.yaml` matches the directory itself.
 Find your starting version and read forward. `npx bmad-method install` upgrades across any
 number of these at once, but the migrations must still run.
 
-### → Unreleased
-
-<!-- HEADING IS A PLACEHOLDER ON PURPOSE. The release number is derived from commit types at
-     tag time and is not knowable while work is still landing: one `feat` turns a patch into
-     a minor after this line is written. Rename this to the tag the release actually cuts. -->
+### → 3.4.5
 
 **`promote-issue` now refuses the same `--key` twice instead of silently collapsing it.**
 This can stop a call that worked before, so it leads this entry.
