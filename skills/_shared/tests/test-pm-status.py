@@ -1156,6 +1156,13 @@ class TestResolveIssue(IssueBase):
         return self.run_all(["resolve-issue", "--state-root", self.root, "--key", key,
                              "--resolution", resolution, *extra])
 
+    def _promote(self, key="BL-E001-001", epic="001", sprint="02"):
+        code, _o, err = self.run_all(["promote-issue", "--state-root", self.root,
+                                      "--artifacts-root", self.arts, "--key", key,
+                                      "--epic", epic, "--sprint", sprint,
+                                      "--classification", "simple"])
+        self.assertEqual(code, 0, err)
+
     def test_resolve_moves_the_item_whole(self):
         self.append("A", "001", "01", "Medium")
         code, out, err = self.resolve("BL-E001-001", "wontfix", "--note", "accepted risk")
@@ -1218,6 +1225,34 @@ class TestResolveIssue(IssueBase):
 
     def test_unknown_key_exits_3(self):
         self.assertEqual(self.resolve("BL-E001-042", "obsolete", "--note", "x")[0], 3)
+
+    def test_a_key_that_is_not_a_backlog_key_exits_2_not_3(self):
+        """Two different answers that both mean "no such item": exit 3 is a well-formed key
+        naming nothing, exit 2 is a string that is not a key at all. A caller that treats
+        them alike retries a typo as though the item might appear later."""
+        code, _o, err = self.resolve("NOT-A-KEY", "obsolete", "--note", "x")
+        self.assertEqual(code, 2)
+        self.assertIn("is not a backlog key", err)
+        self.assertFalse(os.path.exists(self.resolved), "nothing written")
+
+    def test_resolving_a_scheduled_item_by_hand_warns_that_the_story_still_claims_it(self):
+        """The story's `resolves:` is not touched here, so the item is resolved while a story
+        still lists it — audit finding 1c. The tail says so, and only outside the done-hook
+        path (`cause != set-status`), where that state is expected and transient."""
+        self.append("A")
+        self._promote()
+        code, out, _e = self.resolve("BL-E001-001", "obsolete", "--note", "changed my mind")
+        self.assertEqual(code, 0)
+        self.assertIn("E001-S02-001 still lists it in resolves", out)
+
+    def test_the_done_hook_resolves_without_that_warning(self):
+        """`cause == set-status` is the other arm: the hook resolves as part of the story
+        transition that justifies it, so the same state is not worth a warning."""
+        self.append("A")
+        self._promote()
+        _c, out, _e = self.run_all(["set-status", "--state-root", self.root,
+                                    "--story", "E001-S02-001", "--status", "done"])
+        self.assertNotIn("still lists it in resolves", out)
 
     def test_crash_between_writes_is_cleared_by_rerun(self):
         self.append("A")

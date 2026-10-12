@@ -3402,6 +3402,12 @@ def cmd_sync_agent_instructions(args) -> int:
     NEVER CREATES a file for a harness that is not running: the target comes from --runtime
     alone, so running under Claude never puts a block into AGENTS.md.
 
+    THE OTHER HALF OF THAT RULE LIVES IN `l3io-doctor/steps/update-ai-rules.md` Step AR5,
+    which applies it to the legacy-reference migration. Same rule, two mechanisms, and it has
+    to change in both: it was argued correctly in AR5 for a long time while this side was
+    silently missing the refresh half below. A rule argued in the mechanism that happened to
+    need it first does not propagate itself.
+
     ALWAYS REFRESHES a block already present in another harness's file. The two rules are
     not in tension -- the first is about whose file we may colonise, the second about our own
     content. A project that switches harness, or that predates the --runtime rule, keeps our
@@ -6729,6 +6735,10 @@ STORY_REF_FIELDS = ("story", "ref")
 
 
 def _validate_resolution_flags(resolution, ref, note) -> None:
+    # DEFENSIVE, and unreachable from every current caller -- do not write a fixture for it.
+    # argparse constrains --resolution to `choices=list(RESOLUTIONS)`, and the two in-process
+    # callers pass the literals "fixed" and "deferred". It guards the next caller, which is a
+    # real risk here because resolve_issue_core is invoked internally as well as from the CLI.
     if resolution not in RESOLUTIONS:
         raise PMError(2, f"--resolution must be one of {', '.join(RESOLUTIONS)}")
     if resolution == "fixed":
