@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file. See [commit-and-tag-version](https://github.com/absolute-version/commit-and-tag-version) for commit guidelines.
 
+## [3.4.3](https://github.com/ravensorb/bmad-extensions/compare/3.4.2...3.4.3) (2026-10-12)
+
+
+### Fixes
+
+* **l3io-pm:** repoint every backlog reference a re-key invalidates ([4243729](https://github.com/ravensorb/bmad-extensions/commit/4243729a061ada134b5aed0f8a398371872754ff))
+
 ## [3.4.2](https://github.com/ravensorb/bmad-extensions/compare/3.4.1...3.4.2) (2026-10-11)
 
 
