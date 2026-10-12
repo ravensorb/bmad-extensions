@@ -2,6 +2,27 @@
 
 All notable changes to this project will be documented in this file. See [commit-and-tag-version](https://github.com/absolute-version/commit-and-tag-version) for commit guidelines.
 
+## [3.4.5](https://github.com/ravensorb/bmad-extensions/compare/3.4.4...3.4.5) (2026-10-12)
+
+
+### Fixes
+
+* **l3io-pm:** refuse a repeated --key in promote-issue instead of deduping ([0a7bade](https://github.com/ravensorb/bmad-extensions/commit/0a7badeb171f696a43accd80ea956b15bea154f8))
+* **l3io-pm:** the repeated-key refusal says what to DO, not just what is wrong ([5f879fc](https://github.com/ravensorb/bmad-extensions/commit/5f879fce95bacb5129351624aa64d689f0135e6e))
+
+
+### Documentation
+
+* close four gaps a documentation audit found ([331db91](https://github.com/ravensorb/bmad-extensions/commit/331db913f39b4d63ef266ddec0f3c03bf6b20d10))
+* **infra:** record that check:docs asserts surface, never behaviour ([954ad25](https://github.com/ravensorb/bmad-extensions/commit/954ad2523260f2c9cbccc81a4949cb1078365f24))
+* **upgrading:** name the 3.4.5 release the placeholder was waiting for ([cd10379](https://github.com/ravensorb/bmad-extensions/commit/cd10379ba798e8c55346ab7b4e22050e87ae12d7))
+
+
+### CI/CD
+
+* least-privilege permissions on checks.yml ([48aa299](https://github.com/ravensorb/bmad-extensions/commit/48aa299ad3c67a0de6686fc2c4c9986ff2377d55))
+* least-privilege permissions on reviewdog.yml ([bf3a516](https://github.com/ravensorb/bmad-extensions/commit/bf3a5167c20915079e25c3778e98de213fdc7900))
+
 ## [3.4.4](https://github.com/ravensorb/bmad-extensions/compare/3.4.3...3.4.4) (2026-10-12)
 
 
