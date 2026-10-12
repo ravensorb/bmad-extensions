@@ -124,7 +124,7 @@ in the [l3io-pm reference](l3io-pm-reference.md), which documents the whole CLI.
 | `clear-lock` | `stats` | The stale-lock remedy `stats` prints per affected epic. |
 | `calibration` | `redrive` | `redrive` rebuilds the `scope` and `fix` components through it. |
 | `dispatch` | `triage` | Opens and closes the dispatch record for a subagent the mode fans out to. |
-| `sync-agent-instructions` | `upgrade`, `uninstall`, and module setup | Writes, refreshes (`--apply`), checks (`--check`) or strips (`--remove`) the marker-wrapped l3io block in the running harness's AI instruction file. Idempotent; never deletes the file; exit 1 from `--check` means the block is absent, exit 2 leaves the file byte-unchanged. |
+| `sync-agent-instructions` | `upgrade`, `uninstall`, and module setup | Writes, refreshes (`--apply`), checks (`--check`) or strips (`--remove`) the marker-wrapped l3io block in the running harness's AI instruction file. **Never CREATES** a block in another harness's file, but **always REFRESHES** one already there — a project that changes harness keeps our block where the old one read it, and a stale copy of our own instructions is not neutrality. Refreshes rather than removes, since the other harness may still be in use. Idempotent; never deletes the file; exit 1 from `--check` means the block is absent for this harness, exit 2 leaves the file byte-unchanged, exit 3 means another harness's file holds a stale copy that `--apply` repairs. |
 
 ## Project Health Check
 
