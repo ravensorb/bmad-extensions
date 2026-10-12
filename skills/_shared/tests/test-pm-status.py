@@ -8283,6 +8283,44 @@ class TestScheduleIssue(IssueBase):
         code, out, err = self.schedule(k, "E001-S01-005")
         self.assertEqual(code, 2, out + err)
 
+    def test_a_key_in_neither_issue_file_is_refused(self):
+        """Distinct from an already-resolved key (which names its resolution) and from a
+        malformed one (which is not a key at all): this is a well-formed key for an item
+        that was never opened."""
+        self.authored_story("E001-S01-005")
+        code, _o, err = self.schedule("BL-E001-099", "E001-S01-005")
+        self.assertEqual(code, 2)
+        self.assertIn("is not an open backlog item", err)
+        self.assertEqual(self.story_resolves("E001-S01-005"), [])
+
+    def test_a_story_that_already_lists_the_key_is_not_appended_to_twice(self):
+        """The finding-1d state: the story claims the key while the item is still backlog,
+        which is what an interrupted promote leaves behind. Scheduling completes it, and the
+        `resolves` entry must not be duplicated — a doubled entry is audit finding 1h."""
+        self.append("First")
+        k = self.open_keys()[0]
+        self.authored_story("E001-S01-005", resolves=[k])
+        code, out, err = self.schedule(k, "E001-S01-005")
+        self.assertEqual(code, 0, out + err)
+        self.assertEqual(self.story_resolves("E001-S01-005"), [k], "appended twice")
+        self.assertEqual(str(self.item(k).get("status")), "scheduled")
+
+    def test_the_same_key_given_twice_is_deduped(self):
+        """Characterisation, not a decision anyone recorded. Benign HERE because nothing in
+        this verb keys off the number of keys — unlike promote-issue, whose `--title`
+        requirement is `len(keys) > 1` and is therefore evaluated AFTER this dedup, so a
+        repeated key silently skips a guard that exists to make multi-key promotion
+        deliberate. Same code shape, different consequence; if that is ever made to refuse,
+        decide both verbs together."""
+        self.append("First")
+        k = self.open_keys()[0]
+        self.authored_story("E001-S01-005")
+        code, out, err = self.run_all(["schedule-issue", "--state-root", self.root,
+                                       "--key", k, "--key", k,
+                                       "--story", "E001-S01-005"])
+        self.assertEqual(code, 0, out + err)
+        self.assertEqual(self.story_resolves("E001-S01-005"), [k])
+
     def test_the_event_names_how_the_scheduling_happened(self):
         """promote-issue writes no `via`, repair-link writes via=repair-link. A third
         route needs its own value or the log cannot say how an item got its story."""
