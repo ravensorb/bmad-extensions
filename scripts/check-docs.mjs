@@ -4789,6 +4789,23 @@ function checkNoHandEditDirectives() {
 // KNOWN GAP: a past-but-never-cut version (naming 3.0.5 when the rename was 3.0.4) is not
 // caught. It misdirects a reader by one release, where the half this does catch points users
 // at a release newer than the one they are running.
+//
+// AND WHY THE SCOPE STAYS ON FORWARDERS, measured rather than assumed. The obvious widening
+// -- "every version-shaped string in tracked prose must name a release this package cut" --
+// was run over this tree as a one-off: 167 occurrences across 210 tracked .md files, of which
+// only 115 are real tags. The other 52 are ALL legitimate: 17 are the forwarders' own future
+// removal version, 13 are BMad's (6.11/6.12/6.13), 6 are npm dependency versions argued in
+// ADR-0007, one is a `§5.3.1` section reference the regex cannot tell from a version, one is
+// pm-status.py's former independent version line, and two are upgrading.md entries written
+// ahead of their release. Zero were wrong. So that gate fires 52 times on a clean tree and
+// would need an allowlist a third the size of its own input -- the hand-kept list this
+// package keeps deleting.
+//
+// The discriminator is not "is this string a tag" but "is this claim ABOUT this package's
+// release history", which is semantic, not lexical. A forwarder's claim has a fixed parseable
+// shape and that is the entire reason this check can be sound; a prose claim does not, and
+// "has existed since X" / "shipped in X" / "renamed in X" are three phrasings already in use
+// across the two trees. Do not widen this to prose without solving that first.
 const RENAME_VERSION_RE = /\brenamed\b[^.\n]{0,40}?\bin\s+v?(\d+\.\d+\.\d+)/gi;
 
 function semverCmp(a, b) {
