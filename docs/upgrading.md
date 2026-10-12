@@ -109,38 +109,6 @@ nor `.notices.yaml` matches the directory itself.
 Find your starting version and read forward. `npx bmad-method install` upgrades across any
 number of these at once, but the migrations must still run.
 
-### → 3.4.5
-
-**If your repo has an `AGENTS.md` and you run under Claude (or any other harness switch),
-`/l3io-doctor` was reporting your instruction block as current while a stale copy sat in the
-other file.** The health check's agent-instruction check said ✓, so the upgrade looked
-complete.
-
-**What was happening.** The l3io block is written to the file the *running* harness reads —
-`CLAUDE.md` under Claude, `AGENTS.md` under Codex, and so on. That rule is right and has not
-changed. But a project that switches harness, or that was set up before that rule existed,
-keeps our block where the old harness read it. Upgrading under Claude then created a current
-block in `CLAUDE.md` and left the old one in `AGENTS.md` untouched — two l3io blocks at
-different versions, in one repo, **both live**, because harnesses commonly read more than one
-of these files. The check only ever looked at the running harness's file, so it never saw the
-other one.
-
-**What changed.** `--apply` now also **refreshes** our block anywhere else it already exists,
-and `--check` reports a stale copy (exit 3) instead of silence. The rule that matters is the
-distinction between the two halves:
-
-- **Never creates** a block in another harness's file. Running under Claude still never puts
-  anything into an `AGENTS.md` that does not already have our block — including when that
-  file exists with other content.
-- **Always refreshes** a block already there. It carries our marker and our version; a stale
-  copy of our own instructions is not neutrality.
-
-It **refreshes rather than removes**, because a project may genuinely still use the other
-harness. `--remove` strips the block from every file that has one, and never deletes a file.
-
-**What to do:** run `/l3io-doctor`. The check now names the file and both versions, and the
-fix is the ordinary block update.
-
 ### → 3.4.4
 
 **A single-dependency `depends_on` written as a plain string silently dropped the dependency,
@@ -171,6 +139,38 @@ Change the value to a list.
 **Also in this release:** `reparent-story`'s refusals now print one line and exit 2, like every
 other command. They previously escaped as a Python traceback with exit 1, which read like a
 crash rather than a refusal.
+
+---
+
+**If your repo has an `AGENTS.md` and you run under Claude (or any other harness switch),
+`/l3io-doctor` was reporting your instruction block as current while a stale copy sat in the
+other file.** The health check's agent-instruction check said ✓, so the upgrade looked
+complete.
+
+**What was happening.** The l3io block is written to the file the *running* harness reads —
+`CLAUDE.md` under Claude, `AGENTS.md` under Codex, and so on. That rule is right and has not
+changed. But a project that switches harness, or that was set up before that rule existed,
+keeps our block where the old harness read it. Upgrading under Claude then created a current
+block in `CLAUDE.md` and left the old one in `AGENTS.md` untouched — two l3io blocks at
+different versions, in one repo, **both live**, because harnesses commonly read more than one
+of these files. The check only ever looked at the running harness's file, so it never saw the
+other one.
+
+**What changed.** `--apply` now also **refreshes** our block anywhere else it already exists,
+and `--check` reports a stale copy (exit 3) instead of silence. The rule that matters is the
+distinction between the two halves:
+
+- **Never creates** a block in another harness's file. Running under Claude still never puts
+  anything into an `AGENTS.md` that does not already have our block — including when that
+  file exists with other content.
+- **Always refreshes** a block already there. It carries our marker and our version; a stale
+  copy of our own instructions is not neutrality.
+
+It **refreshes rather than removes**, because a project may genuinely still use the other
+harness. `--remove` strips the block from every file that has one, and never deletes a file.
+
+**What to do:** run `/l3io-doctor`. The check now names the file and both versions, and the
+fix is the ordinary block update.
 
 ### → 3.4.3
 
