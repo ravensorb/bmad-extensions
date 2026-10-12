@@ -4,6 +4,14 @@ on:
     branches: [main]
   pull_request:
 
+# Least-privilege, per standards-github-actions.md, which this package SHIPS as a review
+# checklist item. Nothing here writes: the job checks out, installs, and runs gates. Without
+# this block the workflow inherits `default_workflow_permissions`, which is a REPOSITORY
+# SETTING -- invisible to the tree and switchable without a diff. It reads `read` today, so
+# this changes no behaviour; it removes the dependency on that setting staying read.
+permissions:
+  contents: read
+
 jobs:
   shared-scripts:
     runs-on: ubuntu-latest
