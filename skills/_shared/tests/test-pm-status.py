@@ -12529,19 +12529,13 @@ class TestReparentStory(unittest.TestCase):
                          "a dangling depends_on does not fail until something orders it")
 
     # --- branch audit of _rewrite_references ------------------------------------------- #
-    # Three defects shipped from this one function (the property call, the missing `story`
-    # field, the guard that skipped resolved refs), every one found by a user report rather
-    # than a test, and every one invisible for the same structural reason: a precondition
-    # made the branch unreachable from the fixtures. So its branches are enumerated and the
-    # fixture reaching each side is named, rather than waiting for the fourth report. The
-    # three below had no fixture on either side until now.
-    #
-    # One branch is deliberately left untested: `isinstance(n, dict)` on the node RE-READ
-    # from disk. `_walk_story_nodes` already raises on a node that is not a mapping, so the
-    # false arm requires another process to rewrite that file between the walk and the
-    # reload. The walk covers every epic, not just the locked one, so that is not provably
-    # impossible — but a test would have to manufacture a race, and the guard's whole job is
-    # to make that case boring. Recorded as a known gap, not an oversight.
+    # Every branch in that function has a fixture reaching BOTH sides, and the three tests
+    # below are the ones that close the arms a single-value fixture never reaches: a
+    # `depends_on` list with entries beside the match, an issues file holding no match at
+    # all, and a non-mapping item in a backlog list. A precondition-guarded branch is
+    # unreachable from a fixture that does not satisfy the precondition, so "the function is
+    # tested" says nothing about them — the question each of these answers is "which fixture
+    # reaches the false side".
 
     def test_a_depends_on_sibling_key_is_left_alone(self):
         """The inner `if v == old_key` has two arms and the single-element fixture only ever

@@ -2414,10 +2414,13 @@ export const NUMBER_WORDS = ["zero", "one", "two", "three", "four", "five", "six
   "nine", "ten", "eleven", "twelve", "thirteen", "fourteen", "fifteen", "sixteen",
   "seventeen", "eighteen", "nineteen", "twenty", "twenty-one", "twenty-two", "twenty-three",
   "twenty-four", "twenty-five", "twenty-six", "twenty-seven", "twenty-eight",
-  "twenty-nine", "thirty", "thirty-one", "thirty-two", "thirty-three", "thirty-four"];
-// Deliberately carries headroom past the current check count. The list previously ended at
-// the exact number of checks, so adding one made every prose count unfixable -- the correct
-// new word was not in the table, and the failure named the doc rather than the table.
+  "twenty-nine", "thirty", "thirty-one", "thirty-two", "thirty-three", "thirty-four",
+  "thirty-five", "thirty-six", "thirty-seven", "thirty-eight", "thirty-nine", "forty",
+  "forty-one", "forty-two", "forty-three", "forty-four", "forty-five"];
+// Carries headroom PAST the current check count, and that is the point: a list ending at the
+// exact number of checks makes every prose count unfixable the moment one is added -- the
+// correct new word is not in the table, and the failure names the doc rather than the table.
+// Extend this list BEFORE it is needed, never as part of the change that needs it.
 const DOCTOR_DIR = "skills/l3io-doctor";
 
 function checkDoctorModeCount() {
