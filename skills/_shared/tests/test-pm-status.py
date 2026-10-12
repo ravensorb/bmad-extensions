@@ -12448,6 +12448,73 @@ class TestReparentStory(unittest.TestCase):
         self.assertEqual(list(node["depends_on"]), [new],
                          "a dangling depends_on does not fail until something orders it")
 
+    # --- branch audit of _rewrite_references ------------------------------------------- #
+    # Three defects shipped from this one function (the property call, the missing `story`
+    # field, the guard that skipped resolved refs), every one found by a user report rather
+    # than a test, and every one invisible for the same structural reason: a precondition
+    # made the branch unreachable from the fixtures. So its branches are enumerated and the
+    # fixture reaching each side is named, rather than waiting for the fourth report. The
+    # three below had no fixture on either side until now.
+    #
+    # One branch is deliberately left untested: `isinstance(n, dict)` on the node RE-READ
+    # from disk. `_walk_story_nodes` already raises on a node that is not a mapping, so the
+    # false arm requires another process to rewrite that file between the walk and the
+    # reload. The walk covers every epic, not just the locked one, so that is not provably
+    # impossible — but a test would have to manufacture a race, and the guard's whole job is
+    # to make that case boring. Recorded as a known gap, not an oversight.
+
+    def test_a_depends_on_sibling_key_is_left_alone(self):
+        """The inner `if v == old_key` has two arms and the single-element fixture only ever
+        exercised one. A rewrite that replaced the whole list, or indexed wrongly, would pass
+        every other test here while silently dropping the story's other dependency."""
+        self._story("E001-S01-001")
+        self._story("E001-S01-003")
+        dep = self._story("E001-S01-002",
+                          "depends_on: ['E001-S01-003', 'E001-S01-001', 'E001-S01-003']\n")
+        new = self._move("E001-S01-001", "E003", "S02")
+        _, node = pm.load_node(dep)
+        self.assertEqual(list(node["depends_on"]),
+                         ["E001-S01-003", new, "E001-S01-003"],
+                         "only the moved key changes, in place, and duplicates of another "
+                         "key are preserved rather than collapsed")
+
+    def test_an_issues_file_naming_a_different_story_is_left_untouched(self):
+        """`if hit:` had no false-arm fixture: every test with an issues file had a matching
+        reference in it. A write that saved unconditionally — or saved the wrong file — was
+        invisible, and this function writes BOTH issue files when it writes either."""
+        self._story("E001-S01-001")
+        self._story("E001-S01-002")
+        pm.main(["append-issue", "--state-root", self.sr, "--epic", "E001", "--sprint",
+                 "S01", "--severity", "Low", "--source", "code-review", "--title", "other",
+                 "--ref", "E001-S01-002"])
+        issues = os.path.join(self.sr, "issues.yaml")
+        before = self._read(issues)
+        resolved = os.path.join(self.sr, "issues-resolved.yaml")
+        self.assertFalse(os.path.exists(resolved))
+        self._move("E001-S01-001", "E003", "S02")
+        self.assertEqual(self._read(issues), before, "byte-identical, not merely equivalent")
+        self.assertFalse(os.path.exists(resolved),
+                         "a no-op must not bring the resolved file into existence")
+
+    def test_a_non_mapping_backlog_entry_is_skipped_not_crashed_on(self):
+        """The `if not isinstance(item, dict): continue` arm. A hand-edited or
+        externally-round-tripped issues file can hold a bare scalar in that list, and a
+        re-key must step over it rather than raise — this function runs mid-move, so a raise
+        here leaves the story moved and its references half-rewritten, which is precisely the
+        failure mode of the 3.4.2 crash."""
+        self._story("E001-S01-001")
+        pm.main(["append-issue", "--state-root", self.sr, "--epic", "E001", "--sprint",
+                 "S01", "--severity", "Low", "--source", "code-review", "--title", "t",
+                 "--ref", "E001-S01-001"])
+        issues = os.path.join(self.sr, "issues.yaml")
+        y, data = pm._load(issues)
+        data["backlog"].insert(0, "a bare string nobody should have written")
+        pm._atomic_dump(y, data, issues)
+        new = self._move("E001-S01-001", "E003", "S02")
+        _, after = pm.load_node(issues)
+        self.assertEqual(after["backlog"][0], "a bare string nobody should have written")
+        self.assertEqual(after["backlog"][1]["ref"], new)
+
     def test_the_documents_frontmatter_key_is_rewritten_and_the_body_is_not(self):
         self._story("E001-S01-001")
         self._doc("E001-S01-001")

@@ -16,6 +16,7 @@
     "check:manifest": "node scripts/write-payload-manifest.mjs --check",
     "check:module": "node scripts/check-module.mjs",
     "check:scripts": "node scripts/sync-shared-scripts.mjs --check",
+    "check:types": "node scripts/check-types.mjs",
     "check:version": "node scripts/check-pm-status-version.mjs",
     "ci:local": "node scripts/ci-local.mjs",
     "postbump": "node scripts/sync-bmad-versions.mjs && node scripts/sync-shared-scripts.mjs && node scripts/write-payload-manifest.mjs && git add -u",

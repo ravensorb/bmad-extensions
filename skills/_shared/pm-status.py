@@ -332,6 +332,22 @@ import subprocess
 import sys
 import tempfile
 from datetime import UTC, datetime
+from typing import TYPE_CHECKING
+
+# TYPE-CHECKING ONLY, and load-bearing. Every other ruamel import in this file is lazy --
+# inside the function that uses it -- so the `except ModuleNotFoundError` guard below can
+# print a readable message instead of a traceback. That leaves `CommentedSeq` out of scope
+# at module level, and an annotation naming a type mypy cannot resolve degrades to `Any`:
+# `reveal_type(store.backlog)` prints `Any`, calling `Any` is permitted, and IssueStore's
+# accessors type-check nothing at all. That is not hypothetical -- `store.backlog()` on a
+# @property shipped a crash in 3.4.2, and an annotation without this import does NOT catch
+# it (measured: 0 findings with the lazy import, 2 with this one).
+#
+# TYPE_CHECKING is False at runtime, so nothing is imported and the guard below is
+# untouched. `check:types` fails on [name-defined], which is exactly what removing this
+# import looks like -- the gate protects the mechanism that makes the gate work.
+if TYPE_CHECKING:
+    from ruamel.yaml.comments import CommentedSeq
 
 try:
     from ruamel.yaml import YAML
@@ -6313,12 +6329,15 @@ class IssueStore:
                                  f"a list that cannot say what is recorded cannot be trusted "
                                  f"to receive more. Fix or restore it by hand, then retry.")
 
+    # Annotated so `store.backlog()` -- reading a @property as a method -- is a type error
+    # rather than a runtime TypeError discovered by a user. See the TYPE_CHECKING import at
+    # the top of this file: without it these annotations resolve to `Any` and check nothing.
     @property
-    def backlog(self):
+    def backlog(self) -> CommentedSeq:
         return self.open["backlog"]
 
     @property
-    def resolved(self):
+    def resolved(self) -> CommentedSeq:
         return self.res["resolved"]
 
     @staticmethod

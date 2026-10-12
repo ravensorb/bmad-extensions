@@ -108,6 +108,23 @@ is absent and is swallowed (it reports a `lint-setup` finding for a missing **uv
 missing ruff). Deliberate violations are marked inline with `# noqa: RULE -- reason`, never
 ignored wholesale; `ruff.toml` states the only two exemptions and why each cannot be inline.
 
+**`check:types` is a SCOPED type check over `pm-status.py` — two error classes, never a clean
+file.** mypy reports 65 findings there today (mostly `str | None` into `os.path` calls), so
+gating on zero would mean a large unrelated cleanup first and no gate at all until it landed.
+The two gated classes are the message `not callable` (a `@property` read as a method — the
+pattern that shipped the 3.4.2 `reparent-story` crash, which **ruff cannot see**, verified on a
+repro) and **any** `[name-defined]`. The second guards the first: every ruamel import in
+`pm-status.py` is lazy, so `CommentedSeq` is out of scope at module level and an annotation
+naming it silently degrades to `Any` — `reveal_type` prints `Any`, calling `Any` is allowed,
+and the gate goes blind while still reporting success. The `if TYPE_CHECKING: from
+ruamel.yaml.comments import CommentedSeq` at the top of the file is therefore load-bearing, and
+deleting it *is* a `[name-defined]` error, so the gate fails instead of quietly checking
+nothing. Measured: lazy import + annotation + bug → **0** findings; `TYPE_CHECKING` import +
+annotation + bug → **2**, at both call sites; correct code → **0**. Do not widen this to
+clean-file enforcement without deciding that deliberately — `scripts/tests/check-types.test.mjs`
+asserts the other 65 stay ungated. Found by the downstream package doing the annotation
+follow-up and hitting the inert state.
+
 **`check:bmb` runs BMad Builder's own scanners over this package's skills.** bmb ships them
 in the `bmad-builder` npm package, a devDependency, so `npm ci` is the whole setup — a real
 BMad install is not available to CI, because `.claude/skills/` is gitignored. Both the

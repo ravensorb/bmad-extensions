@@ -134,6 +134,28 @@ That header call is already on `writeAllSync` and says why at the call site; wha
 was this paragraph. Raised by the downstream package after both our trees had documented
 the class purely in terms of queue depth, which is the frame this case escapes.
 
+## `check:types` — scoped, and the scope is the design
+
+`scripts/check-types.mjs` runs mypy over `skills/_shared/pm-status.py` and fails on two
+classes only. Its header carries the full argument; three things to know before touching it:
+
+- **It is not clean-file enforcement and should not become it.** 65 findings stand ungated.
+  A gate that works today beats a total one that is always one refactor away.
+- **"Fail on any `[operator]` finding" is the obvious narrow cut and it does not work** — the
+  file carries 4 pre-existing `[operator]` errors (`Unsupported operand types for +`), so that
+  gate would fail on an unmodified file. The cut has to be the message, `not callable`.
+- **The `[name-defined]` arm is not a bonus, it is the load-bearing half.** Delete the
+  `if TYPE_CHECKING` import from `pm-status.py` and the annotations resolve to `Any`, the
+  first arm matches nothing, and the gate reports success over the exact bug it exists for.
+  That arm is what turns a silent no-op into a failure. `scripts/tests/check-types.test.mjs`
+  mutates both halves and asserts the inert state is caught; its fixtures copy the **real**
+  `pm-status.py` rather than a toy file, because a minimal repro flags the bug *with or
+  without* the import and would have proved the gate worked when it did not.
+
+It spawns mypy through `uv`, like every other Python entry point here, so there is no
+dependency to declare and no interpreter to install. A `uv` that cannot spawn **fails** the
+gate rather than skipping it — the `check:bmb`-over-unlinted-Python lesson.
+
 ## Dependencies
 
 The checkers are **not** dependency-free, and have not been since
@@ -276,6 +298,7 @@ npm run sync:scripts    # regenerate payload copies from skills/_shared/ source
 npm run check:scripts   # verify payload copies match source (CI also runs this)
 npm run check:docs      # verify docs match the code they describe (CI + release gate)
 npm run check:manifest  # verify per-skill payload-manifest.json matches the payload (CI + release gate)
+npm run check:types     # scoped mypy over pm-status.py: accessor contracts only (CI)
 npm run check:lock      # verify package.json and package-lock.json agree (CI + release gate)
 node scripts/write-payload-manifest.mjs   # regenerate the manifests after editing a payload file
 ```

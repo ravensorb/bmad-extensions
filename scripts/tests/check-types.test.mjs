@@ -1,0 +1,126 @@
+// Tests for scripts/check-types.mjs.
+// Run: npm run test:scripts
+//
+// Each test runs the REAL checker (via CHECK_TYPES_ROOT) against a fixture holding a COPY of
+// the real pm-status.py, mutated. Copying the real file rather than writing a toy one is the
+// point: the defect this gate exists for was invisible on a minimal repro — an annotated
+// property DOES flag the bad call in five lines of Python, and does NOT in pm-status.py,
+// because that file imports ruamel lazily and the annotation degrades to `Any`. A fixture
+// that does not reproduce the lazy import would pass while the real gate was blind.
+//
+// These spawn mypy through uv and so are slower than the rest of the suite. That is the cost
+// of testing the gate rather than a model of it.
+import { test } from "node:test";
+import assert from "node:assert/strict";
+import { spawnSync } from "node:child_process";
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
+
+const REPO = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..");
+const CHECK = path.join(REPO, "scripts", "check-types.mjs");
+const REL = path.join("skills", "_shared", "pm-status.py");
+const REAL = path.join(REPO, REL);
+
+const ACCESSOR_LOOP = "for lst in (store.backlog, store.resolved):";
+const TC_IMPORT = "if TYPE_CHECKING:\n    from ruamel.yaml.comments import CommentedSeq\n";
+
+function fixture(t, mutate = (s) => s) {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "check-types-"));
+  t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+  const dest = path.join(dir, REL);
+  fs.mkdirSync(path.dirname(dest), { recursive: true });
+  fs.writeFileSync(dest, mutate(fs.readFileSync(REAL, "utf8")));
+  return dir;
+}
+
+function run(root, args = []) {
+  return spawnSync(process.execPath, [CHECK, ...args], {
+    cwd: REPO,
+    env: { ...process.env, CHECK_TYPES_ROOT: root },
+    encoding: "utf8",
+  });
+}
+
+test("the real file passes", (t) => {
+  const r = run(fixture(t));
+  assert.equal(r.status, 0, r.stderr);
+  assert.match(r.stdout, /Type checks passed/);
+});
+
+test("a @property read as a method fails — the 3.4.2 reparent-story crash", (t) => {
+  const root = fixture(t, (s) => {
+    const n = s.replaceAll(ACCESSOR_LOOP, "for lst in (store.backlog(), store.resolved()):");
+    assert.notEqual(n, s, "the accessor loop moved; update ACCESSOR_LOOP");
+    return n;
+  });
+  const r = run(root);
+  assert.equal(r.status, 1);
+  assert.match(r.stderr, /"CommentedSeq" not callable/);
+  assert.match(r.stderr, /reparent-story crash/);
+});
+
+test("BOTH accessor call sites are reported, not just the first", (t) => {
+  // A checker that sees one of two is one you will trust past the one it cannot see. The
+  // second site is _rewrite_references, added by the 3.4.3 fix; the first is _normalize_keys.
+  const root = fixture(t, (s) =>
+    s.replaceAll(ACCESSOR_LOOP, "for lst in (store.backlog(), store.resolved()):"));
+  const r = run(root);
+  assert.equal((r.stderr.match(/not callable/g) || []).length, 2, r.stderr);
+});
+
+test("deleting the TYPE_CHECKING import fails instead of going quietly blind", (t) => {
+  // THE LOAD-BEARING TEST. Without that import the annotations resolve to `Any`, calling
+  // `Any` is permitted, and this gate reports success over the very bug it exists for —
+  // measured: 0 findings. A no-op that still prints a pass is the most dangerous shape a
+  // check can have, and this repo has shipped it twice (a manifest covering 38% of the
+  // payload; a bmb scan passing because ruff could not spawn).
+  const root = fixture(t, (s) => {
+    assert.ok(s.includes(TC_IMPORT), "the TYPE_CHECKING import moved; update TC_IMPORT");
+    return s.replace(TC_IMPORT, "");
+  });
+  const r = run(root);
+  assert.equal(r.status, 1);
+  assert.match(r.stderr, /Name "CommentedSeq" is not defined/);
+});
+
+test("the inert-annotation state does NOT report the bug — why the second class is gated", (t) => {
+  // The proof the two gated classes are not redundant. With the import gone AND the bug
+  // present, mypy never says "not callable" at all; the only thing standing between that and
+  // a silent pass is the [name-defined] arm.
+  const root = fixture(t, (s) =>
+    s.replace(TC_IMPORT, "")
+      .replaceAll(ACCESSOR_LOOP, "for lst in (store.backlog(), store.resolved()):"));
+  const r = run(root);
+  assert.equal(r.status, 1);
+  assert.doesNotMatch(r.stderr, /not callable/,
+    "if mypy now reports this with the lazy import, the gate's rationale has changed");
+  assert.match(r.stderr, /Name "CommentedSeq" is not defined/);
+});
+
+test("the file's other 65 findings are NOT gated", (t) => {
+  // Scope is the whole design: gating on a clean file would mean a large unrelated cleanup
+  // first, and until it landed there would be no gate at all. If this starts failing, someone
+  // widened the gate — decide that deliberately rather than discovering it in CI.
+  const r = run(fixture(t), ["-v"]);
+  assert.equal(r.status, 0, r.stderr);
+  assert.match(r.stdout, /ungated finding\(s\) not checked/);
+  assert.match(r.stdout, /ungated findings by code:/);
+});
+
+test("a pre-existing [operator] finding is not enough to fail — the cut is the message", (t) => {
+  // The obvious narrow cut, "fail on any [operator] finding", would fail on an unmodified
+  // file: it carries 4 of them (`Unsupported operand types for + ("object" and "int")`).
+  const r = run(fixture(t), ["-v"]);
+  assert.equal(r.status, 0);
+  assert.match(r.stdout, /operator=\d+/, "the ungated tally should still show operator findings");
+});
+
+test("a missing target fails rather than passing over nothing", (t) => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "check-types-"));
+  t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+  const r = run(dir);
+  assert.equal(r.status, 2);
+  assert.match(r.stderr, /not found/);
+});

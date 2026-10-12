@@ -68,6 +68,14 @@ jobs:
     # over ~12,000 unlinted lines.
     - name: Python lint (ruff)
       run: npm run check:lint:py
+    # Scoped type check over pm-status.py: two classes only, not a clean file (mypy reports
+    # 65 findings there today). ruff cannot see either -- a @property read as a method is a
+    # type error, not a lint, verified on a minimal repro -- and that exact pattern shipped
+    # the 3.4.2 reparent-story crash. The second gated class guards the first: the
+    # TYPE_CHECKING import this depends on is invisible at runtime, and deleting it would
+    # turn the check into a no-op that still reports success.
+    - name: Type check (scoped — pm-status.py accessor contracts)
+      run: npm run check:types
     # standards-shell.md — a reference this package SHIPS to consumers — requires
     # "ShellCheck clean in CI, not just locally", and the repo shipped shell with no gate.
     # The gate FAILS (exit 2) rather than skipping when shellcheck is absent: a linter that
