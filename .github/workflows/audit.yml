@@ -8,16 +8,33 @@ name: audit
 # an advisory lands. Five days passed between those two findings and the only reason either was
 # noticed is that somebody thought to run `npm audit` by hand.
 #
-# Dependabot alerts are DISABLED on this repository: GET /repos/.../vulnerability-alerts
-# returns 404 (checked 2026-09-30 and again 2026-10-09, unchanged). Enabling them is a
-# repository-settings change and the owner's call; until it happens this cron is the only thing
-# watching. If alerts are later turned on, this workflow becomes redundant rather than wrong --
-# delete it then, deliberately, rather than letting two mechanisms drift.
+# ITS JOB CHANGED ON 2026-10-12, AND THIS FILE'S OWN EARLIER INSTRUCTION WAS TO DELETE IT.
+# Dependabot alerts and security updates are now ENABLED here (verified against
+# GET /repos/.../vulnerability-alerts -> 204 and /automated-security-fixes -> enabled:true;
+# both returned 404/absent from 2026-09-30 through 2026-10-12). The header used to say that
+# turning alerts on made this workflow "redundant rather than wrong -- delete it then".
+#
+# It was kept instead, deliberately, for a reason that instruction did not weigh: Dependabot
+# alerting is a REPOSITORY SETTING. It is invisible to the tree, switchable without a diff,
+# and unverifiable from a clone. This workflow is a tracked file. Trading the second for the
+# first swaps a mechanism you can read for one you have to remember to check -- and "a gate
+# that silently does not run" is the exact failure this repo has shipped twice (check:bmb
+# reporting clean over ~12,000 unlinted lines; a payload manifest covering 38% of the payload).
+#
+# The old "two mechanisms drift" worry does not apply. Both are pure DETECTORS over the same
+# GitHub Advisory Database and neither mutates anything, so there is no rule for them to
+# disagree about. What they can do is notify twice, which is why the cron dropped from daily
+# to weekly: Dependabot is now the fast path (immediate, every severity), and this is the
+# backstop that keeps working if the setting is ever turned off.
+#
+# The gating half is elsewhere and is not replaced by any of this: checks.yml runs
+# `npm run check:audit` on push and pull_request, because Dependabot never blocks a merge.
 on:
   schedule:
-    # 06:17 UTC daily. Not on the hour: GitHub drops scheduled runs under load at popular times,
-    # and a gate that silently does not run is the failure mode this file exists to prevent.
-    - cron: '17 6 * * *'
+    # 06:17 UTC on Mondays. Not on the hour: GitHub drops scheduled runs under load at popular
+    # times, and a gate that silently does not run is the failure mode this file exists to
+    # prevent. Weekly rather than daily since Dependabot became the fast path -- see above.
+    - cron: '17 6 * * 1'
   workflow_dispatch:
 
 permissions:
