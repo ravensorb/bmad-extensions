@@ -7199,7 +7199,8 @@ def _promote_issue(args) -> int:
         if k in keys:
             raise PMError(2, f"--key {k} was given twice. Promoting several items into one "
                              f"story needs --title, and a repeated key would skip that "
-                             f"check by collapsing to one. Pass each key once.")
+                             f"check by collapsing to one. Drop the duplicate, or name the "
+                             f"other key you meant.")
         keys.append(k)
     if len(keys) > 1 and not args.title:
         raise PMError(2, "promoting several items into one story needs --title")
