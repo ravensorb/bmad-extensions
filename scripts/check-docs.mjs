@@ -144,6 +144,26 @@
 //                    than diverging. Derived from the same table check 25 reads.
 //
 // ---------------------------------------------------------------------------------------
+// SCOPE OF THIS FILE AS A WHOLE — surface, never behaviour.
+//
+// Every check here compares documented CLI *surface* to the code: flag names, `choices`,
+// subcommand names, counts, paths, versions. **Nothing here compares documented BEHAVIOUR to
+// the code**, and nothing can without a model of what the code does. So a reference row may
+// name every flag correctly, describe the wrong semantics, and pass forever.
+//
+// That is not hypothetical and not a near miss. Both reference docs described
+// `sync-agent-instructions` as acting on "the running harness's file" and documented exits
+// 0/1/2 -- the never-CREATES half of a two-half rule -- for the whole life of the change that
+// added the always-REFRESHES half and exit 3. Every flag in both rows was right. All thirty-
+// five checks passed over them, in THIS repository and independently in the downstream one,
+// which found the identical two rows stale in its own tree on the same day.
+//
+// Stated here because CLAUDE.md sends readers to this header as the authority on what these
+// checks assert, and a reader who finds no such limit recorded will reasonably assume a green
+// `check:docs` means the docs are right. It means the docs name the right flags.
+//
+// The complement is a human reading the row against the behaviour. There is no gate for it.
+
 // KNOWN GAPS — check 4's reach over skills/
 //
 // Same framing checks 17 and 21 carry, and for the same reason: prose that overstates its own
