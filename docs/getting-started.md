@@ -521,8 +521,7 @@ Two modes worth knowing:
 ```
 
 > `/l3io-util-cleanup` was renamed to `/l3io-doctor` in 2.1.0. The old name's deprecated
-> forwarder has been removed on `main` and ships in the next release; it is still present in
-> 2.5.1, the current release — see [Upgrading](upgrading.md).
+> forwarder was removed in 3.0.0 — see [Upgrading](upgrading.md).
 
 To split a legacy single `sprint-status.yaml` into the active/backlog/archived three-file layout as a one-time explicit migration (the original is preserved as `sprint-status.yaml.legacy`):
 

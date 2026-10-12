@@ -705,7 +705,7 @@ its sixteen modes, while the default behavior is a diagnose-report-repair health
 
 Backward compatible at the time — no action required. `/l3io-util-cleanup` printed a rename
 notice and forwarded. Update any scripts, aliases, or team docs that invoke the old name; it
-was deprecated, and has since been removed on `main` ahead of the next release (see above).
+was deprecated, and was removed in 3.0.0 (see above).
 
 **New: progress reporting.** `/l3io-help progress` (which forwards to
 `/l3io-doctor stats`) and `/l3io-doctor stats` itself render a plan-aware tree —
@@ -793,5 +793,5 @@ It dry-runs first and confirms before deleting.
 
 | Deprecated | Since | Replacement | Removal |
 |---|---|---|---|
-| `/l3io-util-cleanup` | 2.1.0 | `/l3io-doctor` | removed on `main`; ships in the next release (not in 2.5.1) |
+| `/l3io-util-cleanup` | 2.1.0 | `/l3io-doctor` | removed in 3.0.0 |
 | `migrate-schema`, `split-status`, `reconcile-status` | — | legacy-only bridging modes; no longer reachable once `migrate-state` has run | when 1.x migration support is dropped |

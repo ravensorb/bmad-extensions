@@ -16,9 +16,8 @@ Skill: `/l3io-doctor [command]`.
 > **Renamed in 2.1.0.** This skill was `l3io-util-cleanup` through 2.0.x. "Cleanup"
 > described about three of its modes, while the default behavior is a
 > diagnose-report-repair health check. The deprecated `/l3io-util-cleanup` forwarder has
-> been **removed on `main`** and ships in the next release — it is still present in 2.5.1,
-> the current release. See [Upgrading](upgrading.md). Update any scripts or docs that still
-> invoke the old name.
+> been **removed in 3.0.0**. See [Upgrading](upgrading.md). Update any scripts or docs that
+> still invoke the old name.
 
 ## Configuration
 
