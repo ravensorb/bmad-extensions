@@ -107,6 +107,13 @@
 //                    mentions, not calls, and each produced a false positive first.
 //  34. no-hand-edit-directives  no runtime directive tells a user to hand-edit a file
 //                              this package writes — the human decides, the agent edits
+//  35. forwarder-version-oracle  a forwarder's RENAME version names a release that was
+//                              actually cut (<= package.json's). The oracle is OUTSIDE the
+//                              file: every other guard over these versions compares the file
+//                              to itself, and three agreeing copies of a wrong number pass by
+//                              construction. Not the tag list — CI checks out shallow, so
+//                              that arm would be empty exactly where it runs. The REMOVAL
+//                              version is check-module rule 13's, not this one's.
 //  31. no-flags-on-slash-commands  no `/l3io-*` invocation in LIVE_DOCS or in a markdown
 //                    file under skills/ carries a `--flag`. No l3io-* skill parses flags: l3io-execute takes
 //                    `E{nnn}`, `E{nnn}-S{nn}` or nothing, and anything else prints
@@ -256,6 +263,7 @@ import { fileURLToPath } from "node:url";
 import YAML from "yaml";
 import sh from "mvdan-sh";
 import { writeAllSync } from "./write-all-sync.mjs";
+import { declaresForwarder } from "./forwarder-shape.mjs";
 
 // CHECK_DOCS_ROOT points the checker at another tree -- scripts/tests/check-docs.test.mjs
 // runs it against a temp copy with a planted violation.
@@ -4752,6 +4760,76 @@ function checkNoHandEditDirectives() {
   }
 }
 
+// 35. A forwarder's RENAME version must name a release that was actually cut.
+//
+// A forwarder states two versions: the release that renamed it, and the release that will
+// remove it. Every existing guard over them compares the file to ITSELF -- check-module's
+// rule 13 asks whether the frontmatter, the body and the stderr notice agree -- and three
+// copies of a wrong version agree perfectly. The oracle has to sit outside the file, and the
+// only fact outside it that cannot drift is which releases exist.
+//
+// WHY NOT THE TAG LIST, which is the obvious oracle. Two independent reasons, either fatal:
+// CHANGELOG.md covers 82 of this repo's 88 tags, so a forwarder naming one of the other six
+// would read as fictional; and `actions/checkout` runs at its default depth, which fetches no
+// tags at all, so the git arm would be empty exactly where the gate runs. A gate whose oracle
+// is empty in CI passes everything -- the shape that let check:bmb report clean over ~12,000
+// unlinted lines.
+//
+// package.json needs no oracle and cannot be unavailable or shallow. The rename already
+// happened, so its version must be <= the current one; a rename dated in the future tells
+// every user on every shipped version that it is still ahead of them.
+//
+// THE REMOVAL VERSION IS NOT CHECKED HERE. check-module.mjs rule 13 already fails a forwarder
+// whose promised removal version the package has reached, which is the same comparison, and
+// two gates asserting one fact is how they drift into disagreeing. Rule 13 owns the forwarder
+// contract -- target, body, notice, payload, and that the two copies of each version agree.
+// This check owns the one question rule 13 cannot answer from inside the file: whether the
+// rename version names a release that was ever cut.
+//
+// KNOWN GAP: a past-but-never-cut version (naming 3.0.5 when the rename was 3.0.4) is not
+// caught. It misdirects a reader by one release, where the half this does catch points users
+// at a release newer than the one they are running.
+const RENAME_VERSION_RE = /\brenamed\b[^.\n]{0,40}?\bin\s+v?(\d+\.\d+\.\d+)/gi;
+
+function semverCmp(a, b) {
+  const pa = a.split(".").map(Number);
+  const pb = b.split(".").map(Number);
+  for (let i = 0; i < 3; i++) if (pa[i] !== pb[i]) return pa[i] < pb[i] ? -1 : 1;
+  return 0;
+}
+
+function checkForwarderVersionOracle() {
+  const current = JSON.parse(read("package.json")).version;
+  const violations = [];
+  let claims = 0;
+  for (const rel of allSkillDocs()) {
+    if (!/\/SKILL\.md$/.test(rel)) continue;
+    // Forwarders only, through forwarder-shape.mjs. Re-deriving "is this a forwarder" here
+    // would be a second definition of the thing that file exists to be the only one of.
+    if (!declaresForwarder(path.dirname(path.join(repoRoot, rel)))) continue;
+    const text = read(rel);
+    RENAME_VERSION_RE.lastIndex = 0;
+    let m;
+    while ((m = RENAME_VERSION_RE.exec(text)) !== null) {
+      claims++;
+      if (semverCmp(m[1], current) > 0) {
+        violations.push(`${rel}: says it was renamed in ${m[1]}, which is newer than the `
+          + `current version ${current} -- it names a release that has not happened. A user `
+          + `on any shipped version is told the rename is in their future.`);
+      }
+    }
+  }
+  // One line per (file, version), not per occurrence: a forwarder states each version three
+  // times by design and rule 13 keeps them in step, so a wrong one is wrong in triplicate.
+  // Three identical failures describe one defect and one fix.
+  const unique = [...new Set(violations)];
+  for (const v of unique) failures.push(`[check 35] ${v}`);
+  if (verbose) {
+    console.log(`  forwarder-version-oracle: ${claims} version claim(s) against ${current}, `
+                + `${unique.length} violation(s)`);
+  }
+}
+
 function checkProbePathParity() {
   const { violations } = probePathParity();
   for (const v of violations) failures.push(`[check 29] ${v}`);
@@ -4797,6 +4875,7 @@ checkResolverInvariant();
 checkChoiceEnumerations();
 checkGateImports();
 checkNoHandEditDirectives();
+checkForwarderVersionOracle();
 checkProbePathParity();
 checkSubcommandRequired();
 checkRecursiveGrep();

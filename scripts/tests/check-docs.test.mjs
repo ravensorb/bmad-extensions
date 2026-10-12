@@ -3783,3 +3783,57 @@ test("check 34: a line forbidding hand edits is not a hand edit", async (t) => {
         "Regenerate rather than hand-editing the manifest.\n");
   assert.doesNotMatch((await run(root)).stderr, /\[check 34\]/);
 });
+
+// --- check 35: forwarder-version-oracle ----------------------------------------------- //
+// The oracle sits OUTSIDE the file on purpose. Every other guard over a forwarder's versions
+// compares the file to itself — rule 13 asks whether frontmatter, body and notice agree —
+// and three agreeing copies of a wrong number pass by construction.
+
+test("check 35: the tree as committed states no impossible forwarder version", async (t) => {
+  const root = fixture(t);
+  assert.doesNotMatch((await run(root)).stderr, /\[check 35\]/);
+});
+
+test("check 35: a rename version newer than the package version fails", async (t) => {
+  const root = fixture(t);
+  const rel = "skills/l3io-pm-execute/SKILL.md";
+  const v = JSON.parse(fs.readFileSync(path.join(root, "package.json"), "utf8")).version;
+  write(root, rel, fs.readFileSync(path.join(root, rel), "utf8").replace(/3\.1\.3/g, "9.9.9"));
+  const r = await run(root);
+  assert.equal(r.status, 1);
+  assert.match(r.stderr, /\[check 35\]/);
+  assert.match(r.stderr, /renamed in 9\.9\.9, which is newer than the current version/);
+  assert.match(r.stderr, new RegExp(v.replace(/\./g, "\\.")));
+});
+
+test("check 35: one line per wrong version, not one per copy of it", async (t) => {
+  const root = fixture(t);
+  const rel = "skills/l3io-pm-execute/SKILL.md";
+  const before = fs.readFileSync(path.join(root, rel), "utf8");
+  // Load-bearing: a forwarder states the rename version three times by design, and if that
+  // ever stops being true this fails loudly rather than letting the dedup assertion below
+  // pass vacuously over a single occurrence.
+  assert.equal((before.match(/3\.1\.3/g) || []).length, 3);
+  write(root, rel, before.replace(/3\.1\.3/g, "9.9.9"));
+  const hits = ((await run(root)).stderr.match(/\[check 35\][^\n]*renamed in 9\.9\.9/g) || []);
+  assert.equal(hits.length, 1, "three copies of one wrong version are one defect");
+});
+
+test("check 35: the removal version is check-module rule 13's, not this check's", async (t) => {
+  // One fact, one gate. Asserted here so that if check 35 ever grows a removal arm, this
+  // fails and says where that comparison already lives.
+  const root = fixture(t);
+  const rel = "skills/l3io-pm-execute/SKILL.md";
+  write(root, rel,
+        fs.readFileSync(path.join(root, rel), "utf8").replace(/4\.0\.0/g, "0.0.1"));
+  assert.doesNotMatch((await run(root)).stderr, /\[check 35\]/);
+});
+
+test("check 35: a skill that is not a forwarder is not judged", async (t) => {
+  const root = fixture(t);
+  // The identical sentence shape, in a skill whose description does not declare it one.
+  write(root, "skills/l3io-help/SKILL.md",
+        fs.readFileSync(path.join(root, "skills/l3io-help/SKILL.md"), "utf8")
+        + "\nThis was renamed in v9.9.9 and will be removed in v0.0.1.\n");
+  assert.doesNotMatch((await run(root)).stderr, /\[check 35\]/);
+});
