@@ -8375,26 +8375,34 @@ class TestScheduleIssue(IssueBase):
                     "--kind", "spec-change", "--ref", "deadbeef1234")
         self.authored_story("E001-S01-005")
         lock = pm.epic_lock_path(self.root, "E001")
+        self.assertFalse(os.path.exists(lock), "precondition: no epic lock yet")
         code, _o, err = self.schedule(self.open_keys()[0], "E001-S01-005")
         self.assertEqual(code, 2, err)
         self.assertFalse(os.path.exists(lock),
                          "the advisory items pass must refuse before the epic lock")
 
-    def test_a_bad_story_never_even_opens_the_issues_file(self):
-        """The SECOND advisory pass, and it guards a different lock. `_schedule_target` runs
-        before `issues_lock` is taken at all, so a story that does not exist is refused
-        without ever touching issues.yaml — removing it moves that refusal behind the issues
-        lock, which every other backlog verb contends on."""
+    def test_a_bad_story_is_refused_before_ANY_lock_is_taken(self):
+        """The SECOND advisory pass, and the only refusal in this verb that touches no lock
+        at all. `_schedule_target` runs before `issues_lock` is even entered, so a story that
+        does not exist is refused without opening issues.yaml. Measured with it removed: the
+        call falls through, takes the issues lock, takes the epic lock, and only then fails
+        at the decisive check — so BOTH are asserted here, not just the issues one.
+
+        The item must be a plain defect. A spec-kind item is refused by `_schedulable_items`
+        inside the issues lock but before the epic lock, which masks the second half of the
+        effect and is how this was first mis-measured."""
         self.append("A")
         issues_lock = self.issues + ".lock"
         # append-issue took that lock itself, so the file already exists. Clear it: the
         # claim is that THIS call does not take it, not that it has never been taken.
         if os.path.exists(issues_lock):
             os.remove(issues_lock)
+        epic_lock = pm.epic_lock_path(self.root, "E001")
         code, _o, err = self.schedule(self.open_keys()[0], "E001-S01-099")
         self.assertEqual(code, 3, err)
         self.assertFalse(os.path.exists(issues_lock),
                          "the target check runs before the issues lock is taken")
+        self.assertFalse(os.path.exists(epic_lock), "and before the epic lock")
 
     def test_the_event_names_how_the_scheduling_happened(self):
         """promote-issue writes no `via`, repair-link writes via=repair-link. A third
