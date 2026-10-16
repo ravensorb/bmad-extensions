@@ -341,6 +341,46 @@ detect a v7-migratable l3io project and say so loudly, before a user types `bmad
 **3.x becomes the frozen v6.12 maintenance line**, mirroring BMad's own two-line model
 (`V6.12` branch + `main`).
 
+### 8.1 Transcript resolution fallback
+
+Independent of v7, and belongs in the bridge because it improves the v6 line too.
+
+`resolve_session_transcript()` begins:
+
+```python
+session_id = session_id or os.environ.get(CLAUDE_SESSION_ENV, "")
+if not session_id:
+    return [], ""
+```
+
+Everything downstream of resolution is sound — content-verified identity, dispatch-bracket
+windowing, `message.id` deduplication, the `cache_creation` double-count avoided, subagent files
+resolved. But all of it hangs on `CLAUDE_CODE_SESSION_ID` being in the environment. Where it is
+not — a hook context, a wrapper that scrubs env, a delegated run in another session — a Claude
+run reports `N/A` while the data sits on disk the whole time.
+
+**Fallback chain:**
+
+1. `CLAUDE_CODE_SESSION_ID` — exact, unchanged, always preferred.
+2. Candidates under `~/.claude/projects/<slug(cwd)>/`, accepted **only** when a candidate's own
+   records carry a `sessionId` and span the node's dispatch bracket.
+3. Ambiguous (more than one verifies) or none → `N/A`, naming what was found and why it was
+   refused.
+
+**The hard constraint is that a fallback must never pick a plausible file.** The worst failure
+this contract has recorded was file choice, not arithmetic: pointed at a task `.output` artifact,
+a count reported an output figure several times below reality while the cache figures matched
+closely, so nothing looked wrong. A wrong transcript poisons calibration silently and looks fine
+doing it; `N/A` does not. Identity is verified from record content, never from filename
+plausibility, and the degraded path is `N/A` — never a guess.
+
+**Related, and currently missed:** `subagents/agent-*.meta.json` carries `model` (alongside
+`agentType`, `description`, `toolUseId`, `spawnDepth`). Cost is priced per model, and a
+dispatched agent may run on a different model than its parent, so a mixed run is currently
+priced at a single rate. Per-agent model attribution is available on disk and should be used.
+The meta file carries no `sessionId` and no parent link, so it is an attribution input only —
+never an identity proof.
+
 **These are two implementation plans, not one.** The 3.5.x bridge is self-contained, lands on
 the v6 line, and does not depend on any §2–§7 decision — it should be planned and shipped on
 its own. 4.0.0 is a rewrite whose surface is still moving (§11) and should not be planned in
@@ -395,7 +435,12 @@ Allocate every number through `pm-status.py adr-reserve`, never by hand.
   `flock`. Under v7 we no longer own that path. Per-ticket partitioning should make it safe, but
   parallel epics writing sidecars plus `bmad-build-auto` writing plan files has not been
   measured.
-- **Open:** does `bmad-build-auto` surface enough token/cost telemetry for our actuals capture,
-  or does delegating implementation cost us the exact-capture property under Claude? If it does,
-  the five-metric HARD RULE degrades to `N/A` on the metric that matters most, and the
-  delegation decision in §4.3 needs revisiting.
+- **Largely closed — telemetry under delegation.** An earlier draft of this section called this
+  the biggest open risk. That overstated it: `pm-status.py usage` already reads the session
+  transcript **from disk**, not from context, and already resolves dispatched work at
+  `~/.claude/projects/<dir>/<session-id>/subagents/agent-*.jsonl`. `bmad-build-auto` renders a
+  workflow for the calling agent to follow, so it runs in-session by construction and lands in
+  that same tree. As long as we keep writing our own `dispatch_open`/`dispatch_close` bracket
+  around the delegated work — which we control regardless of who implements — the window and
+  the arithmetic are unchanged. §4.3 stands.
+  The residual gap is narrow and is addressed in §8.1.
