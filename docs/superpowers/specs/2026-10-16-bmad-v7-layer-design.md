@@ -3,13 +3,21 @@
 **Status:** design approved in conversation; spec awaiting review.
 **Branch:** `feat/bmad-v7-layer`.
 
-**Read against a moving target.** Every claim about v7 here was measured against
-`bmad-code-org/BMAD-METHOD` at commit `8f0d50e` (2026-10-13), on `main`, which is the v7
-preview-alpha branch. As of 2026-10-16 — their stated ETA — **v7 has not released**: there is
-no `v7` tag, the latest release is `v6.12.4` (2026-10-14), and the README still carries the
-"ETA October 16, 2026, and it might be sooner" sentence unchanged. Their own README says the
-preview's "skills, install path, and docs change often." Re-measure before implementing any
-section; do not treat a quoted line here as current without checking it.
+**Read against a moving target.** Every claim about v7 here is measured against
+`bmad-code-org/BMAD-METHOD` on `main`, the v7 preview-alpha branch.
+
+| | |
+|---|---|
+| Pinned at | `61e01f8` (2026-10-18) |
+| Re-measured | 2026-10-20 |
+| Previously pinned at | `8f0d50e` (2026-10-13) — 31 commits behind |
+| v7 released? | **No.** No `v7` tag; latest release `v6.12.4` (2026-10-14) |
+
+**v7 is four days past its own stated ETA and the preview is churning hard** — 31 commits in
+five days, including an agent consolidation that renamed the single skill this design is built
+on. Their README still says the preview's "skills, install path, and docs change often," and
+that is an understatement. Re-measure before implementing any section; do not treat a quoted
+line here as current without checking it. §12 records what moved between the two pins.
 
 ## 1. Why this is not a compatibility patch
 
@@ -17,15 +25,22 @@ v7 is not a changed file layout. It is a **scope change**: BMad absorbed the wor
 layer that `l3io-pm` exists to provide, and took an explicit architectural position against
 ours. Two lines from their source carry the whole argument:
 
-> `# estimate = 2              # only when the user gives one; never proposed`
-> — `skills/bmad-ticket/assets/tickets-template.toml:19`
+> `# estimate = 2 # only if the user gives one`
+> — `skills/bmad-agent-po/assets/tickets-template.toml:19`
 
-> "Progress lives on tickets, not in a separate sprint or status file."
-> — `skills/bmad-ticket/references/board.md:10`
+The estimate field exists but is never derived — it carries a number only when a human supplies
+one. At the previous pin the comment read "only when the user gives one; **never proposed**";
+the prose was trimmed, the semantics were not.
 
-The first is a deliberate refusal to estimate. The second rejects the `sprint-status.yaml`-shaped
-design directly. Both are openings for us rather than threats — but they mean the question is
-ownership of the work-item tree, not which skill names resolve.
+The second position is structural rather than quoted. At the previous pin `board.md` carried
+"Progress lives on tickets, not in a separate sprint or status file." That sentence was cut in
+the Sofia prose trim, but the architecture it described is unchanged and now shows up more
+cleanly: **`sprint` appears nowhere in v7's skills except `bmod-method/retired.toml`,
+`migration-1.toml` and `help/help.md`** — that is, only where v6 is being described or
+migrated away from. There is no sprint level, and nothing that replaced one.
+
+Both are openings for us rather than threats — but they mean the question is ownership of the
+work-item tree, not which skill names resolve.
 
 Treating this as a detection patch over `read_manifest()` was the first approach taken and it
 was wrong. It is recorded here because the failure mode generalises: the v6→6.12 work was a
@@ -38,7 +53,7 @@ plausible-looking file diff.
 
 | | v7 | ours (v6) |
 |---|---|---|
-| Work-item tree | initiative → epic → leaf; `tickets.toml`; ids never reused, high-water allocator | `state/{planned,active,archived}/…` |
+| Work-item tree | parent initiative → initiative → epic → leaf; `tickets.toml`; ids never reused, high-water allocator | `state/{planned,active,archived}/…` |
 | States | planned / backlog / in-progress / review / done / dropped | backlog / ready-for-dev / in-progress / review / done |
 | Dependencies | `after` — sibling, cross-epic (`"<epic>.<entry>"`), whole-epic (`"epic-<slug>"`) | `depends_on` |
 | Readiness grouping | `tickets.py next` → `ready_to_start` / `blocked` / `ready_to_refine` | our readiness gate |
@@ -47,7 +62,7 @@ plausible-looking file diff.
 | HITL control | `hitl`, `plan_checkpoint`, `done_checkpoint` | our gates |
 | Requirement traceability | `covers` → requirement ids | `Spec:` pointers (ours is deeper, see §4.2) |
 
-Their id allocator converged independently on our never-reuse rule (`tickets.py:941`,
+Their id allocator converged independently on our never-reuse rule (`tickets.py:1003`,
 `next_id`), and their tracker abstraction is broader than ours. Neither is worth re-deriving.
 
 **v7 does not have — this is the layer:**
@@ -87,24 +102,36 @@ below is an application of it.
 
 | Target | Machine-rewritten by v7? | Safe for our data |
 |---|---|---|
-| `tickets.toml` | **No** — `tickets.py` reads it; it writes leaf `.md` files (`write_leaf`, `tickets.py:1145`) | yes, but see 3.2 |
-| leaf `.md` frontmatter | **Yes** — `pull` regenerates it | **never** |
+| `tickets/tickets.toml` | **Yes, as of `61e01f8`** — `tickets.py move` writes `next_id` into it | no — see 3.2 |
+| leaf `.md` frontmatter | **Yes** — `pull` regenerates it (`write_leaf`, `tickets.py:1199`) | **never** |
 | ticket plan file (`…-plan.md`) | **Yes** — `mark` writes status/assignee/blocked there | never, except through `mark` |
 
-There is no strict-key validation anywhere: `tickets.py` reads fields with `.get()`, and the
-template states the intent — "Keys `tickets.py` does not know are ignored, so a team may add
-its own" (`tickets-template.toml:4`). The `l3io_` prefix is still required, because `unknown`,
-`estimate`, `risk` and `notes` are already theirs.
+**The first row reversed between pins and the spec said the opposite.** At `8f0d50e`,
+`tickets.toml` was read-only to `tickets.py` and that was given as the reason extension keys
+there were durable. `61e01f8` adds a `move` subcommand that writes `next_id` back into the file:
+`# next_id = 7 # written by 'tickets.py move'; the folder's counter never goes below it`
+(`tickets-template.toml:5`). The conclusion in §3.2 is unaffected — we had already decided not
+to write that file — but the *reason* given was wrong, and would have been load-bearing had we
+decided the other way. It is recorded because it is the exact shape of claim this spec warns
+about in the header.
+
+There is still no strict-key validation: `tickets.py` reads fields with `.get()`, and the
+template header states the intent — "`tickets.py` ignores unknown keys"
+(`tickets-template.toml:1`). So user-set `l3io_*` keys still read back. The prefix remains
+required, because `unknown`, `estimate`, `risk` and `notes` are theirs.
 
 ### 3.2 We do not write `tickets.toml`
 
-Although extension keys there are durable, **we write sidecars instead**, for three reasons:
+Although user-set extension keys still read back, **we write sidecars instead**, for three
+reasons:
 
-1. **Contention.** `tickets.py` has no locking at all — no `flock`, no `fcntl`, no atomic
-   rename. It is safe because status lives in **per-ticket** plan files, so parallel work
-   touches different files by construction. Writing actuals into the shared per-epic
-   `tickets.toml` would reintroduce precisely the shared-file write that partitioning removed,
-   and that `pm-status.py` needed `flock` to survive.
+1. **Contention.** `tickets.py` still has no locking at all — no `flock`, no `fcntl`, no atomic
+   rename (verified at `61e01f8`). It got away with that while status lived only in
+   **per-ticket** plan files, so parallel work touched different files by construction. That is
+   now less true of their own code — `move` writes the shared `tickets.toml` unguarded — and it
+   would be false of ours if we wrote actuals there. Writing to the shared per-epic file would
+   reintroduce precisely the contention that partitioning removed and that `pm-status.py`
+   needed `flock` to survive, now against a writer that takes no lock either.
 2. **Ownership.** `tickets.toml` is human- and agent-authored prose-adjacent TOML with
    meaningful comments and table order. Machine-writing it makes round-trip preservation
    (comments, key order) a new requirement — TOML's equivalent of the `ruamel` round-trip
@@ -118,7 +145,7 @@ Extension keys remain relevant in one direction: a *user* may hand-set `estimate
 
 | Data | Written when | Home |
 |---|---|---|
-| sprint batch, class, lane, estimates | plan time, single-threaded | `l3io.toml` beside each `tickets.toml` |
+| sprint batch, class, lane, estimates | plan time, single-threaded | `l3io.toml` in the container's `tickets/` folder, beside `tickets.toml` |
 | actuals, fix iterations, completion evidence | story closeout, concurrent | per-ticket sidecar beside the plan file |
 | calibration, events, ADR register, reorg log, notices | project-wide | `{output_folder}/l3io/` |
 
@@ -138,10 +165,24 @@ doctor mode over their tree, and drop the ledger and its key allocator.
 
 | Ours | Theirs |
 |---|---|
+| *(none)* | **parent initiative** — new at `61e01f8`, `[[initiative]]` tables |
 | plan scope | initiative |
 | epic | epic |
 | **sprint** | *(not a level)* — an ordered batch declared in `l3io.toml` |
 | story | leaf (`[[entry]]` → pulled `.md`) |
+
+**Their tree grew a level between pins.** `61e01f8` adds a parent initiative over several
+initiatives — "propose a parent initiative over several initiatives, not epics inside epics;
+every initiative keeps initiative, epic and story" (`references/slice.md:29`). A parent's
+`tickets/tickets.toml` holds `[[initiative]]` tables with the same `id` / `slug` / `covers` /
+`after` shape as `[[epic]]`.
+
+This does not disturb the mapping — it extends it upward, which is where we had nothing. A plan
+scope stays an initiative; a parent initiative is a *portfolio* of plan scopes. Two consequences
+worth carrying into the plan: `tickets.py next` and `status` behave differently on a parent
+(they "list its child initiatives under `initiatives`", `board.md:13`), so anything reading
+their tree must know which kind of container it is pointed at; and the `after` graph now exists
+at three levels, not two, so §4.2's topological sort has a third possible scope.
 
 A sprint stops being a tree level and becomes a **batch boundary**. It keeps everything a
 sprint actually does — closure unit, retrospective, calibration feed-forward — without a fourth
@@ -183,11 +224,11 @@ official one is what that fallback chain already cost us across three releases.
 `cmd_mark` **refuses outright** when the store is not `repo`:
 
 > `raise StoreRefusal(f"store is {store}: change status through the store's write verb, not this script")`
-> — `tickets.py:1189`
+> — `tickets.py:1266`
 
 So on a Jira / Linear / GitHub-backed project we **cannot** write status with `mark`. The
 status write path must be store-aware, resolved once at activation from
-`{skill-root}/scripts/read_store.py -k tickets`. An orchestrator that assumes `mark` breaks on
+`bmad-agent-po/scripts/read_store.py -k tickets`. An orchestrator that assumes `mark` breaks on
 the first transition of every tracker-backed project, and the failure is at run time, in the
 middle of an epic.
 
@@ -299,7 +340,8 @@ and rot on their next release.
 Our half runs the existing engine pattern — detect → read → resolve → plan → **gate** → write
 → verify → dispose, with the gate before the write — and moves:
 
-- `epic-{nnn}/` → `epic-<slug>/` with a generated `tickets.toml`
+- `epic-{nnn}/` → `epic-<slug>/` with a generated `tickets/tickets.toml` (the file moved into a
+  `tickets/` subfolder at `61e01f8`; it was beside the container file at the previous pin)
 - stories → `[[entry]]` tables; `depends_on` → `after`; old keys kept in `previous_keys`
 - estimates/actuals → the `l3io.toml` and per-ticket sidecars
 - `issues.yaml` → `backlog/` as typed leaves
@@ -444,3 +486,45 @@ Allocate every number through `pm-status.py adr-reserve`, never by hand.
   around the delegated work — which we control regardless of who implements — the window and
   the arithmetic are unchanged. §4.3 stands.
   The residual gap is narrow and is addressed in §8.1.
+
+## 12. Drift log — `8f0d50e` (2026-10-13) → `61e01f8` (2026-10-18)
+
+31 commits. Re-measured 2026-10-20. **No decision in this spec reverses**, but several facts
+moved and one was outright wrong. Recorded per-pin because the next re-measure needs to know
+what already shifted once.
+
+### 12.1 Structural
+
+| Change | Effect here |
+|---|---|
+| **`bmad-ticket` → `bmad-agent-po`** ("Sofia, the Product Owner"). `bmad-spec` and `bmad-correct-course` **removed** and folded into her. | Every path in §3–§7 re-pointed. `tickets.py`, `read_store.py`, `tickets-template.toml`, the six store configs, `board.md`, `slice.md`, `validate.md` all moved **intact** — the model survived, the skill was reframed as an agent. |
+| **Parent initiative level added** (`[[initiative]]` tables) | §4.1 extended upward. Does not disturb the mapping; adds a portfolio scope above plan scope. |
+| **`tickets.toml` moved into a `tickets/` subfolder** | §3.3 and §7 paths updated. |
+| **`tickets.py move` added — it writes `tickets.toml`** | §3.1's "never machine-rewritten" was **false** as of this pin. Conclusion unaffected (we had already chosen sidecars); the stated reason was wrong. |
+| Three ticket templates consolidated into one `ticket-template.md`; new `references/replan.md`, `references/spec.md` | Migration target shapes need re-reading before §7 is implemented. |
+| `render_skill.py` now prints the rendered workflow rather than its path | §4.3's delegation contract — re-read `bmad-build-auto/SKILL.md` before implementing the dispatch. |
+
+### 12.2 Verified unchanged
+
+Re-measured at `61e01f8`, all still true:
+
+- **The lens model — §5 is fully intact.** `[[workflow.lenses]]` in `bmad-review`,
+  `[[workflow.quick_lenses]]`/`[[workflow.thorough_lenses]]` in `bmad-code-review`, and
+  `_KEYED_MERGE_FIELDS = ("code", "id")` with "matching key replaces, new keys append". This is
+  the most stable part of the design and the least at risk from further churn.
+- **Three config layers** — `config.toml` → `custom/config.toml` → `custom/config.user.toml`.
+- **`_bmad/_config` still only a reserved name**, so §8's v7 detection signal holds.
+- **`StoreRefusal` on non-`repo` stores** (`tickets.py:1266`) — §4.4's constraint stands.
+- **No locking anywhere** in `tickets.py` — 0 occurrences of `flock`/`fcntl`.
+- **Unknown keys still ignored** — "`tickets.py` ignores unknown keys".
+- **No estimation model** — every `calibrat` hit remains prose/PRD review.
+- **No sprint level** — `sprint` appears only in `retired.toml`, `migration-1.toml` and
+  `help/help.md`, i.e. only where v6 is described or migrated away from. Stronger evidence than
+  at the previous pin, since `bmad-correct-course` (which carried sprint prose) is now gone.
+
+### 12.3 What this says about timing
+
+v7 is **past its own stated ETA** with no tag, while the preview absorbed three skills into a
+new agent in a single week. §8's split — ship the bridge, hold 4.0.0 until the surface settles —
+is not caution, it is the measured read. A 4.0.0 plan written against `8f0d50e` would already
+have needed rework in six of its sections.
