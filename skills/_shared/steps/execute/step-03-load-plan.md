@@ -125,7 +125,7 @@ continue (`amber` warns and continues as below):
 this is a degraded path and this step has no inbox to wait on — write what you found and stop:
 ```
 BLOCKED: plan readiness is RED for {current_plan_file}. I ran /l3io-plan and readiness is
-still RED; the readiness findings it reported list the gaps. Two things unblock it:
+RED after it; the readiness findings it reported list the gaps. Two things unblock it:
   1. Resolve those gaps and re-run /l3io-execute.
   2. Accept the risk: say so, and I will set readiness to amber in
      {planning_artifacts}/plan-output-meta.yaml, then you re-run /l3io-execute.
@@ -197,7 +197,7 @@ report, and continue:
 missing:
 ```
 BLOCKED: plan-output-meta.yaml points at {current_plan}, which does not exist in
-{planning_artifacts}. I ran /l3io-plan and the pointer still names a missing file. This needs a
+{planning_artifacts}. I ran /l3io-plan and the pointer names a missing file after it. This needs a
 decision.
 ```
 

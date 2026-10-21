@@ -29,8 +29,11 @@ module has no overrides, not that it needs setup.
 
 ## Execution
 
-**Headless mode** — when `headless: true` is present in the injected context block, load
-step-00-activate for variable binding (pm_status path, state dirs), then the sprint steps.
+**Headless mode** — when `headless: true` is present in the injected context block, do not run
+activation: the orchestrator already did, and its context block carries the bindings (pm_status
+path, state dirs, session id). Load the digest, then the sprint steps. Activation is not loaded
+because its in-run records (`{layouts_reconciled}`, `{layout_migrated}`, `{state_repointed}`) are
+orchestrator memory and a subagent has none.
 step-01-classify-work is skipped because `{work_type}` is already injected in the context block.
 No setup pointer here: this is a dispatched sprint subagent, not the entry a user is starting
 work from, and the orchestrator that dispatched it already had its own chance to print it —
@@ -38,7 +41,7 @@ the pointer fires at most once ever per project regardless of which invocation g
 first.
 
 ```
-{skill-root}/steps/shared/step-00-activate.md
+{skill-root}/steps/shared/step-00-digest.md
 {skill-root}/steps/sprint/step-02-story-prep.md
 {skill-root}/steps/sprint/step-03-dev-loop.md
 {skill-root}/steps/sprint/step-04-sprint-closure.md

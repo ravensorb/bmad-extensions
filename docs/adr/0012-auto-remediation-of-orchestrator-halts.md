@@ -28,7 +28,7 @@ This follows ADR-0004: the agent acts and confirms after the edit lands. Every r
 prints one line before and one after, and a remediation that cannot report what it changed does
 not qualify.
 
-### Nine sites remediate
+### Eight sites remediate
 
 | Site | Remedy |
 |---|---|
@@ -36,7 +36,6 @@ not qualify.
 | four plan-pointer sites in `step-03-load-plan` (pointer absent, absent with snapshots, readiness RED, target missing) | `/l3io-plan` |
 | legacy state layout | `/l3io-doctor migrate-state` |
 | `implementation_artifacts` moved away from existing state | repoint `_bmad/custom/config.toml`, recording the previous value |
-| gitignored state root | append negation lines to the work-tree `.gitignore` that `git check-ignore -v` names |
 | multiple state layouts | **conditional** — move the legacy tree to `_bmad/state.superseded` only when every legacy epic key is also in the sharded tree |
 
 The last is the only remedy that depends on evidence. It compares epic keys alone: sprint or
@@ -44,11 +43,34 @@ story divergence inside a shared epic key is not examined. A legacy-only epic ke
 entry that is not an epic key, or a flat legacy file leaves it a halt that prints the keys that
 differ.
 
-### Fourteen sites halt
+### Fifteen sites halt
 
-Eleven are ordinary halts with no single remedy: external dependencies, user input errors,
+Twelve are ordinary halts with no single remedy: external dependencies, user input errors,
 ordering facts, aggregate findings, content authoring, a broken install, unknown state
-corruption, platform detection. Three are absolute.
+corruption, platform detection, and the gitignored state root. Three are absolute.
+
+### The gitignored state root was attempted and withdrawn
+
+The halt was first converted: append `!{pm_state_root}/` and `!{pm_state_root}/**` to the
+`.gitignore` that `git check-ignore -v` names. Measured in a scratch repository, it does not
+work:
+
+| `.gitignore` | `check-ignore -v` |
+|---|---|
+| `out/` | `.gitignore:1:out/` — ignored |
+| plus `!<ABS>/out/impl/state/` and `!<ABS>/out/impl/state/**` | `.gitignore:1:out/` — still ignored |
+| plus `!out/`, `!out/impl/`, `!out/impl/state/` | `.gitignore:6:!out/impl/state/` — tracked |
+
+`{pm_state_root}` is bound as `{implementation_artifacts}/state`, an absolute path, and a
+gitignore pattern is relative to the directory of the file that holds it, so an absolute negation
+matches nothing: the conversion appended two dead lines to a file the project does not own and
+then halted blaming a later rule. Only relative negations work, and each must negate **every**
+excluded parent. When the ignoring rule excludes a parent directory (`_bmad-output/`, say), git
+cannot re-include from inside it at all, and negating the parents changes what else in the
+repository becomes tracked. That is a judgement about the user's repository, not a mechanical
+remedy, so the site is a halt. It keeps the `check-ignore -v` locate step and the guard chain
+that classifies the source (symlink, file name, real path under the work tree), so the halt
+names the exact file and rule, and it writes nothing.
 
 ### Three refusals are absolute
 
@@ -86,7 +108,7 @@ what the remedy reported.
 
 ### The attempt record is memory, not a file
 
-The bound is per run, a run is one orchestrator invocation, and all nine sites are inline in
+The bound is per run, a run is one orchestrator invocation, and all eight sites are inline in
 that invocation. `shared/step-00-activate.md`, `plan/step-02-readiness-check.md` and
 `execute/step-03-load-plan.md` are orchestrator-level; `l3io-execute` dispatches *sprint*
 subagents, and none of these sites is in that context. A file would outlive the run and
@@ -100,18 +122,26 @@ file.
 ### The inventory is enforced
 
 `check:docs` check 36 compares the two tables in the contract to the `BLOCKED:` lines in
-`skills/_shared/steps/**`: every site classified, every declared remedy present in its step
-file, every row's `Class` valid. A task that converts a halt moves its row from `Halts` to
-`Remediable` in the same commit.
+`skills/_shared/steps/**`. It enforces **classification**: every `BLOCKED:` site is classified,
+no row is stale, every row's `Class` is valid, and each Remediable row names a remedy that
+appears near its halt and on at least one line outside any `BLOCKED:` block. That last clause is
+the only part that reaches implementation. It was added because the earlier rule, a remedy string
+present near the halt, passed for 10 of 20 matched sites on the halt message alone (distance 0):
+the pre-branch text already named its remedy and stopped, so restoring the old halt-and-name form
+left the check green. A remedy appearing outside a `BLOCKED:` block shows that some prose
+performs it, not that the prose is correct. A task that converts a halt moves its row from `Halts`
+to `Remediable` in the same commit.
 
-The inventory is of 23 sites at column 0. One indented genuine halt,
-`closure/epic-closure.md` (`{epic_key} — {N} story/ies blocked pending external resolution`),
-is not inventoried, so 23 is not every halt in the package.
+The inventory is of 23 sites at column 0 of `skills/_shared/steps/**`. Not inventoried:
+`closure/epic-closure.md:236` (indented), `skills/l3io-doctor/steps/redrive.md:103`, and
+`skills/l3io-help/steps/step-02-detect-layout.md:24` and `:67`. The last two are verbatim copies
+of conditions converted above and stay halts deliberately: `l3io-help` is an advisory skill and
+does not write to a project. So 23 is not every halt in the package.
 
 ## Consequences
 
 - A project whose stories exist only as `.md` files, whose plan pointer is stale, whose layout is
-  legacy, or whose state root is ignored, proceeds in one invocation, and the run reports what
+  legacy, proceeds in one invocation, and the run reports what
   it changed.
 - Every remedy is reversible or non-destructive: `migrate-state` preserves the original as
   `.legacy`; the repoint records the previous value beside the new; the legacy tree moves

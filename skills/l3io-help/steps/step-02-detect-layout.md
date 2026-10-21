@@ -7,8 +7,10 @@ Recommending "create your project backlog" there would author a fresh backlog on
 work. So the layout is established first, and a legacy layout short-circuits to the migration
 recommendation.
 
-Use the identical three-way count `step-00-activate.md` performs — count all three, do not
-stop at the first match:
+Count all three layouts, do not stop at the first match. This is the same three-way probe
+`step-00-activate.md` runs, but this skill only reports on what it finds: `step-00-activate.md`
+remediates some of these conditions, and this step deliberately halts on all of them, because an
+advisory skill does not migrate, move or write to a project:
 
 ```bash
 SHARDED=$([ -d "{implementation_artifacts}/state" ] && echo 1 || echo 0)
@@ -48,9 +50,9 @@ block or write over it.
 **If only sharded** → continue to section 3.
 
 **If all three are 0** → possible first run. Before treating it as a blank project, rule out
-an orphan caused by `implementation_artifacts` having been repointed — this is the same check
-`step-00-activate.md` runs, and for the same reason: an empty probe result is not proof there
-is no history.
+an orphan caused by `implementation_artifacts` having been repointed. The probe is the one
+`step-00-activate.md` runs, for the same reason — an empty probe result is not proof there is no
+history — but where that step repoints the configuration, this one only halts and reports.
 
 ```bash
 git -C {project-root} ls-files -- '*/state/active/epic-*/epic.yaml' 'state/active/epic-*/epic.yaml' 2>/dev/null | head -5

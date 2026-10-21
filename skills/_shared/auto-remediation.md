@@ -31,10 +31,10 @@ the first run, and a symptom that survives the rebuild goes to its site's persis
 than to a second run.
 
 **The budget is per site id, not per run.** Sites that do not share a command and a cause each
-keep their own. A tree can be both legacy-layout and gitignored: remediating
+keep their own. A project can be both legacy-layout and have a missing plan pointer: remediating
 `step-00-activate: legacy state layout — migrate required.` (`/l3io-doctor migrate-state`) does not consume
-`step-00-activate: {pm_state_root} is gitignored. Project state must` (a negation appended to the
-ignoring file), so both run in that one activation, each once. Sharing is the exception above, for
+`step-03-load-plan: plan-output-meta.yaml absent. I ran /l3io-plan and` (`/l3io-plan`), so both run
+in that one invocation, each once. Sharing is the exception above, for
 one command and one cause; two different remedies are never one attempt.
 
 The record is **in-run memory**, not a file: the bound is per run, a run is one orchestrator
@@ -63,8 +63,7 @@ remedy's failure. Never continue as though it succeeded, and never retry.
 
 A remedy that writes to disk has a failure path of its own: a write that errors (permissions, a
 read-only checkout) is a failed remedy. Report the original condition **and** the write error,
-and leave nothing partly applied. The two writes that can hit it are the `config.toml` repoint
-and the `.gitignore` negation.
+and leave nothing partly applied. The one write that can hit it is the `config.toml` repoint.
 
 A remedy that succeeds is not yet a remedy that worked: re-check the original condition once.
 If it persists, that is the attempt bound's hard halt above, not a reason to continue. Every
@@ -102,9 +101,17 @@ if it is shorter; placeholders in braces match whatever they hold at runtime.
 **Scope.** The inventory covers `BLOCKED:` lines at column 0 of a shared step file. The
 phase status-line template (`BLOCKED: [one-line reason]`, indented in
 `execute/step-05-epic-loop.md`) is a report format, not a halt, and is deliberately out of
-scope. `closure/epic-closure.md:236` (`BLOCKED: {epic_key} — {N} story/ies blocked pending
-external resolution`) is a genuine halt, indented and therefore **not yet inventoried**; the
-23 sites are not every halt in the package.
+scope. Outside the inventory, and so not among the 23, are `BLOCKED:` lines this scope does not reach:
+
+- `closure/epic-closure.md:236` (`BLOCKED: {epic_key} — {N} story/ies blocked pending external
+  resolution`) — a genuine halt, indented.
+- `skills/l3io-doctor/steps/redrive.md:103` — a halt in a doctor mode, not an orchestrator step.
+- `skills/l3io-help/steps/step-02-detect-layout.md:24` and `:67` — column-0 halts that **repeat**
+  two conditions converted above (multiple state layouts; state outside
+  `implementation_artifacts`). They stay halts **deliberately**: `l3io-help` is an advisory skill
+  that recommends the next action and does not itself run migrations or write configuration, so
+  converting them would make a read-only skill mutate a project. Its step file describes its
+  probe as a re-implementation of the activation counts, not as the same check.
 
 ## Re-entry
 
@@ -129,7 +136,6 @@ nested run too. The remediation therefore needs no suppression of its own.
 | `step-03-load-plan: plan-output-meta.yaml points at {current_plan}, which does` | pointer target missing | `/l3io-plan` | rebuilds plan and pointer; does not substitute another snapshot | `auto` |
 | `step-00-activate: legacy state layout — migrate required.` | only a legacy layout present | `/l3io-doctor migrate-state` | migrates to the sharded layout; preserves the original as `.legacy`, which is what makes it reversible | `auto` |
 | `step-00-activate: state found at <printed-path> but implementation_artifacts` | state exists outside `implementation_artifacts` | `_bmad/custom/config.toml` | repoints `implementation_artifacts` at the existing tree; records the previous value beside the new one in the same write | `auto` |
-| `step-00-activate: {pm_state_root} is gitignored. Project state must` | `git check-ignore` reports IGNORED | `check-ignore -v` | appends the two negation lines to the work-tree `.gitignore` it names, never an assumed one; any other source — `.git/info/exclude`, a global excludes file, a path outside the repo — stays a halt | `auto` |
 | `step-00-activate: multiple state layouts detected (sharded=$SHARDED legacy-per-epic=$LEGACY_EPIC` | **CONDITIONAL — remediates only on evidence.** `SHARDED` and `LEGACY_EPIC` are both present, `LEGACY_FLAT` is absent, **and every epic key in the legacy tree is also in the sharded tree** (equal sets and an empty legacy tree included). A legacy-only epic key, a legacy entry that is not an epic key, or a flat legacy file leaves it a halt that prints the keys that differ | `_bmad/state.superseded` | moves the legacy `_bmad/state/` tree to `_bmad/state.superseded` (moving it back restores it); **the sharded tree is not modified**. Compares epic keys only — sprint or story divergence inside a shared epic key is not examined | `auto` |
 
 ## Halts
@@ -153,3 +159,4 @@ convert them, whatever remedy appears to exist.
 | `step-00-activate: l3io-setup/scripts/pm-status.py is missing beside this skill.` | The install itself is broken | `halt` |
 | `step-00-activate: schema verify failed for {epic_key} —` | Unknown state corruption; guessing could worsen it | `halt` |
 | `step-05-dependency-graph: dependency graph has errors — resolve` | Requires `depends_on` decisions | `halt` |
+| `step-00-activate: {pm_state_root} is gitignored. Project state must` | Appending negations was attempted and withdrawn (ADR-0012): `{pm_state_root}` is absolute and gitignore patterns are relative to their file, so the negation matched nothing; relative negations work only if every excluded parent is negated, and when the rule excludes a parent directory git cannot re-include from inside it, which changes what else the repository tracks. The halt locates the rule with `check-ignore -v` and names the file | `halt` |
