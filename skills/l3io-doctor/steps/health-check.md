@@ -351,6 +351,11 @@ mid-epic — the failure `bmad-deps.py` exists to make visible, and nothing was 
 uv run {skill-root}/scripts/bmad-deps.py verify --project-root {project-root} --format json; echo "exit=$?"
 ```
 
+- exit 6 → BMad v7 detected, verification degraded · report only · skill probes ran and are
+  trustworthy; manifest-derived checks (`baseline_drift`, shipped-skill contradictions) report
+  unknown, not agreement, so read neither as drift or as a pass. A `MISSING` line may be a
+  skill BMad removed in v7 rather than a broken install: check it against v7's skill list
+  before flagging, and never recommend a 6.12 installer over a v7 tree
 - exit 3 → flag · Priority: **Critical** · name every unresolved **required** dependency. A
   required skill that does not resolve will not self-skip; the phase that dispatches it fails
   at the point of use, mid-run
