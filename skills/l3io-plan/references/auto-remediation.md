@@ -30,6 +30,13 @@ regenerates the same result. They therefore share the in-run flag `{plan_rebuilt
 the first run, and a symptom that survives the rebuild goes to its site's persists halt rather
 than to a second run.
 
+**The budget is per site id, not per run.** Sites that do not share a command and a cause each
+keep their own. A tree can be both legacy-layout and gitignored: remediating
+`step-00-activate: legacy state layout — migrate required.` (`/l3io-doctor migrate-state`) does not consume
+`step-00-activate: {pm_state_root} is gitignored. Project state must` (a negation appended to the
+ignoring file), so both run in that one activation, each once. Sharing is the exception above, for
+one command and one cause; two different remedies are never one attempt.
+
 The record is **in-run memory**, not a file: the bound is per run, a run is one orchestrator
 invocation, and every remediable site is inline in that invocation rather than inside a
 dispatched subagent. **If a site ever moves into a dispatched subagent this is void** — the
@@ -53,6 +60,11 @@ the user should finish the run knowing what their project needed, not with it hi
 
 If the remedy reports failure or errors, **halt** — reporting both the original condition and the
 remedy's failure. Never continue as though it succeeded, and never retry.
+
+A remedy that writes to disk has a failure path of its own: a write that errors (permissions, a
+read-only checkout) is a failed remedy. Report the original condition **and** the write error,
+and leave nothing partly applied. The two writes that can hit it are the `config.toml` repoint
+and the `.gitignore` negation.
 
 A remedy that succeeds is not yet a remedy that worked: re-check the original condition once.
 If it persists, that is the attempt bound's hard halt above, not a reason to continue. Every
@@ -115,6 +127,9 @@ nested run too. The remediation therefore needs no suppression of its own.
 | `step-03-load-plan: plan-output-meta.yaml absent, but snapshots exist ({listed_snapshots}).` | pointer missing, snapshots present | `/l3io-plan` | rebuilds from current state; existing snapshots are not deleted or read, because the newest may be incomplete | `auto` |
 | `step-03-load-plan: plan readiness is RED for {current_plan_file}.` | pointer readiness is red | `/l3io-plan` | resolves gaps and rebuilds; route 1 only. **Route 2 is ABSOLUTE and stays a halt:** accepting the risk and setting readiness to amber is a risk acceptance that is the user's alone, so no remediation writes `readiness:` | `auto+absolute` |
 | `step-03-load-plan: plan-output-meta.yaml points at {current_plan}, which does` | pointer target missing | `/l3io-plan` | rebuilds plan and pointer; does not substitute another snapshot | `auto` |
+| `step-00-activate: legacy state layout — migrate required.` | only a legacy layout present | `/l3io-doctor migrate-state` | migrates to the sharded layout; preserves the original as `.legacy`, which is what makes it reversible | `auto` |
+| `step-00-activate: state found at <printed-path> but implementation_artifacts` | state exists outside `implementation_artifacts` | repoint `implementation_artifacts` in `{project-root}/_bmad/custom/config.toml` | adopts the existing tree; records the previous value beside the new one in the same write | `auto` |
+| `step-00-activate: {pm_state_root} is gitignored. Project state must` | `git check-ignore` reports IGNORED | append the two negation lines | edits the file `git check-ignore -v` names, never an assumed `.gitignore`; a rule in `.git/info/exclude` stays a halt | `auto` |
 
 ## Halts
 
@@ -127,9 +142,6 @@ for conversion and will move to `Remediable`.
 | `step-02-scope-resolve: {epic_key} is owned by another session.` | **ABSOLUTE.** Breaking another session's lock is data loss across a boundary `flock` cannot see — lanes exist so two developers work in two clones | `absolute` |
 | `step-05-epic-loop: {epic_key} lock held by another session.` | **ABSOLUTE.** Breaking another session's lock is data loss across a boundary `flock` cannot see — lanes exist so two developers work in two clones | `absolute` |
 | `step-02-detect-platform: authentication unavailable.` | **ABSOLUTE.** Never touch credentials | `absolute` |
-| `step-00-activate: legacy state layout — migrate required.` | Not yet remediated — Task 4 converts this | `halt` |
-| `step-00-activate: state found at <printed-path> but implementation_artifacts` | Not yet remediated — Task 4 converts this | `halt` |
-| `step-00-activate: {pm_state_root} is gitignored. Project state must` | Not yet remediated — Task 4 converts this | `halt` |
 | `step-00-activate: multiple state layouts detected (sharded=$SHARDED legacy-per-epic=$LEGACY_EPIC` | Not yet remediated — Task 5 converts this, only where the legacy tree is a strict subset of the sharded one | `halt` |
 | `sprint-closure: sprint {sprint_num} of {epic_key} — {N}` | External dependency; no remedy exists | `halt` |
 | `step-02-readiness-check: readiness gate — red. Do not` | Aggregate of per-story findings; no single remedy | `halt` |
