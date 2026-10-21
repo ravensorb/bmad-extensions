@@ -269,8 +269,10 @@ test("check 12: pm-status.py over the 10,000-line limit is caught", async (t) =>
 function padPmStatusTo(root, total) {
   const rel = "skills/_shared/pm-status.py";
   const have = (fs.readFileSync(path.join(root, rel), "utf8").match(/\n/g) || []).length;
-  assert.ok(have < total, `pm-status.py already has ${have} lines; cannot pad to ${total}`);
-  write(root, rel, "# pad\n".repeat(total - have), true);
+  // Already AT the target is success, not an error: pm-status.py sits exactly at the cap, and
+  // the boundary test asks whether a file at the cap passes. Only overshoot cannot be padded.
+  assert.ok(have <= total, `pm-status.py already has ${have} lines; cannot pad down to ${total}`);
+  if (have < total) write(root, rel, "# pad\n".repeat(total - have), true);
   assert.equal((fs.readFileSync(path.join(root, rel), "utf8").match(/\n/g) || []).length, total);
 }
 
