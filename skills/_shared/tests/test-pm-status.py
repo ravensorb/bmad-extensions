@@ -13482,6 +13482,21 @@ class TestTranscriptFallback(Base):
         self.assertEqual(paths, [])
         self.assertIn("no transcript spans", why)
 
+    def test_candidate_starting_after_the_window_opens_is_refused_by_the_span_rule(self):
+        """Has a record inside the window, so the in-window guard passes it; it still began
+        after the dispatch opened, so only the span rule can refuse it.
+
+        The window is pinned rather than read from a real bracket: events carry one-second
+        timestamps, so a real open and close can land in the same second and leave no instant
+        that is inside the window yet later than its start."""
+        open_ts = datetime.now(UTC) - 20 * SECOND
+        close_ts = open_ts + 10 * SECOND
+        self._transcript("sess-a", [("sess-a", open_ts + SECOND), ("sess-a", close_ts + SECOND)])
+        with mock.patch.object(pm, "dispatch_window", return_value=(open_ts, close_ts)):
+            paths, _sid, why = self._discover()
+        self.assertEqual(paths, [])
+        self.assertIn("no transcript spans", why)
+
     def test_file_with_two_session_ids_is_never_a_candidate(self):
         """A file holding two sessions is malformed whatever we were expecting, so it is
         rejected before its span is even considered."""
