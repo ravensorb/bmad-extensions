@@ -784,6 +784,23 @@ and renames it inline as the first step of the sequence. There is no `rename-act
 invoke — and there was never a reason to invoke it alone, because a renamed flat file is still
 a legacy layout.
 
+## BMad v7: do not run `bmad migrate` on an l3io-pm project yet
+
+BMad v7 ships a migration that turns a v6 project into its initiative/ticket layout. Its
+detector fires on two things an l3io-pm project can present:
+
+- `sprint-status.yaml` under `implementation_artifacts` — the legacy flat layout
+- story files named `<epic>-<story>-<slug>.md` whose frontmatter carries `route:` and
+  `status:` — which `pm-status.py sync-story-doc` writes
+
+When it matches, it `git mv`s whole folders into `_bmad-output/initiative-<slug>/`. It takes a
+full backup first and will not write anything before you approve its plan, so this is not
+destructive by surprise — but two migrations competing over one tree is a mess, and ours has
+to run in a known order relative to theirs.
+
+**Until this package ships v7 support, stay on BMad 6.12.** Run `/l3io-doctor check-deps` to
+see which generation is installed; exit 6 means v7 was detected and verification is degraded.
+
 ## Verifying the upgrade
 
 ```

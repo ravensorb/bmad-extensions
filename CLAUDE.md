@@ -89,7 +89,10 @@ into all 8) shipped as dead payload — ~842 KB across the package — until rem
 either back to a manifest.
 
 **CI discovers the Python suites; it does not list them.** `npm run test:python`
-(`scripts/run-python-suites.mjs`) globs `skills/**/tests/test-*.py` and runs each under `uv
+(`scripts/run-python-suites.mjs`) globs `skills/_shared/tests/test-*.py` and
+`tests/**/test-*.py` (its `PATTERNS` const) — shared suites in the first, per-skill suites in the
+second, which is where they live precisely so they do not ship as payload when a
+`--custom-source` install copies a skill directory — and runs each under `uv
 run`, and the workflow has one step instead of ten. The list used to be written out in
 `.github/workflows/checks.yml` and it was wrong: seven suites — `test-engine.py`, the five
 reader suites it depends on, and `test-state-record.py` — were written during the

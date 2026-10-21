@@ -373,10 +373,13 @@ detect a v7-migratable l3io project and say so loudly, before a user types `bmad
 - `resolve()` gains `.agents/` beside `.claude/`; v7 discovers skills across `.<tool>/skills`
   and names `~/.agents/` in its own lock path.
 - The `bmad migrate` hazard warning in `docs/upgrading.md`.
-- **A test suite for `bmad-deps.py`, which has none today.** Adding an exit code and a branch to
-  an untested 415-line verifier is how this script's own docstring says the earlier false-greens
-  happened. `skills/l3io-doctor/tests/test-bmad-deps.py`, PEP-723, auto-discovered by
-  `run-python-suites.mjs`'s `skills/**/tests/test-*.py` glob.
+- **Extend `tests/l3io-doctor/test-bmad-deps.py`**, which already exists and carries 71 test
+  methods across presence, layouts, unreadable inputs, inventory shape, JSON, fallbacks, shims,
+  contradictions and baseline drift. An earlier draft of this spec said the script had no
+  suite; that was a search error — the suite lives under the repo-root `tests/` tree, not
+  under `skills/`, which is the convention precisely so it does not ship as payload.
+  `test_absent_manifest_exits_4` is the case v7 detection changes, and it must keep passing:
+  a tree with no v7 evidence still exits 4.
 
 **4.0.0 — the v7-native layer.** Everything in §2–§7.
 
@@ -428,6 +431,40 @@ the v6 line, and does not depend on any §2–§7 decision — it should be plan
 its own. 4.0.0 is a rewrite whose surface is still moving (§11) and should not be planned in
 detail until v7 GA stops it moving. Planning them together would couple a release that can ship
 this week to one that cannot.
+
+### 8.2 What the bridge did not ship
+
+Three things the bridge work uncovered were left undone, each deliberately.
+
+**Task 5 — `subagent_models()` — was dropped.** §8.1 specified reporting which models a
+dispatched run used, so a mixed-model window is not priced at a single rate. It is not
+implemented. `skills/_shared/pm-status.py` is at exactly 10,000 lines, the hard cap set by
+ADR-0001's 2026-10-03 amendment and enforced by `check:docs` check 12 (`PM_STATUS_LINE_LIMIT`).
+Landing it means breaking that gate, raising the cap — which the ADR forbids as a default
+("raising the number again becomes a decision made on evidence rather than a default, and it
+should be argued here before it is taken") — or executing ADR-0001's Option B package-directory
+refactor, which is far outside a bridge release. Cost of deferring: mixed-model runs are priced
+at one rate, as they are today. No regression; an improvement not yet taken.
+
+**The transcript fallback does not yet reach the orchestrator.**
+`skills/_shared/steps/shared/step-00-activate.md` binds `runtime=claude` only when
+`$CLAUDE_CODE_SESSION_ID` is set. In the env-scrubbed case §8.1's fallback exists for, the step
+files therefore bind a non-Claude runtime and record `N/A`, so `usage` is never called and the
+recovered number never reaches an actual. The step file's own framing — a capability, not a
+brand check — now contradicts its own step-1 test. This was not fixed in the bridge: binding
+`claude` on a successful recovery would mis-bind on a Codex or other runtime that merely has a
+dormant `~/.claude` tree with an overlapping window, and the contract would then record
+exact-looking numbers captured from the wrong tool, which is worse than `N/A`. It needs its own
+design. Cost: the fallback helps direct CLI use and any caller that already binds `claude`, and
+does not help the orchestrated path.
+
+**A one-line safety fix is blocked by the cap.** `dispatch_window` parses `events.jsonl`'s `ts`
+with `_parse_iso` and does not check that the result is timezone-aware, so a hand-edited or
+externally written `events.jsonl` reproduces, on the dispatch-bracket side, the naive-versus-aware
+`TypeError` the fallback closed on the transcript side. Every writer uses `_now_iso()`, so the
+bracket is aware in practice. The symmetrical guard is one line and the file has no line left.
+The cap is now blocking a one-line safety fix, which is itself evidence toward ADR-0001's stated
+"revisit at 10,000".
 
 ## 9. Tooling and CI impact
 
