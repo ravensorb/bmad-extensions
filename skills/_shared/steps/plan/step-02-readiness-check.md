@@ -29,24 +29,47 @@ find {pm_state_root}/active {pm_state_root}/planned {pm_state_root}/archived \
 If the `find` prints nothing, the story has an artifact but no state node — collect it as
 an **artifact-only** story.
 
-If **any artifact-only stories are found**, halt immediately with `{readiness}` = `red`:
+If **any artifact-only stories are found**, remediate per `references/auto-remediation.md` —
+their state nodes are reconstructible from the artifacts, and this is the one remedy. Such
+stories are invisible to planning, estimation and execution, so the readiness check cannot
+continue over them as they are (typically they were created outside l3io-pm, for example by
+the legacy `bmad-create-story` workflow).
+
+Report, using the form in that reference:
 
 ```
-🔴 Readiness check FAILED — {count} story artifact(s) have no state node.
+⚙  {count} story artifact(s) have no state node — running /l3io-doctor bootstrap-state
+```
 
-These stories exist as .md files in the artifact tree but have no corresponding
-state YAML under {pm_state_root}/. l3io-plan reads state only, so these stories
-are invisible to planning, estimation, and execution.
+Record the attempt **before** running `/l3io-doctor bootstrap-state`; it is made once per run.
+There are then three outcomes, and only the first continues.
 
-Artifact-only stories:
+**Outcome 1 — The remedy succeeds and clears the condition.** Re-run the artifact-only scan above once.
+If no artifact-only stories remain, report and continue to §1:
+
+```
+✓  bootstrap-state created {n} state node(s). Continuing readiness check.
+```
+
+**Outcome 2 — The remedy succeeds and the condition persists.** If the re-run scan still finds
+artifact-only stories, halt with `{readiness}` = `red`. The remedy has been tried and is not
+tried again:
+
+```
+BLOCKED: artifact-only stories detected — I ran /l3io-doctor bootstrap-state and {count}
+story artifact(s) still have no state node:
 {list each: {implementation_artifacts}/epic-{nnn}/sprint-{nn}/stories/{story_key}.md}
-
-Fix: run /l3io-doctor bootstrap-state to create state nodes from your artifact
-files. This is a one-time step for projects whose stories were created outside l3io-pm
-(e.g. via the legacy `bmad-create-story` workflow, without going through l3io-plan).
+These may be malformed, or outside the epic/sprint layout bootstrap-state reads.
 ```
 
-BLOCKED: artifact-only stories detected — run `/l3io-doctor bootstrap-state` first.
+**Outcome 3 — The remedy fails.** If `/l3io-doctor bootstrap-state` exits non-zero, halt with
+`{readiness}` = `red`, reporting both the condition and the failure. Do not scan again and
+do not continue:
+
+```
+BLOCKED: artifact-only stories detected — I ran /l3io-doctor bootstrap-state and it failed:
+{stderr}. {count} story artifact(s) remain invisible to planning until this is resolved.
+```
 
 If no artifact-only stories are found (or no `.md` files exist at all), continue to §1.
 

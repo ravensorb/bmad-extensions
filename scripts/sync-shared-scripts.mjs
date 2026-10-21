@@ -22,6 +22,7 @@
 //   l3io-doctor (health Checks 15-19, triage's spec pass, migrate-adrs); shared because
 //   it has two consumers (ADR-0001), run from each skill's own copy, never self-installed
 //   status-files.md / metrics-contract.md → references/ in PM skills
+//   auto-remediation.md → references/ in l3io-execute, l3io-plan, l3io-sync
 //   config-resolution.md → references/ in EVERY l3io skill -- every skill resolves config
 //   merge-config.py / merge-help-csv.py / write-module-config.py / module-setup.md →
 //   scripts/ and assets/ in each module's HOME only (the *-setup skill for a multi-skill
@@ -78,6 +79,12 @@ const specAlignFiles = [
 
 // The canonical story AC dimension reference, shipped to the two skills that enrich stories.
 const acDimensionFiles = [{ src: path.join(sharedDir, "ac-dimensions.md"), rel: "references/ac-dimensions.md" }];
+
+// The auto-remediation contract: delivered to the three skills carrying
+// steps/shared/step-00-activate.md, whose halts it governs.
+const autoRemediationFiles = [
+  { src: path.join(sharedDir, "auto-remediation.md"), rel: "references/auto-remediation.md" },
+];
 
 // The agent instruction block body, shipped to each module home so install/upgrade can write
 // it into the consuming project's own instruction file.
@@ -283,6 +290,8 @@ const syncGroups = [
   { files: specAlignFiles, dirs: [...newPmExecuteDirs, ...newUtilDoctorDirs] },
   // the canonical AC dimension reference into the two skills that enrich stories
   { files: acDimensionFiles, dirs: [...newPmPlanDirs, ...newPmExecuteDirs], skipMissing: true },
+  // the auto-remediation contract into the three skills whose halts it classifies
+  { files: autoRemediationFiles, dirs: [...newPmPlanDirs, ...newPmExecuteDirs, ...newPmSyncDirs], skipMissing: true },
   // the agent instruction block body, into each module's home only
   { files: agentInstructionFiles, dirs: moduleHomeDirs },
   // The two BMad-validator-required merge scripts, into each module's home only.
