@@ -4922,9 +4922,11 @@ function remediationCoverage() {
   const classified = new Map([...halts, ...remediable].map((r) => [r.id, r]));
   const violations = [];
 
-  // Class is the authority on absoluteness. The ABSOLUTE cross-check below is a consistency
-  // test between two things that must agree -- it catches a class dropped to `halt` or a
-  // warning deleted while the class survives -- not an inference of the class from prose.
+  // Class is the authority on absoluteness. The ABSOLUTE cross-check below is ONE-DIRECTIONAL:
+  // it catches a row whose prose says ABSOLUTE while its class lacks `absolute` (a class
+  // dropped to `halt`). It does not catch the reverse -- a row classed `absolute` whose
+  // ABSOLUTE warning was deleted from the prose passes. It is not an inference of the class
+  // from prose.
   for (const [rows, width] of [[remediable, 5], [halts, 3]]) {
     for (const row of rows) {
       if (row.cells.length !== width) {

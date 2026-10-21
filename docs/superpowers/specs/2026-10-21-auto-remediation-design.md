@@ -128,9 +128,11 @@ further evidence toward ADR-0001's stated "revisit at 10,000".
 
 ### 6.2 A shared reference
 
-`skills/_shared/references/auto-remediation.md` carries the rule, the attempt contract, the
+`skills/_shared/auto-remediation.md` carries the rule, the attempt contract, the
 nine-site table, and the never-automate list. Each halt site keeps its own prose and gains a
-declared remedy. Synced to the skills owning the halts by `npm run sync:scripts`.
+declared remedy. Shared references live flat at `skills/_shared/<name>.md`, not in a
+`references/` subdirectory; `npm run sync:scripts` delivers this one to `references/auto-remediation.md`
+in `l3io-execute`, `l3io-plan` and `l3io-sync`.
 
 ### 6.3 The attempt record is in-run memory, not a file
 
