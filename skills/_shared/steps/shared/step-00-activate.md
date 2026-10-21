@@ -290,7 +290,8 @@ solve: such a pair passes the comparison, so what it licenses is moving the lega
 
 ```bash
 LEG="{project-root}/_bmad/state"
-LISTING=$(ls -A "$LEG") || echo "UNREADABLE"
+LISTING_ERR=$(ls -A "$LEG" 2>&1 >/dev/null) && LISTING_ERR=
+LISTING=$(ls -A "$LEG" 2>/dev/null)
 EPIC_RE='^(E|epic-)[0-9]{3}(-status\.yaml)?$'
 LEGACY_KEYS=$(printf '%s\n' "$LISTING" | grep -E "$EPIC_RE" | sed -E 's/^(E|epic-)([0-9]{3}).*/E\2/' | sort)
 LEGACY_DUP=$(printf '%s\n' "$LEGACY_KEYS" | uniq -d)
@@ -300,15 +301,15 @@ ONLY_LEGACY=$(comm -23 <(printf '%s\n' "$LEGACY_KEYS" | sort -u | sed '/^$/d') <
 ONLY_SHARDED=$(comm -13 <(printf '%s\n' "$LEGACY_KEYS" | sort -u | sed '/^$/d') <(printf '%s\n' "$SHARDED_KEYS" | sed '/^$/d'))
 ```
 
-*Reading the legacy tree.* If the listing failed (`UNREADABLE` printed), nothing is known about
-the tree: halt with the diverge line below, naming the listing error, and do not treat the empty
-output as an empty tree. An epic key is an entry named exactly `E###`, `epic-###` or
+*Reading the legacy tree.* If the listing failed (`LISTING_ERR` is non-empty), nothing is known
+about the tree: it does not qualify, and the halt below prints `LISTING_ERR`. An empty `LISTING`
+with `LISTING_ERR` empty is an empty tree; an empty `LISTING` with it set is not. An epic key is an entry named exactly `E###`, `epic-###` or
 `E###-status.yaml` — a boundary, not a prefix, so `epic-0010` (a different epic) and `E001.bak`
 (a second copy nobody compared) are not read as `E001`. Anything else lands in `LEGACY_OTHER`,
 and two entries resolving to one key (`LEGACY_DUP`) are two copies, so both halt.
 
 *The rule.* The legacy keys must all be present in the sharded tree — `ONLY_LEGACY`,
-`LEGACY_OTHER` and `LEGACY_DUP` all empty and the listing readable. Sets that are equal qualify:
+`LEGACY_OTHER`, `LEGACY_DUP` and `LISTING_ERR` all empty. Sets that are equal qualify:
 a migration that copied every epic and died before its cleanup leaves exactly equal sets, which
 is the commonest interrupted migration. Moving the tree aside loses nothing because the move is a
 rename, not because the comparison proves completeness — it checks key presence only. A legacy entry that is not an epic key
@@ -320,8 +321,8 @@ and do not fail it.
 hidden ones included) is vacuously a subset, and this step treats that as qualifying: an empty
 leftover directory is the interrupted-migration case in its simplest form, there is nothing in it
 to lose, and refusing it would halt every run forever over a directory that holds nothing. It is
-backed up like any other, so the move is still reversible and still reported with its count of
-zero.
+backed up like any other, so the move is still reversible and still reported, with `none` where
+the `⚙` line lists the keys.
 
 **Qualifies** → remediate, once. Set `{layouts_reconciled}` = `true` **before** moving anything —
 and if it is already `true`, this is a recurrence: go straight to the **Succeeded but persists**
@@ -351,13 +352,14 @@ BLOCKED: multiple state layouts detected (sharded=$SHARDED legacy-per-epic=$LEGA
 back up the legacy tree: <its error>. Nothing was moved. This needs a decision.
 ```
 
-**Does not qualify** (a legacy-only key, a legacy entry that is not an epic key) → halt, and print
+**Does not qualify** (a legacy-only key, a legacy entry that is not an epic key, a duplicated key, or an unreadable listing) → halt, and print
 which keys differ, so the user is not left to find the difference. Remediate nothing:
 ```
 BLOCKED: multiple state layouts detected (sharded=$SHARDED legacy-per-epic=$LEGACY_EPIC legacy-flat=$LEGACY_FLAT) and they diverge,
 so neither can be shown to be a copy of the other.
   only in legacy ({project-root}/_bmad/state): {ONLY_LEGACY}
-  legacy entries that are not epic keys, or listing error: {LEGACY_OTHER}
+  legacy entries that are not epic keys: {LEGACY_OTHER}
+  listing error: {LISTING_ERR}
   legacy keys held by more than one entry: {LEGACY_DUP}
   only in sharded ({pm_state_root}): {ONLY_SHARDED}
 Guessing which is authoritative would fork the project's state. Inspect both and remove
