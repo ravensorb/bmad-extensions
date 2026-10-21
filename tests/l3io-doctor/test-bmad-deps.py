@@ -25,6 +25,7 @@ import subprocess
 import sys
 import tempfile
 import unittest
+from unittest import mock
 
 # -- temp-dir leak guard ---------------------------------------------------------------- #
 # setUpModule points tempfile.tempdir (this test process) AND the TMPDIR environment variable
@@ -791,8 +792,16 @@ class TestGeneration(Base):
     """detect_generation() is imported directly: it is a pure function of the tree, and
     driving it through the CLI would also exercise the verify() wiring that Task 3 adds."""
 
-    @staticmethod
-    def _mod():
+    def _mod(self):
+        """The script as a module, with HOME pointed at the empty fixture home.
+
+        run_cli repoints HOME only in its subprocess env; an in-process call would otherwise
+        probe the developer's real ~/.claude and ~/.agents, so these cases would pass or fail
+        on machine state rather than on the fixture.
+        """
+        patcher = mock.patch.dict(os.environ, {"HOME": self.home})
+        patcher.start()
+        self.addCleanup(patcher.stop)
         import importlib.util
         spec = importlib.util.spec_from_file_location("bmad_deps", SCRIPT)
         m = importlib.util.module_from_spec(spec)
