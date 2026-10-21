@@ -50,15 +50,26 @@ test('__pycache__ copies are excluded', () => {
   assert.equal(discover().filter((p) => p.includes('__pycache__')).length, 0);
 });
 
-test('a newly added suite is picked up with no other edit', () => {
+test('a newly added suite is picked up with no other edit', (t) => {
   // Attacks the scope, not the rule: the whole point is that adding a file is sufficient.
-  const dir = path.join(ROOT, 'skills/_shared/tests');
+  //
+  // Plant it in a temp root, never in ROOT. `discover` takes a root precisely so this test
+  // does not have to mutate the tree every other test file reads. It did mutate it, and
+  // check-docs.test.mjs's fixture() -- a cpSync of ROOT -- died with ENOENT on this exact
+  // probe file when the two files' tests overlapped: `node --test scripts/tests/*.test.mjs`
+  // runs test FILES concurrently, so the probe existed at readdir and was gone at lstat.
+  // One failure in 470, reproducible only under that interleaving.
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'suites-probe-'));
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  const dir = path.join(root, 'skills/_shared/tests');
+  fs.mkdirSync(dir, { recursive: true });
+  const rel = 'skills/_shared/tests/test-zz-scope-probe.py';
   const f = path.join(dir, 'test-zz-scope-probe.py');
   fs.writeFileSync(f, '# probe\n');
   try {
-    assert.ok(discover().includes('skills/_shared/tests/test-zz-scope-probe.py'));
+    assert.ok(discover(root).includes(rel));
   } finally { fs.unlinkSync(f); }
-  assert.ok(!discover().includes('skills/_shared/tests/test-zz-scope-probe.py'));
+  assert.ok(!discover(root).includes(rel));
 });
 
 test('an empty discovery refuses rather than reporting success over nothing', () => {
