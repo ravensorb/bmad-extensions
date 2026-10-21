@@ -3,8 +3,15 @@
 Communicate all responses in `{communication_language}`.
 
 Read the plan snapshot and validate it against current state. If no plan exists, or the plan
-is not fit to execute, this step ends `BLOCKED` naming what would fix it — it has no inbox and
-never offers a choice it cannot then act on.
+pointer is missing or broken, this step rebuilds the plan with `/l3io-plan` and carries on. It
+ends `BLOCKED` only when that does not clear the condition, or when the way forward is a risk
+the user alone accepts — it has no inbox and never offers a choice it cannot then act on.
+
+The four conditions below that run `/l3io-plan` follow `references/auto-remediation.md`: one
+attempt per run, a report before and after, and only a cleared condition continues. Keep one
+in-run flag, `{plan_rebuilt}`, set to true **before** the first `/l3io-plan` run in this step.
+It is shared by all four sites: a plan already rebuilt in this step is never rebuilt again, and a
+pointer or readiness fault that survives the rebuild goes straight to that site's persists halt.
 
 ## 1. Read plan-output-meta.yaml
 
@@ -25,12 +32,31 @@ after its snapshot was written leaves a usable plan that a bare "no plan found" 
 ls -1 {planning_artifacts}/plan-*-v*.yaml 2>/dev/null | sort -V | tail -3
 ```
 
-If nothing is listed:
+If nothing is listed, there is no plan to execute, and `/l3io-plan` builds one. Report:
 ```
-No plan found at {planning_artifacts}/plan-output-meta.yaml.
-Run /l3io-plan first to build the execution plan.
+⚙  No plan found at {planning_artifacts}/plan-output-meta.yaml — running /l3io-plan
 ```
-BLOCKED: plan-output-meta.yaml absent.
+Set `{plan_rebuilt}` = true, then run `/l3io-plan`. There are three outcomes, and only the
+first continues.
+
+**Outcome 1 — The remedy succeeds and clears the condition.** Re-read the pointer once. If it
+now exists, report and carry on with the pointer's `readiness` below:
+```
+✓  /l3io-plan wrote plan-output-meta.yaml and a fresh snapshot. Continuing with the new plan.
+```
+
+**Outcome 2 — The remedy succeeds and the condition persists.** If the pointer is still
+absent:
+```
+BLOCKED: plan-output-meta.yaml absent. I ran /l3io-plan and it reported success, but no
+plan-output-meta.yaml exists in {planning_artifacts}. This needs a decision.
+```
+
+**Outcome 3 — The remedy fails.** If `/l3io-plan` errors or halts:
+```
+BLOCKED: plan-output-meta.yaml absent. I ran /l3io-plan and it failed: {failure}. No plan
+exists to execute until this is resolved.
+```
 
 If snapshots **are** listed, do not adopt one silently — the pointer is the contract and its
 absence means a plan run did not complete:
@@ -38,27 +64,78 @@ absence means a plan run did not complete:
 ⚠️  plan-output-meta.yaml is missing, but plan snapshots exist:
       {listed_snapshots}
     A plan run likely did not finish, so the newest snapshot may be incomplete.
-    Without the pointer there is nothing vouching for any of them, and this run stops here.
+    Without the pointer there is nothing vouching for any of them, so none is adopted.
 ```
-This is a degraded path, not a clean one, and this step has no inbox to wait on — write what
-you found and stop:
+This is a degraded path, and the snapshots are not trusted: rebuild from current state rather
+than adopt one. The rebuild neither deletes nor reads them. Report:
 ```
-BLOCKED: plan-output-meta.yaml absent, but snapshots exist ({listed_snapshots}). Decide: re-run
-/l3io-plan to rebuild the pointer and readiness from current state (recommended), or, if
-{newest_snapshot} is verified complete, write plan-output-meta.yaml with
-current_plan: {newest_snapshot} (plus a readiness value) and re-run this step.
+⚙  plan-output-meta.yaml is missing but {n} snapshot(s) exist — running /l3io-plan to rebuild
+   the pointer and readiness from current state
+```
+Set `{plan_rebuilt}` = true, then run `/l3io-plan`. There are three outcomes, and only the
+first continues.
+
+**Outcome 1 — The remedy succeeds and clears the condition.** Re-read the pointer once. If it
+now exists, report and carry on with the pointer's `readiness` below:
+```
+✓  /l3io-plan rebuilt plan-output-meta.yaml from current state; existing snapshots untouched.
+   Continuing with the new plan.
+```
+
+**Outcome 2 — The remedy succeeds and the condition persists.** If the pointer is still
+absent:
+```
+BLOCKED: plan-output-meta.yaml absent, but snapshots exist ({listed_snapshots}). I ran
+/l3io-plan and it reported success, but the pointer is still missing. This needs a decision.
+```
+
+**Outcome 3 — The remedy fails.** If `/l3io-plan` errors or halts:
+```
+BLOCKED: plan-output-meta.yaml absent, but snapshots exist ({listed_snapshots}). I ran
+/l3io-plan and it failed: {failure}. Adopting a snapshot is not an option while none is vouched
+for.
 ```
 
 If `readiness: red` → warn:
 ```
 ⚠️  Plan readiness is RED for {current_plan_file}. Executing it would produce incomplete
-   results, so this run stops here.
+   results, so I am re-planning before going further.
 ```
-This is a degraded path, not a clean one, and this step has no inbox to wait on — write what
-you found and stop:
+Route 1 is `/l3io-plan`, which resolves the readiness gaps and rebuilds the plan, and it runs
+now. Route 2, accepting the risk, is **never** performed here: setting readiness to amber is a
+risk acceptance and stays the user's alone.
+
+If `{plan_rebuilt}` is already true — a rebuild earlier in this step produced this red plan —
+do not run `/l3io-plan` again; go straight to Outcome 2. Otherwise report:
 ```
-BLOCKED: plan readiness is RED for {current_plan_file}. Two things unblock it:
-  1. Run /l3io-plan to resolve the readiness gaps and rebuild the plan (recommended).
+⚙  Plan readiness is RED for {current_plan_file} — running /l3io-plan to resolve the gaps
+```
+Set `{plan_rebuilt}` = true, then run `/l3io-plan`. There are three outcomes, and only the
+first continues.
+
+**Outcome 1 — The remedy succeeds and clears the condition.** Re-read the pointer once. If
+`readiness` is no longer `red`, rebind `{current_plan_file}` from the new pointer, report, and
+continue (`amber` warns and continues as below):
+```
+✓  /l3io-plan resolved the readiness gaps; readiness is now {readiness}. Continuing with
+   {current_plan_file}.
+```
+
+**Outcome 2 — The remedy succeeds and the condition persists.** If readiness is still `red`,
+this is a degraded path and this step has no inbox to wait on — write what you found and stop:
+```
+BLOCKED: plan readiness is RED for {current_plan_file}. I ran /l3io-plan to resolve the
+readiness gaps and readiness is still RED. The gaps are: {list}. Two things unblock it:
+  1. Resolve the gaps above and re-run /l3io-execute.
+  2. Accept the risk: say so, and I will set readiness to amber in
+     {planning_artifacts}/plan-output-meta.yaml, then you re-run /l3io-execute.
+```
+
+**Outcome 3 — The remedy fails.** If `/l3io-plan` errors or halts:
+```
+BLOCKED: plan readiness is RED for {current_plan_file}. I ran /l3io-plan to resolve the
+readiness gaps and it failed: {failure}. Two things unblock it:
+  1. Resolve the cause above and re-run /l3io-execute.
   2. Accept the risk: say so, and I will set readiness to amber in
      {planning_artifacts}/plan-output-meta.yaml, then you re-run /l3io-execute.
 ```
@@ -77,8 +154,8 @@ leave every other key untouched, and say plainly what you changed and in which f
 
 **Do not tell the user to simply re-run `/l3io-execute`.** A re-run reads the same
 `readiness: red` from the same pointer and blocks here identically; there is no override flag,
-and naming one that does not exist sends them round a loop. Only the two remedies above change
-what this step reads.
+and naming one that does not exist sends them round a loop. Only resolving the gaps or the
+explicit risk acceptance changes what this step reads.
 
 If `readiness: amber` → warn and continue without pause.
 
@@ -93,15 +170,41 @@ deleted, renamed, or never written is a broken plan, not an empty one:
 test -f {current_plan_file} && echo OK || echo MISSING
 ```
 
-If `MISSING`:
+If `MISSING`, `/l3io-plan` rebuilds the plan and the pointer. Do not substitute another
+snapshot — that would execute a plan the pointer does not vouch for. Nor may a legacy pointer's
+`phases:` list stand in for the missing snapshot: current pointers carry only `phase_count`,
+and the older duplicated list is by definition as old as the pointer and was never the
+authority for phases. Rebuilding is not substituting: the new snapshot is the one the new
+pointer names. If `{plan_rebuilt}` is already true, go straight to Outcome 2. Otherwise report:
+```
+⚙  plan-output-meta.yaml points at {current_plan}, which does not exist — running /l3io-plan
+   to rebuild the plan and pointer
+```
+Set `{plan_rebuilt}` = true, then run `/l3io-plan`. There are three outcomes, and only the
+first continues.
+
+**Outcome 1 — The remedy succeeds and clears the condition.** Re-read the pointer once, rebind
+`{current_plan_file}` from it, and repeat the `test -f` check. If the file exists, apply the
+`readiness` handling from §1 to the new pointer (a red plan goes straight to its Outcome 2),
+report, and continue:
+```
+✓  /l3io-plan rebuilt the plan and pointer; {current_plan_file} exists. Continuing with it.
+```
+
+**Outcome 2 — The remedy succeeds and the condition persists.** If the target is still
+missing:
 ```
 BLOCKED: plan-output-meta.yaml points at {current_plan}, which does not exist in
-{planning_artifacts}. Re-run /l3io-plan to rebuild the plan and pointer.
+{planning_artifacts}. I ran /l3io-plan and the pointer still names a missing file. This needs a
+decision.
 ```
-Do not substitute another snapshot — that would execute a plan the pointer does not vouch for.
-Nor may a legacy pointer's `phases:` list stand in for the missing snapshot: current pointers
-carry only `phase_count`, and the older duplicated list is by definition as old as the pointer
-and was never the authority for phases.
+
+**Outcome 3 — The remedy fails.** If `/l3io-plan` errors or halts:
+```
+BLOCKED: plan-output-meta.yaml points at {current_plan}, which does not exist in
+{planning_artifacts}. I ran /l3io-plan and it failed: {failure}. No other snapshot is
+substituted.
+```
 
 Read the snapshot file. Extract and bind:
 - `{plan_phases}` — ordered list of phases, each with `parallel` flag and `epics` list

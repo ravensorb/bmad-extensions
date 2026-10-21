@@ -86,11 +86,27 @@ scope. `closure/epic-closure.md:236` (`BLOCKED: {epic_key} — {N} story/ies blo
 external resolution`) is a genuine halt, indented and therefore **not yet inventoried**; the
 23 sites are not every halt in the package.
 
+## Re-entry
+
+Three remedies re-run `/l3io-plan` from inside `l3io-execute`, and `/l3io-plan` has first-run
+behaviour: the once-per-project setup pointer (`config-resolution.md` §5). **It does not fire
+again mid-run.** `pm-status.py notice` reads and writes `state/.notices.yaml` keyed on `--key`
+alone, with no session, run or caller in the key, and records a key at most once ever per
+project: exit 0 the first time, exit 1 for every call after. `l3io-execute` applies the pointer
+at its own entry, before `step-03-load-plan`, so the nested `/l3io-plan` finds `setup-pointer`
+already recorded, gets exit 1 and says nothing. When the pointer was not shown at entry, it is
+because `modules.l3io-pm` is configured, and `{l3io_pm_section_absent}` is then false for the
+nested run too. The remediation therefore needs no suppression of its own.
+
 ## Remediable
 
 | Site | Trigger | Remedy | Changes | Class |
 |---|---|---|---|---|
 | `step-02-readiness-check: artifact-only stories detected — I ran` | story `.md` files exist with no state YAML | `/l3io-doctor bootstrap-state` | creates state nodes from artifacts; writes no artifact | `auto` |
+| `step-03-load-plan: plan-output-meta.yaml absent. I ran /l3io-plan and` | no pointer, no snapshots | `/l3io-plan` | writes the pointer and a fresh snapshot | `auto` |
+| `step-03-load-plan: plan-output-meta.yaml absent, but snapshots exist ({listed_snapshots}).` | pointer missing, snapshots present | `/l3io-plan` | rebuilds from current state; existing snapshots are not deleted or read, because the newest may be incomplete | `auto` |
+| `step-03-load-plan: plan readiness is RED for {current_plan_file}.` | pointer readiness is red | `/l3io-plan` | resolves gaps and rebuilds; route 1 only. **Route 2 is ABSOLUTE and stays a halt:** accepting the risk and setting readiness to amber is a risk acceptance that is the user's alone, so no remediation writes `readiness:` | `auto+absolute` |
+| `step-03-load-plan: plan-output-meta.yaml points at {current_plan}, which does` | pointer target missing | `/l3io-plan` | rebuilds plan and pointer; does not substitute another snapshot | `auto` |
 
 ## Halts
 
@@ -103,10 +119,6 @@ for conversion and will move to `Remediable`.
 | `step-02-scope-resolve: {epic_key} is owned by another session.` | **ABSOLUTE.** Breaking another session's lock is data loss across a boundary `flock` cannot see — lanes exist so two developers work in two clones | `absolute` |
 | `step-05-epic-loop: {epic_key} lock held by another session.` | **ABSOLUTE.** Breaking another session's lock is data loss across a boundary `flock` cannot see — lanes exist so two developers work in two clones | `absolute` |
 | `step-02-detect-platform: authentication unavailable.` | **ABSOLUTE.** Never touch credentials | `absolute` |
-| `step-03-load-plan: plan readiness is RED for {current_plan_file}.` | Not yet remediated — Task 3 converts route 1 (re-plan). **Route 2 is ABSOLUTE:** accepting the risk and setting readiness to amber is the user's alone, and must stay a halt after route 1 converts | `auto+absolute` |
-| `step-03-load-plan: plan-output-meta.yaml absent.` | Not yet remediated — Task 3 converts this | `halt` |
-| `step-03-load-plan: plan-output-meta.yaml absent, but snapshots exist ({listed_snapshots}).` | Not yet remediated — Task 3 converts this | `halt` |
-| `step-03-load-plan: plan-output-meta.yaml points at {current_plan}, which does` | Not yet remediated — Task 3 converts this | `halt` |
 | `step-00-activate: legacy state layout — migrate required.` | Not yet remediated — Task 4 converts this | `halt` |
 | `step-00-activate: state found at <printed-path> but implementation_artifacts` | Not yet remediated — Task 4 converts this | `halt` |
 | `step-00-activate: {pm_state_root} is gitignored. Project state must` | Not yet remediated — Task 4 converts this | `halt` |
