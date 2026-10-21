@@ -352,8 +352,8 @@ uv run {skill-root}/scripts/bmad-deps.py verify --project-root {project-root} --
 ```
 
 - exit 6 → BMad v7 detected, verification degraded · report only · skill probes ran and are
-  trustworthy; manifest-derived checks (`baseline_drift`, shipped-skill contradictions) report
-  unknown, not agreement, so read neither as drift or as a pass. A `MISSING` line may be a
+  trustworthy; manifest-derived checks (shipped-skill contradictions) report
+  unknown, not agreement, so read neither as drift nor as a pass. A `MISSING` line may be a
   skill BMad removed in v7 rather than a broken install: check it against v7's skill list
   before flagging, and never recommend a 6.12 installer over a v7 tree
 - exit 3 → flag · Priority: **Critical** · name every unresolved **required** dependency. A

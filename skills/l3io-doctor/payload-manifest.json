@@ -41,7 +41,7 @@
     "steps/clean-layout.md": "3c6f4dbf0b730279d867dfa49f0c32e46cac350b278313c6062cad96c99e3b21",
     "steps/clean-legacy.md": "0550fc8bba7e7a2ffd431e0214bf235fce0f0378ff5e3bd1632e997990941c1b",
     "steps/harvest-debt.md": "85cbd63f2918dfefd306d31b49196be0169fef3787a1c0a625118977fb43085c",
-    "steps/health-check.md": "9d65908799cecb96c8c09e27cbde9145049d104c2e11135f79a35549e138ab39",
+    "steps/health-check.md": "525f395cb07eba66305fe655773c9a61559a17e0b2bd5c8f067a5edd913899b8",
     "steps/install.md": "2cc37aad69e17037ec8373e27a31ffc3ed07668bf6b05eb74ac6907e1a4652f0",
     "steps/migrate-adrs.md": "db291c28805b6bfd464dfaa9d1125de5ee9380606e9a46123ccd2e5b564d8f70",
     "steps/migrate-state.md": "f60d920473ee9139fbaf476c251811f83d53ffb97527b791ba80648407f6a737",
