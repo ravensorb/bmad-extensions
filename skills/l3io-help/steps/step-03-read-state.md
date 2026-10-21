@@ -17,11 +17,20 @@ Also surface one read-only health fact — state that is gitignored will never b
 which defeats the point of the layout:
 
 ```bash
-rule=$(git -C {project-root} check-ignore -v {pm_state_root}) && echo "IGNORED $rule" || echo TRACKED
+if git -C {project-root} check-ignore -q {pm_state_root}; then
+  echo "IGNORED $(git -C {project-root} check-ignore -v {pm_state_root})"
+else
+  echo TRACKED
+fi
 ```
 
-For `IGNORED`, the output is `source:line:pattern<TAB>path`. Include this in the snapshot, naming
-the source file, line and pattern (it does not stop the recommendation, and you write nothing):
+Only `-q` decides. `-v` exits 0 whenever **any** pattern matched, including a negation that
+re-includes the path, so keying the decision on `-v` reports `IGNORED` for a path git actually
+tracks — exactly the state a user is left in after correcting their `.gitignore`.
+
+For `IGNORED`, the `-v` part is `source:line:pattern<TAB>path`. Include this in the snapshot,
+naming the source file, line and pattern (it does not stop the recommendation, and you write
+nothing). If that part is empty, the rule could not be located — say so instead of naming one:
 ```
 ⚠️  {pm_state_root} is gitignored by <source> line <line> (`<pattern>`) — project state will not
 be committed. Negations must be written relative to the directory of the .gitignore that holds
