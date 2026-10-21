@@ -177,8 +177,9 @@ skills forward migrations, health checks, and the plan-aware progress dashboard 
 `l3io-help` invokes `check-pm-status` on every activation. A standard install carries the
 whole marketplace bundle so this is only false when someone has manually stripped the module.
 
-The check probes both the 6.12 and pre-6.12 skill layouts, project-root first then user home,
-matching `bmad-deps.py`'s resolve() (which cannot help here because it *is* the doctor):
+The check probes the 6.12 (`.claude/skills/`) and pre-6.12 (`.claude/commands/`) layouts,
+project-root first then user home. It looks under `.claude/` only; `bmad-deps.py`'s resolve()
+also probes `.agents/`, but it cannot be used here because it *is* the doctor:
 
 ```bash
 if   [ -f "{project-root}/.claude/skills/l3io-doctor/SKILL.md" ] \
