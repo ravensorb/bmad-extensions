@@ -389,19 +389,34 @@ git -C {project-root} check-ignore -v {pm_state_root}
 ```
 
 The output is `source:line:pattern`; the file holding the rule is the path before the first
-colon. If it prints nothing while the probe said `IGNORED`, halt — that mismatch is unexpected
-and there is no rule to negate.
+colon. If it prints nothing while the probe said `IGNORED`, halt and change nothing:
+```
+BLOCKED: {pm_state_root} is gitignored. Project state must be committed, but I could not locate
+the ignoring rule (`check-ignore -v` printed nothing), so I changed nothing.
+```
 
-**Edit only a `.gitignore` inside this work tree.** Resolve the source path against
-`{project-root}`; it qualifies only if its file name is `.gitignore` and it lies under
-`git -C {project-root} rev-parse --show-toplevel`. Anything else halts and edits nothing:
-`.git/info/exclude`, a global excludes file (`core.excludesFile`, typically
-`~/.config/git/ignore`), or any path outside the repository. Those are local, deliberate,
-user-owned rules; a negation there would reach nobody else, mask a choice the user made, or
-change a file outside the project. Halt with the rule, its file and:
+**Edit only a real `.gitignore` inside this work tree.** Take the source path (relative to
+`{project-root}` when git prints it so) and test it with these commands:
+
+```bash
+test -L <source> && echo SYMLINK
+realpath <source>
+realpath "$(git -C {project-root} rev-parse --show-toplevel)"
+```
+
+It qualifies only if all three hold: it is not a symlink (no `SYMLINK` printed); its file name
+is `.gitignore`; and its `realpath` lies under the `realpath` of the toplevel, comparing the two
+resolved values (never a resolved path against an unresolved one). A symlinked `.gitignore`
+halts even when its target resolves inside the tree: appending writes through the link to a file
+the project does not own at the path it suggests, and whoever made the link did so deliberately.
+Anything else halts and edits nothing: `.git/info/exclude`, a global excludes file
+(`core.excludesFile`, typically `~/.config/git/ignore`), any path outside the repository, or a
+symlink. Those are local, deliberate, user-owned rules; a negation there would reach nobody
+else, mask a choice the user made, or change a file outside the project. Halt with the rule,
+its file (for a symlink, the link and its target) and:
 ```
 BLOCKED: {pm_state_root} is gitignored. Project state must be committed, but the rule is in
-<file>, which is local to this machine, so I did not edit it. Remove that rule, or negate it in
+<file>, which is local to this machine or a symlink, so I did not edit it. Remove that rule, or negate it in
 the project .gitignore:
   !{pm_state_root}/
   !{pm_state_root}/**
@@ -418,7 +433,7 @@ Re-run the `check-ignore -q` probe once. Three outcomes, and only the first cont
 - **Cleared** — prints `TRACKED`. Print
   `✓  appended two negation lines to <file>. Continuing activation.` and continue.
 - **Succeeded but persists** — the write landed and the probe still prints `IGNORED` (a later
-  rule re-ignores it). Halt, naming the file edited and the rule that still matches.
+  rule re-ignores it). Halt, naming the file edited and the rule that still matches (run `check-ignore -v` again to read it).
 - **Failed** — the write errored (permissions, a read-only checkout). Halt, reporting the
   original condition and the write error; nothing is half-applied.
 
