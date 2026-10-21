@@ -373,8 +373,9 @@ detect a v7-migratable l3io project and say so loudly, before a user types `bmad
 - `resolve()` gains `.agents/` beside `.claude/`; v7 discovers skills across `.<tool>/skills`
   and names `~/.agents/` in its own lock path.
 - The `bmad migrate` hazard warning in `docs/upgrading.md`.
-- **Extend `tests/l3io-doctor/test-bmad-deps.py`**, which already exists and carries 71 test
-  methods across presence, layouts, unreadable inputs, inventory shape, JSON, fallbacks, shims,
+- **Extend `tests/l3io-doctor/test-bmad-deps.py`**, which already exists. It carried 44 test
+  methods before the bridge (measured at the merge base with `main`); the bridge added 27, so 71
+  is the current total. They span presence, layouts, unreadable inputs, inventory shape, JSON, fallbacks, shims,
   contradictions and baseline drift. An earlier draft of this spec said the script had no
   suite; that was a search error — the suite lives under the repo-root `tests/` tree, not
   under `skills/`, which is the convention precisely so it does not ship as payload.
@@ -434,7 +435,7 @@ this week to one that cannot.
 
 ### 8.2 What the bridge did not ship
 
-Three things the bridge work uncovered were left undone, each deliberately.
+Four things the bridge work uncovered were left undone, each deliberately.
 
 **Task 5 — `subagent_models()` — was dropped.** §8.1 specified reporting which models a
 dispatched run used, so a mixed-model window is not priced at a single rate. It is not
@@ -457,6 +458,28 @@ dormant `~/.claude` tree with an overlapping window, and the contract would then
 exact-looking numbers captured from the wrong tool, which is worse than `N/A`. It needs its own
 design. Cost: the fallback helps direct CLI use and any caller that already binds `claude`, and
 does not help the orchestrated path.
+
+*Ordering constraint with the in-window guard.* The recovery fallback must not be wired into
+`step-00-activate.md`'s runtime binding until a candidate is required to hold a record inside
+the dispatch window. A candidate that merely spans the bracket is satisfied by any session left
+open and idle across it; it was reproduced end to end as a stranger's transcript accepted, every
+record outside the window, and `usage` printing a zero total under a "recovered by elimination"
+header. The guard now exists in `discover_session_transcript` (via `_transcript_span`), so the
+constraint is met for the code as shipped. The remaining risk is the binding design above: two
+sessions that both did work inside the window still refuse, correctly, but an orchestrator that
+binds `claude` on a successful recovery inherits the dormant-`~/.claude` mis-binding, which the
+guard does not address.
+
+**The `.agents/` probe is asymmetric.** `bmad-deps.py`'s `resolve()` probes `.claude/` and
+`.agents/`, project and home, eight paths. The five runtime probes in the step files
+(`steps/shared/step-00-activate.md`, `steps/execute/step-04-arch-gate.md`,
+`steps/sprint/step-03-dev-loop.md`, `steps/plan/step-02-readiness-check.md`,
+`steps/sprint/step-02-story-prep.md`) probe `.claude/` only. On a v7 tree whose skills live under
+`.agents/`, `check-deps` reports a skill present while the dispatch probe finds nothing and its
+phase self-skips silently. Not fixed in the bridge: widening the probes changes dispatch
+behaviour across three synced skills, this bridge has no test coverage for those probes, and v7
+is unsupported in this release. Cost: on v7 a green `check-deps` does not imply the phase will
+run; the mismatch is invisible until a gate is observed to have skipped.
 
 **A one-line safety fix is blocked by the cap.** `dispatch_window` parses `events.jsonl`'s `ts`
 with `_parse_iso` and does not check that the result is timezone-aware, so a hand-edited or
