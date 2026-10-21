@@ -170,12 +170,15 @@ def read_manifest(project_root: str):
     return inst.get("version"), bool(inst.get("installShims", False)), mods, module_versions
 
 
-def find_bmod_record(project_root: str) -> str | None:
-    """Path of the first `bmod.toml` carrying a `[bmod]` table, or None.
+def _iter_bmod_tables(project_root: str):
+    """Yield (path, bmod_table) for every module record under the skill roots.
 
-    Every v7 skill ships a `bmod.toml`, but only a MODULE RECORD carries a `[bmod]` table --
-    a member skill's file carries `[skill]`. Keying on the table rather than the filename is
-    what keeps one member skill from being read as an installed module.
+    One walk serves both readers so they cannot disagree about which files count as records
+    or about how an unreadable one is handled. Only a MODULE RECORD carries a `[bmod]` table --
+    a member skill's bmod.toml carries `[skill]` -- and keying on the table rather than the
+    filename is what keeps one member skill from being read as an installed module.
+
+    Order is deterministic: roots in skill_roots() order, sorted skill names within each.
     """
     for root in skill_roots(project_root):
         skills = os.path.join(root, "skills")
@@ -187,11 +190,19 @@ def find_bmod_record(project_root: str) -> str | None:
                 continue
             try:
                 with open(p, "rb") as fh:
-                    if isinstance(tomllib.load(fh).get("bmod"), dict):
-                        return p
+                    data = tomllib.load(fh)
             except (OSError, tomllib.TOMLDecodeError):
+                # One unreadable record is one unknown module, not a failed run. The verify
+                # it is part of still has every other module and every skill probe to report.
                 continue
-    return None
+            bmod = data.get("bmod")
+            if isinstance(bmod, dict):
+                yield p, bmod
+
+
+def find_bmod_record(project_root: str) -> str | None:
+    """Path of the first `bmod.toml` carrying a `[bmod]` table, or None."""
+    return next((p for p, _ in _iter_bmod_tables(project_root)), None)
 
 
 def detect_generation(project_root: str) -> tuple:
@@ -225,34 +236,18 @@ def read_v7_modules(project_root: str) -> tuple:
     bmod.toml files in the skill roots, and this mirrors that. Shaped to match
     read_manifest()'s (version, modules, module_versions) tail so verify() can bind either.
 
-    `version` is the single value when every record agrees, and None when they disagree. A
-    mixed install is a real state, and reporting one record's version as THE version would
-    hide it behind a number that reads as authoritative.
+    `version` is the single value when every record agrees, and None when they disagree or
+    any record carries no usable version. A mixed install is a real state, and reporting one
+    record's version as THE version would hide it behind a number that reads as authoritative.
     """
     mods = {}
-    for root in skill_roots(project_root):
-        skills = os.path.join(root, "skills")
-        if not os.path.isdir(skills):
-            continue
-        for name in sorted(os.listdir(skills)):
-            p = os.path.join(skills, name, "bmod.toml")
-            if not os.path.exists(p):
-                continue
-            try:
-                with open(p, "rb") as fh:
-                    data = tomllib.load(fh)
-            except (OSError, tomllib.TOMLDecodeError):
-                # One unreadable record is one unknown module, not a failed run. The verify
-                # it is part of still has every other module and every skill probe to report.
-                continue
-            bmod = data.get("bmod")
-            if not isinstance(bmod, dict):
-                continue
-            code = bmod.get("code")
-            if isinstance(code, str) and code and code not in mods:
-                mods[code] = bmod.get("version")
-    seen = {v for v in mods.values() if isinstance(v, str) and v}
-    return (seen.pop() if len(seen) == 1 else None), sorted(mods), mods
+    for _path, bmod in _iter_bmod_tables(project_root):
+        code = bmod.get("code")
+        if isinstance(code, str) and code and code not in mods:
+            mods[code] = bmod.get("version")
+    versions = set(mods.values())
+    uniform = len(versions) == 1 and all(isinstance(v, str) and v for v in versions)
+    return (versions.pop() if uniform else None), sorted(mods), mods
 
 
 def load_baseline(path) -> dict | None:

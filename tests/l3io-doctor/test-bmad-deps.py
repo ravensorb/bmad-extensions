@@ -902,6 +902,30 @@ class TestGeneration(Base):
         root = self._v7_tree(bad_record="[bmod\ncode = ", config_utils=False)
         self.assertEqual(self._mod().detect_generation(root)[0], "v7")
 
+    def test_unversioned_record_forces_no_uniform_version(self):
+        """A record with no version is a mix, not a record to ignore: the others' number
+        would otherwise be reported with confidence over an install it does not describe."""
+        root = self._v7_tree(modules=(("core-tools", "6.13.0-next"),))
+        d = os.path.join(root, ".claude", "skills", "bmod-method")
+        os.makedirs(d)
+        pathlib.Path(d, "bmod.toml").write_text('[bmod]\ncode = "method"\n', encoding="utf-8")
+        version, codes, versions = self._mod().read_v7_modules(root)
+        self.assertIsNone(version)
+        self.assertEqual(codes, ["core-tools", "method"])
+        self.assertIsNone(versions["method"])
+
+    def test_unreadable_record_is_skipped_not_fatal(self):
+        """A bmod.toml that is a directory raises IsADirectoryError (an OSError) on open()
+        and, unlike mode 000, does so even when the tests run as root."""
+        root = self._v7_tree()
+        os.makedirs(os.path.join(root, ".claude", "skills", "bmod-broken", "bmod.toml"))
+        mod = self._mod()
+        version, codes, _versions = mod.read_v7_modules(root)
+        self.assertEqual(codes, ["core-tools", "method"])
+        self.assertEqual(version, "6.13.0-next")
+        self.assertTrue(mod.find_bmod_record(root).endswith(
+            os.path.join("bmod-core-tools", "bmod.toml")))
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)
