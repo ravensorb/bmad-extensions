@@ -503,8 +503,10 @@ def verify(args: argparse.Namespace) -> int:
             msg = ("\nThis is a BMad v7 install. This package targets 6.12, so verification "
                    "is degraded: skill probes ran, manifest-derived checks could not.")
             if missing:
-                msg += (f" {len(missing)} required skill(s) resolve nowhere, which on v7 means "
-                        f"the skill was removed rather than that the install is broken.")
+                msg += (f" {len(missing)} required skill(s) resolve nowhere. On v7 some of "
+                        f"these were removed from BMad rather than missing from your install "
+                        f"-- check them against v7's skill list before treating this as a "
+                        f"broken install.")
             msg += " Do NOT run a 6.12 installer over this tree."
             print(msg, file=sys.stderr)
 

@@ -21,8 +21,9 @@ Print the output as-is. Then:
 - Exit 6 → `DONE — BMad v7 detected; verification degraded.` Print the NOTE lines and the
   v7 summary the script wrote to stderr. Skill probes ran and are trustworthy;
   manifest-derived checks (shipped skills, status contradictions) could not run and report
-  unknown, not agreement. A `MISSING` line on v7 means the skill was **removed in v7**, not
-  that the install is broken — never recommend a 6.12 installer over a v7 tree.
+  unknown, not agreement. A `MISSING` line on v7 may be a skill BMad removed in v7 rather
+  than one missing from the install, so check it against v7's skill list before calling the
+  install broken — never recommend a 6.12 installer over a v7 tree.
 - Exit 3 → `BLOCKED: <n> required BMad skill(s) resolve nowhere.` Print the remedy the script
   printed.
 - Exit 4 → `BLOCKED: BMad is not installed here, or its manifest is unreadable.`

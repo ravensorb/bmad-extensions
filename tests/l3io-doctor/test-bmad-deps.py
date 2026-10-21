@@ -956,6 +956,16 @@ class TestV7Verify(Base):
         self.assertIn("v7", self.err)
         self.assertIn("1 required skill(s) resolve nowhere", self.err)
 
+    def test_v7_does_not_claim_every_missing_skill_was_removed(self):
+        """Only some required skills were removed in v7; a blanket claim would talk a user
+        out of investigating a genuinely incomplete install."""
+        inv = self._inv([{"name": "a-gone", "status": "required"}])
+        root = self._v7_tree([])
+        self.run_cli(["verify", "--project-root", root, "--inventory", inv])
+        self.assertNotIn("means the skill was removed", self.err)
+        self.assertIn("some of these were removed", self.err)
+        self.assertIn("Do NOT run a 6.12 installer", self.err)
+
     def test_v7_with_nothing_missing_does_not_claim_missing_skills(self):
         inv = self._inv([{"name": "a-one", "status": "required"}])
         root = self._v7_tree(["a-one"])
