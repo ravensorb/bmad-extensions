@@ -122,7 +122,7 @@ is not inventoried, so 23 is not every halt in the package.
 
 ## Evidence toward ADR-0001's "revisit at 10,000"
 
-The natural home for the attempt record was a `pm-status.py remediate` verb. It was unavailable:
+The natural home for the attempt record was a remediation-record verb in `pm-status.py`. It was unavailable:
 `skills/_shared/pm-status.py` is at exactly 10,000 lines, the cap ADR-0001's 2026-10-03
 amendment set and check 12 enforces. That is the fourth change the cap has blocked or
 redirected:
