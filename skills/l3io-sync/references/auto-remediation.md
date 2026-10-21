@@ -19,8 +19,16 @@ halt recurs after its own remedy has run, it becomes a hard halt naming what was
 > BLOCKED: I ran `<remedy>` to resolve `<condition>` and the condition persists. `<detail>`.
 > This needs a decision.
 
-There is no second attempt under any condition. Three of the remedies re-run `/l3io-plan`,
+There is no second attempt under any condition. Four of the remedies re-run `/l3io-plan`,
 which carries its own halts; unbounded, a RED plan re-plans into RED forever.
+
+**Remedies that share one command and one underlying cause share a single attempt.** This
+refines the rule above and does not replace it. The four plan-pointer sites in
+`step-03-load-plan` all derive their symptom from one `/l3io-plan` run's output, so a second
+symptom after a rebuild cannot be independent of the first: a second run over the same state
+regenerates the same result. They therefore share the in-run flag `{plan_rebuilt}`, set before
+the first run, and a symptom that survives the rebuild goes to its site's persists halt rather
+than to a second run.
 
 The record is **in-run memory**, not a file: the bound is per run, a run is one orchestrator
 invocation, and every remediable site is inline in that invocation rather than inside a
@@ -88,7 +96,7 @@ external resolution`) is a genuine halt, indented and therefore **not yet invent
 
 ## Re-entry
 
-Three remedies re-run `/l3io-plan` from inside `l3io-execute`, and `/l3io-plan` has first-run
+Four remedies re-run `/l3io-plan` from inside `l3io-execute`, and `/l3io-plan` has first-run
 behaviour: the once-per-project setup pointer (`config-resolution.md` §5). **It does not fire
 again mid-run.** `pm-status.py notice` reads and writes `state/.notices.yaml` keyed on `--key`
 alone, with no session, run or caller in the key, and records a key at most once ever per

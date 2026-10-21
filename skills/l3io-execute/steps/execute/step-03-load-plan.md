@@ -69,7 +69,7 @@ absence means a plan run did not complete:
 This is a degraded path, and the snapshots are not trusted: rebuild from current state rather
 than adopt one. The rebuild neither deletes nor reads them. Report:
 ```
-⚙  plan-output-meta.yaml is missing but {n} snapshot(s) exist — running /l3io-plan to rebuild
+⚙  plan-output-meta.yaml is missing but plan snapshots exist — running /l3io-plan to rebuild
    the pointer and readiness from current state
 ```
 Set `{plan_rebuilt}` = true, then run `/l3io-plan`. There are three outcomes, and only the
@@ -99,10 +99,10 @@ for.
 If `readiness: red` → warn:
 ```
 ⚠️  Plan readiness is RED for {current_plan_file}. Executing it would produce incomplete
-   results, so I am re-planning before going further.
+   results.
 ```
 Route 1 is `/l3io-plan`, which resolves the readiness gaps and rebuilds the plan, and it runs
-now. Route 2, accepting the risk, is **never** performed here: setting readiness to amber is a
+now unless `{plan_rebuilt}` is already true. Route 2, accepting the risk, is **never** performed here: setting readiness to amber is a
 risk acceptance and stays the user's alone.
 
 If `{plan_rebuilt}` is already true — a rebuild earlier in this step produced this red plan —
@@ -124,9 +124,9 @@ continue (`amber` warns and continues as below):
 **Outcome 2 — The remedy succeeds and the condition persists.** If readiness is still `red`,
 this is a degraded path and this step has no inbox to wait on — write what you found and stop:
 ```
-BLOCKED: plan readiness is RED for {current_plan_file}. I ran /l3io-plan to resolve the
-readiness gaps and readiness is still RED. The gaps are: {list}. Two things unblock it:
-  1. Resolve the gaps above and re-run /l3io-execute.
+BLOCKED: plan readiness is RED for {current_plan_file}. I ran /l3io-plan and readiness is
+still RED; the readiness findings it reported list the gaps. Two things unblock it:
+  1. Resolve those gaps and re-run /l3io-execute.
   2. Accept the risk: say so, and I will set readiness to amber in
      {planning_artifacts}/plan-output-meta.yaml, then you re-run /l3io-execute.
 ```
@@ -139,6 +139,8 @@ readiness gaps and it failed: {failure}. Two things unblock it:
   2. Accept the risk: say so, and I will set readiness to amber in
      {planning_artifacts}/plan-output-meta.yaml, then you re-run /l3io-execute.
 ```
+A failed `/l3io-plan` may have left `plan-output-meta.yaml` partly written, so re-read the
+pointer before any later edit of it, including the amber edit of route 2.
 
 **Never tell the user to edit that file themselves.** It is written by
 `step-06-plan-output.md` §4, so it is ours, and the rule across this package is that the human
