@@ -3837,3 +3837,44 @@ test("check 35: a skill that is not a forwarder is not judged", async (t) => {
         + "\nThis was renamed in v9.9.9 and will be removed in v0.0.1.\n");
   assert.doesNotMatch((await run(root)).stderr, /\[check 35\]/);
 });
+
+const READINESS_STEP = "skills/_shared/steps/plan/step-02-readiness-check.md";
+
+test("check 36: a BLOCKED site in neither table fails", async (t) => {
+  const root = fixture(t);
+  write(root, READINESS_STEP, "\nBLOCKED: a brand new unclassified condition.\n", true);
+  const r = await run(root);
+  assert.match(r.stderr, /\[check 36\][^\n]*unclassified condition/);
+  assert.notEqual(r.status, 0);
+});
+
+test("check 36: a Remediable row whose step file omits the remedy fails", async (t) => {
+  const root = fixture(t);
+  const before = fs.readFileSync(path.join(root, READINESS_STEP), "utf8");
+  // Every occurrence, not the first: the remedy is named in the step's report lines and its
+  // recurrence guard as well as its command, and one surviving mention would satisfy the
+  // check and leave this test passing over a mutation that changed nothing it looks at.
+  assert.ok(before.includes("/l3io-doctor bootstrap-state"));
+  write(root, READINESS_STEP, before.replaceAll("/l3io-doctor bootstrap-state", "echo nope"));
+  const r = await run(root);
+  assert.match(r.stderr, /\[check 36\][^\n]*bootstrap-state/);
+  assert.notEqual(r.status, 0);
+});
+
+test("check 36: a table row whose BLOCKED line was removed fails", async (t) => {
+  const root = fixture(t);
+  const f = "skills/_shared/steps/execute/step-02-scope-resolve.md";
+  const before = fs.readFileSync(path.join(root, f), "utf8");
+  write(root, f, before.replace(/^BLOCKED: unrecognized scope argument\./m, "Stop: unrecognized scope argument."));
+  const r = await run(root);
+  assert.match(r.stderr, /\[check 36\][^\n]*unrecognized scope argument/);
+});
+
+test("check 36: the shipped tree passes, and examined something", async (t) => {
+  const r = await run(fixture(t), ["-v"]);
+  assert.doesNotMatch(r.stderr, /\[check 36\]/);
+  // Load-bearing: a matcher that found nothing would also report no violations.
+  const m = r.stdout.match(/remediation-coverage: (\d+) halt\(s\), (\d+) classified/);
+  assert.ok(m, "check 36 reported no counts");
+  assert.ok(Number(m[1]) >= 24 && Number(m[2]) >= 23, `examined too little: ${m[0]}`);
+});

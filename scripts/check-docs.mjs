@@ -114,6 +114,16 @@
 //                              construction. Not the tag list — CI checks out shallow, so
 //                              that arm would be empty exactly where it runs. The REMOVAL
 //                              version is check-module rule 13's, not this one's.
+//  36. remediation-coverage  every column-0 `BLOCKED:` line in a shared step file is a site
+//                    in one of skills/_shared/auto-remediation.md's two tables, every table
+//                    row is still backed by such a line, and a Remediable row's remedy appears
+//                    in the step file that owns it. Step-file prose has no unit test, so the
+//                    reference and the step files agreeing IS the testable artifact: a remedy
+//                    declared in the table and never wired into the step reads as a
+//                    capability and is not one. Scope is derived from both sides, so a new
+//                    halt is covered with no edit here. Indented `BLOCKED:` lines (the phase
+//                    status-line template) are outside the inventory by the reference's own
+//                    rule.
 //  31. no-flags-on-slash-commands  no `/l3io-*` invocation in LIVE_DOCS or in a markdown
 //                    file under skills/ carries a `--flag`. No l3io-* skill parses flags: l3io-execute takes
 //                    `E{nnn}`, `E{nnn}-S{nn}` or nothing, and anything else prints
@@ -4867,6 +4877,94 @@ function checkForwarderVersionOracle() {
   }
 }
 
+// 36. Every `BLOCKED:` site is classified, and every declared remedy is present.
+//
+// Two failure modes: a halt nobody classified (so nobody decided whether it should self-heal),
+// and a Remediable row whose remedy the step file does not actually run.
+//
+// A site id is `<file-stem>: <first six whitespace-separated tokens of the BLOCKED text>`,
+// the whole line if shorter. Tokens are literal -- punctuation and the em dash count as
+// tokens -- and braced placeholders collapse, because `{epic_key}` is `E001` at runtime and
+// matching the literal would be matching an example. Two `BLOCKED:` forms of one site share
+// their first six tokens and so share an id; that is one site, not a duplicate.
+//
+// Absoluteness is the `Class` column's to state, never the prose's: a row can say ABSOLUTE in
+// its Why cell and still be `auto+absolute`. Nothing here reads the word.
+const REMEDIATION_REF = "skills/_shared/auto-remediation.md";
+const REMEDIATION_STEPS = "skills/_shared/steps";
+
+function remediationSiteId(text) {
+  return text.replace(/\{[^}]*\}/g, "{}").replace(/\s+/g, " ").trim()
+    .split(" ").slice(0, 6).join(" ").toLowerCase();
+}
+
+function remediationTableRows(ref, section) {
+  const body = ref.split(`\n## ${section}\n`)[1]?.split(/^## /m)[0] ?? "";
+  return body.split("\n")
+    .filter((l) => l.startsWith("|") && !/^\|\s*-+/.test(l))
+    .map((l) => l.split("|").slice(1, -1).map((c) => c.trim()))
+    .filter((c) => c.length >= 2 && !/^site$/i.test(c[0]))
+    .map((cells) => {
+      // `<file-stem>: <text>` -- split on the FIRST colon only; the text may contain more.
+      const site = cells[0].replace(/`/g, "");
+      const at = site.indexOf(":");
+      return { id: `${site.slice(0, at)}: ${remediationSiteId(site.slice(at + 1))}`, cells };
+    });
+}
+
+function remediationCoverage() {
+  const ref = read(REMEDIATION_REF);
+  const remediable = remediationTableRows(ref, "Remediable");
+  const halts = remediationTableRows(ref, "Halts");
+  const classified = new Map([...halts, ...remediable].map((r) => [r.id, r]));
+  const remediableIds = new Set(remediable.map((r) => r.id));
+
+  const violations = [];
+  const seen = new Set();
+  let examined = 0;
+  for (const file of walkMarkdown(REMEDIATION_STEPS)) {
+    const stem = path.basename(file, ".md");
+    const lines = read(file).split("\n");
+    lines.forEach((line, i) => {
+      if (!line.startsWith("BLOCKED:")) return;
+      examined++;
+      const id = `${stem}: ${remediationSiteId(line.slice("BLOCKED:".length))}`;
+      if (!classified.has(id)) {
+        violations.push(`${file}:${i + 1} halt is in neither table of ${REMEDIATION_REF}: ` +
+          `"${line.slice(0, 70)}"`);
+        return;
+      }
+      seen.add(id);
+      if (!remediableIds.has(id)) return;
+      // The remedy must appear in the surrounding block, not merely be declared.
+      const row = classified.get(id);
+      const remedy = row.cells[2].replace(/`/g, "").replace(/\*\*.*?\*\*/g, "").trim();
+      const window = lines.slice(Math.max(0, i - 40), i + 40).join("\n");
+      if (remedy && !window.includes(remedy)) {
+        violations.push(`${file}:${i + 1} declares remedy "${remedy}" in ${REMEDIATION_REF} ` +
+          `but the step file never runs it`);
+      }
+    });
+  }
+  // A row no BLOCKED line backs is stale: the table claims a halt the code no longer has.
+  for (const [id, row] of classified) {
+    if (!seen.has(id)) {
+      violations.push(`${REMEDIATION_REF}: row "${row.cells[0]}" matches no column-0 BLOCKED: ` +
+        `line in ${REMEDIATION_STEPS} -- moved, reworded or removed without its row`);
+    }
+  }
+  return { violations, examined, classified: classified.size };
+}
+
+function checkRemediationCoverage() {
+  const { violations, examined, classified } = remediationCoverage();
+  for (const v of violations) failures.push(`[check 36] ${v}`);
+  if (verbose) {
+    console.log(`  remediation-coverage: ${examined} halt(s), ${classified} classified, ` +
+                `${violations.length} violation(s)`);
+  }
+}
+
 function checkProbePathParity() {
   const { violations } = probePathParity();
   for (const v of violations) failures.push(`[check 29] ${v}`);
@@ -4918,6 +5016,7 @@ checkSubcommandRequired();
 checkRecursiveGrep();
 checkNoFlagsOnSlashCommands();
 checkDoctorKeywordUniqueness();
+checkRemediationCoverage();
 
 for (const note of notes) if (verbose) console.log(`  note: ${note}`);
 

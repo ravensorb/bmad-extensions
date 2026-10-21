@@ -119,6 +119,6 @@ for conversion and will move to `Remediable`.
 | `step-04-arch-gate: arch gate — {N} blocking findings` | Requires design decisions | `halt` |
 | `step-02-detect-platform: platform detection failed.` | Environment, not state | `halt` |
 | `step-02-story-prep: story {story_key} still missing required acceptance` | Content authoring | `halt` |
-| `step-00-activate: l3io-setup/scripts/pm-status.py is missing beside this` | The install itself is broken | `halt` |
+| `step-00-activate: l3io-setup/scripts/pm-status.py is missing beside this skill.` | The install itself is broken | `halt` |
 | `step-00-activate: schema verify failed for {epic_key} —` | Unknown state corruption; guessing could worsen it | `halt` |
 | `step-05-dependency-graph: dependency graph has errors — resolve` | Requires `depends_on` decisions | `halt` |
