@@ -130,19 +130,18 @@ nested run too. The remediation therefore needs no suppression of its own.
 | `step-00-activate: legacy state layout — migrate required.` | only a legacy layout present | `/l3io-doctor migrate-state` | migrates to the sharded layout; preserves the original as `.legacy`, which is what makes it reversible | `auto` |
 | `step-00-activate: state found at <printed-path> but implementation_artifacts` | state exists outside `implementation_artifacts` | `_bmad/custom/config.toml` | repoints `implementation_artifacts` at the existing tree; records the previous value beside the new one in the same write | `auto` |
 | `step-00-activate: {pm_state_root} is gitignored. Project state must` | `git check-ignore` reports IGNORED | `check-ignore -v` | appends the two negation lines to the work-tree `.gitignore` it names, never an assumed one; any other source — `.git/info/exclude`, a global excludes file, a path outside the repo — stays a halt | `auto` |
+| `step-00-activate: multiple state layouts detected (sharded=$SHARDED legacy-per-epic=$LEGACY_EPIC` | **CONDITIONAL — remediates only on evidence.** `SHARDED` and `LEGACY_EPIC` are both present, `LEGACY_FLAT` is absent, **and every epic key in the legacy tree is also in the sharded tree** (equal sets and an empty legacy tree included). A legacy-only epic key, a legacy entry that is not an epic key, or a flat legacy file leaves it a halt that prints the keys that differ | `_bmad/state.superseded` | moves the legacy `_bmad/state/` tree to `_bmad/state.superseded` (moving it back restores it); **the sharded tree is not modified**. Compares epic keys only — sprint or story divergence inside a shared epic key is not examined | `auto` |
 
 ## Halts
 
 These stop the run. Rows of class `absolute` (marked **ABSOLUTE**) are hard rules, not defaults: no later change may
-convert them, whatever remedy appears to exist. Rows marked *not yet remediated* are destined
-for conversion and will move to `Remediable`.
+convert them, whatever remedy appears to exist.
 
 | Site | Why | Class |
 |---|---|---|
 | `step-02-scope-resolve: {epic_key} is owned by another session.` | **ABSOLUTE.** Breaking another session's lock is data loss across a boundary `flock` cannot see — lanes exist so two developers work in two clones | `absolute` |
 | `step-05-epic-loop: {epic_key} lock held by another session.` | **ABSOLUTE.** Breaking another session's lock is data loss across a boundary `flock` cannot see — lanes exist so two developers work in two clones | `absolute` |
 | `step-02-detect-platform: authentication unavailable.` | **ABSOLUTE.** Never touch credentials | `absolute` |
-| `step-00-activate: multiple state layouts detected (sharded=$SHARDED legacy-per-epic=$LEGACY_EPIC` | Not yet remediated — Task 5 converts this, only where the legacy tree is a strict subset of the sharded one | `halt` |
 | `sprint-closure: sprint {sprint_num} of {epic_key} — {N}` | External dependency; no remedy exists | `halt` |
 | `step-02-readiness-check: readiness gate — red. Do not` | Aggregate of per-story findings; no single remedy | `halt` |
 | `step-02-scope-resolve: unrecognized scope argument.` | User input error | `halt` |

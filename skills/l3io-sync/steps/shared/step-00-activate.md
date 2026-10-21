@@ -271,11 +271,90 @@ LEGACY_FLAT=$([ -f "{implementation_artifacts}/sprint-status.yaml" ] && echo 1 |
 echo "sharded=$SHARDED legacy-per-epic=$LEGACY_EPIC legacy-flat=$LEGACY_FLAT"
 ```
 
-**If more than one is 1** → halt immediately. An interrupted migration left state in two
-places, and guessing which is authoritative would fork the project's state:
+**If more than one is 1** → an earlier migration died partway and left state in two places.
+Guessing which is authoritative would fork the project's state, and a wrong guess deletes work,
+so the only remedy here is one the evidence makes unambiguous
+(`references/auto-remediation.md` is the contract; this is its one **conditional** row).
+
+*When the evidence exists.* It exists for exactly one combination: `SHARDED` and `LEGACY_EPIC`
+are 1 and `LEGACY_FLAT` is 0. A per-epic legacy tree names its epics in its entry names, so its
+keys can be listed and compared. A flat `sprint-status.yaml` holds its epics inside one file
+this step does not parse, so when `LEGACY_FLAT` is 1 there is nothing to compare: halt with the
+**uncomparable** line below and remediate nothing.
+
+*What is compared.* **Epic keys only.** A legacy tree holding an epic the sharded tree lacks is
+the case that loses work, and it is what this comparison detects. Sprint or story divergence
+*inside an epic key both trees share* is a different problem that this remedy does not claim to
+solve: such a pair passes the comparison, so what it licenses is moving the legacy tree aside
+(reversibly, below), not a judgment that the two copies of that epic agree.
+
+```bash
+LEG="{project-root}/_bmad/state"
+LEGACY_KEYS=$(ls -A "$LEG" | grep -E '^(E|epic-)[0-9]{3}' | sed -E 's/^(E|epic-)([0-9]{3}).*/E\2/' | sort -u)
+LEGACY_OTHER=$(ls -A "$LEG" | grep -vE '^(E|epic-)[0-9]{3}')
+SHARDED_KEYS=$(ls -d {pm_state_root}/planned/epic-* {pm_state_root}/active/epic-* {pm_state_root}/archived/epic-* 2>/dev/null | sed -E 's|.*/epic-([0-9]+)$|E\1|' | sort -u)
+ONLY_LEGACY=$(comm -23 <(printf '%s\n' "$LEGACY_KEYS" | sed '/^$/d') <(printf '%s\n' "$SHARDED_KEYS" | sed '/^$/d'))
+```
+
+*The rule.* The legacy keys must all be present in the sharded tree — `ONLY_LEGACY` empty **and**
+`LEGACY_OTHER` empty. Sets that are equal qualify: a migration that copied every epic and died
+before its cleanup leaves exactly equal sets, which is the commonest interrupted migration, and
+nothing in the legacy tree is lost by moving it aside. A legacy entry that is not an epic key
+(`LEGACY_OTHER`) is content this comparison cannot account for, so it fails the rule and is named
+in the halt rather than ignored. Keys only in the sharded tree are expected after a migration
+and do not fail it.
+
+*The empty legacy tree is decided, not inherited.* An empty `_bmad/state/` (no entries at all,
+hidden ones included) is vacuously a subset, and this step treats that as qualifying: an empty
+leftover directory is the interrupted-migration case in its simplest form, there is nothing in it
+to lose, and refusing it would halt every run forever over a directory that holds nothing. It is
+backed up like any other, so the move is still reversible and still reported with its count of
+zero.
+
+**Qualifies** → remediate, once. Set `{layouts_reconciled}` = `true` **before** moving anything —
+and if it is already `true`, this is a recurrence: go straight to the **Succeeded but persists**
+halt below and run nothing. If `{project-root}/_bmad/state.superseded` already exists, do not
+overwrite or merge into it: halt as **Failed** naming it. Print:
+```
+⚙  multiple state layouts detected; the legacy tree holds {n} epic(s), all present in the
+   sharded tree — an interrupted migration that copied everything. Backing it up.
+```
+Move it aside with `mv {project-root}/_bmad/state {project-root}/_bmad/state.superseded` and
+re-run the three-layout probe once. The sharded tree is never written, and moving the directory
+back restores the original exactly. Three outcomes, and only the first continues:
+
+- **Cleared** — only `SHARDED` is 1. Print
+  `✓  moved _bmad/state to _bmad/state.superseded. Continuing on the sharded layout.`
+  and continue to section 4.
+- **Succeeded but persists** — the move reported success and the probe still finds more than one
+  layout. Halt, naming what was tried:
+```
+BLOCKED: multiple state layouts detected (sharded=$SHARDED legacy-per-epic=$LEGACY_EPIC legacy-flat=$LEGACY_FLAT) and the layouts
+persist. I moved _bmad/state to _bmad/state.superseded and the probe still finds more than one. This needs a decision.
+```
+- **Failed** — the move errored, or the destination already exists. Halt, reporting the original
+  condition and the error; nothing was moved, so the legacy tree is as it was:
+```
+BLOCKED: multiple state layouts detected (sharded=$SHARDED legacy-per-epic=$LEGACY_EPIC legacy-flat=$LEGACY_FLAT) and I could not
+back up the legacy tree: <its error>. Nothing was moved. This needs a decision.
+```
+
+**Does not qualify** (a legacy-only key, a legacy entry that is not an epic key) → halt, and print
+which keys differ, so the user is not left to find the difference. Remediate nothing:
+```
+BLOCKED: multiple state layouts detected (sharded=$SHARDED legacy-per-epic=$LEGACY_EPIC legacy-flat=$LEGACY_FLAT) and they diverge,
+so neither can be shown to be a copy of the other.
+  only in legacy ({project-root}/_bmad/state): {ONLY_LEGACY}
+  legacy entries that are not epic keys: {LEGACY_OTHER}
+  only in sharded ({pm_state_root}): {keys in SHARDED_KEYS but not LEGACY_KEYS}
+Guessing which is authoritative would fork the project's state. Inspect both and remove
+the stale one, then re-run /l3io-doctor migrate-state.
+```
+
+**`LEGACY_FLAT` is 1** (uncomparable) → halt, remediating nothing:
 ```
 BLOCKED: multiple state layouts detected (sharded=$SHARDED legacy-per-epic=$LEGACY_EPIC legacy-flat=$LEGACY_FLAT). An earlier migration
-did not finish. Do not run any l3io-pm skill until this is resolved — inspect both
+did not finish, and a flat sprint-status.yaml cannot be compared with another layout here. Do not run any l3io-pm skill until this is resolved — inspect both
 locations and remove the stale one, then re-run /l3io-doctor migrate-state.
 ```
 
