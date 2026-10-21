@@ -4898,6 +4898,9 @@ function remediationSiteId(text) {
     .split(" ").slice(0, 6).join(" ").toLowerCase();
 }
 
+const collapseWs = (t) => t.replace(/\s+/g, " ").trim();
+const REMEDIATION_CLASSES = new Set(["auto", "halt", "absolute", "auto+absolute"]);
+
 function remediationTableRows(ref, section) {
   const body = ref.split(`\n## ${section}\n`)[1]?.split(/^## /m)[0] ?? "";
   return body.split("\n")
@@ -4917,9 +4920,30 @@ function remediationCoverage() {
   const remediable = remediationTableRows(ref, "Remediable");
   const halts = remediationTableRows(ref, "Halts");
   const classified = new Map([...halts, ...remediable].map((r) => [r.id, r]));
+  const violations = [];
+
+  // Class is the authority on absoluteness. The ABSOLUTE cross-check below is a consistency
+  // test between two things that must agree -- it catches a class dropped to `halt` or a
+  // warning deleted while the class survives -- not an inference of the class from prose.
+  for (const [rows, width] of [[remediable, 5], [halts, 3]]) {
+    for (const row of rows) {
+      if (row.cells.length !== width) {
+        violations.push(`${REMEDIATION_REF}: row "${row.cells[0]}" has ${row.cells.length} ` +
+          `column(s), expected ${width} ending in Class`);
+        continue;
+      }
+      const cls = row.cells[width - 1].replace(/`/g, "");
+      if (!REMEDIATION_CLASSES.has(cls)) {
+        violations.push(`${REMEDIATION_REF}: row "${row.cells[0]}" has Class "${cls}", ` +
+          `expected one of ${[...REMEDIATION_CLASSES].join(", ")}`);
+      } else if (row.cells.slice(0, -1).some((c) => c.includes("ABSOLUTE")) && !cls.includes("absolute")) {
+        violations.push(`${REMEDIATION_REF}: row "${row.cells[0]}" says ABSOLUTE but its ` +
+          `Class is "${cls}" -- the prose and the class disagree`);
+      }
+    }
+  }
   const remediableIds = new Set(remediable.map((r) => r.id));
 
-  const violations = [];
   const seen = new Set();
   let examined = 0;
   for (const file of walkMarkdown(REMEDIATION_STEPS)) {
@@ -4936,11 +4960,21 @@ function remediationCoverage() {
       }
       seen.add(id);
       if (!remediableIds.has(id)) return;
-      // The remedy must appear in the surrounding block, not merely be declared.
+      // The remedy must appear in the surrounding block, not merely be declared. A
+      // parenthetical is a qualifier on the remedy (`/l3io-plan` (route 1 only)), not text the
+      // step file contains, and whitespace is collapsed on both sides so a hard-wrapped
+      // command still matches.
       const row = classified.get(id);
-      const remedy = row.cells[2].replace(/`/g, "").replace(/\*\*.*?\*\*/g, "").trim();
-      const window = lines.slice(Math.max(0, i - 40), i + 40).join("\n");
-      if (remedy && !window.includes(remedy)) {
+      const remedy = collapseWs(row.cells[2].replace(/`/g, "").replace(/\*\*.*?\*\*/g, "")
+        .replace(/\([^)]*\)/g, ""));
+      if (!remedy) {
+        violations.push(`${file}:${i + 1} ${REMEDIATION_REF} lists this site as Remediable ` +
+          `but its Remedy cell is empty -- the row claims the site is remediated and names ` +
+          `nothing that does it`);
+        return;
+      }
+      const window = collapseWs(lines.slice(Math.max(0, i - 40), i + 40).join("\n"));
+      if (!window.includes(remedy)) {
         violations.push(`${file}:${i + 1} declares remedy "${remedy}" in ${REMEDIATION_REF} ` +
           `but the step file never runs it`);
       }

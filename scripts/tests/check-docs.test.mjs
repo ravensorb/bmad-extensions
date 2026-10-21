@@ -3878,3 +3878,43 @@ test("check 36: the shipped tree passes, and examined something", async (t) => {
   assert.ok(m, "check 36 reported no counts");
   assert.ok(Number(m[1]) >= 24 && Number(m[2]) >= 23, `examined too little: ${m[0]}`);
 });
+
+const REMEDIATION_REF_PATH = "skills/_shared/auto-remediation.md";
+const readRef = (root) => fs.readFileSync(path.join(root, REMEDIATION_REF_PATH), "utf8");
+
+test("check 36: a parenthetical-qualified remedy still matches its step file", async (t) => {
+  const root = fixture(t);
+  write(root, REMEDIATION_REF_PATH,
+        readRef(root).replace("| `/l3io-doctor bootstrap-state` |",
+                              "| `/l3io-doctor bootstrap-state` (artifact-only case) |"));
+  assert.doesNotMatch((await run(root)).stderr, /\[check 36\]/);
+});
+
+test("check 36: a remedy hard-wrapped across lines still matches", async (t) => {
+  const root = fixture(t);
+  const before = fs.readFileSync(path.join(root, READINESS_STEP), "utf8");
+  write(root, READINESS_STEP, before.replaceAll("/l3io-doctor bootstrap-state", "/l3io-doctor\nbootstrap-state"));
+  assert.doesNotMatch((await run(root)).stderr, /\[check 36\]/);
+});
+
+test("check 36: a Remediable row with an empty Remedy cell fails", async (t) => {
+  const root = fixture(t);
+  write(root, REMEDIATION_REF_PATH,
+        readRef(root).replace("| `/l3io-doctor bootstrap-state` |", "| **n/a** |"));
+  assert.match((await run(root)).stderr, /\[check 36\][^\n]*Remedy cell is empty/);
+});
+
+test("check 36: a row with a missing or unknown Class fails", async (t) => {
+  const root = fixture(t);
+  write(root, REMEDIATION_REF_PATH, readRef(root).replace("| `halt` |", "| `halts` |"));
+  assert.match((await run(root)).stderr, /\[check 36\][^\n]*Class "halts"/);
+  const root2 = fixture(t);
+  write(root2, REMEDIATION_REF_PATH, readRef(root2).replace("| `absolute` |\n", "|\n"));
+  assert.match((await run(root2)).stderr, /\[check 36\][^\n]*column\(s\)/);
+});
+
+test("check 36: a row saying ABSOLUTE must carry an absolute class", async (t) => {
+  const root = fixture(t);
+  write(root, REMEDIATION_REF_PATH, readRef(root).replace("| `absolute` |", "| `halt` |"));
+  assert.match((await run(root)).stderr, /\[check 36\][^\n]*says ABSOLUTE/);
+});
