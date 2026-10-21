@@ -5926,7 +5926,11 @@ def cmd_usage(args) -> int:
     t = res["tokens"]
     total = sum(t.values())
     if args.format == "json":
-        sys.stdout.write(json.dumps({**res, "total": total}, indent=2, sort_keys=True) + "\n")
+        # since/until are datetimes; ISO-8601 is the shape --since/--until accept back.
+        window = {k: res[k].isoformat() if res[k] is not None else None
+                  for k in ("since", "until")}
+        sys.stdout.write(json.dumps({**res, **window, "total": total},
+                                    indent=2, sort_keys=True) + "\n")
         return 0
 
     k = {c: t[c] / 1000.0 for c in TOKEN_CLASSES}

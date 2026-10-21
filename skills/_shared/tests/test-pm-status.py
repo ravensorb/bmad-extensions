@@ -13525,6 +13525,19 @@ class TestTranscriptFallback(Base):
         self.assertEqual(code, 2)
         self.assertIn("refusing to choose", err.getvalue())
 
+    def test_usage_json_with_a_node_window_serialises_the_window(self):
+        """since/until are datetimes internally and must be emitted as ISO-8601 strings."""
+        lo, hi = self._bracket()
+        tp = self._transcript("sess-a", [("sess-a", lo - SECOND), ("sess-a", hi + SECOND)])
+        code, out = self.run_main(["usage", tp, "--claude-session", "sess-a",
+                                   "--state-root", self.root,
+                                   "--story", self.KEYS["story"], "--format", "json"])
+        self.assertEqual(code, 0, out)
+        doc = json.loads(out)
+        self.assertIsInstance(doc["since"], str)
+        self.assertIsInstance(doc["until"], str)
+        self.assertIsNotNone(pm._parse_iso(doc["since"]))
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)
