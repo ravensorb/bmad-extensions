@@ -3920,3 +3920,28 @@ test("check 36: a row saying ABSOLUTE must carry an absolute class", async (t) =
   write(root, REMEDIATION_REF_PATH, readRef(root).replace("| `absolute` |", "| `halt` |"));
   assert.match((await run(root)).stderr, /\[check 36\][^\n]*says ABSOLUTE/);
 });
+
+test("gitignore remediation edits only a work-tree .gitignore", async (t) => {
+  // The step reads the source path from `check-ignore -v`; this pins that git reports the
+  // local and global sources as paths that are not a work-tree .gitignore, which is what
+  // the step's allowlist relies on, and that the step states the allowlist.
+  const { execFileSync } = await import("node:child_process");
+  const os = await import("node:os");
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "check-docs-gitignore-"));
+  t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+  const git = (...a) => execFileSync("git", ["-C", dir, ...a], { encoding: "utf8" });
+  git("init", "-q");
+  const global = path.join(dir, "global-ignore");
+  fs.writeFileSync(global, "gstate/\n");
+  git("config", "core.excludesFile", global);
+  fs.appendFileSync(path.join(dir, ".git", "info", "exclude"), "estate/\n");
+  fs.writeFileSync(path.join(dir, ".gitignore"), "pstate/\n");
+  const source = (p) => git("check-ignore", "-v", p).split(":")[0];
+  assert.equal(source("estate/x"), path.join(".git", "info", "exclude"));
+  assert.equal(source("gstate/x"), global);
+  assert.equal(source("pstate/x"), ".gitignore");
+  const step = fs.readFileSync(
+    path.join(REPO, "skills/_shared/steps/shared/step-00-activate.md"), "utf8");
+  assert.match(step, /Edit only a `\.gitignore` inside this work tree/);
+  assert.match(step, /`\.git\/info\/exclude`, a global excludes file/);
+});

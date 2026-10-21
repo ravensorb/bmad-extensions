@@ -128,8 +128,8 @@ nested run too. The remediation therefore needs no suppression of its own.
 | `step-03-load-plan: plan readiness is RED for {current_plan_file}.` | pointer readiness is red | `/l3io-plan` | resolves gaps and rebuilds; route 1 only. **Route 2 is ABSOLUTE and stays a halt:** accepting the risk and setting readiness to amber is a risk acceptance that is the user's alone, so no remediation writes `readiness:` | `auto+absolute` |
 | `step-03-load-plan: plan-output-meta.yaml points at {current_plan}, which does` | pointer target missing | `/l3io-plan` | rebuilds plan and pointer; does not substitute another snapshot | `auto` |
 | `step-00-activate: legacy state layout — migrate required.` | only a legacy layout present | `/l3io-doctor migrate-state` | migrates to the sharded layout; preserves the original as `.legacy`, which is what makes it reversible | `auto` |
-| `step-00-activate: state found at <printed-path> but implementation_artifacts` | state exists outside `implementation_artifacts` | repoint `implementation_artifacts` in `{project-root}/_bmad/custom/config.toml` | adopts the existing tree; records the previous value beside the new one in the same write | `auto` |
-| `step-00-activate: {pm_state_root} is gitignored. Project state must` | `git check-ignore` reports IGNORED | append the two negation lines | edits the file `git check-ignore -v` names, never an assumed `.gitignore`; a rule in `.git/info/exclude` stays a halt | `auto` |
+| `step-00-activate: state found at <printed-path> but implementation_artifacts` | state exists outside `implementation_artifacts` | `_bmad/custom/config.toml` | repoints `implementation_artifacts` at the existing tree; records the previous value beside the new one in the same write | `auto` |
+| `step-00-activate: {pm_state_root} is gitignored. Project state must` | `git check-ignore` reports IGNORED | `check-ignore -v` | appends the two negation lines to the work-tree `.gitignore` it names, never an assumed one; any other source — `.git/info/exclude`, a global excludes file, a path outside the repo — stays a halt | `auto` |
 
 ## Halts
 

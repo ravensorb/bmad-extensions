@@ -285,7 +285,8 @@ locations and remove the stale one, then re-run /l3io-doctor migrate-state.
 (`references/auto-remediation.md` is the contract). `{pm_status}` was just
 self-installed in section 2, so `migrate-state` runs against a current copy, and it preserves the
 original as `.legacy` — which is what makes this reversible. Set `{layout_migrated}` = `true`
-**before** running it, then print:
+**before** running it — and if it is already `true`, this is a recurrence: go straight to the
+**Succeeded but persists** halt below and run nothing. Then print:
 ```
 ⚙  legacy state layout detected (per-epic = _bmad/state/, flat = sprint-status.yaml) — running /l3io-doctor migrate-state
 ```
@@ -301,11 +302,13 @@ and only the first continues:
 BLOCKED: legacy state layout — migrate required. I ran `/l3io-doctor migrate-state` and the layout
 persists (sharded=$SHARDED legacy-per-epic=$LEGACY_EPIC legacy-flat=$LEGACY_FLAT). This needs a decision.
 ```
-- **Failed** — `migrate-state` errored, including a write failure. Halt, reporting the legacy
-  layout and the migration's own error; nothing is half-applied:
+- **Failed** — `migrate-state` errored, including a write failure. Re-run the three-layout
+  probe once and halt, reporting the legacy layout, the migration's own error and the layouts
+  now present — a migration can fail after it has begun writing, so do not claim the original is
+  untouched:
 ```
 BLOCKED: legacy state layout — migrate required. `/l3io-doctor migrate-state` failed: <its error>.
-The original layout is unchanged.
+Layouts now present: sharded=$SHARDED legacy-per-epic=$LEGACY_EPIC legacy-flat=$LEGACY_FLAT. Check them before re-running.
 ```
 
 **If all three are 0** → possible first run. Before creating anything, rule out an orphan
@@ -327,23 +330,30 @@ it (`references/auto-remediation.md` is the contract). Derive `{found}` as the
 directory above the printed `state/`. If the printed paths name more than one distinct
 `{found}`, there is no single tree to adopt: halt with the line below, listing them.
 
-Otherwise remediate, once. Set `{state_repointed}` = `true` **before** the write, then print:
+Otherwise remediate, once. If `{state_repointed}` is already `true`, this is a recurrence — the
+repoint did not hold — so go straight to the persists halt and write nothing. Before writing,
+capture `{configured}` = the current `{implementation_artifacts}`, and read
+`{project-root}/_bmad/custom/config.user.toml`: it is the one layer merged after the file we
+write, so a `modules.l3io-pm.implementation_artifacts` there would win over the repoint. If it
+sets one, halt as **Succeeded but persists** now, naming that file, before writing anything.
+Otherwise set `{state_repointed}` = `true` and print:
 ```
-⚙  state found at {found} but implementation_artifacts resolves to {implementation_artifacts} — repointing
+⚙  state found at {found} but implementation_artifacts resolves to {configured} — repointing
 ```
 Then repoint implementation_artifacts in {project-root}/_bmad/custom/config.toml — this
 package's own layer — under `[modules.l3io-pm]`, writing the previous value beside it as a
-comment (`# was: {implementation_artifacts}`) so the change is revertible by inspection. Create
+comment (`# was: {configured}`) so the change is revertible by inspection. Create
 the file and section if absent; change no other key. Re-run the resolver from section 1 once.
 Three outcomes, and only the first continues:
 
 - **Cleared** — it now resolves to `{found}`. Re-bind `{implementation_artifacts}` and
-  `{pm_state_root}`, print
-  `✓  implementation_artifacts = {found} (was {implementation_artifacts}). Continuing activation.`
+  `{pm_state_root}` (`{configured}` keeps the old value), print
+  `✓  implementation_artifacts = {found} (was {configured}). Continuing activation.`
   and re-run the three-layout probe above once before continuing.
-- **Succeeded but persists** — the write landed and the resolver still returns another value (a
-  higher layer, `config.user.toml` or `custom/config.user.toml`, overrides it). Halt, naming the
-  layer if known; do not edit a layer the user owns.
+- **Succeeded but persists** — the resolver still returns another value, or the overriding
+  layer above was found before the write. Halt, naming the layer. If the write had landed, say
+  so plainly: `custom/config.toml` now carries the repoint and a `# was:` comment, and the
+  override still wins. Do not edit a layer the user owns.
 - **Failed** — the write errored (permissions, a read-only checkout). Halt, reporting the
   original condition and the write error; the file is left as it was.
 
@@ -369,39 +379,53 @@ Verify the state root is not gitignored — this is what keeps state in version 
 git -C {project-root} check-ignore -q {pm_state_root} && echo IGNORED || echo TRACKED
 ```
 
-If `IGNORED`, remediate, once (`references/auto-remediation.md` is the contract).
-**Locate the ignoring rule first** — it may be in the project `.gitignore`, a parent
-directory's, or `.git/info/exclude`:
+If `IGNORED`, remediate, once (`references/auto-remediation.md` is the contract). If
+`{gitignore_fixed}` is already `true`, this is a recurrence: halt as **Succeeded but persists**
+and write nothing. **Locate the ignoring rule first** — the rule may be in any ignore source git
+reads:
 
 ```bash
 git -C {project-root} check-ignore -v {pm_state_root}
 ```
 
-The first field of the output is the file holding the rule.
+The output is `source:line:pattern`; the file holding the rule is the path before the first
+colon. If it prints nothing while the probe said `IGNORED`, halt — that mismatch is unexpected
+and there is no rule to negate.
 
-- **`.git/info/exclude`** — halt. That file is local to this clone and chosen by the user; a
-  negation there would reach nobody else and would mask their intent. Report the rule and its
-  file; edit nothing.
-- **Any other file** — set `{gitignore_fixed}` = `true` **before** the write, print
-  `⚙  {pm_state_root} is gitignored by <rule> in <file> — appending negations`, then append
-  the two negation lines to that file, the one that holds the rule:
+**Edit only a `.gitignore` inside this work tree.** Resolve the source path against
+`{project-root}`; it qualifies only if its file name is `.gitignore` and it lies under
+`git -C {project-root} rev-parse --show-toplevel`. Anything else halts and edits nothing:
+`.git/info/exclude`, a global excludes file (`core.excludesFile`, typically
+`~/.config/git/ignore`), or any path outside the repository. Those are local, deliberate,
+user-owned rules; a negation there would reach nobody else, mask a choice the user made, or
+change a file outside the project. Halt with the rule, its file and:
+```
+BLOCKED: {pm_state_root} is gitignored. Project state must be committed, but the rule is in
+<file>, which is local to this machine, so I did not edit it. Remove that rule, or negate it in
+the project .gitignore:
+  !{pm_state_root}/
+  !{pm_state_root}/**
+```
+
+For a work-tree `.gitignore`: set `{gitignore_fixed}` = `true` **before** the write, print
+`⚙  {pm_state_root} is gitignored by <rule> in <file> — appending negations`, then append
+the two negation lines to that file, the one that holds the rule:
 ```
 !{pm_state_root}/
 !{pm_state_root}/**
 ```
-  Re-run the `check-ignore -q` probe once. Three outcomes, and only the first continues:
-  - **Cleared** — prints `TRACKED`. Print
-    `✓  appended two negation lines to <file>. Continuing activation.` and continue.
-  - **Succeeded but persists** — the write landed and the probe still prints `IGNORED` (a later
-    rule re-ignores it). Halt, naming the file edited and the rule that still matches.
-  - **Failed** — the write errored (permissions, a read-only checkout). Halt, reporting the
-    original condition and the write error; nothing is half-applied.
+Re-run the `check-ignore -q` probe once. Three outcomes, and only the first continues:
+- **Cleared** — prints `TRACKED`. Print
+  `✓  appended two negation lines to <file>. Continuing activation.` and continue.
+- **Succeeded but persists** — the write landed and the probe still prints `IGNORED` (a later
+  rule re-ignores it). Halt, naming the file edited and the rule that still matches.
+- **Failed** — the write errored (permissions, a read-only checkout). Halt, reporting the
+  original condition and the write error; nothing is half-applied.
 
-Every halt here uses this line, with what was found or tried on the lines after it:
+Both persists and failed halts use this line, with what was found or tried after it:
 ```
-BLOCKED: {pm_state_root} is gitignored. Project state must be committed. Negate it in the file that ignores it:
-  !{pm_state_root}/
-  !{pm_state_root}/**
+BLOCKED: {pm_state_root} is gitignored. Project state must be committed. I appended the
+negations and the rule persists, or the write failed — details follow.
 ```
 
 ## 5. List active epics
