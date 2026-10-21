@@ -290,16 +290,28 @@ solve: such a pair passes the comparison, so what it licenses is moving the lega
 
 ```bash
 LEG="{project-root}/_bmad/state"
-LEGACY_KEYS=$(ls -A "$LEG" | grep -E '^(E|epic-)[0-9]{3}' | sed -E 's/^(E|epic-)([0-9]{3}).*/E\2/' | sort -u)
-LEGACY_OTHER=$(ls -A "$LEG" | grep -vE '^(E|epic-)[0-9]{3}')
+LISTING=$(ls -A "$LEG") || echo "UNREADABLE"
+EPIC_RE='^(E|epic-)[0-9]{3}(-status\.yaml)?$'
+LEGACY_KEYS=$(printf '%s\n' "$LISTING" | grep -E "$EPIC_RE" | sed -E 's/^(E|epic-)([0-9]{3}).*/E\2/' | sort)
+LEGACY_DUP=$(printf '%s\n' "$LEGACY_KEYS" | uniq -d)
+LEGACY_OTHER=$(printf '%s\n' "$LISTING" | grep -vE "$EPIC_RE" | sed '/^$/d')
 SHARDED_KEYS=$(ls -d {pm_state_root}/planned/epic-* {pm_state_root}/active/epic-* {pm_state_root}/archived/epic-* 2>/dev/null | sed -E 's|.*/epic-([0-9]+)$|E\1|' | sort -u)
-ONLY_LEGACY=$(comm -23 <(printf '%s\n' "$LEGACY_KEYS" | sed '/^$/d') <(printf '%s\n' "$SHARDED_KEYS" | sed '/^$/d'))
+ONLY_LEGACY=$(comm -23 <(printf '%s\n' "$LEGACY_KEYS" | sort -u | sed '/^$/d') <(printf '%s\n' "$SHARDED_KEYS" | sed '/^$/d'))
+ONLY_SHARDED=$(comm -13 <(printf '%s\n' "$LEGACY_KEYS" | sort -u | sed '/^$/d') <(printf '%s\n' "$SHARDED_KEYS" | sed '/^$/d'))
 ```
 
-*The rule.* The legacy keys must all be present in the sharded tree — `ONLY_LEGACY` empty **and**
-`LEGACY_OTHER` empty. Sets that are equal qualify: a migration that copied every epic and died
-before its cleanup leaves exactly equal sets, which is the commonest interrupted migration, and
-nothing in the legacy tree is lost by moving it aside. A legacy entry that is not an epic key
+*Reading the legacy tree.* If the listing failed (`UNREADABLE` printed), nothing is known about
+the tree: halt with the diverge line below, naming the listing error, and do not treat the empty
+output as an empty tree. An epic key is an entry named exactly `E###`, `epic-###` or
+`E###-status.yaml` — a boundary, not a prefix, so `epic-0010` (a different epic) and `E001.bak`
+(a second copy nobody compared) are not read as `E001`. Anything else lands in `LEGACY_OTHER`,
+and two entries resolving to one key (`LEGACY_DUP`) are two copies, so both halt.
+
+*The rule.* The legacy keys must all be present in the sharded tree — `ONLY_LEGACY`,
+`LEGACY_OTHER` and `LEGACY_DUP` all empty and the listing readable. Sets that are equal qualify:
+a migration that copied every epic and died before its cleanup leaves exactly equal sets, which
+is the commonest interrupted migration. Moving the tree aside loses nothing because the move is a
+rename, not because the comparison proves completeness — it checks key presence only. A legacy entry that is not an epic key
 (`LEGACY_OTHER`) is content this comparison cannot account for, so it fails the rule and is named
 in the halt rather than ignored. Keys only in the sharded tree are expected after a migration
 and do not fail it.
@@ -316,15 +328,15 @@ and if it is already `true`, this is a recurrence: go straight to the **Succeede
 halt below and run nothing. If `{project-root}/_bmad/state.superseded` already exists, do not
 overwrite or merge into it: halt as **Failed** naming it. Print:
 ```
-⚙  multiple state layouts detected; the legacy tree holds {n} epic(s), all present in the
-   sharded tree — an interrupted migration that copied everything. Backing it up.
+⚙  multiple state layouts detected; the legacy tree's epic keys ({LEGACY_KEYS}, or none) are all
+   present in the sharded tree (contents not compared) — backing the legacy tree up.
 ```
 Move it aside with `mv {project-root}/_bmad/state {project-root}/_bmad/state.superseded` and
 re-run the three-layout probe once. The sharded tree is never written, and moving the directory
 back restores the original exactly. Three outcomes, and only the first continues:
 
 - **Cleared** — only `SHARDED` is 1. Print
-  `✓  moved _bmad/state to _bmad/state.superseded. Continuing on the sharded layout.`
+  `✓  moved _bmad/state to _bmad/state.superseded; to undo: mv _bmad/state.superseded _bmad/state. Continuing on the sharded layout.`
   and continue to section 4.
 - **Succeeded but persists** — the move reported success and the probe still finds more than one
   layout. Halt, naming what was tried:
@@ -345,8 +357,9 @@ which keys differ, so the user is not left to find the difference. Remediate not
 BLOCKED: multiple state layouts detected (sharded=$SHARDED legacy-per-epic=$LEGACY_EPIC legacy-flat=$LEGACY_FLAT) and they diverge,
 so neither can be shown to be a copy of the other.
   only in legacy ({project-root}/_bmad/state): {ONLY_LEGACY}
-  legacy entries that are not epic keys: {LEGACY_OTHER}
-  only in sharded ({pm_state_root}): {keys in SHARDED_KEYS but not LEGACY_KEYS}
+  legacy entries that are not epic keys, or listing error: {LEGACY_OTHER}
+  legacy keys held by more than one entry: {LEGACY_DUP}
+  only in sharded ({pm_state_root}): {ONLY_SHARDED}
 Guessing which is authoritative would fork the project's state. Inspect both and remove
 the stale one, then re-run /l3io-doctor migrate-state.
 ```
