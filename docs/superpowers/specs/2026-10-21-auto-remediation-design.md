@@ -58,9 +58,9 @@ attempt under any condition.
 
 Nine sites qualify. The other fourteen keep halting (§5).
 
-### 4.1 Deterministic — one remedy, already named
+The remedies in §4 were written before implementation. Where any of them differs from `skills/_shared/auto-remediation.md`, that contract is authoritative.
 
-These remedies were written before implementation. Where they differ from `skills/_shared/auto-remediation.md`, that contract is authoritative.
+### 4.1 Deterministic — one remedy, already named
 
 | Halt | Auto-action |
 |---|---|
@@ -92,11 +92,14 @@ from this table.**
 The step file's own words are that guessing which layout is authoritative "would fork the
 project's state." A blind default is not defensible. An evidenced one is:
 
-- Compare the trees by node key. **If the legacy tree is a strict subset of the sharded tree**,
-  the migration copied everything and died before cleanup. That is unambiguous: back up the
-  legacy tree and proceed on sharded.
-- **If either tree holds a node the other lacks**, halt — and **print the diff**, naming which
-  node keys differ.
+- Compare the trees by **epic key**. **If every epic key in the legacy tree is also in the sharded
+  tree** — a subset, equal sets and an empty legacy tree included — and no flat legacy file is
+  present, the migration copied everything and died before cleanup. Equality is the commonest
+  case, so the subset is not strict. That is unambiguous: move the legacy tree aside to
+  `_bmad/state.superseded` and proceed on sharded. Sprint or story divergence inside a shared
+  epic key is not examined.
+- **If the legacy tree holds an epic key the sharded tree lacks, a legacy entry that is not an epic
+  key, or a flat legacy file**, halt — and **print the diff**, naming which keys differ.
 
 This automates the common case and refuses the one that can lose work. The halt improves even
 when it fires: today it says "inspect both locations", leaving the user to find the difference
