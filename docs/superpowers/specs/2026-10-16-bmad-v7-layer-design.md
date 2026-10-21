@@ -471,10 +471,13 @@ binds `claude` on a successful recovery inherits the dormant-`~/.claude` mis-bin
 guard does not address.
 
 **The `.agents/` probe is asymmetric.** `bmad-deps.py`'s `resolve()` probes `.claude/` and
-`.agents/`, project and home, eight paths. The five runtime probes in the step files
-(`steps/shared/step-00-activate.md`, `steps/execute/step-04-arch-gate.md`,
+`.agents/`, project and home, eight paths. Seven step files
+carry a runtime probe under `.claude/skills/`: `steps/shared/step-00-activate.md` (which probes
+`l3io-doctor`, this package's own sibling skill rather than a BMad dependency),
+`steps/execute/step-04-arch-gate.md`, `steps/sprint/step-02-story-prep.md`,
 `steps/sprint/step-03-dev-loop.md`, `steps/plan/step-02-readiness-check.md`,
-`steps/sprint/step-02-story-prep.md`) probe `.claude/` only. On a v7 tree whose skills live under
+`steps/plan/step-03-story-elaboration.md` and `steps/closure/sprint-closure.md`. All seven probe
+`.claude/` only. On a v7 tree whose skills live under
 `.agents/`, `check-deps` reports a skill present while the dispatch probe finds nothing and its
 phase self-skips silently. Not fixed in the bridge: widening the probes changes dispatch
 behaviour across three synced skills, this bridge has no test coverage for those probes, and v7
