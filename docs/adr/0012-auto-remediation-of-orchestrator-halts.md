@@ -131,7 +131,7 @@ redirected:
    `2026-10-16-bmad-v7-layer-design.md` §8.2.
 2. **A one-line timezone-awareness guard in `dispatch_window`** — a safety fix, not a feature,
    in the same spec's §8.2.
-3. **The `pm-status.py remediate` verb** — this decision's own attempt record.
+3. **A remediation-record verb in `pm-status.py`** — this decision's own attempt record.
 4. **The `check 12 boundary: exactly 10,000 lines passes` test**, which could not run at all
    once the file reached the cap: its padding helper asserted the file was still below the
    target and failed before exercising check 12 (repaired in `92e78bd`). The one state the
