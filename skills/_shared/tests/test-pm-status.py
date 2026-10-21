@@ -13432,22 +13432,44 @@ class TestTranscriptFallback(Base):
         Path(p).write_text("\n".join(lines) + "\n", encoding="utf-8")
         return p
 
+    def _inside(self):
+        """A timestamp inside the recorded dispatch bracket, read back from the log."""
+        open_ts, _close = pm.dispatch_window(self.root, **self.KEYS)
+        return open_ts
+
     def _discover(self, state_root=None):
         with mock.patch.dict(os.environ, {"HOME": self.home}):
             return pm.discover_session_transcript(state_root or self.root, dict(self.KEYS))
 
     def test_single_spanning_candidate_is_accepted(self):
         lo, hi = self._bracket()
-        self._transcript("sess-a", [("sess-a", lo - SECOND), ("sess-a", hi + SECOND)])
+        self._transcript("sess-a", [("sess-a", lo - SECOND), ("sess-a", self._inside()), ("sess-a", hi + SECOND)])
         paths, sid, why = self._discover()
         self.assertEqual(why, "")
         self.assertEqual(sid, "sess-a")
         self.assertEqual(len(paths), 1)
 
+    def test_idle_session_spanning_the_window_with_no_record_inside_is_refused(self):
+        """Open before and after the dispatch, but doing nothing during it: the span test
+        alone accepts it and `usage` would print a confident zero for a stranger's file."""
+        lo, hi = self._bracket()
+        self._transcript("idle", [("idle", lo - SECOND), ("idle", hi + SECOND)])
+        paths, sid, why = self._discover()
+        self.assertEqual((paths, sid), ([], ""))
+        self.assertIn("no transcript spans", why)
+
+    def test_idle_session_does_not_make_a_real_candidate_ambiguous(self):
+        lo, hi = self._bracket()
+        self._transcript("idle", [("idle", lo - SECOND), ("idle", hi + SECOND)])
+        self._transcript("sess-a", [("sess-a", lo - SECOND), ("sess-a", self._inside()),
+                                    ("sess-a", hi + SECOND)])
+        _paths, sid, why = self._discover()
+        self.assertEqual((sid, why), ("sess-a", ""))
+
     def test_two_spanning_candidates_are_refused(self):
         lo, hi = self._bracket()
-        self._transcript("sess-a", [("sess-a", lo - SECOND), ("sess-a", hi + SECOND)])
-        self._transcript("sess-b", [("sess-b", lo - SECOND), ("sess-b", hi + SECOND)])
+        self._transcript("sess-a", [("sess-a", lo - SECOND), ("sess-a", self._inside()), ("sess-a", hi + SECOND)])
+        self._transcript("sess-b", [("sess-b", lo - SECOND), ("sess-b", self._inside()), ("sess-b", hi + SECOND)])
         paths, sid, why = self._discover()
         self.assertEqual(paths, [])
         self.assertEqual(sid, "")
@@ -13486,9 +13508,9 @@ class TestTranscriptFallback(Base):
         refusal instead of a clean accept.
         """
         lo, hi = self._bracket()
-        self._transcript("sess-a", [("sess-a", lo - SECOND), ("sess-a", hi + SECOND)])
+        self._transcript("sess-a", [("sess-a", lo - SECOND), ("sess-a", self._inside()), ("sess-a", hi + SECOND)])
         stale = self._transcript("sess-old",
-                                 [("sess-old", lo - SECOND), ("sess-old", hi + SECOND)])
+                                 [("sess-old", lo - SECOND), ("sess-old", self._inside()), ("sess-old", hi + SECOND)])
         old = (lo - timedelta(days=2)).timestamp()
         os.utime(stale, (old, old))
         paths, sid, why = self._discover()
@@ -13499,7 +13521,7 @@ class TestTranscriptFallback(Base):
     def test_usage_verb_recovers_the_transcript_without_the_env_variable(self):
         """The wiring in cmd_usage, end to end: no env id, no path, a real bracket."""
         lo, hi = self._bracket()
-        self._transcript("sess-a", [("sess-a", lo - SECOND), ("sess-a", hi + SECOND)])
+        self._transcript("sess-a", [("sess-a", lo - SECOND), ("sess-a", self._inside()), ("sess-a", hi + SECOND)])
         env = {k: v for k, v in os.environ.items() if k != pm.CLAUDE_SESSION_ENV}
         env["HOME"] = self.home
         with mock.patch.dict(os.environ, env, clear=True):
@@ -13515,7 +13537,7 @@ class TestTranscriptFallback(Base):
     def test_usage_verb_refusal_names_why_elimination_failed(self):
         lo, hi = self._bracket()
         for n in ("sess-a", "sess-b"):
-            self._transcript(n, [(n, lo - SECOND), (n, hi + SECOND)])
+            self._transcript(n, [(n, lo - SECOND), (n, self._inside()), (n, hi + SECOND)])
         env = {k: v for k, v in os.environ.items() if k != pm.CLAUDE_SESSION_ENV}
         env["HOME"] = self.home
         err = io.StringIO()
@@ -13528,7 +13550,7 @@ class TestTranscriptFallback(Base):
     def test_usage_json_with_a_node_window_serialises_the_window(self):
         """since/until are datetimes internally and must be emitted as ISO-8601 strings."""
         lo, hi = self._bracket()
-        tp = self._transcript("sess-a", [("sess-a", lo - SECOND), ("sess-a", hi + SECOND)])
+        tp = self._transcript("sess-a", [("sess-a", lo - SECOND), ("sess-a", self._inside()), ("sess-a", hi + SECOND)])
         code, out = self.run_main(["usage", tp, "--claude-session", "sess-a",
                                    "--state-root", self.root,
                                    "--story", self.KEYS["story"], "--format", "json"])
@@ -13542,7 +13564,7 @@ class TestTranscriptFallback(Base):
         """The re-resolve matches by filename, so an archived or renamed transcript with a
         subagents/ sibling must still be summed: content verification outranks the name."""
         lo, hi = self._bracket()
-        fp = self._transcript("renamed-copy", [("sess-a", lo - SECOND), ("sess-a", hi + SECOND)])
+        fp = self._transcript("renamed-copy", [("sess-a", lo - SECOND), ("sess-a", self._inside()), ("sess-a", hi + SECOND)])
         subdir = os.path.join(self.projects, "sess-a", "subagents")
         os.makedirs(subdir)
         Path(subdir, "agent-1.jsonl").write_text("{}\n", encoding="utf-8")
@@ -13554,7 +13576,7 @@ class TestTranscriptFallback(Base):
 
     def test_a_naive_timestamp_file_is_skipped_not_fatal(self):
         lo, hi = self._bracket()
-        self._transcript("sess-a", [("sess-a", lo - SECOND), ("sess-a", hi + SECOND)])
+        self._transcript("sess-a", [("sess-a", lo - SECOND), ("sess-a", self._inside()), ("sess-a", hi + SECOND)])
         self._transcript("stray", [("stray", datetime(2020, 1, 1)),  # noqa: DTZ001 -- naive on purpose
                                    ("stray", lo - SECOND), ("stray", hi + SECOND)])
         self._transcript("stray-only-naive", [("stray2", datetime(2099, 1, 1))])  # noqa: DTZ001 -- naive on purpose
@@ -13564,7 +13586,7 @@ class TestTranscriptFallback(Base):
 
     def test_explicit_claude_session_is_never_overridden_by_recovery(self):
         lo, hi = self._bracket()
-        self._transcript("sess-a", [("sess-a", lo - SECOND), ("sess-a", hi + SECOND)])
+        self._transcript("sess-a", [("sess-a", lo - SECOND), ("sess-a", self._inside()), ("sess-a", hi + SECOND)])
         env = {k: v for k, v in os.environ.items() if k != pm.CLAUDE_SESSION_ENV}
         env["HOME"] = self.home
         err = io.StringIO()

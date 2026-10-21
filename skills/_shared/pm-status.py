@@ -5564,12 +5564,9 @@ def transcript_sessions(path: str) -> set:
     try:
         with open(path, "r", encoding="utf-8") as f:
             for line in f:
-                line = line.strip()
-                if not line:
-                    continue
                 try:
                     rec = json.loads(line)
-                except ValueError:
+                except ValueError:  # blank and malformed lines alike
                     continue
                 if isinstance(rec, dict) and rec.get("sessionId"):
                     out.add(str(rec["sessionId"]))
@@ -5578,12 +5575,14 @@ def transcript_sessions(path: str) -> set:
     return out
 
 
-def _transcript_span(path: str) -> tuple:
+def _transcript_span(path: str, open_ts, close_ts) -> tuple:
     """(earliest, latest) aware datetimes in a transcript, or (None, None).
 
     A naive timestamp makes the file unusable: it cannot be ordered against the aware
-    bracket, and assuming an offset would guess at someone else's clock."""
+    bracket, and assuming an offset would guess at someone else's clock. So does holding no
+    record in [open_ts, close_ts]: a merely idle session spans it and sums to a false zero."""
     lo = hi = None
+    inside = False
     try:
         with open(path, "r", encoding="utf-8") as f:
             for line in f:
@@ -5598,9 +5597,10 @@ def _transcript_span(path: str) -> tuple:
                     return None, None
                 lo = when if lo is None or when < lo else lo
                 hi = when if hi is None or when > hi else hi
+                inside = inside or open_ts <= when <= close_ts
     except OSError:
         return None, None
-    return lo, hi
+    return (lo, hi) if inside else (None, None)
 
 
 def discover_session_transcript(state_root: str, node_keys: dict) -> tuple:
@@ -5608,8 +5608,8 @@ def discover_session_transcript(state_root: str, node_keys: dict) -> tuple:
 
     Recovery is by ELIMINATION, never preference: a candidate under any project directory
     (a subagent may run under another cwd, so no slug is guessed) is accepted only when its
-    records carry exactly one sessionId AND its timestamps span the node's dispatch bracket.
-    Two survivors is a REFUSAL, not a tie-break -- the original bad number came from file
+    records carry exactly one sessionId, span the node's dispatch bracket, AND hold a record
+    inside it. Two survivors is a REFUSAL, not a tie-break -- the original bad number came from file
     choice, not arithmetic, and it looked plausible because the cache figures matched."""
     open_ts, close_ts = dispatch_window(state_root, **node_keys)
     if open_ts is None or close_ts is None:
@@ -5628,7 +5628,7 @@ def discover_session_transcript(state_root: str, node_keys: dict) -> tuple:
         except OSError:
             continue
         found = transcript_sessions(fp)
-        lo, hi = _transcript_span(fp) if len(found) == 1 else (None, None)
+        lo, hi = _transcript_span(fp, open_ts, close_ts) if len(found) == 1 else (None, None)
         if lo and lo <= open_ts and hi >= close_ts:
             hits.append((fp, found.pop()))
     if len(hits) != 1:
