@@ -397,6 +397,13 @@ and a file mixing sessions is reported as malformed. `--allow-unidentified` over
 deliberately, and then the output labels itself `UNVERIFIED` rather than printing a session id
 it never checked.
 
+When `$CLAUDE_CODE_SESSION_ID` is unset (a hook, or a wrapper that scrubs the environment) and
+`--state-root` plus a node key are given, `usage` recovers the transcript **by elimination**:
+the one file under `~/.claude/projects/` carrying exactly one `sessionId` whose timestamps span
+the node's dispatch bracket. Two such files, none, or a node with no complete bracket is a
+**refusal (exit 2)** that says which — never a tie-break. An explicit `--claude-session` is
+never overridden by recovery.
+
 A reader that can be aimed at the wrong file does not fix trap 1 — it moves it one step
 earlier. Refusing is the fix.
 

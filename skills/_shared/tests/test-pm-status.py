@@ -13475,7 +13475,7 @@ class TestTranscriptFallback(Base):
         paths, sid, why = self._discover(state_root=empty)
         self.assertEqual(paths, [])
         self.assertEqual(sid, "")
-        self.assertIn("no dispatch_open", why)
+        self.assertIn("no dispatch_open and dispatch_close", why)
 
     def test_a_stale_mtime_is_rejected_before_the_file_is_parsed(self):
         """Without the mtime rejection the fallback parses every transcript on the machine on
@@ -13537,6 +13537,55 @@ class TestTranscriptFallback(Base):
         self.assertIsInstance(doc["since"], str)
         self.assertIsInstance(doc["until"], str)
         self.assertIsNotNone(pm._parse_iso(doc["since"]))
+
+    def test_accepted_file_survives_a_name_that_does_not_match_its_session(self):
+        """The re-resolve matches by filename, so an archived or renamed transcript with a
+        subagents/ sibling must still be summed: content verification outranks the name."""
+        lo, hi = self._bracket()
+        fp = self._transcript("renamed-copy", [("sess-a", lo - SECOND), ("sess-a", hi + SECOND)])
+        subdir = os.path.join(self.projects, "sess-a", "subagents")
+        os.makedirs(subdir)
+        Path(subdir, "agent-1.jsonl").write_text("{}\n", encoding="utf-8")
+        paths, sid, why = self._discover()
+        self.assertEqual(why, "")
+        self.assertEqual(sid, "sess-a")
+        self.assertEqual(paths[0], fp)
+        self.assertIn(os.path.join(subdir, "agent-1.jsonl"), paths)
+
+    def test_a_naive_timestamp_file_is_skipped_not_fatal(self):
+        lo, hi = self._bracket()
+        self._transcript("sess-a", [("sess-a", lo - SECOND), ("sess-a", hi + SECOND)])
+        self._transcript("stray", [("stray", datetime(2020, 1, 1)),  # noqa: DTZ001 -- naive on purpose
+                                   ("stray", lo - SECOND), ("stray", hi + SECOND)])
+        self._transcript("stray-only-naive", [("stray2", datetime(2099, 1, 1))])  # noqa: DTZ001 -- naive on purpose
+        paths, sid, why = self._discover()
+        self.assertEqual(why, "")
+        self.assertEqual(sid, "sess-a")
+
+    def test_explicit_claude_session_is_never_overridden_by_recovery(self):
+        lo, hi = self._bracket()
+        self._transcript("sess-a", [("sess-a", lo - SECOND), ("sess-a", hi + SECOND)])
+        env = {k: v for k, v in os.environ.items() if k != pm.CLAUDE_SESSION_ENV}
+        env["HOME"] = self.home
+        err = io.StringIO()
+        with mock.patch.dict(os.environ, env, clear=True), redirect_stderr(err):
+            code, _out = self.run_main(["usage", "--claude-session", "other",
+                                        "--state-root", self.root,
+                                        "--story", self.KEYS["story"]])
+        self.assertEqual(code, 2)
+        self.assertIn("other.jsonl", err.getvalue())
+        self.assertIn("--claude-session was given", err.getvalue())
+
+    def test_in_flight_node_names_the_missing_close(self):
+        code, out = self.run_main(["dispatch", "--state-root", self.root, "--event", "open",
+                                   "--agent", self.KEYS["agent"], "--epic", self.KEYS["epic"],
+                                   "--sprint", self.KEYS["sprint"],
+                                   "--story", self.KEYS["story"]])
+        self.assertEqual(code, 0, out)
+        paths, _sid, why = self._discover()
+        self.assertEqual(paths, [])
+        self.assertIn("no dispatch_close", why)
+        self.assertIn("in flight", why)
 
 
 if __name__ == "__main__":

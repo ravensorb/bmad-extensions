@@ -5581,16 +5581,12 @@ def transcript_sessions(path: str) -> set:
 def _transcript_span(path: str) -> tuple:
     """(earliest, latest) aware datetimes in a transcript, or (None, None).
 
-    Read as a pair rather than per-record because the caller asks one question of the whole
-    file -- does it cover this node's bracket -- and a partial answer is not useful.
-    """
+    A naive timestamp makes the file unusable: it cannot be ordered against the aware
+    bracket, and assuming an offset would guess at someone else's clock."""
     lo = hi = None
     try:
         with open(path, "r", encoding="utf-8") as f:
             for line in f:
-                line = line.strip()
-                if not line:
-                    continue
                 try:
                     rec = json.loads(line)
                 except ValueError:
@@ -5598,6 +5594,8 @@ def _transcript_span(path: str) -> tuple:
                 when = _parse_iso(rec.get("timestamp")) if isinstance(rec, dict) else None
                 if when is None:
                     continue
+                if when.tzinfo is None:
+                    return None, None
                 lo = when if lo is None or when < lo else lo
                 hi = when if hi is None or when > hi else hi
     except OSError:
@@ -5608,61 +5606,40 @@ def _transcript_span(path: str) -> tuple:
 def discover_session_transcript(state_root: str, node_keys: dict) -> tuple:
     """(paths, session_id, refusal) for a session the environment cannot name.
 
-    resolve_session_transcript() answers from CLAUDE_CODE_SESSION_ID and returns nothing
-    without it, so a Claude run in a context that does not export the variable -- a hook, a
-    wrapper that scrubs the environment -- reports N/A while the data sits on disk.
-
-    Recovery is by ELIMINATION, never by preference. Every project directory is scanned
-    rather than the one a slugified cwd would name, for the reason
-    resolve_session_transcript already gives: a subagent may run under a different working
-    directory, and guessing the slug reintroduces the ambiguity. A candidate is accepted
-    only when its own records carry exactly one sessionId AND its timestamps span the node's
-    dispatch bracket.
-
-    Two survivors is a REFUSAL, not a tie-break. Picking the likelier file is precisely the
-    failure this command exists to prevent: the original bad number came from file choice,
-    not arithmetic, and it looked plausible because the cache figures matched.
-    """
+    Recovery is by ELIMINATION, never preference: a candidate under any project directory
+    (a subagent may run under another cwd, so no slug is guessed) is accepted only when its
+    records carry exactly one sessionId AND its timestamps span the node's dispatch bracket.
+    Two survivors is a REFUSAL, not a tie-break -- the original bad number came from file
+    choice, not arithmetic, and it looked plausible because the cache figures matched."""
     open_ts, close_ts = dispatch_window(state_root, **node_keys)
     if open_ts is None or close_ts is None:
-        return [], "", ("this node has no dispatch_open/dispatch_close pair, so there is no "
-                        "window to verify a transcript against")
+        gap = ("dispatch_open and dispatch_close" if open_ts is None and close_ts is None
+               else "dispatch_close (the node is still in flight)" if close_ts is None
+               else "dispatch_open")
+        return [], "", f"no {gap} recorded for this node, so there is no complete window"
     root = os.path.expanduser("~/.claude/projects")
-    if not os.path.isdir(root):
-        return [], "", f"{root} does not exist"
     hits = []
-    for d in sorted(os.listdir(root)):
-        sub = os.path.join(root, d)
-        if not os.path.isdir(sub):
+    for fp in sorted(glob.glob(os.path.join(glob.escape(root), "*", "*.jsonl"))):
+        try:
+            # A file last written before the bracket opened cannot span it; skipping it
+            # avoids parsing every transcript on the machine (tens of MB each).
+            if datetime.fromtimestamp(os.path.getmtime(fp), tz=UTC) < open_ts:
+                continue
+        except OSError:
             continue
-        for name in sorted(os.listdir(sub)):
-            if not name.endswith(".jsonl"):
-                continue
-            fp = os.path.join(sub, name)
-            try:
-                # Cheap rejection first: a file last written before the bracket opened cannot
-                # span it. Without this the fallback parses every transcript on the machine
-                # on every call, and they reach tens of megabytes.
-                if datetime.fromtimestamp(os.path.getmtime(fp), tz=UTC) < open_ts:
-                    continue
-            except OSError:
-                continue
-            found = transcript_sessions(fp)
-            if len(found) != 1:
-                continue
-            lo, hi = _transcript_span(fp)
-            if lo is None or lo > open_ts or hi < close_ts:
-                continue
+        found = transcript_sessions(fp)
+        lo, hi = _transcript_span(fp) if len(found) == 1 else (None, None)
+        if lo and lo <= open_ts and hi >= close_ts:
             hits.append((fp, found.pop()))
     if len(hits) != 1:
         return [], "", (f"{len(hits)} transcripts span this node's window; refusing to "
                         f"choose between them" if hits
                         else "no transcript spans this node's window")
     fp, sid = hits[0]
-    # Re-resolve from the recovered id so the session's subagent files come too; fall back
-    # to the single file if that lookup finds nothing.
+    # The verified file leads and is never dropped: the lookup matches by filename, so a file
+    # not named for its session would otherwise be left out of the sum.
     paths, _ = resolve_session_transcript(sid)
-    return (paths or [fp]), sid, ""
+    return [fp] + [p for p in paths if p != fp], sid, ""
 
 
 def read_transcript_usage(paths, since=None, until=None) -> dict:
@@ -5841,10 +5818,11 @@ def cmd_usage(args) -> int:
         paths, want = resolve_session_transcript(args.claude_session)
         resolved = True
         if not paths:
-            keys = {k: getattr(args, k, "") or ""
-                    for k in ("agent", "epic", "sprint", "story")}
+            keys = {k: getattr(args, k, "") or "" for k in ("agent", "epic", "sprint", "story")}
             why = "no --state-root and node key to derive a window from"
-            if args.state_root and any(keys.values()):
+            if args.claude_session:  # an explicit session is a constraint, never overridden
+                why = "--claude-session was given, so no other session is considered"
+            elif args.state_root and any(keys.values()):
                 paths, found_sid, why = discover_session_transcript(args.state_root, keys)
                 want = found_sid or want
                 recovered = bool(paths)
