@@ -85,8 +85,8 @@ class Base(unittest.TestCase):
         return proc.returncode, proc.stdout
 
     def _tree(self, names, layout="skills", version="6.12.0", shims=None, manifest_rows=None,
-              bmb_version=None):
-        """Build a project root whose .claude/<layout>/ contains `names`.
+              bmb_version=None, tool=".claude"):
+        """Build a project root whose <tool>/<layout>/ contains `names`.
 
         `manifest_rows` is a list of data-row strings (no header) for
         `_bmad/_config/skill-manifest.csv`; the header `canonicalId,name,description,module,path`
@@ -100,11 +100,11 @@ class Base(unittest.TestCase):
         self.addCleanup(shutil.rmtree, root, True)
         for n in names:
             if layout == "skills":
-                d = os.path.join(root, ".claude", "skills", n)
+                d = os.path.join(root, tool, "skills", n)
                 os.makedirs(d, exist_ok=True)
                 pathlib.Path(d, "SKILL.md").write_text("x", encoding="utf-8")
             else:
-                d = os.path.join(root, ".claude", "commands")
+                d = os.path.join(root, tool, "commands")
                 os.makedirs(d, exist_ok=True)
                 pathlib.Path(d, f"{n}.md").write_text("x", encoding="utf-8")
         mf = os.path.join(root, "_bmad", "_config")
@@ -121,6 +121,38 @@ class Base(unittest.TestCase):
             csv_text = "canonicalId,name,description,module,path\n"
             csv_text += "".join(f"{row}\n" for row in manifest_rows)
             pathlib.Path(mf, "skill-manifest.csv").write_text(csv_text, encoding="utf-8")
+        return root
+
+    def _v7_tree(self, names=(), layout="skills", tool=".claude",
+                 modules=(("core-tools", "6.13.0-next"), ("method", "6.13.0-next")),
+                 config_utils=True, bad_record=None):
+        """A project root shaped like a v7 install: no _bmad/_config/ at all.
+
+        v7 discovers modules from the bmod.toml files in the skill roots, so the fixture
+        writes those rather than a central manifest. `tool` selects the root (.claude or
+        .agents). `bad_record` writes one extra bmod.toml with the given raw text.
+        """
+        root = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, root, True)
+        for n in names:
+            d = os.path.join(root, tool, layout, n)
+            os.makedirs(d, exist_ok=True)
+            pathlib.Path(d, "SKILL.md").write_text("x", encoding="utf-8")
+        for code, version in modules:
+            d = os.path.join(root, tool, "skills", f"bmod-{code}")
+            os.makedirs(d, exist_ok=True)
+            pathlib.Path(d, "bmod.toml").write_text(
+                f'[bmod]\ncode = "{code}"\nversion = "{version}"\n'
+                'update_source = "github:bmad-code-org/BMAD-METHOD/skills"\n',
+                encoding="utf-8")
+        if bad_record is not None:
+            d = os.path.join(root, tool, "skills", "bmod-broken")
+            os.makedirs(d, exist_ok=True)
+            pathlib.Path(d, "bmod.toml").write_text(bad_record, encoding="utf-8")
+        if config_utils:
+            d = os.path.join(root, "_bmad", "scripts")
+            os.makedirs(d, exist_ok=True)
+            pathlib.Path(d, "config_utils.py").write_text("# v7\n", encoding="utf-8")
         return root
 
     def _baseline(self, core_version=None, bmb_version=None):
@@ -286,6 +318,16 @@ class TestLayouts(Base):
         d = os.path.join(self.home, ".claude", "skills", "a-one")
         os.makedirs(d)
         pathlib.Path(d, "SKILL.md").write_text("x", encoding="utf-8")
+        code, out = self.run_cli(["verify", "--project-root", root, "--inventory", inv])
+        self.assertEqual(code, 0, self.err)
+        self.assertIn("ok       a-one", out)
+
+
+    def test_agents_root_is_probed(self):
+        """v7 discovers skills across `.<tool>/skills`; an install under .agents/ is not
+        absent, and reporting it so would silently self-skip the gate that needs it."""
+        inv = self._inv([{"name": "a-one", "status": "required"}])
+        root = self._tree(["a-one"], tool=".agents")
         code, out = self.run_cli(["verify", "--project-root", root, "--inventory", inv])
         self.assertEqual(code, 0, self.err)
         self.assertIn("ok       a-one", out)
@@ -743,6 +785,69 @@ class TestBaselineDrift(Base):
             pathlib.Path(SKILL_ROOT, "assets", "bmad-baseline.json").read_text(encoding="utf-8"))
         self.assertEqual(default_baseline["core_version"], "6.12.2")
         self.assertEqual(default_baseline["bmb_version"], "v2.2.2")
+
+
+class TestGeneration(Base):
+    """detect_generation() is imported directly: it is a pure function of the tree, and
+    driving it through the CLI would also exercise the verify() wiring that Task 3 adds."""
+
+    @staticmethod
+    def _mod():
+        import importlib.util
+        spec = importlib.util.spec_from_file_location("bmad_deps", SCRIPT)
+        m = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(m)
+        return m
+
+    def test_v6_manifest_is_detected_as_v6(self):
+        root = self._tree(["a-one"])
+        gen, evidence = self._mod().detect_generation(root)
+        self.assertEqual(gen, "v6")
+        self.assertTrue(evidence.endswith("manifest.yaml"))
+
+    def test_config_utils_alone_is_detected_as_v7(self):
+        root = self._v7_tree(modules=())
+        gen, evidence = self._mod().detect_generation(root)
+        self.assertEqual(gen, "v7")
+        self.assertTrue(evidence.endswith("config_utils.py"))
+
+    def test_bmod_record_alone_is_detected_as_v7(self):
+        root = self._v7_tree(config_utils=False)
+        gen, evidence = self._mod().detect_generation(root)
+        self.assertEqual(gen, "v7")
+        self.assertTrue(evidence.endswith("bmod.toml"))
+
+    def test_empty_tree_is_neither(self):
+        root = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, root, True)
+        self.assertEqual(self._mod().detect_generation(root), ("", ""))
+
+    def test_unreadable_v6_manifest_falls_through_to_v7(self):
+        """A manifest that exists but will not parse is not evidence of a working v6 tree.
+        read_manifest() already returns None for it, so calling that tree v6 would send the
+        caller down a path that fails again on the same file."""
+        root = self._v7_tree(config_utils=True)
+        mf = os.path.join(root, "_bmad", "_config")
+        os.makedirs(mf, exist_ok=True)
+        pathlib.Path(mf, "manifest.yaml").write_text("{[not yaml", encoding="utf-8")
+        self.assertEqual(self._mod().detect_generation(root)[0], "v7")
+
+    def test_tree_with_both_generations_reads_as_v6(self):
+        """Manifest-first is what makes this change unable to alter any existing v6 result.
+        A mid-migration tree, or a v6 install with v7 skills beside it, stays v6."""
+        root = self._tree(["a-one"])
+        d = os.path.join(root, "_bmad", "scripts")
+        os.makedirs(d, exist_ok=True)
+        pathlib.Path(d, "config_utils.py").write_text("# v7\n", encoding="utf-8")
+        gen, evidence = self._mod().detect_generation(root)
+        self.assertEqual(gen, "v6")
+        self.assertTrue(evidence.endswith("manifest.yaml"))
+
+    def test_v7_detected_when_only_agents_root_exists(self):
+        root = self._v7_tree(tool=".agents", config_utils=False)
+        gen, evidence = self._mod().detect_generation(root)
+        self.assertEqual(gen, "v7")
+        self.assertIn(".agents", evidence)
 
 
 if __name__ == "__main__":

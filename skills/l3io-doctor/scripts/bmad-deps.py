@@ -89,6 +89,7 @@ import json
 import os
 import pathlib
 import sys
+import tomllib
 
 from ruamel.yaml import YAML
 
@@ -115,18 +116,30 @@ DEFAULT_BASELINE = pathlib.Path(__file__).resolve().parent.parent / "assets" / "
 STATUSES = ("required", "optional", "related", "deprecated", "removed", "not-a-skill")
 
 
+def skill_roots(project_root: str) -> list[str]:
+    """Every directory that may hold installed skills: project first, then the user's home.
+
+    `.agents` sits beside `.claude` because v7 discovers skills across `.<tool>/skills`
+    generally and names `~/.agents` in its own skill-lock path, so a v7 install need not be
+    under `.claude` at all. Probing one tool directory would mis-detect such an install as
+    absent -- the same shape as the single-layout probe that once let a gate self-skip.
+    """
+    return [os.path.join(base, tool)
+            for base in (project_root, os.path.expanduser("~"))
+            for tool in (".claude", ".agents")]
+
+
 def resolve(name: str, project_root: str) -> str | None:
-    """Return the path `name` resolves to, or None. Both layouts, both roots.
+    """Return the path `name` resolves to, or None. Both layouts, every root.
 
     6.12.0 installs skills/<name>/SKILL.md; earlier releases install commands/<name>.md.
     Probing only one layout mis-detects an installed skill as absent on the other version,
-    which is how a gate came to self-skip silently -- so both are always tried, under the
-    project root first and then the user's home.
+    which is how a gate came to self-skip silently -- so both are always tried, under every
+    root skill_roots() names.
     """
-    roots = [os.path.join(project_root, ".claude"),
-             os.path.join(os.path.expanduser("~"), ".claude")]
-    for root in roots:
-        for rel in (os.path.join("skills", name, "SKILL.md"), os.path.join("commands", f"{name}.md")):
+    for root in skill_roots(project_root):
+        for rel in (os.path.join("skills", name, "SKILL.md"),
+                    os.path.join("commands", f"{name}.md")):
             p = os.path.join(root, rel)
             if os.path.exists(p):
                 return p
@@ -155,6 +168,54 @@ def read_manifest(project_root: str):
     mods = [m.get("name") for m in raw_modules]
     module_versions = {m.get("name"): m.get("version") for m in raw_modules}
     return inst.get("version"), bool(inst.get("installShims", False)), mods, module_versions
+
+
+def find_bmod_record(project_root: str) -> str | None:
+    """Path of the first `bmod.toml` carrying a `[bmod]` table, or None.
+
+    Every v7 skill ships a `bmod.toml`, but only a MODULE RECORD carries a `[bmod]` table --
+    a member skill's file carries `[skill]`. Keying on the table rather than the filename is
+    what keeps one member skill from being read as an installed module.
+    """
+    for root in skill_roots(project_root):
+        skills = os.path.join(root, "skills")
+        if not os.path.isdir(skills):
+            continue
+        for name in sorted(os.listdir(skills)):
+            p = os.path.join(skills, name, "bmod.toml")
+            if not os.path.exists(p):
+                continue
+            try:
+                with open(p, "rb") as fh:
+                    if isinstance(tomllib.load(fh).get("bmod"), dict):
+                        return p
+            except (OSError, tomllib.TOMLDecodeError):
+                continue
+    return None
+
+
+def detect_generation(project_root: str) -> tuple:
+    """('v6'|'v7'|'', evidence path). Which BMad generation is installed here.
+
+    v6 is decided by a manifest that READS, not one that merely exists: read_manifest()
+    already returns None for an unparseable file, and calling such a tree v6 would send the
+    caller down a path that fails again on the same file.
+
+    Manifest-first ordering is deliberate. A tree carrying both generations -- mid-migration,
+    or a v6 install with v7 skills added beside it -- behaves exactly as it does today, so
+    this change cannot alter any existing v6 result.
+
+    v7 has no central manifest: `_config` survives only as a reserved directory name in its
+    setup script and nothing writes it. The two positive signals are the shared script that
+    v7's own resolve_config.py imports, and any module record on disk.
+    """
+    if read_manifest(project_root) is not None:
+        return "v6", os.path.join(project_root, "_bmad", "_config", "manifest.yaml")
+    cu = os.path.join(project_root, "_bmad", "scripts", "config_utils.py")
+    if os.path.exists(cu):
+        return "v7", cu
+    rec = find_bmod_record(project_root)
+    return ("v7", rec) if rec else ("", "")
 
 
 def load_baseline(path) -> dict | None:
