@@ -25,7 +25,8 @@ Usage
 -----
   bmad-deps.py verify --project-root R [--inventory PATH] [--format {text,json}]
 
-Exit 0 when every required skill resolves (optional ones only warn), 2 on a usage error or an
+Exit 0 when every required skill resolves (optional ones only warn), 6 on a BMad v7 install
+(verification is degraded there and the code outranks 3 -- see verify()), 2 on a usage error or an
 unparseable inventory -- bad JSON, a non-object top level, an absent, empty or non-list
 `skills`, a non-object entry, or a `status`
 outside STATUSES -- 3 when a required skill resolves nowhere, 4 when the inventory or the BMad
@@ -35,8 +36,12 @@ a manifest parsing to no `installation` key is a successful read and the run pro
 `BMad None`.
 
 `--format json` emits nothing on the exit-2 and exit-4 paths; otherwise one object:
+  bmad_generation   "v6" or "v7" -- which generation detect_generation() found. v7 has no
+                    central manifest, so every manifest-derived field below reports its
+                    unknown value there rather than a measured one.
   bmad_version      installation.version, or null when the manifest omits it
-  shims_installed   installation.installShims, false when the key is absent (pre-6.12)
+  shims_installed   installation.installShims, false when the key is absent (pre-6.12);
+                    null on v7, which has no such concept.
   modules           the names in modules[], skipping any non-map entry
   resolved          [{name, status, resolved_as, path}] -- resolved_as is the preferred name,
                     or the fallback when the preferred one was absent
@@ -378,12 +383,18 @@ def verify(args: argparse.Namespace) -> int:
     if complaint:
         print(f"cannot parse inventory {args.inventory}: {complaint}", file=sys.stderr)
         return 2
-    man = read_manifest(args.project_root)
-    if man is None:
+    generation, evidence = detect_generation(args.project_root)
+    if not generation:
         print(f"cannot read {args.project_root}/_bmad/_config/manifest.yaml — is BMad installed?",
               file=sys.stderr)
         return 4
-    version, shims, modules, module_versions = man
+    if generation == "v6":
+        version, shims, modules, module_versions = read_manifest(args.project_root)
+    else:
+        # v7 has no installShims concept. `False` would be a claim about a key that does not
+        # exist; None is the truth, and matches the `shipped_skills` unknown convention.
+        version, modules, module_versions = read_v7_modules(args.project_root)
+        shims = None
 
     resolved, missing, shims_in_use, warnings, deprecated_absent, related_present = \
         [], [], [], [], [], []
@@ -431,7 +442,8 @@ def verify(args: argparse.Namespace) -> int:
     baseline_drift = compute_baseline_drift(version, module_versions.get("bmb"), baseline)
 
     if args.format == "json":
-        print(json.dumps({"bmad_version": version, "shims_installed": shims,
+        print(json.dumps({"bmad_generation": generation,
+                          "bmad_version": version, "shims_installed": shims,
                           "modules": modules, "resolved": resolved,
                           "missing_required": missing, "optional_absent": warnings,
                           "shims_in_use": shims_in_use,
@@ -441,7 +453,14 @@ def verify(args: argparse.Namespace) -> int:
                           "status_contradictions": contradictions,
                           "baseline_drift": baseline_drift}, indent=2))
     else:
-        print(f"BMad {version} — modules: {', '.join(str(m) for m in modules)}")
+        label = "v7 " if generation == "v7" else ""
+        print(f"BMad {label}{version} — modules: {', '.join(str(m) for m in modules)}")
+        if generation == "v7":
+            print("  NOTE     v7 install: manifest-derived checks unavailable "
+                  "(no skill-manifest.csv); skill probes still ran")
+            # Home skill roots are probed too, so a user-level v7 install makes a project
+            # with no _bmad/ of its own resolve as v7; the path shows which one this is.
+            print(f"  NOTE     v7 detection evidence: {evidence}")
         for r in resolved:
             note = "" if r["resolved_as"] == r["name"] else f"  (via {r['resolved_as']})"
             print(f"  ok       {r['name']}{note}")
@@ -467,7 +486,7 @@ def verify(args: argparse.Namespace) -> int:
                   f"installed {d['found']!r} (warning only — see assets/bmad-baseline.json)")
         for n in missing:
             print(f"  MISSING  {n} (required)")
-        if missing:
+        if missing and generation == "v6":
             # Flush first: unflushed stdout would otherwise let this summary surface ahead of
             # the report it summarizes whenever the two streams are captured separately.
             sys.stdout.flush()
@@ -479,7 +498,24 @@ def verify(args: argparse.Namespace) -> int:
                   f"`npx -y bmad-method@latest install --directory . --action quick-update "
                   f"--yes` to refresh every installed module without removing any.",
                   file=sys.stderr)
+        elif generation == "v7":
+            sys.stdout.flush()
+            msg = ("\nThis is a BMad v7 install. This package targets 6.12, so verification "
+                   "is degraded: skill probes ran, manifest-derived checks could not.")
+            if missing:
+                msg += (f" {len(missing)} required skill(s) resolve nowhere, which on v7 means "
+                        f"the skill was removed rather than that the install is broken.")
+            msg += " Do NOT run a 6.12 installer over this tree."
+            print(msg, file=sys.stderr)
 
+    # v7 OUTRANKS a missing required skill, and the ordering is the whole point. On v7
+    # bmad-sprint-planning really is absent, so `missing` is non-empty on every v7 install:
+    # returning 3 would make 6 unreachable. "You are on an unsupported generation" is also
+    # the true and actionable diagnosis, where "a required skill is missing" describes a
+    # broken v6 install -- which this is not. Exit 5 cannot collide: contradictions is
+    # always [] when shipped_skills is None, which it always is on v7.
+    if generation == "v7":
+        return 6
     if missing:
         return 3
     if args.strict and contradictions:

@@ -432,7 +432,7 @@ class TestJson(Base):
         code, out = self.run_cli(argv)
         self.assertEqual(code, 0, self.err)
         data = json.loads(out)
-        self.assertEqual(set(data), {"bmad_version", "shims_installed", "modules", "resolved",
+        self.assertEqual(set(data), {"bmad_generation", "bmad_version", "shims_installed", "modules", "resolved",
                                      "missing_required", "optional_absent", "shims_in_use",
                                      "deprecated_absent", "related_present", "shipped_skills",
                                      "status_contradictions", "baseline_drift"})
@@ -925,6 +925,93 @@ class TestGeneration(Base):
         self.assertEqual(version, "6.13.0-next")
         self.assertTrue(mod.find_bmod_record(root).endswith(
             os.path.join("bmod-core-tools", "bmod.toml")))
+
+
+class TestV7Verify(Base):
+    def test_v7_tree_exits_6_not_4(self):
+        """The bug: a v7 tree has no _config/manifest.yaml, so the verifier reported
+        'is BMad installed?' on a tree where it is."""
+        inv = self._inv([{"name": "a-one", "status": "required"}])
+        root = self._v7_tree(["a-one"])
+        code, out = self.run_cli(["verify", "--project-root", root, "--inventory", inv])
+        self.assertEqual(code, 6)
+        self.assertIn("ok       a-one", out)
+
+    def test_v7_exit_6_outranks_missing_required(self):
+        """bmad-sprint-planning really is absent on v7, so `missing` is non-empty on every
+        v7 install. Returning 3 would make 6 unreachable."""
+        inv = self._inv([{"name": "a-gone", "status": "required"}])
+        root = self._v7_tree([])
+        code, out = self.run_cli(["verify", "--project-root", root, "--inventory", inv])
+        self.assertEqual(code, 6)
+        self.assertIn("MISSING  a-gone", out)
+
+    def test_v7_does_not_print_the_v6_reinstall_remedy(self):
+        """That remedy installs the 6.12 line, which over a v7 tree is worse than silence:
+        it reaches the user at the one moment they will paste what they are given."""
+        inv = self._inv([{"name": "a-gone", "status": "required"}])
+        root = self._v7_tree([])
+        self.run_cli(["verify", "--project-root", root, "--inventory", inv])
+        self.assertNotIn("bmad-method@latest", self.err)
+        self.assertIn("v7", self.err)
+        self.assertIn("1 required skill(s) resolve nowhere", self.err)
+
+    def test_v7_with_nothing_missing_does_not_claim_missing_skills(self):
+        inv = self._inv([{"name": "a-one", "status": "required"}])
+        root = self._v7_tree(["a-one"])
+        self.run_cli(["verify", "--project-root", root, "--inventory", inv])
+        self.assertIn("v7", self.err)
+        self.assertIn("Do NOT run a 6.12 installer", self.err)
+        self.assertNotIn("0 required", self.err)
+        self.assertNotIn("resolve nowhere", self.err)
+
+    def test_v7_reports_generation_and_modules_in_text(self):
+        inv = self._inv([{"name": "a-one", "status": "required"}])
+        root = self._v7_tree(["a-one"])
+        _code, out = self.run_cli(["verify", "--project-root", root, "--inventory", inv])
+        self.assertIn("BMad v7 6.13.0-next", out)
+        self.assertIn("core-tools", out)
+        self.assertIn("NOTE", out)
+
+    def test_v7_prints_the_detection_evidence_path(self):
+        """A user-level v7 install makes a project with no _bmad/ resolve as v7; the path
+        is what lets a reader tell that apart from a project-level install."""
+        inv = self._inv([{"name": "a-one", "status": "required"}])
+        root = self._v7_tree(["a-one"])
+        _code, out = self.run_cli(["verify", "--project-root", root, "--inventory", inv])
+        note = [ln for ln in out.splitlines() if "evidence" in ln]
+        self.assertEqual(len(note), 1, out)
+        self.assertIn(root, note[0])
+        self.assertIn("config_utils.py", note[0])
+
+    def test_v7_json_shape(self):
+        inv = self._inv([{"name": "a-one", "status": "required"}])
+        root = self._v7_tree(["a-one"])
+        _code, out = self.run_cli(["verify", "--project-root", root,
+                                   "--inventory", inv, "--format", "json"])
+        data = json.loads(out)
+        self.assertEqual(data["bmad_generation"], "v7")
+        self.assertEqual(data["bmad_version"], "6.13.0-next")
+        self.assertIsNone(data["shims_installed"])
+        self.assertIsNone(data["shipped_skills"])
+        self.assertEqual(data["status_contradictions"], [])
+
+    def test_v6_json_still_reports_its_generation(self):
+        inv = self._inv([{"name": "a-one", "status": "required"}])
+        root = self._tree(["a-one"])
+        _code, out = self.run_cli(["verify", "--project-root", root,
+                                   "--inventory", inv, "--format", "json"])
+        data = json.loads(out)
+        self.assertEqual(data["bmad_generation"], "v6")
+        self.assertIs(data["shims_installed"], False)
+
+    def test_empty_tree_still_exits_4(self):
+        """Exit 4 keeps its meaning: 'I could not look'. Only a tree with v7 evidence is 6."""
+        inv = self._inv([{"name": "a-one", "status": "required"}])
+        root = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, root, True)
+        code, _out = self.run_cli(["verify", "--project-root", root, "--inventory", inv])
+        self.assertEqual(code, 4)
 
 
 if __name__ == "__main__":
