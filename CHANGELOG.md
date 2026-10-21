@@ -2,6 +2,50 @@
 
 All notable changes to this project will be documented in this file. See [commit-and-tag-version](https://github.com/absolute-version/commit-and-tag-version) for commit guidelines.
 
+## [3.5.0](https://github.com/ravensorb/bmad-extensions/compare/3.4.5...3.5.0) (2026-10-21)
+
+
+### Features
+
+* **l3io-pm:** recover a session transcript by elimination when the env is silent ([9c4e38d](https://github.com/ravensorb/bmad-extensions/commit/9c4e38df4a1b0ac33c2b255a4d175c4142f55d91))
+* **l3io-util:** detect the BMad generation and probe the .agents skill root ([37b2eba](https://github.com/ravensorb/bmad-extensions/commit/37b2eba4819b05acff721b3af630137f3ac93bfa))
+* **l3io-util:** read v7 module records from bmod.toml ([9b707b8](https://github.com/ravensorb/bmad-extensions/commit/9b707b8814d5e4e630b22b079f20af510ebd5be4))
+* **l3io-util:** verify degraded on v7 and exit 6 instead of 4 ([0c90302](https://github.com/ravensorb/bmad-extensions/commit/0c903023f2e4bd7a1e6216f7f72f7bc438315f7b))
+
+
+### Fixes
+
+* **l3io-pm:** keep the verified transcript and skip unusable candidates in recovery ([6505835](https://github.com/ravensorb/bmad-extensions/commit/65058354047eace7d7deb96cf420f63a0d673b95))
+* **l3io-pm:** require a record inside the dispatch window before recovering a transcript ([a4f559f](https://github.com/ravensorb/bmad-extensions/commit/a4f559f00a576d4a8217f14d59d31e25e4293a83))
+* **l3io-pm:** serialise the usage window in --format json ([3e53771](https://github.com/ravensorb/bmad-extensions/commit/3e53771492a776448cd9c47f80754c087517e6dd))
+* **l3io-util:** give health-check Check 20 an exit-6 arm for BMad v7 ([8b9bf44](https://github.com/ravensorb/bmad-extensions/commit/8b9bf4479220654001b63d7424ea08c0d6dbaaf1))
+* **l3io-util:** stop claiming every missing v7 skill was removed ([fd287bd](https://github.com/ravensorb/bmad-extensions/commit/fd287bd29d195988a1c4958491cbf4e6015e159e))
+* **l3io-util:** stop health-check telling the doctor to discard baseline_drift on v7 ([68f690f](https://github.com/ravensorb/bmad-extensions/commit/68f690faca2f43b7e8b246f2da45f9525e12d945))
+
+
+### Refactoring
+
+* **l3io-util:** share one bmod.toml walk between both readers ([f46a4f2](https://github.com/ravensorb/bmad-extensions/commit/f46a4f28d24f63ffee307b785dc4893d43fa9aed))
+
+
+### Documentation
+
+* correct the suite count and record two ordering and probe deferrals ([979e062](https://github.com/ravensorb/bmad-extensions/commit/979e0622557098598e9f4cf82742b612189a1b5d))
+* **infra:** add transcript-resolution fallback, correct the telemetry risk ([4b5eda3](https://github.com/ravensorb/bmad-extensions/commit/4b5eda30bc7379c9086da255f198a198832349ea))
+* **infra:** design auto-remediation of orchestrator halts ([bedc1a7](https://github.com/ravensorb/bmad-extensions/commit/bedc1a7c9795058e4a62bd7d72a3501614bea253))
+* **infra:** design the BMad v7 layer ([703ce25](https://github.com/ravensorb/bmad-extensions/commit/703ce258a472bdb0f3e142893abdca51fff49be6))
+* **infra:** plan the 3.5.x BMad v7 bridge ([b0a4cf1](https://github.com/ravensorb/bmad-extensions/commit/b0a4cf13607e8b385f754e8e39ccc33423136bb0))
+* **infra:** re-measure the v7 spec against 61e01f8, add a drift log ([2a3aa27](https://github.com/ravensorb/bmad-extensions/commit/2a3aa27e8025706d1b39194ad576c50de383e2b6))
+* **l3io-pm:** list all seven step files in the .agents probe asymmetry ([ac45abd](https://github.com/ravensorb/bmad-extensions/commit/ac45abd0bbed912349278b59c062d3149f301fd8))
+* **l3io-pm:** stop claiming the doctor probe matches resolve() ([31d5081](https://github.com/ravensorb/bmad-extensions/commit/31d5081be7deea64baaba9c2d2408d24b71110f0))
+* warn about bmad migrate on l3io projects, fix stale claims, record bridge deferrals ([1cd0892](https://github.com/ravensorb/bmad-extensions/commit/1cd0892c645cff51796923e0adc11a53c9e7b306))
+
+
+### Testing
+
+* **l3io-pm:** pin the transcript span rule independently of the in-window guard ([220de9c](https://github.com/ravensorb/bmad-extensions/commit/220de9c84874cd668f6e6304865d4623940f1cf4))
+* **l3io-util:** repoint HOME for in-process generation tests ([9cd6507](https://github.com/ravensorb/bmad-extensions/commit/9cd65072e106133b5532c7fb181926a22661146b))
+
 ## [3.4.5](https://github.com/ravensorb/bmad-extensions/compare/3.4.4...3.4.5) (2026-10-12)
 
 
