@@ -218,6 +218,43 @@ def detect_generation(project_root: str) -> tuple:
     return ("v7", rec) if rec else ("", "")
 
 
+def read_v7_modules(project_root: str) -> tuple:
+    """(version, [codes], {code: version}) from the bmod.toml module records on disk.
+
+    v7 has no central manifest; `bmad setup` discovers installed modules by walking the
+    bmod.toml files in the skill roots, and this mirrors that. Shaped to match
+    read_manifest()'s (version, modules, module_versions) tail so verify() can bind either.
+
+    `version` is the single value when every record agrees, and None when they disagree. A
+    mixed install is a real state, and reporting one record's version as THE version would
+    hide it behind a number that reads as authoritative.
+    """
+    mods = {}
+    for root in skill_roots(project_root):
+        skills = os.path.join(root, "skills")
+        if not os.path.isdir(skills):
+            continue
+        for name in sorted(os.listdir(skills)):
+            p = os.path.join(skills, name, "bmod.toml")
+            if not os.path.exists(p):
+                continue
+            try:
+                with open(p, "rb") as fh:
+                    data = tomllib.load(fh)
+            except (OSError, tomllib.TOMLDecodeError):
+                # One unreadable record is one unknown module, not a failed run. The verify
+                # it is part of still has every other module and every skill probe to report.
+                continue
+            bmod = data.get("bmod")
+            if not isinstance(bmod, dict):
+                continue
+            code = bmod.get("code")
+            if isinstance(code, str) and code and code not in mods:
+                mods[code] = bmod.get("version")
+    seen = {v for v in mods.values() if isinstance(v, str) and v}
+    return (seen.pop() if len(seen) == 1 else None), sorted(mods), mods
+
+
 def load_baseline(path) -> dict | None:
     """The pinned {core_version, bmb_version, ...} baseline, or None when it cannot be read.
 

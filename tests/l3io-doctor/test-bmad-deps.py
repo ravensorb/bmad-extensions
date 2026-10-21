@@ -858,6 +858,50 @@ class TestGeneration(Base):
         self.assertEqual(gen, "v7")
         self.assertIn(".agents", evidence)
 
+    def test_read_v7_modules_returns_codes_and_uniform_version(self):
+        root = self._v7_tree()
+        version, codes, versions = self._mod().read_v7_modules(root)
+        self.assertEqual(version, "6.13.0-next")
+        self.assertEqual(codes, ["core-tools", "method"])
+        self.assertEqual(versions["method"], "6.13.0-next")
+
+    def test_mixed_versions_report_none_not_one_of_them(self):
+        """A mixed install is a real state. Reporting one record's version as THE version
+        would hide it behind a number that looks authoritative."""
+        root = self._v7_tree(modules=(("core-tools", "6.13.0-next"), ("method", "6.14.0")))
+        version, codes, versions = self._mod().read_v7_modules(root)
+        self.assertIsNone(version)
+        self.assertEqual(sorted(versions.values()), ["6.13.0-next", "6.14.0"])
+
+    def test_skill_level_bmod_toml_is_not_a_module(self):
+        """A member skill's bmod.toml carries [skill], not [bmod]. Counting it would report
+        every installed skill as an installed module."""
+        root = self._v7_tree(modules=())
+        d = os.path.join(root, ".claude", "skills", "bmad-code-review")
+        os.makedirs(d, exist_ok=True)
+        pathlib.Path(d, "bmod.toml").write_text(
+            '[skill]\nbmod = "bmod-method"\nsource = "github:x"\n', encoding="utf-8")
+        self.assertEqual(self._mod().read_v7_modules(root)[1], [])
+
+    def test_no_records_returns_empty(self):
+        root = self._v7_tree(modules=())
+        self.assertEqual(self._mod().read_v7_modules(root), (None, [], {}))
+
+    def test_malformed_bmod_toml_costs_one_module_not_the_run(self):
+        root = self._v7_tree(bad_record="[bmod\ncode = ")
+        version, codes, _versions = self._mod().read_v7_modules(root)
+        self.assertEqual(codes, ["core-tools", "method"])
+        self.assertEqual(version, "6.13.0-next")
+
+    def test_bmod_table_that_is_not_a_table_is_skipped(self):
+        root = self._v7_tree(bad_record='bmod = "not-a-table"\n')
+        self.assertEqual(self._mod().read_v7_modules(root)[1], ["core-tools", "method"])
+
+    def test_detection_survives_a_malformed_record(self):
+        """find_bmod_record must not stop at the broken file and report 'not installed'."""
+        root = self._v7_tree(bad_record="[bmod\ncode = ", config_utils=False)
+        self.assertEqual(self._mod().detect_generation(root)[0], "v7")
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)
