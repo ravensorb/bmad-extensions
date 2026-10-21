@@ -60,13 +60,15 @@ Nine sites qualify. The other fourteen keep halting (§5).
 
 ### 4.1 Deterministic — one remedy, already named
 
+These remedies were written before implementation. Where they differ from `skills/_shared/auto-remediation.md`, that contract is authoritative.
+
 | Halt | Auto-action |
 |---|---|
 | artifact-only stories (`plan/step-02-readiness-check.md`) | run `bootstrap-state`, continue |
 | legacy state layout (`shared/step-00-activate.md`) | run `migrate-state` — preserves the original as `.legacy` — continue |
 | `plan-output-meta.yaml` absent (`execute/step-03-load-plan.md`) | re-run `/l3io-plan`, continue |
 | meta **points at a plan file that does not exist** (`execute/step-03-load-plan.md`) | re-run `/l3io-plan`, continue |
-| state root is gitignored (`shared/step-00-activate.md`) | remove the ignoring line, report it |
+| state root is gitignored (`shared/step-00-activate.md`) | append the two negation lines to the work-tree `.gitignore` that `git check-ignore -v` names, report it, continue |
 
 The fifth row was missed in the conversational pass that produced this design and found by
 reconciling the site counts: it names one remedy ("Re-run `/l3io-plan` to rebuild the plan and
