@@ -53,7 +53,14 @@ BLOCKED: {pm_state_root} is gitignored. Project state must be committed.
 ```
 
 Project state is meant to be committed — it is how work survives between sessions and agents.
-The message prints the two negation lines to add to `.gitignore`.
+This is a halt, not a remediation: no line the skill could append is guaranteed to work. The
+message runs `git check-ignore -v` and names the exact ignoring file and rule. A rule in a
+project `.gitignore` is fixed there with negations written **relative to that `.gitignore`'s
+directory**, one per excluded parent directory down to the state directory (an absolute path
+matches nothing). If the rule excludes a parent directory, git cannot re-include anything from
+inside it, so that rule itself must be changed or narrowed. A rule in `.git/info/exclude`, a
+global excludes file or a symlink is local to your machine; remove it there. The skill never
+edits an ignore file.
 
 ## State layout problems
 
@@ -68,13 +75,25 @@ An earlier migration did not finish.
 ```
 
 The detector counts layouts rather than stopping at the first one it finds, precisely so a
-half-finished migration cannot be mistaken for a clean project. Inspect both locations, remove
-the stale one, then re-run `/l3io-doctor migrate-state`.
+half-finished migration cannot be mistaken for a clean project.
+
+When the sharded tree and the legacy per-epic tree are the only two present, and every epic key
+in the legacy `_bmad/state/` is also in the sharded tree, `l3io-execute`, `l3io-plan` and
+`l3io-sync` resolve it themselves: they move the legacy tree to `_bmad/state.superseded`
+(`mv _bmad/state.superseded _bmad/state` undoes it), leave the sharded tree untouched, report
+the move, and continue. Only epic keys are compared, not sprints or stories inside a shared
+key. A legacy-only key, a legacy entry that is not an epic key, or a flat `sprint-status.yaml`
+still halts; for the first three the message prints the keys that differ. Inspect both
+locations, remove the stale one, then re-run `/l3io-doctor migrate-state`. `/l3io-help` only
+reports this condition and always halts.
 
 ### `legacy state layout — migrate required`
 
-A flat `sprint-status.yaml` or a legacy per-epic `_bmad/state/` tree was found. Run
-`/l3io-doctor migrate-state`. Originals are preserved as `.legacy`.
+A flat `sprint-status.yaml` or a legacy per-epic `_bmad/state/` tree was found. The skill runs
+`/l3io-doctor migrate-state` itself, reports it, and continues; originals are preserved as
+`.legacy`. It halts only if the migration fails or the layout is still legacy afterwards, naming
+what it tried; then run `/l3io-doctor migrate-state` yourself and read its error. `/l3io-help`
+does not migrate and halts.
 
 Do not run the individual migration modes by hand — `split-status` in particular produces a
 three-file layout that the PM skills *still* cannot read. Let the doctor sequence the migration.
@@ -86,9 +105,13 @@ BLOCKED: … Refusing to start a blank project over existing state.
 ```
 
 State exists somewhere other than where config now points, which usually means
-`implementation_artifacts` was changed after work had already begun. Decide which location is
-authoritative and fix the config, or move the state. There is no automatic remediation here, and
-that is deliberate — the alternative is silently starting a second, empty project.
+`implementation_artifacts` was changed after work had already begun. `l3io-execute`,
+`l3io-plan` and `l3io-sync` repoint `implementation_artifacts` at the existing tree in
+`_bmad/custom/config.toml`, writing the previous value beside it as a `# was:` comment, and
+report the change; revert by restoring that value. The alternative, silently starting a second,
+empty project, never happens. It halts instead when `_bmad/custom/config.user.toml` also sets
+`implementation_artifacts` (that layer wins and is yours to edit), when the write fails, or when
+the setting still resolves elsewhere afterwards. `/l3io-help` only reports it and halts.
 
 ### `schema verify failed for {epic}`
 
@@ -99,16 +122,23 @@ verification detail is printed above the message.
 
 ### `plan-output-meta.yaml absent`
 
-No plan exists. Run `/l3io-plan`.
+No plan exists. `l3io-execute` runs `/l3io-plan` itself, reports it, and continues.
 
-If snapshots exist but the pointer does not, the message lists them and offers two paths:
-re-run `/l3io-plan` to rebuild the pointer (recommended), or write the pointer by hand if you
-have verified a particular snapshot is complete.
+If snapshots exist but the pointer does not, it still rebuilds from current state; existing
+snapshots are neither deleted nor read, because the newest may be incomplete. The same applies
+when the pointer names a snapshot that is missing: the plan and pointer are rebuilt and no other
+snapshot is substituted.
+
+The four plan-pointer conditions (absent, absent with snapshots, RED, and a missing target)
+share **one** rebuild per run. If a condition survives that run, the skill halts naming what it
+tried instead of planning again; resolve what `/l3io-plan` reports, then re-run.
 
 ### `plan readiness is RED`
 
-Two things unblock it: run `/l3io-plan` to resolve the gaps, or — having accepted the risk —
-edit `readiness:` in `plan-output-meta.yaml` to `amber` and re-run.
+`l3io-execute` runs `/l3io-plan` once to resolve the gaps. If the plan is still RED afterwards
+it halts, and the way forward is to resolve what `/l3io-plan` reports or — having accepted the
+risk — edit `readiness:` in `plan-output-meta.yaml` to `amber` and re-run. That second route is
+never taken for you: accepting the risk is yours alone.
 
 Re-running `/l3io-execute` unchanged will block identically. The step file says so explicitly,
 because it is the obvious wrong move.

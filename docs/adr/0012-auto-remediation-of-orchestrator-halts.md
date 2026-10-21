@@ -134,15 +134,14 @@ to `Remediable` in the same commit.
 
 The inventory is of 23 sites at column 0 of `skills/_shared/steps/**`. Not inventoried:
 `closure/epic-closure.md:236` (indented), `skills/l3io-doctor/steps/redrive.md:103`, and
-`skills/l3io-help/steps/step-02-detect-layout.md:24` and `:67`. The last two are verbatim copies
+`skills/l3io-help/steps/step-02-detect-layout.md:26` and `:69`. The last two are verbatim copies
 of conditions converted above and stay halts deliberately: `l3io-help` is an advisory skill and
 does not write to a project. So 23 is not every halt in the package.
 
 ## Consequences
 
 - A project whose stories exist only as `.md` files, whose plan pointer is stale, whose layout is
-  legacy, proceeds in one invocation, and the run reports what
-  it changed.
+  legacy, proceeds in one invocation, and the run reports what it changed.
 - Every remedy is reversible or non-destructive: `migrate-state` preserves the original as
   `.legacy`; the repoint records the previous value beside the new; the legacy tree moves
   rather than being deleted; bootstrap writes no artifact.
