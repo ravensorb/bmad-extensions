@@ -329,10 +329,11 @@ and if it is already `true`, this is a recurrence: go straight to the **Succeede
 halt below and run nothing. If `{project-root}/_bmad/state.superseded` already exists, do not
 overwrite or merge into it: halt as **Failed** naming it. Print:
 ```
-⚙  multiple state layouts detected; the legacy tree's epic keys ({LEGACY_KEYS}, or none) are all
+⚙  multiple state layouts detected; the legacy tree's epic keys ({legacy_key_list}) are all
    present in the sharded tree (contents not compared) — backing the legacy tree up.
 ```
-Move it aside with `mv {project-root}/_bmad/state {project-root}/_bmad/state.superseded` and
+Bind `{legacy_key_list}` = `$LEGACY_KEYS` joined on one line with commas, or the word `none`
+when it is empty. Move it aside with `mv {project-root}/_bmad/state {project-root}/_bmad/state.superseded` and
 re-run the three-layout probe once. The sharded tree is never written, and moving the directory
 back restores the original exactly. Three outcomes, and only the first continues:
 
@@ -346,10 +347,12 @@ BLOCKED: multiple state layouts detected (sharded=$SHARDED legacy-per-epic=$LEGA
 persist. I moved _bmad/state to _bmad/state.superseded and the probe still finds more than one. This needs a decision.
 ```
 - **Failed** — the move errored, or the destination already exists. Halt, reporting the original
-  condition and the error; nothing was moved, so the legacy tree is as it was:
+  condition and the error. A cross-device `mv` copies and then deletes, so a failure can leave a
+  partial copy: do not claim the tree is untouched, and re-check both paths first.
 ```
 BLOCKED: multiple state layouts detected (sharded=$SHARDED legacy-per-epic=$LEGACY_EPIC legacy-flat=$LEGACY_FLAT) and I could not
-back up the legacy tree: <its error>. Nothing was moved. This needs a decision.
+back up the legacy tree: <its error>. Check _bmad/state and _bmad/state.superseded before
+re-running. This needs a decision.
 ```
 
 **Does not qualify** (a legacy-only key, a legacy entry that is not an epic key, a duplicated key, or an unreadable listing) → halt, and print
@@ -382,9 +385,10 @@ original as `.legacy` — which is what makes this reversible. Set `{layout_migr
 **before** running it — and if it is already `true`, this is a recurrence: go straight to the
 **Succeeded but persists** halt below and run nothing. Then print:
 ```
-⚙  legacy state layout detected (per-epic = _bmad/state/, flat = sprint-status.yaml) — running /l3io-doctor migrate-state
+⚙  legacy state layout detected ({legacy_layout_name}) — running /l3io-doctor migrate-state
 ```
-Run `/l3io-doctor migrate-state`, then re-run the three-layout probe above once. Three outcomes,
+Bind `{legacy_layout_name}` from the probe: `per-epic = _bmad/state/` when `LEGACY_EPIC` is 1,
+`flat = sprint-status.yaml` when `LEGACY_FLAT` is 1. Run `/l3io-doctor migrate-state`, then re-run the three-layout probe above once. Three outcomes,
 and only the first continues:
 
 - **Cleared** — only `SHARDED` is 1. Print
@@ -420,9 +424,15 @@ root-level match.
 
 If either prints a path that is not under `{implementation_artifacts}/state`, the found tree is
 the real state and the configuration moved — so adopt it rather than start a blank project over
-it (`references/auto-remediation.md` is the contract). Derive `{found}` as the
-directory above the printed `state/`. If the printed paths name more than one distinct
-`{found}`, there is no single tree to adopt: halt with the line below, listing them.
+it (`references/auto-remediation.md` is the contract). The two probes print different path
+forms — `git ls-files` prints paths relative to `{project-root}`, `find` prints them absolute —
+so resolve every printed path to an absolute real path (relative ones against `{project-root}`,
+symlinks followed) before comparing any two. Derive each candidate as the resolved directory
+above the printed `state/`, and de-duplicate the resolved values. If more than one distinct
+`{found}` remains, there is no single tree to adopt: halt with the line below, listing them.
+Otherwise `{found}` is that absolute path, and it is the value written to `config.toml` and
+compared against `{implementation_artifacts}` below; a relative value would depend on the working
+directory.
 
 Otherwise remediate, once. If `{state_repointed}` is already `true`, this is a recurrence — the
 repoint did not hold — so go straight to the persists halt and write nothing. Before writing,
@@ -451,10 +461,12 @@ Three outcomes, and only the first continues:
 - **Failed** — the write errored (permissions, a read-only checkout). Halt, reporting the
   original condition and the write error; the file is left as it was.
 
-All three halts use this line:
+All three halts use this line, where `{resolved_now}` is the value the most recent resolver run
+returned, or `{configured}` when the resolver was not re-run (it can differ from both `{found}`
+and `{configured}` when an overriding layer wins):
 ```
 BLOCKED: state found at <printed-path> but implementation_artifacts resolves to
-{implementation_artifacts}. Did implementation_artifacts change? Refusing to start a
+{resolved_now}. Did implementation_artifacts change? Refusing to start a
 blank project over existing state. <what was tried and the result, or why no tree could be adopted>
 ```
 
@@ -473,23 +485,29 @@ Verify the state root is not gitignored — this is what keeps state in version 
 git -C {project-root} check-ignore -q {pm_state_root} && echo IGNORED || echo TRACKED
 ```
 
-If `IGNORED`, remediate, once (`references/auto-remediation.md` is the contract). If
-`{gitignore_fixed}` is already `true`, this is a recurrence: halt as **Succeeded but persists**
-and write nothing. **Locate the ignoring rule first** — the rule may be in any ignore source git
-reads:
+If `IGNORED`, halt. Locate the ignoring rule first, so the halt names the exact file and rule
+rather than guessing — the rule may be in any ignore source git reads:
 
 ```bash
 git -C {project-root} check-ignore -v {pm_state_root}
 ```
 
 The output is `source:line:pattern`; the file holding the rule is the path before the first
-colon. If it prints nothing while the probe said `IGNORED`, halt and change nothing:
+colon. If it prints nothing while the probe said `IGNORED`, halt:
 ```
 BLOCKED: {pm_state_root} is gitignored. Project state must be committed, but I could not locate
-the ignoring rule (`check-ignore -v` printed nothing), so I changed nothing.
+the ignoring rule (`check-ignore -v` printed nothing).
 ```
 
-**Edit only a real `.gitignore` inside this work tree.** Take the source path (relative to
+This is a halt, not a remediation, because no appended line can be shown to work. `{pm_state_root}`
+is an absolute path and a gitignore pattern is relative to the directory of the `.gitignore` that
+holds it, so an absolute negation matches nothing. Only relative negations work, and they must
+negate **every** parent directory the rule excludes. When the ignoring rule excludes a parent
+directory (`_bmad-output/`, say), git cannot re-include anything from inside it at all, and
+negating the parents changes what else in the project becomes tracked. That is a decision about
+the user's repository, so this step never writes to an ignore file.
+
+**Classify the source** so the halt can say whose rule it is. Take the source path (relative to
 `{project-root}` when git prints it so) and test it with these commands:
 
 ```bash
@@ -498,51 +516,31 @@ cd {project-root} && realpath <source>
 cd {project-root} && realpath "$(git -C {project-root} rev-parse --show-toplevel)"
 ```
 
-Every command runs from `{project-root}`, so a relative source names the file that will be
-appended to. It qualifies only if all three hold: it is not a symlink (no `SYMLINK` printed); its
-file name is `.gitignore`; and its `realpath` lies under the `realpath` of the toplevel,
+The source is a project rule only if all three hold: it is not a symlink (no `SYMLINK` printed);
+its file name is `.gitignore`; and its `realpath` lies under the `realpath` of the toplevel,
 comparing the two resolved values (never a resolved path against an unresolved one). "Under" is
 a path-component test, not a string prefix: the source's real path must be the toplevel's real
 path, then `/`, then at least one more component — in shell,
-`case "$source_real" in "$top_real"/?*) ;; *) halt ;; esac` — and both values must be non-empty
-first (halt if either is empty: an empty `$top_real` makes the pattern `/?*`, which matches every
-absolute path) — so a sibling such as
-`/home/u/repo-evil/.gitignore` does not pass for `/home/u/repo`. A symlinked `.gitignore`
-halts even when its target resolves inside the tree: appending writes through the link to a file
-the project does not own at the path it suggests, and whoever made the link did so deliberately.
-Anything else halts and edits nothing: `.git/info/exclude`, a global excludes file
-(`core.excludesFile`, typically `~/.config/git/ignore`), any path outside the repository, or a
-symlink. Those are local, deliberate, user-owned rules; a negation there would reach nobody
-else, mask a choice the user made, or change a file outside the project. Halt with the rule,
-its file (for a symlink, the link and its target) and:
+`case "$source_real" in "$top_real"/?*) ;; *) not-project ;; esac` — and both values must be
+non-empty first (an empty `$top_real` makes the pattern `/?*`, which matches every absolute
+path), so a sibling such as `/home/u/repo-evil/.gitignore` does not pass for `/home/u/repo`.
+
+A project `.gitignore` halts with:
+```
+BLOCKED: {pm_state_root} is gitignored. Project state must be committed, but <file> line <line>
+(`<pattern>`) ignores it. Negations must be written relative to the directory of the .gitignore
+that holds the rule, one for each excluded parent directory down to the state directory. If the
+pattern excludes a parent directory, git cannot re-include from inside it: change or narrow that
+rule itself. I did not edit it.
+```
+
+Anything else — `.git/info/exclude`, a global excludes file (`core.excludesFile`, typically
+`~/.config/git/ignore`), a path outside the repository, or a symlink (name the link and its
+target) — is a local, deliberate rule that reaches nobody else. Halt with:
 ```
 BLOCKED: {pm_state_root} is gitignored. Project state must be committed, but the rule is in
-<file>, which is local to this machine or a symlink, so I did not edit it. Remove that rule, or negate it in
-the project .gitignore:
-  !{pm_state_root}/
-  !{pm_state_root}/**
-```
-
-For a work-tree `.gitignore`: set `{gitignore_fixed}` = `true` **before** the write, print
-`⚙  {pm_state_root} is gitignored by <rule> in <file> — appending negations`, then append
-the two negation lines to the resolved path that passed the three conditions, and to nothing
-re-derived from the raw `check-ignore -v` output:
-```
-!{pm_state_root}/
-!{pm_state_root}/**
-```
-Re-run the `check-ignore -q` probe once. Three outcomes, and only the first continues:
-- **Cleared** — prints `TRACKED`. Print
-  `✓  appended two negation lines to <file>. Continuing activation.` and continue.
-- **Succeeded but persists** — the write landed and the probe still prints `IGNORED` (a later
-  rule re-ignores it). Halt, naming the file edited and the rule that still matches (run `check-ignore -v` again to read it).
-- **Failed** — the write errored (permissions, a read-only checkout). Halt, reporting the
-  original condition and the write error; nothing is half-applied.
-
-Both persists and failed halts use this line, with what was found or tried after it:
-```
-BLOCKED: {pm_state_root} is gitignored. Project state must be committed. I appended the
-negations and the rule persists, or the write failed — details follow.
+<file>, which is local to this machine or a symlink. Remove that rule from it, or override it
+in the project .gitignore with negations relative to that file's directory.
 ```
 
 ## 5. List active epics

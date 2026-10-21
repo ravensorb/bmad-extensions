@@ -117,7 +117,7 @@
 //  36. remediation-coverage  every column-0 `BLOCKED:` line in a shared step file is a site
 //                    in one of skills/_shared/auto-remediation.md's two tables, every table
 //                    row is still backed by such a line, and a Remediable row's remedy appears
-//                    in the step file that owns it. Step-file prose has no unit test, so the
+//                    near its halt on a line outside any BLOCKED: block. Step-file prose has no unit test, so the
 //                    reference and the step files agreeing IS the testable artifact: a remedy
 //                    declared in the table and never wired into the step reads as a
 //                    capability and is not one. Scope is derived from both sides, so a new
@@ -4879,6 +4879,11 @@ function checkForwarderVersionOracle() {
 
 // 36. Every `BLOCKED:` site is classified, and every declared remedy is present.
 //
+// This gates CLASSIFICATION. A Remediable row's remedy must appear within 40 lines of its halt
+// AND on at least one line there that is not inside a `BLOCKED:` block (a remedy named only in
+// the halt is the pre-conversion form). It cannot judge whether the prose that mentions the
+// remedy performs it correctly.
+//
 // Two failure modes: a halt nobody classified (so nobody decided whether it should self-heal),
 // and a Remediable row whose remedy the step file does not actually run.
 //
@@ -4951,6 +4956,15 @@ function remediationCoverage() {
   for (const file of walkMarkdown(REMEDIATION_STEPS)) {
     const stem = path.basename(file, ".md");
     const lines = read(file).split("\n");
+    // Lines inside a `BLOCKED:` block: from a column-0 `BLOCKED:` to the closing fence or the
+    // next blank line. A halt that merely names its remedy and stops is the pre-conversion
+    // form, so a remedy that appears ONLY inside these lines proves nothing was wired in.
+    const inBlocked = new Array(lines.length).fill(false);
+    for (let k = 0, on = false; k < lines.length; k++) {
+      if (lines[k].startsWith("BLOCKED:")) on = true;
+      else if (on && (/^\s*```/.test(lines[k]) || lines[k].trim() === "")) on = false;
+      inBlocked[k] = on;
+    }
     lines.forEach((line, i) => {
       if (!line.startsWith("BLOCKED:")) return;
       examined++;
@@ -4975,10 +4989,18 @@ function remediationCoverage() {
           `nothing that does it`);
         return;
       }
-      const window = collapseWs(lines.slice(Math.max(0, i - 40), i + 40).join("\n"));
+      const from = Math.max(0, i - 40);
+      const to = Math.min(lines.length, i + 40);
+      const window = collapseWs(lines.slice(from, to).join("\n"));
       if (!window.includes(remedy)) {
         violations.push(`${file}:${i + 1} declares remedy "${remedy}" in ${REMEDIATION_REF} ` +
           `but the step file never runs it`);
+        return;
+      }
+      const outside = collapseWs(lines.slice(from, to).filter((_, k) => !inBlocked[from + k]).join("\n"));
+      if (!outside.includes(remedy)) {
+        violations.push(`${file}:${i + 1} names remedy "${remedy}" only inside BLOCKED: text -- ` +
+          `that is the halt-and-name-it form, not a step that runs the remedy`);
       }
     });
   }

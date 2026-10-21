@@ -45,18 +45,20 @@ Record the attempt **before** running `/l3io-doctor bootstrap-state`; it is made
 There are then three outcomes, and only the first continues.
 
 **Outcome 1 — The remedy succeeds and clears the condition.** Re-run the artifact-only scan above once.
-If no artifact-only stories remain, report and continue to §1:
+If no artifact-only stories remain, bind `{created}` = `{count}` (the number found before the
+remedy ran), report and continue to §1:
 
 ```
-✓  bootstrap-state created {n} state node(s). Continuing readiness check.
+✓  bootstrap-state created state nodes for {created} story artifact(s). Continuing readiness check.
 ```
 
 **Outcome 2 — The remedy succeeds and the condition persists.** If the re-run scan still finds
-artifact-only stories, halt with `{readiness}` = `red`. The remedy has been tried and is not
+artifact-only stories, bind `{remaining}` = the number that scan found and list those, not the
+pre-remedy set; halt with `{readiness}` = `red`. The remedy has been tried and is not
 tried again:
 
 ```
-BLOCKED: artifact-only stories detected — I ran /l3io-doctor bootstrap-state and {count}
+BLOCKED: artifact-only stories detected — I ran /l3io-doctor bootstrap-state and {remaining}
 story artifact(s) still have no state node:
 {list each: {implementation_artifacts}/epic-{nnn}/sprint-{nn}/stories/{story_key}.md}
 These may be malformed, or outside the epic/sprint layout bootstrap-state reads.
@@ -68,7 +70,7 @@ do not continue:
 
 ```
 BLOCKED: artifact-only stories detected — I ran /l3io-doctor bootstrap-state and it failed:
-{stderr}. {count} story artifact(s) remain invisible to planning until this is resolved.
+{stderr}. {count} story artifact(s) had no state node before it ran; any without one stay invisible to planning until this is resolved.
 ```
 
 If no artifact-only stories are found (or no `.md` files exist at all), continue to §1.

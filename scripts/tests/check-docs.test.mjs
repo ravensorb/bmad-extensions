@@ -3921,10 +3921,10 @@ test("check 36: a row saying ABSOLUTE must carry an absolute class", async (t) =
   assert.match((await run(root)).stderr, /\[check 36\][^\n]*says ABSOLUTE/);
 });
 
-test("gitignore remediation edits only a work-tree .gitignore", async (t) => {
+test("gitignore halt classifies the ignoring source and writes nothing", async (t) => {
   // The step reads the source path from `check-ignore -v`; this pins that git reports the
   // local and global sources as paths that are not a work-tree .gitignore, which is what
-  // the step's allowlist relies on, and that the step states the allowlist.
+  // the step's classification relies on, and that the step states it and does not write.
   const { execFileSync } = await import("node:child_process");
   const os = await import("node:os");
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "check-docs-gitignore-"));
@@ -3942,13 +3942,32 @@ test("gitignore remediation edits only a work-tree .gitignore", async (t) => {
   assert.equal(source("pstate/x"), ".gitignore");
   const step = fs.readFileSync(
     path.join(REPO, "skills/_shared/steps/shared/step-00-activate.md"), "utf8");
-  assert.match(step, /Edit only a real `\.gitignore` inside this work tree/);
+  assert.match(step, /\*\*Classify the source\*\*/);
   assert.match(step, /`\.git\/info\/exclude`, a global excludes file/);
   assert.match(step, /cd \{project-root\} && test -L <source>/);
   assert.match(step, /a path-component test, not a string prefix/);
   assert.match(step, /repo-evil/);
-  assert.match(step, /both values must be non-empty/);
-  assert.match(step, /the resolved path that passed the three conditions/);
-  assert.match(step, /A symlinked `\.gitignore`\s+halts even when its target resolves inside the tree/);
+  assert.match(step, /non-empty\s+first/);
+  assert.match(step, /relative to the directory of the \.gitignore\s+that holds the rule/);
+  assert.match(step, /git cannot re-include from inside it/);
   assert.match(step, /I could not locate\s+the ignoring rule/);
+  assert.doesNotMatch(step, /appending negations|gitignore_fixed/);
+});
+
+test("check 36: restoring the halt-and-name-it form of a converted site fails", async (t) => {
+  // The pre-conversion text named its remedy inside the BLOCKED message and stopped. Strip the
+  // remedy from every line outside a BLOCKED block and leave the halt naming it: the old form.
+  const root = fixture(t);
+  const f = "skills/_shared/steps/shared/step-00-activate.md";
+  const lines = fs.readFileSync(path.join(root, f), "utf8").split("\n");
+  let on = false;
+  const out = lines.map((l) => {
+    if (l.startsWith("BLOCKED:")) on = true;
+    else if (on && (/^\s*```/.test(l) || l.trim() === "")) on = false;
+    return on ? l : l.replaceAll("/l3io-doctor migrate-state", "the migration");
+  });
+  write(root, f, out.join("\n"));
+  const r = await run(root);
+  assert.match(r.stderr, /\[check 36\][^\n]*only inside BLOCKED: text/);
+  assert.notEqual(r.status, 0);
 });
