@@ -410,7 +410,9 @@ file name is `.gitignore`; and its `realpath` lies under the `realpath` of the t
 comparing the two resolved values (never a resolved path against an unresolved one). "Under" is
 a path-component test, not a string prefix: the source's real path must be the toplevel's real
 path, then `/`, then at least one more component — in shell,
-`case "$source_real" in "$top_real"/?*) ;; *) halt ;; esac` — so a sibling such as
+`case "$source_real" in "$top_real"/?*) ;; *) halt ;; esac` — and both values must be non-empty
+first (halt if either is empty: an empty `$top_real` makes the pattern `/?*`, which matches every
+absolute path) — so a sibling such as
 `/home/u/repo-evil/.gitignore` does not pass for `/home/u/repo`. A symlinked `.gitignore`
 halts even when its target resolves inside the tree: appending writes through the link to a file
 the project does not own at the path it suggests, and whoever made the link did so deliberately.
@@ -429,7 +431,8 @@ the project .gitignore:
 
 For a work-tree `.gitignore`: set `{gitignore_fixed}` = `true` **before** the write, print
 `⚙  {pm_state_root} is gitignored by <rule> in <file> — appending negations`, then append
-the two negation lines to that file, the one that holds the rule:
+the two negation lines to the resolved path that passed the three conditions, and to nothing
+re-derived from the raw `check-ignore -v` output:
 ```
 !{pm_state_root}/
 !{pm_state_root}/**
