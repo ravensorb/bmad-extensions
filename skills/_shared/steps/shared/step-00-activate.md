@@ -523,7 +523,7 @@ a path-component test, not a string prefix: the source's real path must be the t
 path, then `/`, then at least one more component — in shell,
 `case "$source_real" in "$top_real"/?*) ;; *) not-project ;; esac` — and both values must be
 non-empty first (an empty `$top_real` makes the pattern `/?*`, which matches every absolute
-path), so a sibling such as `/home/u/repo-evil/.gitignore` does not pass for `/home/u/repo`.
+path), so a sibling such as `<toplevel>-evil/.gitignore` does not pass for `<toplevel>`.
 
 A project `.gitignore` halts with:
 ```
@@ -535,7 +535,7 @@ rule itself. I did not edit it.
 ```
 
 Anything else — `.git/info/exclude`, a global excludes file (`core.excludesFile`, typically
-`~/.config/git/ignore`), a path outside the repository, or a symlink (name the link and its
+`$XDG_CONFIG_HOME/git/ignore`), a path outside the repository, or a symlink (name the link and its
 target) — is a local, deliberate rule that reaches nobody else. Halt with:
 ```
 BLOCKED: {pm_state_root} is gitignored. Project state must be committed, but the rule is in
