@@ -3946,7 +3946,9 @@ test("gitignore halt classifies the ignoring source and writes nothing", async (
   assert.match(step, /`\.git\/info\/exclude`, a global excludes file/);
   assert.match(step, /cd \{project-root\} && test -L <source>/);
   assert.match(step, /a path-component test, not a string prefix/);
-  assert.match(step, /repo-evil/);
+  // Placeholder, not a literal path: bmb's scan-path-standards.py flags `/home/...` and
+  // `~/...` as absolute-path/high, and these illustrative paths failed check:bmb.
+  assert.match(step, /<toplevel>-evil/);
   assert.match(step, /non-empty\s+first/);
   assert.match(step, /relative to the directory of the \.gitignore\s+that holds the rule/);
   assert.match(step, /git cannot re-include from inside it/);
