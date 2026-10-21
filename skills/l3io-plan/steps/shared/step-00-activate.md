@@ -399,14 +399,19 @@ the ignoring rule (`check-ignore -v` printed nothing), so I changed nothing.
 `{project-root}` when git prints it so) and test it with these commands:
 
 ```bash
-test -L <source> && echo SYMLINK
-realpath <source>
-realpath "$(git -C {project-root} rev-parse --show-toplevel)"
+cd {project-root} && test -L <source> && echo SYMLINK
+cd {project-root} && realpath <source>
+cd {project-root} && realpath "$(git -C {project-root} rev-parse --show-toplevel)"
 ```
 
-It qualifies only if all three hold: it is not a symlink (no `SYMLINK` printed); its file name
-is `.gitignore`; and its `realpath` lies under the `realpath` of the toplevel, comparing the two
-resolved values (never a resolved path against an unresolved one). A symlinked `.gitignore`
+Every command runs from `{project-root}`, so a relative source names the file that will be
+appended to. It qualifies only if all three hold: it is not a symlink (no `SYMLINK` printed); its
+file name is `.gitignore`; and its `realpath` lies under the `realpath` of the toplevel,
+comparing the two resolved values (never a resolved path against an unresolved one). "Under" is
+a path-component test, not a string prefix: the source's real path must be the toplevel's real
+path, then `/`, then at least one more component — in shell,
+`case "$source_real" in "$top_real"/?*) ;; *) halt ;; esac` — so a sibling such as
+`/home/u/repo-evil/.gitignore` does not pass for `/home/u/repo`. A symlinked `.gitignore`
 halts even when its target resolves inside the tree: appending writes through the link to a file
 the project does not own at the path it suggests, and whoever made the link did so deliberately.
 Anything else halts and edits nothing: `.git/info/exclude`, a global excludes file

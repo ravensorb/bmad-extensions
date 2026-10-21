@@ -3944,7 +3944,9 @@ test("gitignore remediation edits only a work-tree .gitignore", async (t) => {
     path.join(REPO, "skills/_shared/steps/shared/step-00-activate.md"), "utf8");
   assert.match(step, /Edit only a real `\.gitignore` inside this work tree/);
   assert.match(step, /`\.git\/info\/exclude`, a global excludes file/);
-  assert.match(step, /test -L <source>/);
+  assert.match(step, /cd \{project-root\} && test -L <source>/);
+  assert.match(step, /a path-component test, not a string prefix/);
+  assert.match(step, /repo-evil/);
   assert.match(step, /A symlinked `\.gitignore`\s+halts even when its target resolves inside the tree/);
   assert.match(step, /I could not locate\s+the ignoring rule/);
 });
