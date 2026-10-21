@@ -17,13 +17,16 @@ Also surface one read-only health fact — state that is gitignored will never b
 which defeats the point of the layout:
 
 ```bash
-git -C {project-root} check-ignore -q {pm_state_root} && echo IGNORED || echo TRACKED
+rule=$(git -C {project-root} check-ignore -v {pm_state_root}) && echo "IGNORED $rule" || echo TRACKED
 ```
 
-If `IGNORED`, include this in the snapshot (it does not stop the recommendation):
+For `IGNORED`, the output is `source:line:pattern<TAB>path`. Include this in the snapshot, naming
+the source file, line and pattern (it does not stop the recommendation, and you write nothing):
 ```
-⚠️  {pm_state_root} is gitignored — project state will not be committed. Add to .gitignore:
-  !{pm_state_root}/
-  !{pm_state_root}/**
+⚠️  {pm_state_root} is gitignored by <source> line <line> (`<pattern>`) — project state will not
+be committed. Negations must be written relative to the directory of the .gitignore that holds
+the rule, one for each excluded parent directory down to the state directory (an absolute path
+matches nothing). If the pattern excludes a parent directory, git cannot re-include from inside
+it: that rule itself has to change or be narrowed.
 ```
 
