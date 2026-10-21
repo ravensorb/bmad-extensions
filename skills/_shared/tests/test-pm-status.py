@@ -21,6 +21,7 @@ import sys
 import tempfile
 import unittest
 from contextlib import contextmanager, redirect_stderr, redirect_stdout
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from unittest import mock
 
@@ -13379,6 +13380,150 @@ class TestReorgJournalCli(unittest.TestCase):
                                   "--list", "--format", "json"])
         self.assertEqual(code, 0)
         self.assertEqual(json.loads(out), {"entries": []})
+
+
+SECOND = timedelta(seconds=1)
+
+
+class TestTranscriptFallback(Base):
+    """The fallback recovers a transcript when CLAUDE_CODE_SESSION_ID is absent. It accepts
+    by ELIMINATION -- exactly one candidate spanning the node's dispatch bracket -- and
+    refuses otherwise. Summing the wrong file is the failure `usage` exists to prevent.
+
+    The dispatch bracket is written by the REAL dispatch verb, never stubbed: the window
+    derivation is half of what makes a candidate verifiable, and stubbing it would leave the
+    suite green over a fallback that accepts anything.
+    """
+
+    KEYS = {"agent": "dev-story", "epic": "E001", "sprint": "S01", "story": "E001-S01-003"}
+
+    def setUp(self):
+        super().setUp()
+        self.root = os.path.join(self.d, "state")
+        os.makedirs(self.root)
+        self.home = os.path.join(self.d, "home")
+        self.projects = os.path.join(self.home, ".claude", "projects", "-fake")
+        os.makedirs(self.projects)
+
+    def _bracket(self):
+        """Open and close a real dispatch; return (before, after) as aware datetimes that
+        straddle the recorded pair."""
+        before = datetime.now(UTC)
+        for event in ("open", "close"):
+            code, out = self.run_main(["dispatch", "--state-root", self.root,
+                                       "--event", event,
+                                       "--agent", self.KEYS["agent"],
+                                       "--epic", self.KEYS["epic"],
+                                       "--sprint", self.KEYS["sprint"],
+                                       "--story", self.KEYS["story"]])
+            self.assertEqual(code, 0, out)
+        return before, datetime.now(UTC)
+
+    def _transcript(self, name, records):
+        """Write <name>.jsonl holding one assistant record per (session_id, datetime)."""
+        lines = [json.dumps({
+            "sessionId": sid, "timestamp": when.isoformat(), "type": "assistant",
+            "message": {"id": f"msg-{name}-{i}",
+                        "usage": {"input_tokens": 10, "output_tokens": 5,
+                                  "cache_creation_input_tokens": 0,
+                                  "cache_read_input_tokens": 0}}})
+            for i, (sid, when) in enumerate(records)]
+        p = os.path.join(self.projects, f"{name}.jsonl")
+        Path(p).write_text("\n".join(lines) + "\n", encoding="utf-8")
+        return p
+
+    def _discover(self, state_root=None):
+        with mock.patch.dict(os.environ, {"HOME": self.home}):
+            return pm.discover_session_transcript(state_root or self.root, dict(self.KEYS))
+
+    def test_single_spanning_candidate_is_accepted(self):
+        lo, hi = self._bracket()
+        self._transcript("sess-a", [("sess-a", lo - SECOND), ("sess-a", hi + SECOND)])
+        paths, sid, why = self._discover()
+        self.assertEqual(why, "")
+        self.assertEqual(sid, "sess-a")
+        self.assertEqual(len(paths), 1)
+
+    def test_two_spanning_candidates_are_refused(self):
+        lo, hi = self._bracket()
+        self._transcript("sess-a", [("sess-a", lo - SECOND), ("sess-a", hi + SECOND)])
+        self._transcript("sess-b", [("sess-b", lo - SECOND), ("sess-b", hi + SECOND)])
+        paths, sid, why = self._discover()
+        self.assertEqual(paths, [])
+        self.assertEqual(sid, "")
+        self.assertIn("refusing to choose", why)
+
+    def test_no_spanning_candidate_is_refused(self):
+        lo, _hi = self._bracket()
+        self._transcript("sess-a", [("sess-a", lo - SECOND), ("sess-a", lo - SECOND)])
+        paths, _sid, why = self._discover()
+        self.assertEqual(paths, [])
+        self.assertIn("no transcript spans", why)
+
+    def test_file_with_two_session_ids_is_never_a_candidate(self):
+        """A file holding two sessions is malformed whatever we were expecting, so it is
+        rejected before its span is even considered."""
+        lo, hi = self._bracket()
+        self._transcript("mixed", [("sess-a", lo - SECOND), ("sess-b", hi + SECOND)])
+        paths, _sid, why = self._discover()
+        self.assertEqual(paths, [])
+        self.assertIn("no transcript spans", why)
+
+    def test_absent_dispatch_bracket_refuses_with_a_reason(self):
+        empty = os.path.join(self.d, "empty-state")
+        os.makedirs(empty)
+        paths, sid, why = self._discover(state_root=empty)
+        self.assertEqual(paths, [])
+        self.assertEqual(sid, "")
+        self.assertIn("no dispatch_open", why)
+
+    def test_a_stale_mtime_is_rejected_before_the_file_is_parsed(self):
+        """Without the mtime rejection the fallback parses every transcript on the machine on
+        every call, and real ones reach tens of megabytes.
+
+        Asserted through behaviour rather than through a read counter: this file WOULD span
+        the window if it were parsed, so a missing prefilter surfaces as a two-candidate
+        refusal instead of a clean accept.
+        """
+        lo, hi = self._bracket()
+        self._transcript("sess-a", [("sess-a", lo - SECOND), ("sess-a", hi + SECOND)])
+        stale = self._transcript("sess-old",
+                                 [("sess-old", lo - SECOND), ("sess-old", hi + SECOND)])
+        old = (lo - timedelta(days=2)).timestamp()
+        os.utime(stale, (old, old))
+        paths, sid, why = self._discover()
+        self.assertEqual(why, "")
+        self.assertEqual(sid, "sess-a")
+        self.assertEqual(len(paths), 1)
+
+    def test_usage_verb_recovers_the_transcript_without_the_env_variable(self):
+        """The wiring in cmd_usage, end to end: no env id, no path, a real bracket."""
+        lo, hi = self._bracket()
+        self._transcript("sess-a", [("sess-a", lo - SECOND), ("sess-a", hi + SECOND)])
+        env = {k: v for k, v in os.environ.items() if k != pm.CLAUDE_SESSION_ENV}
+        env["HOME"] = self.home
+        with mock.patch.dict(os.environ, env, clear=True):
+            code, out = self.run_main(["usage", "--state-root", self.root,
+                                       "--agent", self.KEYS["agent"],
+                                       "--epic", self.KEYS["epic"],
+                                       "--sprint", self.KEYS["sprint"],
+                                       "--story", self.KEYS["story"]])
+        self.assertEqual(code, 0, out)
+        self.assertIn("session sess-a", out)
+        self.assertIn("recovered by elimination", out)
+
+    def test_usage_verb_refusal_names_why_elimination_failed(self):
+        lo, hi = self._bracket()
+        for n in ("sess-a", "sess-b"):
+            self._transcript(n, [(n, lo - SECOND), (n, hi + SECOND)])
+        env = {k: v for k, v in os.environ.items() if k != pm.CLAUDE_SESSION_ENV}
+        env["HOME"] = self.home
+        err = io.StringIO()
+        with mock.patch.dict(os.environ, env, clear=True), redirect_stderr(err):
+            code, _out = self.run_main(["usage", "--state-root", self.root,
+                                        "--story", self.KEYS["story"]])
+        self.assertEqual(code, 2)
+        self.assertIn("refusing to choose", err.getvalue())
 
 
 if __name__ == "__main__":

@@ -5578,6 +5578,93 @@ def transcript_sessions(path: str) -> set:
     return out
 
 
+def _transcript_span(path: str) -> tuple:
+    """(earliest, latest) aware datetimes in a transcript, or (None, None).
+
+    Read as a pair rather than per-record because the caller asks one question of the whole
+    file -- does it cover this node's bracket -- and a partial answer is not useful.
+    """
+    lo = hi = None
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            for line in f:
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    rec = json.loads(line)
+                except ValueError:
+                    continue
+                when = _parse_iso(rec.get("timestamp")) if isinstance(rec, dict) else None
+                if when is None:
+                    continue
+                lo = when if lo is None or when < lo else lo
+                hi = when if hi is None or when > hi else hi
+    except OSError:
+        return None, None
+    return lo, hi
+
+
+def discover_session_transcript(state_root: str, node_keys: dict) -> tuple:
+    """(paths, session_id, refusal) for a session the environment cannot name.
+
+    resolve_session_transcript() answers from CLAUDE_CODE_SESSION_ID and returns nothing
+    without it, so a Claude run in a context that does not export the variable -- a hook, a
+    wrapper that scrubs the environment -- reports N/A while the data sits on disk.
+
+    Recovery is by ELIMINATION, never by preference. Every project directory is scanned
+    rather than the one a slugified cwd would name, for the reason
+    resolve_session_transcript already gives: a subagent may run under a different working
+    directory, and guessing the slug reintroduces the ambiguity. A candidate is accepted
+    only when its own records carry exactly one sessionId AND its timestamps span the node's
+    dispatch bracket.
+
+    Two survivors is a REFUSAL, not a tie-break. Picking the likelier file is precisely the
+    failure this command exists to prevent: the original bad number came from file choice,
+    not arithmetic, and it looked plausible because the cache figures matched.
+    """
+    open_ts, close_ts = dispatch_window(state_root, **node_keys)
+    if open_ts is None or close_ts is None:
+        return [], "", ("this node has no dispatch_open/dispatch_close pair, so there is no "
+                        "window to verify a transcript against")
+    root = os.path.expanduser("~/.claude/projects")
+    if not os.path.isdir(root):
+        return [], "", f"{root} does not exist"
+    hits = []
+    for d in sorted(os.listdir(root)):
+        sub = os.path.join(root, d)
+        if not os.path.isdir(sub):
+            continue
+        for name in sorted(os.listdir(sub)):
+            if not name.endswith(".jsonl"):
+                continue
+            fp = os.path.join(sub, name)
+            try:
+                # Cheap rejection first: a file last written before the bracket opened cannot
+                # span it. Without this the fallback parses every transcript on the machine
+                # on every call, and they reach tens of megabytes.
+                if datetime.fromtimestamp(os.path.getmtime(fp), tz=UTC) < open_ts:
+                    continue
+            except OSError:
+                continue
+            found = transcript_sessions(fp)
+            if len(found) != 1:
+                continue
+            lo, hi = _transcript_span(fp)
+            if lo is None or lo > open_ts or hi < close_ts:
+                continue
+            hits.append((fp, found.pop()))
+    if len(hits) != 1:
+        return [], "", (f"{len(hits)} transcripts span this node's window; refusing to "
+                        f"choose between them" if hits
+                        else "no transcript spans this node's window")
+    fp, sid = hits[0]
+    # Re-resolve from the recovered id so the session's subagent files come too; fall back
+    # to the single file if that lookup finds nothing.
+    paths, _ = resolve_session_transcript(sid)
+    return (paths or [fp]), sid, ""
+
+
 def read_transcript_usage(paths, since=None, until=None) -> dict:
     """Sum a session transcript's real token usage, by class. THE executable form of
     "read the usage fields".
@@ -5748,18 +5835,28 @@ def cmd_usage(args) -> int:
     want = args.claude_session or os.environ.get(CLAUDE_SESSION_ENV, "")
     paths = list(args.transcript)
     resolved = False
+    recovered = False
 
     if not paths:
         paths, want = resolve_session_transcript(args.claude_session)
         resolved = True
         if not paths:
-            sys.stderr.write(
-                "pm-status.py: cannot resolve this session's transcript — "
-                + (f"no ~/.claude/projects/*/{want}.jsonl found\n" if want else
-                   f"{CLAUDE_SESSION_ENV} is not set\n")
-                + "  Pass the transcript path explicitly, or --claude-session ID. Refusing to\n"
-                  "  guess: summing the wrong file is the error this command exists to prevent.\n")
-            return 2
+            keys = {k: getattr(args, k, "") or ""
+                    for k in ("agent", "epic", "sprint", "story")}
+            why = "no --state-root and node key to derive a window from"
+            if args.state_root and any(keys.values()):
+                paths, found_sid, why = discover_session_transcript(args.state_root, keys)
+                want = found_sid or want
+                recovered = bool(paths)
+            if not paths:
+                sys.stderr.write(
+                    "pm-status.py: cannot resolve this session's transcript — "
+                    + (f"no ~/.claude/projects/*/{want}.jsonl found\n" if want else
+                       f"{CLAUDE_SESSION_ENV} is not set\n")
+                    + f"  Recovery by elimination also failed: {why}.\n"
+                    + "  Pass the transcript path explicitly, or --claude-session ID. Refusing to\n"
+                      "  guess: summing the wrong file is the error this command exists to prevent.\n")
+                return 2
 
     if not args.allow_unidentified:
         problems = []
@@ -5820,7 +5917,9 @@ def cmd_usage(args) -> int:
     # place -- a header that asserts provenance it does not have.
     verified = not args.allow_unidentified
     res["session"] = (want or "(unverified)") if verified else "(UNVERIFIED — --allow-unidentified)"
-    res["source"] = ("resolved from environment" if resolved
+    res["source"] = ("recovered by elimination: the one transcript spanning the dispatch window"
+                     if recovered
+                     else "resolved from environment" if resolved
                      else "given on the command line, identity checked" if verified
                      else "given on the command line, identity NOT checked")
     res["paths"] = paths
