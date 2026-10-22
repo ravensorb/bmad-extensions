@@ -2,6 +2,53 @@
 
 All notable changes to this project will be documented in this file. See [commit-and-tag-version](https://github.com/absolute-version/commit-and-tag-version) for commit guidelines.
 
+## [3.5.1](https://github.com/ravensorb/bmad-extensions/compare/3.5.0...3.5.1) (2026-10-22)
+
+
+### Features
+
+* **infra:** gate that every BLOCKED site is classified and its remedy named ([d2e7233](https://github.com/ravensorb/bmad-extensions/commit/d2e7233995b7d9b49c41172024cdb6ec53797309))
+* **l3io-pm:** migrate and repoint state during activation ([986a244](https://github.com/ravensorb/bmad-extensions/commit/986a244e6a87c3092b92b6ea2616b657938affdc)) — the un-ignore remediation in that commit was reverted before release ([3fbcac3](https://github.com/ravensorb/bmad-extensions/commit/3fbcac3b5fea15094a463de0f4651509a0afe5fa)); a gitignored state root still halts
+* **l3io-pm:** rebuild a missing or stale plan pointer instead of halting ([5a0d8a1](https://github.com/ravensorb/bmad-extensions/commit/5a0d8a134b54643d4e154159e423f21932603959))
+* **l3io-pm:** remediate artifact-only stories instead of halting ([09d721e](https://github.com/ravensorb/bmad-extensions/commit/09d721e384f474e1b8b11050a6e8cb2cb4146bc8))
+* **l3io-pm:** resolve an interrupted migration when the evidence is unambiguous ([5288962](https://github.com/ravensorb/bmad-extensions/commit/5288962e5b4cb50852ee83b4d8511441e221c7b1))
+
+
+### Fixes
+
+* **infra:** check 36 tolerates qualified remedies and validates Class ([96317e4](https://github.com/ravensorb/bmad-extensions/commit/96317e412b5bc36656cfe1120378e4c0a18e4cc0))
+* **l3io-pm:** bound the legacy epic-key match and state what the comparison proves ([c44cc7b](https://github.com/ravensorb/bmad-extensions/commit/c44cc7bae625485b5f3ade3323dd78661c355db6))
+* **l3io-pm:** compare the gitignore path by component and from the project root ([0644a36](https://github.com/ravensorb/bmad-extensions/commit/0644a364c5d558476fc5759d2bd1662fed523615))
+* **l3io-pm:** correct l3io-help's gitignore advisory and name the ignoring rule ([7af4d32](https://github.com/ravensorb/bmad-extensions/commit/7af4d32afcb99e9ca489a74048d75214fdd071f1))
+* **l3io-pm:** decide gitignored-ness with check-ignore -q, not -v ([b072ad0](https://github.com/ravensorb/bmad-extensions/commit/b072ad0a9b72735544413897bcd56eee9149ba35))
+* **l3io-pm:** fail closed on an empty toplevel and append to the validated path ([32a4018](https://github.com/ravensorb/bmad-extensions/commit/32a401810cf09008d11dae5a398f0da8067adb40))
+* **l3io-pm:** make the unreadable-listing guard a variable, not printed output ([7a660cb](https://github.com/ravensorb/bmad-extensions/commit/7a660cb22e3465459e37a8677bf74a2e2cd4dd5f))
+* **l3io-pm:** refuse to append through a symlinked .gitignore ([f55323b](https://github.com/ravensorb/bmad-extensions/commit/f55323bbdb5aabd34658fb2edd6bdb9d36c41dc7))
+* **l3io-pm:** restrict the gitignore remediation to a work-tree .gitignore ([93410e8](https://github.com/ravensorb/bmad-extensions/commit/93410e80cd1339a53a293c233e3498008c1a947c))
+* **l3io-pm:** revert gitignore remediation to a halt, fix bootstrap and message accuracy ([3fbcac3](https://github.com/ravensorb/bmad-extensions/commit/3fbcac3b5fea15094a463de0f4651509a0afe5fa))
+* **l3io-pm:** use placeholders for the illustrative paths in the gitignore guard ([4ffcdf1](https://github.com/ravensorb/bmad-extensions/commit/4ffcdf1b3ea791eafff0c96a3dac2d276e9fbb80))
+
+
+### Documentation
+
+* **infra:** correct the spec's gitignore remedy to match the implementation ([2fd0af3](https://github.com/ravensorb/bmad-extensions/commit/2fd0af3d9262784afe167e13355d1020d4c3df75))
+* **infra:** correct the spec's multi-layout remedy and scope the authority note to section 4 ([9959445](https://github.com/ravensorb/bmad-extensions/commit/9959445ea59d4cdc40ff192c626a0d60fc3c0258))
+* **infra:** name the unbuilt verb by role in ADR-0012 ([4e7334d](https://github.com/ravensorb/bmad-extensions/commit/4e7334df9ad69ee519a6d643dacfde1ba25e5109))
+* **infra:** name the unbuilt verb by role in ADR-0012, both places ([ce4aa76](https://github.com/ravensorb/bmad-extensions/commit/ce4aa769c66c88188d76aace36429d28045b0049))
+* **infra:** plan auto-remediation of orchestrator halts ([91b7fda](https://github.com/ravensorb/bmad-extensions/commit/91b7fda64f23e41f094e90691d91687215d60290))
+* **infra:** record the auto-remediation decision and fix two stale claims ([6bbe488](https://github.com/ravensorb/bmad-extensions/commit/6bbe488af813c19a07bad4c70c92a82c9eb866d6))
+* **l3io-pm:** classify remediation rows and state the authoring rules ([c3b017e](https://github.com/ravensorb/bmad-extensions/commit/c3b017ed29ab94449ba2986677a6ae381c3858ac))
+* **l3io-pm:** correct troubleshooting and the remediation contract against the shipped halts ([3f9697d](https://github.com/ravensorb/bmad-extensions/commit/3f9697d87bf55ff985d803d9c9652a7f6d31145a))
+* **l3io-pm:** share one rebuild attempt across the plan-pointer sites ([0a320be](https://github.com/ravensorb/bmad-extensions/commit/0a320beae406b4e0e2936d8db6ddca0906ac185c))
+
+
+### Testing
+
+* **infra:** let the check-12 boundary test run when the file is already at the cap ([92e78bd](https://github.com/ravensorb/bmad-extensions/commit/92e78bd8aba362c613446ad8f14f5a1a62dc5cf9))
+* **infra:** make check 36 reject a remedy named only inside its halt ([0c64b60](https://github.com/ravensorb/bmad-extensions/commit/0c64b6080ded336dc2d62a0a43163a5ff824e99b))
+* **infra:** pin the gitignore sibling example on its placeholder form ([07e9108](https://github.com/ravensorb/bmad-extensions/commit/07e91080f3ceeea992268f7d2a3fd51bb4935f89))
+* **infra:** plant the discovery probe in a temp root, not the real tree ([bcaa18e](https://github.com/ravensorb/bmad-extensions/commit/bcaa18e08ef616676676f8f30eefb2749aaf7398))
+
 ## [3.5.0](https://github.com/ravensorb/bmad-extensions/compare/3.4.5...3.5.0) (2026-10-21)
 
 
