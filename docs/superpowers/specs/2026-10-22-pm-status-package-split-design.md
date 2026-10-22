@@ -250,10 +250,28 @@ byte-identical diff. That is the artifact that catches a dropped `register()`.
   without symlink support breaks the swap, not merely the atomicity. `flock` already constrains
   this to POSIX, but "POSIX" and "supports symlinks" are not identical claims and only the first
   is currently enforced anywhere.
-- **Open: does the per-skill payload copy stay a full tree?** Two skills ship `pm-status.py`
-  today (`l3io-setup`, `l3io-doctor`). Each would ship the whole package, roughly doubling the
-  payload bytes those two carry. Measure before deciding whether `l3io-doctor`, which only needs
-  the installed copy refreshed, can ship less.
+- **Resolved — the per-skill payload copy stays a full tree, at no size cost.** An earlier draft
+  of this bullet said shipping the package would "roughly double" the payload those skills
+  carry. That was wrong: `pm-status.py` is 492 KB in each of `l3io-setup` and `l3io-doctor`
+  today, and the same code as a package is the same content in more files. Nor can
+  `l3io-doctor` ship a subset — it runs `self-install` at activation, and that requires a
+  complete tree to install. Recorded because the wrong version of this bullet would have sent
+  someone measuring a problem that does not exist.
+
+## 7.1 Measured scope of the binding flip
+
+Step 4 of §6.2 is one commit, and this is its size:
+
+| Sites | What changes |
+|---|---|
+| 94 `.md` files under `skills/` | carry the `{pm_status}` binding |
+| 48 files across `skills/`, `docs/`, `scripts/` | name `_bmad/scripts/pm-status.py` literally |
+| 14 `.md` files | invoke `self-install` |
+
+Mechanical, but large enough that it is its own task with its own verification, not a tail
+appended to the last extraction. `check:docs` checks 4, 10 and 30 all parse these invocations,
+so a missed site fails a gate rather than shipping — which is why this lands last, after the
+package is proven.
 
 ## 8. ADR
 
