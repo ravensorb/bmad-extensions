@@ -4274,12 +4274,24 @@ export function resolverInvariant(opts = {}) {
   // tree. The invariant is about the PACKAGE: exactly one authored file declares the
   // section. Zero means nothing is judged against an allowed region (the vacuous state);
   // two means a second file has quietly granted itself one.
+  //
+  // TWO TEST HOOKS, and both can only ever ADD violations -- neither can mask one.
+  // `plantInPmStatus` splices lines into one authored file (multi-line text becomes real
+  // separate lines); `dropMarkersIn` blanks that file's marker text, which removes its
+  // allowed region and nothing else. They exist because the two package-level branches
+  // below are otherwise unreachable from a test, and a branch no test can reach is a
+  // branch that can be deleted with every gate still green -- which is exactly how it was
+  // found.
   const pmFiles = pmStatusFiles()
   const sectionFiles = []
   for (const pmFile of pmFiles) {
-    const pmLines = read(pmFile).split('\n')
+    let pmLines = read(pmFile).split('\n')
     if (opts.plantInPmStatus && opts.plantInPmStatus.file === pmFile) {
-      pmLines.splice(opts.plantInPmStatus.line - 1, 0, opts.plantInPmStatus.text)
+      pmLines.splice(opts.plantInPmStatus.line - 1, 0, ...opts.plantInPmStatus.text.split('\n'))
+    }
+    if (opts.dropMarkersIn === pmFile) {
+      pmLines = pmLines.map((l) =>
+        l.replace(RESOLVER_START_MARKER, '<dropped>').replace(RESOLVER_END_MARKER, '<dropped>'))
     }
     const start = pmLines.findIndex((l) => l.includes(RESOLVER_START_MARKER))
     const end = pmLines.findIndex((l) => l.includes(RESOLVER_END_MARKER))

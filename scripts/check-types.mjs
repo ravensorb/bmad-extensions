@@ -7,8 +7,9 @@
 // clean on the pattern (it is a type error, not a lint) and `check:bmb` shells to ruff, so
 // it sees the same nothing.
 //
-// WHY IT IS NOT "run mypy and require zero errors". mypy reports 65 findings over this file
-// today, mostly `str | None` flowing into os.path calls. Gating on a clean file would mean a
+// WHY IT IS NOT "run mypy and require zero errors". mypy reports 68 findings over this
+// package today (`-v` prints the tally and the per-code breakdown; the number moves with
+// every extraction), mostly `str | None` flowing into os.path calls. Gating on a clean file would mean a
 // large unrelated cleanup first, and until that landed there would be no gate at all. A
 // scoped gate that works today beats a total one that is always one refactor away.
 //

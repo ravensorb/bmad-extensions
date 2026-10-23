@@ -104,10 +104,16 @@ test("the inert-annotation state does NOT report the bug — why the second clas
   assert.match(r.stderr, /Name "CommentedSeq" is not defined/);
 });
 
-test("the file's other 65 findings are NOT gated", (t) => {
+test("the package's other findings are NOT gated, and the count is reported not asserted", (t) => {
   // Scope is the whole design: gating on a clean file would mean a large unrelated cleanup
   // first, and until it landed there would be no gate at all. If this starts failing, the
   // gate was widened — decide that deliberately rather than discovering it in CI.
+  //
+  // The name deliberately carries NO number. It said "the file's other 65 findings" while the
+  // gate reported 69, then 68 — stale through three tasks, because a number in a test name is
+  // read by nobody and checked by nothing, which is this repo's most reliable place for prose
+  // to rot. The assertions below are properties (a tally is printed, a breakdown is printed),
+  // so they cannot go stale; `npm run check:types -v` is where the current number lives.
   const r = run(fixture(t), ["-v"]);
   assert.equal(r.status, 0, r.stderr);
   assert.match(r.stdout, /ungated finding\(s\) not checked/);

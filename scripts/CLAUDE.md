@@ -139,7 +139,8 @@ the class purely in terms of queue depth, which is the frame this case escapes.
 `scripts/check-types.mjs` runs mypy over every `.py` under `skills/_shared/pm_status/` and fails on two
 classes only. Its header carries the full argument; three things to know before touching it:
 
-- **It is not clean-file enforcement and should not become it.** 65 findings stand ungated.
+- **It is not clean-file enforcement and should not become it.** 68 findings stand ungated
+  today; `npm run check:types -v` prints the current tally, which moves with every extraction.
   A gate that works today beats a total one that is always one refactor away.
 - **"Fail on any `[operator]` finding" is the obvious narrow cut and it does not work** — the
   file carries 4 pre-existing `[operator]` errors (`Unsupported operand types for +`), so that

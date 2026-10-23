@@ -400,6 +400,9 @@ from .core import (
     _LOCK_IGNORE_LINE,  # noqa: F401 -- re-export only
     _NOTICES_LOCK,  # noqa: F401 -- re-export only
     CALIBRATED_METRIC_FIELDS,
+    # Facade-only, and PINNED: test_dir_for_status_is_the_inverse_of_status_for_dir
+    # reads pm.DIR_FOR_STATUS. `nodes` imports it from core directly, so dropping it
+    # here would error that test rather than go quiet.
     DIR_FOR_STATUS,  # noqa: F401 -- re-export only
     EVENTS_FILENAME,  # noqa: F401 -- re-export only
     METRIC_FIELDS,
@@ -413,7 +416,6 @@ from .core import (
     VALID_STORY_TRANSITIONS,
     PMError,
     _actual_metric,
-    _atomic_create,  # noqa: F401 -- re-export only
     _coerce,
     _die_notfound,
     _die_usage,
@@ -424,7 +426,6 @@ from .core import (
     _exit_code_or_fail,
     _file_lock,
     _file_sha,  # noqa: F401 -- re-export only
-    _flock_write_or_plain,  # noqa: F401 -- re-export only
     _hashable_field,
     _indexable_key,
     _is_na,

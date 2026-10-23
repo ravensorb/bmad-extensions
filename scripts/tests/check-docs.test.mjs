@@ -3406,13 +3406,44 @@ function pmStatusPlantLine() {
   return { file: rel, line, start, end, inDocstring: line === undefined ? undefined : inDoc[line - 1] }
 }
 
-test('check 26: exactly one file in the package declares the resolver section', () => {
-  // The vacuous state this replaces a hardcoded path with: zero declarations means no file
-  // has an allowed region and arm (a) judges everything; two means a second file has
-  // granted itself one. Both are reported, so neither can happen quietly.
+// The exactly-one-declaration invariant, in three tests, and the division matters.
+//
+// The first asserts a property of THE TREE by walking it: it fails if the markers are lost
+// or duplicated in the package. It does NOT call resolverInvariant(), so it says nothing
+// about whether the checker would report either state -- and on its own it let the entire
+// `sectionFiles.length` block be deleted with check:docs still exiting 0 and every check-26
+// test still passing. That is the repo's recurring shape (a check that passes without
+// exercising what it names) appearing inside the guard added to prevent it, which is why
+// the next two exist and why they go through resolverInvariant().
+test('check 26: exactly one file in the package declares the resolver section (tree property)', () => {
   const files = pmStatusSectionFile()
   assert.equal(files.length, 1,
     `expected exactly one resolver-section declaration, found ${files.length}: ${files.join(', ')}`)
+})
+
+test('check 26: a SECOND declaring file is reported by the checker', () => {
+  // Plant a marker pair into a package file that has none. Two files now claim an allowed
+  // region, so state-path assembly would be permitted in two places and the invariant means
+  // nothing. Delete the sectionFiles.length block and this goes red.
+  const bare = 'skills/_shared/pm_status/__init__.py'
+  const { violations } = resolverInvariant({
+    plantInPmStatus: {
+      file: bare, line: 2,
+      text: `# ${RESOLVER_START_MARKER}\n# ${RESOLVER_END_MARKER}`,
+    },
+  })
+  assert.ok(violations.some(v => v.includes('declared in 2 files') && v.includes(bare)),
+    `a second declaring file must be reported, got: ${JSON.stringify(violations)}`)
+})
+
+test('check 26: ZERO declaring files is reported by the checker', () => {
+  // The vacuous state, and the costlier of the two: with no allowed region anywhere, arm (a)
+  // still runs and still reports nothing, so a package that had quietly lost its markers
+  // would read as clean. Drop them from whichever file declares them (derived, not named).
+  const { file } = pmStatusPlantLine()
+  const { violations } = resolverInvariant({ dropMarkersIn: file })
+  assert.ok(violations.some(v => v.includes('declares no resolver section')),
+    `losing the markers entirely must be reported, got: ${JSON.stringify(violations)}`)
 })
 
 test('check 26: the derived plant line is outside the resolver section and any docstring', () => {
@@ -3438,6 +3469,11 @@ test('check 26: a file with NO markers has its whole body judged', async () => {
   // __main__.py no longer declares a section, so nothing in it is exempt. The plant goes
   // into a file that is in arm (a)'s scope and carries neither marker -- which is the state
   // every module of the package except `nodes` is in.
+  //
+  // Scope, stated so it is not mistaken for more: this guards arm (a)'s per-file judging (it
+  // goes red if a marker-less file is ever skipped instead of judged end to end). It passes
+  // identically against the checker as it stood BEFORE the exactly-one-declaration block, so
+  // it discriminates nothing about that block -- the two tests above are what do.
   const bare = 'skills/_shared/pm_status/__init__.py'
   const lines = fs.readFileSync(path.join(REPO, bare), 'utf8').split('\n')
   assert.ok(!lines.some(l => l.includes(RESOLVER_START_MARKER) || l.includes(RESOLVER_END_MARKER)),

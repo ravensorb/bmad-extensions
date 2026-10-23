@@ -115,8 +115,11 @@ missing ruff). Deliberate violations are marked inline with `# noqa: RULE -- rea
 ignored wholesale; `ruff.toml` states the only two exemptions and why each cannot be inline.
 
 **`check:types` is a SCOPED type check over `pm-status.py` — two error classes, never a clean
-file.** mypy reports 65 findings there today (mostly `str | None` into `os.path` calls), so
-gating on zero would mean a large unrelated cleanup first and no gate at all until it landed.
+file.** mypy reports **68** findings across the package today (mostly `str | None` into
+`os.path` calls), so gating on zero would mean a large unrelated cleanup first and no gate at
+all until it landed. That number moves with every extraction — it was 69 before `nodes/` left
+`__main__.py` — so derive it with `npm run check:types -v`, which prints the tally and the
+per-code breakdown, rather than trusting this sentence.
 The two gated classes are the message `not callable` (a `@property` read as a method — the
 pattern that shipped the 3.4.2 `reparent-story` crash, which **ruff cannot see**, verified on a
 repro) and **any** `[name-defined]`. The second guards the first: every ruamel import in
@@ -128,7 +131,8 @@ deleting it *is* a `[name-defined]` error, so the gate fails instead of quietly 
 nothing. Measured: lazy import + annotation + bug → **0** findings; `TYPE_CHECKING` import +
 annotation + bug → **2**, at both call sites; correct code → **0**. Do not widen this to
 clean-file enforcement without deciding that deliberately — `scripts/tests/check-types.test.mjs`
-asserts the other 65 stay ungated. Found by the downstream package doing the annotation
+asserts the rest stay ungated (as a property; it does not pin the count, which is why that
+test is the one place here that cannot go stale). Found by the downstream package doing the annotation
 follow-up and hitting the inert state.
 
 **`check:bmb` runs BMad Builder's own scanners over this package's skills.** bmb ships them
