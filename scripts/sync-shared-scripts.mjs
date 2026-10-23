@@ -7,7 +7,7 @@
 //
 // Shared files:
 //   pm-status.py → scripts/ in exactly ONE skill per module that self-installs it to
-//   {project-root}/_bmad/scripts/pm-status.py: `l3io-setup` for the l3io-pm module, and
+//   {project-root}/_bmad/scripts/pm-status/__main__.py: `l3io-setup` for the l3io-pm module, and
 //   `l3io-doctor` for the (standalone) l3io-util module. Task 11A cut this from four
 //   payload copies to two — pm-execute, pm-plan, and pm-sync used to each carry their own
 //   copy and self-install identical bytes to the identical destination; now they read

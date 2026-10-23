@@ -26,7 +26,7 @@ reads them back.
 Why it does NOT lead with the installed pm-status.py
 ----------------------------------------------------
 `check-pm-status` answers a different question -- is the *self-installed* copy at
-`{project-root}/_bmad/scripts/pm-status.py` current -- and that copy is written by
+`{project-root}/_bmad/scripts/pm-status/__main__.py` current -- and that copy is written by
 self-install at skill activation, not by the installer. So immediately after a correct
 upgrade it is still the previous version and `check-pm-status` correctly reports STALE,
 which reads as a failed upgrade. That is a legitimate transient for exactly one
@@ -57,7 +57,7 @@ from pathlib import Path
 
 _HERE = Path(__file__).resolve().parent
 _GENERATED_FROM = "skills/_shared/"
-_INSTALLED_PM_STATUS = Path("_bmad") / "scripts" / "pm-status.py"
+_INSTALLED_PM_STATUS = Path("_bmad") / "scripts" / "pm-status" / "__main__.py"
 
 
 def _load_yaml(path: Path):

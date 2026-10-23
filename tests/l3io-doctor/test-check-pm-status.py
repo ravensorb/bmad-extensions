@@ -7,7 +7,7 @@ Tests for check-pm-status.py. Run with:
   uv run skills/l3io-doctor/scripts/tests/test-check-pm-status.py
 
 Every CLI case drives the real script through subprocess against a real installed copy --
-a stub at {project-root}/_bmad/scripts/pm-status.py that prints the version the case needs
+a stub at {project-root}/_bmad/scripts/pm-status/__main__.py that prints the version the case needs
 -- so the exit code is the one /l3io-doctor check-pm-status actually returns. The exit
 codes are the whole interface here (0 current, 3 stale, 4 absent, 2 unreadable), so each
 gets a case; asserting only on stdout would let any of them drift to 0 unnoticed.
@@ -58,9 +58,9 @@ class TestCli(unittest.TestCase):
         self.assertIsNotNone(self.expected, "premise: the doctor's module.yaml is readable")
 
     def install(self, version: str):
-        p = Path(self.d) / "_bmad" / "scripts"
+        p = Path(self.d) / "_bmad" / "scripts" / "pm-status"
         p.mkdir(parents=True, exist_ok=True)
-        f = p / "pm-status.py"
+        f = p / "__main__.py"
         f.write_text(STUB.format(v=version), encoding="utf-8")
         f.chmod(0o755)
 

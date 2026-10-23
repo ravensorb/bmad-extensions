@@ -130,10 +130,15 @@ uv run {skill-root}/../l3io-setup/scripts/pm_status/__main__.py self-install \
   --dest {project-root}/_bmad/scripts/pm-status.py
 ```
 
+`--dest` still names the pre-package file `pm-status.py` on purpose: self-install installs the
+`pm-status/` package directory **beside** that path and removes the file when it is an
+unmodified shipped copy. Do not point `--dest` at `pm-status/__main__.py` — the directory would be
+installed inside itself.
+
 If `uv` is unavailable, use `python3` instead. A "skipped — already up to date"
 message is normal. Failure here is BLOCKED.
 
-Bind `{pm_status}` = `{project-root}/_bmad/scripts/pm-status.py` for use in all
+Bind `{pm_status}` = `{project-root}/_bmad/scripts/pm-status/__main__.py` for use in all
 subsequent steps.
 
 Bind `{runtime}` — passed as `--runtime` to every `set-actual` and `verify` call

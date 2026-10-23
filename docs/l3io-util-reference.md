@@ -23,7 +23,7 @@ Skill: `/l3io-doctor [command]`.
 
 Config is resolved via `{project-root}/_bmad/scripts/resolve_config.py` — `core.*` for shared settings, `modules.l3io-util.*` for this module, and `modules.l3io-pm.*` for the artifact paths it reorganizes. No section is required; every value has a default.
 
-**Self-installs `pm-status.py` at activation**, before dispatching to any mode (skipping only for `help`/`?`). This skill is the documented post-`quick-update` entry point, so it cannot assume some other skill has already refreshed the installed copy at `{project-root}/_bmad/scripts/pm-status.py` — several of its modes invoke it directly, and a stale copy fails those calls with an opaque argparse error rather than one that points at the real cause. The install compares bytes and reinstalls on any difference, refusing only to overwrite a strictly newer copy — the same content-guarded, non-downgrading self-install the PM skills use.
+**Self-installs `pm-status.py` at activation**, before dispatching to any mode (skipping only for `help`/`?`). This skill is the documented post-`quick-update` entry point, so it cannot assume some other skill has already refreshed the installed copy at `{project-root}/_bmad/scripts/pm-status/__main__.py` — several of its modes invoke it directly, and a stale copy fails those calls with an opaque argparse error rather than one that points at the real cause. The install compares bytes and reinstalls on any difference, refusing only to overwrite a strictly newer copy — the same content-guarded, non-downgrading self-install the PM skills use.
 
 Key settings (with defaults):
 

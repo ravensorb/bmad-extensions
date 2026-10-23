@@ -232,6 +232,35 @@ class TestSelfInstalledCopy(Base):
         self.assertTrue(self.exists("_bmad/scripts/resolve_config.py"))
 
 
+class TestSelfInstalledPackage(Base):
+    """`_bmad/scripts/pm-status/` is the package self-install writes; each file is matched
+    against the manifest entry for the same path under `scripts/pm_status/`."""
+
+    def _install(self, files):
+        for rel, content in files.items():
+            p = self.d / "_bmad" / "scripts" / "pm-status" / rel
+            p.parent.mkdir(parents=True, exist_ok=True)
+            p.write_text(content, encoding="utf-8")
+
+    def test_matching_files_removed_and_empty_dirs_pruned(self):
+        shipped = {"__main__.py": "main\n", "core/locks.py": "locks\n"}
+        self.skill("l3io-doctor", {f"scripts/pm_status/{k}": (v, None) for k, v in shipped.items()})
+        self._install(shipped)
+        code, out, err = self.run_cli("--apply")
+        self.assertEqual(code, 0, out + err)
+        self.assertFalse(self.exists("_bmad/scripts/pm-status"))
+
+    def test_edited_file_is_kept_and_only_it(self):
+        self.skill("l3io-doctor", {"scripts/pm_status/__main__.py": ("main\n", None),
+                                   "scripts/pm_status/core/locks.py": ("locks\n", None)})
+        self._install({"__main__.py": "main\n", "core/locks.py": "LOCALLY PATCHED\n"})
+        code, out, err = self.run_cli("--apply")
+        self.assertEqual(code, 0, out + err)
+        self.assertFalse(self.exists("_bmad/scripts/pm-status/__main__.py"))
+        self.assertTrue(self.exists("_bmad/scripts/pm-status/core/locks.py"))
+        self.assertIn("KEEPING", out)
+
+
 class TestReporting(Base):
     def test_json_lists_removable_modified_and_missing(self):
         self.skill("l3io-doctor", {"scripts/a.py": ("payload\n", None),

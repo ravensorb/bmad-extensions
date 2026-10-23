@@ -237,11 +237,11 @@ Append one item per `new` marker to the top-level `backlog:` list of `{status_ba
 the consolidated backlog schema (`references/status-files.md` is the schema source of
 truth).
 
-**When `{project-root}/_bmad/scripts/pm-status.py` is present, use it — this is the only correct
+**When `{project-root}/_bmad/scripts/pm-status/__main__.py` is present, use it — this is the only correct
 path when it is available.** Call `append-issue` **without `--key`**:
 
 ```bash
-uv run {project-root}/_bmad/scripts/pm-status.py append-issue --file {pm_issues_file} \
+uv run {project-root}/_bmad/scripts/pm-status/__main__.py append-issue --file {pm_issues_file} \
   --epic 000 --title "{what}" \
   --source "code-marker ({file}:{line})" --severity {Low|Medium} \
   --description "{what} (ceiling: {ceiling | none}; upgrade: {upgrade | NONE — no revisit trigger})."

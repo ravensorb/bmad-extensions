@@ -1,7 +1,7 @@
 # check-pm-status — verify the installed pm-status.py is current
 
 Invoked with `check-pm-status`. **Read-only.** Compares the installed
-`{project-root}/_bmad/scripts/pm-status.py` against this doctor's `module_version` and reports
+`{project-root}/_bmad/scripts/pm-status/__main__.py` against this doctor's `module_version` and reports
 whether it is current, stale, or absent.
 
 Why this lives here: `pm-help` and other consumers used to inline the comparison against a
@@ -23,7 +23,7 @@ Print the output as-is. Then:
 - Exit 3 → `STALE — installed pm-status.py is behind the shipped version. Run any l3io-pm or
   l3io-doctor skill; the activation self-install refreshes the copy.`
 - Exit 4 → `ABSENT — no pm-status.py has been self-installed at
-  {project-root}/_bmad/scripts/pm-status.py yet. Run any l3io-pm or l3io-doctor skill to
+  {project-root}/_bmad/scripts/pm-status/__main__.py yet. Run any l3io-pm or l3io-doctor skill to
   self-install it.`
 - Exit 2 → `FAILED: <the script's stderr>`
 

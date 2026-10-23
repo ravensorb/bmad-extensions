@@ -9,7 +9,7 @@ asked "which l3io am I on?" and had no way to answer it. `_bmad/_config/manifest
 records a custom-source module's `version` as the git ref that was cloned, so a project
 tracking the default branch reads `version: main` — accurate and useless. `check-pm-status`
 looks like the answer and is not: it compares the **self-installed** copy at
-`{project-root}/_bmad/scripts/pm-status.py`, which self-install writes at skill
+`{project-root}/_bmad/scripts/pm-status/__main__.py`, which self-install writes at skill
 activation rather than the installer writing it, so immediately after a correct upgrade
 it reports STALE for exactly one invocation. This mode reads the shipped manifests
 instead, which are correct the instant the installer finishes.

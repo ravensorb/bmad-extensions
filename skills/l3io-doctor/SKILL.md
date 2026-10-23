@@ -45,7 +45,7 @@ Modes (pass as argument to skip directly to that mode):
 - **`check` / `status`:** Read-only health check — same diagnostic scan as the default but prints the findings table and exits without prompting to make changes. The full set of findings, their severities, and their remedies is defined in `steps/health-check.md`, not repeated here.
 - **`stats`** (aliases **`backlog`**, **`issues`**): Plan-aware progress dashboard — phase → epic → sprint → story hierarchy with per-status dwell times and stuck-item flags (via `pm-status.py report`), plus backlog size by severity, the per-item backlog table from `{pm_state_root}/issues.yaml` grouped by severity, last closed sprint/epic, and calibration state. Scope it by asking — "what's active", "what's queued", "everything" — which maps to `--status`; counting always covers every epic regardless. No files changed.
 - **`check-deps`:** Verifies every BMad skill this package dispatches resolves in this project, reports deprecated shims still in use, and names optional dependencies whose phases will self-skip. No files changed.
-- **`check-pm-status`:** Compares the installed `{project-root}/_bmad/scripts/pm-status.py` against this doctor's `module_version` and reports whether it is current, stale, or absent. Used by `pm-help` at activation to warn about a stale copy; also runnable directly. No files changed.
+- **`check-pm-status`:** Compares the installed `{project-root}/_bmad/scripts/pm-status/__main__.py` against this doctor's `module_version` and reports whether it is current, stale, or absent. Used by `pm-help` at activation to warn about a stale copy; also runnable directly. No files changed.
 - **`version`** (aliases **`--version`**, **`which-version`**): Reports which l3io-extensions version this project is running, read from the manifests the installer writes — per skill and, for the four module homes, per module. Exits 3 on a tree carrying more than one version, which is a partial install. This is the mode that answers "which l3io am I on?"; `check-pm-status` answers the narrower question of whether the self-installed `pm-status.py` is current, and reports STALE for one invocation after a correct upgrade because the installer does not write that copy. No files changed.
 - **`install`** (aliases **`upgrade`**, **`uninstall`**): Runs the right BMad command for the intent and refuses the wrong one. `upgrade` uses `--action quick-update`, which derives the module set and IDE list off the existing install and deletes nothing; `install` is first-install only and refuses an existing install, because its `--modules`/`--tools` are authoritative and BMad deletes every module and IDE tree they do not name without confirming; `clean` removes only this extension's payload, decided by SHA-256 against each skill's `payload-manifest.json`, keeping any file a user has edited and never touching project state. Confirms before every action; `clean` is a dry run until `--apply`.
 
@@ -188,10 +188,15 @@ uv run {skill-root}/scripts/pm_status/__main__.py self-install \
   --dest {project-root}/_bmad/scripts/pm-status.py
 ```
 
+`--dest` still names the pre-package file `pm-status.py` on purpose: self-install installs the
+`pm-status/` package directory **beside** that path and removes the file when it is an
+unmodified shipped copy. Do not point `--dest` at `pm-status/__main__.py` — the directory would be
+installed inside itself.
+
 If `uv` is unavailable, use `python3` instead. A "skipped — already up to date" message is
 normal — that is the common case, not a problem. Failure here is BLOCKED.
 
-Bind `{pm_status}` = `{project-root}/_bmad/scripts/pm-status.py` for use in all mode files
+Bind `{pm_status}` = `{project-root}/_bmad/scripts/pm-status/__main__.py` for use in all mode files
 below.
 
 Bind `{spec_align}` = `uv run {skill-root}/scripts/spec-align.py --project-root {project-root} --planning-root {planning_artifacts} --impl-root {implementation_artifacts} --state-root {pm_state_root} --pm-status {pm_status}`
@@ -235,7 +240,7 @@ state/
 - **An epic's directory lives in the folder named for its status.** Every status transition is a directory move, so `git log --follow` keeps working across it.
 - **The directory structure replaces child lists** — `epic.yaml` has no `sprints:` key and `sprint.yaml` has no `stories:` key. Children are discovered by listing the directory.
 - **State is written only by `pm-status.py`**, addressed by node key, never by hand-built path:
-  `uv run _bmad/scripts/pm-status.py set-status --state-root {pm_state_root} --story E001-S01-003 --status done`
+  `uv run _bmad/scripts/pm-status/__main__.py set-status --state-root {pm_state_root} --story E001-S01-003 --status done`
 - Do not hand-edit these files, and do not create parallel status files.
 
 Older layouts (a flat `sprint-status*.yaml`, or a per-epic `_bmad/state/` tree) are legacy. Migrate with `/l3io-doctor migrate-state`.

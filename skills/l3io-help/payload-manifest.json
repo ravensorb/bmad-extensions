@@ -6,12 +6,12 @@
     "customize.toml": "8f69c02ad4c487c73c5ecec9d9bfd469cc9638c26e79cb3baf2d3a72dc96650e",
     "references/config-resolution.md": "153baa1edb1ca9eb49fc391c546a79b1fe4260dac1c1bad27abbcbcd3726994a",
     "steps/mode-catalog.md": "3d56d2c21232c47e7a393fdda24692c8bd469d74df656ef1da3b6e98ee2fa971",
-    "steps/mode-list-plan.md": "c9dd477c002cd59679f577b00f95bf4d7f2851f8791d98a1053498aca4999086",
+    "steps/mode-list-plan.md": "657d22c2f5ab1c72fb753f038e8379678ac33a0ae1a953c062b560718b752573",
     "steps/mode-progress.md": "0aa153de147aa04ae52e37d4c9d2007b0b6562680813f3fb0738b08fae52f142",
-    "steps/step-01-config.md": "146c699e4d66bbbccc7cff17511b910a99d7666426ed2fbaf4b0a281c1089427",
+    "steps/step-01-config.md": "87f225ee80d619a59919911c6a49bab01b49e56cf96943d463a501c41e721bc9",
     "steps/step-02-detect-layout.md": "59606f7e490b13fff1f55e7bf3a8947113e535c464d4d3b1e226cb40994a5fa8",
     "steps/step-03-read-state.md": "5ad7468f66068855f6b80d2ed579ef2f1bfd62062b60a6b498b64a27beccec7a",
     "steps/step-04-health-snapshot.md": "8a8a6fcaddccd3c2c59bb5711868c19dbd42c3d241798d5346362e200046f507",
-    "steps/step-05-recommend.md": "c86e8a3861642361e69a3954bf886e18f4959c5a59179839baa1dc23fc0282fa"
+    "steps/step-05-recommend.md": "78086597e7d95983a7acdfc66be72d9724300aa7abb111ea16e91af890b7dd6c"
   }
 }

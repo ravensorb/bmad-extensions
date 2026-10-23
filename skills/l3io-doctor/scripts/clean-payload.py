@@ -35,8 +35,10 @@ over months and merely READ by our skills. It appears in no payload manifest, so
 scope already excludes it; the exclusion is restated here because it is the one mistake that
 would matter, and a reader should not have to infer it.
 
-`_bmad/scripts/pm-status.py` IS removed when it matches a manifest hash: it is our payload,
-self-installed, and reinstalled automatically at the next skill activation.
+`_bmad/scripts/pm-status/` (the self-installed package) IS removed file by file, each file only
+when it matches a manifest hash for the same path under `scripts/pm_status/`: it is our payload,
+and reinstalled automatically at the next skill activation. The pre-package single file
+`_bmad/scripts/pm-status.py` is treated the same way when it is still present.
 """
 import argparse
 import hashlib
@@ -62,7 +64,9 @@ _SKILL_ROOTS = (".claude/skills", ".agents/skills")
 # restored backup, or a project upgraded by hand can leave one old manifest beside a new
 # script. Accepting both costs one tuple and removes the whole class.
 _GENERATED_FROM = ("skills/<skill>/", "skills/_shared/")
-_SELF_INSTALLED = ("_bmad/scripts/pm-status.py",)
+_SELF_INSTALLED = ("_bmad/scripts/pm-status.py",)      # the pre-package single file
+_SELF_INSTALLED_DIR = "_bmad/scripts/pm-status"       # the package directory
+_PACKAGE_PAYLOAD = "scripts/pm_status/"               # where a manifest keys the package's files
 
 
 def sha256(p: Path) -> str | None:
@@ -119,11 +123,13 @@ def plan(project: Path):
     # The self-installed copy is payload too, and it is the one file of ours that lives
     # outside a skill directory. It is matched against any manifest that ships it, because
     # self-install writes whichever module home's copy ran -- there is no single owner.
-    wanted = set()
+    wanted, wanted_tree = set(), {}
     for _, data in discover(project):
         for rel, want in data["files"].items():
-            if rel.endswith(("scripts/pm-status.py", "scripts/pm_status/__main__.py")):  # old layout and new
+            if rel.endswith("scripts/pm-status.py"):
                 wanted.add(want)
+            elif rel.startswith(_PACKAGE_PAYLOAD):
+                wanted_tree.setdefault(rel[len(_PACKAGE_PAYLOAD):], set()).add(want)
     for rel in _SELF_INSTALLED:
         p = project / rel
         if not p.is_file():
@@ -133,6 +139,13 @@ def plan(project: Path):
             removable.append(p)
         else:
             modified.append(p)
+    pkg = project / _SELF_INSTALLED_DIR
+    if pkg.is_dir():
+        for p in sorted(pkg.rglob("*")):
+            if not p.is_file() or "__pycache__" in p.parts:
+                continue
+            sub = p.relative_to(pkg).as_posix()
+            (removable if sha256(p) in wanted_tree.get(sub, ()) else modified).append(p)
     return removable, modified, missing, manifests
 
 

@@ -41,7 +41,7 @@ _HERE = Path(__file__).resolve().parent
 _MODULE_YAML = _HERE.parent / "assets" / "module.yaml"
 
 _VERSION_RE = re.compile(r"^module_version:\s*(\S+)", re.MULTILINE)
-_INSTALLED_PATH = "_bmad/scripts/pm-status.py"
+_INSTALLED_PATH = "_bmad/scripts/pm-status/__main__.py"
 
 
 _VERSION_TOKEN_RE = re.compile(r"\b(\d+(?:\.\d+)+)\b")

@@ -18,12 +18,12 @@ present, or on a verified genuine first run. Apply the first matching rule:
 **One more follow-up, checked after the table above:** if `{pm_status_present}` is `absent`,
 prepend it to the recommendation — this takes priority because it explains a failure the user
 would otherwise hit with no clue why:
-`pm-status.py is missing at {project-root}/_bmad/scripts/pm-status.py. Run /l3io-doctor
+`pm-status.py is missing at {project-root}/_bmad/scripts/pm-status/__main__.py. Run /l3io-doctor
 first to install it — this report read epic.yaml directly instead.`
 
 **Second follow-up, checked after the absent-warning above:** if `{pm_status_stale}` is `yes`,
 prepend a stale warning after the absent warning (or first if no absent warning fired):
-`pm-status.py at {project-root}/_bmad/scripts/pm-status.py is stale — the installed copy is
+`pm-status.py at {project-root}/_bmad/scripts/pm-status/__main__.py is stale — the installed copy is
 behind the shipped version. Run /l3io-doctor to refresh it (its activation self-install
 picks up the current copy).`
 

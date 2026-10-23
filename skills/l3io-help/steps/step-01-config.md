@@ -17,13 +17,13 @@ user to run the BMad installer. Extract, applying the default when a key is abse
   (default `{output_folder}/planning-artifacts`)
 - Set `{pm_state_root}` = `{implementation_artifacts}/state`
 - Set `{pm_issues_file}` = `{pm_state_root}/issues.yaml`
-- Set `{pm_status}` = `{project-root}/_bmad/scripts/pm-status.py` (self-installed by the
+- Set `{pm_status}` = `{project-root}/_bmad/scripts/pm-status/__main__.py` (self-installed by the
   other PM skills; l3io-help only reads, it does not self-install)
 
 Then check whether `{pm_status}` is actually on disk and bind `{pm_status_present}`:
 
 ```bash
-[ -f {project-root}/_bmad/scripts/pm-status.py ] && echo present || echo absent
+[ -f {project-root}/_bmad/scripts/pm-status/__main__.py ] && echo present || echo absent
 ```
 
 When `{pm_status_present}` is `present`, also check whether it is current. The doctor owns

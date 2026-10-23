@@ -70,10 +70,10 @@ Audit the target against every principle. Each finding names **severity · princ
 
 Identify the principle(s) in tension, weigh options against them, recommend, and record an ADR (`assets/adr-template.md`) at `{project-root}/docs/adr/NNNN-slug.md` — the one ADR home.
 
-**Numbering.** When `{project-root}/_bmad/scripts/pm-status.py` is present, take the number from the l3io-pm register rather than choosing one:
+**Numbering.** When `{project-root}/_bmad/scripts/pm-status/__main__.py` is present, take the number from the l3io-pm register rather than choosing one:
 
 ```bash
-uv run {project-root}/_bmad/scripts/pm-status.py adr-reserve \
+uv run {project-root}/_bmad/scripts/pm-status/__main__.py adr-reserve \
   --state-root {implementation_artifacts}/state --epic n/a --slug {slug} \
   --adr-dir {project-root}/docs/adr
 ```

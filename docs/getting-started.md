@@ -451,7 +451,7 @@ Phase 1/2 (parallel)  █████░░░░░  1/2 epics done
 **Watch it live**, in a second terminal, while a run is in progress:
 
 ```bash
-uv run _bmad/scripts/pm-status.py report \
+uv run _bmad/scripts/pm-status/__main__.py report \
   --state-root {implementation_artifacts}/state \
   --plan {planning_artifacts}/plan-output-meta.yaml \
   --watch 15

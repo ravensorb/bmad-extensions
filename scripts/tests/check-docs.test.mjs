@@ -3507,7 +3507,7 @@ test("check 30: a path argument, a test operand and a binding are not invocation
         "  --dest {project-root}/_bmad/scripts/pm-status.py\n```\n");
   write(root, "skills/l3io-doctor/steps/zz-test.md",
         "```bash\ntest -f {skill-root}/scripts/pm-status.py\n" +
-        "[ -f {project-root}/_bmad/scripts/pm-status.py ] && echo present\n```\n");
+        "[ -f {project-root}/_bmad/scripts/pm-status/__main__.py ] && echo present\n```\n");
   write(root, "skills/l3io-doctor/steps/zz-bind.md",
         "```\nspec_align: uv run {skill-root}/scripts/spec-align.py --project-root {project-root}\n```\n");
   assert.doesNotMatch((await run(root)).stderr, /\[check 30\]/);

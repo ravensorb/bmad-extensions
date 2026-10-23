@@ -163,10 +163,10 @@ class TestPmStatusSecondary(Base):
     not write it, so right after a correct upgrade it is legitimately the old version."""
 
     def _project(self, marker=None):
-        p = Path(self.d) / "proj" / "_bmad" / "scripts"
+        p = Path(self.d) / "proj" / "_bmad" / "scripts" / "pm-status"
         p.mkdir(parents=True)
         if marker:
-            (p / "pm-status.py").write_text(
+            (p / "__main__.py").write_text(
                 f"#!/usr/bin/env python3\n# pm-status-version: {marker}\n", encoding="utf-8")
         return str(Path(self.d) / "proj")
 

@@ -18,7 +18,7 @@ Resolve `{implementation_artifacts}` and `{project-root}` exactly as every other
 (`references/config-resolution.md`). Bind:
 
 - `{pm_state_root}` = `{implementation_artifacts}/state`
-- `{pm_status}` = `{project-root}/_bmad/scripts/pm-status.py`
+- `{pm_status}` = `{project-root}/_bmad/scripts/pm-status/__main__.py`
 - `{engine}` = `{skill-root}/scripts/migrate-engine.py`
 
 ### Step MS2 — Show the plan

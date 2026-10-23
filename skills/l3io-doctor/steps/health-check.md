@@ -422,7 +422,7 @@ uv run {pm_status} report --state-root {pm_state_root} --format json
 - No mismatches → ✓
 
 **Check 24 — Agent instruction block**
-Bind `{pm_status}` = `{project-root}/_bmad/scripts/pm-status.py` and `{runtime}` by the
+Bind `{pm_status}` = `{project-root}/_bmad/scripts/pm-status/__main__.py` and `{runtime}` by the
 detection procedure in `l3io-execute/steps/shared/step-00-activate.md` §2, then run:
 
 ```bash

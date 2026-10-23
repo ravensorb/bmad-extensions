@@ -60,7 +60,7 @@ documentation block must never fail an upgrade that otherwise succeeded.
 
 ### 3.1 Remove the agent instruction block first
 
-Bind `{pm_status}` = `{project-root}/_bmad/scripts/pm-status.py`, and `{runtime}` = exactly one
+Bind `{pm_status}` = `{project-root}/_bmad/scripts/pm-status/__main__.py`, and `{runtime}` = exactly one
 of `claude`, `codex`, `copilot` or `other`, chosen by the detection procedure in
 `l3io-execute/steps/shared/step-00-activate.md`. A guessed runtime targets the wrong
 harness's file.
@@ -115,5 +115,5 @@ rather than assumed.
   the dist-tag on every run. Pin a specific release only for a deliberate exception.
 - The clean never touches project state: `{implementation_artifacts}/state/**` appears in no
   payload manifest, so the derived delete scope excludes it by construction.
-- The clean removes the self-installed `{project-root}/_bmad/scripts/pm-status.py` when it
-  matches a shipped copy. That is safe — any l3io skill reinstalls it at activation.
+- The clean removes the self-installed `{project-root}/_bmad/scripts/pm-status/` package, file by
+  file, each only when it matches a shipped copy. That is safe — any l3io skill reinstalls it at activation.
