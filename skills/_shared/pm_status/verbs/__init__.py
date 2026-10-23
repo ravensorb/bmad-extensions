@@ -9,8 +9,7 @@ It is the top of the node-and-metrics stack and sits directly ABOVE `issues`: `s
 on a story reaching `done` resolves the issues that story claims (`_resolve_story_items`),
 so the status verbs are CONSUMERS of the issue store rather than part of the node layer.
 That is the boundary the original "state" bucket got wrong. Nothing below this module
-imports it; only `__main__.py` (the parser and `main`) and the plan operations that stay
-there reach these functions.
+imports it; only `__main__.py` (the parser and `main`) reaches these functions.
 
 CALL STYLE ACROSS MODULES. Every name the suite patches is reached through its MODULE OBJECT:
 `core._load` / `core._atomic_dump` / `core.notices_lock`, `nodes.save_node` /
