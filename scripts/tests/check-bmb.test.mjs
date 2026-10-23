@@ -67,7 +67,7 @@ test('absolute-path is exempt only for the two documented runtime homes', () => 
 test('the PEP 723 exemption turns off for a script that declares no inline deps', () => {
   const e = byId('pep723-declared');
   const dep = { category: 'dependencies', severity: 'high' };
-  assert.equal(e.match({ ...dep, file: 'scripts/pm-status.py' },
+  assert.equal(e.match({ ...dep, file: 'scripts/pm_status/__main__.py' },
                        { skill: 'skills/l3io-doctor' }), true);
   // A .md has no PEP 723 header, so the same category over it is reported.
   assert.equal(e.match({ ...dep, file: 'SKILL.md' }, { skill: 'skills/l3io-doctor' }), false);

@@ -157,7 +157,7 @@ convert them, whatever remedy appears to exist.
 | `step-04-arch-gate: arch gate — {N} blocking findings` | Requires design decisions | `halt` |
 | `step-02-detect-platform: platform detection failed.` | Environment, not state | `halt` |
 | `step-02-story-prep: story {story_key} still missing required acceptance` | Content authoring | `halt` |
-| `step-00-activate: l3io-setup/scripts/pm-status.py is missing beside this skill.` | The install itself is broken | `halt` |
+| `step-00-activate: l3io-setup/scripts/pm_status/__main__.py is missing beside this skill.` | The install itself is broken | `halt` |
 | `step-00-activate: schema verify failed for {epic_key} —` | Unknown state corruption; guessing could worsen it | `halt` |
 | `step-05-dependency-graph: dependency graph has errors — resolve` | Requires `depends_on` decisions | `halt` |
 | `step-00-activate: {pm_state_root} is gitignored. Project state must` | Appending negations was attempted and withdrawn (ADR-0012): `{pm_state_root}` is absolute and gitignore patterns are relative to their file, so the negation matched nothing; relative negations work only if every excluded parent is negated, and when the rule excludes a parent directory git cannot re-include from inside it, which changes what else the repository tracks. The halt locates the rule with `check-ignore -v` and names the file | `halt` |

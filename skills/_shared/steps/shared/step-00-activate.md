@@ -75,7 +75,7 @@ Extract and bind from the resolved JSON:
 ## 2. Install pm-status.py
 
 `pm-status.py` ships once per module, not once per skill. For `l3io-pm` it lives at
-`l3io-setup/scripts/pm-status.py` — the module's home — not here in this skill's own
+`l3io-setup/scripts/pm_status/__main__.py` — the module's home — not here in this skill's own
 `scripts/`. That is a module-home read, not the cross-skill path read `l3io-help/SKILL.md`
 says it avoids for its own, unrelated staleness question: `.claude-plugin/marketplace.json`
 declares the whole `l3io-pm` plugin — all five of its skills, including `l3io-setup` — as
@@ -99,12 +99,12 @@ partial checkout). Either way the failure must name the missing piece rather tha
 silently or opaquely inside `uv run`:
 
 ```bash
-test -f {skill-root}/../l3io-setup/scripts/pm-status.py
+test -f {skill-root}/../l3io-setup/scripts/pm_status/__main__.py
 ```
 
 If absent, halt:
 ```
-BLOCKED: l3io-setup/scripts/pm-status.py is missing beside this skill.
+BLOCKED: l3io-setup/scripts/pm_status/__main__.py is missing beside this skill.
 Check {project-root}/_bmad/_config/skill-manifest.csv for an l3io-setup row: if it is
 missing, the installer rejected that skill (a SKILL.md frontmatter or naming defect) and
 reinstalling the l3io-pm plugin will reproduce the same result until that is fixed upstream.
@@ -126,7 +126,7 @@ command needs a current `{pm_status}` to succeed — which this section guarante
 which layout branch section 3 takes.
 
 ```bash
-uv run {skill-root}/../l3io-setup/scripts/pm-status.py self-install \
+uv run {skill-root}/../l3io-setup/scripts/pm_status/__main__.py self-install \
   --dest {project-root}/_bmad/scripts/pm-status.py
 ```
 

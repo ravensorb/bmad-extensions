@@ -65,7 +65,7 @@ def tearDownModule():
 HERE = os.path.dirname(os.path.abspath(__file__))
 SCRIPT = os.path.join(os.path.dirname(os.path.dirname(HERE)), "skills", "l3io-doctor", "scripts", "audit-backlog.py")
 REPO = os.path.abspath(os.path.join(HERE, "..", ".."))
-PM = os.path.join(REPO, "skills", "_shared", "pm-status.py")
+PM = os.path.join(REPO, "skills", "_shared", "pm_status", "__main__.py")
 
 _spec = importlib.util.spec_from_file_location("audit_backlog", SCRIPT)
 ab = importlib.util.module_from_spec(_spec)

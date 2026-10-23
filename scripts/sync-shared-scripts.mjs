@@ -11,7 +11,7 @@
 //   `l3io-doctor` for the (standalone) l3io-util module. Task 11A cut this from four
 //   payload copies to two — pm-execute, pm-plan, and pm-sync used to each carry their own
 //   copy and self-install identical bytes to the identical destination; now they read
-//   `{skill-root}/../l3io-setup/scripts/pm-status.py` at activation
+//   `{skill-root}/../l3io-setup/scripts/pm_status/__main__.py` at activation
 //   (`steps/shared/step-00-activate.md` §2) instead, because `.claude-plugin/marketplace.json`
 //   installs the whole `l3io-pm` plugin — all five of its skills — as one unit, so
 //   `l3io-setup` is guaranteed to land beside them. `/l3io-setup` itself stays optional:
@@ -57,18 +57,38 @@ const repoRoot = process.cwd();
 const check = process.argv.includes("--check");
 const sharedDir = path.join(repoRoot, "skills", "_shared");
 
+// pm-status is a PACKAGE (skills/_shared/pm_status/), not one file. Its delivery list is
+// DERIVED by walking the source tree, never written out: a hand-kept list would silently stop
+// delivering the next module added, and check:scripts only compares files it lists, so the
+// shipped payload would be incomplete with nothing failing. One {src, rel} entry per .py file,
+// relative paths preserved, so --dump-deliveries, PAYLOAD_TARGETS and the drift loop all keep
+// working per file.
+const PM_STATUS_PKG = "pm_status";
+function walkPy(dir, relDir = "") {
+  if (!fs.existsSync(dir)) return [];
+  return fs.readdirSync(dir, { withFileTypes: true })
+    .filter((e) => e.name !== "__pycache__")
+    .sort((x, y) => (x.name < y.name ? -1 : 1))
+    .flatMap((e) =>
+      e.isDirectory()
+        ? walkPy(path.join(dir, e.name), path.join(relDir, e.name))
+        : e.name.endsWith(".py") ? [path.join(relDir, e.name)] : []);
+}
+function pmStatusTreeFiles() {
+  return walkPy(path.join(sharedDir, PM_STATUS_PKG)).map((relPy) => ({
+    src: path.join(sharedDir, PM_STATUS_PKG, relPy),
+    rel: path.join("scripts", PM_STATUS_PKG, relPy),
+  }));
+}
+
 // source -> relative destination under each skill dir (pmScriptDirs) or all PM skill dirs (allPmDirs)
-const pmScriptFiles = [
-  { src: path.join(sharedDir, "pm-status.py"), rel: path.join("scripts", "pm-status.py") },
-];
+const pmScriptFiles = pmStatusTreeFiles();
 
 // pm-status.py only (no test suite) for a skill that invokes {pm_status} and self-installs it
 // but is not one of the PM execution skills above. A test suite in a consumer skill's payload
 // is dead weight — the same kind this package removed when it stopped vendoring BMad core
 // scripts — so this group deliberately carries only the runtime script.
-const pmStatusOnlyFiles = [
-  { src: path.join(sharedDir, "pm-status.py"), rel: path.join("scripts", "pm-status.py") },
-];
+const pmStatusOnlyFiles = pmStatusTreeFiles();
 
 // spec-align.py: two consumers (pm-execute, util-doctor), so shared per ADR-0001. Each runs
 // its own copy via `uv run {skill-root}/scripts/spec-align.py`; its test suite stays in
@@ -274,7 +294,7 @@ const syncGroups = [
   { files: executeStepFiles, dirs: newPmExecuteDirs, skipMissing: true },
   { files: syncStepFiles, dirs: newPmSyncDirs, skipMissing: true },
   // pm-status.py into l3io-pm's module home ONLY (Task 11A) -- pm-execute/pm-plan/pm-sync
-  // read it from there at activation (`{skill-root}/../l3io-setup/scripts/pm-status.py`,
+  // read it from there at activation (`{skill-root}/../l3io-setup/scripts/pm_status/__main__.py`,
   // step-00-activate.md §2) instead of each carrying its own copy.
   { files: pmScriptFiles, dirs: newPmSetupDirs, skipMissing: true },
   // status-files.md into new PM skills (plan + execute)
@@ -353,6 +373,27 @@ function findOrphans() {
     }
   }
   return orphans.sort();
+}
+
+// Tree comparison, the half the per-file loop cannot see: a module deleted or renamed in
+// skills/_shared/pm_status/ leaves its old copy in every destination, where it still ships.
+// For every skill dir that receives the package, any .py under scripts/pm_status/ with no
+// source counterpart is reported (as an orphan, so it fails --check and sync warns).
+function findStalePackageFiles() {
+  const source = new Set(walkPy(path.join(sharedDir, PM_STATUS_PKG)));
+  const stale = [];
+  const seen = new Set();
+  for (const { files, dirs, skipMissing } of syncGroups) {
+    if (!files.some(({ rel }) => rel.startsWith(path.join("scripts", PM_STATUS_PKG) + path.sep))) continue;
+    for (const skillDir of dirs) {
+      if (seen.has(skillDir) || (skipMissing && !fs.existsSync(skillDir))) continue;
+      seen.add(skillDir);
+      for (const relPy of walkPy(path.join(skillDir, "scripts", PM_STATUS_PKG))) {
+        if (!source.has(relPy)) stale.push(path.relative(repoRoot, path.join(skillDir, "scripts", PM_STATUS_PKG, relPy)));
+      }
+    }
+  }
+  return stale.sort();
 }
 
 // Guard: importing this module (e.g. from write-payload-manifest.mjs) must not perform a
@@ -438,7 +479,7 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
     }
   }
 
-  const orphans = findOrphans();
+  const orphans = [...findOrphans(), ...findStalePackageFiles()];
   for (const orphan of orphans) {
     report.push(`ORPHAN: ${orphan} exists but no sync group targets this skill for this file`);
   }

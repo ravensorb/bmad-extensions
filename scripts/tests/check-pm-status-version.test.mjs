@@ -40,7 +40,7 @@ function writePkg(root, version) {
 }
 
 function writePmStatus(root, version) {
-  write(root, "skills/_shared/pm-status.py",
+  write(root, "skills/_shared/pm_status/__main__.py",
     `# pm-status-version: ${version}\nPM_STATUS_VERSION = "${version}"\n`);
 }
 
@@ -121,7 +121,7 @@ test("no module homes at all still passes on pm-status.py's own invariant", (t) 
 test("pm-status.py marker/constant disagreement is still caught alongside module checks", (t) => {
   const root = fixture(t);
   writePkg(root, "1.0.0");
-  write(root, "skills/_shared/pm-status.py",
+  write(root, "skills/_shared/pm_status/__main__.py",
     '# pm-status-version: 1.0.0\nPM_STATUS_VERSION = "0.9.9"\n');
   writeModuleHome(root, "solo", "solo", "1.0.0");
   const r = run(root);

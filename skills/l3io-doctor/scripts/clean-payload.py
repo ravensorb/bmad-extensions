@@ -122,7 +122,7 @@ def plan(project: Path):
     wanted = set()
     for _, data in discover(project):
         for rel, want in data["files"].items():
-            if rel.endswith("scripts/pm-status.py"):
+            if rel.endswith(("scripts/pm-status.py", "scripts/pm_status/__main__.py")):  # old layout and new
                 wanted.add(want)
     for rel in _SELF_INSTALLED:
         p = project / rel

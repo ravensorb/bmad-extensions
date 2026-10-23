@@ -46,7 +46,7 @@ const verbose = process.argv.includes("-v");
 
 const MYPY_PIN = "mypy==1.18.2";
 const RUAMEL = "ruamel.yaml>=0.18";
-const TARGET = path.join("skills", "_shared", "pm-status.py");
+const TARGET = path.join("skills", "_shared", "pm_status", "__main__.py");
 
 // Each gated class names the defect it exists for, so a failure explains itself without
 // sending the reader here. `match` is applied to mypy's message text, `code` to its error

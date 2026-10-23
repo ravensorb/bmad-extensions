@@ -46,7 +46,7 @@ const failures = [];
 const read = (p) => fs.readFileSync(path.join(repoRoot, p), "utf8");
 const exists = (p) => fs.existsSync(path.join(repoRoot, p));
 
-const PM = "skills/_shared/pm-status.py";
+const PM = "skills/_shared/pm_status/__main__.py";
 const PKG = "package.json";
 
 if (!exists(PM)) {

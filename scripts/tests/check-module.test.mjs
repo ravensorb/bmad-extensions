@@ -239,6 +239,17 @@ test("check:module passes when only one skill in a module carries pm-status.py",
   assert.equal(r.status, 0, r.stderr);
 });
 
+test("check:module rejects a second pm-status payload in the package layout", (t) => {
+  const root = fixture(t);
+  writeModuleHome(root, "l3io-setup", "l3io-pm");
+  write(root, "skills/l3io-setup/scripts/pm_status/__main__.py", "# x\n");
+  write(root, "skills/l3io-execute/scripts/pm_status/__main__.py", "# x\n");
+  registerPlugin(root, "l3io-pm", ["l3io-setup", "l3io-execute"]);
+  const r = run(root);
+  assert.equal(r.status, 1);
+  assert.match(r.stderr, /pm-status\.py appears 2 times for module 'l3io-pm'/);
+});
+
 // ---- check 7 (csv-skill-exists) ----
 //
 // Fix round 1, F-4: three real module-help.csv files each carried a phantom row for a

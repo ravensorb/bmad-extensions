@@ -51,13 +51,13 @@ it, because two writers on one file is how that file drifts.
 Report which layers were written and which keys landed in each, then print the module greeting
 from `assets/module.yaml`.
 
-## `scripts/pm-status.py` — carried, never invoked here
+## `scripts/pm_status/` — carried, never invoked here
 
-This skill also ships `scripts/pm-status.py` (~327 KB). Nothing in this file or in
+This skill also ships `scripts/pm_status/`. Nothing in this file or in
 `assets/module-setup.md` calls it — that is deliberate, not dead payload left behind by a
 refactor. `l3io-setup` is `pm-status.py`'s one payload copy for the whole `l3io-pm` module
 (Task 11A): `l3io-execute`, `l3io-plan`, and `l3io-sync` each self-install it from
-here, reading `{skill-root}/../l3io-setup/scripts/pm-status.py` at their own activation
+here, reading `{skill-root}/../l3io-setup/scripts/pm_status/__main__.py` at their own activation
 (`l3io-execute/steps/shared/step-00-activate.md` §2, and each of the three carries its own
 copy), because `.claude-plugin/marketplace.json` declares
 all five `l3io-pm` skills as one unit — provided the installer accepts each skill's SKILL.md

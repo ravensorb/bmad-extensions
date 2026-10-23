@@ -30,7 +30,7 @@ console.log(`Synced marketplace plugin versions to ${releaseVersion}`);
 //
 // Runs before sync-shared-scripts.mjs in postbump, so the per-skill payload copies inherit
 // the new version rather than drifting from _shared.
-const pmStatusPath = path.join(repoRoot, "skills", "_shared", "pm-status.py");
+const pmStatusPath = path.join(repoRoot, "skills", "_shared", "pm_status", "__main__.py");
 {
   const before = fs.readFileSync(pmStatusPath, "utf8");
   const after = before

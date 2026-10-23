@@ -26,15 +26,10 @@ from pathlib import Path
 from unittest import mock
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-SCRIPT = os.path.join(os.path.dirname(HERE), "pm-status.py")
+SCRIPT = os.path.join(os.path.dirname(HERE), "pm_status", "__main__.py")
 
 sys.path.insert(0, os.path.dirname(HERE))
-import importlib.util
-
-spec = importlib.util.spec_from_file_location("pm_status", SCRIPT)
-pm = importlib.util.module_from_spec(spec)
-spec.loader.exec_module(pm)
-
+import pm_status as pm
 
 # -- temp-dir leak guard ---------------------------------------------------------------- #
 # setUpModule points tempfile.tempdir (this test process) AND the TMPDIR environment variable

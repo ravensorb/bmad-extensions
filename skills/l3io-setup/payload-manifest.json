@@ -2,7 +2,7 @@
   "version": "3.5.2",
   "generated_from": "skills/<skill>/",
   "files": {
-    "SKILL.md": "0ab32e2df5418540ea5074110fde1965fc0c5b04fb0814175b7a30e3f406c84e",
+    "SKILL.md": "66d2a7db55bed3b9955467cffe543b4cec94fe239d03c21098e6b8e74f5142b0",
     "assets/agent-instructions.md": "6f31741b68015da8c2b13c7f1d68539111686f3b99b8aa78e7c29f79ec7b5d38",
     "assets/module-help.csv": "81b70e8fb0682da95076568efcf6a897ddc473bcea7d2c5120c4282ceb1e15e2",
     "assets/module-setup.md": "8567ae5c4dc40f7393bc3925e196d7f0579fd69d970985b4cfb8fb5e7df4671a",
@@ -11,7 +11,8 @@
     "references/config-resolution.md": "153baa1edb1ca9eb49fc391c546a79b1fe4260dac1c1bad27abbcbcd3726994a",
     "scripts/merge-config.py": "22f51eed631c64134d352c236917e0a98ec5b5fe5d0810394f4615905c6ef7dc",
     "scripts/merge-help-csv.py": "44cae89d74a247395cc851970e28b65605e958efa04b632209f9bd5ecbc70d69",
-    "scripts/pm-status.py": "b79cd5876f21dc42ead21f6c5e35bad16c884ccd8c7254c7096d44089552db55",
+    "scripts/pm_status/__init__.py": "f8bbd38ee1222310f26c03f02457ae289b4a1b955bdf9c8adf72cc11c5cd00be",
+    "scripts/pm_status/__main__.py": "b79cd5876f21dc42ead21f6c5e35bad16c884ccd8c7254c7096d44089552db55",
     "scripts/write-module-config.py": "fdc0e81cda51221599907b9023a096b0570e096b7d921fb0c1db2050afa7a80f"
   }
 }

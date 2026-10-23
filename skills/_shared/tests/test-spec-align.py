@@ -67,7 +67,7 @@ def tearDownModule():
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 SCRIPT = os.path.join(os.path.dirname(HERE), "spec-align.py")
-PM = os.path.join(os.path.dirname(HERE), "pm-status.py")
+PM = os.path.join(os.path.dirname(HERE), "pm_status", "__main__.py")
 GIT_ENV = {"GIT_CONFIG_GLOBAL": os.devnull, "GIT_CONFIG_NOSYSTEM": "1",
            "GIT_AUTHOR_NAME": "t", "GIT_AUTHOR_EMAIL": "t@example.com",
            "GIT_COMMITTER_NAME": "t", "GIT_COMMITTER_EMAIL": "t@example.com"}

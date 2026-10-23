@@ -445,12 +445,16 @@ function parseCsvRows(rel, text) {
 // (home-placement) derives it: a skill directory named exactly the code, or prefixed
 // `{code}-`, belongs to that module -- never a hand-kept list of skill names, so a renamed or
 // added skill is picked up automatically.
+const PM_STATUS_PAYLOADS = ["scripts/pm-status.py", "scripts/pm_status/__main__.py"];
 function checkPmStatusSingleton(byCode, skills) {
   for (const code of byCode.keys()) {
     const siblings = [...siblingsOfCode(code, skills, byCode)];
-    const carriers = siblings.filter((s) => exists(`skills/${s}/scripts/pm-status.py`));
+    // Both layouts: the flat file the package shipped through 3.5.x, and the package's entry
+    // point. Looking for the old path alone would make this gate silently inert after the move.
+    const carried = (s) => PM_STATUS_PAYLOADS.find((p) => exists(`skills/${s}/${p}`));
+    const carriers = siblings.filter((s) => carried(s));
     if (carriers.length > 1) {
-      const files = carriers.map((s) => `skills/${s}/scripts/pm-status.py`).join(", ");
+      const files = carriers.map((s) => `skills/${s}/${carried(s)}`).join(", ");
       failures.push(
         `pm-status.py appears ${carriers.length} times for module '${code}': ${files} -- ` +
         `one runtime copy per project (ADR-0001) needs only one payload copy per module.`

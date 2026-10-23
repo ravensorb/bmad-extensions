@@ -42,7 +42,7 @@ Files in `skills/_shared/` are the canonical sources for content shared across P
 
 | Canonical source | Per-skill destination | Skills |
 |---|---|---|
-| `skills/_shared/pm-status.py` | `scripts/pm-status.py` | **l3io-setup**, **l3io-doctor** (one payload copy per module, no test suite — see below; pm-execute/pm-plan/pm-sync read l3io-setup's copy as a sibling at activation instead of each carrying their own) |
+| `skills/_shared/pm_status/` (package) | `scripts/pm_status/` | **l3io-setup**, **l3io-doctor** (one payload copy per module, no test suite — see below; pm-execute/pm-plan/pm-sync read l3io-setup's copy as a sibling at activation instead of each carrying their own) |
 | `skills/_shared/spec-align.py` | `scripts/spec-align.py` | pm-execute, **l3io-doctor** — run from each skill's own copy, never self-installed; its suite `tests/test-spec-align.py` stays in `_shared/tests/` |
 | `skills/_shared/status-files.md` | `references/status-files.md` | pm-execute, pm-plan, pm-sync, **l3io-doctor** (state layout only — it ships this contract but not `metrics-contract.md`/`calibration-model.md`; six of its directives named it, including `SKILL.md`, and it did not carry it) |
 | `skills/_shared/ac-dimensions.md` | `references/ac-dimensions.md` | pm-plan, pm-execute — the canonical story-AC dimension reference (which dimensions apply to CODE, to CONFIG, and to every work type), loaded by both enrichment prompts so the two cannot drift apart |

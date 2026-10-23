@@ -258,16 +258,16 @@ test("check 12: pm-status.py over the 10,000-line limit is caught", async (t) =>
   // Padded with comment-only lines so every other check that parses this file (cli-surface,
   // cli-docstring, metric-list, append-issue-pointer) still sees the same real content and
   // still passes -- only the line count should trip.
-  write(root, "skills/_shared/pm-status.py", "# pad\n".repeat(10001), true);
+  write(root, "skills/_shared/pm_status/__main__.py", "# pad\n".repeat(10001), true);
   const r = await run(root);
   assert.equal(r.status, 1);
-  assert.match(r.stderr, /pm-status\.py: \d+ lines, over the 10000-line limit/);
+  assert.match(r.stderr, /__main__\.py: \d+ lines, over the 10000-line limit/);
 });
 
 // Pads the fixture's REAL pm-status.py to exactly `total` lines. Lines are counted the way
 // check 12 counts them (newlines, as `wc -l` does), so the boundary tested is the checker's.
 function padPmStatusTo(root, total) {
-  const rel = "skills/_shared/pm-status.py";
+  const rel = "skills/_shared/pm_status/__main__.py";
   const have = (fs.readFileSync(path.join(root, rel), "utf8").match(/\n/g) || []).length;
   // Already AT the target is success, not an error: pm-status.py sits exactly at the cap, and
   // the boundary test asks whether a file at the cap passes. Only overshoot cannot be padded.
@@ -294,7 +294,7 @@ test("check 12 boundary: 8,001 lines fails on check 12 alone", async (t) => {
   assert.match(r.stderr, /^1 documentation problem\(s\):$/m, r.stderr);
   const entries = r.stderr.split("\n").filter((l) => l.startsWith("  ✗ "));
   assert.equal(entries.length, 1, r.stderr);
-  assert.match(entries[0], /pm-status\.py: 10001 lines, over the 10000-line limit .* by 1$/);
+  assert.match(entries[0], /__main__\.py: 10001 lines, over the 10000-line limit .* by 1$/);
 });
 
 // ---- check 4 (spec-align surface), 13 (spec-align contract), 14 (adr-home) ----
@@ -1836,8 +1836,8 @@ test("check 20: a table row naming a nonexistent _shared source is caught", asyn
   const p = path.join(root, "CLAUDE.md");
   const before = fs.readFileSync(p, "utf8");
   fs.writeFileSync(p, before.replace(
-    "| `skills/_shared/pm-status.py` |",
-    "| `skills/_shared/ghost.py` | `scripts/ghost.py` | nobody |\n| `skills/_shared/pm-status.py` |"));
+    "| `skills/_shared/pm_status/` (package) |",
+    "| `skills/_shared/ghost.py` | `scripts/ghost.py` | nobody |\n| `skills/_shared/pm_status/` (package) |"));
   const r = await run(root);
   assert.equal(r.status, 1);
   assert.match(r.stderr, /ghost\.py.*no such file/);
@@ -2135,7 +2135,7 @@ test("check 4/skills: other subcommands are unaffected by the set-status rule", 
 // in a brand-new directory, so it still attacks the scope.
 test("check 4/skills: a second spelling registered in the same add_argument() is accepted", async (t) => {
   const root = fixture(t);
-  const cli = fs.readFileSync(path.join(root, "skills", "_shared", "pm-status.py"), "utf8");
+  const cli = fs.readFileSync(path.join(root, "skills", "_shared", "pm_status", "__main__.py"), "utf8");
   assert.match(cli, /add_argument\(\s*"--elapsed-hours",\s*"--time-hours"/,
     "pm-status.py no longer registers --time-hours as an alias; this test needs a new one");
   write(root, path.join("skills", "l3io-execute", "steps", "brand-new-alias-dir", "planted.md"),
@@ -2580,7 +2580,7 @@ test("check 4/skills: the deepest real continuation in the tree is read to its e
 // follow, this goes red -- rather than check 4 silently narrowing back to the union.
 test("the static per-subcommand option surface matches the real argparse, both ways", async () => {
   const dumper = path.join(REPO, "scripts", "tests", "dump-pm-status-parser.py");
-  const pmStatus = path.join(REPO, "skills", "_shared", "pm-status.py");
+  const pmStatus = path.join(REPO, "skills", "_shared", "pm_status", "__main__.py");
   const real = spawnSync("uv", ["run", dumper, pmStatus], { cwd: REPO, encoding: "utf8" });
   assert.equal(real.status, 0,
     `could not run the real build_parser() (uv is required for this anchor): ${real.stderr}`);
@@ -3351,7 +3351,7 @@ test('check 26: the exemption follows the marker across a rename', async () => {
 // when ordinary growth moved a docstring over it. A plant is only meaningful if it lands in
 // code outside the resolver section, so both conditions are chosen for AND asserted.
 function pmStatusPlantLine() {
-  const lines = fs.readFileSync(path.join(REPO, 'skills/_shared/pm-status.py'), 'utf8').split('\n')
+  const lines = fs.readFileSync(path.join(REPO, 'skills/_shared/pm_status/__main__.py'), 'utf8').split('\n')
   const start = lines.findIndex((l) => l.includes(RESOLVER_START_MARKER))
   const end = lines.findIndex((l) => l.includes(RESOLVER_END_MARKER))
   // inDoc[k] = docstring state after processing the first k lines (same rule as the check)
@@ -3382,7 +3382,7 @@ test('check 26: a planted pm-status.py violation outside the resolver section is
   const { violations } = resolverInvariant({
     plantInPmStatus: { line, text: '    d = os.path.join(state_root, "planned", "epic-{nnn}")' },
   })
-  assert.ok(violations.some(v => v.includes(`pm-status.py:${line}`)),
+  assert.ok(violations.some(v => v.includes(`__main__.py:${line}`)),
     `expected the planted pm-status violation at ${line}, got: ${JSON.stringify(violations)}`)
 })
 

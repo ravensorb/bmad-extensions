@@ -19,7 +19,7 @@ import { fileURLToPath } from "node:url";
 
 const REPO = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..");
 const CHECK = path.join(REPO, "scripts", "check-types.mjs");
-const REL = path.join("skills", "_shared", "pm-status.py");
+const REL = path.join("skills", "_shared", "pm_status", "__main__.py");
 const REAL = path.join(REPO, REL);
 
 const ACCESSOR_LOOP = "for lst in (store.backlog, store.resolved):";

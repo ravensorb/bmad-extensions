@@ -5,7 +5,7 @@
     "SKILL.md": "adb2996c1ffdf17962fc4ee2751e2b47510198988093efc9ec40de38ab6032f1",
     "customize.toml": "fca175b99ad4d5e45ea3b699486d0895ccab16179b84c9d044d1cf5325ea11b4",
     "references/ac-dimensions.md": "89d2579b8cb9a445617d0b1b4fe4d9f6a54ac1940f9d149030785f36149d3c09",
-    "references/auto-remediation.md": "cda6f0b2deb5d7433222a99b78fc22a8e90b9a930a59b5a3ab9fe011e910f1fe",
+    "references/auto-remediation.md": "37e4ed1e5c96aa790b72eca5fe9c412c98827177914b4481a907583def13c425",
     "references/calibration-model.md": "e3fc8d9fc41285bca19257f0ac796856e025e9992ce6401a5c41437f55830f27",
     "references/config-resolution.md": "153baa1edb1ca9eb49fc391c546a79b1fe4260dac1c1bad27abbcbcd3726994a",
     "references/metrics-contract.md": "bb30d9a58ed76371c13f7d0bc6fcb677423aa5b1e4c20a1423abc2b7bb312fe6",
@@ -22,7 +22,7 @@
     "steps/plan/step-backlog-intake.md": "cfc46f755ff86b83c51912038588e4b47bf9cf408d3c32253dd82d816f345080",
     "steps/reorg/step-reorg-undo.md": "7955083edc903298ee9ab94dbc6764c693d54dea9149883e41b3170fd258d7ea",
     "steps/reorg/step-reorg.md": "e3776bb7ba6440c28963e480e4b4db9baca9e1c0809f1a7e08b611056b6ff7b4",
-    "steps/shared/step-00-activate.md": "4cc55693733c9ce13ab7f46105e6911db67bfe9890e396cf133c5f7490881e61",
+    "steps/shared/step-00-activate.md": "b49e55b3b5ed247da26103812af7c2b8bb9cbfaaaffeb451fb5e8b8c389ea2b2",
     "steps/shared/step-00-digest.md": "27af27894b622e1da2ffade4cd6d292d207bf4d114ef0f1bb5706be86ee0146d",
     "steps/shared/step-01-classify-work.md": "53b6c3df3744f01fc4f7bc38fbf56e27f54ec13ba1cc67fbf5334d26bfb9a12c",
     "steps/shared/step-estimate.md": "dc361f48af47290aace3c10e9aa42cfd4201941cd976ea200f4ec7c25a8ea94a"

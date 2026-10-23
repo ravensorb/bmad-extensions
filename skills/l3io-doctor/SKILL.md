@@ -184,7 +184,7 @@ a copy that is strictly *newer* than this skill's own, so running it here alongs
 PM skills' self-installs is safe — whichever copy is newest wins, never a downgrade.
 
 ```bash
-uv run {skill-root}/scripts/pm-status.py self-install \
+uv run {skill-root}/scripts/pm_status/__main__.py self-install \
   --dest {project-root}/_bmad/scripts/pm-status.py
 ```
 

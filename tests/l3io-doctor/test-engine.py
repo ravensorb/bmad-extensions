@@ -131,7 +131,7 @@ class TestGatherAndPlan(unittest.TestCase):
 
 
 REPO = os.path.dirname(os.path.dirname(HERE))
-PM_STATUS = os.path.join(REPO, "skills", "_shared", "pm-status.py")
+PM_STATUS = os.path.join(REPO, "skills", "_shared", "pm_status", "__main__.py")
 
 
 class TestGate(unittest.TestCase):

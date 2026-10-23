@@ -32,7 +32,7 @@
 //                    subcommand each parser defines
 //  11. append-issue-pointer every append-issue invocation in skills/ (logical lines, `\`-
 //                    continued lines joined, fenced or not) passes --source and --description
-//  12. pm-status-size skills/_shared/pm-status.py stays within the 10,000-line limit
+//  12. pm-status-size skills/_shared/pm_status/__main__.py stays within the 10,000-line limit
 //                    ADR-0001 sets
 //  13. spec-align-contract spec-align.py's spec kinds match layout-cleanup.md heuristic 5, and
 //                    its six DIMENSIONS match the enrichment prompt's layout block
@@ -595,7 +595,7 @@ function checkSectionRefs() {
 //   forward  a subcommand a doc names must exist in the CLI  (stale doc)
 //   reverse  a subcommand the CLI has must appear in the reference  (undocumented feature)
 // ---------------------------------------------------------------------------
-const PM_STATUS = "skills/_shared/pm-status.py";
+const PM_STATUS = "skills/_shared/pm_status/__main__.py";
 const CLI_REFERENCE_DOC = "docs/l3io-pm-reference.md";
 // Common English glue words -- articles, prepositions, conjunctions, copulas -- that show up
 // beside "pm-status.py"/"spec-align.py" in ordinary prose rather than naming a subcommand.
@@ -4221,7 +4221,7 @@ export function resolverInvariant(opts = {}) {
   const scannedFiles = []
 
   // (a) pm-status.py: state-path assembly must appear only inside the resolver section.
-  const pmPath = 'skills/_shared/pm-status.py'
+  const pmPath = 'skills/_shared/pm_status/__main__.py'
   const pmLines = read(pmPath).split('\n')
   if (opts.plantInPmStatus) {
     pmLines.splice(opts.plantInPmStatus.line - 1, 0, opts.plantInPmStatus.text)
