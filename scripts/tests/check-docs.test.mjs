@@ -3364,11 +3364,33 @@ test('check 26: the exemption follows the marker across a rename', async () => {
     'a file that opts in as canonical-contract must be exempt regardless of its filename')
 })
 
-// The plant line is DERIVED from pm-status.py, never hardcoded: a hardcoded line broke once
-// when ordinary growth moved a docstring over it. A plant is only meaningful if it lands in
-// code outside the resolver section, so both conditions are chosen for AND asserted.
+// Which file carries the resolver section is DERIVED from the package, never named here:
+// it moved from __main__.py to nodes/__init__.py with the code it delimits, and a helper
+// that named a path would have gone looking in the wrong file and silently stopped
+// planting anything meaningful.
+function pmStatusSectionFile() {
+  const pkg = path.join(REPO, 'skills/_shared/pm_status')
+  const out = []
+  const walk = (dir) => {
+    for (const e of fs.readdirSync(dir, { withFileTypes: true }).sort((a, b) => a.name.localeCompare(b.name))) {
+      const p = path.join(dir, e.name)
+      if (e.isDirectory()) { if (e.name !== '__pycache__') walk(p) }
+      else if (e.name.endsWith('.py') && fs.readFileSync(p, 'utf8').includes(RESOLVER_START_MARKER)) out.push(p)
+    }
+  }
+  walk(pkg)
+  return out
+}
+
+// The plant line is DERIVED from the file that carries the section, never hardcoded: a
+// hardcoded line broke once when ordinary growth moved a docstring over it. A plant is only
+// meaningful if it lands in code outside the resolver section, so both conditions are
+// chosen for AND asserted.
 function pmStatusPlantLine() {
-  const lines = fs.readFileSync(path.join(REPO, 'skills/_shared/pm_status/__main__.py'), 'utf8').split('\n')
+  const files = pmStatusSectionFile()
+  const abs = files[0] || path.join(REPO, 'skills/_shared/pm_status/__main__.py')
+  const rel = path.relative(REPO, abs).split(path.sep).join('/')
+  const lines = fs.readFileSync(abs, 'utf8').split('\n')
   const start = lines.findIndex((l) => l.includes(RESOLVER_START_MARKER))
   const end = lines.findIndex((l) => l.includes(RESOLVER_END_MARKER))
   // inDoc[k] = docstring state after processing the first k lines (same rule as the check)
@@ -3381,8 +3403,17 @@ function pmStatusPlantLine() {
   const line = (start >= 0 && end >= 0)
     ? Array.from({ length: lines.length }, (_, i) => i + 1).find((L) => L > end + 2 && !inDoc[L - 1])
     : undefined
-  return { line, start, end, inDocstring: line === undefined ? undefined : inDoc[line - 1] }
+  return { file: rel, line, start, end, inDocstring: line === undefined ? undefined : inDoc[line - 1] }
 }
+
+test('check 26: exactly one file in the package declares the resolver section', () => {
+  // The vacuous state this replaces a hardcoded path with: zero declarations means no file
+  // has an allowed region and arm (a) judges everything; two means a second file has
+  // granted itself one. Both are reported, so neither can happen quietly.
+  const files = pmStatusSectionFile()
+  assert.equal(files.length, 1,
+    `expected exactly one resolver-section declaration, found ${files.length}: ${files.join(', ')}`)
+})
 
 test('check 26: the derived plant line is outside the resolver section and any docstring', () => {
   const { line, start, end, inDocstring } = pmStatusPlantLine()
@@ -3395,12 +3426,28 @@ test('check 26: the derived plant line is outside the resolver section and any d
 })
 
 test('check 26: a planted pm-status.py violation outside the resolver section is caught', async () => {
-  const { line } = pmStatusPlantLine()
+  const { file, line } = pmStatusPlantLine()
   const { violations } = resolverInvariant({
-    plantInPmStatus: { line, text: '    d = os.path.join(state_root, "planned", "epic-{nnn}")' },
+    plantInPmStatus: { file, line, text: '    d = os.path.join(state_root, "planned", "epic-{nnn}")' },
   })
-  assert.ok(violations.some(v => v.includes(`__main__.py:${line}`)),
-    `expected the planted pm-status violation at ${line}, got: ${JSON.stringify(violations)}`)
+  assert.ok(violations.some(v => v.includes(`${file}:${line}`)),
+    `expected the planted pm-status violation at ${file}:${line}, got: ${JSON.stringify(violations)}`)
+})
+
+test('check 26: a file with NO markers has its whole body judged', async () => {
+  // __main__.py no longer declares a section, so nothing in it is exempt. The plant goes
+  // into a file that is in arm (a)'s scope and carries neither marker -- which is the state
+  // every module of the package except `nodes` is in.
+  const bare = 'skills/_shared/pm_status/__init__.py'
+  const lines = fs.readFileSync(path.join(REPO, bare), 'utf8').split('\n')
+  assert.ok(!lines.some(l => l.includes(RESOLVER_START_MARKER) || l.includes(RESOLVER_END_MARKER)),
+    `${bare} was chosen because it carries no resolver marker; it now does`)
+  const { violations } = resolverInvariant({
+    plantInPmStatus: { file: bare, line: lines.length,
+                       text: '    d = os.path.join(state_root, "planned", "epic-{nnn}")' },
+  })
+  assert.ok(violations.some(v => v.includes(bare)),
+    `a marker-less package file must be judged end to end, got: ${JSON.stringify(violations)}`)
 })
 
 test('check 26: a payload copy of the pm_status package is exempt, a look-alike path is not', async () => {

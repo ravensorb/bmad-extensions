@@ -4137,9 +4137,13 @@ function checkDoctorModeKeywords() {
 // `import-node`; this check is what keeps them routed.
 //
 // TWO HALVES, and the second is the load-bearing one:
-//   (a) inside pm-status.py -- assembly appears only between the resolver section's
-//       marker comments. The markers are matched by TEXT, not line number, so the bounds
-//       survive edits above them.
+//   (a) inside the pm_status package -- assembly appears only between the resolver
+//       section's marker comments. The markers are matched by TEXT, not line number, so
+//       the bounds survive edits above them, and each authored file is judged by its OWN
+//       pair: a file carrying neither marker has no allowed region, so its whole body is
+//       judged. WHICH file carries the pair is derived, not pinned -- exactly one must,
+//       and since the `nodes` extraction that file is pm_status/nodes/__init__.py, which
+//       is the only place a node key becomes a path. `__main__.py` now assembles none.
 //   (b) across skills/ -- no file assembles a state path at all.
 //
 // SCOPE IS DERIVED from the tree (every .md and .py under skills/), never enumerated. A
@@ -4262,11 +4266,19 @@ export function resolverInvariant(opts = {}) {
   // (a) pm-status package: state-path assembly must appear only inside a resolver section,
   // judged per authored file (the markers delimit the section wherever the resolver lives).
   // A file with neither marker has no allowed region at all.
-  const pmPath = 'skills/_shared/pm_status/__main__.py'
+  //
+  // WHICH FILE HOLDS THE SECTION IS DERIVED, not pinned. Until the `nodes` extraction the
+  // pair lived in `__main__.py` and this check named that path; `nodes` is now the only
+  // place a node key becomes a path, the markers travelled with the code they delimit, and
+  // a check that still demanded them in `__main__.py` would have failed on the correct
+  // tree. The invariant is about the PACKAGE: exactly one authored file declares the
+  // section. Zero means nothing is judged against an allowed region (the vacuous state);
+  // two means a second file has quietly granted itself one.
   const pmFiles = pmStatusFiles()
+  const sectionFiles = []
   for (const pmFile of pmFiles) {
     const pmLines = read(pmFile).split('\n')
-    if (opts.plantInPmStatus && pmFile === pmPath) {
+    if (opts.plantInPmStatus && opts.plantInPmStatus.file === pmFile) {
       pmLines.splice(opts.plantInPmStatus.line - 1, 0, opts.plantInPmStatus.text)
     }
     const start = pmLines.findIndex((l) => l.includes(RESOLVER_START_MARKER))
@@ -4275,10 +4287,7 @@ export function resolverInvariant(opts = {}) {
       violations.push(`${pmFile}: only one resolver section marker found — cannot judge scope`)
       continue
     }
-    if (pmFile === pmPath && start < 0) {
-      violations.push(`${pmFile}: resolver section markers not found — cannot judge scope`)
-      continue
-    }
+    if (start >= 0) sectionFiles.push(pmFile)
     let pmInDocstring = false
     pmLines.forEach((line, i) => {
       const n = i + 1
@@ -4295,6 +4304,15 @@ export function resolverInvariant(opts = {}) {
           `${pmFile}:${n} assembles a state path outside the resolver section: ${line.trim()}`)
       }
     })
+  }
+  if (sectionFiles.length === 0) {
+    violations.push('the pm_status package declares no resolver section — cannot judge scope. ' +
+      'Exactly one authored file must carry both markers; they belong with the code that ' +
+      'resolves a node key to a path.')
+  } else if (sectionFiles.length > 1) {
+    violations.push(`the resolver section is declared in ${sectionFiles.length} files ` +
+      `(${sectionFiles.join(', ')}) — it must be exactly one, or state-path assembly is ` +
+      'allowed in more than one place and the invariant means nothing.')
   }
 
   // (b) skills/: no file assembles a state path. Scope derived by walking the tree.
