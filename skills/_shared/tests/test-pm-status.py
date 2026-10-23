@@ -342,12 +342,26 @@ class TestPatchTargetsAreDefinedInMain(unittest.TestCase):
         repo = os.path.dirname(os.path.dirname(HERE))
         suites = sorted(glob.glob(os.path.join(HERE, "test-*.py"))
                         + glob.glob(os.path.join(repo, "tests", "**", "test-*.py"), recursive=True))
-        corpus = ""
+        # A reader is an ATTRIBUTE ACCESS on `pm` (or `getattr(pm, "<name>")`) found by walking each
+        # suite's AST -- never a text match. A regex over the raw text is satisfied by a comment,
+        # a docstring or a string literal, which is exactly how two readerless names survived
+        # the hand sweep this gate replaces.
+        read = set()
         for path in suites:
             with open(path, encoding="utf-8") as fh:
-                corpus += fh.read()
-        unread = [n for n in claimed
-                  if not re.search(rf"\bpm\.{re.escape(n)}\b|getattr\(pm,\s*[\"']{re.escape(n)}[\"']", corpus)]
+                tree = ast.parse(fh.read(), filename=path)
+            for node in ast.walk(tree):
+                if (isinstance(node, ast.Attribute) and isinstance(node.value, ast.Name)
+                        and node.value.id == "pm"):
+                    read.add(node.attr)
+                elif (isinstance(node, ast.Call) and isinstance(node.func, ast.Name)
+                        and node.func.id == "getattr" and len(node.args) >= 2
+                        and isinstance(node.args[0], ast.Name) and node.args[0].id == "pm"
+                        and isinstance(node.args[1], ast.Constant)
+                        and isinstance(node.args[1].value, str)):
+                    read.add(node.args[1].value)
+        self.assertGreater(len(read), 0, "found no pm.<name> reads in any suite -- the matcher broke")
+        unread = [n for n in claimed if n not in read]
         self.assertEqual(
             unread, [],
             "re-export-only names in __main__.py that no suite reads as pm.<name>: "

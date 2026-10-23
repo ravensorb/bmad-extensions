@@ -527,7 +527,6 @@ from .metrics.calibration import (
     migrate_calibration_token_basis,  # noqa: F401 -- re-export only
     new_calibration,  # noqa: F401 -- re-export only
     record_closure_sample,  # noqa: F401 -- re-export only
-    record_orchestration_sample,  # noqa: F401 -- re-export only
     record_story_sample,  # noqa: F401 -- re-export only
     redrive_story_samples,  # noqa: F401 -- re-export only
     save_calibration,  # noqa: F401 -- re-export only
