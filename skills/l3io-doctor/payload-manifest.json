@@ -26,7 +26,7 @@
     "scripts/merge-help-csv.py": "44cae89d74a247395cc851970e28b65605e958efa04b632209f9bd5ecbc70d69",
     "scripts/migrate-engine.py": "5ac91ab5959da7b7b047dd77841684abf765616a3db592ee094789d43fc14ec9",
     "scripts/pm_status/__init__.py": "ce45f268c7bbe7a7afd3287dee6f71d7f148f2b86efb75f30e07345f20b53476",
-    "scripts/pm_status/__main__.py": "e74d2db9c247cb36fb4ffc37e7fc5fe1ac3684951225fa18d6fb02e1975964f9",
+    "scripts/pm_status/__main__.py": "981509f6545b512bdf05930c4092fdd79cc14ef2c4a868e46bc19bde6c83efc1",
     "scripts/pm_status/core/__init__.py": "a8bea2a3f02b0312cc675496552afa436ca98d557ca2af4037f6d95d4c31fb7c",
     "scripts/pm_status/instructions/__init__.py": "4b70761326dff1f7fb8d1972c469edb3469b7ca968084ff53fb3c97faa7b7b0a",
     "scripts/pm_status/issues/__init__.py": "eaa79932c4a0977c3786d88b0339848c11476a4a29304c23abe9fac91eae4ffe",

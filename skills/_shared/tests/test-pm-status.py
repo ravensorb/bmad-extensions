@@ -12,6 +12,7 @@ append-issue, self-install), comment/order preservation, the events.jsonl
 transition log, the progress report, and verify exit codes.
 """
 import ast
+import glob
 import hashlib
 import io
 import json
@@ -313,6 +314,45 @@ class TestPatchTargetsAreDefinedInMain(unittest.TestCase):
                 f"AND make every caller outside {mod} reach it through the module object, "
                 f"or the patch rebinds a private copy and guards nothing.")
         self.assertEqual(problems, [], "\n  " + "\n  ".join(problems) if problems else "")
+
+    def test_the_verbs_module_is_bound_on_the_facade(self):
+        """`import pm_status.verbs` and `pm.verbs.<name>` must resolve, so that a patch target
+        added to `verbs` fails HERE -- with the repair instructions above -- rather than as an
+        ImportError at the natural spelling. This is also `verbs`' reader for the gate below."""
+        self.assertIs(pm.verbs.cmd_set_status, pm.cmd_set_status)
+
+    def test_every_re_export_only_name_has_a_reader(self):
+        """A `# noqa: F401` on a facade import in `__main__.py` is a claim that SOMETHING reads
+        that name as `pm.<name>`. Nothing checked it, so 28 of 111 names carried the comment
+        with no reader behind it -- a justification that reads as true and is not.
+
+        DERIVED, no list: every module-level relative import alias whose line carries the
+        directive, against every suite file's `pm.<name>` / `getattr(pm, "<name>")` reads."""
+        with open(SCRIPT, encoding="utf-8") as fh:
+            text = fh.read()
+        lines = text.split("\n")
+        claimed = sorted({
+            a.asname or a.name
+            for node in ast.parse(text).body
+            if isinstance(node, ast.ImportFrom) and node.level >= 1
+            for a in node.names
+            if "noqa: F401" in lines[a.lineno - 1]
+        })
+        self.assertGreater(len(claimed), 0, "found no `noqa: F401` facade imports -- the matcher broke")
+        repo = os.path.dirname(os.path.dirname(HERE))
+        suites = sorted(glob.glob(os.path.join(HERE, "test-*.py"))
+                        + glob.glob(os.path.join(repo, "tests", "**", "test-*.py"), recursive=True))
+        corpus = ""
+        for path in suites:
+            with open(path, encoding="utf-8") as fh:
+                corpus += fh.read()
+        unread = [n for n in claimed
+                  if not re.search(rf"\bpm\.{re.escape(n)}\b|getattr\(pm,\s*[\"']{re.escape(n)}[\"']", corpus)]
+        self.assertEqual(
+            unread, [],
+            "re-export-only names in __main__.py that no suite reads as pm.<name>: "
+            + ", ".join(unread) + ". Delete the import (a name nothing reads is dead), or, if a "
+            "reader exists under another spelling, name that reader in a comment.")
 
 
 class TestSelfInstall(Base):

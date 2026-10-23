@@ -403,47 +403,31 @@ from . import (
     issues,  # noqa: F401 -- re-export only
     metrics,  # noqa: F401 -- re-export only
     nodes,
+    verbs,  # noqa: F401 -- re-export only
 )
 from .core import (
-    _ADR_LOCK,  # noqa: F401 -- re-export only
-    _AGENT_INSTR_LOCK,  # noqa: F401 -- re-export only
-    _CAL_LOCK,  # noqa: F401 -- re-export only
     _EPIC_NODE_LOCK,  # noqa: F401 -- re-export only
-    _GITIGNORE_PATTERNS,  # noqa: F401 -- re-export only
-    _ISSUES_LOCK,  # noqa: F401 -- re-export only
     _LOCK_IGNORE_CHECKED,  # noqa: F401 -- re-export only
-    _LOCK_IGNORE_LINE,  # noqa: F401 -- re-export only
-    _NOTICES_LOCK,  # noqa: F401 -- re-export only
     # Facade-only, and PINNED: test_dir_for_status_is_the_inverse_of_status_for_dir
     # reads pm.DIR_FOR_STATUS. `nodes` imports it from core directly, so dropping it
     # here would error that test rather than go quiet.
     DIR_FOR_STATUS,  # noqa: F401 -- re-export only
-    EVENTS_FILENAME,  # noqa: F401 -- re-export only
     METRIC_FIELDS,  # noqa: F401 -- re-export only
-    NOTICES_FILENAME,  # noqa: F401 -- re-export only
     PM_STATUS_VERSION,
     STATUS_DIRS,
     STATUS_FOR_DIR,
     PMError,
     _die_notfound,
     _die_usage,
-    _drop_legacy_file,  # noqa: F401 -- re-export only
-    _ensure_lock_ignore,  # noqa: F401 -- re-export only
     _file_lock,
-    _file_sha,  # noqa: F401 -- re-export only
     _hashable_field,  # noqa: F401 -- re-export only
     _indexable_key,  # noqa: F401 -- re-export only
     _is_na,  # noqa: F401 -- re-export only
     _iter_count,  # noqa: F401 -- re-export only
-    _lock_rule_present,  # noqa: F401 -- re-export only
-    _missing_ignore_patterns,  # noqa: F401 -- re-export only
     _now_iso,
     _parse_iso,  # noqa: F401 -- re-export only
     _parse_version_line,  # noqa: F401 -- re-export only
-    _require_epic_lock,  # noqa: F401 -- re-export only
     _run_core,
-    _state_root_of_node,  # noqa: F401 -- re-export only
-    _tree_files,  # noqa: F401 -- re-export only
     _yaml,
     adr_register_path,  # noqa: F401 -- re-export only
     append_event,  # noqa: F401 -- re-export only
@@ -466,24 +450,12 @@ from .core import (
 
 # The instruction-block leaf, re-exported by name: nothing in the suite patches a name it
 # defines. It reaches `core` as a module object itself.
-from .instructions import (  # noqa: F401 -- re-export only
-    _FENCE_RE,
-    _RUNTIME_INSTRUCTION_FILE,
-    BEGIN_RE,
-    END_RE,
-    BlockError,
-    _fenced_spans,
-    _foreign_blocks,
-    _newline,
-    _normalise_nl,
-    _other_instruction_files,
-    _outside_fences,
-    _render,
-    _strip_markers,
-    apply_block,
+from .instructions import (
+    BlockError,  # noqa: F401 -- re-export only
+    apply_block,  # noqa: F401 -- re-export only
     cmd_sync_agent_instructions,
-    find_block,
-    remove_block,
+    find_block,  # noqa: F401 -- re-export only
+    remove_block,  # noqa: F401 -- re-export only
 )
 from .issues.adr import (
     cmd_adr_reserve,
@@ -618,7 +590,6 @@ from .nodes import (
     iter_epic_dirs,
     list_story_files,  # noqa: F401 -- re-export only
     load_node,
-    resolve_node_path,  # noqa: F401 -- re-export only
     sprint_file,
     story_doc_path,  # noqa: F401 -- re-export only
     story_file,
@@ -627,15 +598,6 @@ from .nodes import (
 # The status verbs, by name. Nothing here is a mock.patch target: the patched names the
 # verbs touch are reached from `verbs/__init__.py` through their module objects.
 from .verbs import (
-    _LANE_RE,  # noqa: F401 -- re-export only
-    DEPENDS_ON_KEY_RE,  # noqa: F401 -- re-export only
-    EPIC_KEY_RE,  # noqa: F401 -- re-export only
-    STORY_KEY_RE,  # noqa: F401 -- re-export only
-    _check_lane_value,  # noqa: F401 -- re-export only
-    _justifying_story_edges,  # noqa: F401 -- re-export only
-    _maybe_set,  # noqa: F401 -- re-export only
-    _set_estimate,  # noqa: F401 -- re-export only
-    _set_field,  # noqa: F401 -- re-export only
     cmd_add_test_run,
     cmd_check_lock,
     cmd_clear_lock,
