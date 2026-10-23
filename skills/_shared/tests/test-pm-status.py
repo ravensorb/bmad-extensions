@@ -143,7 +143,14 @@ class TestInvocationModes(unittest.TestCase):
             # `if TYPE_CHECKING:` until the `issues` extraction moved that guard out with
             # IssueStore, and the test then died on a StopIteration -- an error on an anchor
             # rather than a failure on the behaviour, which is the shape that teaches nothing.
-            at = next(i for i, ln in enumerate(lines) if ln.startswith("from . import "))
+            at = next((i for i, ln in enumerate(lines) if ln.startswith("from . import ")), None)
+            self.assertIsNotNone(
+                at,
+                "__main__.py has no `from . import ...` line, so there is nowhere after the "
+                "prologue to plant the probe. This test must keep working in a tree where "
+                "every other relative import has moved: re-anchor it on the end of the "
+                "prologue (the `sys.exit(...)` that closes the bootstrap block), not on "
+                "another import.")
             lines.insert(at, "from . import _probe  # noqa: F401")
             with open(main_py, "w", encoding="utf-8") as fh:
                 fh.write("\n".join(lines))
@@ -187,8 +194,8 @@ class TestPatchTargetsAreDefinedInMain(unittest.TestCase):
 
     The `issues` extraction then moved the last bare one, `resolve_issue_core`, to
     `issues/store.py`: the target is now `pm.issues.store.resolve_issue_core`, and its two
-    callers outside that file -- `_resolve_story_items` in `__main__.py` and
-    `_normalize_one_legacy` in `issues/audit.py` -- reach it through the module object.
+    callers outside that file -- `_resolve_story_items` (now in `verbs/__init__.py`)
+    and `_normalize_one_legacy` in `issues/audit.py` -- reach it through the module object.
 
     EVERY bare target is now gone, so this guard no longer has a known next firing. That
     makes it a regression guard rather than a countdown: the thing it now catches is a NEW

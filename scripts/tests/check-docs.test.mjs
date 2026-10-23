@@ -293,7 +293,11 @@ test("check 12: __main__.py is on the 10,000 limit, not the module cap", async (
   const root = fixture(t);
   const r = await run(root, ["-v"]);
   assert.match(r.stdout, /pm-status-size: skills\/_shared\/pm_status\/__main__\.py \d+ \/ 10000 line limit/);
-  assert.match(r.stdout, /pm-status-size: skills\/_shared\/pm_status\/core\/__init__\.py \d+ \/ 1500 line limit/);
+  // Derived, not named: SOME module other than the entry file must be on the 1,500 cap, whatever
+  // it is called. Pinning `core/__init__.py` would break the day core grows a sibling file.
+  const onCap = r.stdout.split("\n").filter((l) => /\/ 1500 line limit$/.test(l) && !/__main__\.py/.test(l));
+  assert.ok(onCap.length > 0,
+    "no module other than __main__.py was reported against the 1500-line cap:\n" + r.stdout);
 });
 
 test("check 26: a second module of the package that assembles a state path is caught", async (t) => {
