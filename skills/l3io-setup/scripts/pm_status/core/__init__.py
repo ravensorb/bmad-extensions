@@ -988,7 +988,7 @@ def package_root() -> str:
     TWO dirnames, not one. This file lives in the `core/` subpackage, so a single
     dirname names `core/` and self-install would copy a fragment of the package over
     the install. Whatever `core/` is called, it is always exactly one level below the
-    package root. tests: TestSelfInstall (tree_digest(installed) == tree_digest(this)).
+    package root. tests: test_package_root_is_the_package_dir_not_a_subpackage.
     """
     return os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 

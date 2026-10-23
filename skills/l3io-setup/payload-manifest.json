@@ -12,8 +12,9 @@
     "scripts/merge-config.py": "22f51eed631c64134d352c236917e0a98ec5b5fe5d0810394f4615905c6ef7dc",
     "scripts/merge-help-csv.py": "44cae89d74a247395cc851970e28b65605e958efa04b632209f9bd5ecbc70d69",
     "scripts/pm_status/__init__.py": "ce45f268c7bbe7a7afd3287dee6f71d7f148f2b86efb75f30e07345f20b53476",
-    "scripts/pm_status/__main__.py": "f8e8a275735eeb5005735d5c18df11911bc757dfbf35197d928f09704555dd3a",
-    "scripts/pm_status/core/__init__.py": "3e5a5397874122f7962fdf1825ab74bc2309f4b5fff4e378e8e8aeae1d452ef8",
+    "scripts/pm_status/__main__.py": "7f35f311d1172e8d3670eca81e1f41d52c4ac4d09052bc2dbacc37037339151e",
+    "scripts/pm_status/core/__init__.py": "a8bea2a3f02b0312cc675496552afa436ca98d557ca2af4037f6d95d4c31fb7c",
+    "scripts/pm_status/instructions/__init__.py": "4b70761326dff1f7fb8d1972c469edb3469b7ca968084ff53fb3c97faa7b7b0a",
     "scripts/write-module-config.py": "fdc0e81cda51221599907b9023a096b0570e096b7d921fb0c1db2050afa7a80f"
   }
 }
