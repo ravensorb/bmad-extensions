@@ -122,3 +122,43 @@ table does, and re-testing the four above wastes the evaluation already recorded
 `os.replace` restores it. If that fails, raising the number again becomes a decision made on
 evidence rather than a default, and it should be argued here before it is taken.
 
+## Amendment (2026-10-23) — `_bmad/scripts/` is BMad's directory, and it is wiped on every install
+
+**This ADR has always described self-install as "content-guarded, self-healing on first use"
+without recording what it is healing *from*.** The answer, found while evaluating Option B:
+**BMad deletes that directory and recreates it from its own sources on every install or update
+— on both generations.**
+
+| Generation | Mechanism |
+|---|---|
+| 6.12.4 | `tools/installer/core/installer.js`, `_installSharedScripts()`: `await fs.remove(paths.scriptsDir)` then `ensureDir`, then copies `src/scripts/*`. BMad's own comment: *"Wipes the destination first so files removed or renamed in source don't linger and get recorded as installed."* |
+| 7 preview (`61e01f8`) | `skills/bmad/scripts/setup.py`, `ensure_scripts()`: `tree_matches` is exact equality, so any foreign file marks the tree stale; repair is `shutil.rmtree(dest)` then recreate from the declared tree. |
+
+Read from source at both pins; not executed — there is no v7 release to test against.
+
+**Three consequences, none of which were written down:**
+
+1. **The re-run at every activation is load-bearing, not defensive.** `self-install` is invoked
+   on activation by `l3io-execute`, `l3io-plan`, `l3io-sync` and `l3io-doctor`. That looks like
+   belt-and-braces and is not: a BMad install or update between two runs deletes the installed
+   copy, and the next activation is what puts it back. **Do not "optimise" it to run once**, and
+   do not gate it behind a first-run check.
+2. **The content guard is why the deletion is invisible.** Because the guard compares bytes and
+   treats missing as different, a wiped copy is simply reinstalled. The mechanism has been
+   absorbing this since it was written, which is why nobody noticed the directory was not ours.
+3. **`_bmad/scripts/` is not a safe home for anything of ours that must persist on its own.**
+   Anything placed there must be re-derivable from a skill's shipped payload. Nothing of ours
+   may be the only copy of itself there — a user's local patch to the installed file is
+   destroyed by the next BMad install, by BMad, not by us.
+
+This does not change the Option A/B decision. It corrects the premise both options were
+weighed against: the atomicity of *our* write was argued at length, while the fact that BMad
+periodically removes the file outright was not considered at all.
+
+**The v7 successor is a different mechanism, and belongs with the v7 work, not here.** v7 lets a
+module declare its scripts (`scripts = [...]` under `[skill]` in `bmod.toml`) and installs them
+itself, which makes them part of the declared set the wipe rebuilds *from* rather than foreign
+files it removes. Note that `skills/bmad-toolsmith/shapes/script-utility/shape.md` states that
+destination as `_bmad/scripts/` while `read_module_scripts()` says `_bmad/<code>/scripts/`;
+the code is the one that runs, and this needs verifying against a real install once v7 tags.
+
