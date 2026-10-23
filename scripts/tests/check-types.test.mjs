@@ -19,8 +19,9 @@ import { fileURLToPath } from "node:url";
 
 const REPO = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..");
 const CHECK = path.join(REPO, "scripts", "check-types.mjs");
-const REL = path.join("skills", "_shared", "pm_status", "__main__.py");
-const REAL = path.join(REPO, REL);
+const PKG_REL = path.join("skills", "_shared", "pm_status");
+const REL = path.join(PKG_REL, "__main__.py");
+const PKG = path.join(REPO, PKG_REL);
 
 const ACCESSOR_LOOP = "for lst in (store.backlog, store.resolved):";
 const TC_IMPORT = "if TYPE_CHECKING:\n    from ruamel.yaml.comments import CommentedSeq\n";
@@ -28,9 +29,16 @@ const TC_IMPORT = "if TYPE_CHECKING:\n    from ruamel.yaml.comments import Comme
 function fixture(t, mutate = (s) => s) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "check-types-"));
   t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
-  const dest = path.join(dir, REL);
+  // The WHOLE package, not `__main__.py` alone. `__main__.py` imports its own submodules
+  // relatively, and mypy refuses a relative import whose parent package is not on disk
+  // beside it ("No parent module -- cannot perform relative import"), which is an exit-2
+  // broken-gate state rather than a finding. Copying one file worked only while the package
+  // was one file. __pycache__ is skipped: it is not source and mypy would not read it.
+  const dest = path.join(dir, PKG_REL);
   fs.mkdirSync(path.dirname(dest), { recursive: true });
-  fs.writeFileSync(dest, mutate(fs.readFileSync(REAL, "utf8")));
+  fs.cpSync(PKG, dest, { recursive: true, filter: (s) => !s.includes("__pycache__") });
+  const main = path.join(dir, REL);
+  fs.writeFileSync(main, mutate(fs.readFileSync(main, "utf8")));
   return dir;
 }
 

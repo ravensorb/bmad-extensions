@@ -121,10 +121,11 @@ class TestInvocationModes(unittest.TestCase):
         self.assertIn(pm.PM_STATUS_VERSION, r.stdout)
 
     def test_prologue_is_what_lets_a_relative_import_work_as_a_script(self):
-        """`__main__.py` has no relative import of its own yet, so the tests above pass with or
-        without the prologue. This one plants a relative import in a COPY (hyphen-named, like the
-        install) and runs it as a script: deleting the prologue makes it fail with "no known
-        parent package". It is the standing guard until a real extraction supplies one."""
+        """`__main__.py` now carries a real relative import (`from . import core`), so the tests
+        above exercise the prologue too. This one does not depend on that: it plants its OWN
+        relative import in a COPY (hyphen-named, like the install) and runs it as a script, so it
+        keeps failing with "no known parent package" if the prologue is deleted even in a tree
+        where every other relative import has been moved or removed."""
         with tempfile.TemporaryDirectory() as d:
             dest = os.path.join(d, "pm-status")
             shutil.copytree(os.path.dirname(SCRIPT), dest, ignore=shutil.ignore_patterns("__pycache__"))
@@ -357,7 +358,7 @@ class TestSelfInstall(Base):
             with open(dest, "w", encoding="utf-8") as fh:
                 fh.write(text)
             err = io.StringIO()
-            with mock.patch.object(pm, "_SHIPPED_SHAS", frozenset({sha})), redirect_stderr(err):
+            with mock.patch.object(pm.core, "_SHIPPED_SHAS", frozenset({sha})), redirect_stderr(err):
                 code, _ = self.run_main(["self-install", "--dest", dest, "--force"])
             self.assertEqual(code, 0)
             self.assertEqual(os.path.exists(dest), not shipped)
@@ -366,8 +367,8 @@ class TestSelfInstall(Base):
                 os.unlink(dest)
 
     def test_last_tagged_release_counts_as_shipped(self):
-        self.assertGreater(len(pm._SHIPPED_SHAS), 40)
-        self.assertTrue(all(len(h) == 64 for h in pm._SHIPPED_SHAS))
+        self.assertGreater(len(pm.core._SHIPPED_SHAS), 40)
+        self.assertTrue(all(len(h) == 64 for h in pm.core._SHIPPED_SHAS))
 
 
 class TestLockCommands(Base):
@@ -526,7 +527,7 @@ class TestConcurrentNoticeDistinctKeys(unittest.TestCase):
             codes.append(p.returncode)
         self.assertEqual(codes, [0] * self.N,
                          f"every distinct key is new, so every caller must exit 0; got {codes}")
-        _, data = pm._load(os.path.join(self.root, ".notices.yaml"))
+        _, data = pm.core._load(os.path.join(self.root, ".notices.yaml"))
         recorded = set(data["keys"]) if data else set()
         expected = {f"key-{i}" for i in range(self.N)}
         self.assertEqual(recorded, expected,
@@ -584,7 +585,7 @@ class TestConcurrentNoticeSameKey(unittest.TestCase):
                          f"exactly one concurrent caller must be told to emit; got {codes}")
         self.assertEqual(codes.count(1), self.N - 1,
                          f"every other caller must see 'already emitted'; got {codes}")
-        _, data = pm._load(os.path.join(self.root, ".notices.yaml"))
+        _, data = pm.core._load(os.path.join(self.root, ".notices.yaml"))
         self.assertIn("setup-pointer", data["keys"])
         self.assertEqual(len(data["keys"]), self.PRESEED + 1,
                          "no lost or duplicated entries under concurrency")
@@ -631,7 +632,7 @@ class TestNoticeReadHappensAfterTheLock(Base):
 
     def test_the_ledger_read_is_recorded_between_lock_acquire_and_release(self):
         events = []
-        real_lock, real_load = pm.notices_lock, pm._load
+        real_lock, real_load = pm.core.notices_lock, pm.core._load
 
         @contextmanager
         def recording_lock(state_root):
@@ -646,8 +647,8 @@ class TestNoticeReadHappensAfterTheLock(Base):
             events.append("read")
             return real_load(path)
 
-        with mock.patch.object(pm, "notices_lock", recording_lock), \
-                mock.patch.object(pm, "_load", recording_load):
+        with mock.patch.object(pm.core, "notices_lock", recording_lock), \
+                mock.patch.object(pm.core, "_load", recording_load):
             code, out = self.run_main(
                 ["notice", "--state-root", self.d, "--key", "setup-pointer"])
 
@@ -805,7 +806,7 @@ class TestAppendIssue(unittest.TestCase):
                                    "--sprint", "01", "--title", "Rate limit",
                                    "--source", "adversarial (ADV-L-01)", "--severity", "Low"])
         self.assertEqual(code, 0, out)
-        y, data = pm._load(self.f)
+        y, data = pm.core._load(self.f)
         self.assertEqual(len(data["backlog"]), 1)
         self.assertEqual(data["backlog"][0]["key"], "BL-E001-001")
 
@@ -816,7 +817,7 @@ class TestAppendIssue(unittest.TestCase):
                        "--key", "BL-E001-002", "--epic", "001",
                        "--sprint", "", "--title", "New issue",
                        "--source", "red-team (RT-M-01)", "--severity", "Medium"])
-        y, data = pm._load(self.f)
+        y, data = pm.core._load(self.f)
         self.assertEqual(len(data["backlog"]), 2)
         self.assertEqual(data["backlog"][1]["key"], "BL-E001-002")
 
@@ -825,7 +826,7 @@ class TestAppendIssue(unittest.TestCase):
                               "--sprint", "01", "--title", "T", "--severity", "Low", *extra])
 
     def _item(self):
-        return pm._load(self.f)[1]["backlog"][-1]
+        return pm.core._load(self.f)[1]["backlog"][-1]
 
     # -- structured source ------------------------------------------------------------- #
 
@@ -897,10 +898,10 @@ class TestAppendIssue(unittest.TestCase):
     def test_dedupe_still_matches_a_structured_re_run(self):
         """_content_matches compares the exact source string; deriving it must not break that."""
         self._append("--source-phase", "code-review", "--source-ref", "E001-S01-005")
-        n1 = len(pm._load(self.f)[1]["backlog"])
+        n1 = len(pm.core._load(self.f)[1]["backlog"])
         code, out = self._append("--source-phase", "code-review", "--source-ref", "E001-S01-005")
         self.assertEqual(code, 0, out)
-        self.assertEqual(len(pm._load(self.f)[1]["backlog"]), n1,
+        self.assertEqual(len(pm.core._load(self.f)[1]["backlog"]), n1,
                          "a structured re-run must be recognised as the same item")
 
     def test_invalid_severity_rejected(self):
@@ -926,7 +927,7 @@ class TestAppendIssue(unittest.TestCase):
                                    "--epic", "001", "--title", "First finding",
                                    "--source", "qa", "--severity", "Low"])
         self.assertEqual(code, 0, out)
-        y, data = pm._load(self.f)
+        y, data = pm.core._load(self.f)
         self.assertEqual(data["backlog"][0]["key"], "BL-E001-001")
         self.assertIn("BL-E001-001", out)
 
@@ -939,7 +940,7 @@ class TestAppendIssue(unittest.TestCase):
                                    "--epic", "001", "--title", "Next finding",
                                    "--source", "qa", "--severity", "Low"])
         self.assertEqual(code, 0, out)
-        y, data = pm._load(self.f)
+        y, data = pm.core._load(self.f)
         self.assertEqual(data["backlog"][-1]["key"], "BL-E001-008")
 
     def test_allocation_is_per_epic(self):
@@ -953,7 +954,7 @@ class TestAppendIssue(unittest.TestCase):
                                    "--epic", "001", "--title", "E1 finding B",
                                    "--source", "qa", "--severity", "Low"])
         self.assertEqual(code, 0, out)
-        y, data = pm._load(self.f)
+        y, data = pm.core._load(self.f)
         keys = [i["key"] for i in data["backlog"]]
         self.assertEqual(keys, ["BL-E001-001", "BL-E002-001", "BL-E001-002"])
 
@@ -970,7 +971,7 @@ class TestAppendIssue(unittest.TestCase):
                                    "--epic", "001", "--title", "Next finding",
                                    "--source", "qa", "--severity", "Low"])
         self.assertEqual(code, 0, out)
-        y, data = pm._load(self.f)
+        y, data = pm.core._load(self.f)
         self.assertEqual(data["backlog"][-1]["key"], "BL-E001-004")
 
     # --- D2: explicit-key collision and content-duplicate detection ------ #
@@ -983,7 +984,7 @@ class TestAppendIssue(unittest.TestCase):
                                    "--sprint", "01", "--title", "A different finding",
                                    "--source", "qa", "--severity", "Low"])
         self.assertEqual(code, 2)
-        y, data = pm._load(self.f)
+        y, data = pm.core._load(self.f)
         self.assertEqual(len(data["backlog"]), 1, "the duplicate must not be appended")
 
     def test_explicit_duplicate_key_message_on_stderr(self):
@@ -1000,7 +1001,7 @@ class TestAppendIssue(unittest.TestCase):
             code = e.code
         self.assertEqual(code, 2)
         self.assertIn("Existing issue", buf_err.getvalue())
-        y, data = pm._load(self.f)
+        y, data = pm.core._load(self.f)
         self.assertEqual(len(data["backlog"]), 1)
 
     def test_content_duplicate_is_skipped_exits_0(self):
@@ -1012,7 +1013,7 @@ class TestAppendIssue(unittest.TestCase):
                                    "--source", "adversarial (ADV-L-01)", "--severity", "Low"])
         self.assertEqual(code, 0, out)
         self.assertIn("BL-E001-001", out)
-        y, data = pm._load(self.f)
+        y, data = pm.core._load(self.f)
         self.assertEqual(len(data["backlog"]), 1, "no second row should be written")
 
     def test_content_duplicate_requires_all_four_fields(self):
@@ -1024,7 +1025,7 @@ class TestAppendIssue(unittest.TestCase):
                                    "--title", "Existing issue",
                                    "--source", "red-team (RT-L-02)", "--severity", "Low"])
         self.assertEqual(code, 0, out)
-        y, data = pm._load(self.f)
+        y, data = pm.core._load(self.f)
         self.assertEqual(len(data["backlog"]), 2, "different source is a distinct finding")
 
     def test_allow_duplicate_forces_append(self):
@@ -1036,7 +1037,7 @@ class TestAppendIssue(unittest.TestCase):
                                    "--source", "adversarial (ADV-L-01)", "--severity", "Low",
                                    "--allow-duplicate"])
         self.assertEqual(code, 0, out)
-        y, data = pm._load(self.f)
+        y, data = pm.core._load(self.f)
         self.assertEqual(len(data["backlog"]), 2)
 
     # --- D3: malformed 'backlog' field is refused, not silently repaired - #
@@ -1157,10 +1158,10 @@ class IssueBase(Base):
                              "--severity", severity, *extra])
 
     def load_open(self):
-        return pm._load(self.issues)[1] or {}
+        return pm.core._load(self.issues)[1] or {}
 
     def load_resolved(self):
-        return pm._load(self.resolved)[1] or {}
+        return pm.core._load(self.resolved)[1] or {}
 
     def open_keys(self):
         return [str(i["key"]) for i in (self.load_open().get("backlog") or [])]
@@ -1213,9 +1214,9 @@ class TestIssueAllocator(IssueBase):
         allocator ('highest surviving + 1') gave its key to an unrelated finding."""
         for t in ("A first", "B second", "C third"):
             self.assertEqual(self.append(t)[0], 0)
-        y, data = pm._load(self.issues)
+        y, data = pm.core._load(self.issues)
         data["backlog"] = [i for i in data["backlog"] if i["key"] != "BL-E001-003"]
-        pm._atomic_dump(y, data, self.issues)
+        pm.core._atomic_dump(y, data, self.issues)
         code, out, err = self.append("D unrelated")
         self.assertEqual(code, 0, err)
         self.assertIn("BL-E001-004", out)
@@ -1232,9 +1233,9 @@ class TestIssueAllocator(IssueBase):
     def test_seeds_from_highest_suffix_in_both_files(self):
         for t in ("A", "B", "C", "D", "E"):
             self.append(t)
-        y, data = pm._load(self.issues)
+        y, data = pm.core._load(self.issues)
         del data["next"]
-        pm._atomic_dump(y, data, self.issues)
+        pm.core._atomic_dump(y, data, self.issues)
         # a pre-existing resolved record that predates `next` (deliberately hand-built)
         with open(self.resolved, "w", encoding="utf-8") as fh:
             fh.write("resolved:\n- key: BL-E001-007\n  epic: '001'\n  title: old\n"
@@ -1245,19 +1246,19 @@ class TestIssueAllocator(IssueBase):
 
     def test_hand_written_item_beyond_stale_next(self):
         self.append("A")
-        y, data = pm._load(self.issues)
+        y, data = pm.core._load(self.issues)
         from ruamel.yaml.comments import CommentedMap
         data["backlog"].append(CommentedMap([("key", "BL-E001-009"), ("epic", "001"),
                                              ("title", "hand"), ("status", "backlog")]))
-        pm._atomic_dump(y, data, self.issues)
+        pm.core._atomic_dump(y, data, self.issues)
         self.assertIn("BL-E001-010", self.append("B")[1])
 
     def test_malformed_next_warns_and_never_goes_backwards(self):
         self.append("A")
         self.append("B")
-        y, data = pm._load(self.issues)
+        y, data = pm.core._load(self.issues)
         data["next"] = "garbage"
-        pm._atomic_dump(y, data, self.issues)
+        pm.core._atomic_dump(y, data, self.issues)
         code, out, err = self.append("C")
         self.assertEqual(code, 0, err)
         self.assertIn("warning", err)
@@ -1326,10 +1327,10 @@ class TestIssueAllocator(IssueBase):
 
 
 def _dump_failing_on(n):
-    """Patch pm._atomic_dump so its n-th call raises OSError('injected') -- a crash
+    """Patch pm.core._atomic_dump so its n-th call raises OSError('injected') -- a crash
     between two writes. Use: `with _dump_failing_on(2): ...`. Shared by every
     crash-injection test so the injection logic exists once."""
-    real, calls = pm._atomic_dump, {"n": 0}
+    real, calls = pm.core._atomic_dump, {"n": 0}
 
     def flaky(y, data, path):
         calls["n"] += 1
@@ -1337,7 +1338,7 @@ def _dump_failing_on(n):
             raise OSError("injected")
         return real(y, data, path)
 
-    return mock.patch.object(pm, "_atomic_dump", flaky)
+    return mock.patch.object(pm.core, "_atomic_dump", flaky)
 
 
 class TestResolveIssue(IssueBase):
@@ -1459,10 +1460,10 @@ class TestResolveIssue(IssueBase):
 
     def test_key_duplicated_in_open_file_is_refused(self):
         self.append("A")
-        y, data = pm._load(self.issues)
+        y, data = pm.core._load(self.issues)
         from ruamel.yaml.comments import CommentedMap
         data["backlog"].append(CommentedMap(data["backlog"][0]))
-        pm._atomic_dump(y, data, self.issues)
+        pm.core._atomic_dump(y, data, self.issues)
         code, _, err = self.resolve("BL-E001-001", "obsolete", "--note", "x")
         self.assertEqual(code, 2)
         self.assertIn("1i", err)
@@ -1515,8 +1516,8 @@ class TestConcurrentResolveAppend(unittest.TestCase):
         for p in procs:
             _, err = p.communicate(timeout=120)
             self.assertEqual(p.returncode, 0, err.decode())
-        _, o = pm._load(os.path.join(self.root, "issues.yaml"))
-        _, r = pm._load(os.path.join(self.root, "issues-resolved.yaml"))
+        _, o = pm.core._load(os.path.join(self.root, "issues.yaml"))
+        _, r = pm.core._load(os.path.join(self.root, "issues-resolved.yaml"))
         open_keys = [str(i["key"]) for i in o["backlog"]]
         res_keys = [str(i["key"]) for i in r["resolved"]]
         self.assertEqual(sorted(res_keys), [f"BL-E001-{i:03d}" for i in range(1, self.N + 1)])
@@ -4576,7 +4577,7 @@ class TestConcurrentAppendIssue(unittest.TestCase):
         self.assertEqual(len(printed_keys), self.N,
                          "a process printed more/fewer than one allocated key")
 
-        y, data = pm._load(self.f)
+        y, data = pm.core._load(self.f)
         self.assertEqual(len(data["backlog"]), self.N)
         self.assertEqual({item["key"] for item in data["backlog"]}, expected)
 
@@ -7369,10 +7370,10 @@ class TestUpdateIssue(IssueBase):
 
     def test_key_duplicated_in_open_file_is_refused(self):
         self.append("A")
-        y, data = pm._load(self.issues)
+        y, data = pm.core._load(self.issues)
         from ruamel.yaml.comments import CommentedMap
         data["backlog"].append(CommentedMap(data["backlog"][0]))
-        pm._atomic_dump(y, data, self.issues)
+        pm.core._atomic_dump(y, data, self.issues)
         code, _, err = self.update("BL-E001-001", "High")
         self.assertEqual(code, 2)
         self.assertIn("1i", err)
@@ -7435,9 +7436,9 @@ class TestListIssuesLifecycle(IssueBase):
 
     def test_status_filter(self):
         self.append("A")
-        y, data = pm._load(self.issues)      # a scheduled item (promote lands in Task 8)
+        y, data = pm.core._load(self.issues)      # a scheduled item (promote lands in Task 8)
         data["backlog"][0]["status"] = "scheduled"
-        pm._atomic_dump(y, data, self.issues)
+        pm.core._atomic_dump(y, data, self.issues)
         self.append("B", "001", "02")
         self.assertEqual([i["key"] for i in self.ls("--status", "scheduled")], ["BL-E001-001"])
         self.assertEqual([i["key"] for i in self.ls("--status", "backlog")], ["BL-E001-002"])
@@ -8723,7 +8724,7 @@ class TestEpicNodeLockScope(unittest.TestCase):
         y, node = pm.load_node(path)
         routes = {"save_node": lambda: pm.save_node(y, node, path),
                   "save_node(use_flock)": lambda: pm.save_node(y, node, path, use_flock=True),
-                  "_atomic_dump": lambda: pm._atomic_dump(y, node, path),
+                  "_atomic_dump": lambda: pm.core._atomic_dump(y, node, path),
                   "_mark_sampled": lambda: pm._mark_sampled(node, path, y)}
         for name, route in routes.items():
             with self.assertRaises(RuntimeError, msg=name):
@@ -9083,9 +9084,9 @@ class TestAuditIssues(IssueBase):
         pm.save_node(y, n, p)
 
     def edit_open(self, fn):
-        y, data = pm._load(self.issues)
+        y, data = pm.core._load(self.issues)
         fn(data)
-        pm._atomic_dump(y, data, self.issues)
+        pm.core._atomic_dump(y, data, self.issues)
 
     def test_clean_lifecycle_exits_0(self):
         self.append("A")
@@ -9948,9 +9949,9 @@ class TestUnreadableStoryNode(IssueBase):
 
     def edit_next_stale(self):
         """A real 1e, so reseed would otherwise act: the refusal is the walk's, not the gate's."""
-        y, data = pm._load(self.issues)
+        y, data = pm.core._load(self.issues)
         data["next"]["001"] = 1
-        pm._atomic_dump(y, data, self.issues)
+        pm.core._atomic_dump(y, data, self.issues)
 
     def test_audit_reports_an_unparseable_story_node_through_its_error_channel(self):
         self.break_story()
@@ -10030,9 +10031,9 @@ class TestIssueInvariants(IssueBase):
         self.assert_invariants()                                    # premise: a clean state
 
     def _edit_open(self, fn):
-        y, data = pm._load(self.issues)
+        y, data = pm.core._load(self.issues)
         fn(data)
-        pm._atomic_dump(y, data, self.issues)
+        pm.core._atomic_dump(y, data, self.issues)
 
     def test_assert_invariants_rejects_each_forbidden_state(self):
         from ruamel.yaml.comments import CommentedMap
@@ -10693,7 +10694,7 @@ class TestLenientArgsAreStoredCanonical(unittest.TestCase):
                          "--sprint", sp, "--severity", "Low", "--title", f"t{i}",
                          "--source-phase", "cr", "--source-ref", f"R{i}")
             self.assertEqual(r.returncode, 0, r.stderr)
-        _, data = pm._load(os.path.join(self.root, "issues.yaml"))
+        _, data = pm.core._load(os.path.join(self.root, "issues.yaml"))
         items = data["backlog"]        # the open list's key, per IssueStore.backlog
         epics = {str(it["epic"]) for it in items}
         sprints = {str(it["sprint"]) for it in items}
@@ -12640,8 +12641,8 @@ class TestAgentInstructions(unittest.TestCase):
         # IDENTICAL text, so a lost update is invisible in the final file. Observe the order
         # instead, the way TestNoticeReadInsideLock does for notices_lock.
         events = []
-        real_lock, real_isfile = pm.agent_instructions_lock, os.path.isfile
-        real_write = pm._atomic_text_write
+        real_lock, real_isfile = pm.core.agent_instructions_lock, os.path.isfile
+        real_write = pm.core._atomic_text_write
         target = os.path.join(self.d, "CLAUDE.md")
 
         @contextmanager
@@ -12662,9 +12663,9 @@ class TestAgentInstructions(unittest.TestCase):
             events.append("write")
             return real_write(path, text)
 
-        with mock.patch.object(pm, "agent_instructions_lock", recording_lock), \
+        with mock.patch.object(pm.core, "agent_instructions_lock", recording_lock), \
                 mock.patch.object(os.path, "isfile", recording_isfile), \
-                mock.patch.object(pm, "_atomic_text_write", recording_write), \
+                mock.patch.object(pm.core, "_atomic_text_write", recording_write), \
                 redirect_stdout(io.StringIO()):
             code = pm.main(["sync-agent-instructions", "--runtime", "claude",
                             "--project-root", self.d, "--body-file", self._body(), "--apply"])
@@ -12940,9 +12941,9 @@ class TestReparentStory(unittest.TestCase):
                  "S01", "--severity", "Low", "--source", "code-review", "--title", "t",
                  "--ref", "E001-S01-001"])
         issues = os.path.join(self.sr, "issues.yaml")
-        y, data = pm._load(issues)
+        y, data = pm.core._load(issues)
         data["backlog"].insert(0, "a bare string nobody should have written")
-        pm._atomic_dump(y, data, issues)
+        pm.core._atomic_dump(y, data, issues)
         new = self._move("E001-S01-001", "E003", "S02")
         _, after = pm.load_node(issues)
         self.assertEqual(after["backlog"][0], "a bare string nobody should have written")

@@ -47,6 +47,7 @@ const read = (p) => fs.readFileSync(path.join(repoRoot, p), "utf8");
 const exists = (p) => fs.existsSync(path.join(repoRoot, p));
 
 const PM = "skills/_shared/pm_status/__main__.py";
+const PM_DIR = "skills/_shared/pm_status";
 const PKG = "package.json";
 
 if (!exists(PM)) {
@@ -57,15 +58,41 @@ if (!exists(PM)) {
 }
 const text = read(PM);
 const marker = (text.match(/^#\s*pm-status-version:\s*([0-9.]+)/m) || [])[1];
-const konst = (text.match(/^PM_STATUS_VERSION\s*=\s*"([0-9.]+)"/m) || [])[1];
+
+// The marker is `__main__.py`'s by contract -- self-install reads it off the installed copy's
+// `__main__.py`. The CONSTANT is not: it travels with whichever module owns it, and it left for
+// core/ when core was extracted. Its file is DERIVED by searching the package rather than named
+// here, so the next move needs no edit; two declarations, or none, is itself a failure, because
+// a second copy is exactly the hand-maintained duplicate this check exists to prevent.
+const KONST_RE = /^PM_STATUS_VERSION\s*=\s*"([0-9.]+)"/m;
+function konstFiles(rel) {
+  const out = [];
+  for (const e of fs.readdirSync(path.join(repoRoot, rel), { withFileTypes: true })
+    .sort((a, b) => a.name.localeCompare(b.name))) {
+    const child = `${rel}/${e.name}`;
+    if (e.isDirectory()) { if (e.name !== "__pycache__") out.push(...konstFiles(child)); }
+    else if (e.name.endsWith(".py") && KONST_RE.test(read(child))) out.push(child);
+  }
+  return out;
+}
+const konstIn = konstFiles(PM_DIR);
+const KONST = konstIn[0] || PM;
+const konst = konstIn.length === 1 ? (read(KONST).match(KONST_RE) || [])[1] : undefined;
 const pkg = JSON.parse(read(PKG)).version;
 
 if (!marker) failures.push(`${PM}: no "# pm-status-version:" marker found`);
-if (!konst) failures.push(`${PM}: no PM_STATUS_VERSION constant found`);
+if (konstIn.length === 0) failures.push(`${PM_DIR}/: no PM_STATUS_VERSION constant found in any module`);
+if (konstIn.length > 1) {
+  failures.push(
+    `${PM_DIR}/: PM_STATUS_VERSION is declared in ${konstIn.length} files (${konstIn.join(", ")})\n` +
+      "      It must be declared exactly once. Two copies are two things to keep in sync, and\n" +
+      "      this check cannot tell which one self-install's constant was read from.",
+  );
+}
 
 if (marker && konst && marker !== konst) {
   failures.push(
-    `${PM}: marker says ${marker} but PM_STATUS_VERSION says ${konst}\n` +
+    `${PM}: marker says ${marker} but PM_STATUS_VERSION says ${konst} (in ${KONST})\n` +
       `      self-install reads the marker off a copy on disk and compares it against the\n` +
       `      constant in the running script, so these disagreeing makes it compare a version\n` +
       `      against a different version.`,

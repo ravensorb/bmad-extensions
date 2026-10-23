@@ -30,19 +30,46 @@ console.log(`Synced marketplace plugin versions to ${releaseVersion}`);
 //
 // Runs before sync-shared-scripts.mjs in postbump, so the per-skill payload copies inherit
 // the new version rather than drifting from _shared.
-const pmStatusPath = path.join(repoRoot, "skills", "_shared", "pm_status", "__main__.py");
-{
-  const before = fs.readFileSync(pmStatusPath, "utf8");
-  const after = before
-    .replace(/^(#\s*pm-status-version:\s*)[0-9.]+/m, `$1${releaseVersion}`)
-    .replace(/^(PM_STATUS_VERSION\s*=\s*")[0-9.]+"/m, `$1${releaseVersion}"`);
-  if (!/^#\s*pm-status-version:\s*[0-9.]+/m.test(after) ||
-      !/^PM_STATUS_VERSION\s*=\s*"[0-9.]+"/m.test(after)) {
-    throw new Error(`Could not rewrite both version declarations in ${pmStatusPath}`);
+//
+// The two declarations no longer live in the same file, and neither location is written out
+// here. The MARKER is `__main__.py`'s, by contract -- self-install reads it off the installed
+// copy's `__main__.py` -- but the CONSTANT travels with whichever module owns it (it left for
+// core/ with the first extraction). Its file is DERIVED by searching the package, so the next
+// move needs no edit here; declaring it twice, or not at all, fails rather than silently
+// rewriting one of two copies or none.
+const pmStatusDir = path.join(repoRoot, "skills", "_shared", "pm_status");
+const pmStatusMarkerPath = path.join(pmStatusDir, "__main__.py");
+// Not exported: this file writes on import, so a consumer that wanted the walker would run a
+// release sync to get it. check-pm-status-version.mjs carries its own eight-line copy.
+function pmStatusVersionFiles(dir) {
+  const out = [];
+  for (const e of fs.readdirSync(dir, { withFileTypes: true }).sort((a, b) => a.name.localeCompare(b.name))) {
+    const p = path.join(dir, e.name);
+    if (e.isDirectory()) { if (e.name !== "__pycache__") out.push(...pmStatusVersionFiles(p)); }
+    else if (e.name.endsWith(".py") && /^PM_STATUS_VERSION\s*=\s*"[0-9.]+"/m.test(fs.readFileSync(p, "utf8"))) out.push(p);
   }
-  if (after !== before) {
-    fs.writeFileSync(pmStatusPath, after, "utf8");
-    console.log(`Synced pm-status.py version to ${releaseVersion}`);
+  return out;
+}
+{
+  const constFiles = pmStatusVersionFiles(pmStatusDir);
+  if (constFiles.length !== 1) {
+    throw new Error(`Expected exactly one PM_STATUS_VERSION declaration under ${pmStatusDir}, `
+      + `found ${constFiles.length}${constFiles.length ? `: ${constFiles.join(", ")}` : ""}`);
+  }
+  const edits = [
+    [pmStatusMarkerPath, /^(#\s*pm-status-version:\s*)[0-9.]+/m, `$1${releaseVersion}`,
+      /^#\s*pm-status-version:\s*[0-9.]+/m, "# pm-status-version: marker"],
+    [constFiles[0], /^(PM_STATUS_VERSION\s*=\s*")[0-9.]+"/m, `$1${releaseVersion}"`,
+      /^PM_STATUS_VERSION\s*=\s*"[0-9.]+"/m, "PM_STATUS_VERSION"],
+  ];
+  for (const [file, find, replace, verify, what] of edits) {
+    const before = fs.readFileSync(file, "utf8");
+    const after = before.replace(find, replace);
+    if (!verify.test(after)) throw new Error(`Could not rewrite ${what} in ${file}`);
+    if (after !== before) {
+      fs.writeFileSync(file, after, "utf8");
+      console.log(`Synced ${what} in ${path.relative(repoRoot, file)} to ${releaseVersion}`);
+    }
   }
 }
 
