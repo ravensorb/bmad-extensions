@@ -404,6 +404,39 @@ METRIC_FIELDS = ("elapsed_hours", "man_hours", "hitl_hours", "tokens_k", "cost")
 CALIBRATED_METRIC_FIELDS = tuple(m for m in METRIC_FIELDS if m != "cost")
 
 
+# Key shapes and status folders: pure string vocabulary the primitives below need.
+STATUS_DIRS = ("active", "planned", "archived")  # active first: hottest path
+
+# DIR_FOR_STATUS is DERIVED, never written out a second time -- two hand-kept
+# halves of one mapping is how they drift apart.
+STATUS_FOR_DIR = {"planned": "backlog", "active": "in-progress", "archived": "done"}
+DIR_FOR_STATUS = {status: folder for folder, status in STATUS_FOR_DIR.items()}
+
+
+def epic_dirname(epic_key: str) -> str:
+    """'E001' -> 'epic-001'. Accepts unpadded input ('E42' -> 'epic-042')."""
+    n = str(epic_key).strip().lstrip("Ee")
+    if not n.isdigit():
+        raise ValueError(f"bad epic key: {epic_key!r}")
+    return f"epic-{int(n):03d}"
+
+
+def sprint_dirname(sprint_key: str) -> str:
+    """'S01' -> 'sprint-01'. Accepts unpadded input ('S7' -> 'sprint-07')."""
+    n = str(sprint_key).strip().lstrip("Ss")
+    if not n.isdigit():
+        raise ValueError(f"bad sprint key: {sprint_key!r}")
+    return f"sprint-{int(n):02d}"
+
+
+def parse_story_key(key: str) -> tuple:
+    """'E001-S01-003' -> ('E001', 'S01', '003')."""
+    parts = str(key).strip().split("-")
+    if len(parts) != 3 or not parts[0].startswith("E") or not parts[1].startswith("S"):
+        raise ValueError(f"bad story key: {key!r} (expected E{{nnn}}-S{{nn}}-{{nnn}})")
+    return parts[0], parts[1], parts[2]
+
+
 def _yaml() -> YAML:
     y = YAML()  # round-trip mode: preserves comments + key order
     y.preserve_quotes = True
@@ -650,39 +683,6 @@ def _flock_write_or_plain(use_flock: bool, y: YAML, data, path: str) -> None:
 # --------------------------------------------------------------------------- #
 # Sharded layout resolution — the ONLY place that knows where nodes live on disk
 # --------------------------------------------------------------------------- #
-STATUS_DIRS = ("active", "planned", "archived")  # active first: hottest path
-
-# Layout knowledge belongs in the resolver section with everything else that knows
-# where a node lives. DIR_FOR_STATUS is DERIVED, never written out a second time --
-# two hand-kept halves of one mapping is how they drift apart.
-STATUS_FOR_DIR = {"planned": "backlog", "active": "in-progress", "archived": "done"}
-DIR_FOR_STATUS = {status: folder for folder, status in STATUS_FOR_DIR.items()}
-
-
-def epic_dirname(epic_key: str) -> str:
-    """'E001' -> 'epic-001'. Accepts unpadded input ('E42' -> 'epic-042')."""
-    n = str(epic_key).strip().lstrip("Ee")
-    if not n.isdigit():
-        raise ValueError(f"bad epic key: {epic_key!r}")
-    return f"epic-{int(n):03d}"
-
-
-def sprint_dirname(sprint_key: str) -> str:
-    """'S01' -> 'sprint-01'. Accepts unpadded input ('S7' -> 'sprint-07')."""
-    n = str(sprint_key).strip().lstrip("Ss")
-    if not n.isdigit():
-        raise ValueError(f"bad sprint key: {sprint_key!r}")
-    return f"sprint-{int(n):02d}"
-
-
-def parse_story_key(key: str) -> tuple:
-    """'E001-S01-003' -> ('E001', 'S01', '003')."""
-    parts = str(key).strip().split("-")
-    if len(parts) != 3 or not parts[0].startswith("E") or not parts[1].startswith("S"):
-        raise ValueError(f"bad story key: {key!r} (expected E{{nnn}}-S{{nn}}-{{nnn}})")
-    return parts[0], parts[1], parts[2]
-
-
 def find_epic_dir(state_root: str, epic_key: str):
     """Absolute path to the epic's directory, whichever status folder holds it."""
     name = epic_dirname(epic_key)
@@ -1353,10 +1353,6 @@ CLASSIFICATIONS = ("simple", "standard", "complex")
 CLOSURE_LEVELS = ("sprint", "epic")
 
 
-def calibration_path(state_root: str) -> str:
-    return os.path.join(state_root, "pm-calibration.yaml")
-
-
 def new_calibration(granularity: str = "story"):
     from ruamel.yaml.comments import CommentedMap
     cal = CommentedMap()
@@ -1386,6 +1382,14 @@ def load_calibration(state_root: str):
     if "granularity" not in data:
         data["granularity"] = "story"
     return y, data
+
+
+def calibration_path(state_root: str) -> str:
+    return os.path.join(state_root, "pm-calibration.yaml")
+
+
+def adr_register_path(state_root: str) -> str:
+    return os.path.join(state_root, "adr-register.yaml")
 
 
 # Re-entrant within a process: flock is held per open file description, so a
@@ -3047,10 +3051,6 @@ def cmd_rates(args) -> int:
                           for c in TOKEN_CLASSES)
         sys.stdout.write(f"{m:<22} {cells}\n")
     return 0
-
-
-def adr_register_path(state_root: str) -> str:
-    return os.path.join(state_root, "adr-register.yaml")
 
 
 def load_adr_register(state_root: str):
