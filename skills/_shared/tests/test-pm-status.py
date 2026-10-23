@@ -11,6 +11,7 @@ Exercises the sharded split-directory layout resolution, key-based node addressi
 append-issue, self-install), comment/order preservation, the events.jsonl
 transition log, the progress report, and verify exit codes.
 """
+import hashlib
 import io
 import json
 import os
@@ -92,13 +93,45 @@ class Base(unittest.TestCase):
 
 
 class TestSelfInstall(Base):
+    """`self-install` installs the package DIRECTORY `pm-status/` beside --dest (spec §4)."""
+
+    def _live(self, dest):
+        return os.path.join(os.path.dirname(dest), "pm-status")
+
+    def _marker(self, dest, text):
+        with open(os.path.join(self._live(dest), "__main__.py"), "w", encoding="utf-8") as fh:
+            fh.write(text)
+
     def test_installs_when_absent(self):
         dest = os.path.join(self.d, "sub", "pm-status.py")
         code, out = self.run_main(["self-install", "--dest", dest])
         self.assertEqual(code, 0, out)
-        self.assertTrue(os.path.exists(dest))
-        with open(dest, encoding="utf-8") as fh:
+        live = self._live(dest)
+        self.assertTrue(os.path.isdir(live))
+        self.assertEqual(pm.tree_digest(live), pm.tree_digest(pm.package_root()))
+        with open(os.path.join(live, "__main__.py"), encoding="utf-8") as fh:
             self.assertIn("pm-status-version:", fh.read())
+
+    def test_installed_copy_actually_runs(self):
+        """Presence and content do not prove the install is EXECUTABLE. A file-copy of
+        `__main__.py` alone passes both and dies the moment it imports a sibling."""
+        dest = os.path.join(self.d, "pm-status.py")
+        self.run_main(["self-install", "--dest", dest])
+        r = subprocess.run([sys.executable, os.path.join(self._live(dest), "__main__.py"),
+                            "--help"], capture_output=True, text=True, cwd=self.d)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertIn("self-install", r.stdout + r.stderr)
+
+    def test_bytecode_does_not_change_the_digest(self):
+        """Running the installed copy writes __pycache__; that must not read as drift."""
+        dest = os.path.join(self.d, "pm-status.py")
+        self.run_main(["self-install", "--dest", dest])
+        live = self._live(dest)
+        os.makedirs(os.path.join(live, "__pycache__"))
+        with open(os.path.join(live, "__pycache__", "x.pyc"), "wb") as fh:
+            fh.write(b"\0")
+        code, out = self.run_main(["self-install", "--dest", dest])
+        self.assertIn("already this exact package", out)
 
     def test_skips_when_same_or_newer(self):
         dest = os.path.join(self.d, "pm-status.py")
@@ -109,13 +142,12 @@ class TestSelfInstall(Base):
 
     def test_upgrades_older_dest(self):
         dest = os.path.join(self.d, "pm-status.py")
-        with open(dest, "w", encoding="utf-8") as fh:
-            fh.write("# pm-status-version: 0.0.1\nprint('old')\n")
+        os.makedirs(self._live(dest))
+        self._marker(dest, "# pm-status-version: 0.0.1\nprint('old')\n")
         code, out = self.run_main(["self-install", "--dest", dest])
         self.assertEqual(code, 0, out)
         self.assertIn("0.0.1 ->", out)
-        with open(dest, encoding="utf-8") as fh:
-            self.assertIn("pm-status-version:", fh.read())
+        self.assertEqual(pm.tree_digest(self._live(dest)), pm.tree_digest(pm.package_root()))
 
     def test_force_overwrites(self):
         dest = os.path.join(self.d, "pm-status.py")
@@ -125,24 +157,17 @@ class TestSelfInstall(Base):
         self.assertNotIn("skipped", out)
 
     def test_reinstalls_same_version_with_different_content(self):
-        """The regression that shipped: equal marker, different bytes, skipped forever.
-
-        A hand-maintained version marker drifts -- ten commits changed this script under
-        2.3.0, and one more changed it after the bump to 2.4.0. Any project that installed
-        at those moments kept a stale copy that self-install reported as up to date. One
-        sat 920 lines behind with a Critical fix missing. Equal version must therefore mean
-        "check the bytes", never "assume identical".
-        """
+        """Equal marker, different bytes, skipped forever: the marker is hand-maintained and
+        drifted, leaving a project 920 lines behind. Equal version means "check the bytes"."""
         dest = os.path.join(self.d, "pm-status.py")
         self.run_main(["self-install", "--dest", dest])
-        with open(dest, encoding="utf-8") as fh:
+        main_py = os.path.join(self._live(dest), "__main__.py")
+        with open(main_py, encoding="utf-8") as fh:
             real = fh.read()
-
         truncated = real[: len(real) // 3]
         self.assertIn("pm-status-version:", truncated,
                       "premise: the stale copy still carries the SAME marker")
-        with open(dest, "w", encoding="utf-8") as fh:
-            fh.write(truncated)
+        self._marker(dest, truncated)
 
         out_buf, err = io.StringIO(), io.StringIO()
         try:
@@ -154,27 +179,112 @@ class TestSelfInstall(Base):
         self.assertEqual(code, 0, out)
         self.assertNotIn("skipped", out)
         self.assertIn("content differs from this copy; reinstalling", err.getvalue())
-        with open(dest, encoding="utf-8") as fh:
-            self.assertEqual(fh.read(), real,
-                             "a same-version copy with different content must be replaced")
+        with open(main_py, encoding="utf-8") as fh:
+            self.assertEqual(fh.read(), real)
 
-    def test_skips_only_when_bytes_are_identical(self):
+    def test_a_changed_sibling_file_is_reinstalled(self):
+        """The digest covers the whole tree, not just the entry point."""
         dest = os.path.join(self.d, "pm-status.py")
         self.run_main(["self-install", "--dest", dest])
+        init = os.path.join(self._live(dest), "__init__.py")
+        with open(init, "a", encoding="utf-8") as fh:
+            fh.write("# tampered\n")
         code, out = self.run_main(["self-install", "--dest", dest])
-        self.assertEqual(code, 0, out)
-        self.assertIn("already this exact script", out)
+        self.assertNotIn("skipped", out)
+        self.assertEqual(pm.tree_digest(self._live(dest)), pm.tree_digest(pm.package_root()))
 
     def test_refuses_to_downgrade_a_strictly_newer_dest(self):
         """Version still governs the one thing content cannot express: a real downgrade."""
         dest = os.path.join(self.d, "pm-status.py")
-        with open(dest, "w", encoding="utf-8") as fh:
-            fh.write("# pm-status-version: 99.0.0\nprint('newer')\n")
+        os.makedirs(self._live(dest))
+        self._marker(dest, "# pm-status-version: 99.0.0\nprint('newer')\n")
         code, out = self.run_main(["self-install", "--dest", dest])
         self.assertEqual(code, 0, out)
         self.assertIn("refusing to downgrade", out)
-        with open(dest, encoding="utf-8") as fh:
+        with open(os.path.join(self._live(dest), "__main__.py"), encoding="utf-8") as fh:
             self.assertIn("print('newer')", fh.read())
+
+    def test_second_rename_failure_restores_the_old_install(self):
+        dest = os.path.join(self.d, "pm-status.py")
+        os.makedirs(self._live(dest))
+        self._marker(dest, "# pm-status-version: 0.0.1\nprint('old')\n")
+        real_rename, calls = os.rename, []
+
+        def flaky(a, b):
+            calls.append((a, b))
+            if len(calls) == 2:
+                raise OSError("simulated")
+            return real_rename(a, b)
+
+        err = io.StringIO()
+        with mock.patch.object(os, "rename", flaky), redirect_stderr(err):
+            code, _ = self.run_main(["self-install", "--dest", dest])
+        self.assertEqual(code, 1)
+        self.assertIn("previous install was restored", err.getvalue())
+        with open(os.path.join(self._live(dest), "__main__.py"), encoding="utf-8") as fh:
+            self.assertIn("print('old')", fh.read())
+        self.assertEqual(sorted(os.listdir(self.d)), ["pm-status"], "no staging/old debris")
+
+    def test_every_run_sweeps_a_crashed_predecessor(self):
+        dest = os.path.join(self.d, "pm-status.py")
+        os.makedirs(os.path.join(self.d, "pm-status.old-1"))
+        os.makedirs(os.path.join(self.d, "pm-status.staging-1"))
+        self.run_main(["self-install", "--dest", dest])
+        self.assertEqual(sorted(os.listdir(self.d)), ["pm-status"])
+
+    def test_sweep_removes_crashed_install_siblings(self):
+        d = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, d, True)
+        for name in ("pm-status.old-999", "pm-status.staging-999"):
+            os.makedirs(os.path.join(d, name))
+        os.makedirs(os.path.join(d, "pm-status"))
+        removed = pm.sweep_stale(d)
+        self.assertEqual(sorted(removed), ["pm-status.old-999", "pm-status.staging-999"])
+        self.assertTrue(os.path.isdir(os.path.join(d, "pm-status")))
+
+    def test_a_missing_install_fails_loudly_naming_the_path(self):
+        d = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, d, True)
+        r = subprocess.run([sys.executable, os.path.join(d, "pm-status", "__main__.py"), "show"],
+                           capture_output=True, text=True)
+        self.assertNotEqual(r.returncode, 0)
+        self.assertIn("pm-status", r.stderr + r.stdout)
+
+    def test_tree_digest_changes_with_any_file(self):
+        d = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, d, True)
+        os.makedirs(os.path.join(d, "sub"))
+        for rel in ("a.py", os.path.join("sub", "b.py")):
+            with open(os.path.join(d, rel), "w") as fh:
+                fh.write("x")
+        base = pm.tree_digest(d)
+        for rel in ("a.py", os.path.join("sub", "b.py")):
+            with open(os.path.join(d, rel), "w") as fh:
+                fh.write("y")
+            self.assertNotEqual(pm.tree_digest(d), base, rel)
+            with open(os.path.join(d, rel), "w") as fh:
+                fh.write("x")
+        self.assertEqual(pm.tree_digest(d), base)
+
+    def test_legacy_file_removed_only_when_it_matches_a_shipped_version(self):
+        dest = os.path.join(self.d, "pm-status.py")
+        body = "# a shipped copy\n"
+        sha = hashlib.sha256(body.encode()).hexdigest()
+        for text, shipped in ((body, True), (body + "# patched\n", False)):
+            with open(dest, "w", encoding="utf-8") as fh:
+                fh.write(text)
+            err = io.StringIO()
+            with mock.patch.object(pm, "_SHIPPED_SHAS", frozenset({sha})), redirect_stderr(err):
+                code, _ = self.run_main(["self-install", "--dest", dest, "--force"])
+            self.assertEqual(code, 0)
+            self.assertEqual(os.path.exists(dest), not shipped)
+            self.assertEqual("left" in err.getvalue(), not shipped)
+            if not shipped:
+                os.unlink(dest)
+
+    def test_last_tagged_release_counts_as_shipped(self):
+        self.assertGreater(len(pm._SHIPPED_SHAS), 40)
+        self.assertTrue(all(len(h) == 64 for h in pm._SHIPPED_SHAS))
 
 
 class TestLockCommands(Base):

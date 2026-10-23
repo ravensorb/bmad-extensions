@@ -368,21 +368,15 @@ VALID_STORY_STATUS = {"backlog", "ready-for-dev", "in-progress", "review", "done
 VALID_SPRINT_STATUS = {"backlog", "in-progress", "review", "done"}
 VALID_EPIC_STATUS = {"backlog", "in-progress", "done"}
 
-# Story transitions. Enforced per-story only; sprints and epics keep their existing
-# looser enum-only check because they compose from their children and their transitions
-# are driven by roll-ups, not by explicit set-status calls in the middle of a story lifecycle.
-# See docs/superpowers/specs/2026-09-25-story-lifecycle-blocked-design.md §3.
+# Story transitions. Enforced per-story only; sprints and epics keep their looser enum-only
+# check because they compose from their children. See
+# docs/superpowers/specs/2026-09-25-story-lifecycle-blocked-design.md §3.
 #
-# The table gates two invariants: the blocked lifecycle (only entered from active work,
-# only exited back to work or done-with-resolution) and the terminality of done. Free
-# movement between non-blocked, non-done statuses stays allowed -- existing consumers
-# have long moved a story backwards after a fix, and forwards past review when the work
-# was small enough not to need one, and gating either would be scope creep against a
-# design whose stated goal was blocked's cleanliness.
-#
-# `blocked` can enter only from `in-progress` or `review` -- a story never picked up is
-# not blocked, it is just not ready, and its impediment belongs in state/issues.yaml.
-# `done` is terminal.
+# The table gates two invariants: the blocked lifecycle (entered only from `in-progress` or
+# `review` -- a never-picked-up story is not blocked, just not ready, and its impediment
+# belongs in state/issues.yaml -- and exited only back to work or done-with-resolution) and
+# the terminality of `done`. Free movement between other statuses stays allowed: existing
+# consumers move a story backwards after a fix, and gating that would be scope creep.
 VALID_STORY_TRANSITIONS = {
     "backlog":       {"ready-for-dev", "in-progress", "review", "done"},
     "ready-for-dev": {"backlog", "in-progress", "review", "done"},
@@ -1683,24 +1677,13 @@ def weighted_ratio(samples: list) -> float:
 # never drops or corrects the sample itself.
 TOKENS_SANITY_RANGE = (0.5, 2.0)
 
-# Stamped once, at the top level of the calibration file itself, the first
-# time migrate_calibration_metrics finishes a real pass over it — including
-# a pass that finds nothing to migrate. This is NOT a version bump: `version`
-# stays CALIBRATION_SCHEMA_VERSION == 2. A timestamp recording that a reshape
-# happened is data about the file, exactly like `orchestration`, `token_mix`,
-# and `legacy` below — not a schema generation.
-#
-# This replaces an earlier, REJECTED design that inferred "already migrated"
-# from the presence/absence of the old `cost`/`time_hours` keys. That
-# inference has a silent blind spot: a non-Claude-runtime project never
-# accumulates `cost` samples (cost is N/A there and skipped by calibration),
-# so a file that also happens to have no `time_hours` samples — for any
-# reason — would read as "already migrated" under that design and never have
-# its old-definition `man_hours`/`fix` samples quarantined. No error, no log
-# line, just silently wrong ratios applied to every future estimate — the
-# exact failure this migration exists to prevent. A positive marker has no
-# such blind spot: its absence always means "run it," regardless of which
-# sample types the file happens to contain.
+# Stamped once, at the top level of the calibration file, when migrate_calibration_metrics
+# finishes a real pass -- including one that finds nothing. NOT a version bump: `version`
+# stays CALIBRATION_SCHEMA_VERSION == 2. This replaced a REJECTED design that inferred
+# "already migrated" from the absence of the old `cost`/`time_hours` keys, which has a silent
+# blind spot (a non-Claude project never accumulates `cost` samples), so old-definition
+# samples went unquarantined and every future estimate was silently wrong. A positive marker
+# has no such blind spot: its absence always means "run it".
 CALIBRATION_METRICS_MARKER = "metrics_migrated_at"
 TOKEN_BASIS_MARKER = "token_basis_migrated_at"
 
@@ -2739,26 +2722,14 @@ def redrive_story_samples(state_root: str) -> dict:
                                   os.path.splitext(os.path.basename(sf))[0])
                         gathered.append((key, sample))
 
-        # Pass 2 -- restore chronological order, or refuse.
-        #
-        # `weighted_ratio` is an exponential-decay mean over samples oldest-first,
-        # so the LAST entry in a list weighs most. The original samples were
-        # appended one per `set-actual`, in closure order, which made that
-        # weighting mean what it says. Rebuilding by walking the tree replaced it
-        # with lexicographic key order -- and because STATUS_DIRS is
-        # ("active", "planned", "archived"), archived epics land LAST and collect
-        # the HIGHEST recency weight. Archived work is the oldest work, so on any
-        # project with an archived epic the weighting was not merely scrambled, it
-        # was cleanly inverted: a repair that changed no data re-priced every
-        # unstarted story, silently, in a command that advertises itself as a
-        # repair. Observed on a real project as a ~16% rise on `complex`.
-        #
-        # Refusing on an incomplete answer rather than falling back to directory
-        # order is deliberate, and follows `adr-reserve`/`AdrHomeUnresolved`: a
-        # confidently wrong result with a success code is worse than no result.
-        # Directory order is not a neutral default -- it is anti-chronological by
-        # construction here -- and `--no-events` means a log can exist and still
-        # not cover every story, which looks orderable and is not.
+        # Pass 2 -- restore chronological order, or refuse. `weighted_ratio` weighs the LAST
+        # sample most, and the originals were appended in closure order. Rebuilding by walking
+        # the tree gives key order, and STATUS_DIRS puts archived epics LAST, so the oldest work
+        # would collect the highest weight -- observed as a ~16% rise on `complex`, from a
+        # command that advertises itself as a repair. Refusing on an incomplete answer, not
+        # falling back to directory order, follows `adr-reserve`/`AdrHomeUnresolved`: a
+        # confidently wrong result with a success code is worse than none, and `--no-events`
+        # means a log can exist without covering every story.
         if gathered:
             times = actual_event_times(state_root)
             missing = sorted({k for k, _ in gathered if not times.get(k)})
@@ -3234,16 +3205,9 @@ def cmd_adr_reserve(args) -> int:
 # --------------------------------------------------------------------------- #
 # agent instruction block -- the marker engine: pure string transforms, no I/O
 #
-# Kept in this file, not a sibling module: `self-install` copies this one file into a
-# consuming project, so a sibling would not be there (ADR-0001).
-#
-# WHY THE MARKERS ARE HTML COMMENTS. They render invisibly, survive a markdown reformat, and
-# are greppable. The repo already uses body markers this way (`resolver-invariant:
-# canonical-contract`), so this follows a precedent rather than inventing a form.
-#
-# WHY A FENCED BLOCK IS EXCLUDED. This package's own documentation shows the marker syntax. A
-# naive search would match the example and splice the wrong region of whatever file documented
-# the feature -- including, eventually, a user's own notes about it.
+# The markers are HTML comments: invisible when rendered, reformat-proof, greppable, and the
+# repo already uses body markers this way. A FENCED block is excluded because this package's
+# own docs show the marker syntax, and a naive search would splice the example's region.
 # --------------------------------------------------------------------------- #
 BEGIN_RE = re.compile(r"^<!--\s*l3io:begin(?:\s+v=(?P<v>[^\s>]+))?\s*-->[ \t]*(?=\r?$)", re.MULTILINE)
 END_RE = re.compile(r"^<!--\s*l3io:end\s*-->[ \t]*(?=\r?$)", re.MULTILINE)
@@ -3619,18 +3583,12 @@ def split_tokens(total: float, mix: dict) -> dict:
     return out
 
 
-# Cold-start base bands (low, high) per classification. These were previously a
-# markdown table in steps/shared/step-estimate.md; this is now the single source.
-# No `cost` row: cost is derived from the tokens_k total (split across classes,
-# then priced per model) rather than banded and calibrated on its own — see
-# cmd_estimate_story. Keeping a separate cost band was the original defect: a
-# cost estimate with no arithmetic relationship to the token estimate it should
-# follow, drifting apart from it as the two calibrated independently.
-# `tokens_k` here is a FRESH-token band (input + output + cache_write) -- it always
-# was, but nothing said so, and the actual it was divided by is cache-inclusive.
-# That mismatch is the defect FRESH_TOKEN_CLASSES documents. Do not "correct" these
-# numbers upward to meet a cache-inclusive actual: cache_read is projected from the
-# observed mix at estimate time and belongs to orchestration, not scope.
+# Cold-start base bands (low, high) per classification; the single source (formerly a
+# markdown table in steps/shared/step-estimate.md). No `cost` row: cost is derived from the
+# tokens_k total and priced per model, see cmd_estimate_story -- a separate cost band drifted
+# from the token estimate it should follow. `tokens_k` is a FRESH-token band (input + output
+# + cache_write); see FRESH_TOKEN_CLASSES. Do not raise it to meet a cache-inclusive actual:
+# cache_read is projected from the observed mix and belongs to orchestration, not scope.
 BASE_BANDS = {
     "simple":   {"man_hours": (2, 4),  "hitl_hours": (0.1, 0.3), "elapsed_hours": (0.5, 1.5),
                  "tokens_k": (20, 50)},
@@ -5955,67 +5913,108 @@ def cmd_usage(args) -> int:
     return 0
 
 
+# SHA-256 of every pm-status.py a release tag shipped; only a match is ours to delete.
+_SHIPPED_SHAS = frozenset("""
+0b1bf9c58d7a03aa87ea67244ce492bae3f73b8eb5616e573f7511a1c485e8ac 1cb92f322c3dbd0b2d2162d91c67744bc60ec1f78dd1dd9ebcba45837393f118 2835546912fbce53ff4189f5815cecd6b80a3385ef283c92b2a3785e702bdb8c 2d22901b48eee23fcd6344b6824a8eaf6b7b3759b882f21c005e514e6cc28ca1 3b73f41eb6b1cc150f56d1defa0642f1d0dcdb20815cdd8c030c460c24a72b61 3c0aaf1dcba8299a17f54119b9f4ffd5c3ebcb1ea6be6b56a8b13c40e4aeb850 4c2869a33ece0dd3980afd9732fce865e29006d0ccc987041395d394ffdc1e92 5375b917a59672a7d6f9e90aa66557745f8208943d4f850a16293f620da98849 58304be3eff53054ce0e1fcee5ada0960ef42accca0294de510a946b3a091b8d
+5a0e57a538350d7b1cef08aa641d945c7d1cd9343ca098a5d2c5074e8f4e094c 5cc905cb72aacd9f067181d75794537ef15239f376607979339890c217513af6 5f07d89cc6f86a8bd4aa7e0a68446db07ef106c6556f1798a27c5f27b7ed9e07 5f6c63a272d6bc76372306cea5d047e001a65045c7c1f6f44445d949d019c0c0 6225f178925f6d4bc99b6584722f539e81266fcfe4bc79ab39515c0b9505e467 6268681451ed45b8b2a7fbacab449b9266fd6f2479ce8bb26e9d4e2ccd4c5211 6da96cbc2fd3d18c28af0e5ae8e4fd921cc0f3928d12cff4151e964696134e0e 6fbaf4d501cc423c41637d5b27a4c633d3455127b4c930d4e0624c7725cc74f7 7683ed28d49add22ba27fb3d5a57110cc35a9f7203880d4494d4675f4a9e781a
+7739897271caadaaea5f9f8ced3beeec70d50df2534cc0537e3f501f5585b521 77742439c6c0ffb4889ee9e3f7ffdaa64acd1758d61449e5e6b719b9cd341551 7c0ca2e8e79775060ae8101e3966c6f31a3f773343bf3d55ca18f4f61d063aa3 7edc4cefe0a1873b6fb99552115ba85515e1d18621aec2f225021de8c1d71c19 84401d3c2caa77192a2472872f41598d2182db152ed024ef4a0a3029585ffbfd 89adde0fb9738c86aeae323ede7731cedac5a33d98455147da5bf5fe2fa46f3e 8a3ca57a5add4a7139cf94bfa0926cb7753eb73bd157e5a70f183461871cf13e 919617bf97ccbcec177b193548651e6a7389cff0ef5113c22dbe18fc169d2217 970504a94e3f04d0ba2a9e0e7029d2be245ad977a945171cc1ba57e1043dea9e
+983ad9559b66597a537df2501016a293e26925f029bd202ca2adf6ccf0883a3d 9f9035e90881f2e3eeaf901b696e05acc58b6ecd74f31aeb06a23ea8a89aa8ab a11fb30fc8d9eabd42c412bbfc98c65090ef43dc4b201b8373798b3682039712 a27ac9296f50ca5203330ed5aab9125177f86d8a02d8dee757b72b07f3d47274 a4248d7bdeb2b096aed5636de6c8bb22b7dda8d97fa3fd1eee0528956cc358c5 a79c3626b77b88256ce997488919d54010456ddf421f3048a5cda21cb211863a aa58e96235b017b91ed04ed81f1f7a8c19de12aa9e05a5e822828f73bc23cde5 b35c8f3e70794667bb19a2b4e466e698b6df3ee5b9988f3bc7b56106502975ef b79cd5876f21dc42ead21f6c5e35bad16c884ccd8c7254c7096d44089552db55
+baf8864fc988e7914691d4d0f8c2c0f79cfff8963689b55aabd77fa0c29a0b89 bb82cbfc47cb3ee69d8840f8ed2a1d36606efdc2e6cc375887f6c75ccbfb95ef bf6c0df846c8b03cf720c3d76a8f34a90943fdef4ca8f555d8f9da4c5cffe8bd d00dd34e52e4e40b0a8050b373c8add5d95822271273d8f8297293a3bf751349 d9d85d5dc9296b271f4d0ee6151237f42d2b4944b4c94468c553dfcc3660356d db7bad754dd7d717bf13c3ea267d08232634e8b267a845913b08e8c988509a35 dba663676d6d25e8813c4581b559941d0d2e37c7734de5f505983f7f65dedec7 dd7e560a0b06bca442b1aa1d5f434f8d80229570ded8d97adbb0b16f10c3396f ddfc2d0d899e3b9965ff3dd2bcbf4121ea64e4be06809484bdf76c5972d47ddf
+e5103515a786c1e8ed56e152d83be3fdb74c380211720d3131847be5a7451a7a ec52c4880d48ba276d1dfc4d5466aee0ed82c9f5c71e1b42fa18ae7d13b1c5a8 ec677e57aab5919bbfb02f9410bb0a9f0ba17c5632d5bd3ee3e08efdf68c84ab ee0a1aaa15909f3e4140d77ed6641886330d1c69d742b93feeea82f02e812be0 f57547e7b9f1a7e153736b10a91fddec743e33164da6d940d624347152ca8ec4 f7bd8595f13b6692d8ca58cdbc81106180d2c923f91cb09ea2c85257aa24b5ef fbeda45557f03b44d164821f48af1174e47e876d369abf0509e37ae93395386e fbf74d157dc9e37bc8d73027c3247f587424c92ecdcf9dcb532dfbabbcbc7756
+""".split())  # noqa: SIM905 -- 53 digests: a split string is 6 lines, a list literal is 53
+
+
+def package_root() -> str:
+    """The directory holding this package's own files: what `self-install` copies."""
+    return os.path.dirname(os.path.abspath(__file__))
+
+
+def _tree_files(root: str) -> list:
+    """Sorted relpaths under root, skipping bytecode (running an install writes it)."""
+    return sorted(os.path.relpath(os.path.join(dp, f), root)
+                  for dp, dns, fns in os.walk(root) if "__pycache__" not in dp.split(os.sep)
+                  for f in fns if not f.endswith(".pyc"))
+
+
+def tree_digest(root: str) -> str:
+    """SHA-256 over sorted (relpath, file-sha256) pairs: any byte in any file changes it."""
+    h = hashlib.sha256()
+    for rel in _tree_files(root):
+        h.update(f"{rel}\0{_file_sha(os.path.join(root, rel))}\n".encode())
+    return h.hexdigest()
+
+
+def sweep_stale(parent: str) -> list:
+    """Remove `pm-status.old-*` / `pm-status.staging-*` siblings a crashed install left."""
+    gone = []
+    for name in sorted(os.listdir(parent)) if os.path.isdir(parent) else []:
+        if name.startswith(("pm-status.old-", "pm-status.staging-")):
+            shutil.rmtree(os.path.join(parent, name), ignore_errors=True)
+            gone.append(name)
+    return gone
+
+
+def _drop_legacy_file(dest: str) -> None:
+    """Delete the pre-package `pm-status.py` only if it is byte-identical to a shipped one."""
+    if not os.path.isfile(dest):
+        return
+    if _file_sha(dest) in _SHIPPED_SHAS:
+        os.unlink(dest)
+        sys.stdout.write(f"OK removed legacy {dest} (an unmodified shipped copy)\n")
+    else:
+        sys.stderr.write(f"pm-status.py: left {dest} in place — it matches no shipped version "
+                         f"(patched or pinned?); nothing invokes it any more\n")
+
+
 def cmd_self_install(args) -> int:
-    """Copy this script to --dest unless the destination is already this exact script.
+    """Install this package as `pm-status/` beside --dest (`--dest` keeps naming the legacy file).
 
-    This is how the module shares one runtime copy: each PM skill's setup (and its activation
-    self-heal) calls `self-install --dest {project-root}/_bmad/scripts/pm-status.py`, so both
-    skills reference a single installed copy — the `resolve_customization.py` pattern.
-
-    THE GUARD IS CONTENT, NOT VERSION. It used to skip whenever the destination's version
-    marker was >= this one, which made an equal version mean "identical" — an assumption the
-    marker cannot carry, because it is hand-maintained and therefore drifts. It did: ten
-    commits changed this script under 2.3.0, and after the bump to 2.4.0 another changed it
-    again under 2.4.0. A project that installed at either moment kept a stale copy forever,
-    with self-install cheerfully reporting a skip every time, and the staleness was invisible
-    because both copies agreed on the number they printed. One such copy sat 920 lines behind
-    and was missing a Critical fix.
-
-    A strictly newer destination is still protected — that is a genuine downgrade and the
-    version is the only thing that can express it. What no longer happens is treating "same
-    number" as "same file".
+    Content-guarded, never version-guarded: the marker is hand-maintained and has drifted, so
+    equal versions mean "compare the bytes". A strictly newer installed copy is still refused,
+    since only the version can express a downgrade. Stage, rename the live tree aside, rename
+    the stage in; the window between the renames is accepted (spec §4). A failed second rename
+    restores the old tree, and every run first sweeps a crashed predecessor's siblings.
     """
-    src = os.path.abspath(__file__)
-    dest = os.path.abspath(args.dest)
+    src, dest = package_root(), os.path.abspath(args.dest)
+    parent = os.path.dirname(dest)
+    live = os.path.join(parent, "pm-status")
     mine = tuple(int(x) for x in PM_STATUS_VERSION.split("."))
-    theirs = _parse_version_line(dest) if os.path.exists(dest) else None
-
-    if os.path.exists(dest) and not args.force:
-        same = _file_sha(src) is not None and _file_sha(src) == _file_sha(dest)
-        if same:
-            sys.stdout.write(f"OK self-install skipped — {dest} is already this exact script "
+    os.makedirs(parent, exist_ok=True)
+    sweep_stale(parent)
+    theirs = _parse_version_line(os.path.join(live, "__main__.py")) if os.path.isdir(live) else None
+    if os.path.isdir(live) and not args.force:
+        if tree_digest(live) == tree_digest(src):
+            sys.stdout.write(f"OK self-install skipped — {live} is already this exact package "
                              f"({PM_STATUS_VERSION})\n")
+            _drop_legacy_file(dest)
             return 0
         if theirs is not None and theirs > mine:
-            sys.stdout.write(f"OK self-install skipped — {dest} is "
+            sys.stdout.write(f"OK self-install skipped — {live} is "
                              f"{'.'.join(map(str, theirs))} > {PM_STATUS_VERSION} "
                              f"(refusing to downgrade)\n")
             return 0
-        if theirs is not None and theirs == mine:
-            # Same number, different bytes. Installing is right; saying nothing is not --
-            # this means a release shipped a changed script without moving the marker, and
-            # the only place that can be noticed is here.
-            sys.stderr.write(f"pm-status.py: warning — {dest} reports {PM_STATUS_VERSION} but "
-                             f"its content differs from this copy; reinstalling. A changed "
-                             f"script shipped under an unchanged version marker.\n")
-    d = os.path.dirname(dest) or "."
-    os.makedirs(d, exist_ok=True)
-    fd, tmp = tempfile.mkstemp(prefix=".pm-status.", suffix=".tmp", dir=d)
+        if theirs == mine:
+            sys.stderr.write(f"pm-status: warning — {live} reports {PM_STATUS_VERSION} but its "
+                             f"content differs from this copy; reinstalling. A changed script "
+                             f"shipped under an unchanged version marker.\n")
+    staging, old = (f"{live}.{k}-{os.getpid()}" for k in ("staging", "old"))
+    shutil.copytree(src, staging, ignore=shutil.ignore_patterns("__pycache__", "*.pyc"))
+    os.chmod(os.path.join(staging, "__main__.py"), 0o755)
+    aside = os.path.lexists(live)
     try:
-        with open(src, "r", encoding="utf-8") as rf, os.fdopen(fd, "w", encoding="utf-8") as wf:
-            wf.write(rf.read())
-            wf.flush()
-            os.fsync(wf.fileno())
-        os.chmod(tmp, 0o755)
-        os.replace(tmp, dest)
-    except BaseException:
-        try:
-            os.unlink(tmp)
-        except OSError:
-            pass
-        raise
+        if aside:
+            os.rename(live, old)
+        os.rename(staging, live)
+    except OSError as e:
+        if aside and not os.path.lexists(live):
+            os.rename(old, live)
+        shutil.rmtree(staging, ignore_errors=True)
+        sys.stderr.write(f"FAILED self-install {live}: {e}; the previous install was restored\n")
+        return 1
+    shutil.rmtree(old, ignore_errors=True)
     was = ".".join(map(str, theirs)) if theirs else "absent"
-    sys.stdout.write(f"OK self-install {dest} ({was} -> {PM_STATUS_VERSION})\n")
+    sys.stdout.write(f"OK self-install {live} ({was} -> {PM_STATUS_VERSION})\n")
+    _drop_legacy_file(dest)
     return 0
 
 
@@ -9658,7 +9657,7 @@ def build_parser() -> argparse.ArgumentParser:
     dp.add_argument("--session-id", dest="session_id", default=None)
     dp.set_defaults(func=cmd_dispatch)
 
-    si = sub.add_parser("self-install", help="copy this script to --dest, version-guarded")
+    si = sub.add_parser("self-install", help="install this package as pm-status/ beside --dest, content-guarded")
     si.add_argument("--dest", required=True, help="target path, e.g. {project-root}/_bmad/scripts/pm-status.py")
     si.add_argument("--force", action="store_true", help="overwrite even if dest is same/newer")
     si.set_defaults(func=cmd_self_install)
