@@ -120,6 +120,28 @@ class TestInvocationModes(unittest.TestCase):
         self.assertEqual(r.returncode, 0, r.stderr)
         self.assertIn(pm.PM_STATUS_VERSION, r.stdout)
 
+    def test_prologue_is_what_lets_a_relative_import_work_as_a_script(self):
+        """`__main__.py` has no relative import of its own yet, so the tests above pass with or
+        without the prologue. This one plants a relative import in a COPY (hyphen-named, like the
+        install) and runs it as a script: deleting the prologue makes it fail with "no known
+        parent package". It is the standing guard until a real extraction supplies one."""
+        with tempfile.TemporaryDirectory() as d:
+            dest = os.path.join(d, "pm-status")
+            shutil.copytree(os.path.dirname(SCRIPT), dest, ignore=shutil.ignore_patterns("__pycache__"))
+            with open(os.path.join(dest, "_probe.py"), "w", encoding="utf-8") as fh:
+                fh.write("PROBE = 1\n")
+            main_py = os.path.join(dest, "__main__.py")
+            with open(main_py, encoding="utf-8") as fh:
+                lines = fh.read().split("\n")
+            # After the prologue's position, anchored on a line that exists with or without it.
+            at = next(i for i, ln in enumerate(lines) if ln.startswith("if TYPE_CHECKING:"))
+            lines.insert(at, "from . import _probe  # noqa: F401")
+            with open(main_py, "w", encoding="utf-8") as fh:
+                fh.write("\n".join(lines))
+            r = self._run([sys.executable, main_py, "--version"], cwd=d)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertIn(pm.PM_STATUS_VERSION, r.stdout)
+
     def test_runs_as_python_dash_m(self):
         r = self._run([sys.executable, "-m", "pm_status", "--version"],
                       cwd=os.path.dirname(os.path.dirname(SCRIPT)))
