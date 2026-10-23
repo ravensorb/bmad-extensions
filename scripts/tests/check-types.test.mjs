@@ -114,10 +114,23 @@ test("a pre-existing [operator] finding is not enough to fail — the cut is the
   assert.match(r.stdout, /operator=\d+/, "the ungated tally should still show operator findings");
 });
 
+test("a defect in a SECOND file of the package is caught, not just __main__.py", (t) => {
+  // Code leaves __main__.py as it is extracted; a gate scoped to the one file would go blind.
+  const root = fixture(t);
+  const sub = path.join(root, path.dirname(REL), "sub");
+  fs.mkdirSync(sub);
+  fs.writeFileSync(path.join(sub, "probe.py"),
+    "class A:\n    @property\n    def p(self) -> int:\n        return 1\n\n\n"
+    + "def f() -> None:\n    A().p()\n");
+  const r = run(root);
+  assert.equal(r.status, 1, r.stderr);
+  assert.match(r.stderr, /sub\/probe\.py:8 "int" not callable/);
+});
+
 test("a missing target fails rather than passing over nothing", (t) => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "check-types-"));
   t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
   const r = run(dir);
   assert.equal(r.status, 2);
-  assert.match(r.stderr, /not found/);
+  assert.match(r.stderr, /no \.py files/);
 });

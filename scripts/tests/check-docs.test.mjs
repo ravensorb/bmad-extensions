@@ -261,7 +261,24 @@ test("check 12: pm-status.py over the 10,000-line limit is caught", async (t) =>
   write(root, "skills/_shared/pm_status/__main__.py", "# pad\n".repeat(10001), true);
   const r = await run(root);
   assert.equal(r.status, 1);
-  assert.match(r.stderr, /__main__\.py: \d+ lines, over the 10000-line limit/);
+  assert.match(r.stderr, /__main__\.py: \d+ lines, over the 10000-line per-file limit/);
+});
+
+test("check 12: the limit is per file, so a second module over it is caught too", async (t) => {
+  const root = fixture(t);
+  write(root, "skills/_shared/pm_status/core/big.py", "# pad\n".repeat(10001), true);
+  const r = await run(root);
+  assert.equal(r.status, 1);
+  assert.match(r.stderr, /core\/big\.py: 10001 lines, over the 10000-line per-file limit/);
+});
+
+test("check 26: a second module of the package that assembles a state path is caught", async (t) => {
+  const root = fixture(t);
+  write(root, "skills/_shared/pm_status/core/leak.py",
+    'def f(state_root):\n    return os.path.join(state_root, "planned", "epic-{nnn}")\n', true);
+  const r = await run(root);
+  assert.equal(r.status, 1);
+  assert.match(r.stderr, /core\/leak\.py:2 assembles a state path/);
 });
 
 // Pads the fixture's REAL pm-status.py to exactly `total` lines. Lines are counted the way
@@ -294,7 +311,7 @@ test("check 12 boundary: 8,001 lines fails on check 12 alone", async (t) => {
   assert.match(r.stderr, /^1 documentation problem\(s\):$/m, r.stderr);
   const entries = r.stderr.split("\n").filter((l) => l.startsWith("  ✗ "));
   assert.equal(entries.length, 1, r.stderr);
-  assert.match(entries[0], /__main__\.py: 10001 lines, over the 10000-line limit .* by 1$/);
+  assert.match(entries[0], /__main__\.py: 10001 lines, over the 10000-line per-file limit .* by 1$/);
 });
 
 // ---- check 4 (spec-align surface), 13 (spec-align contract), 14 (adr-home) ----

@@ -11,8 +11,8 @@
     "references/config-resolution.md": "153baa1edb1ca9eb49fc391c546a79b1fe4260dac1c1bad27abbcbcd3726994a",
     "scripts/merge-config.py": "22f51eed631c64134d352c236917e0a98ec5b5fe5d0810394f4615905c6ef7dc",
     "scripts/merge-help-csv.py": "44cae89d74a247395cc851970e28b65605e958efa04b632209f9bd5ecbc70d69",
-    "scripts/pm_status/__init__.py": "f8bbd38ee1222310f26c03f02457ae289b4a1b955bdf9c8adf72cc11c5cd00be",
-    "scripts/pm_status/__main__.py": "cc8f3f804824e0e100b6668556745ee1fe557337259198d5138ad5681ca20bfe",
+    "scripts/pm_status/__init__.py": "63d92ac2672d46d5642ccae6fb8bf83b0a9ca5537694d522d574eb2196fb3c22",
+    "scripts/pm_status/__main__.py": "701f88f4a1f99fcc18367f6dce34287347769244027e77fb9bc59182ef7f2500",
     "scripts/write-module-config.py": "fdc0e81cda51221599907b9023a096b0570e096b7d921fb0c1db2050afa7a80f"
   }
 }

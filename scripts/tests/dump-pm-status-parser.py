@@ -18,8 +18,9 @@ regex cannot follow fails there rather than silently narrowing check 4.
 Usage:  uv run scripts/tests/dump-pm-status-parser.py <path-to-pm-status.py>
 """
 
-import importlib.util
+import importlib
 import json
+import os
 import sys
 
 
@@ -28,9 +29,10 @@ def main() -> int:
         sys.stderr.write("usage: dump-pm-status-parser.py <path-to-pm-status.py>\n")
         return 2
 
-    spec = importlib.util.spec_from_file_location("pm_status_under_test", sys.argv[1])
-    module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
+    # Through the package, not by file path: a module loaded by path has no parent package, so
+    # it could not resolve a relative import once code moves out of __main__.py into submodules.
+    sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(sys.argv[1]))))
+    module = importlib.import_module("pm_status")
 
     parser = module.build_parser()
     out: dict[str, list[str]] = {}

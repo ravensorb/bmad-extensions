@@ -136,7 +136,7 @@ the class purely in terms of queue depth, which is the frame this case escapes.
 
 ## `check:types` — scoped, and the scope is the design
 
-`scripts/check-types.mjs` runs mypy over `skills/_shared/pm-status.py` and fails on two
+`scripts/check-types.mjs` runs mypy over every `.py` under `skills/_shared/pm_status/` and fails on two
 classes only. Its header carries the full argument; three things to know before touching it:
 
 - **It is not clean-file enforcement and should not become it.** 65 findings stand ungated.

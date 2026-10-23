@@ -596,6 +596,25 @@ function checkSectionRefs() {
 //   reverse  a subcommand the CLI has must appear in the reference  (undocumented feature)
 // ---------------------------------------------------------------------------
 const PM_STATUS = "skills/_shared/pm_status/__main__.py";
+// The package, not its entry file. Code leaves __main__.py as it is extracted into submodules,
+// so every check that reads pm-status's source reads all of it -- scope derived by walking the
+// directory, never a list. __main__.py stays the one place for what is genuinely per-entry-file
+// (the module docstring, `build_parser`), but the walk finds a parser that moves.
+const PM_STATUS_DIR = "skills/_shared/pm_status";
+function pmStatusFiles() {
+  const out = [];
+  const walk = (rel) => {
+    for (const e of fs.readdirSync(path.join(repoRoot, rel), { withFileTypes: true })
+      .sort((a, b) => a.name.localeCompare(b.name))) {
+      const child = `${rel}/${e.name}`;
+      if (e.isDirectory()) { if (e.name !== "__pycache__") walk(child); }
+      else if (e.name.endsWith(".py")) out.push(child);
+    }
+  };
+  if (exists(PM_STATUS_DIR)) walk(PM_STATUS_DIR);
+  return out;
+}
+const pmStatusSource = () => pmStatusFiles().map(read).join("\n");
 const CLI_REFERENCE_DOC = "docs/l3io-pm-reference.md";
 // Common English glue words -- articles, prepositions, conjunctions, copulas -- that show up
 // beside "pm-status.py"/"spec-align.py" in ordinary prose rather than naming a subcommand.
@@ -610,7 +629,7 @@ const PROSE_AFTER_CMD = new Set(["only", "is", "are", "and", "or", "the", "for",
 
 function cliSubcommands() {
   // argparse registrations are the authoritative surface: sub.add_parser("name", ...)
-  const src = read(PM_STATUS);
+  const src = pmStatusSource();
   return new Set([...src.matchAll(/sub\.add_parser\(\s*"([a-z-]+)"/g)].map((m) => m[1]));
 }
 
@@ -887,7 +906,7 @@ const PY_LONG_OPTION_RE = /add_argument\(\s*((?:"--[a-z0-9-]+"\s*,\s*)*"--[a-z0-
 
 function pmStatusLongOptions() {
   const flags = new Set(["--help"]); // argparse adds it to every parser; no add_argument call
-  for (const call of read(PM_STATUS).matchAll(PY_LONG_OPTION_RE)) {
+  for (const call of pmStatusSource().matchAll(PY_LONG_OPTION_RE)) {
     for (const opt of call[1].matchAll(/"(--[a-z0-9-]+)"/g)) flags.add(opt[1]);
   }
   return flags;
@@ -995,7 +1014,7 @@ function argparseSurface(pyRel) {
   if (_surfaceCache.has(pyRel)) return _surfaceCache.get(pyRel);
   const bySub = new Map();
   if (!exists(pyRel)) return (_surfaceCache.set(pyRel, bySub), bySub);
-  const src = read(pyRel);
+  const src = pyRel === PM_STATUS ? pmStatusSource() : read(pyRel);
   const consts = pyStringCollections(src);
 
   const start = src.indexOf("\ndef build_parser(");
@@ -1979,7 +1998,7 @@ function checkStatusValues() {
     }
   }
   // The folders the checker trusts must match the ones the CLI accepts.
-  const declared = read(PM_STATUS).match(/^STATUS_DIRS\s*=\s*\(([^)]*)\)/m);
+  const declared = pmStatusSource().match(/^STATUS_DIRS\s*=\s*\(([^)]*)\)/m);
   if (declared) {
     const real = [...declared[1].matchAll(/"([a-z]+)"/g)].map((x) => x[1]).sort();
     if (real.join() !== [...STATUS_FOLDERS].sort().join()) {
@@ -2012,7 +2031,7 @@ function checkStatusValues() {
 const METRICS_CONTRACT = "skills/_shared/metrics-contract.md";
 
 function metricFields() {
-  const src = read(PM_STATUS);
+  const src = pmStatusSource();
   const m = src.match(/^METRIC_FIELDS\s*=\s*\(([^)]*)\)/m);
   if (!m) return null;
   return m[1]
@@ -2293,18 +2312,22 @@ function checkAppendIssuePointer() {
 const PM_STATUS_LINE_LIMIT = 10000;   // raised from 8,000 — ADR-0001 amendment 2026-10-03
 
 function checkPmStatusSize() {
-  // Newline count, matching `wc -l` -- not split("\n").length, which overcounts by one on
-  // any file (all of them) that ends with a trailing newline.
-  const lines = (read(PM_STATUS).match(/\n/g) || []).length;
-  if (lines > PM_STATUS_LINE_LIMIT) {
-    failures.push(
-      `${PM_STATUS}: ${lines} lines, over the ${PM_STATUS_LINE_LIMIT}-line limit ` +
-        `docs/adr/0001-pm-status-single-self-installed-file.md sets by ${lines - PM_STATUS_LINE_LIMIT}\n` +
-        `      Revisit the ADR's options (Option C, a bundler, is the first candidate) before\n` +
-        `      raising PM_STATUS_LINE_LIMIT in scripts/check-docs.mjs.`,
-    );
+  // Per file: the limit exists so no single file outgrows what a reader and a reviewer can hold,
+  // and a package of many files under a shared total would let one grow without bound. Newline
+  // count, matching `wc -l` -- not split("\n").length, which overcounts by one on any file (all
+  // of them) that ends with a trailing newline.
+  for (const file of pmStatusFiles()) {
+    const lines = (read(file).match(/\n/g) || []).length;
+    if (lines > PM_STATUS_LINE_LIMIT) {
+      failures.push(
+        `${file}: ${lines} lines, over the ${PM_STATUS_LINE_LIMIT}-line per-file limit ` +
+          `docs/adr/0001-pm-status-single-self-installed-file.md sets by ${lines - PM_STATUS_LINE_LIMIT}\n` +
+          `      Revisit the ADR's options (Option C, a bundler, is the first candidate) before\n` +
+          `      raising PM_STATUS_LINE_LIMIT in scripts/check-docs.mjs.`,
+      );
+    }
+    if (verbose) console.log(`  pm-status-size: ${file} ${lines} / ${PM_STATUS_LINE_LIMIT} line limit`);
   }
-  if (verbose) console.log(`  pm-status-size: ${lines} / ${PM_STATUS_LINE_LIMIT} line limit`);
 }
 
 // ---------------------------------------------------------------------------
@@ -4236,21 +4259,30 @@ export function resolverInvariant(opts = {}) {
   const violations = []
   const scannedFiles = []
 
-  // (a) pm-status.py: state-path assembly must appear only inside the resolver section.
+  // (a) pm-status package: state-path assembly must appear only inside a resolver section,
+  // judged per authored file (the markers delimit the section wherever the resolver lives).
+  // A file with neither marker has no allowed region at all.
   const pmPath = 'skills/_shared/pm_status/__main__.py'
-  const pmLines = read(pmPath).split('\n')
-  if (opts.plantInPmStatus) {
-    pmLines.splice(opts.plantInPmStatus.line - 1, 0, opts.plantInPmStatus.text)
-  }
-  const start = pmLines.findIndex((l) => l.includes(RESOLVER_START_MARKER))
-  const end = pmLines.findIndex((l) => l.includes(RESOLVER_END_MARKER))
-  if (start < 0 || end < 0) {
-    violations.push(`${pmPath}: resolver section markers not found — cannot judge scope`)
-  } else {
+  const pmFiles = pmStatusFiles()
+  for (const pmFile of pmFiles) {
+    const pmLines = read(pmFile).split('\n')
+    if (opts.plantInPmStatus && pmFile === pmPath) {
+      pmLines.splice(opts.plantInPmStatus.line - 1, 0, opts.plantInPmStatus.text)
+    }
+    const start = pmLines.findIndex((l) => l.includes(RESOLVER_START_MARKER))
+    const end = pmLines.findIndex((l) => l.includes(RESOLVER_END_MARKER))
+    if ((start < 0) !== (end < 0)) {
+      violations.push(`${pmFile}: only one resolver section marker found — cannot judge scope`)
+      continue
+    }
+    if (pmFile === pmPath && start < 0) {
+      violations.push(`${pmFile}: resolver section markers not found — cannot judge scope`)
+      continue
+    }
     let pmInDocstring = false
     pmLines.forEach((line, i) => {
       const n = i + 1
-      if (n > start + 1 && n < end + 1) return    // inside the resolver section — allowed
+      if (start >= 0 && n > start + 1 && n < end + 1) return    // inside the resolver section — allowed
       // Track triple-quoted docstrings; skip lines that start inside or cross a boundary.
       const tripleCount = (line.match(/"""|'''/g) || []).length
       const wasPmInDocstring = pmInDocstring
@@ -4260,7 +4292,7 @@ export function resolverInvariant(opts = {}) {
       if (STATE_PATH_RE.test(line) && STATE_CONTEXT_RE.test(line) && ACTIVE_VERB_RE.test(line)) {
         if (CHECK26_ALLOW_RE.test(line) || (i > 0 && CHECK26_ALLOW_RE.test(pmLines[i - 1]))) return
         violations.push(
-          `${pmPath}:${n} assembles a state path outside the resolver section: ${line.trim()}`)
+          `${pmFile}:${n} assembles a state path outside the resolver section: ${line.trim()}`)
       }
     })
   }
@@ -4277,7 +4309,7 @@ export function resolverInvariant(opts = {}) {
   const payloadDirs = pmStatusPayloadDirs()
   if (payloadDirs.error) violations.push(`check 26 cannot derive its payload scope — ${payloadDirs.error}`)
   for (const { file, text } of sources) {
-    if (file === pmPath || (payloadDirs.dirs || []).some((d) => file.startsWith(d))) continue
+    if (pmFiles.includes(file) || (payloadDirs.dirs || []).some((d) => file.startsWith(d))) continue
     scannedFiles.push(file)
     if (isStatusFilesContract(text)) continue
     if (isCategoricallyExempt(file)) continue

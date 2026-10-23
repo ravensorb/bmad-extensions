@@ -341,6 +341,7 @@ import tempfile
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING
 
+if not __package__ and __name__ == "__main__": _d = os.path.dirname(os.path.abspath(__file__)); _u = __import__("importlib.util").util; _s = _u.spec_from_file_location("pm_status", _d + "/__init__.py", submodule_search_locations=[_d]); sys.modules["pm_status"] = _u.module_from_spec(_s); _s.loader.exec_module(sys.modules["pm_status"]); sys.exit(sys.modules["pm_status"].main())
 # Type-checking only, and load-bearing. Every other ruamel import here is lazy -- inside
 # the function that uses it -- so the `except ModuleNotFoundError` guard below can print a
 # readable message instead of a traceback. That leaves `CommentedSeq` out of scope at module

@@ -46,7 +46,10 @@ const verbose = process.argv.includes("-v");
 
 const MYPY_PIN = "mypy==1.18.2";
 const RUAMEL = "ruamel.yaml>=0.18";
-const TARGET = path.join("skills", "_shared", "pm_status", "__main__.py");
+// The package directory, not one file: code leaves `__main__.py` as it is extracted into
+// submodules, and a gate scoped to the one file would stop seeing it. Every .py under it is
+// checked, so a module moved out of __main__ stays inside both gated classes.
+const TARGET = path.join("skills", "_shared", "pm_status");
 
 // Each gated class names the defect it exists for, so a failure explains itself without
 // sending the reader here. `match` is applied to mypy's message text, `code` to its error
@@ -67,14 +70,22 @@ const GATED = [
 ];
 
 const target = path.join(repoRoot, TARGET);
-if (!fs.existsSync(target)) {
-  writeAllSync(2, `check-types: ${TARGET} not found under ${repoRoot}\n`);
+function pyFiles(dir) {
+  return fs.readdirSync(dir, { withFileTypes: true }).flatMap((e) => {
+    const p = path.join(dir, e.name);
+    if (e.isDirectory()) return e.name === "__pycache__" ? [] : pyFiles(p);
+    return e.name.endsWith(".py") ? [p] : [];
+  }).sort();
+}
+const targetFiles = fs.existsSync(target) ? pyFiles(target) : [];
+if (targetFiles.length === 0) {
+  writeAllSync(2, `check-types: no .py files in ${TARGET} under ${repoRoot}\n`);
   process.exitCode = 2;
 } else {
   const run = spawnSync(
     "uv",
     ["run", "--quiet", "--with", MYPY_PIN, "--with", RUAMEL,
-      "mypy", "--ignore-missing-imports", "--no-error-summary", "--output", "json", target],
+      "mypy", "--ignore-missing-imports", "--no-error-summary", "--output", "json", ...targetFiles],
     { encoding: "utf8", cwd: repoRoot },
   );
 
@@ -113,9 +124,9 @@ if (!fs.existsSync(target)) {
       }
 
       if (gated.length) {
-        const lines = [`\n${gated.length} type error(s) in ${TARGET}:\n`];
+        const lines = [`\n${gated.length} type error(s) in ${TARGET}/:\n`];
         for (const f of gated) {
-          lines.push(`  ✗ ${TARGET}:${f.line} ${f.message}  [${f.code}]`);
+          lines.push(`  ✗ ${path.relative(repoRoot, f.file || target)}:${f.line} ${f.message}  [${f.code}]`);
           lines.push(`      ${f.why}\n`);
         }
         lines.push("This gate gates two classes only; the file's other findings are not "
@@ -130,7 +141,7 @@ if (!fs.existsSync(target)) {
             .sort((a, b) => b[1] - a[1]).map(([c, n]) => `${c}=${n}`).join(", ") || "none"}\n`
           : "";
         writeAllSync(1, `Type checks passed: no "not callable" and no unresolved annotation `
-          + `in ${TARGET} (${findings.length} ungated finding(s) not checked).\n${detail}`);
+          + `in ${TARGET}/ (${findings.length} ungated finding(s) not checked).\n${detail}`);
       }
     }
   }

@@ -92,6 +92,44 @@ class Base(unittest.TestCase):
         return code, buf.getvalue()
 
 
+class TestInvocationModes(unittest.TestCase):
+    """The shipped binding runs `__main__.py` as a SCRIPT PATH, where `__package__` is empty and
+    a relative import fails. Every other test here goes through `import pm_status`, which has a
+    package, so none of them can see that failure."""
+
+    def _run(self, argv, cwd=None):
+        return subprocess.run(argv, capture_output=True, text=True, cwd=cwd)
+
+    def test_runs_as_a_script_path_not_only_as_an_import(self):
+        r = self._run([sys.executable, SCRIPT, "--version"])
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertIn(pm.PM_STATUS_VERSION, r.stdout)
+
+    def test_script_path_from_another_working_directory(self):
+        with tempfile.TemporaryDirectory() as elsewhere:
+            r = self._run([sys.executable, SCRIPT, "--version"], cwd=elsewhere)
+        self.assertEqual(r.returncode, 0, r.stderr)
+
+    def test_script_path_when_the_directory_is_not_named_pm_status(self):
+        # The installed package directory is `pm-status` (a hyphen), so the bootstrap cannot
+        # find itself by importing the name `pm_status`.
+        with tempfile.TemporaryDirectory() as d:
+            dest = os.path.join(d, "pm-status")
+            shutil.copytree(os.path.dirname(SCRIPT), dest, ignore=shutil.ignore_patterns("__pycache__"))
+            r = self._run([sys.executable, os.path.join(dest, "__main__.py"), "--version"], cwd=d)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertIn(pm.PM_STATUS_VERSION, r.stdout)
+
+    def test_runs_as_python_dash_m(self):
+        r = self._run([sys.executable, "-m", "pm_status", "--version"],
+                      cwd=os.path.dirname(os.path.dirname(SCRIPT)))
+        self.assertEqual(r.returncode, 0, r.stderr)
+
+    def test_import_still_hands_back_the_main_module_itself(self):
+        # The facade must stay one module object, or mock.patch.object(pm, ...) patches a copy.
+        self.assertIs(sys.modules["pm_status"], sys.modules["pm_status.__main__"])
+
+
 class TestSelfInstall(Base):
     """`self-install` installs the package DIRECTORY `pm-status/` beside --dest (spec §4)."""
 
