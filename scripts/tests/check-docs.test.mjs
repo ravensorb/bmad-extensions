@@ -3386,6 +3386,21 @@ test('check 26: a planted pm-status.py violation outside the resolver section is
     `expected the planted pm-status violation at ${line}, got: ${JSON.stringify(violations)}`)
 })
 
+test('check 26: a payload copy of the pm_status package is exempt, a look-alike path is not', async () => {
+  const text = '    d = os.path.join(state_root, "planned", "epic-{nnn}")\n'
+  const { violations } = resolverInvariant({
+    extraSources: [
+      { file: 'skills/l3io-setup/scripts/pm_status/planted.py', text },
+      { file: 'skills/l3io-doctor/scripts/pm_status/__init__.py', text },
+      { file: 'skills/l3io-setup/scripts/pm_statusx/planted.py', text },
+    ],
+  })
+  assert.ok(!violations.some(v => v.includes('scripts/pm_status/')),
+    `a payload copy must be exempt, got: ${JSON.stringify(violations)}`)
+  assert.ok(violations.some(v => v.includes('scripts/pm_statusx/planted.py')),
+    'the exemption must be the delivered directory, not a loose prefix match')
+})
+
 test('check 26: SKILL.md is exempt', async () => {
   const { violations } = resolverInvariant({
     extraSources: [{

@@ -4216,6 +4216,22 @@ function walkSkillFiles(exts) {
   return out
 }
 
+// Directories (repo-relative, trailing slash) that sync-shared-scripts.mjs delivers the
+// pm-status package into: skills/<skill>/<dest dir>/ for every delivery whose source is under
+// skills/_shared/pm_status/. Read from --dump-deliveries, never hand-listed.
+function pmStatusPayloadDirs() {
+  const { deliveries, error } = syncDeliveries()
+  if (error) return { error }
+  const dirs = new Set()
+  for (const d of deliveries) {
+    if (!d.source.startsWith('skills/_shared/pm_status/')) continue
+    const sub = path.posix.dirname(d.source.slice('skills/_shared/pm_status/'.length))
+    const destRoot = sub === '.' ? path.posix.dirname(d.dest) : path.posix.dirname(d.dest).slice(0, -(sub.length + 1))
+    for (const sk of d.skills) dirs.add(`skills/${sk}/${destRoot}/`)
+  }
+  return { dirs: [...dirs] }
+}
+
 export function resolverInvariant(opts = {}) {
   const violations = []
   const scannedFiles = []
@@ -4254,8 +4270,14 @@ export function resolverInvariant(opts = {}) {
     ...walkSkillFiles(['.md', '.py']).map((f) => ({ file: f, text: read(f) })),
     ...(opts.extraSources || []),
   ]
+  // Payload copies of pm-status are byte-copies of the source arm (a) already judged, so
+  // scanning them again only double-reports. Which paths those are is DERIVED from the sync
+  // script's own deliveries -- the directory each pm_status source is delivered into, in each
+  // skill that receives it -- so a layout move or a new module needs no edit here.
+  const payloadDirs = pmStatusPayloadDirs()
+  if (payloadDirs.error) violations.push(`check 26 cannot derive its payload scope — ${payloadDirs.error}`)
   for (const { file, text } of sources) {
-    if (file === pmPath || file.endsWith('/scripts/pm-status.py')) continue
+    if (file === pmPath || (payloadDirs.dirs || []).some((d) => file.startsWith(d))) continue
     scannedFiles.push(file)
     if (isStatusFilesContract(text)) continue
     if (isCategoricallyExempt(file)) continue
