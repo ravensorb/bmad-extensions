@@ -13712,6 +13712,79 @@ class TestReorgJournal(unittest.TestCase):
                          "an un-retired epic that still claims a retirement reason would "
                          "read as retired to every later audit")
 
+    # --- patch reach: plan calls core/nodes names through the module object -----------
+    # No other test drives a patched name through plan/, so a `from ..core import
+    # _atomic_dump` there would leave the whole suite green. Each test patches the name on
+    # its DEFINING module and fails if plan/'s call never reaches the wrapper.
+
+    def test_the_journal_write_and_read_go_through_the_core_module_object(self):
+        self._story("E001-S01-001")
+        _new, rec = self._apply_one_move("E001-S01-001", "E003", "S02")
+        log_path = pm.reorg_log_path(self.sr)
+        dumped, loaded = [], []
+        real_dump, real_load = pm.core._atomic_dump, pm.core._load
+
+        def dump(y, data, path, *a, **kw):
+            dumped.append(path)
+            return real_dump(y, data, path, *a, **kw)
+
+        def load(path, *a, **kw):
+            loaded.append(path)
+            return real_load(path, *a, **kw)
+
+        with mock.patch.object(pm.core, "_atomic_dump", dump), \
+                mock.patch.object(pm.core, "_load", load):
+            pm.record_reorg(self.sr, rec)
+        self.assertIn(log_path, dumped, "record_reorg did not write the journal through "
+                      "core._atomic_dump -- plan/ holds a private copy of it")
+        self.assertIn(log_path, loaded, "the journal was not read through core._load -- "
+                      "plan/ holds a private copy of it")
+
+    def test_reparent_story_saves_through_the_nodes_module_object(self):
+        self._story("E001-S01-001")
+        saved = []
+        real = pm.nodes.save_node
+
+        def save(y, node, path, *a, **kw):
+            saved.append(path)
+            return real(y, node, path, *a, **kw)
+
+        with mock.patch.object(pm.nodes, "save_node", save):
+            new = pm.reparent_story(self.sr, self.ar, "E001-S01-001", "E003", "S02")
+        # The MOVED STORY's own save is plan/'s call; the epic and sprint saves in the same
+        # run are made by `nodes` itself and would reach the wrapper regardless.
+        self.assertIn(f"{new}.yaml", [os.path.basename(x) for x in saved],
+                      "reparent_story did not save the re-keyed story through "
+                      "nodes.save_node -- plan/ holds a private copy of it")
+
+    def test_undo_resolves_the_epic_file_through_the_nodes_module_object(self):
+        self._epic("041", "01")
+        self._story("E041-S01-001")
+        pre = pm.plan_shape_hash(self.sr)
+        new = pm.reparent_story(self.sr, self.ar, "E041-S01-001", "E001", "S01")
+        pm.retire_epic(self.sr, "E041", "emptied by this reorg")
+        rid = pm.record_reorg(self.sr, {
+            "rationale": "E041 is empty once its one story moves.",
+            "pre_hash": pre,
+            "operations": [
+                {"op": "reparent-story", "story": "E041-S01-001", "new_key": new,
+                 "from_epic": "E041", "from_sprint": "S01",
+                 "to_epic": "E001", "to_sprint": "S01"},
+                {"op": "retire-epic", "epic": "E041", "reason": "emptied by this reorg",
+                 "from_status": "planned"},
+            ]})
+        asked = []
+        real = pm.nodes.epic_file
+
+        def epic_file(state_root, epic_key, *a, **kw):
+            asked.append(epic_key)
+            return real(state_root, epic_key, *a, **kw)
+
+        with mock.patch.object(pm.nodes, "epic_file", epic_file):
+            pm.undo_reorg(self.sr, self.ar, rid)
+        self.assertIn("E041", asked, "undo_reorg never resolved the epic through "
+                      "nodes.epic_file -- plan/ holds a private copy of it")
+
     def test_a_sprint_the_reorg_created_is_left_standing_never_deleted(self):
         # Deletion is the one thing this feature never does unasked. An empty sprint is
         # inert; reporting it lets a human remove it deliberately.
