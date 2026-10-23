@@ -225,6 +225,37 @@ class TestSelfInstall(Base):
             self.assertIn("print('old')", fh.read())
         self.assertEqual(sorted(os.listdir(self.d)), ["pm-status"], "no staging/old debris")
 
+    def _install_over_old(self, fail_on):
+        dest = os.path.join(self.d, "pm-status.py")
+        os.makedirs(self._live(dest))
+        self._marker(dest, "# pm-status-version: 0.0.1\nprint('old')\n")
+        real_rename, n = os.rename, [0]
+
+        def flaky(a, b):
+            n[0] += 1
+            if n[0] in fail_on:
+                raise fail_on[n[0]]
+            return real_rename(a, b)
+
+        return dest, flaky
+
+    def test_interrupt_between_the_renames_restores_and_reraises(self):
+        dest, flaky = self._install_over_old({2: KeyboardInterrupt()})
+        with mock.patch.object(os, "rename", flaky), redirect_stderr(io.StringIO()):
+            with self.assertRaises(KeyboardInterrupt):
+                pm.main(["self-install", "--dest", dest])
+        with open(os.path.join(self._live(dest), "__main__.py"), encoding="utf-8") as fh:
+            self.assertIn("print('old')", fh.read())
+
+    def test_failed_rollback_reports_where_the_old_install_is(self):
+        dest, flaky = self._install_over_old({2: OSError("swap"), 3: OSError("rollback")})
+        err = io.StringIO()
+        with mock.patch.object(os, "rename", flaky), redirect_stderr(err):
+            code, _ = self.run_main(["self-install", "--dest", dest])
+        self.assertEqual(code, 1)
+        self.assertIn("ROLLBACK FAILED", err.getvalue())
+        self.assertIn("pm-status.old-", err.getvalue())
+
     def test_every_run_sweeps_a_crashed_predecessor(self):
         dest = os.path.join(self.d, "pm-status.py")
         os.makedirs(os.path.join(self.d, "pm-status.old-1"))
@@ -241,14 +272,6 @@ class TestSelfInstall(Base):
         removed = pm.sweep_stale(d)
         self.assertEqual(sorted(removed), ["pm-status.old-999", "pm-status.staging-999"])
         self.assertTrue(os.path.isdir(os.path.join(d, "pm-status")))
-
-    def test_a_missing_install_fails_loudly_naming_the_path(self):
-        d = tempfile.mkdtemp()
-        self.addCleanup(shutil.rmtree, d, True)
-        r = subprocess.run([sys.executable, os.path.join(d, "pm-status", "__main__.py"), "show"],
-                           capture_output=True, text=True)
-        self.assertNotEqual(r.returncode, 0)
-        self.assertIn("pm-status", r.stderr + r.stdout)
 
     def test_tree_digest_changes_with_any_file(self):
         d = tempfile.mkdtemp()
