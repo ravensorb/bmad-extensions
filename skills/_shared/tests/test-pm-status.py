@@ -167,15 +167,19 @@ class TestPatchTargetsAreDefinedInMain(unittest.TestCase):
     So the rule is: a patched name must be DEFINED in `__main__.py`, or the target must be
     module-qualified (`pm.core.<name>`) and its callers must call `core.<name>(...)`.
 
-    It has fired once already, as designed: the `nodes` extraction moved `save_node` and
+    It has fired twice, as designed. The `nodes` extraction moved `save_node` and
     `epic_file` out of `__main__.py`, this test failed naming both and where they went,
     and the repair was to repoint the two targets to `pm.nodes.<name>` AND rewrite the 30
     call sites in `__main__.py` to `nodes.<name>(...)`. Neither half alone is enough: the
     repoint without the call-style change leaves a patch that reaches nobody, and the
-    guard would be green over it. The remaining bare targets -- `compute_story_estimate`
-    and `rollup_parent_estimate` (metrics/estimates), `resolve_issue_core` (issues/store),
-    `dispatch_window` (metrics/actuals_usage) -- are still in `__main__.py`, and this
-    fails on whichever extraction moves them next.
+    guard would be green over it. The `metrics` extraction then moved three more --
+    `compute_story_estimate` and `rollup_parent_estimate` to `metrics/estimates.py`,
+    `dispatch_window` to `metrics/actuals_usage.py` -- and the repair was the same shape
+    one level deeper: `pm.metrics.<mod>.<name>`, with `_promote_issue` calling the two
+    estimate functions as `metrics.estimates.<name>(...)`.
+
+    `resolve_issue_core` (issues/store) is the ONE bare target left, and this fails on
+    the extraction that moves it.
     """
 
     def _top_level_names(self, path):
@@ -229,12 +233,24 @@ class TestPatchTargetsAreDefinedInMain(unittest.TestCase):
         for name, line in sorted(targets.items()):
             if name in defined_here:
                 continue
-            owner = elsewhere.get(name, "nowhere in the package")
-            # The submodule to name in the repair is DERIVED from where the definition
-            # actually is (pm_status/<mod>/__init__.py -> <mod>), so a module this test
-            # has never heard of still gets a usable instruction instead of "<module>".
-            parts = owner.replace(os.sep, "/").split("/")
-            mod = parts[-2] if len(parts) >= 2 and parts[-1] == "__init__.py" else "<module>"
+            owner = elsewhere.get(name)
+            # The dotted path to name in the repair is DERIVED from where the definition
+            # actually is, so a module this test has never heard of still gets a usable
+            # instruction instead of "<module>". Both shapes the package uses resolve:
+            # pm_status/nodes/__init__.py -> nodes, and pm_status/metrics/estimates.py ->
+            # metrics.estimates. A bucket that becomes a directory later therefore needs
+            # no edit here.
+            mod = "<module>"
+            if owner:
+                parts = owner.replace(os.sep, "/").split("/")
+                if parts[0] == "pm_status":
+                    parts = parts[1:]
+                if parts and parts[-1] == "__init__.py":
+                    parts = parts[:-1]
+                elif parts and parts[-1].endswith(".py"):
+                    parts[-1] = parts[-1][:-len(".py")]
+                mod = ".".join(parts) or "<module>"
+            owner = owner or "nowhere in the package"
             problems.append(
                 f'{os.path.basename(__file__)}:{line} patches pm."{name}", but __main__.py '
                 f"only re-exports it -- it is defined in {owner}. Repoint the patch to "
@@ -6506,7 +6522,7 @@ class TestTranscriptScoping(Base):
             fh.write(json.dumps({"ts": "2026-08-01T20:00:00+00:00", "event": "dispatch_open",
                                  "agent": "bmad-dev-story", "epic": "E001",
                                  "story": "E001-S01-999"}) + "\n")
-        a, b = pm.dispatch_window(root, story="E001-S01-001")
+        a, b = pm.metrics.actuals_usage.dispatch_window(root, story="E001-S01-001")
         self.assertEqual(a, pm._parse_iso("2026-08-01T10:00:00+00:00"))
         self.assertEqual(b, pm._parse_iso("2026-08-01T13:00:00+00:00"),
                          "last close, so fix iterations are included")
@@ -6517,7 +6533,7 @@ class TestTranscriptScoping(Base):
         with open(os.path.join(root, "events.jsonl"), "w", encoding="utf-8") as fh:
             fh.write(json.dumps({"ts": "2026-08-01T10:00:00+00:00", "event": "dispatch_open",
                                  "agent": "x", "story": "OTHER"}) + "\n")
-        self.assertEqual(pm.dispatch_window(root, story="MINE"), (None, None))
+        self.assertEqual(pm.metrics.actuals_usage.dispatch_window(root, story="MINE"), (None, None))
 
     def test_cli_refuses_a_node_with_no_dispatch_bracket(self):
         root = os.path.join(self.d, "state")
@@ -7634,26 +7650,26 @@ class TestEstimateCores(TestLayoutResolution):
             before = fh.read()
         _, node = pm.load_node(path)
         with self.assertRaises(pm.PMError) as cm:
-            pm.compute_story_estimate(self.root, node, "standard", "no-such-model", None)
+            pm.metrics.estimates.compute_story_estimate(self.root, node, "standard", "no-such-model", None)
         self.assertEqual(cm.exception.code, 2)
         with open(path, encoding="utf-8") as fh:
             self.assertEqual(fh.read(), before, "core must never save")
 
     def test_compute_story_estimate_fills_node_in_memory(self):
         _, node = pm.load_node(pm.story_file(self.root, "E001-S01-003"))
-        applied = pm.compute_story_estimate(self.root, node, "simple", pm.DEFAULT_ESTIMATE_MODEL, None)
+        applied = pm.metrics.estimates.compute_story_estimate(self.root, node, "simple", pm.DEFAULT_ESTIMATE_MODEL, None)
         self.assertIn("man_hours", applied)
         self.assertIn("cost", node["estimate"])
         self.assertEqual(node["classification"], "simple")
 
     def test_rollup_parent_estimate_raises_for_missing_sprint(self):
         with self.assertRaises(pm.PMError) as cm:
-            pm.rollup_parent_estimate(self.root, "E001", "S09", pm.DEFAULT_ESTIMATE_MODEL, None)
+            pm.metrics.estimates.rollup_parent_estimate(self.root, "E001", "S09", pm.DEFAULT_ESTIMATE_MODEL, None)
         self.assertEqual(cm.exception.code, 3)
 
     def test_rollup_parent_estimate_raises_when_nothing_to_roll_up(self):
         with self.assertRaises(pm.PMError) as cm:
-            pm.rollup_parent_estimate(self.root, "E001", "S01", pm.DEFAULT_ESTIMATE_MODEL, None)
+            pm.metrics.estimates.rollup_parent_estimate(self.root, "E001", "S01", pm.DEFAULT_ESTIMATE_MODEL, None)
         self.assertEqual(cm.exception.code, 2)
 
     def test_cli_unknown_model_still_exits_2_and_writes_nothing(self):
@@ -7670,11 +7686,11 @@ class TestEstimateCores(TestLayoutResolution):
     def test_compute_story_estimate_leaves_node_untouched_when_it_raises(self):
         path = pm.story_file(self.root, "E001-S01-003")
         _, node = pm.load_node(path)
-        pm.compute_story_estimate(self.root, node, "simple", pm.DEFAULT_ESTIMATE_MODEL, None)
+        pm.metrics.estimates.compute_story_estimate(self.root, node, "simple", pm.DEFAULT_ESTIMATE_MODEL, None)
         before_est = json.dumps(node["estimate"], sort_keys=True, default=str)
         before_cls = node["classification"]
         with self.assertRaises(pm.PMError):
-            pm.compute_story_estimate(self.root, node, "complex", "no-such-model", None)
+            pm.metrics.estimates.compute_story_estimate(self.root, node, "complex", "no-such-model", None)
         self.assertEqual(json.dumps(node["estimate"], sort_keys=True, default=str), before_est,
                          "a failed estimate must not half-overwrite the previous one")
         self.assertEqual(node["classification"], before_cls)
@@ -8081,7 +8097,7 @@ class TestPromoteIssue(IssueBase):
         """Spec §6.1/§7: the node and its estimate land in ONE save. If the estimate fails
         after validation, no story node may be left on disk (it would have no estimate)."""
         self.append("A")
-        with mock.patch.object(pm, "compute_story_estimate",
+        with mock.patch.object(pm.metrics.estimates, "compute_story_estimate",
                                side_effect=pm.PMError(2, "injected")):
             code, _, err = self.promote("BL-E001-001")
         self.assertNotEqual(code, 0)
@@ -8131,7 +8147,7 @@ class TestPromoteIssue(IssueBase):
         # the window.
         import subprocess
         self.append("A")
-        real_rollup = pm.rollup_parent_estimate
+        real_rollup = pm.metrics.estimates.rollup_parent_estimate
         lock = pm.issues_paths(self.root)[0] + ".lock"
         procs, failures = [], []
 
@@ -8150,7 +8166,7 @@ class TestPromoteIssue(IssueBase):
                 raise
             return real_rollup(*a, **kw)
 
-        with mock.patch.object(pm, "rollup_parent_estimate", racing_rollup):
+        with mock.patch.object(pm.metrics.estimates, "rollup_parent_estimate", racing_rollup):
             try:
                 code, out, err = self.promote("BL-E001-001")
             except AssertionError:
@@ -8177,7 +8193,7 @@ class TestPromoteIssue(IssueBase):
         #   estimate, which that write must leave intact.
         import subprocess
         self.append("A")
-        real_rollup = pm.rollup_parent_estimate
+        real_rollup = pm.metrics.estimates.rollup_parent_estimate
         lock = pm.epic_lock_path(self.root, "E001")
         procs, failures, after, holds = [], [], [], []
 
@@ -8207,7 +8223,7 @@ class TestPromoteIssue(IssueBase):
             after.append((level, procs[0].poll(), pm.load_node(pm.nodes.epic_file(self.root, "E001"))[1]))
             return result
 
-        with mock.patch.object(pm, "rollup_parent_estimate", watched_rollup):
+        with mock.patch.object(pm.metrics.estimates, "rollup_parent_estimate", watched_rollup):
             try:
                 code, out, err = self.promote("BL-E001-001")
             except AssertionError:
@@ -8956,7 +8972,7 @@ class TestConcurrentPromote(unittest.TestCase):
         self.assertEqual(len(stories), self.N)
         after_race = dict(pm.load_node(pm.sprint_file(self.root, "E001", "S02"))[1]["estimate"])
         with redirect_stderr(io.StringIO()):
-            pm.rollup_parent_estimate(self.root, "E001", "S02", pm.DEFAULT_ESTIMATE_MODEL, None)
+            pm.metrics.estimates.rollup_parent_estimate(self.root, "E001", "S02", pm.DEFAULT_ESTIMATE_MODEL, None)
         fresh = dict(pm.load_node(pm.sprint_file(self.root, "E001", "S02"))[1]["estimate"])
         self.assertEqual(after_race["man_hours_low"], fresh["man_hours_low"],
                          "the last roll-up saved during the race missed a story")
@@ -13735,7 +13751,7 @@ class TestTranscriptFallback(Base):
 
     def _inside(self):
         """A timestamp inside the recorded dispatch bracket, read back from the log."""
-        open_ts, _close = pm.dispatch_window(self.root, **self.KEYS)
+        open_ts, _close = pm.metrics.actuals_usage.dispatch_window(self.root, **self.KEYS)
         return open_ts
 
     def _discover(self, state_root=None):
@@ -13793,7 +13809,7 @@ class TestTranscriptFallback(Base):
         open_ts = datetime.now(UTC) - 20 * SECOND
         close_ts = open_ts + 10 * SECOND
         self._transcript("sess-a", [("sess-a", open_ts + SECOND), ("sess-a", close_ts + SECOND)])
-        with mock.patch.object(pm, "dispatch_window", return_value=(open_ts, close_ts)):
+        with mock.patch.object(pm.metrics.actuals_usage, "dispatch_window", return_value=(open_ts, close_ts)):
             paths, _sid, why = self._discover()
         self.assertEqual(paths, [])
         self.assertIn("no transcript spans", why)
