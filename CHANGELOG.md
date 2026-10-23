@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file. See [commit-and-tag-version](https://github.com/absolute-version/commit-and-tag-version) for commit guidelines.
 
+## [3.5.2](https://github.com/ravensorb/bmad-extensions/compare/3.5.1...3.5.2) (2026-10-23)
+
+
+### Documentation
+
+* **infra:** record that BMad owns and wipes _bmad/scripts on both lines ([5625723](https://github.com/ravensorb/bmad-extensions/commit/5625723e6bf18d92e5dc52d1096bb0ace2940c74))
+
 ## [3.5.1](https://github.com/ravensorb/bmad-extensions/compare/3.5.0...3.5.1) (2026-10-22)
 
 
