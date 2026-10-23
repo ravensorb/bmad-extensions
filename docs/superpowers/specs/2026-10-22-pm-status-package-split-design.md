@@ -50,8 +50,11 @@ privilege or developer mode — but `pm-status.py` calls `fcntl.flock` at four s
 references) and `fcntl` does not exist on Windows. The file is **already POSIX-only**. A
 symlink adds no platform restriction that `flock` has not already imposed.
 
-**Decision: adopt Option B**, with the symlink swap as the atom rather than a directory-level
-`os.replace`.
+**Decision: adopt Option B.** Measurement 2 settles ADR-0001's objection — atomicity *is*
+reachable for a directory — but §4 then declines to spend it, because the v7 finding
+(`2026-10-16-bmad-v7-layer-design.md` §3.4) shows `self-install` is retired at 4.0.0. The spike
+is what makes that a choice rather than a limitation: we know the atomic route exists and what
+it costs, and are choosing the cheaper one for a mechanism with a death date.
 
 ## 3. The module map
 
@@ -110,41 +113,52 @@ structure exists to avoid.
 
 ## 4. The install contract
 
+**`self-install` is v6-only machinery with a known successor, and this section is scoped to
+that.** On v7 a module *declares* its scripts in `bmod.toml` and BMad installs them itself,
+which retires `self-install` entirely at 4.0.0. Everything below therefore buys the smallest
+thing that works on the v6 line, and is deliberately **not** generalised to serve both
+generations.
+
 **Installed layout**, under `{project-root}/_bmad/scripts/`:
 
 ```
-pm-status  ->  pm-status-3.6.0/        the symlink IS the atom
-pm-status-3.6.0/
+pm-status/
   __main__.py  __init__.py  core/  metrics/  instructions/  state/
 ```
 
-**Binding:** `{pm_status}` becomes `{project-root}/_bmad/scripts/pm-status/__main__.py`. The
-link name never moves, so the binding is stable across upgrades.
+A plain directory, not a version-stamped one behind a symlink. The spike measured a symlink
+swap as genuinely atomic and it is the stronger design — but it carries a retention rule, a GC
+pass that must never delete the live tree, and a `realpath`-vs-`__file__` subtlety, all for a
+mechanism scheduled for deletion. That is the wrong place to spend the care.
 
-**`self-install`**, five steps, one atomic:
+**Binding:** `{pm_status}` becomes `{project-root}/_bmad/scripts/pm-status/__main__.py`.
 
-1. Stage into `pm-status-<version>.staging-<pid>/` — non-atomic but invisible; nothing points at it.
-2. Compute a **tree digest**: SHA-256 over sorted `(relpath, file-sha256)` pairs.
-3. Compare to the installed tree's digest. Reinstall on difference, skip on identical.
-   **Content-guarded, never version-guarded** — the marker is hand-maintained and has drifted
-   twice, which is why the single-file guard already compares bytes.
-4. `os.rename` staging → `pm-status-<version>/`.
-5. Create a temp link, then **one `os.replace` over `pm-status`**.
+**`self-install`**, four steps:
+
+1. Stage into `pm-status.staging-<pid>/` — invisible; nothing points at it.
+2. Compute a **tree digest**: SHA-256 over sorted `(relpath, file-sha256)` pairs. Compare to the
+   installed tree. Reinstall on difference, skip on identical. **Content-guarded, never
+   version-guarded** — the marker is hand-maintained and has drifted twice, which is why the
+   single-file guard already compares bytes.
+3. `os.rename` the live `pm-status/` aside to `pm-status.old-<pid>/`, if present.
+4. `os.rename` staging → `pm-status/`, then delete the old directory.
 
 Downgrade refusal is unchanged: a strictly newer installed version is still refused, because
 content cannot express ordering.
 
-**Retention.** Keep the live version and the immediately previous; delete older. GC runs
-**after** the swap, never before, and never deletes the `realpath` of the live link. A crash
-mid-GC leaves a half-deleted *old* version that nothing points at — harmless by construction,
-and re-collected on the next install.
+**The window between steps 3 and 4 is the accepted cost.** For the duration of one `rename(2)`
+there is no `pm-status/`. An invocation landing exactly there fails to find the script. Three
+things make that tolerable and none of them are "it is unlikely":
 
-**`__file__` is the symlink**, so `self-install` resolves its *source* package from its own real
-path. It runs from the skill's own copy, so this is a guard against a future "simplification",
-not a live bug.
-
-**Rollback improves.** It becomes a second link swap, because the previous version is still on
-disk. Today a bad install has nothing to fall back to.
+- **It is self-healing by a mechanism that already exists.** The content guard treats missing as
+  different, so the next activation reinstalls. This is the same property that has been silently
+  absorbing BMad's own wipe of `_bmad/scripts/` on both generations (ADR-0001, 2026-10-23).
+- **It fails loudly, not silently.** A missing script is a non-zero exit with a path in the
+  message, not a wrong answer written to project state.
+- **Step 4 must recover.** If the second rename fails, `self-install` renames the old directory
+  back and reports failure. A crash between the two leaves `pm-status.old-<pid>/` on disk and no
+  `pm-status/`; the next run stages and installs cleanly, and sweeps any `*.old-*` and
+  `*.staging-*` siblings it finds. That sweep is what keeps a crashed install from accumulating.
 
 **No compatibility shim** at the old `pm-status.py` path. Every consumer is in this package and
 changes in the same commit, and a shim resolving to a stale single-file copy is exactly the
@@ -246,10 +260,15 @@ byte-identical diff. That is the artifact that catches a dropped `register()`.
 - **1,500 may be wrong.** It is chosen to force three specific splits, not derived from a
   measurement of readability. If a module lands at 1,480 and is incoherent, the number did not
   help. Revisit on evidence, in ADR-0001, the same discipline as the line cap it replaces.
-- **Symlinks on exotic filesystems.** Measured on this machine's ext4 under WSL2. A filesystem
-  without symlink support breaks the swap, not merely the atomicity. `flock` already constrains
-  this to POSIX, but "POSIX" and "supports symlinks" are not identical claims and only the first
-  is currently enforced anywhere.
+- **The install window is a real, accepted defect, not a theoretical one.** §4 step 3→4 leaves
+  no `pm-status/` for the duration of one rename. It is self-healing and fails loudly, and the
+  symlink design that removes it is specified in §2 if this ever proves to bite — but it is a
+  regression against today's single-file `os.replace`, which has no window at all. Recorded as a
+  cost of the simpler design rather than buried in it.
+- **A crashed install leaves siblings.** `pm-status.old-<pid>/` or `pm-status.staging-<pid>/`
+  survive a crash. The next run sweeps them, so the only failure mode is disk until then — but
+  that sweep must exist from the first release, or the directory accumulates copies of a 10,000-
+  line package and nobody notices until it is large.
 - **Resolved — the per-skill payload copy stays a full tree, at no size cost.** An earlier draft
   of this bullet said shipping the package would "roughly double" the payload those skills
   carry. That was wrong: `pm-status.py` is 492 KB in each of `l3io-setup` and `l3io-doctor`
@@ -275,10 +294,18 @@ package is proven.
 
 ## 8. ADR
 
-**Amend ADR-0001.** No new number: ADR-0001 states the Option B argument belongs in that file.
-The amendment records the four spike measurements — including that its own named test fails —
-the symlink route, the POSIX-only finding that defuses the Windows objection, and the per-file
-cap replacing check 12.
+**Amend ADR-0001 again.** No new number: ADR-0001 states the Option B argument belongs in that
+file, and it already carries a 2026-10-23 amendment on BMad owning `_bmad/scripts/`.
+
+The new amendment records: the four spike measurements, including that the ADR's own named test
+(`os.replace` on a directory) **fails**; that atomicity is nonetheless reachable via a symlink;
+the POSIX-only finding that defuses the Windows objection to symlinks; the decision to adopt
+Option B with the **plain-directory** install rather than the symlink, because `self-install`
+is retired at 4.0.0; and the per-file 1,500-line cap replacing check 12.
+
+The distinction matters in the record: Option B was blocked on an objection that turns out to
+be answerable, and the simpler install is then a deliberate economy — not a second failure to
+clear the bar.
 
 `docs/superpowers/specs/2026-10-16-bmad-v7-layer-design.md` §4.5 also gains an amendment
 pointing at §3 of this document for the full 43-verb classification.
