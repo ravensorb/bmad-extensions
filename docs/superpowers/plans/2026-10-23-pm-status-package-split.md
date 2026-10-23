@@ -20,7 +20,7 @@
 
 ## Global Constraints
 
-- **Per-file cap: 1,500 lines** over every `.py` in the package. Enforced in Task 12; until then check 12 keeps its 10,000 limit.
+- **Per-file cap: 1,500 lines** over every `.py` in the package. **Enforced since Task 9** (moved forward from Task 12: the number was stated here, in `boundary-measurement.md` and in `metrics/__init__.py`'s docstring and checked nowhere, which is this repo's dominant failure mode). `__main__.py` is the one file still on ADR-0001's 10,000 limit, because it only drops under 1,500 when Task 11 lands; folding it in is Task 12's remaining job.
 - **Never hand-edit a per-skill payload copy.** Author in `skills/_shared/`, then `npm run sync:scripts`, then `node scripts/write-payload-manifest.mjs`.
 - **Test ASSERTIONS never change.** A `mock.patch` *target* may be repointed in the same commit that moves the name it targets — see the module-qualified-call rule below.
 - **Call across modules through the module object** — `core._atomic_dump(...)`, never `from .core import _atomic_dump`. A `from X import name` binding is a private copy, so patching the defining module would not reach it. This is what keeps the suite's ~15 patch sites meaningful.
@@ -76,7 +76,7 @@ At the very top of `__main__.py`, before any relative import: when `__package__`
 
 - [ ] **Step 4: Widen the gate scopes**
 
-`check-types.mjs` `TARGET` and `check-docs.mjs` checks 4, 10, 12 and 26 each read `pm_status/__main__.py` only. Make each cover every `.py` under `skills/_shared/pm_status/`. Check 12 keeps its 10,000 limit but applies per file.
+`check-types.mjs` `TARGET` and `check-docs.mjs` checks 4, 10, 12 and 26 each read `pm_status/__main__.py` only. Make each cover every `.py` under `skills/_shared/pm_status/`. Check 12 applies per file (Task 9 then tightened it to 1,500 for every file except `__main__.py`).
 
 - [ ] **Step 5: Fix the stale invocation path in `CLAUDE.md`**
 
@@ -148,7 +148,7 @@ Store (538), promote (577), audit (702), ADR allocator (150). Above `nodes`, bel
 - [ ] **Step 2: Implement `register(subparsers)` per module**; `build_parser()` calls them in a fixed order.
 - [ ] **Step 3: Mutation-check the guard** — delete one module's `register()` call and confirm the test fails. A guard that cannot fail is the failure mode this task exists to prevent.
 - [ ] **Step 4: Verify the CLI surface is byte-identical** against `.superpowers/sdd/2026-10-23-pm-status-package-split/cli-surface-before.txt`. Any diff is a dropped or reordered registration.
-- [ ] **Step 5: Tighten check 12 to a per-file 1,500-line cap** over `pm_status/**/*.py`. The message names the file, its count, the limit, and ADR-0001. Delete the "Option C, a bundler, is the first candidate" sentence — ADR-0001 retired Option C. Add a test planting a 1,501-line file.
+- [x] **Step 5: Tighten check 12 to a per-file 1,500-line cap** over `pm_status/**/*.py`. The message names the file, its count, the limit, and ADR-0001. Delete the "Option C, a bundler, is the first candidate" sentence — ADR-0001 retired Option C. Add a test planting a 1,501-line file. **Done in Task 9**, except for `__main__.py`, which is still above 1,500 until Task 11 lands and so stays on ADR-0001's 10,000 limit. All that remains here is deleting `PM_STATUS_LINE_LIMIT` and its `__main__.py` exception once the entry file is under the module cap.
 - [ ] **Step 6: Run all gates and the full suites, commit**
 
 ### Task 13: ADR amendment and documentation

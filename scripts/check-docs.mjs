@@ -2307,9 +2307,25 @@ function checkAppendIssuePointer() {
 // The number, and the check itself, are owned by docs/adr/0001-pm-status-single-self-installed-
 // file.md's Amendment (2026-09-11): the ~6,000-line prose trigger fired unnoticed, so the
 // revisit point is now a hard, mechanically enforced line count instead of a number that only
-// lives in an ADR's prose. Raising PM_STATUS_LINE_LIMIT is a decision for that ADR, not a
+// lives in an ADR's prose. Raising either limit below is a decision for that ADR, not a
 // number to move here on its own.
-const PM_STATUS_LINE_LIMIT = 10000;   // raised from 8,000 — ADR-0001 amendment 2026-10-03
+//
+// TWO limits, because the package has two kinds of file and only one of them is finished.
+// The 1,500-line per-module cap was stated in the package-split task briefs, in
+// boundary-measurement.md and in metrics/__init__.py's own docstring, and enforced NOWHERE:
+// a module could have reached 9,999 lines with every gate green, and calibration.py was
+// already at ~85% of the budget nobody checked. That is this repo's dominant failure mode
+// (a documented number nobody checks), so the cap is now the enforced one for every module.
+//
+// __main__.py is deliberately NOT on the 1,500 cap yet. It is mid-extraction: code leaves it
+// one module at a time and it only drops under 1,500 when the last bucket (`plan/`) lands.
+// Putting it on the module cap today would mean either failing the build on a planned,
+// transitional state or quietly raising the module number to accommodate it -- the second is
+// the exact thing this check exists to prevent. It therefore keeps the ADR-0001 number it
+// already had, and folds into the module cap when the extraction finishes.
+const PM_STATUS_LINE_LIMIT = 10000;          // __main__.py — ADR-0001 amendment 2026-10-03
+const PM_STATUS_MODULE_LINE_LIMIT = 1500;    // every other file in the package
+const PM_STATUS_ENTRY_FILE = `${PM_STATUS_DIR}/__main__.py`;
 
 function checkPmStatusSize() {
   // Per file: the limit exists so no single file outgrows what a reader and a reviewer can hold,
@@ -2317,16 +2333,17 @@ function checkPmStatusSize() {
   // count, matching `wc -l` -- not split("\n").length, which overcounts by one on any file (all
   // of them) that ends with a trailing newline.
   for (const file of pmStatusFiles()) {
+    const limit = file === PM_STATUS_ENTRY_FILE ? PM_STATUS_LINE_LIMIT : PM_STATUS_MODULE_LINE_LIMIT;
     const lines = (read(file).match(/\n/g) || []).length;
-    if (lines > PM_STATUS_LINE_LIMIT) {
+    if (lines > limit) {
       failures.push(
-        `${file}: ${lines} lines, over the ${PM_STATUS_LINE_LIMIT}-line per-file limit ` +
-          `docs/adr/0001-pm-status-single-self-installed-file.md sets by ${lines - PM_STATUS_LINE_LIMIT}\n` +
-          `      Revisit the ADR's options (Option C, a bundler, is the first candidate) before\n` +
-          `      raising PM_STATUS_LINE_LIMIT in scripts/check-docs.mjs.`,
+        `${file}: ${lines} lines, over the ${limit}-line per-file limit ` +
+          `docs/adr/0001-pm-status-single-self-installed-file.md sets by ${lines - limit}\n` +
+          `      Split the module rather than raising the limit in scripts/check-docs.mjs;\n` +
+          `      the number is the ADR's to move, not this file's.`,
       );
     }
-    if (verbose) console.log(`  pm-status-size: ${file} ${lines} / ${PM_STATUS_LINE_LIMIT} line limit`);
+    if (verbose) console.log(`  pm-status-size: ${file} ${lines} / ${limit} line limit`);
   }
 }
 

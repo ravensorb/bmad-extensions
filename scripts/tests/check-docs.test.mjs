@@ -264,12 +264,36 @@ test("check 12: pm-status.py over the 10,000-line limit is caught", async (t) =>
   assert.match(r.stderr, /__main__\.py: \d+ lines, over the 10000-line per-file limit/);
 });
 
-test("check 12: the limit is per file, so a second module over it is caught too", async (t) => {
+// A module of the package is capped at 1,500 lines, not at __main__.py's 10,000. That number
+// was stated in three places (the split task briefs, boundary-measurement.md, and
+// metrics/__init__.py's docstring) and enforced in none of them until this test existed: a
+// module could have reached 9,999 lines with every gate green.
+test("check 12: a package module over the 1,500-line cap is caught, and named", async (t) => {
   const root = fixture(t);
-  write(root, "skills/_shared/pm_status/core/big.py", "# pad\n".repeat(10001), true);
+  write(root, "skills/_shared/pm_status/core/big.py", "# pad\n".repeat(1501), true);
   const r = await run(root);
   assert.equal(r.status, 1);
-  assert.match(r.stderr, /core\/big\.py: 10001 lines, over the 10000-line per-file limit/);
+  assert.match(r.stderr, /core\/big\.py: 1501 lines, over the 1500-line per-file limit/);
+  // The message has to carry all four facts a reader needs: which file, how long, the limit,
+  // and where the number is owned -- not just "too big".
+  assert.match(r.stderr, /docs\/adr\/0001-pm-status-single-self-installed-file\.md sets by 1\b/);
+});
+
+test("check 12 boundary: a package module at exactly 1,500 lines passes", async (t) => {
+  const root = fixture(t);
+  write(root, "skills/_shared/pm_status/core/big.py", "# pad\n".repeat(1500), true);
+  const r = await run(root);
+  assert.equal(r.status, 0, r.stderr + r.stdout);
+});
+
+// The entry file is mid-extraction and keeps ADR-0001's 10,000 until the last bucket lands.
+// Asserted so that folding it into the module cap later is a deliberate edit here, not a
+// silent consequence of a line count finally dropping.
+test("check 12: __main__.py is on the 10,000 limit, not the module cap", async (t) => {
+  const root = fixture(t);
+  const r = await run(root, ["-v"]);
+  assert.match(r.stdout, /pm-status-size: skills\/_shared\/pm_status\/__main__\.py \d+ \/ 10000 line limit/);
+  assert.match(r.stdout, /pm-status-size: skills\/_shared\/pm_status\/core\/__init__\.py \d+ \/ 1500 line limit/);
 });
 
 test("check 26: a second module of the package that assembles a state path is caught", async (t) => {
