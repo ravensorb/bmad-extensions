@@ -11,6 +11,7 @@ Exercises the sharded split-directory layout resolution, key-based node addressi
 append-issue, self-install), comment/order preservation, the events.jsonl
 transition log, the progress report, and verify exit codes.
 """
+import ast
 import hashlib
 import io
 import json
@@ -153,6 +154,86 @@ class TestInvocationModes(unittest.TestCase):
         self.assertIs(sys.modules["pm_status"], sys.modules["pm_status.__main__"])
 
 
+class TestPatchTargetsAreDefinedInMain(unittest.TestCase):
+    """`mock.patch.object(pm, "<name>")` must name something `__main__.py` DEFINES.
+
+    `pm` is `__main__`'s own module object (the __init__.py alias). As code is extracted,
+    `__main__.py` keeps most moved names reachable with `from .core import <name>` -- and
+    that binding is a PRIVATE COPY. Patching it rebinds `__main__`'s global and reaches
+    nobody: core's own callers, and every other submodule, still see core's. The patch
+    silently guards nothing, with no AttributeError to notice, which is the most expensive
+    shape a test can take.
+
+    So the rule is: a patched name must be DEFINED in `__main__.py`, or the target must be
+    module-qualified (`pm.core.<name>`) and its callers must call `core.<name>(...)`.
+
+    Latent today -- none of the current bare targets have moved -- and that is the point:
+    this fails on the extraction that moves one, naming it and where it went, instead of
+    going quietly green. `save_node` and `epic_file` are both in the `nodes` bucket, so
+    the next extraction is the one that trips it.
+    """
+
+    def _top_level_names(self, path):
+        with open(path, encoding="utf-8") as fh:
+            tree = ast.parse(fh.read())
+        names = set()
+        for node in tree.body:
+            if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+                names.add(node.name)
+            elif isinstance(node, ast.Assign):
+                names.update(t.id for t in node.targets if isinstance(t, ast.Name))
+            elif isinstance(node, ast.AnnAssign) and isinstance(node.target, ast.Name):
+                names.add(node.target.id)
+        return names
+
+    def _bare_pm_patch_targets(self):
+        """Every `patch.object(pm, "<name>", ...)` in THIS file, by AST, not by regex: a
+        name inside a docstring or a comment is not a patch site."""
+        with open(__file__, encoding="utf-8") as fh:
+            tree = ast.parse(fh.read())
+        found = {}
+        for node in ast.walk(tree):
+            if not (isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute)
+                    and node.func.attr == "object" and len(node.args) >= 2):
+                continue
+            target, attr = node.args[0], node.args[1]
+            if (isinstance(target, ast.Name) and target.id == "pm"
+                    and isinstance(attr, ast.Constant) and isinstance(attr.value, str)):
+                found.setdefault(attr.value, node.lineno)
+        return found
+
+    def test_every_bare_pm_patch_target_is_defined_in_main(self):
+        targets = self._bare_pm_patch_targets()
+        self.assertGreater(len(targets), 0,
+                           "found no patch.object(pm, ...) sites -- the matcher broke, and a "
+                           "guard that checks an empty set reports success over nothing")
+
+        defined_here = self._top_level_names(SCRIPT)
+        pkg = os.path.dirname(SCRIPT)
+        elsewhere = {}
+        for dirpath, dirnames, filenames in os.walk(pkg):
+            dirnames[:] = [d for d in dirnames if d != "__pycache__"]
+            for fn in sorted(filenames):
+                p = os.path.join(dirpath, fn)
+                if not fn.endswith(".py") or p == SCRIPT:
+                    continue
+                for name in self._top_level_names(p):
+                    elsewhere.setdefault(name, os.path.relpath(p, os.path.dirname(pkg)))
+
+        problems = []
+        for name, line in sorted(targets.items()):
+            if name in defined_here:
+                continue
+            owner = elsewhere.get(name, "nowhere in the package")
+            problems.append(
+                f'{os.path.basename(__file__)}:{line} patches pm."{name}", but __main__.py '
+                f"only re-exports it -- it is defined in {owner}. Repoint the patch to "
+                f'pm.{"core" if owner.endswith("core/__init__.py") else "<module>"}."{name}" '
+                f"AND make __main__.py call it through the module object, or the patch "
+                f"rebinds a private copy and guards nothing.")
+        self.assertEqual(problems, [], "\n  " + "\n  ".join(problems) if problems else "")
+
+
 class TestSelfInstall(Base):
     """`self-install` installs the package DIRECTORY `pm-status/` beside --dest (spec §4)."""
 
@@ -162,6 +243,27 @@ class TestSelfInstall(Base):
     def _marker(self, dest, text):
         with open(os.path.join(self._live(dest), "__main__.py"), "w", encoding="utf-8") as fh:
             fh.write(text)
+
+    def test_package_root_is_the_package_dir_not_a_subpackage(self):
+        """`package_root` resolves from `__file__`, and that file is in the `core/`
+        SUBPACKAGE: one dirname names `core/` and self-install copies a fragment.
+
+        This assertion exists because the obvious pin does not pin it. Every other test
+        here compares tree_digest(installed) against tree_digest(package_root()), and
+        cmd_self_install copies FROM package_root() -- both sides move together, so that
+        comparison passes with either dirname count. A one-dirname mutation is still
+        caught today, but by an incidental FileNotFoundError when the chmod of
+        `__main__.py` misses a core-only copy: an error on an anchor, not a failure on
+        the behaviour. Assert the behaviour.
+        """
+        root = pm.package_root()
+        self.assertTrue(os.path.exists(os.path.join(root, "__main__.py")),
+                        "package_root must be the package dir, not a subpackage")
+        self.assertTrue(os.path.exists(os.path.join(root, "__init__.py")),
+                        "package_root must be the package dir, not a subpackage")
+        self.assertEqual(os.path.basename(os.path.dirname(os.path.abspath(pm.__file__))),
+                         os.path.basename(root),
+                         "package_root must name the directory __main__.py lives in")
 
     def test_installs_when_absent(self):
         dest = os.path.join(self.d, "sub", "pm-status.py")
