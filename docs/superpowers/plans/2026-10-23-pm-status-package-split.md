@@ -123,8 +123,8 @@ Calibration (1,220 — the largest single file and still under the cap), estimat
 
 Store (538), promote (577), audit (702), ADR allocator (150). Above `nodes`, below `verbs`.
 
-- [ ] **Step 1: Move the bucket as four files.** `pm.IssueStore` is unaffected by the move; `resolve_issue_core` is the patch target that lands here.
-- [ ] **Step 2: Script-path smoke test, all gates, full suites, commit**
+- [x] **Step 1: Move the bucket as four files.** `pm.IssueStore` is unaffected by the move; `resolve_issue_core` is the patch target that lands here. It was the last BARE one, so `TestPatchTargetsAreDefinedInMain` now has no known next firing and its non-empty anchor counts every `pm`-rooted patch site rather than the bare ones alone.
+- [x] **Step 2: Script-path smoke test, all gates, full suites, commit**
 
 ### Task 10: Extract `verbs/` (1,100 lines)
 

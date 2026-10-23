@@ -136,7 +136,14 @@ class TestInvocationModes(unittest.TestCase):
             with open(main_py, encoding="utf-8") as fh:
                 lines = fh.read().split("\n")
             # After the prologue's position, anchored on a line that exists with or without it.
-            at = next(i for i, ln in enumerate(lines) if ln.startswith("if TYPE_CHECKING:"))
+            #
+            # DERIVED, not pinned: the first relative import in the file. The prologue's own
+            # rule is "nothing relative may appear above this block", so that line is after it
+            # by construction, in this tree and in every later one. It was pinned to
+            # `if TYPE_CHECKING:` until the `issues` extraction moved that guard out with
+            # IssueStore, and the test then died on a StopIteration -- an error on an anchor
+            # rather than a failure on the behaviour, which is the shape that teaches nothing.
+            at = next(i for i, ln in enumerate(lines) if ln.startswith("from . import "))
             lines.insert(at, "from . import _probe  # noqa: F401")
             with open(main_py, "w", encoding="utf-8") as fh:
                 fh.write("\n".join(lines))
@@ -178,8 +185,15 @@ class TestPatchTargetsAreDefinedInMain(unittest.TestCase):
     one level deeper: `pm.metrics.<mod>.<name>`, with `_promote_issue` calling the two
     estimate functions as `metrics.estimates.<name>(...)`.
 
-    `resolve_issue_core` (issues/store) is the ONE bare target left, and this fails on
-    the extraction that moves it.
+    The `issues` extraction then moved the last bare one, `resolve_issue_core`, to
+    `issues/store.py`: the target is now `pm.issues.store.resolve_issue_core`, and its two
+    callers outside that file -- `_resolve_story_items` in `__main__.py` and
+    `_normalize_one_legacy` in `issues/audit.py` -- reach it through the module object.
+
+    EVERY bare target is now gone, so this guard no longer has a known next firing. That
+    makes it a regression guard rather than a countdown: the thing it now catches is a NEW
+    `patch.object(pm, "<name>")` written against a name that lives in a submodule, which is
+    the natural shape to write and the one that silently guards nothing.
     """
 
     def _top_level_names(self, path):
@@ -195,25 +209,50 @@ class TestPatchTargetsAreDefinedInMain(unittest.TestCase):
                 names.add(node.target.id)
         return names
 
-    def _bare_pm_patch_targets(self):
-        """Every `patch.object(pm, "<name>", ...)` in THIS file, by AST, not by regex: a
-        name inside a docstring or a comment is not a patch site."""
+    def _pm_patch_targets(self):
+        """Every `patch.object(pm..., "<name>", ...)` in THIS file, by AST, not by regex: a
+        name inside a docstring or a comment is not a patch site.
+
+        Returns (bare, qualified): `{name: lineno}` for `patch.object(pm, ...)`, and
+        `{dotted: {name: lineno}}` for `patch.object(pm.core, ...)` and friends.
+
+        BOTH are collected, and the non-empty anchor below counts BOTH, because the bare set
+        is now EMPTY on a correct tree -- `resolve_issue_core` was the last one, and the
+        `issues` extraction repointed it. An anchor over the bare set alone would have gone
+        from "the matcher broke" to "the refactor finished" without the assertion being able
+        to tell the two apart, and a guard whose own sanity check fires on success is one
+        somebody deletes. Counting every `pm`-rooted patch site keeps the anchor measuring
+        what it was written to measure: whether this file's AST matcher still finds patch
+        sites at all.
+        """
         with open(__file__, encoding="utf-8") as fh:
             tree = ast.parse(fh.read())
-        found = {}
+        bare, qualified = {}, {}
         for node in ast.walk(tree):
             if not (isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute)
                     and node.func.attr == "object" and len(node.args) >= 2):
                 continue
             target, attr = node.args[0], node.args[1]
-            if (isinstance(target, ast.Name) and target.id == "pm"
-                    and isinstance(attr, ast.Constant) and isinstance(attr.value, str)):
-                found.setdefault(attr.value, node.lineno)
-        return found
+            if not (isinstance(attr, ast.Constant) and isinstance(attr.value, str)):
+                continue
+            # Flatten `pm`, `pm.core`, `pm.metrics.estimates` to a dotted string; anything
+            # not rooted at the name `pm` (e.g. `patch.object(os, ...)`) is not ours.
+            parts, cur = [], target
+            while isinstance(cur, ast.Attribute):
+                parts.append(cur.attr)
+                cur = cur.value
+            if not (isinstance(cur, ast.Name) and cur.id == "pm"):
+                continue
+            dotted = ".".join(reversed(parts))
+            if dotted:
+                qualified.setdefault(dotted, {}).setdefault(attr.value, node.lineno)
+            else:
+                bare.setdefault(attr.value, node.lineno)
+        return bare, qualified
 
     def test_every_bare_pm_patch_target_is_defined_in_main(self):
-        targets = self._bare_pm_patch_targets()
-        self.assertGreater(len(targets), 0,
+        targets, qualified = self._pm_patch_targets()
+        self.assertGreater(len(targets) + sum(len(v) for v in qualified.values()), 0,
                            "found no patch.object(pm, ...) sites -- the matcher broke, and a "
                            "guard that checks an empty set reports success over nothing")
 
@@ -251,12 +290,21 @@ class TestPatchTargetsAreDefinedInMain(unittest.TestCase):
                     parts[-1] = parts[-1][:-len(".py")]
                 mod = ".".join(parts) or "<module>"
             owner = owner or "nowhere in the package"
+            # The premise has to cover BOTH ways a target can be unresolved here, because
+            # they look identical from this side and the instruction is the same for each.
+            # It said "but __main__.py only re-exports it", which is true of a name
+            # __main__.py still lists and false of one it deliberately does not carry at
+            # all -- and NOT carrying it is now the convention for every patch target, so
+            # the clause was wrong in exactly the case it is most often read in. A reader
+            # who believes it goes looking for a re-export to delete and finds nothing.
             problems.append(
-                f'{os.path.basename(__file__)}:{line} patches pm."{name}", but __main__.py '
-                f"only re-exports it -- it is defined in {owner}. Repoint the patch to "
-                f'pm.{mod}."{name}" '
-                f"AND make __main__.py call it through the module object, or the patch "
-                f"rebinds a private copy and guards nothing.")
+                f'{os.path.basename(__file__)}:{line} patches pm."{name}", which '
+                f"__main__.py does not DEFINE -- it is defined in {owner}, and __main__.py "
+                f"either re-exports it (a private copy a patch cannot reach past) or, by "
+                f"the convention for patch targets, does not carry it at all. Repoint the "
+                f'patch to pm.{mod}."{name}" '
+                f"AND make every caller outside {mod} reach it through the module object, "
+                f"or the patch rebinds a private copy and guards nothing.")
         self.assertEqual(problems, [], "\n  " + "\n  ".join(problems) if problems else "")
 
 
@@ -9019,7 +9067,8 @@ class TestDoneHook(IssueBase):
         self.assertEqual(self.resolved_keys(), ["BL-E001-001"])
 
     def test_hook_failure_warns_and_set_status_still_exits_0(self):
-        with mock.patch.object(pm, "resolve_issue_core", side_effect=SystemExit(2)):
+        with mock.patch.object(pm.issues.store, "resolve_issue_core",
+                               side_effect=SystemExit(2)):
             code, _, err = self.set_status("done")
         self.assertEqual(code, 0)
         self.assertIn("done hook failed", err)

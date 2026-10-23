@@ -4,9 +4,11 @@ Everything that MEASURES rather than changes state. It sits above `nodes` and be
 issue store, the status verbs and the plan operations: it reads and writes node files
 through `nodes`, and nothing below it reads anything here.
 
-The one bucket in this package that is a DIRECTORY rather than a single module, because
-`calibration` alone is ~1,280 lines and the package's per-file budget is 1,500. The seven
-modules are a strict layering, and the order below is the import order:
+A DIRECTORY rather than a single module, because `calibration` alone is ~1,280 lines and
+the package's per-file budget is 1,500 — enforced since 2026-10-23 by `check:docs` check 12,
+which until then was a number stated here and in the split plan and checked nowhere.
+(`issues` is a directory for the same reason; this file used to claim to be the only one.)
+The seven modules are a strict layering, and the order below is the import order:
 
     events, rates     leaves -- the event log's readers; token classes and pricing
     calibration       reads both (blocked hours exclude a metric; fresh tokens band it)

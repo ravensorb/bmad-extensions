@@ -20,13 +20,25 @@ import { fileURLToPath } from "node:url";
 const REPO = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..");
 const CHECK = path.join(REPO, "scripts", "check-types.mjs");
 const PKG_REL = path.join("skills", "_shared", "pm_status");
+// Only the "second file of the package" test still needs a path inside the package, and it
+// needs the DIRECTORY. The mutating fixture below derives which file holds its anchor.
 const REL = path.join(PKG_REL, "__main__.py");
 const PKG = path.join(REPO, PKG_REL);
 
 const ACCESSOR_LOOP = "for lst in (store.backlog, store.resolved):";
 const TC_IMPORT = "if TYPE_CHECKING:\n    from ruamel.yaml.comments import CommentedSeq\n";
 
-function fixture(t, mutate = (s) => s) {
+const IDENTITY = (s) => s;
+
+function pyFiles(dir) {
+  return fs.readdirSync(dir, { withFileTypes: true }).flatMap((e) => {
+    const p = path.join(dir, e.name);
+    if (e.isDirectory()) return e.name === "__pycache__" ? [] : pyFiles(p);
+    return e.name.endsWith(".py") ? [p] : [];
+  });
+}
+
+function fixture(t, mutate = IDENTITY) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "check-types-"));
   t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
   // The WHOLE package, not `__main__.py` alone. `__main__.py` imports its own submodules
@@ -37,8 +49,30 @@ function fixture(t, mutate = (s) => s) {
   const dest = path.join(dir, PKG_REL);
   fs.mkdirSync(path.dirname(dest), { recursive: true });
   fs.cpSync(PKG, dest, { recursive: true, filter: (s) => !s.includes("__pycache__") });
-  const main = path.join(dir, REL);
-  fs.writeFileSync(main, mutate(fs.readFileSync(main, "utf8")));
+  // The mutation applies to EVERY .py in the copy, and WHICH file it lands in is derived.
+  // It used to be spliced into `__main__.py` alone, which was right while both anchors
+  // lived there and wrong the moment the package grew: the `issues` extraction moved the
+  // TYPE_CHECKING import into `issues/store.py` (with `IssueStore`, which is what the
+  // annotations are on) and one of the two accessor call sites into `issues/audit.py`.
+  // Three tests here failed on that, and the two that mattered -- the pair proving the
+  // [name-defined] arm keeps the "not callable" arm honest -- failed by not finding their
+  // anchor rather than by measuring anything. Deriving the file means no later extraction
+  // needs an edit here.
+  let changed = 0;
+  for (const f of pyFiles(dest)) {
+    const before = fs.readFileSync(f, "utf8");
+    const after = mutate(before);
+    if (after === before) continue;
+    fs.writeFileSync(f, after);
+    changed += 1;
+  }
+  // A mutator that matched nothing leaves an UNMUTATED package, over which every one of
+  // these tests reports whatever the clean tree reports -- which for the two "must fail"
+  // tests is a pass. Fail on the anchor instead of measuring the wrong tree quietly.
+  if (mutate !== IDENTITY) {
+    assert.ok(changed > 0, "the mutation matched no .py file in the package -- its anchor "
+      + "moved; find where the code went rather than re-pinning it to a file");
+  }
   return dir;
 }
 
@@ -57,11 +91,8 @@ test("the real file passes", (t) => {
 });
 
 test("a @property read as a method fails", (t) => {
-  const root = fixture(t, (s) => {
-    const n = s.replaceAll(ACCESSOR_LOOP, "for lst in (store.backlog(), store.resolved()):");
-    assert.notEqual(n, s, "the accessor loop moved; update ACCESSOR_LOOP");
-    return n;
-  });
+  const root = fixture(t, (s) =>
+    s.replaceAll(ACCESSOR_LOOP, "for lst in (store.backlog(), store.resolved()):"));
   const r = run(root);
   assert.equal(r.status, 1);
   assert.match(r.stderr, /"CommentedSeq" not callable/);
@@ -70,7 +101,10 @@ test("a @property read as a method fails", (t) => {
 
 test("BOTH accessor call sites are reported, not just the first", (t) => {
   // A checker that sees one of two is one you will trust past the one it cannot see. The
-  // two sites are _normalize_keys and _rewrite_references.
+  // two sites are `_normalize_keys` (issues/audit.py since the `issues` extraction) and
+  // `_rewrite_references` (__main__.py until `plan/` is extracted) -- so this now also
+  // asserts the gate reaches ACROSS modules, which is what the fixture change above made
+  // possible. `REL` is no longer where either of them lives.
   const root = fixture(t, (s) =>
     s.replaceAll(ACCESSOR_LOOP, "for lst in (store.backlog(), store.resolved()):"));
   const r = run(root);
@@ -81,10 +115,7 @@ test("deleting the TYPE_CHECKING import fails instead of going quietly blind", (
   // THE LOAD-BEARING TEST. Without that import the annotations resolve to `Any`, calling
   // `Any` is permitted, and this gate reports success over the very bug it exists for. A
   // no-op that still prints a pass is the most dangerous shape a check can have.
-  const root = fixture(t, (s) => {
-    assert.ok(s.includes(TC_IMPORT), "the TYPE_CHECKING import moved; update TC_IMPORT");
-    return s.replace(TC_IMPORT, "");
-  });
+  const root = fixture(t, (s) => s.replace(TC_IMPORT, ""));
   const r = run(root);
   assert.equal(r.status, 1);
   assert.match(r.stderr, /Name "CommentedSeq" is not defined/);

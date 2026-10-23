@@ -10,9 +10,10 @@ and `rollup_parent_estimate` -- so they are reached as
 `metrics.estimates.<name>(...)` from every caller outside this file and are NOT
 re-exported anywhere. Inside this file they are plain global lookups, which is
 what `patch.object(pm.metrics.estimates, ...)` rebinds, so same-module callers
-see the patch too. `_promote_issue` (today in `__main__.py`, `issues/promote`
-after the next extraction) is the one external caller of each: it must keep
-calling them module-qualified or the patch stops biting, silently.
+see the patch too. `_promote_issue` (in `issues/promote.py`) is the one external
+caller of each: it must keep calling them module-qualified or the patch stops
+biting, silently. It reaches this module as `from .. import metrics` at depth 2,
+which keeps the call text character-for-character what it was in `__main__.py`.
 
 `nodes.epic_file` and `nodes.save_node` are module-qualified for the same reason.
 """
