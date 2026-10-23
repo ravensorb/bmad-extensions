@@ -19,7 +19,9 @@ plan → gate → write → verify → dispose, with five readers beside it (one
 layout) and `pm-status.py import-node` as the only writer. The gate sits before the write
 because the previous prose ran its completeness checks after it, so an empty parse passed
 vacuously and then deleted the source. Check 26 keeps state-path assembly inside
-`pm-status.py`'s resolver section.
+`pm-status.py`'s resolver section — which now lives in `pm_status/nodes/`, the only place
+a node key becomes a path. The markers travel with that code, and the check derives which
+file carries them: exactly one must.
 
 Module setup lives at each module's **home**: a dedicated `l3io-setup` skill for `l3io-pm` (the package's only multi-skill module), and the skill itself for the three single-skill modules (`l3io-util`, `l3io-sec`, `l3io-arch`), each of which self-registers. Setup never runs implicitly — only on an explicit `setup` or `configure` request. **`install` is not a setup trigger** — it routes to `l3io-doctor`'s `steps/install.md`, because a user typing it means the extension, not a module's config. It was both until 3.2.5, in two `l3io-doctor` routing rows with no precedence rule between them. An absent `[modules.<code>]` config section is normal, not a first-run trigger; see `references/config-resolution.md` §5.
 

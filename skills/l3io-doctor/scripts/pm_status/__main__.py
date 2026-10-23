@@ -373,14 +373,22 @@ if not __package__ and __name__ == "__main__":
     _spec.loader.exec_module(sys.modules["pm_status"])
     sys.exit(sys.modules["pm_status"].main())
 
-# The dependency root -- see pm_status/core/__init__.py. Two import styles, and the
-# difference is load-bearing. The six names the suite mock.patches are reached through
-# the MODULE OBJECT (`core._load(...)`, `core._atomic_dump(...)`): a
-# `from .core import _load` binding here would be a private copy that a patch on core
-# could not reach, so the test would pass while guarding nothing. Everything else is
-# re-exported by name, because `pm_status.<name>` is this module's globals and the
-# suite reads several hundred of them directly through the __init__.py facade.
-from . import core
+# The dependency root (`core`, see pm_status/core/__init__.py) and the node layer
+# (`nodes`, see pm_status/nodes/__init__.py). Two import styles, and the difference is
+# load-bearing. The names the suite mock.patches are reached through the MODULE OBJECT
+# (`core._load(...)`, `core._atomic_dump(...)`, `nodes.save_node(...)`,
+# `nodes.epic_file(...)`): a `from .core import _load` binding here would be a private
+# copy that a patch on core could not reach, so the test would pass while guarding
+# nothing. Everything else is re-exported by name, because `pm_status.<name>` is this
+# module's globals and the suite reads several hundred of them directly through the
+# __init__.py facade.
+#
+# The split is per patch target, not per module, and a patched name is left OUT of the
+# re-export lists below: a `pm.save_node` binding beside `pm.nodes.save_node` is a second
+# thing to patch, and the wrong one passes silently. TestPatchTargetsAreDefinedInMain is
+# the standing guard. `nodes` also carries check 26's resolver-section markers, so it is
+# the one file in this package allowed to assemble a state path; nothing here does.
+from . import core, nodes
 from .core import (
     _ADR_LOCK,  # noqa: F401 -- re-export only
     _AGENT_INSTR_LOCK,  # noqa: F401 -- re-export only
@@ -392,7 +400,7 @@ from .core import (
     _LOCK_IGNORE_LINE,  # noqa: F401 -- re-export only
     _NOTICES_LOCK,  # noqa: F401 -- re-export only
     CALIBRATED_METRIC_FIELDS,
-    DIR_FOR_STATUS,
+    DIR_FOR_STATUS,  # noqa: F401 -- re-export only
     EVENTS_FILENAME,  # noqa: F401 -- re-export only
     METRIC_FIELDS,
     NOTICES_FILENAME,  # noqa: F401 -- re-export only
@@ -405,7 +413,7 @@ from .core import (
     VALID_STORY_TRANSITIONS,
     PMError,
     _actual_metric,
-    _atomic_create,
+    _atomic_create,  # noqa: F401 -- re-export only
     _coerce,
     _die_notfound,
     _die_usage,
@@ -416,7 +424,7 @@ from .core import (
     _exit_code_or_fail,
     _file_lock,
     _file_sha,  # noqa: F401 -- re-export only
-    _flock_write_or_plain,
+    _flock_write_or_plain,  # noqa: F401 -- re-export only
     _hashable_field,
     _indexable_key,
     _is_na,
@@ -479,6 +487,34 @@ from .instructions import (  # noqa: F401 -- re-export only
     remove_block,
 )
 
+# The node layer's exports, by name. `save_node` and `epic_file` are deliberately absent
+# -- the suite patches them, so they are reached as `nodes.<name>` (see above).
+from .nodes import (
+    BOOL_NODE_FIELDS,
+    DERIVED_NODE_FIELDS,
+    NUMERIC_NODE_FIELDS,
+    _check_lock_verdict,
+    _epic_path_or_die,
+    _epic_write_lock,
+    _infer_kind,
+    _load_checked,
+    _sprint_key_from_dir,
+    check_backrefs,
+    deps_list,
+    ensure_node_path,
+    find_epic_dir,
+    init_story_doc,
+    iter_epic_dirs,
+    iter_story_files,
+    list_sprint_dirs,
+    list_story_files,
+    load_node,
+    resolve_node_path,  # noqa: F401 -- re-export only
+    sprint_file,
+    story_doc_path,
+    story_file,
+)
+
 # Type-checking only, and load-bearing. Every ruamel import in this package is lazy or
 # guarded -- the `except ModuleNotFoundError` guard that prints a readable message lives
 # in core -- so `CommentedSeq` is out of scope at module level here, and an annotation
@@ -490,259 +526,6 @@ from .instructions import (  # noqa: F401 -- re-export only
 # looks like, so the gate cannot go blind without failing.
 if TYPE_CHECKING:
     from ruamel.yaml.comments import CommentedSeq
-
-
-# --------------------------------------------------------------------------- #
-# Sharded layout resolution — the ONLY place that knows where nodes live on disk
-# --------------------------------------------------------------------------- #
-def find_epic_dir(state_root: str, epic_key: str):
-    """Absolute path to the epic's directory, whichever status folder holds it."""
-    name = epic_dirname(epic_key)
-    for status in STATUS_DIRS:
-        p = os.path.join(state_root, status, name)
-        if os.path.isdir(p):
-            return p
-    return None
-
-
-def iter_epic_dirs(state_root: str):
-    """Yield (bucket, epic_key, epic_dir_path) for every epic directory in the state tree.
-
-    Missing state root yields nothing. Order: bucket in STATUS_DIRS order (active,
-    planned, archived), key sorted within each bucket. Non-conforming entries
-    (a directory that does not match epic-{nnn}, a regular file with that name) are
-    skipped silently -- they are not this enumerator's concern.
-
-    The one enumerator behind list-epics; also the enumerator a future caller uses to
-    answer "does this epic exist and in which bucket?" without probing filesystem paths.
-    """
-    if not os.path.isdir(state_root):
-        return
-    for bucket in STATUS_DIRS:
-        bucket_dir = os.path.join(state_root, bucket)
-        if not os.path.isdir(bucket_dir):
-            continue
-        for name in sorted(os.listdir(bucket_dir)):
-            if not name.startswith("epic-"):
-                continue
-            p = os.path.join(bucket_dir, name)
-            if not os.path.isdir(p):
-                continue
-            suffix = name[len("epic-"):]
-            if not (suffix.isdigit() and len(suffix) == 3):
-                continue
-            yield bucket, f"E{suffix}", p
-
-
-def iter_story_files(state_root: str, epic_key: str, sprint_key=None):
-    """Yield (story_key, story_file_path) for every story node file under an epic,
-    optionally scoped to one sprint.
-
-    A missing epic yields nothing (callers check find_epic_dir separately when they
-    want to distinguish absent from empty). Files that are not stories -- sprint.yaml,
-    epic.yaml, a .yaml.lock sidecar, anything whose name does not parse as
-    E{nnn}-S{nn}-{nnn} -- are filtered out here so callers do not have to.
-    """
-    d = find_epic_dir(state_root, epic_key)
-    if d is None:
-        return
-    target_sprint_dir = sprint_dirname(sprint_key) if sprint_key is not None else None
-    for sd_path in list_sprint_dirs(state_root, epic_key):
-        sd_name = os.path.basename(sd_path)
-        if target_sprint_dir is not None and sd_name != target_sprint_dir:
-            continue
-        for name in sorted(os.listdir(sd_path)):
-            if not name.endswith(".yaml"):
-                continue
-            story_key = name[:-len(".yaml")]
-            try:
-                parse_story_key(story_key)
-            except ValueError:
-                continue
-            yield story_key, os.path.join(sd_path, name)
-
-
-def epic_file(state_root: str, epic_key: str):
-    d = find_epic_dir(state_root, epic_key)
-    if d is None:
-        return None
-    p = os.path.join(d, "epic.yaml")
-    return p if os.path.exists(p) else None
-
-
-def sprint_file(state_root: str, epic_key: str, sprint_key: str):
-    d = find_epic_dir(state_root, epic_key)
-    if d is None:
-        return None
-    p = os.path.join(d, sprint_dirname(sprint_key), "sprint.yaml")
-    return p if os.path.exists(p) else None
-
-
-def story_file(state_root: str, story_key: str):
-    epic_key, sprint_key, _ = parse_story_key(story_key)
-    d = find_epic_dir(state_root, epic_key)
-    if d is None:
-        return None
-    p = os.path.join(d, sprint_dirname(sprint_key), f"{story_key}.yaml")
-    return p if os.path.exists(p) else None
-
-
-def load_node(path: str):
-    """Load a bare node file (no `epics:` wrapper). Returns (yaml, node|None)."""
-    return core._load(path)
-
-
-def save_node(y, node, path: str, use_flock: bool = False) -> None:
-    _flock_write_or_plain(use_flock, y, node, path)
-
-
-def check_backrefs(node, epic_key: str, sprint_key: str | None = None) -> list:
-    """Compare a node's parent back-references against its resolved location.
-
-    An ABSENT back-reference is a failure, not a pass. Sprint and story files are
-    required to carry `epic:` (and stories `sprint:`) — see status-files.md §4 — and
-    migrate-state adds them as a brand-new step, so "field missing entirely" is exactly
-    the case this check has to catch. Epic nodes have no parent and are never passed
-    here (callers skip them).
-    """
-    problems = []
-    if node is None:
-        return ["node is empty"]
-    got_epic = str(node.get("epic", "")).strip()
-    if not got_epic:
-        problems.append(f"epic back-reference absent (expected {str(epic_key).strip()!r})")
-    elif got_epic != str(epic_key).strip():
-        problems.append(f"epic back-reference {got_epic!r} != path epic {epic_key!r}")
-    if sprint_key is not None:
-        got_sprint = str(node.get("sprint", "")).strip()
-        if not got_sprint:
-            problems.append(f"sprint back-reference absent (expected {str(sprint_key).strip()!r})")
-        elif got_sprint != str(sprint_key).strip():
-            problems.append(f"sprint back-reference {got_sprint!r} != path sprint {sprint_key!r}")
-    return problems
-
-
-def resolve_node_path(state_root: str, args, kind: str):
-    """Resolve a node kind + keys to (path, label). Exits 3 when the node is absent."""
-    if kind == "story":
-        if not args.story:
-            _die_usage("--story is required for a story node")
-        p = story_file(state_root, args.story)
-        label = f"story {args.story}"
-    elif kind == "sprint":
-        if not (args.epic and args.sprint):
-            _die_usage("--epic and --sprint are required for a sprint node")
-        p = sprint_file(state_root, args.epic, args.sprint)
-        label = f"epic {args.epic} sprint {args.sprint}"
-    elif kind == "epic":
-        if not args.epic:
-            _die_usage("--epic is required for an epic node")
-        p = epic_file(state_root, args.epic)
-        label = f"epic {args.epic}"
-    else:
-        _die_usage(f"unknown node kind: {kind}")
-    if p is None:
-        _die_notfound(label)
-    return p, label
-
-
-def ensure_node_path(state_root: str, args, kind: str, status: str):
-    """Resolve a node kind + keys to (path, label), CREATING the directory when absent.
-
-    The counterpart to resolve_node_path() for the one case that function cannot serve:
-    a node that does not exist yet. It is the ONLY function that creates a state
-    directory, and it lives here -- in the section that is the only place a key becomes
-    a location -- on purpose. A mkdir in a subcommand body is exactly how that invariant
-    breaks; check 26 in check-docs.mjs fails the build if one appears.
-
-    A NEW epic is placed by its status, per the placement rule. An epic that already has
-    a directory is left where it is: relocating on a status change is move-epic's job,
-    which uses `git mv` so history survives. Sprints and stories require their epic's
-    directory to exist and exit 3 when it does not.
-    """
-    if kind == "epic" and status not in DIR_FOR_STATUS:
-        _die_usage(
-            f"cannot place a new epic with status {status!r} -- "
-            f"expected one of {sorted(DIR_FOR_STATUS)}"
-        )
-    if kind == "epic":
-        if not args.epic:
-            _die_usage("--epic is required for an epic node")
-        d = find_epic_dir(state_root, args.epic)
-        if d is None:
-            d = os.path.join(state_root, DIR_FOR_STATUS[status], epic_dirname(args.epic))
-        os.makedirs(d, exist_ok=True)
-        return os.path.join(d, "epic.yaml"), f"epic {args.epic}"
-
-    if kind == "sprint":
-        if not (args.epic and args.sprint):
-            _die_usage("--epic and --sprint are required for a sprint node")
-        d = find_epic_dir(state_root, args.epic)
-        if d is None:
-            _die_notfound(f"epic {args.epic} (create it before its sprints)")
-        sd = os.path.join(d, sprint_dirname(args.sprint))
-        os.makedirs(sd, exist_ok=True)
-        return os.path.join(sd, "sprint.yaml"), f"epic {args.epic} sprint {args.sprint}"
-
-    if kind == "story":
-        if not args.story:
-            _die_usage("--story is required for a story node")
-        epic_key, sprint_key, _ = parse_story_key(args.story)
-        d = find_epic_dir(state_root, epic_key)
-        if d is None:
-            _die_notfound(f"epic {epic_key} (create it before its stories)")
-        sd = os.path.join(d, sprint_dirname(sprint_key))
-        os.makedirs(sd, exist_ok=True)
-        return os.path.join(sd, f"{args.story}.yaml"), f"story {args.story}"
-
-    _die_usage(f"unknown node kind: {kind}")
-
-
-def _load_checked(state_root: str, args, kind: str):
-    """Resolve, load, and validate back-references. Exits 3 (missing) or 4 (misplaced)."""
-    path, label = resolve_node_path(state_root, args, kind)
-    y, node = load_node(path)
-    if node is None:
-        _die_notfound(f"{label} — file {path} is empty")
-    if kind == "story":
-        ek, sk, _ = parse_story_key(args.story)
-        problems = check_backrefs(node, ek, sk)
-    elif kind == "sprint":
-        problems = check_backrefs(node, args.epic)
-    else:
-        problems = []
-    if problems:
-        sys.stderr.write(f"pm-status.py: back-reference mismatch for {label}: {'; '.join(problems)}\n")
-        sys.exit(4)
-    return y, node, path, label
-
-
-def _infer_kind(args) -> str:
-    if args.story:
-        return "story"
-    if args.epic and args.sprint:
-        return "sprint"
-    if args.epic:
-        return "epic"
-    _die_usage("specify --story, or --epic [--sprint]")
-
-
-def _epic_write_lock(args, kind, require_exists: bool = True):
-    """epic_node_lock around a node verb's read-modify-write when the node is an epic; no
-    lock for a sprint or story, whose files are not epic.yaml. Resolves the epic first, so
-    an absent one exits 3 exactly as before with no lock file created; the verb resolves
-    again inside the hold, since a move-epic may land while it waits.
-
-    require_exists=False is for import-node, whose whole purpose is the node that does not
-    exist yet. It still takes the lock -- a concurrent import of the same epic must
-    serialise -- it just does not demand the node be there first. Every other caller keeps
-    the default, so their behaviour is unchanged.
-    """
-    if kind != "epic":
-        return contextlib.nullcontext()
-    if require_exists:
-        resolve_node_path(args.state_root, args, "epic")
-    return epic_node_lock(args.state_root, args.epic)
 
 
 # Fixed thresholds, in hours. Deliberately not configurable in this iteration: the
@@ -973,32 +756,6 @@ def compute_flags(level: str, key: str, status: str, dwell, exact: bool) -> list
         return []
     return [{"kind": "stuck", "level": level, "key": key, "status": str(status),
              "dwell_hours": round(dwell, 2), "threshold": threshold, "exact": exact}]
-
-
-def _epic_path_or_die(args) -> str:
-    """Resolve epic path from args.state_root and args.epic; exit 3 if not found."""
-    p = epic_file(args.state_root, args.epic)
-    if p is None:
-        _die_notfound(f"epic {args.epic}")
-    return p
-
-
-# --------------------------------------------------------------------------- #
-# computed roll-ups — sprint/epic aggregates over per-story child files
-# --------------------------------------------------------------------------- #
-def list_sprint_dirs(state_root: str, epic_key: str) -> list:
-    """Sorted sprint directories for an epic. Lexical sort is correct order (zero-padded)."""
-    d = find_epic_dir(state_root, epic_key)
-    if d is None:
-        return []
-    return sorted(os.path.join(d, n) for n in os.listdir(d)
-                  if n.startswith("sprint-") and os.path.isdir(os.path.join(d, n)))
-
-
-def _sprint_key_from_dir(sprint_dir_path: str) -> str:
-    """'.../epic-001/sprint-01' -> 'S01'. Inverse of sprint_dirname for a path from
-    list_sprint_dirs."""
-    return "S" + os.path.basename(sprint_dir_path).split("-")[1]
 
 
 # --------------------------------------------------------------------------- #
@@ -1346,40 +1103,6 @@ def _applied_scope_ratio(est, metric):
     return v if v is not None and v > 0 else 1.0
 
 
-# Node fields that are numeric or boolean regardless of how they arrive. `set-field`
-# takes --value as text, so without this a numeric field lands on disk as a quoted
-# string and every later reader has to guess. That is not hypothetical: writing
-# fix_iterations through set-field stored '0', and the calibration path then depended
-# on that string being int()-parseable. '0' happened to work; '0.0' raised ValueError
-# and lost the sample entirely, and an unsubstituted '{fix_iterations}' placeholder --
-# or any other non-numeric text -- silently became provenance=backout on a story that
-# needed no rework at all.
-NUMERIC_NODE_FIELDS = {
-    "completion_evidence.fix_iterations",
-    "completion_evidence.files_changed",
-}
-BOOL_NODE_FIELDS = {"completion_evidence.tests_passing"}
-
-# Fields set-field must refuse outright: each is derived from other recorded data
-# rather than asserted by an agent. completion_evidence.tests_passing used to be a
-# free-form boolean an agent wrote about its own work -- not falsifiable, and not
-# even checked against anything it ran. A story once shipped ten green gates and
-# tests_passing: true having broken a suite it never ran; the break surfaced two
-# stories later by accident. add-test-run records the command and exit code instead,
-# and derives the boolean from that recorded set.
-DERIVED_NODE_FIELDS = {
-    "completion_evidence.tests_passing":
-        "derived from completion_evidence.test_runs — record what you ran with "
-        "`add-test-run --command CMD --exit-code N` instead of asserting the result",
-    "resolves":
-        "written by `promote-issue`, which also schedules the items it names -- a hand "
-        "write would link a story the backlog does not know about",
-    "status":
-        "status changes go through `set-status`, which records the transition event and "
-        "runs the done hook that resolves a story's backlog items",
-}
-
-
 def derive_story_sample(node, blocked_hours: float = 0.0):
     """Compute a story's scope samples and its fix cohort. None when not derivable.
 
@@ -1625,7 +1348,7 @@ def _closure_nodes(state_root: str, level: str, epic_key: str, sprint_key=None):
     if level == "sprint":
         return (sprint_file(state_root, epic_key, sprint_key),
                 list_story_files(state_root, epic_key, sprint_key))
-    return (epic_file(state_root, epic_key),
+    return (nodes.epic_file(state_root, epic_key),
             [sprint_file(state_root, epic_key, _sprint_key_from_dir(d))
              for d in list_sprint_dirs(state_root, epic_key)])
 
@@ -2755,7 +2478,7 @@ def cmd_estimate_story(args) -> int:
                                          rate_overrides(args), args.confidence)
     except PMError as e:
         _die_usage(e.msg)
-    save_node(y, node, path)
+    nodes.save_node(y, node, path)
     shown = " ".join(f"{m}={v}" for m, v in applied.items())
     sys.stdout.write(f"OK estimate-story {args.story} class={args.classification} "
                      f"scope_ratios[{shown}] fix_factor={node['estimate']['fix_factor']}\n")
@@ -2846,7 +2569,7 @@ def rollup_parent_estimate(state_root, epic, sprint, model, overrides):
     """
     if sprint:
         return _rollup_parent_estimate(state_root, epic, sprint, model, overrides)
-    if epic_file(state_root, epic) is None:
+    if nodes.epic_file(state_root, epic) is None:
         raise PMError(3, f"epic {epic}")
     with epic_node_lock(state_root, epic):
         return _rollup_parent_estimate(state_root, epic, sprint, model, overrides)
@@ -2859,7 +2582,7 @@ def _rollup_parent_estimate(state_root, epic, sprint, model, overrides):
         ppath = sprint_file(state_root, epic, sprint)
         child_paths = list_story_files(state_root, epic, sprint)
     else:
-        ppath = epic_file(state_root, epic)
+        ppath = nodes.epic_file(state_root, epic)
         child_paths = [sprint_file(state_root, epic, _sprint_key_from_dir(d))
                        for d in list_sprint_dirs(state_root, epic)]
     if ppath is None:
@@ -2938,7 +2661,7 @@ def _rollup_parent_estimate(state_root, epic, sprint, model, overrides):
     est["confidence"] = "medium"
     pnode["estimate"] = est
     pnode["updated_at"] = _now_iso()
-    save_node(y, pnode, ppath)
+    nodes.save_node(y, pnode, ppath)
     return level, counted
 
 
@@ -2955,18 +2678,6 @@ def cmd_estimate_rollup(args) -> int:
     sys.stdout.write(f"OK estimate-rollup {level} {args.sprint or args.epic} "
                      f"from {counted} children\n")
     return 0
-
-
-def list_story_files(state_root: str, epic_key: str, sprint_key: str) -> list:
-    """Sorted story files in a sprint, excluding sprint.yaml."""
-    d = find_epic_dir(state_root, epic_key)
-    if d is None:
-        return []
-    sd = os.path.join(d, sprint_dirname(sprint_key))
-    if not os.path.isdir(sd):
-        return []
-    return sorted(os.path.join(sd, n) for n in os.listdir(sd)
-                  if n.endswith(".yaml") and n != "sprint.yaml")
 
 
 def _accumulate_actuals(totals: dict, node) -> None:
@@ -3112,7 +2823,7 @@ def rollup_epic(state_root: str, epic_key: str) -> dict:
         cumulative_blocks_total += r.get("blocks_seen_cumulative", 0)
         for detail in r.get("blocked_details", []):
             blocked_details_all.append({**detail, "sprint": r["key"]})
-    ep = epic_file(state_root, epic_key)
+    ep = nodes.epic_file(state_root, epic_key)
     _, enode = load_node(ep) if ep else (None, None)
     # The epic's OWN closure residual sits on top of its sprints' — one bucket,
     # two levels, because both are "the closing level's own closure phases".
@@ -3260,7 +2971,7 @@ def build_epic_detail(state_root: str, epic_key: str, dir_status: str,
                       events_index: dict, now=None) -> dict:
     """One epic subtree, enriched with dwell times, flags, and placement checks."""
     flags: list = []
-    ep = epic_file(state_root, epic_key)
+    ep = nodes.epic_file(state_root, epic_key)
     y_node = None
     if ep is not None:
         try:
@@ -3795,7 +3506,7 @@ def cmd_set_status(args) -> int:
                 ce["blocks_seen"] = int(ce.get("blocks_seen", 0) or 0) + 1
         else:
             leaving_blocked = entering_blocked = False
-        save_node(y, node, path, getattr(args, "flock", False))
+        nodes.save_node(y, node, path, getattr(args, "flock", False))
 
         if not getattr(args, "no_events", False):
             payload = {"ts": _now_iso(), "event": "status",
@@ -4002,7 +3713,7 @@ def cmd_set_depends_on(args) -> int:
         # no-op, and a no-op must not be blocked by a justification for an edge that is
         # already gone -- a caller acting on a stale read would otherwise get an error for
         # asking for a state the tree is already in.
-        _p = epic_file(args.state_root, canonical_epic_key(self_key))
+        _p = nodes.epic_file(args.state_root, canonical_epic_key(self_key))
         _cur = []
         if _p:
             _, _n = load_node(_p)
@@ -4043,7 +3754,7 @@ def cmd_set_depends_on(args) -> int:
         # sees "declared, and empty" exactly as it sees "never declared" -- both mean no
         # dependencies, and every reader here treats a missing key and [] the same way.
         node["updated_at"] = _now_iso()
-        save_node(y, node, path, getattr(args, "flock", False))
+        nodes.save_node(y, node, path, getattr(args, "flock", False))
 
     if drops:
         sys.stdout.write(f"OK set-depends-on {label} -= {removed or '(nothing present)'}\n")
@@ -4151,7 +3862,7 @@ def cmd_import_node(args) -> int:
             # so the counter starts at 0. A subsequent set-status --status blocked would
             # bump it. Not adding it here.
 
-        save_node(_yaml(), node, path, getattr(args, "flock", False))
+        nodes.save_node(_yaml(), node, path, getattr(args, "flock", False))
 
         if not getattr(args, "no_events", False):
             payload = {
@@ -4172,22 +3883,6 @@ def cmd_import_node(args) -> int:
 
     sys.stdout.write(f"OK import-node {label} -> {args.status}\n")
     return 0
-
-
-def story_doc_path(artifacts_root: str, story_key: str) -> str:
-    """E{nnn}-S{nn}-{nnn} -> {artifacts}/epic-{nnn}/sprint-{nn}/stories/{key}.md
-
-    The artifact tree mirrors the state tree with an identical path suffix but is
-    NOT the state tree: artifacts are human-authored and never moved between
-    status directories. This is the only place that resolves a story key to a
-    document path, for the same reason story_file() is the only place that
-    resolves one to a state path.
-    """
-    m = re.match(r"^E(\d{3})-S(\d{2})-\d{3}$", story_key)
-    if not m:
-        raise ValueError(f"not a story key: {story_key!r}")
-    return os.path.join(artifacts_root, f"epic-{m.group(1)}",
-                        f"sprint-{m.group(2)}", "stories", f"{story_key}.md")
 
 
 def cmd_sync_story_doc(args) -> int:
@@ -4258,47 +3953,6 @@ def cmd_sync_story_doc(args) -> int:
     if not args.quiet:
         sys.stdout.write(f"OK {args.story} document -> {args.status}\n")
     return 0
-
-
-def init_story_doc(state_root, artifacts_root, story_key, context_md="", ac_lines=None,
-                   must_not_exist=False) -> str:
-    """Create a story document's skeleton from its state node -- the only writer of
-    that skeleton (story prep and promote-issue both call it). Returns 'created' or
-    'exists'. Raises PMError: 2 for a bad key or, under must_not_exist, an existing
-    document; 3 for a missing state node."""
-    from ruamel.yaml.comments import CommentedMap
-    from ruamel.yaml.scalarstring import SingleQuotedScalarString as SQ
-    try:
-        doc = story_doc_path(artifacts_root, story_key)
-    except ValueError as e:
-        raise PMError(2, str(e))
-    path = story_file(state_root, story_key)
-    if path is None:
-        raise PMError(3, f"story {story_key}")
-    _, node = load_node(path)
-    if node is None:
-        raise PMError(3, f"story {story_key} — file is empty")
-    title = str(node.get("title") or story_key)
-    meta = CommentedMap()
-    meta["key"] = SQ(story_key)
-    meta["title"] = SQ(title)
-    meta["status"] = str(node.get("status") or "backlog")
-    meta["classification"] = str(node.get("classification") or "standard")
-    buf = io.StringIO()
-    _yaml().dump(meta, buf)
-    parts = ["---\n", buf.getvalue(), "---\n\n", f"# {title}\n\n"]
-    if context_md:
-        parts.append(context_md.rstrip("\n") + "\n\n")
-    parts.append("## Acceptance Criteria\n\n")
-    if ac_lines:
-        parts.extend(f"- {line}\n" for line in ac_lines)
-    else:
-        parts.append("<!-- Technical ACs to be added below -->\n")
-    if not _atomic_create(doc, "".join(parts)):
-        if must_not_exist:
-            raise PMError(2, f"story document {doc} already exists -- refusing to adopt it")
-        return "exists"
-    return "created"
 
 
 def cmd_story_doc_init(args) -> int:
@@ -4462,7 +4116,7 @@ def _set_actual(args, kind, block) -> int:
     for k, v in provided.items():
         block_data[k] = v if not isinstance(v, str) else _coerce(k, v)
 
-    save_node(y, node, path, getattr(args, "flock", False))
+    nodes.save_node(y, node, path, getattr(args, "flock", False))
 
     calib_note = ""
     if not getattr(args, "no_calibrate", False):
@@ -5016,11 +4670,11 @@ def cmd_clear_lock(args) -> int:
     epic.yaml write: without it, a concurrent promote-issue roll-up (which saves the whole
     epic node under that lock) could land after this write and restore the lock it removed."""
     absent = f"OK clear-lock epic {args.epic} (epic/file absent — no-op)\n"
-    if epic_file(args.state_root, args.epic) is None:
+    if nodes.epic_file(args.state_root, args.epic) is None:
         sys.stdout.write(absent)                # no lock file for an absent epic
         return 0
     with epic_node_lock(args.state_root, args.epic):
-        path = epic_file(args.state_root, args.epic)     # again: a move may have landed
+        path = nodes.epic_file(args.state_root, args.epic)     # again: a move may have landed
         if path is None:
             sys.stdout.write(absent)
             return 0
@@ -5037,34 +4691,6 @@ def cmd_clear_lock(args) -> int:
     return 0
 
 
-def _check_lock_verdict(lock, session_id) -> tuple:
-    """check-lock's verdict on a PRESENT `_lock` value, as (exit, line): 0 when the epic
-    is free to claim, 5 when another session holds it within its TTL.
-
-    Extracted verbatim from cmd_check_lock -- same lines, same order of evaluation, and
-    the same ValueError on a non-integer ttl_minutes. promote-issue (`_foreign_lock_error`)
-    takes this verdict only for a lock it can evaluate (`_unevaluable_lock_reason`), so the
-    two agree on every well-formed lock: e.g. `ttl_minutes: 0` is always stale to both,
-    where promote used to read it as 30. A lock this verdict calls unreadable is FREE to
-    check-lock, a read, but refused by both write verbs, set-lock and promote (Ruling 24).
-    cmd_set_lock is deliberately NOT routed through here: it parses the TTL only after the
-    timestamp, so sharing would change one of the two verbs."""
-    if not isinstance(lock, dict):
-        return 0, "FREE (unreadable lock — not a mapping — treating as stale)"
-    holder = str(lock.get("session_id", ""))
-    if holder == session_id:
-        return 0, "FREE (own session)"
-    claimed_str = str(lock.get("claimed_at", ""))
-    ttl = int(lock.get("ttl_minutes", 30))
-    claimed = _parse_iso(claimed_str)
-    if claimed is None:
-        return 0, "FREE (unreadable lock timestamp — treating as stale)"
-    age_minutes = _lock_age_minutes(claimed)
-    if age_minutes > ttl:
-        return 0, f"FREE (stale lock from {holder}, age={age_minutes:.1f}m > ttl={ttl}m)"
-    return 5, f"LOCKED by {holder} (claimed {claimed_str}, ttl={ttl}m)"
-
-
 def cmd_check_lock(args) -> int:
     """Exit 0 if epic is free to claim; exit 5 if held by another session within TTL.
 
@@ -5073,7 +4699,7 @@ def cmd_check_lock(args) -> int:
     apart into two independently-wrong implementations. The verdict itself lives in
     `_check_lock_verdict`, which promote-issue shares.
     """
-    path = epic_file(args.state_root, args.epic)
+    path = nodes.epic_file(args.state_root, args.epic)
     if path is None:
         sys.stdout.write("FREE\n")
         return 0
@@ -5159,7 +4785,7 @@ def _set_estimate(args, kind) -> int:
         check = story_keys if kind == "story" else range_keys
         est["confidence"] = "medium" if all(k in est for k in check) else "low"
 
-    save_node(y, node, path, getattr(args, "flock", False))
+    nodes.save_node(y, node, path, getattr(args, "flock", False))
     sys.stdout.write(f"OK set-estimate {label}\n")
     return 0
 
@@ -5263,7 +4889,7 @@ def _set_field(args, kind) -> int:
             value = False
     target[field_parts[-1]] = value
 
-    save_node(y, node, path, getattr(args, "flock", False))
+    nodes.save_node(y, node, path, getattr(args, "flock", False))
     sys.stdout.write(f"OK set-field {label} {args.field}={args.value!r}\n")
     return 0
 
@@ -5318,7 +4944,7 @@ def cmd_add_test_run(args) -> int:
         _exit_code_or_fail(r.get("exit_code") if isinstance(r, dict) else None) == 0
         for r in latest.values()
     )
-    save_node(y, node, path, use_flock=True)
+    nodes.save_node(y, node, path, use_flock=True)
     sys.stdout.write(f"OK {args.story} test run recorded "
                      f"({args.command} -> {args.exit_code}); "
                      f"tests_passing={ce['tests_passing']}\n")
@@ -5990,7 +5616,7 @@ def _next_story_key(state_root, artifacts_root, epic_key, sprint_key) -> str:
     number = max(stored, floor)
     if isinstance(node, dict):
         node["next"] = number + 1   # never decreases: number >= stored, so this only grows
-        save_node(y, node, spath)
+        nodes.save_node(y, node, spath)
     return f"{prefix}{number:03d}"
 
 
@@ -6001,30 +5627,6 @@ def _yaml_error_reason(e) -> str:
     if mark is None:
         return problem
     return f"{problem} (line {mark.line + 1}, column {mark.column + 1})"
-
-
-def deps_list(node, path) -> list:
-    """A node's `depends_on` as a list, refusing (PMError 2) anything else.
-
-    A scalar is not a near-miss, it is an erasure: `depends_on: 'E001'` iterates as
-    CHARACTERS, so consumers see `["E", "0", "0", "1"]` and plan-graph's `if d in epics`
-    filter drops every one. The epic then reads as having NO dependencies, its phase is
-    marked `parallel: true`, and two epics declared sequential are dispatched concurrently
-    into one working tree. Phantom dependencies would fail on the first lookup; an empty
-    list is indistinguishable from a correct independent epic, so this must refuse.
-
-    Refusing, not coercing: a scalar may have been meant as a one-element list or as a
-    string of keys, and promoting it picks one without evidence.
-    """
-    dep = node.get("depends_on")
-    if dep is None or isinstance(dep, list):
-        return list(dep or [])
-    shown = repr(dep)
-    hint = f"[{dep!r}]" if isinstance(dep, str) else "[...]"
-    raise PMError(2, f"{path}: depends_on is {type(dep).__name__} ({shown}), not a list -- "
-                     f"write it as {hint}. A non-list is read character by character by "
-                     f"every consumer, which silently DROPS the dependency and lets the "
-                     f"planner run these epics concurrently; fix the file by hand")
 
 
 def _walk_story_nodes(state_root):
@@ -6149,7 +5751,7 @@ def _promote_target(sr, epic_key, sprint_key):
     """(epic path, sprint path) for promote-issue, refusing an absent (3) or archived (2)
     epic and an absent (3) or already-started (2) sprint. Run once before the epic lock, to
     refuse fast, and again under it, where the answer is decisive."""
-    epath = epic_file(sr, epic_key)
+    epath = nodes.epic_file(sr, epic_key)
     if epath is None:
         raise PMError(3, f"epic {epic_key} not found under {sr}")
     if os.path.basename(os.path.dirname(os.path.dirname(epath))) == "archived":
@@ -6345,7 +5947,7 @@ def _schedule_target(sr, epic_key, story_key):
     `status: backlog`, which is how 34 open items on one consumer tree came to be keyed
     to an epic that had been archived out from under them.
     """
-    epath = epic_file(sr, epic_key)
+    epath = nodes.epic_file(sr, epic_key)
     if epath is None:
         raise PMError(3, f"epic {epic_key} not found under {sr}")
     if os.path.basename(os.path.dirname(os.path.dirname(epath))) == "archived":
@@ -6416,7 +6018,7 @@ def _schedule_issue(args) -> int:
     _schedule_target(sr, epic_key, args.story)                    # advisory: refuse fast
     with issues_lock(open_path):
         _schedulable_items(IssueStore(open_path), keys, args.story)   # advisory
-    err = _foreign_lock_error(epic_file(sr, epic_key), args.session_id, epic_key)
+    err = _foreign_lock_error(nodes.epic_file(sr, epic_key), args.session_id, epic_key)
     if err:
         raise err
     with epic_node_lock(sr, epic_key):
@@ -6440,7 +6042,7 @@ def _schedule_issue(args) -> int:
                     k = str(it.get("key"))
                     if k not in existing:        # a story may already claim it (finding 1d)
                         seq.append(k)
-                save_node(_yaml(), node, spath)
+                nodes.save_node(_yaml(), node, spath)
                 stamp = _now_iso()
                 for it in items:
                     it["status"] = "scheduled"
@@ -7236,7 +6838,7 @@ def _move_epic_locked(state_root: str, epic_key: str, to_status: str) -> str:
         if node is not None:
             node["status"] = STATUS_FOR_DIR[to_status]
             node["updated_at"] = _now_iso()
-            save_node(y, node, p)
+            nodes.save_node(y, node, p)
     return dest
 
 
@@ -7297,7 +6899,7 @@ def _rewrite_references(state_root: str, old_key: str, new_key: str) -> None:
         if old_key in deps_list(node, path):
             y, n = load_node(path)
             n["depends_on"] = [new_key if v == old_key else v for v in deps_list(n, path)]
-            save_node(y, n, path)
+            nodes.save_node(y, n, path)
 
     # Either file, not just the open one: a project whose every issue is closed still has
     # resolved refs to repoint. cmd_audit_issues takes no lock when neither exists because
@@ -7347,7 +6949,7 @@ def _raise_sprint_high_water(state_root: str, epic_key: str, sprint_key: str,
     if stored >= at_least:
         return
     node["next"] = at_least
-    save_node(y, node, spath)
+    nodes.save_node(y, node, spath)
 
 
 def reparent_story(state_root: str, artifacts_root: str, story_key: str,
@@ -7462,7 +7064,7 @@ def reparent_story(state_root: str, artifacts_root: str, story_key: str,
         prev.append(story_key)                     # ordered, oldest first; never replaced
         node["previous_keys"] = prev
         node["updated_at"] = _now_iso()
-        save_node(y, node, dest_node)
+        nodes.save_node(y, node, dest_node)
 
         if dest_doc is not None:
             _rewrite_doc_key(dest_doc, story_key, new_key)
@@ -7666,7 +7268,7 @@ def retire_epic(state_root: str, epic_key: str, reason: str) -> str:
             if isinstance(node, dict):
                 node["retired_reason"] = SQ(str(reason).strip())
                 node["retired_at"] = SQ(_now_iso())
-                save_node(y, node, p)
+                nodes.save_node(y, node, p)
     return dest
 
 
@@ -7908,13 +7510,13 @@ def undo_reorg(state_root: str, artifacts_root: str, entry_id: str,
         if kind == "retire-epic":
             move_epic(state_root, str(op["epic"]), str(op.get("from_status") or "planned"))
             with epic_node_lock(state_root, str(op["epic"])):
-                p = epic_file(state_root, str(op["epic"]))
+                p = nodes.epic_file(state_root, str(op["epic"]))
                 if p:
                     ey, en = load_node(p)
                     if isinstance(en, dict):
                         en.pop("retired_reason", None)
                         en.pop("retired_at", None)
-                        save_node(ey, en, p)
+                        nodes.save_node(ey, en, p)
         elif kind == "reparent-story":
             back = reparent_story(state_root, artifacts_root, str(op["new_key"]),
                                   str(op["from_epic"]), str(op["from_sprint"]))

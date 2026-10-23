@@ -167,10 +167,15 @@ class TestPatchTargetsAreDefinedInMain(unittest.TestCase):
     So the rule is: a patched name must be DEFINED in `__main__.py`, or the target must be
     module-qualified (`pm.core.<name>`) and its callers must call `core.<name>(...)`.
 
-    Latent today -- none of the current bare targets have moved -- and that is the point:
-    this fails on the extraction that moves one, naming it and where it went, instead of
-    going quietly green. `save_node` and `epic_file` are both in the `nodes` bucket, so
-    the next extraction is the one that trips it.
+    It has fired once already, as designed: the `nodes` extraction moved `save_node` and
+    `epic_file` out of `__main__.py`, this test failed naming both and where they went,
+    and the repair was to repoint the two targets to `pm.nodes.<name>` AND rewrite the 30
+    call sites in `__main__.py` to `nodes.<name>(...)`. Neither half alone is enough: the
+    repoint without the call-style change leaves a patch that reaches nobody, and the
+    guard would be green over it. The remaining bare targets -- `compute_story_estimate`
+    and `rollup_parent_estimate` (metrics/estimates), `resolve_issue_core` (issues/store),
+    `dispatch_window` (metrics/actuals_usage) -- are still in `__main__.py`, and this
+    fails on whichever extraction moves them next.
     """
 
     def _top_level_names(self, path):
@@ -225,10 +230,15 @@ class TestPatchTargetsAreDefinedInMain(unittest.TestCase):
             if name in defined_here:
                 continue
             owner = elsewhere.get(name, "nowhere in the package")
+            # The submodule to name in the repair is DERIVED from where the definition
+            # actually is (pm_status/<mod>/__init__.py -> <mod>), so a module this test
+            # has never heard of still gets a usable instruction instead of "<module>".
+            parts = owner.replace(os.sep, "/").split("/")
+            mod = parts[-2] if len(parts) >= 2 and parts[-1] == "__init__.py" else "<module>"
             problems.append(
                 f'{os.path.basename(__file__)}:{line} patches pm."{name}", but __main__.py '
                 f"only re-exports it -- it is defined in {owner}. Repoint the patch to "
-                f'pm.{"core" if owner.endswith("core/__init__.py") else "<module>"}."{name}" '
+                f'pm.{mod}."{name}" '
                 f"AND make __main__.py call it through the module object, or the patch "
                 f"rebinds a private copy and guards nothing.")
         self.assertEqual(problems, [], "\n  " + "\n  ".join(problems) if problems else "")
@@ -1837,7 +1847,7 @@ class TestLayoutResolution(unittest.TestCase):
         self.assertIsNone(pm.find_epic_dir(self.root, "E999"))
 
     def test_node_file_resolution(self):
-        self.assertTrue(pm.epic_file(self.root, "E001").endswith("active/epic-001/epic.yaml"))
+        self.assertTrue(pm.nodes.epic_file(self.root, "E001").endswith("active/epic-001/epic.yaml"))
         self.assertTrue(pm.sprint_file(self.root, "E001", "S01").endswith("sprint-01/sprint.yaml"))
         self.assertTrue(pm.story_file(self.root, "E001-S01-003").endswith("sprint-01/E001-S01-003.yaml"))
         self.assertIsNone(pm.story_file(self.root, "E001-S01-999"))
@@ -1851,7 +1861,7 @@ class TestLayoutResolution(unittest.TestCase):
         p = pm.story_file(self.root, "E001-S01-003")
         y, node = pm.load_node(p)
         node["status"] = "done"
-        pm.save_node(y, node, p)
+        pm.nodes.save_node(y, node, p)
         _, again = pm.load_node(p)
         self.assertEqual(again["status"], "done")
 
@@ -2067,7 +2077,7 @@ class TestKeyBasedAddressing(TestLayoutResolution):
         code, out = self.run_main(
             ["set-status", "--state-root", self.root, "--epic", "E001", "--status", "done"])
         self.assertEqual(code, 0, out)
-        _, node = pm.load_node(pm.epic_file(self.root, "E001"))
+        _, node = pm.load_node(pm.nodes.epic_file(self.root, "E001"))
         self.assertEqual(node["status"], "done")
 
     def test_set_status_by_sprint_key(self):
@@ -2251,7 +2261,7 @@ class TestVerify(TestLayoutResolution):
             ce["fix_iterations"] = 0
             ce["tests_passing"] = 10
             node["completion_evidence"] = ce
-        pm.save_node(y, node, path)
+        pm.nodes.save_node(y, node, path)
 
     def test_scope_story_passes_when_complete(self):
         self._complete(pm.story_file(self.root, "E001-S01-003"), story=True)
@@ -2299,7 +2309,7 @@ class TestVerifyDerivedCost(TestLayoutResolution):
                           "tokens_k": {"total": total, "input": 412, "output": 34,
                                        "cache_write": 4300, "cache_read": 253},
                           "cost": cost, "model": "claude-opus-5"}
-        pm.save_node(y, node, p)
+        pm.nodes.save_node(y, node, p)
 
     def test_passes_when_cost_matches_the_tokens(self):
         self._done_story(29.91)
@@ -2335,7 +2345,7 @@ class TestVerifyDerivedCost(TestLayoutResolution):
                           "tokens_k": {"total": 30, "input": 30, "output": 0,
                                        "cache_write": 0, "cache_read": 0},
                           "cost": 0.02, "model": "claude-haiku-4-5"}
-        pm.save_node(y, node, p)
+        pm.nodes.save_node(y, node, p)
         code, out = self.run_main(["verify", "--state-root", self.root, "--scope", "story",
                                    "--story", "E001-S01-003", "--runtime", "claude"])
         self.assertEqual(code, 4, out)
@@ -2355,7 +2365,7 @@ class TestVerifyDerivedCost(TestLayoutResolution):
         node["completion_evidence"] = {"fix_iterations": 0}
         node["actual"] = {"elapsed_hours": 3.1, "man_hours": 14,
                           "tokens_k": "N/A", "cost": "N/A"}
-        pm.save_node(y, node, p)
+        pm.nodes.save_node(y, node, p)
         code, out = self.run_main(["verify", "--state-root", self.root, "--scope", "story",
                                    "--story", "E001-S01-003"])
         self.assertEqual(code, 4, out)
@@ -2392,7 +2402,7 @@ class TestVerifyTokenRatesWiring(TestLayoutResolution):
                           "tokens_k": {"total": 100, "input": 100, "output": 0,
                                        "cache_write": 0, "cache_read": 0},
                           "cost": 1.00, "model": "acme-model"}
-        pm.save_node(y, node, p)
+        pm.nodes.save_node(y, node, p)
 
     def test_fails_with_unknown_model_message_without_override(self):
         self._done_story_priced_only_under_override()
@@ -2596,7 +2606,7 @@ class TestLockOnEpicFile(TestLayoutResolution):
         code, out = self.run_main(
             ["set-lock", "--state-root", self.root, "--epic", "E001", "--session-id", "sess-a"])
         self.assertEqual(code, 0, out)
-        _, node = pm.load_node(pm.epic_file(self.root, "E001"))
+        _, node = pm.load_node(pm.nodes.epic_file(self.root, "E001"))
         self.assertEqual(next(iter(node.keys())), "_lock")
         self.assertEqual(node["_lock"]["session_id"], "sess-a")
 
@@ -2621,7 +2631,7 @@ class TestLockOnEpicFile(TestLayoutResolution):
                        "--session-id", "sess-a"])
         code, out = self.run_main(["clear-lock", "--state-root", self.root, "--epic", "E001"])
         self.assertEqual(code, 0, out)
-        _, node = pm.load_node(pm.epic_file(self.root, "E001"))
+        _, node = pm.load_node(pm.nodes.epic_file(self.root, "E001"))
         self.assertNotIn("_lock", node)
 
 
@@ -2705,7 +2715,7 @@ class TestEpicMoves(TestLayoutResolution):
     def test_move_epic_updates_status_field(self):
         with redirect_stderr(io.StringIO()):             # no .git here: the fallback warns
             pm.move_epic(self.root, "E005", "active")
-        _, node = pm.load_node(pm.epic_file(self.root, "E005"))
+        _, node = pm.load_node(pm.nodes.epic_file(self.root, "E005"))
         self.assertEqual(node["status"], "in-progress")
 
     def test_move_epic_rejects_bad_status(self):
@@ -2734,7 +2744,7 @@ class TestEpicMoves(TestLayoutResolution):
     def test_move_epic_already_in_place_is_noop(self):
         """E001 already lives under active/ — moving it to 'active' must return the
         existing path unchanged and must not touch epic.yaml's status field."""
-        before = pm.epic_file(self.root, "E001")
+        before = pm.nodes.epic_file(self.root, "E001")
         _, before_node = pm.load_node(before)
         self.assertEqual(before_node["status"], "in-progress")
 
@@ -2742,7 +2752,7 @@ class TestEpicMoves(TestLayoutResolution):
         self.assertEqual(os.path.abspath(dest), os.path.abspath(
             os.path.join(self.root, "active", "epic-001")))
 
-        _, after_node = pm.load_node(pm.epic_file(self.root, "E001"))
+        _, after_node = pm.load_node(pm.nodes.epic_file(self.root, "E001"))
         self.assertEqual(after_node["status"], "in-progress")
         self.assertNotIn("updated_at", after_node)  # untouched — no write happened
 
@@ -4237,7 +4247,7 @@ class TestEstimateRollup(TestLayoutResolution):
         code, out = self.run_main(
             ["estimate-rollup", "--state-root", self.root, "--epic", "E001"])
         self.assertEqual(code, 0, out)
-        _, node = pm.load_node(pm.epic_file(self.root, "E001"))
+        _, node = pm.load_node(pm.nodes.epic_file(self.root, "E001"))
         self.assertIn("man_hours_low", node["estimate"])
 
     def test_epic_missed_by_the_pre_check_exits_3_and_writes_nothing(self):
@@ -4250,7 +4260,7 @@ class TestEstimateRollup(TestLayoutResolution):
         code, out = self.run_main(["estimate-rollup", "--state-root", self.root,
                                    "--epic", "E001", "--sprint", "S01"])
         self.assertEqual(code, 0, out)
-        real_epic_file, calls = pm.epic_file, []
+        real_epic_file, calls = pm.nodes.epic_file, []
         self.assertIsNotNone(real_epic_file(self.root, "E001"))       # the epic does exist
         lock = pm.epic_lock_path(self.root, "E001")
         lock_before = os.path.exists(lock)
@@ -4261,7 +4271,7 @@ class TestEstimateRollup(TestLayoutResolution):
             return None if len(calls) == 1 else real_epic_file(state_root, epic)
 
         err = io.StringIO()
-        with mock.patch.object(pm, "epic_file", pre_check_misses):
+        with mock.patch.object(pm.nodes, "epic_file", pre_check_misses):
             try:
                 with redirect_stdout(io.StringIO()), redirect_stderr(err):
                     code = pm.main(["estimate-rollup", "--state-root", self.root,
@@ -4733,7 +4743,7 @@ class TestConcurrentSetLock(unittest.TestCase):
         self.assertEqual(len(losers), self.N - 1,
                           f"every non-winner must exit 5 (locked), got {codes}")
 
-        _, node = pm.load_node(pm.epic_file(self.root, "E001"))
+        _, node = pm.load_node(pm.nodes.epic_file(self.root, "E001"))
         winner_session = f"sess-{winners[0]}"
         self.assertEqual(node["_lock"]["session_id"], winner_session,
                           "the persisted _lock must name the process that actually won, "
@@ -5673,7 +5683,7 @@ class TestVerifyRejectsScalarTokens(TestLayoutResolution):
         node["completion_evidence"] = {"fix_iterations": 0}
         node["actual"] = {"elapsed_hours": 1.0, "man_hours": 8, "hitl_hours": 0.2,
                           "tokens_k": 500, "cost": cost, "model": "claude-opus-5"}
-        pm.save_node(y, node, p)
+        pm.nodes.save_node(y, node, p)
 
     def test_scalar_tokens_fail_under_runtime_claude(self):
         self._scalar_node()
@@ -5703,7 +5713,7 @@ class TestVerifyRejectsScalarTokens(TestLayoutResolution):
         node["completion_evidence"] = {"fix_iterations": 0}
         node["actual"] = {"elapsed_hours": 1.0, "man_hours": 8, "hitl_hours": 0.2,
                           "tokens_k": "N/A", "cost": "N/A"}
-        pm.save_node(y, node, p)
+        pm.nodes.save_node(y, node, p)
         code, out = self.run_main(["verify", "--state-root", self.root, "--scope", "story",
                                    "--story", "E001-S01-003", "--runtime", "claude"])
         self.assertEqual(code, 4, out)
@@ -5990,7 +6000,7 @@ class TestOrchestrationBlock(TestLayoutResolution):
                           "cost": pm.cost_from_tokens({"input": tokens_total},
                                                       "claude-opus-5"),
                           "model": "claude-opus-5"}
-        pm.save_node(y, node, p)
+        pm.nodes.save_node(y, node, p)
 
     def test_orchestration_writes_to_its_own_block(self):
         code, out = self.run_main(["set-actual", "--state-root", self.root, "--node", "sprint",
@@ -6104,11 +6114,11 @@ class TestOrchestrationBlock(TestLayoutResolution):
         story_path = pm.story_file(self.root, "E001-S01-003")
         _, story_node = pm.load_node(story_path)
         story_node["estimate"] = {"man_hours_low": 3, "man_hours_high": 3}
-        pm.save_node(pm._yaml(), story_node, story_path)
+        pm.nodes.save_node(pm._yaml(), story_node, story_path)
         sprint_path = pm.sprint_file(self.root, "E001", "S01")
         _, sprint_node = pm.load_node(sprint_path)
         sprint_node["estimate"] = {"man_hours_low": 12, "man_hours_high": 12}
-        pm.save_node(pm._yaml(), sprint_node, sprint_path)
+        pm.nodes.save_node(pm._yaml(), sprint_node, sprint_path)
         code, out = self.run_main(
             ["set-actual", "--state-root", self.root, "--node", "sprint",
              "--epic", "E001", "--sprint", "S01", "--man-hours", "9"])
@@ -6141,7 +6151,7 @@ class TestOrchestrationBlock(TestLayoutResolution):
                                               "cache_write": 0, "cache_read": 0},
                                  "cost": pm.cost_from_tokens({"input": 1000}, "claude-opus-5"),
                                  "model": "claude-opus-5"}
-        pm.save_node(pm._yaml(), sprint_node, sprint_path)
+        pm.nodes.save_node(pm._yaml(), sprint_node, sprint_path)
         argv = ["set-actual", "--state-root", self.root, "--node", "epic",
                 "--epic", "E001", "--block", "orchestration",
                 "--tokens-input", "3000", "--model", "claude-opus-5"]
@@ -6610,7 +6620,7 @@ class TestSetFieldTyping(TestLayoutResolution):
         code, out = self.run_main(["set-field", "--state-root", self.root,
                                    "--epic", "E001", "--field", "lane", "--value", "2"])
         self.assertEqual(code, 0, out)
-        _, node = pm.load_node(pm.epic_file(self.root, "E001"))
+        _, node = pm.load_node(pm.nodes.epic_file(self.root, "E001"))
         self.assertEqual(str(node["lane"]), "2")
 
     def test_lane_refuses_a_persons_name(self):
@@ -6644,10 +6654,10 @@ class TestSetFieldTyping(TestLayoutResolution):
         self.assertEqual(code, 2, out)
 
     def test_a_refused_lane_writes_nothing(self):
-        before = pm.load_node(pm.epic_file(self.root, "E001"))[1].get("lane")
+        before = pm.load_node(pm.nodes.epic_file(self.root, "E001"))[1].get("lane")
         self.run_main(["set-field", "--state-root", self.root, "--epic", "E001",
                        "--field", "lane", "--value", "sarah"])
-        after = pm.load_node(pm.epic_file(self.root, "E001"))[1].get("lane")
+        after = pm.load_node(pm.nodes.epic_file(self.root, "E001"))[1].get("lane")
         self.assertEqual(before, after)
 
     def test_set_field_stores_fix_iterations_as_a_number(self):
@@ -6724,7 +6734,7 @@ class TestTestRunEvidence(TestLayoutResolution):
         y, node = pm.load_node(path)
         ce = node.setdefault("completion_evidence", {})
         ce["test_runs"] = [{"command": "old flaky run", "exit_code": "flaky"}]
-        pm.save_node(y, node, path)
+        pm.nodes.save_node(y, node, path)
 
         code, out = self.run_main(["add-test-run", "--state-root", self.root,
                                    "--story", "E001-S01-003",
@@ -6785,7 +6795,7 @@ class TestCalibrationRedrive(TestLayoutResolution):
                             "man_hours": 8.75}
         node["actual"] = {"man_hours": actual}
         node["completion_evidence"] = {"fix_iterations": iters}
-        pm.save_node(y, node, p)
+        pm.nodes.save_node(y, node, p)
         # `set-actual` appends this alongside the node write; redrive reads it back to
         # recover closure order, so a hand-built node must carry it too or the rebuild
         # correctly refuses.
@@ -7299,7 +7309,7 @@ class TestCodexRuntime(TestLayoutResolution):
             "elapsed_hours": 2.0, "man_hours": 8.0, "hitl_hours": 0.5,
             "tokens_k": 420, "cost": "N/A", "model": "codex-1",
         }
-        pm.save_node(y, node, f)
+        pm.nodes.save_node(y, node, f)
         code, out = self._verify()
         self.assertEqual(code, 4)
         self.assertIn("not the per-class mapping", out)
@@ -7314,7 +7324,7 @@ class TestCodexRuntime(TestLayoutResolution):
             "elapsed_hours": 2.0, "man_hours": 8.0, "hitl_hours": 0.5,
             "tokens_k": "N/A", "cost": "N/A", "model": "codex-1",
         }
-        pm.save_node(y, node, f)
+        pm.nodes.save_node(y, node, f)
         code, out = self._verify()
         self.assertEqual(code, 4)
         self.assertIn("N/A", out)
@@ -7388,7 +7398,7 @@ class TestCopilotRuntime(TestLayoutResolution):
         })
         n["status"] = "done"
         n.setdefault("completion_evidence", {})
-        pm.save_node(y, n, f)
+        pm.nodes.save_node(y, n, f)
         code, out = self._verify()
         self.assertEqual(code, 0, out)
 
@@ -7402,7 +7412,7 @@ class TestCopilotRuntime(TestLayoutResolution):
         })
         n["status"] = "done"
         n.setdefault("completion_evidence", {})
-        pm.save_node(y, n, f)
+        pm.nodes.save_node(y, n, f)
         code, _ = self._verify()
         self.assertEqual(code, 4)
 
@@ -7835,7 +7845,7 @@ class TestPromoteIssue(IssueBase):
         self.assertEqual(list(node["resolves"]), ["BL-E001-001"])
         self.assertIn("cost", node["estimate"])
         self.assertIn("estimate", pm.load_node(pm.sprint_file(self.root, "E001", "S02"))[1])
-        self.assertIn("estimate", pm.load_node(pm.epic_file(self.root, "E001"))[1])
+        self.assertIn("estimate", pm.load_node(pm.nodes.epic_file(self.root, "E001"))[1])
         item = self.load_open()["backlog"][0]
         self.assertEqual((item["status"], item["story"]), ("scheduled", "E001-S02-001"))
         with open(pm.story_doc_path(self.arts, "E001-S02-001"), encoding="utf-8") as fh:
@@ -7953,10 +7963,10 @@ class TestPromoteIssue(IssueBase):
         a malformed or back-dated lock), keeping the rest of the node as the verbs left it."""
         from ruamel.yaml import YAML
         with pm.epic_node_lock(self.root, "E001"):       # every epic.yaml write holds it
-            p = pm.epic_file(self.root, "E001")
+            p = pm.nodes.epic_file(self.root, "E001")
             y, n = pm.load_node(p)
             n["_lock"] = YAML().load(lock_yaml)
-            pm.save_node(y, n, p)
+            pm.nodes.save_node(y, n, p)
 
     def test_foreign_lock_verdict_matches_check_lock(self):
         """For a WELL-FORMED lock, promote takes check-lock's verdict (carryover 16) -- its
@@ -8194,7 +8204,7 @@ class TestPromoteIssue(IssueBase):
                 failures.append(e)          # re-raised below, whatever promote does with it
                 raise
             result = real_rollup(state_root, epic, sprint, *a, **kw)
-            after.append((level, procs[0].poll(), pm.load_node(pm.epic_file(self.root, "E001"))[1]))
+            after.append((level, procs[0].poll(), pm.load_node(pm.nodes.epic_file(self.root, "E001"))[1]))
             return result
 
         with mock.patch.object(pm, "rollup_parent_estimate", watched_rollup):
@@ -8216,7 +8226,7 @@ class TestPromoteIssue(IssueBase):
             self.assertIsNone(rc, f"set-field finished during the {lvl} roll-up")
             self.assertNotIn("notes", node, f"set-field's write landed during the {lvl} roll-up")
         rolled = after[-1][2]["estimate"]                # what the epic roll-up saved
-        node = pm.load_node(pm.epic_file(self.root, "E001"))[1]
+        node = pm.load_node(pm.nodes.epic_file(self.root, "E001"))[1]
         self.assertEqual(node["notes"]["b9"], "landed")
         self.assertEqual(node["estimate"], rolled, "set-field's save undid the epic roll-up")
         self.assert_invariants()
@@ -8234,7 +8244,7 @@ class TestPromoteIssue(IssueBase):
         code, _, err = self.run_all(["set-lock", "--state-root", self.root, "--epic", "E001",
                                      "--session-id", "me"])
         self.assertEqual(code, 0, err)
-        real_save = pm.save_node
+        real_save = pm.nodes.save_node
         lock = pm.epic_lock_path(self.root, "E001")
         procs, failures = [], []
 
@@ -8251,7 +8261,7 @@ class TestPromoteIssue(IssueBase):
                     raise
             return real_save(y, node, path, *a, **kw)
 
-        with mock.patch.object(pm, "save_node", racing_save):
+        with mock.patch.object(pm.nodes, "save_node", racing_save):
             try:
                 code, out, err = self.promote("BL-E001-001", extra=("--session-id", "me"))
             except AssertionError:
@@ -8261,7 +8271,7 @@ class TestPromoteIssue(IssueBase):
         _, cerr = procs[0].communicate(timeout=30)
         self.assertEqual(code, 0, err)
         self.assertEqual(procs[0].returncode, 0, cerr.decode())
-        node = pm.load_node(pm.epic_file(self.root, "E001"))[1]
+        node = pm.load_node(pm.nodes.epic_file(self.root, "E001"))[1]
         self.assertNotIn("_lock", node, "promote's roll-up save restored a cleared lock")
         self.assertIn("estimate", node)                              # the roll-up itself landed
 
@@ -8771,7 +8781,7 @@ class TestEpicWritersHoldTheEpicLock(IssueBase):
                               "--key", "BL-E001-001", "--epic", "001", "--sprint", "02",
                               "--classification", "standard", "--session-id", "me"],
         }
-        epic_yaml = pm.epic_file(sr, "E001")
+        epic_yaml = pm.nodes.epic_file(sr, "E001")
         with open(epic_yaml, "rb") as fh:
             before = fh.read()
         procs = {}
@@ -8793,7 +8803,7 @@ class TestEpicWritersHoldTheEpicLock(IssueBase):
             self.assertEqual(rc, 0, f"{name}: {out.decode()} {err.decode()}")
         self.assertFalse(os.path.exists(os.path.join(sr, "active", "epic-001")),
                          "a writer recreated the epic's old directory after the move")
-        path = pm.epic_file(sr, "E001")
+        path = pm.nodes.epic_file(sr, "E001")
         self.assertTrue(path.endswith(os.path.join("planned", "epic-001", "epic.yaml")), path)
         node = pm.load_node(path)[1]
         self.assertEqual(node["notes"]["d1"], "x")
@@ -8817,15 +8827,15 @@ class TestEpicNodeLockScope(unittest.TestCase):
     def _touch(self, path):
         y, node = pm.load_node(path)
         node["touched"] = True
-        pm.save_node(y, node, path)
+        pm.nodes.save_node(y, node, path)
 
     def test_an_epic_yaml_write_without_the_lock_is_refused_on_every_route(self):
-        path = pm.epic_file(self.root, "E001")
+        path = pm.nodes.epic_file(self.root, "E001")
         with open(path, "rb") as fh:
             before = fh.read()
         y, node = pm.load_node(path)
-        routes = {"save_node": lambda: pm.save_node(y, node, path),
-                  "save_node(use_flock)": lambda: pm.save_node(y, node, path, use_flock=True),
+        routes = {"save_node": lambda: pm.nodes.save_node(y, node, path),
+                  "save_node(use_flock)": lambda: pm.nodes.save_node(y, node, path, use_flock=True),
                   "_atomic_dump": lambda: pm.core._atomic_dump(y, node, path),
                   "_mark_sampled": lambda: pm._mark_sampled(node, path, y)}
         for name, route in routes.items():
@@ -8836,12 +8846,12 @@ class TestEpicNodeLockScope(unittest.TestCase):
 
     def test_another_epics_lock_does_not_cover_the_write(self):
         with pm.epic_node_lock(self.root, "E005"), self.assertRaises(RuntimeError):
-            self._touch(pm.epic_file(self.root, "E001"))
+            self._touch(pm.nodes.epic_file(self.root, "E001"))
 
     def test_the_same_epic_under_any_spelling_covers_the_write(self):
         with pm.epic_node_lock(os.path.relpath(self.root), "1"):    # relative root, bare key
-            self._touch(pm.epic_file(self.root, "E001"))
-        self.assertTrue(pm.load_node(pm.epic_file(self.root, "E001"))[1]["touched"])
+            self._touch(pm.nodes.epic_file(self.root, "E001"))
+        self.assertTrue(pm.load_node(pm.nodes.epic_file(self.root, "E001"))[1]["touched"])
 
     def test_sprint_and_story_nodes_are_not_gated(self):
         self._touch(pm.sprint_file(self.root, "E001", "S01"))
@@ -8853,7 +8863,7 @@ class TestEpicNodeLockScope(unittest.TestCase):
             with pm.epic_node_lock(self.root, "001"):
                 self.assertEqual(pm._EPIC_NODE_LOCK["depth"], 2)
                 self.assertIs(pm._EPIC_NODE_LOCK["fh"], fh)
-                self._touch(pm.epic_file(self.root, "E001"))
+                self._touch(pm.nodes.epic_file(self.root, "E001"))
             self.assertEqual(pm._EPIC_NODE_LOCK["depth"], 1)
         self.assertEqual(pm._EPIC_NODE_LOCK["depth"], 0)
 
@@ -8863,7 +8873,7 @@ class TestEpicNodeLockScope(unittest.TestCase):
         with pm.epic_node_lock(self.root, "E001"):
             with self.assertRaises(RuntimeError), pm.epic_node_lock(self.root, "E005"):
                 pass
-            self._touch(pm.epic_file(self.root, "E001"))     # the outer hold survives
+            self._touch(pm.nodes.epic_file(self.root, "E001"))     # the outer hold survives
         self.assertEqual(pm._EPIC_NODE_LOCK["depth"], 0)
 
     def test_the_lock_file_is_outside_the_epic_directory_and_survives_a_move(self):
@@ -8897,12 +8907,12 @@ class TestEpicNodeLockScope(unittest.TestCase):
         with pm.epic_node_lock(self.root, "E001"):
             with pm.issues_lock(pm.issues_paths(self.root)[0]):
                 with pm.epic_node_lock(self.root, "001"):
-                    self._touch(pm.epic_file(self.root, "E001"))
+                    self._touch(pm.nodes.epic_file(self.root, "E001"))
 
     def test_set_actual_cost_is_refused_before_the_epic_lock(self):
         # --cost is a usage error on any node, so it is refused before the epic lock: it
         # neither waits behind a holder nor creates the lock file.
-        path = pm.epic_file(self.root, "E001")
+        path = pm.nodes.epic_file(self.root, "E001")
         with open(path, "rb") as fh:
             before = fh.read()
         err = io.StringIO()
@@ -9108,7 +9118,7 @@ class TestDoneHook(IssueBase):
         p = pm.story_file(self.root, "E001-S02-001")
         y, n = pm.load_node(p)
         n["resolves"] = value
-        pm.save_node(y, n, p)
+        pm.nodes.save_node(y, n, p)
 
     def test_non_list_resolves_warns_and_set_status_still_exits_0(self):
         self._set_resolves(5)
@@ -9183,7 +9193,7 @@ class TestAuditIssues(IssueBase):
         p = pm.story_file(self.root, key)
         y, n = pm.load_node(p)
         fn(n)
-        pm.save_node(y, n, p)
+        pm.nodes.save_node(y, n, p)
 
     def edit_open(self, fn):
         y, data = pm.core._load(self.issues)
@@ -9305,7 +9315,7 @@ class TestAuditIssues(IssueBase):
         y, n = pm.load_node(p)
         n["key"] = new
         n["previous_keys"] = [old]
-        pm.save_node(y, n, p)
+        pm.nodes.save_node(y, n, p)
         os.rename(p, os.path.join(os.path.dirname(p), f"{new}.yaml"))
 
     def test_1l_a_scheduled_item_left_on_a_re_keyed_story(self):
@@ -11060,7 +11070,7 @@ class TestSetDependsOn(Base):
         self.assertEqual(code, 0, out)
 
     def _node(self, key):
-        return pm.load_node(pm.epic_file(self.d, key))[1]
+        return pm.load_node(pm.nodes.epic_file(self.d, key))[1]
 
     def _story(self, story_key, deps=()):
         """A story node under its epic, with optional cross-epic depends_on."""
@@ -13571,7 +13581,7 @@ class TestReorgJournal(unittest.TestCase):
         self.assertIn("planned", pm.find_epic_dir(self.sr, "E041"))
         back = res["restored"][new]
         self.assertTrue(back.startswith("E041-S01-"))
-        _, enode = pm.load_node(pm.epic_file(self.sr, "E041"))
+        _, enode = pm.load_node(pm.nodes.epic_file(self.sr, "E041"))
         self.assertNotIn("retired_reason", enode,
                          "an un-retired epic that still claims a retirement reason would "
                          "read as retired to every later audit")
