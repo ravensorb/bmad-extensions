@@ -39,6 +39,22 @@ would matter, and a reader should not have to infer it.
 when it matches a manifest hash for the same path under `scripts/pm_status/`: it is our payload,
 and reinstalled automatically at the next skill activation. The pre-package single file
 `_bmad/scripts/pm-status.py` is treated the same way when it is still present.
+
+Bytecode and the directories our files emptied
+----------------------------------------------
+File-by-file removal is not what the operator sees. Measured on a real uninstall: all 91
+payload files removed, success reported, and 8 `__pycache__` directories holding 20 `.pyc`
+files left behind -- which also kept every package directory above them non-empty, so the
+whole `_bmad/scripts/pm-status/` tree and the skill's own directories survived an uninstall
+that said it was done. Before the package split there was one file and nothing to leave.
+
+A `.pyc` is not in any manifest, and it never can be: the interpreter writes it when it
+imports a file of OURS. It is a derived artifact of our payload, so it is removed -- under a
+narrow rule, not a recursive delete. Only a directory literally named `__pycache__`, only
+when it sits under a skill directory we identified or under the self-installed package
+directory, and only when every entry in it is a `.pyc`/`.pyo` FILE. Anything else in there
+and the directory is left whole, like any other survivor. The dry run lists what it would
+prune, so `--apply` never removes a directory the operator was not shown.
 """
 import argparse
 import hashlib
@@ -67,6 +83,8 @@ _GENERATED_FROM = ("skills/<skill>/", "skills/_shared/")
 _SELF_INSTALLED = ("_bmad/scripts/pm-status.py",)      # the pre-package single file
 _SELF_INSTALLED_DIR = "_bmad/scripts/pm-status"       # the package directory
 _PACKAGE_PAYLOAD = "scripts/pm_status/"               # where a manifest keys the package's files
+_BYTECODE_DIR = "__pycache__"
+_BYTECODE_SUFFIXES = (".pyc", ".pyo")
 
 
 def sha256(p: Path) -> str | None:
@@ -107,10 +125,36 @@ def discover(project: Path) -> list[tuple[Path, dict]]:
     return found
 
 
+def bytecode_dirs(roots) -> list[Path]:
+    """`__pycache__` directories under our roots that hold NOTHING but bytecode files.
+
+    Deepest-first, so removing them never leaves a parent `__pycache__` non-empty. The
+    all-bytecode condition is the whole safety argument: one foreign file inside and the
+    directory is a survivor like any other, so this can never widen into a recursive delete
+    of a directory that merely happens to be named `__pycache__`.
+    """
+    out = []
+    for root in roots:
+        if not root.is_dir():
+            continue
+        for d in root.rglob(_BYTECODE_DIR):
+            if not d.is_dir():
+                continue
+            try:
+                entries = list(d.iterdir())
+            except OSError:
+                continue
+            if all(e.is_file() and e.suffix in _BYTECODE_SUFFIXES for e in entries):
+                out.append(d)
+    return sorted(set(out), key=lambda p: (-len(p.parts), p.as_posix()))
+
+
 def plan(project: Path):
-    """(removable, modified, missing, manifests) -- decided, nothing done."""
+    """(removable, modified, missing, manifests, bytecode) -- decided, nothing done."""
     removable, modified, missing, manifests = [], [], [], []
+    roots = [project / _SELF_INSTALLED_DIR]
     for skill_dir, data in discover(project):
+        roots.append(skill_dir)
         manifests.append(skill_dir / "payload-manifest.json")
         for rel, want in data["files"].items():
             p = skill_dir / rel
@@ -146,7 +190,7 @@ def plan(project: Path):
                 continue
             sub = p.relative_to(pkg).as_posix()
             (removable if sha256(p) in wanted_tree.get(sub, ()) else modified).append(p)
-    return removable, modified, missing, manifests
+    return removable, modified, missing, manifests, bytecode_dirs(roots)
 
 
 def main(argv=None) -> int:
@@ -163,7 +207,7 @@ def main(argv=None) -> int:
         sys.stderr.write(f"clean-payload.py: --project-root {project} is not a directory\n")
         return 2
 
-    removable, modified, missing, manifests = plan(project)
+    removable, modified, missing, manifests, bytecode = plan(project)
     if not (removable or modified or manifests):
         if a.format == "json":
             json.dump({"status": "none-found", "removable": [], "modified": []}, sys.stdout)
@@ -179,7 +223,8 @@ def main(argv=None) -> int:
         json.dump({"status": "applied" if a.apply else "dry-run",
                    "removable": sorted(rel(p) for p in removable),
                    "modified": sorted(rel(p) for p in modified),
-                   "missing": sorted(rel(p) for p in missing)},
+                   "missing": sorted(rel(p) for p in missing),
+                   "bytecode": sorted(rel(p) for p in bytecode)},
                   sys.stdout, indent=2)
         sys.stdout.write("\n")
     else:
@@ -193,6 +238,14 @@ def main(argv=None) -> int:
                 f"we shipped,\nso somebody edited them. Delete by hand if you meant to:\n")
             for p in sorted(modified):
                 sys.stdout.write(f"  ! {rel(p)}\n")
+        if bytecode:
+            # Named in the dry run so --apply never removes a directory the operator was
+            # not shown. These hold only .pyc/.pyo the interpreter wrote for OUR files.
+            pverb = "Pruning" if a.apply else "Would prune"
+            sys.stdout.write(f"\n{pverb} {len(bytecode)} __pycache__ director(ies) left by "
+                             f"importing our own files, and any directory they empty:\n")
+            for p in bytecode:
+                sys.stdout.write(f"  ~ {rel(p)}\n")
         if missing:
             sys.stdout.write(f"\n{len(missing)} manifest entr(ies) already absent.\n")
         sys.stdout.write("\nProject state and artifacts are not touched: they appear in no "
@@ -207,10 +260,26 @@ def main(argv=None) -> int:
             p.unlink()
         except OSError as e:
             failed.append(f"{rel(p)}: {e}")
+    # Bytecode BEFORE the prune loop: a surviving __pycache__ keeps every directory above it
+    # non-empty, which is how a 91-file removal left the whole installed tree standing.
+    # Deepest-first, one unlink per entry then one rmdir -- never rmtree.
+    for d in bytecode:
+        if not d.is_dir():
+            continue
+        for e in sorted(d.iterdir()):
+            try:
+                e.unlink()
+            except OSError as exc:
+                failed.append(f"{rel(e)}: {exc}")
+        try:
+            d.rmdir()
+        except OSError as exc:
+            failed.append(f"{rel(d)}: {exc}")
     # Prune directories that our own files emptied, deepest first. Never recursive: a
     # non-empty directory is left alone, which is what keeps a stray file from taking its
     # whole tree with it.
-    for d in sorted({p.parent for p in removable + manifests}, key=lambda p: -len(p.parts)):
+    seeds = {p.parent for p in removable + manifests} | {d.parent for d in bytecode}
+    for d in sorted(seeds, key=lambda p: -len(p.parts)):
         cur = d
         while cur != project and cur.is_dir():
             try:
@@ -223,8 +292,9 @@ def main(argv=None) -> int:
         for f in failed:
             sys.stderr.write(f"  {f}\n")
         return 2
-    sys.stdout.write(f"Removed {len(removable)} payload file(s) and "
-                     f"{len(manifests)} manifest(s).\n")
+    sys.stdout.write(f"Removed {len(removable)} payload file(s), "
+                     f"{len(manifests)} manifest(s) and {len(bytecode)} __pycache__ "
+                     f"director(ies).\n")
     return 0
 
 

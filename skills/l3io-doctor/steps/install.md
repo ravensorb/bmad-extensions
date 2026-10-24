@@ -85,9 +85,12 @@ This never deletes the file, only the block. A file left empty is left empty. If
 uv run {skill-root}/scripts/clean-payload.py --project-root {project-root}
 ```
 
-Read-only as written. It lists every file it would delete, and every file it is **keeping**
-because that file's hash does not match what we shipped — meaning somebody edited it. Relay
-both lists in full; the second is the one that needs a human decision.
+Read-only as written. It lists every file it would delete, every file it is **keeping**
+because that file's hash does not match what we shipped — meaning somebody edited it — and
+every `__pycache__` directory it would prune (bytecode the interpreter wrote for our own
+files, which is in no manifest and would otherwise keep the whole installed tree standing
+after a "successful" uninstall). Relay all three lists in full; the second is the one that
+needs a human decision.
 
 Only after the user has seen that list and confirmed:
 

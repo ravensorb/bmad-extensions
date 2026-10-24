@@ -261,6 +261,103 @@ class TestSelfInstalledPackage(Base):
         self.assertIn("KEEPING", out)
 
 
+class TestBytecode(Base):
+    """`__pycache__` is written by the interpreter for OUR files, appears in no manifest, and
+    kept every directory above it non-empty -- so a "successful" uninstall left 8 directories
+    and 20 `.pyc` files, and the whole installed tree, standing. Measured, not supposed."""
+
+    def _pyc(self, *parts, name="x.cpython-313.pyc", body=b"\0"):
+        d = self.d.joinpath(*parts) / "__pycache__"
+        d.mkdir(parents=True, exist_ok=True)
+        (d / name).write_bytes(body)
+        return d
+
+    def test_bytecode_under_a_skill_is_pruned_with_the_directory_it_emptied(self):
+        self.skill("l3io-doctor", {"scripts/a.py": ("payload\n", None)})
+        self._pyc(".claude", "skills", "l3io-doctor", "scripts")
+        code, out, err = self.run_cli("--apply")
+        self.assertEqual(code, 0, out + err)
+        self.assertFalse(self.exists(".claude/skills/l3io-doctor/scripts/__pycache__"))
+        self.assertFalse(self.exists(".claude/skills/l3io-doctor/scripts"))
+        self.assertFalse(self.exists(".claude/skills/l3io-doctor"))
+
+    def test_the_self_installed_package_DIRECTORY_is_gone_not_just_its_files(self):
+        """The reviewer's measurement, reduced: every payload file removed, success
+        reported, and the tree still there because bytecode held it open."""
+        shipped = {"__main__.py": "main\n", "core/locks.py": "locks\n"}
+        self.skill("l3io-doctor",
+                   {f"scripts/pm_status/{k}": (v, None) for k, v in shipped.items()})
+        for rel, content in shipped.items():
+            p = self.d / "_bmad" / "scripts" / "pm-status" / rel
+            p.parent.mkdir(parents=True, exist_ok=True)
+            p.write_text(content, encoding="utf-8")
+        self._pyc("_bmad", "scripts", "pm-status")
+        self._pyc("_bmad", "scripts", "pm-status", "core")
+        code, out, err = self.run_cli("--apply")
+        self.assertEqual(code, 0, out + err)
+        self.assertFalse(self.exists("_bmad/scripts/pm-status"),
+                         "the package directory itself must not survive an uninstall")
+
+    def test_a_pycache_holding_anything_else_is_left_whole(self):
+        """The non-widening guard. The rule is 'every entry is a .pyc/.pyo file', never
+        'the directory is called __pycache__' -- otherwise this is a recursive delete
+        wearing a name check, which is the mistake this estate has already paid for."""
+        self.skill("l3io-doctor", {"scripts/a.py": ("payload\n", None)})
+        d = self._pyc(".claude", "skills", "l3io-doctor", "scripts")
+        (d / "their-notes.md").write_text("mine\n", encoding="utf-8")
+        code, out, err = self.run_cli("--apply")
+        self.assertEqual(code, 0, out + err)
+        self.assertTrue(self.exists(
+            ".claude/skills/l3io-doctor/scripts/__pycache__/their-notes.md"))
+        self.assertTrue(self.exists(
+            ".claude/skills/l3io-doctor/scripts/__pycache__/x.cpython-313.pyc"),
+            "a surviving directory survives WHOLE; we do not strip it first")
+
+    def test_a_pycache_holding_a_subdirectory_is_left_whole(self):
+        self.skill("l3io-doctor", {"scripts/a.py": ("payload\n", None)})
+        d = self._pyc(".claude", "skills", "l3io-doctor", "scripts")
+        (d / "nested").mkdir()
+        self.run_cli("--apply")
+        self.assertTrue(self.exists(".claude/skills/l3io-doctor/scripts/__pycache__/nested"))
+
+    def test_a_foreign_skills_bytecode_is_untouched(self):
+        """Scope is our roots. A BMad core skill's bytecode is not ours to collect."""
+        self.skill("l3io-doctor", {"scripts/a.py": ("payload\n", None)})
+        other = self.d / ".claude" / "skills" / "bmad-core-thing"
+        other.mkdir(parents=True)
+        (other / "__pycache__").mkdir()
+        (other / "__pycache__" / "y.cpython-313.pyc").write_bytes(b"\0")
+        code, out, err = self.run_cli("--apply")
+        self.assertEqual(code, 0, out + err)
+        self.assertTrue(self.exists(".claude/skills/bmad-core-thing/__pycache__/y.cpython-313.pyc"))
+        self.assertNotIn("bmad-core-thing", out)
+
+    def test_the_dry_run_names_what_it_would_prune_and_prunes_nothing(self):
+        """--apply must never remove a directory the operator was not shown first."""
+        self.skill("l3io-doctor", {"scripts/a.py": ("payload\n", None)})
+        self._pyc(".claude", "skills", "l3io-doctor", "scripts")
+        code, out, _ = self.run_cli()
+        self.assertEqual(code, 0)
+        self.assertIn("Would prune 1 __pycache__", out)
+        self.assertIn(".claude/skills/l3io-doctor/scripts/__pycache__", out)
+        self.assertTrue(self.exists(
+            ".claude/skills/l3io-doctor/scripts/__pycache__/x.cpython-313.pyc"))
+
+    def test_the_apply_summary_counts_the_directories_it_pruned(self):
+        self.skill("l3io-doctor", {"scripts/a.py": ("payload\n", None)})
+        self._pyc(".claude", "skills", "l3io-doctor", "scripts")
+        _, out, _ = self.run_cli("--apply")
+        self.assertIn("1 __pycache__ director(ies)", out)
+
+    def test_json_lists_the_bytecode_directories(self):
+        self.skill("l3io-doctor", {"scripts/a.py": ("payload\n", None)})
+        self._pyc(".claude", "skills", "l3io-doctor", "scripts")
+        code, out, _ = self.run_cli("--format", "json")
+        self.assertEqual(code, 0)
+        self.assertEqual(json.loads(out)["bytecode"],
+                         [".claude/skills/l3io-doctor/scripts/__pycache__"])
+
+
 class TestReporting(Base):
     def test_json_lists_removable_modified_and_missing(self):
         self.skill("l3io-doctor", {"scripts/a.py": ("payload\n", None),
