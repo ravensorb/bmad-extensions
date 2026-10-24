@@ -23,6 +23,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import time
 import unittest
 from contextlib import contextmanager, redirect_stderr, redirect_stdout
 from datetime import UTC, datetime, timedelta
@@ -463,6 +464,18 @@ class TestSubcommandRegistration(unittest.TestCase):
         self.assertEqual(len(set(self.EXPECTED)), 43, "EXPECTED has a duplicate")
 
 
+def dead_pid() -> int:
+    """A pid that is certainly NOT running: spawn the cheapest process there is and reap it.
+
+    A LITERAL will not do any more. `sweep_stale` now asks whether a suffix's pid is live, so
+    `pm-status.old-1` is init's -- the opposite of the crashed predecessor a fixture using it
+    means -- and a literal like 999 is whatever happens to hold that pid on the box today.
+    """
+    p = subprocess.Popen([sys.executable, "-c", ""])
+    p.wait()
+    return p.pid
+
+
 class TestSelfInstall(Base):
     """`self-install` installs the package DIRECTORY `pm-status/` beside --dest (spec §4)."""
 
@@ -649,21 +662,217 @@ class TestSelfInstall(Base):
         self.assertIn("pm-status.old-", err.getvalue())
 
     def test_every_run_sweeps_a_crashed_predecessor(self):
+        dead = dead_pid()
         dest = os.path.join(self.d, "pm-status.py")
-        os.makedirs(os.path.join(self.d, "pm-status.old-1"))
-        os.makedirs(os.path.join(self.d, "pm-status.staging-1"))
+        os.makedirs(os.path.join(self.d, f"pm-status.old-{dead}"))
+        os.makedirs(os.path.join(self.d, f"pm-status.staging-{dead}"))
         self.run_main(["self-install", "--dest", dest])
         self.assertEqual(sorted(os.listdir(self.d)), ["pm-status"])
 
     def test_sweep_removes_crashed_install_siblings(self):
         d = tempfile.mkdtemp()
         self.addCleanup(shutil.rmtree, d, True)
-        for name in ("pm-status.old-999", "pm-status.staging-999"):
+        dead = dead_pid()
+        names = [f"pm-status.old-{dead}", f"pm-status.staging-{dead}"]
+        for name in names:
             os.makedirs(os.path.join(d, name))
         os.makedirs(os.path.join(d, "pm-status"))
         removed = pm.sweep_stale(d)
-        self.assertEqual(sorted(removed), ["pm-status.old-999", "pm-status.staging-999"])
+        self.assertEqual(sorted(removed), sorted(names))
         self.assertTrue(os.path.isdir(os.path.join(d, "pm-status")))
+
+    def test_sweep_leaves_a_live_installers_siblings_alone(self):
+        """THE regression. The sweep deleted every staging/old sibling regardless of pid,
+        including the tree a concurrently-running installer was copying into right then --
+        measured at 5 of 6 simultaneous cold installs dying on a raw traceback. A suffix is
+        the pid that made it; a running pid means an owner, not a corpse."""
+        d = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, d, True)
+        dead, live = dead_pid(), os.getpid()
+        for name in (f"pm-status.old-{dead}", f"pm-status.staging-{dead}",
+                     f"pm-status.old-{live}", f"pm-status.staging-{live}"):
+            os.makedirs(os.path.join(d, name))
+        removed = pm.sweep_stale(d)
+        self.assertEqual(sorted(removed),
+                         sorted([f"pm-status.old-{dead}", f"pm-status.staging-{dead}"]))
+        for name in (f"pm-status.old-{live}", f"pm-status.staging-{live}"):
+            self.assertTrue(os.path.isdir(os.path.join(d, name)),
+                            f"{name} belongs to a RUNNING process and must survive the sweep")
+
+    def test_sweep_removes_a_suffix_that_is_not_a_pid(self):
+        """Liveness cannot be proved for a suffix that is not a number, and something has to
+        collect it: unparseable is swept, which is also the pre-3.5.3 behaviour for every
+        suffix. Without this the new guard could be satisfied by never sweeping anything."""
+        d = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, d, True)
+        for name in ("pm-status.staging-", "pm-status.old-abc"):
+            os.makedirs(os.path.join(d, name))
+        self.assertEqual(sorted(pm.sweep_stale(d)), ["pm-status.old-abc", "pm-status.staging-"])
+
+    def test_pid_liveness_treats_a_foreign_process_as_live(self):
+        """os.kill(pid, 0) on a process we do not own raises PermissionError -- which means
+        it EXISTS. Reading that as 'not live' would delete another user's staging tree."""
+        with mock.patch.object(os, "kill", side_effect=PermissionError):
+            self.assertTrue(pm.core._pid_is_live("4242"))
+        with mock.patch.object(os, "kill", side_effect=ProcessLookupError):
+            self.assertFalse(pm.core._pid_is_live("4242"))
+
+    def test_a_copytree_failure_is_the_designed_FAILED_line_not_a_traceback(self):
+        """copytree and chmod sat OUTSIDE the try, so the failure a concurrent sweep caused
+        escaped as a raw stack trace. step-00-activate.md declares this failure BLOCKED, and
+        a traceback is not something an orchestrator can report."""
+        dest = os.path.join(self.d, "pm-status.py")
+        err = io.StringIO()
+        with mock.patch.object(shutil, "copytree", side_effect=OSError("swept mid-copy")), \
+                redirect_stderr(err):
+            code, _ = self.run_main(["self-install", "--dest", dest])
+        self.assertEqual(code, 1)
+        self.assertIn("FAILED self-install", err.getvalue())
+        self.assertIn("swept mid-copy", err.getvalue())
+
+    def test_a_chmod_failure_is_the_designed_FAILED_line_too(self):
+        dest = os.path.join(self.d, "pm-status.py")
+        err = io.StringIO()
+        with mock.patch.object(os, "chmod", side_effect=OSError("staging vanished")), \
+                redirect_stderr(err):
+            code, _ = self.run_main(["self-install", "--dest", dest])
+        self.assertEqual(code, 1)
+        self.assertIn("FAILED self-install", err.getvalue())
+
+    def test_a_first_install_failure_never_claims_a_restore(self):
+        """There was no previous install, so 'the previous install was restored' sends the
+        reader looking for a tree that was never made."""
+        dest = os.path.join(self.d, "pm-status.py")
+        err = io.StringIO()
+        with mock.patch.object(os, "rename", side_effect=OSError("boom")), redirect_stderr(err):
+            code, _ = self.run_main(["self-install", "--dest", dest])
+        self.assertEqual(code, 1)
+        self.assertIn("no previous install was moved aside", err.getvalue())
+        self.assertNotIn("previous install was restored", err.getvalue())
+        self.assertEqual(os.listdir(self.d), [], "no staging debris")
+
+    def test_a_concurrent_installer_winning_the_rename_is_success(self):
+        """`os.rename` onto a non-empty directory is ENOTEMPTY -- there is no directory
+        os.replace -- so two cold installers racing one dest left the loser at exit 1 on a
+        path every skill runs at activation. An identical tree at `live` IS the goal state."""
+        dest = os.path.join(self.d, "pm-status.py")
+        live = self._live(dest)
+        real_rename = os.rename
+
+        def loser(a, b):
+            if os.path.basename(b) == "pm-status":
+                # The winner lands its identical tree, then our rename hits ENOTEMPTY.
+                shutil.copytree(pm.package_root(), live,
+                                ignore=shutil.ignore_patterns("__pycache__", "*.pyc"))
+                raise OSError(39, "Directory not empty")
+            return real_rename(a, b)
+
+        out, err = io.StringIO(), io.StringIO()
+        with mock.patch.object(os, "rename", loser), redirect_stdout(out), redirect_stderr(err):
+            code = pm.main(["self-install", "--dest", dest])
+        self.assertEqual(code, 0, err.getvalue())
+        self.assertIn("a concurrent installer wrote this exact package first", out.getvalue())
+        self.assertNotIn("FAILED", err.getvalue())
+        self.assertEqual(pm.tree_digest(live), pm.tree_digest(pm.package_root()))
+        self.assertEqual(sorted(os.listdir(self.d)), ["pm-status"], "no staging/old debris")
+
+    def test_a_concurrent_installer_writing_a_DIFFERENT_tree_still_fails(self):
+        """The concurrency escape hatch is strict equality. Anything else and the install did
+        not happen, which must stay a failure -- otherwise it swallows every rename error."""
+        dest = os.path.join(self.d, "pm-status.py")
+        live = self._live(dest)
+        real_rename = os.rename
+
+        def loser(a, b):
+            if os.path.basename(b) == "pm-status":
+                os.makedirs(live)
+                with open(os.path.join(live, "__main__.py"), "w", encoding="utf-8") as fh:
+                    fh.write("# pm-status-version: 9.9.9\nprint('someone else')\n")
+                raise OSError(39, "Directory not empty")
+            return real_rename(a, b)
+
+        err = io.StringIO()
+        with mock.patch.object(os, "rename", loser), redirect_stderr(err):
+            code, _ = self.run_main(["self-install", "--dest", dest])
+        self.assertEqual(code, 1)
+        self.assertIn("FAILED self-install", err.getvalue())
+
+    def test_six_simultaneous_cold_installs_all_succeed(self):
+        """The regression, end to end, in real processes against one dest -- the shape every
+        skill runs at activation when parallel subagents start together. Six of these on the
+        unfixed code produced five tracebacks; it is a real race, so it is driven by a barrier
+        rather than by hoping six interpreters start at the same moment.
+
+        THREE rounds, because a race test that is green either way is worse than none and one
+        round is not reliably red: measured on the unfixed code, one round caught it in 7 of 8
+        runs, so a single round would have let a reverted fix through one commit in eight.
+        Three independent rounds take that to better than 1 in 500. Every round is a COLD
+        install -- the dest is wiped -- because that is the window `sweep_stale` opened.
+        """
+        n, rounds = 6, 3
+        runner = os.path.join(self.d, "runner.py")
+        with open(runner, "w", encoding="utf-8") as fh:
+            fh.write(
+                "import os, runpy, sys, time\n"
+                "flag, main, dest, ready = sys.argv[1:5]\n"
+                "open(ready, 'w').close()\n"
+                "while not os.path.exists(flag):\n"
+                "    time.sleep(0.0005)\n"
+                "sys.argv = [main, 'self-install', '--dest', dest]\n"
+                "runpy.run_path(main, run_name='__main__')\n")
+        for rnd in range(rounds):
+            sub = os.path.join(self.d, f"round-{rnd}")
+            os.makedirs(sub)
+            dest, go = os.path.join(sub, "pm-status.py"), os.path.join(sub, "go")
+            procs = []
+            for i in range(n):
+                ready = os.path.join(sub, f"ready-{i}")
+                procs.append((ready, subprocess.Popen(
+                    [sys.executable, runner, go, SCRIPT, dest, ready],
+                    stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)))
+            deadline = time.monotonic() + 60
+            while not all(os.path.exists(r) for r, _ in procs):
+                self.assertLess(time.monotonic(), deadline, "installers never reached the barrier")
+                time.sleep(0.01)
+            open(go, "w").close()
+            results = []
+            for _, p in procs:
+                out, err = p.communicate(timeout=120)   # BEFORE reading returncode, which
+                results.append((p.returncode, out, err))  # is None until the process exits
+
+            for i, (rc, out, err) in enumerate(results):
+                self.assertNotIn("Traceback", err,
+                                 f"round {rnd} installer {i} died on a raw traceback:\n{err}")
+                self.assertEqual(rc, 0,
+                                 f"round {rnd} installer {i} exited {rc}\n{out}\n{err}")
+            self.assertEqual(pm.tree_digest(self._live(dest)),
+                             pm.tree_digest(pm.package_root()), f"round {rnd}")
+            self.assertEqual(sorted(os.listdir(sub)),
+                             ["go", "pm-status"] + sorted(f"ready-{i}" for i in range(n)),
+                             f"round {rnd}: a staging/old tree survived the race")
+
+    def test_shipped_shas_count_is_54_and_both_prose_numbers_say_so(self):
+        """The comment beside the constant said 'all 93' and its noqa said '53 digests'; the
+        set holds 54. 93 is the TAG count -- most tags did not change the file -- so the two
+        numbers describe different things and only one describes this set. docs/upgrading.md
+        says 54, so the code contradicted the doc it is the source for.
+
+        Asserting the length alone would NOT have caught that: the length was always 54. The
+        two regexes below read the numbers the file PRINTS beside the constant and compare
+        them to the measured one, which is the only way prose that claims a measurement gets
+        checked. They pin the wording `N DISTINCT digests` and `N digests`; keep both true.
+        """
+        n = len(pm.core._SHIPPED_SHAS)
+        self.assertEqual(n, 54)
+        src = Path(pm.core.__file__).read_text(encoding="utf-8")
+        head, _, tail = src.partition("_SHIPPED_SHAS = frozenset(")
+        for pattern, text, where in (
+                (r"(\d+) DISTINCT digests", head, "the comment above _SHIPPED_SHAS"),
+                (r"(\d+) digests", tail.split("\n\n")[0], "the noqa beside _SHIPPED_SHAS")):
+            m = re.search(pattern, text)
+            self.assertIsNotNone(m, f"{where} must state the digest count as `{pattern}`")
+            self.assertEqual(int(m.group(1)), n,
+                             f"{where} says {m.group(1)}; the set holds {n}")
 
     def test_tree_digest_changes_with_any_file(self):
         d = tempfile.mkdtemp()

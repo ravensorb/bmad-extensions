@@ -13,7 +13,7 @@
     "scripts/merge-help-csv.py": "44cae89d74a247395cc851970e28b65605e958efa04b632209f9bd5ecbc70d69",
     "scripts/pm_status/__init__.py": "ce45f268c7bbe7a7afd3287dee6f71d7f148f2b86efb75f30e07345f20b53476",
     "scripts/pm_status/__main__.py": "7fc32a6ccadc1f6c271719e376cfc052f64b8c3fbc13242046fbc99d6865ee83",
-    "scripts/pm_status/core/__init__.py": "d7a8e552623209e6ab2aaa6b5f65bbb156b8f30123f11b04610700877c0c4f06",
+    "scripts/pm_status/core/__init__.py": "81337c10edc2e81816b284f32c9cf9fb38785a46cb1f644368e04771f3c7c934",
     "scripts/pm_status/instructions/__init__.py": "9543415ff0b21a01d0e797bec0b624bc9274b518a28992bf61bbf66d20c24587",
     "scripts/pm_status/issues/__init__.py": "56b3085ceb4974fe1fa8068a2bc8c937a967d5900985ae232ec5d28d35532e6b",
     "scripts/pm_status/issues/adr.py": "3812335f5024ef0667f39330f2ff5bca29beff0ba706db36ed71b08a72bec098",

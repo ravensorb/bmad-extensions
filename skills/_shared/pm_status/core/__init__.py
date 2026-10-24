@@ -972,8 +972,11 @@ def _parse_version_line(path: str):
 # --------------------------------------------------------------------------- #
 # self-install: one runtime copy per project, content-guarded.
 # --------------------------------------------------------------------------- #
-# SHA-256 of pm-status.py at each release tag (all 93, 0.1.2 onward, incl. the pre-skills/ src/
-# layout); only a match is ours to delete. Untagged commits are not covered: left, and reported.
+# SHA-256 of pm-status.py as it stood at a release tag, 0.1.2 onward, incl. the pre-skills/ src/
+# layout: 54 DISTINCT digests across the 93 tags (most tags did not change the file, so the two
+# counts differ and the digest count is the one that describes this set -- docs/upgrading.md
+# says 54 too). Only a match is ours to delete. Untagged commits are not covered: left, and
+# reported. tests: test_shipped_shas_count_is_54.
 _SHIPPED_SHAS = frozenset("""
 0b1bf9c58d7a03aa87ea67244ce492bae3f73b8eb5616e573f7511a1c485e8ac 1cb92f322c3dbd0b2d2162d91c67744bc60ec1f78dd1dd9ebcba45837393f118 2835546912fbce53ff4189f5815cecd6b80a3385ef283c92b2a3785e702bdb8c 2d22901b48eee23fcd6344b6824a8eaf6b7b3759b882f21c005e514e6cc28ca1 3a8bb2052565dc99df4138c9783e04ed5ddcd0c10c52b1cf56c6009139a3a882 3b73f41eb6b1cc150f56d1defa0642f1d0dcdb20815cdd8c030c460c24a72b61 3c0aaf1dcba8299a17f54119b9f4ffd5c3ebcb1ea6be6b56a8b13c40e4aeb850 4c2869a33ece0dd3980afd9732fce865e29006d0ccc987041395d394ffdc1e92 5375b917a59672a7d6f9e90aa66557745f8208943d4f850a16293f620da98849
 58304be3eff53054ce0e1fcee5ada0960ef42accca0294de510a946b3a091b8d 5a0e57a538350d7b1cef08aa641d945c7d1cd9343ca098a5d2c5074e8f4e094c 5cc905cb72aacd9f067181d75794537ef15239f376607979339890c217513af6 5f07d89cc6f86a8bd4aa7e0a68446db07ef106c6556f1798a27c5f27b7ed9e07 5f6c63a272d6bc76372306cea5d047e001a65045c7c1f6f44445d949d019c0c0 6225f178925f6d4bc99b6584722f539e81266fcfe4bc79ab39515c0b9505e467 6268681451ed45b8b2a7fbacab449b9266fd6f2479ce8bb26e9d4e2ccd4c5211 6da96cbc2fd3d18c28af0e5ae8e4fd921cc0f3928d12cff4151e964696134e0e 6fbaf4d501cc423c41637d5b27a4c633d3455127b4c930d4e0624c7725cc74f7
@@ -981,7 +984,7 @@ _SHIPPED_SHAS = frozenset("""
 970504a94e3f04d0ba2a9e0e7029d2be245ad977a945171cc1ba57e1043dea9e 983ad9559b66597a537df2501016a293e26925f029bd202ca2adf6ccf0883a3d 9f9035e90881f2e3eeaf901b696e05acc58b6ecd74f31aeb06a23ea8a89aa8ab a11fb30fc8d9eabd42c412bbfc98c65090ef43dc4b201b8373798b3682039712 a27ac9296f50ca5203330ed5aab9125177f86d8a02d8dee757b72b07f3d47274 a4248d7bdeb2b096aed5636de6c8bb22b7dda8d97fa3fd1eee0528956cc358c5 a79c3626b77b88256ce997488919d54010456ddf421f3048a5cda21cb211863a aa58e96235b017b91ed04ed81f1f7a8c19de12aa9e05a5e822828f73bc23cde5 b35c8f3e70794667bb19a2b4e466e698b6df3ee5b9988f3bc7b56106502975ef
 b79cd5876f21dc42ead21f6c5e35bad16c884ccd8c7254c7096d44089552db55 baf8864fc988e7914691d4d0f8c2c0f79cfff8963689b55aabd77fa0c29a0b89 bb82cbfc47cb3ee69d8840f8ed2a1d36606efdc2e6cc375887f6c75ccbfb95ef bf6c0df846c8b03cf720c3d76a8f34a90943fdef4ca8f555d8f9da4c5cffe8bd d00dd34e52e4e40b0a8050b373c8add5d95822271273d8f8297293a3bf751349 d9d85d5dc9296b271f4d0ee6151237f42d2b4944b4c94468c553dfcc3660356d db7bad754dd7d717bf13c3ea267d08232634e8b267a845913b08e8c988509a35 dba663676d6d25e8813c4581b559941d0d2e37c7734de5f505983f7f65dedec7 dd7e560a0b06bca442b1aa1d5f434f8d80229570ded8d97adbb0b16f10c3396f
 ddfc2d0d899e3b9965ff3dd2bcbf4121ea64e4be06809484bdf76c5972d47ddf e5103515a786c1e8ed56e152d83be3fdb74c380211720d3131847be5a7451a7a ec52c4880d48ba276d1dfc4d5466aee0ed82c9f5c71e1b42fa18ae7d13b1c5a8 ec677e57aab5919bbfb02f9410bb0a9f0ba17c5632d5bd3ee3e08efdf68c84ab ee0a1aaa15909f3e4140d77ed6641886330d1c69d742b93feeea82f02e812be0 f57547e7b9f1a7e153736b10a91fddec743e33164da6d940d624347152ca8ec4 f7bd8595f13b6692d8ca58cdbc81106180d2c923f91cb09ea2c85257aa24b5ef fbeda45557f03b44d164821f48af1174e47e876d369abf0509e37ae93395386e fbf74d157dc9e37bc8d73027c3247f587424c92ecdcf9dcb532dfbabbcbc7756
-""".split())  # noqa: SIM905 -- 53 digests: a split string is 6 lines, a list literal is 53
+""".split())  # noqa: SIM905 -- 54 digests: a split string is 6 lines, a list literal is 54
 
 
 def package_root() -> str:
@@ -1010,13 +1013,39 @@ def tree_digest(root: str) -> str:
     return h.hexdigest()
 
 
+def _pid_is_live(pid: str) -> bool:
+    """True if `pid` names a running process. A non-numeric suffix is never live.
+
+    PermissionError means the process exists and is someone else's -- still live.
+    Pid reuse can make a dead installer's pid look live; that errs toward LEAVING a
+    directory behind, which the next run sweeps, rather than deleting a live one.
+    """
+    try:
+        os.kill(int(pid), 0)
+    except (ValueError, ProcessLookupError):
+        return False
+    except PermissionError:
+        return True
+    except OSError:
+        return False
+    return True
+
+
 def sweep_stale(parent: str) -> list:
-    """Remove `pm-status.old-*` / `pm-status.staging-*` siblings a crashed install left."""
+    """Remove `pm-status.old-*` / `pm-status.staging-*` siblings a CRASHED install left.
+
+    Crashed, not concurrent: each suffix is the pid that made it, and a suffix whose pid is
+    still running belongs to an installer that is writing into it right now. Sweeping those
+    was a measured defect -- six simultaneous cold installs against one dest, five failed,
+    because one process's `copytree` was deleted out from under it by another's sweep.
+    tests: test_sweep_leaves_a_live_installers_siblings_alone.
+    """
     gone = []
     for name in sorted(os.listdir(parent)) if os.path.isdir(parent) else []:
-        if name.startswith(("pm-status.old-", "pm-status.staging-")):
-            shutil.rmtree(os.path.join(parent, name), ignore_errors=True)
-            gone.append(name)
+        for prefix in ("pm-status.old-", "pm-status.staging-"):
+            if name.startswith(prefix) and not _pid_is_live(name[len(prefix):]):
+                shutil.rmtree(os.path.join(parent, name), ignore_errors=True)
+                gone.append(name)
     return gone
 
 
@@ -1039,7 +1068,9 @@ def cmd_self_install(args) -> int:
     equal versions mean "compare the bytes". A strictly newer installed copy is still refused,
     since only the version can express a downgrade. Stage, rename the live tree aside, rename
     the stage in; the window between the renames is accepted (spec §4). A failed second rename
-    restores the old tree, and every run first sweeps a crashed predecessor's siblings.
+    restores the old tree, and every run first sweeps a crashed predecessor's siblings -- a
+    CRASHED one only: `sweep_stale` leaves a live pid's staging tree alone, because sweeping
+    it is what turned concurrent activation self-installs into tracebacks.
     """
     src, dest = package_root(), os.path.abspath(args.dest)
     parent = os.path.dirname(dest)
@@ -1064,20 +1095,49 @@ def cmd_self_install(args) -> int:
                              f"content differs from this copy; reinstalling. A changed script "
                              f"shipped under an unchanged version marker.\n")
     staging, old = (f"{live}.{k}-{os.getpid()}" for k in ("staging", "old"))
-    shutil.copytree(src, staging, ignore=shutil.ignore_patterns("__pycache__", "*.pyc"))
-    os.chmod(os.path.join(staging, "__main__.py"), 0o755)
     aside = os.path.lexists(live)
+    moved_aside = False
+    # copytree and chmod are INSIDE the try. They were outside it until 3.5.3, so a
+    # concurrent installer's sweep deleting this staging tree mid-copy surfaced as a raw
+    # shutil.Error / FileNotFoundError traceback rather than the designed FAILED line --
+    # measured at ~10% per installer on a cold install, and
+    # steps/shared/step-00-activate.md declares that failure BLOCKED.
     try:
+        shutil.copytree(src, staging, ignore=shutil.ignore_patterns("__pycache__", "*.pyc"))
+        os.chmod(os.path.join(staging, "__main__.py"), 0o755)
         if aside:
             os.rename(live, old)
+            moved_aside = True
         os.rename(staging, live)
     except BaseException as e:
-        state = "the previous install was restored"
-        try:
-            if aside and not os.path.lexists(live):
+        # A concurrent installer may simply have won. `os.rename` onto a non-empty directory
+        # is ENOTEMPTY -- there is no directory equivalent of the `os.replace` the pre-package
+        # single-file install used, so two cold installers racing one dest BOTH built a
+        # staging tree and the loser's rename failed. If `live` now holds exactly the tree we
+        # were installing, the goal state is reached and by whom is not interesting: rename is
+        # atomic, so a complete tree there is a complete tree. Strict equality, and OSError
+        # only -- a KeyboardInterrupt still re-raises below, and a different tree still FAILS.
+        if isinstance(e, OSError) and os.path.isdir(live) and tree_digest(live) == tree_digest(src):
+            shutil.rmtree(staging, ignore_errors=True)
+            if moved_aside:
+                shutil.rmtree(old, ignore_errors=True)
+            sys.stdout.write(f"OK self-install {live} — a concurrent installer wrote this "
+                             f"exact package first ({PM_STATUS_VERSION})\n")
+            _drop_legacy_file(dest)
+            return 0
+        # `moved_aside`, not `aside`: a first install moves nothing, and so restores
+        # nothing. Reporting a restore that never happened sends the reader looking for a
+        # tree that does not exist.
+        if not moved_aside:
+            state = "no previous install was moved aside"
+        elif os.path.lexists(live):
+            state = f"another install now holds {live}; the tree moved aside is at {old}"
+        else:
+            state = "the previous install was restored"
+            try:
                 os.rename(old, live)
-        except OSError as err:
-            state = f"ROLLBACK FAILED ({err}); previous install is at {old}, {live} is absent"
+            except OSError as err:
+                state = f"ROLLBACK FAILED ({err}); previous install is at {old}, {live} is absent"
         shutil.rmtree(staging, ignore_errors=True)
         sys.stderr.write(f"FAILED self-install {live}: {e!r}; {state}\n")
         if not isinstance(e, OSError):
