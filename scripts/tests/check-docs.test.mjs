@@ -2655,6 +2655,44 @@ test("check 4/skills: the deepest real continuation in the tree is read to its e
 // anchored externally, so this asserts the extraction against the real argparse objects, in
 // both directions, for every subcommand. If build_parser() grows a shape the regex cannot
 // follow, this goes red -- rather than check 4 silently narrowing back to the union.
+// --- argparseSurface() refuses to return a quietly-shrunk surface -------------------------
+//
+// Checks 4 and 27 fail OPEN on what the extraction cannot see, so a shrunk surface reads as
+// success: forcing the extraction empty made `check:docs` exit 0 printing "Documentation
+// checks passed". The realistic failure is PARTIAL rather than total — one regex reverted in
+// choicesOf() silently dropped six choice sets — which is why there are two guards and two
+// tests. Both plants are the real shapes: a registration outside every parser region, and a
+// choices constant spelled so the extractor cannot read its values.
+
+test("surface guard: a top-level add_parser the extraction cannot reach is reported", async (t) => {
+  const root = fixture(t);
+  // Module level, outside any `def`, so parserRegionMask() excludes it — exactly what a
+  // registration moved into a class method or a nested function looks like to the mask.
+  write(root, "skills/_shared/pm_status/ghost.py",
+    'import sys\n\nsub = sys.modules\nsub.add_parser("ghost-verb", help="planted")\n');
+  const r = await run(root);
+  assert.equal(r.status, 1);
+  assert.match(r.stderr,
+    /argparse surface extraction lost 1 of \d+ top-level subcommand\(s\): ghost-verb/);
+});
+
+test("surface guard: a choices constant whose values never reach the surface is reported", async (t) => {
+  const root = fixture(t);
+  // A SET literal: pyStringCollections() reads `NAME = [...]` and `NAME = (...)` only, so the
+  // values are unreadable and choicesOf() returns null — the flag's choices are then never
+  // judged by check 4's value arm or by check 27, silently. The subcommand itself registers
+  // fine, so guard 1 passes and only guard 2 can catch this.
+  write(root, "skills/_shared/pm_status/ghostchoice.py",
+    'GHOST_CHOICES = {"alpha", "beta"}\n\n\n'
+    + 'def register(sub):\n'
+    + '    g = sub.add_parser("ghost-choice-verb", help="planted")\n'
+    + '    g.add_argument("--mode", choices=GHOST_CHOICES)\n');
+  const r = await run(root);
+  assert.equal(r.status, 1);
+  assert.match(r.stderr,
+    /argparse surface extraction lost the choices of 1 named constant\(s\): GHOST_CHOICES/);
+});
+
 test("the static per-subcommand option surface matches the real argparse, both ways", async () => {
   const dumper = path.join(REPO, "scripts", "tests", "dump-pm-status-parser.py");
   const pmStatus = path.join(REPO, "skills", "_shared", "pm_status", "__main__.py");

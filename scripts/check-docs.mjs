@@ -1020,18 +1020,110 @@ const _surfaceCache = new Map();
 // A body qualifies by what it CONTAINS (`.add_parser(` or `.add_subparsers(`), never by its
 // name, so this does not need editing when a module's registration hook is renamed or when a
 // new bucket appears.
+// AT ANY INDENT, not column 0. The first version required `^def `, which meant a module
+// registering from a class method or a nested function fell outside every region and its verbs
+// vanished from the surface -- a PARTIAL emptying, which no "is the result empty" check sees.
+// The body is every following line indented strictly deeper than the `def` (blank lines
+// included), so an inner helper simply nests inside its parent region rather than escaping it.
 function parserRegionMask(src) {
   const lines = src.split("\n");
   const keep = new Array(lines.length).fill(false);
   for (let i = 0; i < lines.length; i++) {
-    if (!/^def [A-Za-z_][A-Za-z0-9_]*\(/.test(lines[i])) continue;
+    const def = lines[i].match(/^(\s*)def [A-Za-z_][A-Za-z0-9_]*\(/);
+    if (!def) continue;
+    const inner = def[1] + " ";
     let end = i + 1;
-    while (end < lines.length && (lines[end].trim() === "" || /^\s/.test(lines[end]))) end += 1;
+    while (end < lines.length && (lines[end].trim() === "" || lines[end].startsWith(inner))) end += 1;
     const body = lines.slice(i, end).join("\n");
     if (!/\.add_parser\(|\.add_subparsers\(/.test(body)) continue;
     for (let j = i; j < end; j++) keep[j] = true;
   }
   return lines.map((ln, i) => (keep[i] ? ln : " ".repeat(ln.length))).join("\n");
+}
+
+// THE EXTRACTION REFUSES TO RETURN A QUIETLY-SHRUNK SURFACE.
+//
+// Every check that reads argparseSurface() fails OPEN on what it cannot see: checks 4 and 27
+// judge a documented invocation against the invoked subcommand's own option set, and a
+// subcommand -- or a flag's `choices` -- that never made it into the map is simply never
+// judged. Measured on this tree: force the extraction empty and `check:docs` exits 0 printing
+// "Documentation checks passed" over a CLI it can no longer see.
+//
+// `run-python-suites.mjs` already publishes the discipline this adopts: refuse on an empty
+// discovery rather than report success over nothing. These are its per-arm form, and the
+// second exists because the realistic failure is PARTIAL rather than total -- reverting one
+// regex in choicesOf() (the module-qualified `choices=list(store.X)` form the package split
+// needed) silently dropped SIX choice sets while an is-it-empty check stayed green. That is
+// the shape the next module move produces, and no emptiness test catches it.
+//
+// BOTH EXPECTATIONS COME FROM `src`, NOT FROM `region`. Deriving them from the masked region
+// would be circular: the first thing a broken mask does is empty the region, and an
+// expectation computed from it shrinks to match. Measured -- the region-derived version of
+// this guard passed the total-emptying mutation.
+//
+// Called at BOTH of argparseSurface()'s exits, including the early one for a source with no
+// parsers, because that early return is exactly the path a broken mask takes.
+function guardSurfaceCompleteness(pyRel, src, consts, bySub) {
+  // 1. SUBCOMMANDS. `\bsub\.add_parser` is the TOP-LEVEL registration form in both CLIs.
+  //    Deliberately not `declared.size === bySub.size`: spec-align.py registers 16 parsers of
+  //    which 14 are top-level (`lease_sub.add_parser` folds its two into `lease`), so a strict
+  //    count equality false-positives there. Measured zero false positives as written.
+  const topLevel = new Set([...src.matchAll(/\bsub\.add_parser\(\s*"([a-z-]+)"/g)].map((m) => m[1]));
+  const lostSubs = [...topLevel].filter((n) => !bySub.has(n));
+  if (lostSubs.length) {
+    failures.push(
+      `${pyRel}: argparse surface extraction lost ${lostSubs.length} of ${topLevel.size} ` +
+        `top-level subcommand(s): ${lostSubs.sort().join(", ")}\n` +
+        `      Checks 4 and 27 fail OPEN on a subcommand they cannot see, so this is reported\n` +
+        `      rather than quietly returning a shorter surface. Fix argparseSurface(), not this.`,
+    );
+  }
+  // 2. NAMED-CONSTANT `choices=`. Every `choices=` written as a constant (bare or
+  //    module-qualified, inside list()/tuple()/sorted() or not) must have REACHED THE
+  //    SURFACE: the constant's values must appear as some flag's choices in `bySub`.
+  //
+  //    The expectation is the source reference; the evidence is the produced map. Checking
+  //    only that the NAME resolves in `consts` would be inert — `consts` is built straight
+  //    from the definitions and knows nothing about choicesOf(), so it still resolves while
+  //    choicesOf() drops the reference entirely. Measured: that version passed the mutation
+  //    this guard exists for.
+  //
+  //    Literal forms are out of scope by construction -- `[A-Z_]` cannot match
+  //    `choices=["a", "b"]` or `choices=("a", "b")` -- which keeps the KNOWN tuple-literal
+  //    gap in choicesOf() (3 sites today) from false-positiving here.
+  //
+  //    TWO LIMITS, stated because neither is obvious. It is per CONSTANT, not per use: a
+  //    constant referenced twice where only one use was lost still finds its values and
+  //    passes. And it judges REACHED, not CORRECT -- a reference resolved to the wrong
+  //    constant passes. The external anchor test in scripts/tests/check-docs.test.mjs,
+  //    against the real argparse objects, is what judges values.
+  const reached = new Set();
+  for (const entry of bySub.values()) {
+    for (const vals of entry.choices.values()) reached.add([...vals].sort().join("\u0000"));
+    for (const p of entry.positionals) if (p.choices) reached.add([...p.choices].sort().join("\u0000"));
+  }
+  // Read out of real `add_argument(...)` argument lists over the WHOLE source -- not out of
+  // the masked region (circular, see above) and not off raw lines (a COMMENT naming
+  // `choices=list(RESOLUTIONS)` sits in issues/store.py:468, and a line scan treats it as a
+  // registration the surface owes a value set for).
+  const refs = new Set();
+  for (const call of pyArgCalls(src)) {
+    for (const m of call.tail.matchAll(/choices=(?:list|tuple|sorted)?\(?\s*((?:[a-z_][a-z0-9_]*\.)*[A-Z_][A-Z0-9_]*)\b/g)) {
+      refs.add(m[1]);
+    }
+  }
+  const lostChoices = [...refs].filter((ref) => {
+    const vals = consts.get(ref.split(".").pop());
+    return !vals || !reached.has([...vals].sort().join("\u0000"));
+  });
+  if (lostChoices.length) {
+    failures.push(
+      `${pyRel}: argparse surface extraction lost the choices of ${lostChoices.length} ` +
+        `named constant(s): ${lostChoices.sort().join(", ")}\n` +
+        `      An unresolved choices set is an UNJUDGED one — check 4's value arm and check 27\n` +
+        `      both fail open on it. Teach choicesOf() the spelling; do not drop the reference.`,
+    );
+  }
 }
 
 function argparseSurface(pyRel) {
@@ -1046,7 +1138,11 @@ function argparseSurface(pyRel) {
   // registrations are spread across seven files that `pmStatusSource()` concatenates.
   // Slicing the one `def build_parser(` region found NOTHING after that change -- the
   // function is six calls and a return -- and this checker would have reported an EMPTY
-  // CLI surface, which fails open on checks 4, 10, 27 and 30 at once.
+  // CLI surface. The checks that fail open on that are 4 and 27, the two that read this
+  // function. NOT 10 or 30, though an earlier version of this comment said so: check 10
+  // reads `cliSubcommands()`, an independent regex over the same source, and check 30
+  // already carries its own empty-scope guard. The guards at the end of this function are
+  // what stop a shrunk surface being returned at all.
   //
   // So the region is every top-level `def NAME(` body that registers a parser, MASKED into
   // the concatenated source rather than cut out of it: non-region characters become spaces
@@ -1058,7 +1154,13 @@ function argparseSurface(pyRel) {
   // so a later rename of `register` or `build_parser` needs no edit here. spec-align.py,
   // which still registers centrally, is covered by the same rule.
   const region = parserRegionMask(src);
-  if (!/\.add_parser\(/.test(region)) return (_surfaceCache.set(pyRel, bySub), bySub);
+  if (!/\.add_parser\(/.test(region)) {
+    // A source with no parser region at all. Legitimate for a file that registers nothing —
+    // and ALSO what a broken mask looks like, which is why the completeness guard runs here
+    // too rather than only on the path that found something.
+    guardSurfaceCompleteness(pyRel, src, consts, bySub);
+    return (_surfaceCache.set(pyRel, bySub), bySub);
+  }
 
   const choicesOf = (tail) => {
     const lit = tail.match(/choices=\[([^\]]*)\]/);
@@ -1176,6 +1278,8 @@ function argparseSurface(pyRel) {
       }
     }
   }
+
+  guardSurfaceCompleteness(pyRel, src, consts, bySub);
   _surfaceCache.set(pyRel, bySub);
   return bySub;
 }

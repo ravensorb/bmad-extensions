@@ -13860,11 +13860,21 @@ class TestReorgJournal(unittest.TestCase):
         `plan/`. So a private copy here was invisible, and the patch that looks like it covers
         this file covers a different module entirely.
 
-        The assertion is on the MOVED DOCUMENT'S OWN PATH, not on 'some write happened'.
-        `nodes.ensure_node_path` makes its own saves through the same patched global during a
-        reparent, so a guard asserting the wrapper was called at all passes with `plan/`
-        holding a private copy — that exact shape already passed a mutation for the wrong
-        reason earlier in this work. Only `_rewrite_doc_key` writes `dest_doc`.
+        The assertion is on the MOVED DOCUMENT'S OWN PATH rather than on "some write
+        happened", because `_rewrite_doc_key` is the ONLY writer of `dest_doc`: the assertion
+        is therefore about this call site and cannot be satisfied by another write the same
+        reparent makes. Measured on this tree — `_atomic_text_write` has exactly two calling
+        modules, `instructions/__init__.py` (272, 285) and `plan/__init__.py:382`. `nodes/`
+        never calls it; it writes through `_atomic_dump`. So on a clean run `written` holds
+        exactly this one path.
+
+        That measurement is why an EARLIER version of this docstring was wrong, and the
+        correction is worth keeping: it said `nodes.ensure_node_path` writes through the same
+        patched global during a reparent. True of `save_node` in the Task 11 guards beside
+        this one, NOT true of this name — the justification was borrowed from a case that had
+        earned it. The assertion was correct either way and is strictly the stronger of the
+        two available, but in a repo whose named failure mode is a claim nobody checked, a
+        guard written to catch exactly that must not carry one.
         """
         self._story("E001-S01-001")
         # A story DOCUMENT on disk, which this class's fixture does not otherwise create --
