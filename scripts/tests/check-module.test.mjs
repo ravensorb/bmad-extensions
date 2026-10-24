@@ -250,6 +250,34 @@ test("check:module rejects a second pm-status payload in the package layout", (t
   assert.match(r.stderr, /pm-status\.py appears 2 times for module 'l3io-pm'/);
 });
 
+// `scripts/CLAUDE.md` makes each checker's own header the AUTHORITATIVE description of what
+// it asserts. Both of rule 6's prose sites said "at most one `scripts/pm-status.py` payload
+// copy" while the code had checked two shapes since the package landed -- so the authority
+// described a gate narrower than the one that runs, and nothing could tell. Derived from the
+// declaration, never from a list here, so adding a third payload shape fails until both
+// descriptions name it.
+test("check:module's rule 6 prose names every payload shape PM_STATUS_PAYLOADS checks", () => {
+  const src = fs.readFileSync(CHECK, "utf8");
+  const decl = src.match(/const PM_STATUS_PAYLOADS = (\[[^\]]*\])/);
+  assert.ok(decl, "PM_STATUS_PAYLOADS must stay a readable array literal");
+  const paths = JSON.parse(decl[1].replace(/'/g, '"'));
+  assert.ok(paths.length >= 2, `premise: more than one payload shape (${paths.join()})`);
+  const slice = (from, to) => {
+    const a = src.indexOf(from), b = src.indexOf(to);
+    assert.ok(a > -1 && b > a, `cannot locate the prose between "${from}" and "${to}"`);
+    return src.slice(a, b);
+  };
+  const sites = {
+    "the numbered header entry": slice("//   6. pm-status-singleton", "//   7. csv-skill-exists"),
+    "the section comment": slice("// 6. pm-status-singleton:", "const PM_STATUS_PAYLOADS"),
+  };
+  for (const [where, text] of Object.entries(sites)) {
+    for (const p of paths) {
+      assert.ok(text.includes(p), `${where} must name the payload shape '${p}' that rule 6 checks`);
+    }
+  }
+});
+
 // ---- check 7 (csv-skill-exists) ----
 //
 // Fix round 1, F-4: three real module-help.csv files each carried a phantom row for a

@@ -29,8 +29,12 @@
 //   4. home-payload          each module home carries module-setup.md, module-help.csv, and
 //                            both merge-*.py scripts
 //   5. home-placement        a module home is a dedicated `*-setup` skill, or the module's only skill
-//   6. pm-status-singleton   at most one `scripts/pm-status.py` payload copy per module code --
-//                            Task 11A cut this from three copies inside l3io-pm to one
+//   6. pm-status-singleton   at most one pm-status payload copy per module code, counting
+//                            EITHER shipped layout -- the flat `scripts/pm-status.py` of 3.5.x
+//                            and earlier, or the package's `scripts/pm_status/__main__.py`
+//                            (`PM_STATUS_PAYLOADS`). Task 11A cut this from three copies
+//                            inside l3io-pm to one; naming only the flat file here would
+//                            describe a gate that went inert when the package landed
 //   7. csv-skill-exists      every module-help.csv row's `skill` column names a real directory
 //                            under skills/ -- BMad's validate-module.py calls the opposite an
 //                            "orphan-entry" finding, but it lives under a gitignored,
@@ -438,7 +442,11 @@ function parseCsvRows(rel, text) {
 }
 
 // ---------------------------------------------------------------------------
-// 6. pm-status-singleton: at most one `scripts/pm-status.py` per distinct module code. `pm-status.py`
+// 6. pm-status-singleton: at most one pm-status payload copy per distinct module code, where
+// "a copy" is EITHER entry in `PM_STATUS_PAYLOADS` below -- the flat `scripts/pm-status.py`
+// that shipped through 3.5.x, or the package's `scripts/pm_status/__main__.py`. The rule has
+// never been about the flat filename; describing it that way would describe a gate that went
+// inert the moment the package landed. `pm-status.py`
 // used to ship four times -- three of them inside the l3io-pm module, self-installing
 // identical bytes to the identical destination -- until this task cut it to one payload copy
 // per module that self-installs it. Membership in a module is derived the same way check 5
