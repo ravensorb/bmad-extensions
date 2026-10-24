@@ -335,7 +335,7 @@ its own `module.yaml`, not by its position in the tree.
 
 ```
 skills/
-  _shared/               canonical shared sources — pm-status.py, spec-align.py,
+  _shared/               canonical shared sources — pm_status/ (a package), spec-align.py,
                          write-module-config.py, tests/, status-files.md, metrics-contract.md,
                          calibration-model.md, config-resolution.md, module-setup.md, steps/
   l3io-setup/         SKILL.md, customize.toml, references/, assets/ (module.yaml, module-setup.md, module-help.csv), scripts/

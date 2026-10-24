@@ -56,7 +56,7 @@ jobs:
       run: npm run check:docs
     - name: check-docs self-tests
       run: npm run test:scripts
-    - name: Verify pm-status.py's version tracks its content
+    - name: Verify the pm_status package's version tracks its content
       run: npm run check:version
     - name: Verify per-skill payload manifests match the payload
       run: npm run check:manifest
@@ -82,7 +82,7 @@ jobs:
     # the 3.4.2 reparent-story crash. The second gated class guards the first: the
     # TYPE_CHECKING import this depends on is invisible at runtime, and deleting it would
     # turn the check into a no-op that still reports success.
-    - name: Type check (scoped — pm-status.py accessor contracts)
+    - name: Type check (scoped — pm_status accessor contracts)
       run: npm run check:types
     # standards-shell.md — a reference this package SHIPS to consumers — requires
     # "ShellCheck clean in CI, not just locally", and the repo shipped shell with no gate.

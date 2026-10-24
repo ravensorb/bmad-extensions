@@ -109,6 +109,53 @@ nor `.notices.yaml` matches the directory itself.
 Find your starting version and read forward. `npx bmad-method install` upgrades across any
 number of these at once, but the migrations must still run.
 
+### → 3.6.0
+
+*(Written ahead of the release, which is why it is the first entry you can read before you can
+install it.)*
+
+**`pm-status.py` is now a package, and your installed runtime moves with it.** Nothing about
+how you run the skills changes, and there is no migration step. Two things are visible.
+
+**1. `_bmad/scripts/pm-status.py` becomes `_bmad/scripts/pm-status/`.** It happens
+automatically the first time any of `l3io-execute`, `l3io-plan`, `l3io-sync` or `/l3io-doctor`
+activates after the update — the same content-guarded self-install that has always refreshed
+that copy, now installing a directory instead of a file.
+
+The old single file is then removed, **but only when its SHA-256 matches a version this
+package shipped** (54 are recorded). An unmodified copy we installed is ours to remove. A copy
+you patched or pinned matches none of them, so it is **left in place** and the install says so
+on stderr:
+
+```
+pm-status.py: left <path> in place — it matches no shipped version (patched or pinned?);
+nothing invokes it any more
+```
+
+That file is then inert — nothing invokes it. If the patch mattered to you, re-apply it to the
+package and tell us what it was; if it did not, delete the file.
+
+> **If you invoke the script directly from your own scripts or aliases**, the path is now
+> `_bmad/scripts/pm-status/__main__.py`. `uv run` still works exactly as before — a package
+> directory keeps the PEP 723 header. Note that `_bmad/scripts/` is BMad's directory and BMad
+> wipes it on every install or update; that has always been true, and the self-install at every
+> activation is what puts our copy back.
+
+**2. `--help` lists the 43 subcommands in a different ORDER.** This is cosmetic but it is
+user-visible, so it is recorded here rather than left to be discovered.
+
+Every individual `<subcommand> --help` body is **byte-identical** to 3.5.2 — no flag, default,
+choice or help string changed. Only the top-level listing moved: each module now registers its
+own verbs, so they come out grouped (status verbs, then metrics, `self-install`, issues, plan,
+`sync-agent-instructions`) where the old single function interleaved them — `usage`,
+`calibration` and `rates` used to sit between `archive-epic` and `adr-reserve`, for example.
+
+Preserving the old sequence would have meant keeping a hand-maintained central list of all 43
+names and reordering argparse's internals through a private API — reinstating exactly the
+structure this change removes, and guaranteed to go stale. Nothing machine-readable reads the
+order. **If you have a script that parses `--help` output positionally, it needs updating**;
+one that greps for a subcommand name does not.
+
 ### → 3.4.5
 
 **`promote-issue` now refuses the same `--key` twice instead of silently collapsing it.**
@@ -603,9 +650,13 @@ repaired none. Those items were never at risk; they were just unactionable. Fix 
 pass:
 
 ```bash
-uv run {project-root}/_bmad/scripts/pm-status.py repair-issue \
+uv run {project-root}/_bmad/scripts/pm-status/__main__.py repair-issue \
   --state-root {implementation_artifacts}/state --action normalize-status --all-legacy
 ```
+
+> On an installed runtime older than 3.6.0 that path is the single file
+> `{project-root}/_bmad/scripts/pm-status.py` — see the 3.6.0 entry. Activating any PM skill
+> installs the package form, so the path above is the one to use after an upgrade.
 
 `deferred` maps to `backlog` — open and unscheduled. Nothing is closed and no
 `issues-resolved.yaml` is created. A status that is not a known legacy value is refused rather

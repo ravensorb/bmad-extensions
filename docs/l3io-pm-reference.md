@@ -422,7 +422,8 @@ first-run recommendation become reachable.
 
 ### Presence, and no staleness check
 
-**Presence** is a file-exists test on the installed `pm-status.py`, checked by every mode that
+**Presence** is a file-exists test on the installed package entry point
+(`{project-root}/_bmad/scripts/pm-status/__main__.py`), checked by every mode that
 reads state directly here — the default recommendation flow and `list plan`. When absent, the
 state read falls back to parsing each `epic.yaml` directly. `progress` no longer performs this
 check itself: it forwards to `/l3io-doctor stats`, which self-installs `pm-status.py` at

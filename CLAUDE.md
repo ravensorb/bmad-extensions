@@ -4,7 +4,7 @@
 
 `bmad-l3io-extensions` is a BMad community module package with four modules: `l3io-pm` (sprint/epic orchestration), `l3io-sec` (red team security agent), `l3io-util` (artifact utilities), and `l3io-arch` (engineering-standards architecture guardrails & review). It ships as installable Claude Code slash commands.
 
-Architecture decisions are recorded in `docs/adr/` — ADR-0001: `pm-status.py` is self-installed, and single-consumer code lives in its skill's own `scripts/`. **It is no longer one file**: its Option B — a package directory — is being taken, so the source is `skills/_shared/pm_status/` with `core/` as its dependency root, and `check:docs` check 12 applies **per file**, not to the package, at **1,500 lines for every module** — `__main__.py` alone keeps ADR-0001's 10,000 until the extraction finishes and it drops under the module cap. The 1,500 was a documented number nobody checked until 2026-10-23; it is now the enforced one, and splitting the module is the answer to tripping it, never raising it. Do not read the ADR's title as an instruction to keep new code in `__main__.py`; the ADR's own prose is being brought up to date separately; ADR-0004: agents edit architecture specs, PRD/UX/epic docs are proposal-only, and every edit is confirmed after it lands; ADR-0005: `docs/adr/` is the one ADR home and `adr-reserve` allocates from max(register, files on disk) — **allocate every new number through `adr-reserve`, never by hand**: it cannot see a number a design document has promised in prose, and hand-picking one has already collided with such a promise; ADR-0007: CI installs npm dependencies, so the check tooling parses with libraries; ADR-0008: the module packaging shape — one setup skill for `l3io-pm`, three standalone modules, and a TOML writer under the name BMad's validator requires; ADR-0009: `work_type` does not gate phases — a phase is skipped only when the work type leaves it **no subject matter**, which is true of `DOCS` alone, so `CONFIG`'s matrix column is now identical to `CODE`'s; ADR-0010: business acceptance criteria are **authored for every story, blocked only by policy** (`business_ac_required`, a scalar because the core resolver appends arrays and so could only ever widen the requirement).
+Architecture decisions are recorded in `docs/adr/` — ADR-0001: `pm-status.py` is self-installed, and single-consumer code lives in its skill's own `scripts/`. **It is no longer one file** — its title is history, not an instruction, and the ADR's own 2026-10-23 amendment says so at the top. Option B was taken: the source is the package `skills/_shared/pm_status/`, an entry file plus seven modules (`core` the dependency root, then `nodes`, `instructions`, `metrics`, `issues`, `verbs`, `plan`), and `check:docs` check 12 is now **one** limit — **1,500 lines for every `.py` in the package, `__main__.py` included**. `PM_STATUS_LINE_LIMIT` and the 10,000 are gone. New code goes in the module that owns it; **splitting a module is the answer to tripping the cap, never raising it**; ADR-0004: agents edit architecture specs, PRD/UX/epic docs are proposal-only, and every edit is confirmed after it lands; ADR-0005: `docs/adr/` is the one ADR home and `adr-reserve` allocates from max(register, files on disk) — **allocate every new number through `adr-reserve`, never by hand**: it cannot see a number a design document has promised in prose, and hand-picking one has already collided with such a promise; ADR-0007: CI installs npm dependencies, so the check tooling parses with libraries; ADR-0008: the module packaging shape — one setup skill for `l3io-pm`, three standalone modules, and a TOML writer under the name BMad's validator requires; ADR-0009: `work_type` does not gate phases — a phase is skipped only when the work type leaves it **no subject matter**, which is true of `DOCS` alone, so `CONFIG`'s matrix column is now identical to `CODE`'s; ADR-0010: business acceptance criteria are **authored for every story, blocked only by policy** (`business_ac_required`, a scalar because the core resolver appends arrays and so could only ever widen the requirement).
 
 ## Module Layout
 
@@ -114,8 +114,8 @@ is absent and is swallowed (it reports a `lint-setup` finding for a missing **uv
 missing ruff). Deliberate violations are marked inline with `# noqa: RULE -- reason`, never
 ignored wholesale; `ruff.toml` states the only two exemptions and why each cannot be inline.
 
-**`check:types` is a SCOPED type check over `pm-status.py` — two error classes, never a clean
-file.** mypy reports **68** findings across the package today (mostly `str | None` into
+**`check:types` is a SCOPED type check over the package `skills/_shared/pm_status/` — two error
+classes, never a clean tree.** mypy reports **68** findings across the package today (mostly `str | None` into
 `os.path` calls), so gating on zero would mean a large unrelated cleanup first and no gate at
 all until it landed. That number moves with every extraction — it was 69 before `nodes/` left
 `__main__.py` — so derive it with `npm run check:types -v`, which prints the tally and the
@@ -123,11 +123,13 @@ per-code breakdown, rather than trusting this sentence.
 The two gated classes are the message `not callable` (a `@property` read as a method — the
 pattern that shipped the 3.4.2 `reparent-story` crash, which **ruff cannot see**, verified on a
 repro) and **any** `[name-defined]`. The second guards the first: every ruamel import in
-`pm-status.py` is lazy, so `CommentedSeq` is out of scope at module level and an annotation
+the package is lazy, so `CommentedSeq` is out of scope at module level and an annotation
 naming it silently degrades to `Any` — `reveal_type` prints `Any`, calling `Any` is allowed,
 and the gate goes blind while still reporting success. The `if TYPE_CHECKING: from
-ruamel.yaml.comments import CommentedSeq` at the top of the file is therefore load-bearing, and
-deleting it *is* a `[name-defined]` error, so the gate fails instead of quietly checking
+ruamel.yaml.comments import CommentedSeq` is therefore load-bearing — it travelled out to
+`issues/store.py` with the `IssueStore` it annotates, which is why the test mutates **every**
+`.py` in the package and fails if a mutation matched nothing. Deleting it *is* a
+`[name-defined]` error, so the gate fails instead of quietly checking
 nothing. Measured: lazy import + annotation + bug → **0** findings; `TYPE_CHECKING` import +
 annotation + bug → **2**, at both call sites; correct code → **0**. Do not widen this to
 clean-file enforcement without deciding that deliberately — `scripts/tests/check-types.test.mjs`

@@ -3,7 +3,7 @@
 Build, sync and release tooling for the package. Loads when working under `scripts/`.
 
 The prohibitions themselves — never edit per-skill payload copies, never bundle a BMad core
-script, never hand-edit a manifest, never move `pm-status.py`'s version backwards — live in the
+script, never hand-edit a manifest, never move `pm-status`'s version backwards — live in the
 root `CLAUDE.md`. This file carries the mechanics behind them.
 
 Each checker's own header comment is the authoritative description of what it asserts;
@@ -143,15 +143,18 @@ classes only. Its header carries the full argument; three things to know before 
   today; `npm run check:types -v` prints the current tally, which moves with every extraction.
   A gate that works today beats a total one that is always one refactor away.
 - **"Fail on any `[operator]` finding" is the obvious narrow cut and it does not work** — the
-  file carries 4 pre-existing `[operator]` errors (`Unsupported operand types for +`), so that
-  gate would fail on an unmodified file. The cut has to be the message, `not callable`.
-- **The `[name-defined]` arm is not a bonus, it is the load-bearing half.** Delete the
-  `if TYPE_CHECKING` import from `pm-status.py` and the annotations resolve to `Any`, the
-  first arm matches nothing, and the gate reports success over the exact bug it exists for.
-  That arm is what turns a silent no-op into a failure. `scripts/tests/check-types.test.mjs`
-  mutates both halves and asserts the inert state is caught; its fixtures copy the **real**
-  `pm-status.py` rather than a toy file, because a minimal repro flags the bug *with or
-  without* the import and would have proved the gate worked when it did not.
+  package carries 4 pre-existing `[operator]` errors (`Unsupported operand types for +`), so
+  that gate would fail on an unmodified tree. The cut has to be the message, `not callable`.
+- **The `[name-defined]` arm is not a bonus, it is the load-bearing half.** Delete a
+  `if TYPE_CHECKING` import from the module that owns the annotated code and the annotations
+  resolve to `Any`, the first arm matches nothing, and the gate reports success over the exact
+  bug it exists for. That arm is what turns a silent no-op into a failure.
+  `scripts/tests/check-types.test.mjs` mutates both halves and asserts the inert state is
+  caught; its fixtures copy the **real** package rather than a toy file, because a minimal
+  repro flags the bug *with or without* the import and would have proved the gate worked when
+  it did not. The mutation is applied to **every** `.py` in the copied package and fails if it
+  matched nothing — mutating `__main__.py` alone silently stopped reaching the guard once the
+  `TYPE_CHECKING` imports travelled out with the code they annotate.
 
 It spawns mypy through `uv`, like every other Python entry point here, so there is no
 dependency to declare and no interpreter to install. A `uv` that cannot spawn **fails** the
@@ -299,7 +302,7 @@ npm run sync:scripts    # regenerate payload copies from skills/_shared/ source
 npm run check:scripts   # verify payload copies match source (CI also runs this)
 npm run check:docs      # verify docs match the code they describe (CI + release gate)
 npm run check:manifest  # verify per-skill payload-manifest.json matches the payload (CI + release gate)
-npm run check:types     # scoped mypy over pm-status.py: accessor contracts only (CI)
+npm run check:types     # scoped mypy over the pm_status package: accessor contracts only (CI)
 npm run check:lock      # verify package.json and package-lock.json agree (CI + release gate)
 node scripts/write-payload-manifest.mjs   # regenerate the manifests after editing a payload file
 ```

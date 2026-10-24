@@ -168,10 +168,12 @@ sequenceDiagram
     P->>I: release
 ```
 
-`pm-status.py` stays one self-installed file
-([ADR-0001](adr/0001-pm-status-single-self-installed-file.md)): structural checks
-(`audit-issues`) live in it, while the heuristic audit ships in doctor's own
-`scripts/audit-backlog.py`.
+`pm-status` is one self-installed **package** — `skills/_shared/pm_status/`, installed as
+`_bmad/scripts/pm-status/` ([ADR-0001](adr/0001-pm-status-single-self-installed-file.md) and
+its 2026-10-23 amendment, which took Option B; the ADR's title records the superseded
+single-file decision). What has not changed is the split by consumer: structural checks
+(`audit-issues`) live in the package because more than one skill runs them, while the
+heuristic audit ships in doctor's own `scripts/audit-backlog.py`.
 
 ### Lifecycles
 

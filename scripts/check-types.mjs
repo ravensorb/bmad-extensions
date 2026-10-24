@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// A SCOPED type check over skills/_shared/pm-status.py: two error classes, not a clean file.
+// A SCOPED type check over the package skills/_shared/pm_status/: two classes, not a clean tree.
 //
 // THE CLASS IT GATES. `store.backlog()` -- reading an @property as a method -- raises
 // `TypeError: object is not callable` at runtime, mid-write, from a line that reads exactly
@@ -9,16 +9,16 @@
 //
 // WHY IT IS NOT "run mypy and require zero errors". mypy reports 68 findings over this
 // package today (`-v` prints the tally and the per-code breakdown; the number moves with
-// every extraction), mostly `str | None` flowing into os.path calls. Gating on a clean file would mean a
+// every extraction), mostly `str | None` flowing into os.path calls. Gating on a clean tree would mean a
 // large unrelated cleanup first, and until that landed there would be no gate at all. A
 // scoped gate that works today beats a total one that is always one refactor away.
 //
 // WHY NOT "fail on any [operator] finding", which is the obvious narrow cut. That class is
-// NOT clean: the file carries 4 pre-existing `[operator]` errors (`Unsupported operand types
-// for + ("object" and "int")`), so gating on the code fails on an unmodified file. The cut
+// NOT clean: the package carries 4 pre-existing `[operator]` errors (`Unsupported operand types
+// for + ("object" and "int")`), so gating on the code fails on an unmodified tree. The cut
 // has to be the MESSAGE -- "not callable".
 //
-// THE SECOND CLASS, [name-defined], IS WHAT MAKES THE FIRST ONE REAL. pm-status.py imports
+// THE SECOND CLASS, [name-defined], IS WHAT MAKES THE FIRST ONE REAL. The package imports
 // ruamel lazily, inside each function, so a missing dependency prints a readable message
 // instead of a traceback. That leaves `CommentedSeq` out of scope at module level, and an
 // annotation naming an unresolvable type silently degrades to `Any` -- `reveal_type` prints
@@ -29,8 +29,10 @@
 //   TYPE_CHECKING import, annotated, bug present       -> 2 "not callable"  (both call sites)
 //   TYPE_CHECKING import, annotated, code correct      -> 0 "not callable"  (no false positive)
 //
-// So the `if TYPE_CHECKING: from ruamel.yaml.comments import CommentedSeq` at the top of
-// pm-status.py is load-bearing: delete it and this gate becomes a no-op that still reports
+// So the `if TYPE_CHECKING: from ruamel.yaml.comments import CommentedSeq` is load-bearing --
+// it travelled out to `issues/store.py` with the `IssueStore` it annotates, which is why the
+// test mutates every .py rather than one file. Delete it and this gate becomes a no-op that
+// still reports
 // success, which is the most dangerous shape a check can have. Removing it is exactly a
 // `[name-defined]` error on the annotation lines, so the gate fails rather than going
 // quietly blind. That is why the second class is gated: it guards the first.
@@ -65,8 +67,8 @@ const GATED = [
     code: "name-defined",
     match: /./,
     why: "an annotation naming a type mypy cannot resolve degrades to `Any` and checks "
-       + "nothing; this is what deleting the TYPE_CHECKING import at the top of "
-       + "pm-status.py looks like",
+       + "nothing; this is what deleting the TYPE_CHECKING import from "
+       + "the module that owns the annotated code looks like",
   },
 ];
 

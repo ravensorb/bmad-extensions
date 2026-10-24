@@ -59,11 +59,11 @@ on `ERR_MODULE_NOT_FOUND`. CI installs before any gate, and so should you.
 | `npm run check:scripts` | Per-skill payload copies match their `_shared/` source |
 | `npm run check:manifest` | Every `payload-manifest.json` hash matches the file it names |
 | `npm run check:docs` | Documentation matches the code it describes — thirty-six checks, including that every documented CLI subcommand exists and every `<file>.md §N` cross-reference resolves |
-| `npm run check:version` | `pm-status.py`'s version marker, its `PM_STATUS_VERSION`, and `package.json` agree |
+| `npm run check:version` | The `# pm-status-version:` marker in `pm_status/__main__.py`, the `PM_STATUS_VERSION` constant (in whichever module owns it — derived, not named), and `package.json` agree |
 | `npm run check:module` | One `module.yaml` per module code, correctly homed, with its required payload; every plugin in `marketplace.json` resolving to an authored `PluginResolver` strategy rather than BMad's silent synthesized fallback; every mode keyword a `SKILL.md` documents either registered in `module-help.csv` or marked excluded in that table's own **Menu** column; every `module.yaml` agent roster entry agreeing with its skill's `customize.toml` `[agent]` block; no two rows of one `module-help.csv` sharing a menu code; and every DEPRECATED forwarder invoking the skill it claims, naming no third skill, and still short of the version it promises to be removed in |
 | `npm run check:bmb` | BMad Builder's own scanners, run over this package's skills |
 | `npm run check:lint:py` | `ruff` over every Python file in `skills/`, with the version pinned in the npm script so a bump is a visible diff |
-| `npm run check:types` | A SCOPED mypy over `skills/_shared/pm-status.py` — two classes only, never a clean file. Fails on `"..." not callable` (a `@property` read as a method, which ruff cannot see because it is a type error, not a lint) and on any `[name-defined]`, which is what deleting the `TYPE_CHECKING` import looks like and would turn the gate into a no-op that still reports success. The package's other findings — 68 today, and the number moves with every extraction, so read it off `npm run check:types -v` — stay ungated on purpose; a test asserts they do, as a property rather than a count. |
+| `npm run check:types` | A SCOPED mypy over every `.py` in the package `skills/_shared/pm_status/` — two classes only, never a clean file. Fails on `"..." not callable` (a `@property` read as a method, which ruff cannot see because it is a type error, not a lint) and on any `[name-defined]`, which is what deleting a `TYPE_CHECKING` import looks like and would turn the gate into a no-op that still reports success. The package's other findings — 68 today, and the number moves with every extraction, so read it off `npm run check:types -v` — stay ungated on purpose; a test asserts they do, as a property rather than a count. |
 | `npm run check:lint:sh` | `bash -n` + ShellCheck over the shell this repo ships. **Exits 2 rather than skipping when ShellCheck is absent** — a linter that cannot run has told you nothing, so it fails locally unless you install it (`apt install shellcheck`). CI installs it. |
 | `npm run check:audit` | `npm audit --audit-level=high`. Runs here on push/PR as the **gating** half; `audit.yml` carries a weekly scheduled half, and Dependabot alerts the immediate one. Dependabot never blocks a merge, which is why this step is not redundant with it. |
 | `npm run check:lock` | `package-lock.json` still satisfies `package.json` — the gate that exists because CI died at `npm ci` for a week (2.5.2 through 3.0.1) |
@@ -122,7 +122,7 @@ step the workflow needs.
 
 ### Never bump versions by hand
 
-`pm-status.py`'s version marker, `.claude-plugin/marketplace.json` and every `module.yaml` are
+`pm_status/__main__.py`'s version marker, `.claude-plugin/marketplace.json` and every `module.yaml` are
 written from `package.json` by the release hooks. Do not edit them, and never move a version
 backwards — `self-install` refuses to overwrite a strictly newer installed copy, which would
 strand every project already on the higher version.
