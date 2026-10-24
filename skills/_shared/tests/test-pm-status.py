@@ -776,6 +776,27 @@ class TestSelfInstall(Base):
         self.assertEqual(pm.tree_digest(live), pm.tree_digest(pm.package_root()))
         self.assertEqual(sorted(os.listdir(self.d)), ["pm-status"], "no staging/old debris")
 
+    def test_an_interrupt_is_never_swallowed_by_the_concurrency_branch(self):
+        """The `isinstance(e, OSError)` clause in that branch is load-bearing and nothing
+        else sees it. Delete it and `TestSelfInstall` stays 28/28 green while a
+        KeyboardInterrupt during copytree returns 0 -- because `live` already holds an
+        identical tree, which is the branch's own success condition.
+
+        `test_interrupt_between_the_renames_restores_and_reraises` cannot reach this: it
+        fires at rename #2, by which point `live` has been moved aside, so `isdir(live)` is
+        False and the branch is skipped whether the clause is there or not. Reaching it needs
+        `--force` (otherwise the digest fast path returns before the try) and a failure at
+        copytree, while `live` is still the identical tree.
+        """
+        dest = os.path.join(self.d, "pm-status.py")
+        self.run_main(["self-install", "--dest", dest])
+        self.assertEqual(pm.tree_digest(self._live(dest)), pm.tree_digest(pm.package_root()),
+                         "premise: live holds the branch's success condition")
+        with mock.patch.object(shutil, "copytree", side_effect=KeyboardInterrupt), \
+                redirect_stdout(io.StringIO()), redirect_stderr(io.StringIO()), \
+                self.assertRaises(KeyboardInterrupt):
+            pm.main(["self-install", "--dest", dest, "--force"])
+
     def test_a_concurrent_installer_writing_a_DIFFERENT_tree_still_fails(self):
         """The concurrency escape hatch is strict equality. Anything else and the install did
         not happen, which must stay a failure -- otherwise it swallows every rename error."""
