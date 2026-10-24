@@ -189,7 +189,10 @@ Run in a scratch tree, re-run independently when this amendment was written.
    since the destination is a live install.) Read strictly, this triggers the fallback clause.
 2. **Atomicity is recoverable by a route this ADR did not consider.** A version-stamped
    directory plus a symlink — `pm-status -> pm-status-3.6.0/` — swapped by a single
-   `os.replace` over the **link**. Measured atomic, and measured swapping a live tree.
+   `os.replace` over the **link**. Measured atomic under live readers: a loop reading through
+   the link 40 times while the swap ran saw 9 reads of the old version then the new one, with
+   **zero** failed resolutions — there is no window in which the path does not exist, which is
+   exactly the property the plain-directory install gives up (see below).
 3. **The Option C killer does not apply to a package.** `uv run <link>/pm_status/__main__.py`
    read the PEP 723 header through the symlink, installed `ruamel.yaml`, and resolved a
    submodule import. That is the exact mechanism that retired `zipapp`/`shiv`/`pex` above, and
