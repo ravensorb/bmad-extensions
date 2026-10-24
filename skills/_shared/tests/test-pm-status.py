@@ -11,6 +11,7 @@ Exercises the sharded split-directory layout resolution, key-based node addressi
 append-issue, self-install), comment/order preservation, the events.jsonl
 transition log, the progress report, and verify exit codes.
 """
+import argparse
 import ast
 import glob
 import hashlib
@@ -367,6 +368,99 @@ class TestPatchTargetsAreDefinedInMain(unittest.TestCase):
             "re-export-only names in __main__.py that no suite reads as pm.<name>: "
             + ", ".join(unread) + ". Delete the import (a name nothing reads is dead), or, if a "
             "reader exists under another spelling, name that reader in a comment.")
+
+
+class TestSubcommandRegistration(unittest.TestCase):
+    """Every one of the 43 subcommands must still be registered on the parser.
+
+    A REGRESSION guard, not a TDD driver: `build_parser()` already registered all 43 before
+    registration was distributed across the modules, so this passed on the day it was
+    written. That is the point — it was confirmed green first, so it is known to be
+    measuring the parser rather than measuring nothing.
+
+    What it exists to catch: registration lives in each module's `register(subparsers)` now
+    (design §3.2, so the 4.0.0 cut deletes a directory and one import line instead of
+    hand-editing a 520-line function). The new failure that shape makes possible is a
+    module's `register()` call going missing from `build_parser` — a whole bucket of verbs
+    vanishing from the CLI with every other test green, because every other test here calls
+    its handler directly or goes through `main()` with a verb some other module registers.
+
+    The EXPECTED tuple is pinned, deliberately. Deriving it from the modules would make the
+    test compare the parser to itself: a `register()` call dropped from `build_parser` would
+    drop the verb from both sides and the guard would pass. The module attribution below is
+    derived (it is only used to make the failure message name the bucket), the expectation
+    is not.
+    """
+
+    # The CLI surface at 3.6.x, in registration order. Adding a verb is a deliberate edit
+    # here; the number is also stated in docs/superpowers/specs/
+    # 2026-10-22-pm-status-package-split-design.md §3.
+    EXPECTED = (
+        "set-status", "sync-story-doc", "story-doc-init", "set-depends-on", "import-node",
+        "set-actual", "import-actual", "verify", "list-epics", "list-stories", "show",
+        "report", "dispatch", "self-install", "set-lock", "clear-lock", "check-lock",
+        "set-estimate", "set-field", "add-test-run", "append-issue", "resolve-issue",
+        "update-issue", "promote-issue", "schedule-issue", "audit-issues", "repair-issue",
+        "list-issues", "move-epic", "archive-epic", "usage", "calibration", "estimate-story",
+        "estimate-rollup", "rates", "adr-reserve", "dump-plan", "retire-epic",
+        "reparent-story", "reorg-log", "reorg-undo", "notice", "sync-agent-instructions",
+    )
+
+    def _registered(self):
+        """The subcommand names `build_parser()` actually wired, from the parser object —
+        never from the source text, which cannot tell a registered verb from a commented
+        one."""
+        parser = pm.build_parser()
+        for action in parser._actions:
+            if isinstance(action, argparse._SubParsersAction):
+                return list(action.choices)
+        self.fail("build_parser() registered no subparsers action at all")
+
+    def _owners(self):
+        """{verb: module name}, DERIVED by calling each module's own `register()` on a
+        throwaway parser. Used only to make a failure name the bucket that went missing.
+
+        Tolerant by design: a module with no `register` contributes nothing and an
+        unattributed verb is reported as such, so this half can never turn a green run red
+        on its own."""
+        owners = {}
+        for name in ("core", "instructions", "issues", "metrics", "nodes", "plan", "verbs"):
+            mod = getattr(pm, name, None)
+            register = getattr(mod, "register", None)
+            if register is None:
+                continue
+            probe = argparse.ArgumentParser(prog="probe")
+            sub = probe.add_subparsers(dest="cmd")
+            register(sub)
+            for verb in sub.choices:
+                owners.setdefault(verb, name)
+        return owners
+
+    def test_build_parser_registers_all_43_subcommands(self):
+        registered = self._registered()
+        owners = self._owners()
+        missing = [v for v in self.EXPECTED if v not in registered]
+        extra = [v for v in registered if v not in self.EXPECTED]
+        detail = ""
+        if missing:
+            buckets = sorted({owners.get(v, "unattributed") for v in missing})
+            detail = (f"\n  MISSING {len(missing)} of {len(self.EXPECTED)}: "
+                      f"{', '.join(missing)}\n  Their module(s): {', '.join(buckets)} — a "
+                      f"`<module>.register(sub)` call is missing from build_parser(), or the "
+                      f"module stopped registering them.")
+        if extra:
+            detail += f"\n  UNEXPECTED: {', '.join(extra)} — add it to EXPECTED deliberately."
+        self.assertEqual(
+            (missing, extra), ([], []),
+            f"build_parser() registers {len(registered)} subcommands, expected "
+            f"{len(self.EXPECTED)}.{detail}")
+
+    def test_the_count_is_43(self):
+        """Stated as its own assertion because the number is quoted in the design spec, the
+        task briefs and the surface baseline. A set comparison alone reports 'missing one'
+        without ever saying what the total is supposed to be."""
+        self.assertEqual(len(self._registered()), 43)
+        self.assertEqual(len(set(self.EXPECTED)), 43, "EXPECTED has a duplicate")
 
 
 class TestSelfInstall(Base):
