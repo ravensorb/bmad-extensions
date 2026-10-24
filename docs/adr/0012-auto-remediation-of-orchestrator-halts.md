@@ -170,3 +170,14 @@ ADR-0001 says raising the number again "becomes a decision made on evidence rath
 default, and it should be argued here before it is taken." Four independent changes, one of
 them a safety fix and one a test of the cap itself, are that evidence. This ADR does not take
 the decision; it records that the revisit is due.
+
+**2026-10-23 — the revisit happened, and it did not raise the number.** ADR-0001's final
+amendment takes Option B: `pm-status.py` is the package `skills/_shared/pm_status/`,
+`PM_STATUS_LINE_LIMIT` is deleted, and check 12 is a per-file 1,500-line cap. Item 3 above —
+a remediation-record verb — is therefore unblocked; it is still unwritten, so the attempt
+bound still lives in prose with no mechanical record, and **that remains this decision's open
+follow-up for its own reasons, not the cap's.** Item 4's test was renamed with the cap it
+tests: the boundary cases are now `check 12 boundary: the entry file at exactly 1,500 lines
+passes` and `check 12 boundary: a package module at exactly 1,500 lines passes`, in
+`scripts/tests/check-docs.test.mjs`. The name above is kept as written because it is what the
+evidence at the time referred to.

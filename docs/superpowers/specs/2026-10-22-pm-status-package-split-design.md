@@ -58,6 +58,45 @@ it costs, and are choosing the cheaper one for a mechanism with a death date.
 
 ## 3. The module map
 
+> **SUPERSEDED, 2026-10-23 — §3.1's layout table below is WRONG and was not built.** Its line
+> counts were derived by measuring the distance between `# ---` comment banners in the old
+> file. A banner marks where a topic *begins*, not where a module *ends*, so each span silently
+> accumulated whatever followed it. Measured error: `instructions` was claimed at **737 lines
+> and is 277** — 2.7x — because the banner span swept up the instruction-sync commands,
+> `cmd_notice`, the whole estimate engine, `list_story_files` and `_accumulate_actuals`. The
+> four-bucket carve is also not merely mis-sized but **not a DAG**: `state` and `issues` are
+> mutually recursive (`cmd_set_status`/`_resolve_story_items` use `IssueStore` and
+> `resolve_issue_core`; the issue store uses `load_node`), and so are `state` and `metrics`
+> (`_promote_issue` calls `compute_story_estimate`). Seven further upward edges out of `core`
+> had to be relocated before `core` was a root at all.
+>
+> **The authority for the carve is a per-definition measurement**, not this section: an AST
+> inventory of all 366 top-level definitions, each assigned a bucket, with every referenced
+> name resolved against the inventory to get the cross-bucket edges —
+> `.superpowers/sdd/2026-10-23-pm-status-package-split/boundary-measurement.md`. §3.2 (one
+> `register()` per module) and the 4.0.0 fate classification immediately below are unaffected
+> and were both built as written.
+>
+> **What was actually built** — 20 `.py` files, every one under the 1,500-line cap:
+>
+> | Module | Files | Lines | Registers verbs |
+> |---|---|---|---|
+> | `__main__.py` | 1 | 633 | — (calls the six `register()`s) |
+> | `__init__.py` | 1 | 28 | — (the `sys.modules` facade) |
+> | `core/` | 1 | 1,115 | 1 |
+> | `nodes/` | 1 | 501 | 0 |
+> | `instructions/` | 1 | 315 | 1 |
+> | `metrics/` | 8 | 3,971 | 9 |
+> | `issues/` | 5 | 2,335 | 9 |
+> | `verbs/` | 1 | 1,386 | 16 |
+> | `plan/` | 1 | 969 | 7 |
+>
+> Layer order, with zero upward edges: `core < nodes < metrics < issues < verbs < plan`, and
+> `instructions` a leaf above `core` alone. The two real boundaries the measurement moved are
+> the ones the banner map could not see: the **status verbs** separated from the node layer and
+> placed *above* the issue store, and the **event-log writer** lowered into `core` while its
+> readers stayed in `metrics/events`.
+
 Boundaries are drawn by **4.0.0 fate**, so the v7 cut deletes directories rather than hunting
 scattered verbs.
 
@@ -194,6 +233,31 @@ script, and a broken dump surfaces as ~90 simultaneous failures naming nothing u
 resolver section" — a comment marker inside one file. It becomes `state/layout.py`, a module
 boundary the language enforces.
 
+> **NOT BUILT AS WRITTEN, 2026-10-23.** Two things in that paragraph are wrong about the
+> delivered package, and the second is the substantive one.
+>
+> 1. **The module is `nodes/`, not `state/layout.py`.** §3's `state` bucket does not exist —
+> see the supersession above — so the resolver travelled to `nodes/__init__.py`. A naming
+> difference; the measurement supersedes the name.
+> 2. **It is still keyed on COMMENT TEXT, not on a language-enforced boundary.** The scope is
+> the span between two literal comment lines (`RESOLVER_START_MARKER` / `RESOLVER_END_MARKER`
+> in `check-docs.mjs`), exactly as before — they simply moved file with the code. Python
+> enforces nothing here: a submodule may import from `nodes` freely, and state-path assembly
+> inside `nodes/` but outside the marked span is still judged by the marker, not by the module
+> system. **The promised strengthening was not delivered and is not scheduled.**
+>
+> What the check *did* gain is real but different: the requirement is now **package-level and
+> derived** — exactly one authored file must declare the section, and **zero** ("the pm_status
+> package declares no resolver section — cannot judge scope") and **two or more** are both
+> reported. That closes the failure the move created, where the check would have gone silently
+> blind looking for markers in a file they had left. Both modes are inverted by tests.
+>
+> Anyone reaching for the language-enforced version should know what it costs: it means a rule
+> that nothing outside `nodes/` may construct a state path, which is a static-import analysis
+> of the package rather than a line scan, and the exempt region currently protects **zero
+> lines** — real code goes through `epic_dirname()`/`sprint_dirname()`, so the literal
+> `STATE_PATH_RE` shape never appears in package source at all.
+
 **Check 12 is replaced by a per-file cap of 1,500 lines**, over every `.py` in the package.
 
 A package-*total* cap would rebuild the same wall one level up and would punish growth in
@@ -203,6 +267,14 @@ enforces the modularity this refactor buys.
 1,500 is chosen so the three largest sections cannot move across as single lumps — issue store
 2,410, calibration 1,891, subcommands 1,733 all exceed it. Splitting them **is** the
 modularisation; a cap they already satisfy would only relocate the wall.
+
+> **CORRECTION, 2026-10-23 — those three figures are banner-derived and wrong**, like §3's.
+> Measured per definition: issues **1,967**, calibration **1,220**, subcommand verbs
+> **1,100** — so two of the three named lumps are *under* 1,500 and the stated justification
+> does not hold as written. The number still did its work, one level up: it made the
+> four-bucket carve impossible as four files, forcing `state` (4,345) into
+> `nodes`+`issues`+`verbs`+`plan`, `metrics` (3,475) into eight modules, and `issues` into
+> four. No delivered module reaches the cap; `verbs/__init__.py` is the largest at 1,386.
 
 The mechanism is unchanged from check 12 and deliberately so: a hard number in a gate that
 fails the build and names ADR-0001. The ~6,000-line prose trigger was crossed silently, and a

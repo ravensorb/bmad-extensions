@@ -1,6 +1,11 @@
 # ADR-0001: `pm-status.py` stays one self-installed file
 
-- **Status:** Accepted (records a constraint already in force)
+- **Status:** Accepted, then **SUPERSEDED IN PART** — the single-file half of this decision was
+  reversed on 2026-10-23 (see the final amendment: Option B is taken and `pm-status` is a
+  package). The title records what was decided in 2026-09-10 and is **no longer an
+  instruction**: new code goes in the module that owns it, never into `__main__.py` to keep a
+  file count down. Everything else here — self-install, the content guard, single-consumer code
+  living in its own skill's `scripts/` — still stands.
 - **Date:** 2026-09-10
 - **Deciders:** Package maintainer; reviewed by `l3io-arch-review` Mode B
 - **Principle(s) in tension:** Core §1 separation of concerns vs. an atomic, single-copy runtime install
@@ -165,3 +170,105 @@ files it removes. Note that `skills/bmad-toolsmith/shapes/script-utility/shape.m
 destination as `_bmad/scripts/` while `read_module_scripts()` says `_bmad/<code>/scripts/`;
 the code is the one that runs, and this needs verifying against a real install once v7 tags.
 
+
+## Amendment (2026-10-23) — Option B is taken: `pm-status` is a package, and the cap is per file
+
+The 2026-10-03 amendment set the revisit at 10,000 lines with exactly one option and exactly
+one test: *"Option B, a package directory under `_bmad/scripts/`, whose only surviving
+objection is atomicity — test whether a directory-level `os.replace` restores it."* The file
+reached 10,000, the test was run, and **Option B is adopted.** `skills/_shared/pm-status.py`
+is now `skills/_shared/pm_status/`, an entry file plus seven modules.
+
+### The spike: four measurements
+
+Run in a scratch tree, re-run independently when this amendment was written.
+
+1. **The test this ADR named FAILS.** `os.replace` onto a **non-empty** directory is refused:
+   `OSError [Errno 39] ENOTEMPTY — Directory not empty`. `rename(2)` will not clobber a
+   populated directory. (Onto an *empty* one it succeeds — which is not the case that matters,
+   since the destination is a live install.) Read strictly, this triggers the fallback clause.
+2. **Atomicity is recoverable by a route this ADR did not consider.** A version-stamped
+   directory plus a symlink — `pm-status -> pm-status-3.6.0/` — swapped by a single
+   `os.replace` over the **link**. Measured atomic, and measured swapping a live tree.
+3. **The Option C killer does not apply to a package.** `uv run <link>/pm_status/__main__.py`
+   read the PEP 723 header through the symlink, installed `ruamel.yaml`, and resolved a
+   submodule import. That is the exact mechanism that retired `zipapp`/`shiv`/`pex` above, and
+   a package directory survives it.
+4. **`__file__` stays the symlink path; `realpath(__file__)` reveals the live version.** Both
+   are useful: a stable binding, and an answer to "which version is actually running".
+
+**The Windows objection to symlinks is already moot here.** Creating a symlink on Windows needs
+privilege or developer mode — but the locking core calls `fcntl.flock` at four sites (8 calls,
+21 `fcntl` references, all in `core/`), and `fcntl` does not exist on Windows. This code is
+**already POSIX-only**; a symlink adds no restriction `flock` has not already imposed.
+
+### The decision, and the distinction that matters in the record
+
+**Option B is adopted with the PLAIN-DIRECTORY install, not the symlink.** `self-install`
+stages into a sibling, renames the live tree aside, and renames staging into place.
+
+That is a **deliberate economy, not a second failure to clear the bar**, and the difference is
+why the spike was worth running. The objection that blocked Option B in 2026-10-03 turns out to
+be **answerable** — measurement 2 is a genuinely atomic directory swap. We are declining to
+spend it: `2026-10-16-bmad-v7-layer-design.md` §3.4 retires `self-install` entirely at 4.0.0,
+when v7 installs a module's declared scripts itself. The symlink design carries a retention
+rule, a GC pass that must never delete the live tree, and a `realpath`-vs-`__file__` subtlety —
+care spent on a mechanism with a death date. **If `self-install` ever outlives 4.0.0, the
+symlink design is specified in measurement 2 and in `2026-10-22-pm-status-package-split-design.md`
+§2, and should be taken.**
+
+The accepted cost is recorded rather than buried: between the two renames there is no
+`pm-status/` directory for the duration of one `rename(2)`. It is self-healing (the content
+guard treats missing as different, so the next activation reinstalls — the same property that
+has been absorbing BMad's own wipe of `_bmad/scripts/`, per the amendment above), it fails
+loudly rather than writing a wrong answer to project state, and a crashed install leaves
+`*.old-*`/`*.staging-*` siblings that the next run sweeps. It is still a regression against the
+single-file `os.replace`, which had no window at all.
+
+### Check 12 becomes a PER-FILE cap of 1,500 lines
+
+`PM_STATUS_LINE_LIMIT = 10000` is **deleted**. Check 12 now reads every `.py` under
+`skills/_shared/pm_status/` and fails on any file over **1,500 lines** — `__main__.py`
+included, on the same number as every module, since the extraction finished. There is one
+limit, not two.
+
+**Splitting the module is the answer to tripping it. Raising the number is not.** This is the
+substantive difference from every previous amendment: at 8,000 and again at 10,000 the only
+available response was more headroom, because the structural options were unavailable. They are
+available now — a file over 1,500 lines has a seam, and finding it is the work the cap exists
+to force. A package-*total* cap was rejected for rebuilding the same wall one level up.
+
+**Where 1,500 came from, measured rather than as the design document states it.** The spec
+justified the number by three sections that would exceed it — "issue store 2,410, calibration
+1,891, subcommands 1,733". Those are **banner-derived and wrong**, the same flawed measurement
+that put `instructions` at 737 lines when it is 277; the real per-definition carve
+(`boundary-measurement.md`) gives issues **1,967**, calibration **1,220** and the subcommand
+verbs **1,100**, so two of the three named lumps are *under* the cap.
+
+What 1,500 actually forced is a level up, and it is the thing that mattered: it made the
+four-bucket carve impossible as four files. `state` (4,345) had to become `nodes` + `issues` +
+`verbs` + `plan`, `metrics` (3,475) had to become seven modules, and `issues` (1,967) had to
+split four ways again. No module in the finished package reaches the cap — `verbs/__init__.py`
+is the largest at 1,386 — which is the intended end state, not a sign the number was slack.
+
+It remains a forcing number, not a measurement of readability: **if a module lands just under
+it and is incoherent, the number did not help — revisit it here, on evidence, the same
+discipline as the line cap it replaces.**
+
+The mechanism is deliberately unchanged: a hard number in a gate that fails the build and names
+this ADR. The ~6,000-line prose trigger was crossed silently, and a number that lives only in an
+ADR is a number nobody enforces.
+
+### What this does NOT change
+
+- **Single-consumer code still lives in its own skill's `scripts/`.** The original decision's
+  second half is untouched; `audit-backlog.py` stays where it is.
+- **Never bundle a BMad core script**, and Option C stays **RETIRED** — the bundler and archive
+  evaluation above is not reopened by this.
+- **The dependency trigger** (a verb needing a dependency its other callers do not) is
+  unchanged, and is now cheap to satisfy: a module can carry its own import.
+- **`_bmad/scripts/` is still BMad's directory**, wiped on every BMad install, which is why
+  self-install runs at every activation. A directory is wiped exactly as a file was.
+
+Full design, including the 43-verb classification by 4.0.0 fate and the install contract:
+`docs/superpowers/specs/2026-10-22-pm-status-package-split-design.md`.

@@ -447,6 +447,13 @@ should be argued here before it is taken") — or executing ADR-0001's Option B 
 refactor, which is far outside a bridge release. Cost of deferring: mixed-model runs are priced
 at one rate, as they are today. No regression; an improvement not yet taken.
 
+> **UPDATE 2026-10-23 — this blocker is gone; the paragraph above is the record of why it was
+> deferred, not current state.** ADR-0001's Option B was executed: `pm-status.py` is the package
+> `skills/_shared/pm_status/`, `PM_STATUS_LINE_LIMIT` **no longer exists**, and check 12 is a
+> per-file 1,500-line cap over every `.py` in the package. `subagent_models()` belongs in
+> `metrics/` and no longer has to buy its lines from anything. The same applies to the one-line
+> `dispatch_window` timezone guard below.
+
 **The transcript fallback does not yet reach the orchestrator.**
 `skills/_shared/steps/shared/step-00-activate.md` binds `runtime=claude` only when
 `$CLAUDE_CODE_SESSION_ID` is set. In the env-scrubbed case §8.1's fallback exists for, the step
@@ -490,7 +497,8 @@ externally written `events.jsonl` reproduces, on the dispatch-bracket side, the 
 `TypeError` the fallback closed on the transcript side. Every writer uses `_now_iso()`, so the
 bracket is aware in practice. The symmetrical guard is one line and the file has no line left.
 The cap is now blocking a one-line safety fix, which is itself evidence toward ADR-0001's stated
-"revisit at 10,000".
+"revisit at 10,000". *(2026-10-23: that revisit happened and took Option B — see the update in
+§8.2. The guard is no longer blocked; the fix itself is still unwritten.)*
 
 ## 9. Tooling and CI impact
 
@@ -510,7 +518,7 @@ Surviving unchanged, and worth knowing: `resolve_config.py --project-root --key`
 `[agent]` root keys still apply; `memlog.py` still ships, so "never bundle a BMad core script"
 still holds; and v7 mandates `uv run` everywhere, which we already do.
 
-`check:docs`'s thirty-five checks need rescoping, not deleting — the ones asserting CLI surface
+`check:docs`'s checks need rescoping, not deleting — the ones asserting CLI surface
 against code stay valid; the ones asserting v6 paths and skill names need new targets.
 
 ## 10. ADRs required
