@@ -1089,8 +1089,11 @@ function guardSurfaceCompleteness(pyRel, src, consts, bySub) {
   //    this guard exists for.
   //
   //    Literal forms are out of scope by construction -- `[A-Z_]` cannot match
-  //    `choices=["a", "b"]` or `choices=("a", "b")` -- which keeps the KNOWN tuple-literal
-  //    gap in choicesOf() (3 sites today) from false-positiving here.
+  //    `choices=["a", "b"]` or `choices=("a", "b")`. That is a REACH limit, not a division of
+  //    labour: when choicesOf() read the list spelling only, this arm could not see the three
+  //    tuple-literal sites it was silently dropping, and nothing else did either. choicesOf()
+  //    now reads both spellings and check 4's own tests pin each; if a THIRD literal spelling
+  //    ever appears, it is invisible here too.
   //
   //    TWO LIMITS, stated because neither is obvious. It is per CONSTANT, not per use: a
   //    constant referenced twice where only one use was lost still finds its values and
@@ -1163,7 +1166,14 @@ function argparseSurface(pyRel) {
   }
 
   const choicesOf = (tail) => {
-    const lit = tail.match(/choices=\[([^\]]*)\]/);
+    // BOTH literal spellings. argparse takes any sequence, and this package writes both:
+    // `choices=["a", "b"]` and `choices=("a", "b")`. Reading the list form alone left three
+    // live sites (instructions' --runtime, plan's reorg-log --format, spec-align's
+    // check-pointers --business) on the surface with `choices: null` -- and checks 4 and 27
+    // fail OPEN on choices they cannot see, so a documented `--runtime martian` passed.
+    // guardSurfaceCompleteness()'s second arm does NOT cover this class: it reasons about
+    // NAMED constants, and `[A-Z_]` cannot match a quoted literal either way.
+    const lit = tail.match(/choices=[[(]([^\])]*)[\])]/);
     if (lit) {
       const vals = [...lit[1].matchAll(/"([^"]*)"|'([^']*)'/g)].map((x) => x[1] ?? x[2]);
       return vals.length ? vals : null;

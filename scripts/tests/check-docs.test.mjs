@@ -3219,6 +3219,49 @@ test("check 4: an optional positional and placeholder values stay green", async 
   assert.equal(r.status, 0, r.stderr + r.stdout);
 });
 
+// TUPLE-LITERAL `choices=(...)`. choicesOf() read `choices=[...]` only, so every flag whose
+// choices are a tuple literal reached the surface with `choices: null` -- and checks 4 and 27
+// fail OPEN on choices they cannot see, so a wrong value in a shipped directive read as
+// success. Three live sites carried it: instructions:307 (`sync-agent-instructions
+// --runtime`), plan:959 (`reorg-log --format`) and spec-align:1698 (`check-pointers
+// --business`). guardSurfaceCompleteness()'s second arm cannot see this class -- its `[A-Z_]`
+// reference regex matches a NAMED constant and never a quoted literal -- so nothing else
+// covered it either.
+//
+// Inverted against the pre-fix `choices=\[([^\]]*)\]`: this goes green, i.e. the martian
+// value ships unjudged.
+//
+// MEASURED REACH, so the next reader does not assume more: the fix makes those choices
+// VISIBLE on both surfaces, but what READS them differs per CLI. pm-status.py's are read by
+// check 4's value arm (below) and by check 27. spec-align.py's are read by NEITHER --
+// checkSpecAlignFlags() is the only consumer of argparseSurface(SPEC_ALIGN) and judges flag
+// NAMES only, and check 27 is scoped to PM_STATUS. So `check-pointers --business martian` is
+// still judged by nothing; that is a pre-existing gap in the spec-align arm, not this
+// spelling gap, and a test asserting otherwise here would be asserting a property no check
+// has.
+test("check 4: a flag value from a choices=(TUPLE) literal is judged too", async (t) => {
+  const root = fixture(t);
+  write(root, PROBE_MD,
+    DIRECTIVE("uv run {pm_status} sync-agent-instructions --runtime martian "
+              + "--project-root P --apply"));
+  const r = await run(root);
+  assert.equal(r.status, 1, r.stdout);
+  assert.match(r.stderr,
+    /invokes 'sync-agent-instructions --runtime martian', but pm-status\.py accepts only/);
+});
+
+// The second pm-status site, and a different file in the concatenated package source, so this
+// pins the spelling rather than one module's luck.
+test("check 27: a doc enumerating a choices=(TUPLE) flag incompletely is caught", async (t) => {
+  const root = fixture(t);
+  const rel = "docs/l3io-pm-reference.md";
+  const text = fs.readFileSync(path.join(root, rel), "utf8");
+  write(root, rel, text + "\n\n`reorg-log --format {text}` is the journal view.\n");
+  const r = await run(root);
+  assert.equal(r.status, 1, r.stdout);
+  assert.match(r.stderr, /enumerates `reorg-log`'s --format but omits `json`/);
+});
+
 // A usage synopsis is not valid shell; before the normalise-and-retry it was skipped whole,
 // flags and all. Plant a bogus flag inside one and require it to be reported.
 test("check 4: a bogus flag inside a usage-synopsis fragment is no longer skipped", async (t) => {

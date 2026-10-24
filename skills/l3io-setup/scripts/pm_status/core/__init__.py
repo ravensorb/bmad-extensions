@@ -89,8 +89,10 @@ CALIBRATED_METRIC_FIELDS = tuple(m for m in METRIC_FIELDS if m != "cost")
 # --------------------------------------------------------------------------- #
 # Key shapes and status folders: pure string vocabulary, no filesystem knowledge.
 #
-# The resolver section in __main__.py owns the other half -- turning one of these
-# names into a path that exists. These are here because the primitives below need
+# The resolver section in nodes/ owns the other half -- turning one of these
+# names into a path that exists. (It lived in __main__.py until the nodes
+# extraction; check 26 derives which file declares it, so this comment is the
+# only copy of the fact that can go stale.) These are here because the primitives below need
 # them: _state_root_of_node and _file_lock read STATUS_DIRS, and epic_lock_path
 # builds its name from epic_dirname.
 # --------------------------------------------------------------------------- #
