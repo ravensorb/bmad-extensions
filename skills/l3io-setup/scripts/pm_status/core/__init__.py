@@ -1086,3 +1086,30 @@ def cmd_self_install(args) -> int:
     sys.stdout.write(f"OK self-install {live} ({was} -> {PM_STATUS_VERSION})\n")
     _drop_legacy_file(dest)
     return 0
+
+
+# --------------------------------------------------------------------------- #
+# CLI registration.
+#
+# Each module of this package registers its OWN verbs on the shared subparsers object
+# (design §3.2), so the 4.0.0 cut removes a bucket's verbs by deleting its directory and one
+# import line rather than hand-editing a 520-line build_parser(). `__main__.py` keeps only
+# the root parser, the fixed order the modules are called in, and `main`.
+#
+# `node_args` lives HERE, in the dependency root, because two modules need it -- `verbs`
+# (set-status, verify, set-estimate, set-field) and `metrics` (set-actual) -- and a copy in
+# each is two CLI contracts that can drift apart silently: the help strings below are part
+# of the surface `cli-surface-before.txt` pins. core is the only module both already import.
+# --------------------------------------------------------------------------- #
+def node_args(sp):
+    sp.add_argument("--story", help="story key (addresses a story node)")
+    sp.add_argument("--epic", help="zero-paddable epic id")
+    sp.add_argument("--sprint", help="zero-paddable sprint id")
+
+
+def register(sub):
+    """`self-install` -- core's only verb (it owns `package_root` and the content guard)."""
+    si = sub.add_parser("self-install", help="install this package as pm-status/ beside --dest, content-guarded")
+    si.add_argument("--dest", required=True, help="target path, e.g. {project-root}/_bmad/scripts/pm-status.py")
+    si.add_argument("--force", action="store_true", help="overwrite even if dest is same/newer")
+    si.set_defaults(func=cmd_self_install)

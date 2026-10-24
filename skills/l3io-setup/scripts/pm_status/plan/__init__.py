@@ -903,3 +903,67 @@ def cmd_move_epic(args) -> int:
 
 
 # --------------------------------------------------------------------------- #
+
+
+# --------------------------------------------------------------------------- #
+# CLI registration -- this module's seven verbs (design §3.2; the contract and the reason
+# are in core's own register section). `archive-epic` is an alias: a second parser over the
+# same handler with `to` fixed, which is why it is seven parsers for six handlers.
+# --------------------------------------------------------------------------- #
+def register(sub):
+    mv = sub.add_parser("move-epic", help="move an epic directory between status folders")
+    mv.add_argument("--state-root", required=True)
+    mv.add_argument("--epic", required=True)
+    mv.add_argument("--to", required=True, choices=list(STATUS_DIRS))
+    mv.set_defaults(func=cmd_move_epic)
+
+    ae = sub.add_parser("archive-epic", help="alias for move-epic --to archived")
+    ae.add_argument("--state-root", required=True)
+    ae.add_argument("--epic", required=True)
+    ae.set_defaults(func=cmd_move_epic, to="archived")
+
+    dp = sub.add_parser("dump-plan",
+                        help="the planned tree plus read-only context, as JSON (read-only)")
+    dp.add_argument("--state-root", required=True)
+    dp.add_argument("--pretty", action="store_true",
+                    help="indent the JSON for reading by hand; the default is compact, "
+                         "which halves the bytes every consumer pipes")
+    dp.set_defaults(func=cmd_dump_plan)
+
+    re_ = sub.add_parser("retire-epic",
+                         help="move an epic to archived/ and record why (never deletes)")
+    re_.add_argument("--state-root", required=True)
+    re_.add_argument("--epic", required=True)
+    re_.add_argument("--reason", required=True)
+    re_.set_defaults(func=cmd_retire_epic)
+
+    rp = sub.add_parser("reparent-story",
+                        help="move a planned story to another sprint, re-keying it")
+    rp.add_argument("--state-root", required=True)
+    rp.add_argument("--artifacts-root", required=True)
+    rp.add_argument("--story", required=True)
+    rp.add_argument("--to-epic", required=True)
+    rp.add_argument("--to-sprint", required=True)
+    rp.set_defaults(func=cmd_reparent_story)
+
+    rl = sub.add_parser("reorg-log",
+                        help="the reorg journal: hash the plan, record a reorg, list or show")
+    rl.add_argument("--state-root", required=True)
+    rl.add_argument("--hash", action="store_true",
+                    help="print the planned tree's placement digest and exit (read-only); "
+                         "capture this BEFORE applying, as the record's pre_hash")
+    rl.add_argument("--record", default="",
+                    help="a YAML record (rationale, pre_hash, operations) to append")
+    rl.add_argument("--list", action="store_true", help="list recorded reorgs (the default)")
+    rl.add_argument("--show", default="", help="show one entry in full, by id")
+    rl.add_argument("--format", choices=("text", "json"), default="text")
+    rl.set_defaults(func=cmd_reorg_log)
+
+    ru = sub.add_parser("reorg-undo",
+                        help="put a recorded reorg back, if the plan has not moved on since")
+    ru.add_argument("--state-root", required=True)
+    ru.add_argument("--artifacts-root", required=True)
+    ru.add_argument("--id", required=True, help="the journal entry id, e.g. R0001")
+    ru.add_argument("--check", action="store_true",
+                    help="test the guard and report, without moving anything")
+    ru.set_defaults(func=cmd_reorg_undo)

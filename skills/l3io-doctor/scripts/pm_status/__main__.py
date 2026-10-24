@@ -388,19 +388,26 @@ if not __package__ and __name__ == "__main__":
 # dispatch_window` has no caller outside its own module; and `issues.store.
 # resolve_issue_core` is called module-qualified from `verbs/__init__.py` and from
 # `issues/audit.py`. None of the four is re-exported, here or by either `__init__.py`.
-# `metrics` and `issues` have no caller left in this file -- `_promote_issue` and
-# `_resolve_story_items`, their last ones, moved to `issues/promote.py` and `verbs/` -- but
-# both must stay bound here: the suite reaches its patch targets as `pm.metrics.<mod>.<name>`
-# and `pm.issues.store.<name>`, and `pm` is this module's globals. Each carries its OWN
-# `noqa`, not one shared directive, so a later loss of `core`'s or `nodes`'s last caller
-# is still reported. `core` and `nodes` carry one too now: their last callers moved to `plan/`,
-# so they are bound here only for the suite's `pm.core.<name>` / `pm.nodes.<name>` reads.
+# SIX of the seven are imported for a LIVE caller again, and that is new: `build_parser`
+# calls `<module>.register(sub)` on each of core, instructions, issues, metrics, plan and
+# verbs, so none of them carries a `noqa` any more. That is the honest state -- a `noqa`
+# over a module ruff can see used is a justification that reads as true and is not -- and it
+# means ruff now reports the one failure mode distributed registration introduces from this
+# side: delete a `register()` call and its import goes unused and FAILS `check:lint:py`,
+# before TestSubcommandRegistration is even reached.
+#
+# `nodes` is the exception and keeps its own `noqa`: it owns no verb (the node layer, not a
+# verb bucket), so nothing here calls it and it is bound purely for the suite's
+# `pm.nodes.<name>` patch targets. Its directive is its own, not shared, so if another
+# module later loses its caller that is reported separately rather than absorbed.
 from . import (
-    core,  # noqa: F401 -- re-export only
-    issues,  # noqa: F401 -- re-export only
-    metrics,  # noqa: F401 -- re-export only
+    core,
+    instructions,
+    issues,
+    metrics,
     nodes,  # noqa: F401 -- re-export only
-    verbs,  # noqa: F401 -- re-export only
+    plan,
+    verbs,
 )
 from .core import (
     _EPIC_NODE_LOCK,  # noqa: F401 -- re-export only
@@ -411,7 +418,6 @@ from .core import (
     DIR_FOR_STATUS,  # noqa: F401 -- re-export only
     METRIC_FIELDS,  # noqa: F401 -- re-export only
     PM_STATUS_VERSION,
-    STATUS_DIRS,
     STATUS_FOR_DIR,  # noqa: F401 -- re-export only
     PMError,  # noqa: F401 -- re-export only
     _hashable_field,  # noqa: F401 -- re-export only
@@ -426,7 +432,6 @@ from .core import (
     append_event,  # noqa: F401 -- re-export only
     calibration_lock,  # noqa: F401 -- re-export only
     calibration_path,  # noqa: F401 -- re-export only
-    cmd_self_install,
     epic_dirname,  # noqa: F401 -- re-export only
     epic_lock_path,  # noqa: F401 -- re-export only
     epic_node_lock,  # noqa: F401 -- re-export only
@@ -444,23 +449,14 @@ from .core import (
 from .instructions import (
     BlockError,  # noqa: F401 -- re-export only
     apply_block,  # noqa: F401 -- re-export only
-    cmd_sync_agent_instructions,
     find_block,  # noqa: F401 -- re-export only
     remove_block,  # noqa: F401 -- re-export only
 )
 from .issues.adr import (
-    cmd_adr_reserve,
     load_adr_register,  # noqa: F401 -- re-export only
-)
-from .issues.audit import (
-    cmd_audit_issues,
-    cmd_list_issues,
-    cmd_repair_issue,
 )
 from .issues.promote import (
     _next_story_key,  # noqa: F401 -- re-export only
-    cmd_promote_issue,
-    cmd_schedule_issue,
 )
 
 # `resolve_issue_core` is deliberately absent from this list. It is a mock.patch target, so
@@ -470,19 +466,11 @@ from .issues.promote import (
 # `IssueStore` is re-exported because the suite patches a CLASS ATTRIBUTE on it, which
 # mutates the one class object every binding names.
 from .issues.store import (
-    ISSUE_KINDS,
-    RESOLUTIONS,
     IssueStore,  # noqa: F401 -- re-export only
-    cmd_append_issue,
-    cmd_resolve_issue,
-    cmd_update_issue,
     issues_paths,  # noqa: F401 -- re-export only
 )
 from .metrics.actuals_usage import (
-    CLAUDE_SESSION_ENV,
-    cmd_import_actual,
-    cmd_set_actual,
-    cmd_usage,
+    CLAUDE_SESSION_ENV,  # noqa: F401 -- re-export only
     discover_session_transcript,  # noqa: F401 -- re-export only
     read_transcript_usage,  # noqa: F401 -- re-export only
     resolve_session_transcript,  # noqa: F401 -- re-export only
@@ -491,7 +479,7 @@ from .metrics.calibration import (
     CALIBRATION_MARKER,  # noqa: F401 -- re-export only
     CALIBRATION_METRICS_MARKER,  # noqa: F401 -- re-export only
     CALIBRATION_SCHEMA_VERSION,  # noqa: F401 -- re-export only
-    CLASSIFICATIONS,
+    CLASSIFICATIONS,  # noqa: F401 -- re-export only
     CLOSURE_RANGE_KEYS,  # noqa: F401 -- re-export only
     COLD_START_FIX_FACTOR,  # noqa: F401 -- re-export only
     COLD_START_SCOPE_RATIO,  # noqa: F401 -- re-export only
@@ -507,7 +495,6 @@ from .metrics.calibration import (
     active_orchestration_fraction,  # noqa: F401 -- re-export only
     active_scope_ratio,  # noqa: F401 -- re-export only
     actual_event_times,  # noqa: F401 -- re-export only
-    cmd_calibration,
     derive_closure_sample,  # noqa: F401 -- re-export only
     derive_story_sample,  # noqa: F401 -- re-export only
     load_calibration,  # noqa: F401 -- re-export only
@@ -524,8 +511,6 @@ from .metrics.calibration import (
 from .metrics.estimates import (
     BASE_BANDS,  # noqa: F401 -- re-export only
     DEFAULT_ESTIMATE_MODEL,  # noqa: F401 -- re-export only
-    cmd_estimate_rollup,
-    cmd_estimate_story,
     observed_mix,  # noqa: F401 -- re-export only
     split_tokens,  # noqa: F401 -- re-export only
 )
@@ -536,10 +521,8 @@ from .metrics.estimates import (
 # repointed to `pm.metrics.<mod>.<name>` without the matching call-style change here
 # is a NameError rather than a patch that quietly reaches nobody.
 from .metrics.events import (
-    DEFAULT_STALL_MINUTES,
     _total_blocked_hours,  # noqa: F401 -- re-export only
     build_events_index,  # noqa: F401 -- re-export only
-    cmd_dispatch,
     compute_flags,  # noqa: F401 -- re-export only
     dwell_hours,  # noqa: F401 -- re-export only
     open_dispatches,  # noqa: F401 -- re-export only
@@ -549,12 +532,10 @@ from .metrics.rates import (
     FRESH_TOKEN_CLASSES,  # noqa: F401 -- re-export only
     TOKEN_CLASSES,  # noqa: F401 -- re-export only
     TOKEN_RATES,  # noqa: F401 -- re-export only
-    cmd_rates,
     cost_from_tokens,  # noqa: F401 -- re-export only
 )
 from .metrics.report import (
     build_progress_model,  # noqa: F401 -- re-export only
-    cmd_report,
     list_all_epics,  # noqa: F401 -- re-export only
     load_plan,  # noqa: F401 -- re-export only
     render_tree,  # noqa: F401 -- re-export only
@@ -586,12 +567,6 @@ from .nodes import (
 # objects.
 from .plan import (
     _load_reorg_log,  # noqa: F401 -- re-export only
-    cmd_dump_plan,
-    cmd_move_epic,
-    cmd_reorg_log,
-    cmd_reorg_undo,
-    cmd_reparent_story,
-    cmd_retire_epic,
     move_epic,  # noqa: F401 -- re-export only
     plan_shape_hash,  # noqa: F401 -- re-export only
     record_reorg,  # noqa: F401 -- re-export only
@@ -604,545 +579,46 @@ from .plan import (
 # The status verbs, by name. Nothing here is a mock.patch target: the patched names the
 # verbs touch are reached from `verbs/__init__.py` through their module objects.
 from .verbs import (
-    cmd_add_test_run,
-    cmd_check_lock,
-    cmd_clear_lock,
-    cmd_import_node,
-    cmd_list_epics,
-    cmd_list_stories,
-    cmd_notice,
-    cmd_set_depends_on,
-    cmd_set_estimate,
-    cmd_set_field,
-    cmd_set_lock,
-    cmd_set_status,
-    cmd_show,
-    cmd_story_doc_init,
-    cmd_sync_story_doc,
-    cmd_verify,
+    cmd_set_status,  # noqa: F401 -- re-export only
 )
 
 
 # CLI
+#
+# REGISTRATION IS DISTRIBUTED (design §3.2). Each module registers its OWN verbs through
+# its `register(subparsers)`; this function creates the root parser and the subparsers
+# object and calls them in the fixed order below. The 4.0.0 v7 cut then removes a bucket's
+# verbs by deleting its directory and one line here, instead of hand-editing a 520-line
+# function and hoping no neighbouring verb is caught in the edit.
+#
+# THE ORDER IS THE SURFACE. argparse lists subcommands in registration order, so this tuple
+# decides what `pm-status.py --help` prints. It is the order of each module's FIRST verb in
+# the pre-split function — verbs led, then metrics, core, issues, plan, instructions — so
+# the listing stays as close to the shipped one as a per-module grouping can be. Every
+# individual subcommand's `--help` is byte-identical to the pre-split capture in
+# `.superpowers/sdd/2026-10-23-pm-status-package-split/cli-surface-before.txt`; what the
+# split necessarily changes is the ORDER of the top-level listing, because the pre-split
+# function interleaved the buckets (verbs held positions 1-5, 8-11, 15-20 and 42) and no
+# contiguous per-module grouping can reproduce that.
+#
+# `nodes` has no `register`: it is the node layer, and owns no verb. It is not called here
+# and must not grow an empty `register` to look symmetrical — an empty hook is a place for a
+# verb to be registered by accident.
+#
+# TestSubcommandRegistration is the standing guard: it pins all 43 names, and attributes a
+# shortfall to the module whose call went missing.
 # --------------------------------------------------------------------------- #
 def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(prog="pm-status.py", description=__doc__,
                                 formatter_class=argparse.RawDescriptionHelpFormatter)
     sub = p.add_subparsers(dest="cmd", required=True)
 
-    def node_args(sp):
-        sp.add_argument("--story", help="story key (addresses a story node)")
-        sp.add_argument("--epic", help="zero-paddable epic id")
-        sp.add_argument("--sprint", help="zero-paddable sprint id")
-
-    s = sub.add_parser("set-status", help="set a node's status atomically")
-    s.add_argument("--state-root", required=True, help="path to {implementation_artifacts}/state")
-    node_args(s)
-    s.add_argument("--status", required=True)
-    s.add_argument("--title")
-    s.add_argument("--reason", default="",
-                   help="required when --status blocked; free-text why the story halted. "
-                        "Rejected on any other status (a --reason for review would only "
-                        "confuse the record).")
-    s.add_argument("--resolution", default="",
-                   help="required when a story transitions blocked -> done; free-text "
-                        "why the story shipped as-is rather than resumed (e.g. \"spec "
-                        "change removed the need for this story\").")
-    s.add_argument("--flock", action="store_true", help="acquire exclusive flock before write")
-    s.add_argument("--no-events", dest="no_events", action="store_true",
-                   help="skip the events.jsonl append for this call")
-    s.add_argument("--session-id", dest="session_id", default=None,
-                   help="recorded in the event payload; null when omitted")
-    s.set_defaults(func=cmd_set_status)
-
-    sd = sub.add_parser("sync-story-doc",
-                        help="write status into the story markdown's frontmatter")
-    sd.add_argument("--artifacts-root", required=True,
-                    help="implementation_artifacts root (NOT the state root)")
-    sd.add_argument("--story", required=True)
-    sd.add_argument("--status", required=True)
-    sd.add_argument("--quiet", action="store_true")
-    sd.set_defaults(func=cmd_sync_story_doc)
-
-    di = sub.add_parser("story-doc-init",
-                        help="create a story document skeleton from its state node")
-    di.add_argument("--state-root", required=True)
-    di.add_argument("--artifacts-root", required=True,
-                    help="implementation_artifacts root (NOT the state root)")
-    di.add_argument("--story", required=True)
-    di.set_defaults(func=cmd_story_doc_init)
-
-    sdo = sub.add_parser("set-depends-on",
-                         help="add or remove dependency keys on an epic or story node's depends_on list")
-    sdo.add_argument("--state-root", required=True)
-    sdo.add_argument("--epic")
-    sdo.add_argument("--story", help="a story node's depends_on takes story keys")
-    sdo.add_argument("--sprint")
-    sdo.add_argument("--add", action="append", metavar="KEY",
-                     help="repeatable; idempotent, order preserved. Epic keys for an epic "
-                          "node, story keys for a story node")
-    sdo.add_argument("--remove", action="append", metavar="KEY",
-                     help="repeatable; idempotent. Refused while story edges still cross "
-                          "that boundary, unless --force")
-    sdo.add_argument("--force", action="store_true",
-                     help="remove even while story edges justify it — for a sequencing "
-                          "decision no story edge expresses")
-    sdo.set_defaults(func=cmd_set_depends_on)
-
-    imp = sub.add_parser("import-node",
-                         help="create a state node from a migration record")
-    imp.add_argument("--state-root", required=True)
-    imp.add_argument("--epic")
-    imp.add_argument("--sprint")
-    imp.add_argument("--story")
-    imp.add_argument("--status", required=True)
-    imp.add_argument("--title", default="")
-    imp.add_argument("--classification", default="unknown")
-    imp.add_argument("--origin", choices=["inferred"],
-                     help="mark the node as reconstructed rather than read")
-    imp.add_argument("--origin-note", default="",
-                     help="why the node was inferred; recorded beside --origin")
-    imp.add_argument("--reason", default="",
-                     help="required when importing a story at --status blocked; "
-                          "recorded on the node as blocked_reason and in the paired "
-                          "block_open event so a future exit-from-blocked can derive "
-                          "duration. Rejected on any other kind or status.")
-    imp.add_argument("--no-events", action="store_true")
-    imp.add_argument("--session-id")
-    imp.set_defaults(func=cmd_import_node)
-
-    a = sub.add_parser("set-actual", help="write a validated actual block")
-    a.add_argument("--state-root", required=True, help="path to {implementation_artifacts}/state")
-    a.add_argument("--node", required=True, choices=["story", "sprint", "epic"])
-    node_args(a)
-    a.add_argument("--block", choices=["actual", "orchestration"], default="actual",
-                   help="which metric block to write (orchestration: sprint/epic only)")
-    a.add_argument("--elapsed-hours", dest="elapsed_hours")
-    a.add_argument("--man-hours", dest="man_hours")
-    a.add_argument("--hitl-hours", dest="hitl_hours",
-                   help="human attention actually spent supervising (hours)")
-    a.add_argument("--tokens-input", dest="tokens_input")
-    a.add_argument("--tokens-output", dest="tokens_output")
-    a.add_argument("--tokens-cache-write", dest="tokens_cache_write")
-    a.add_argument("--tokens-cache-read", dest="tokens_cache_read")
-    a.add_argument("--tokens-na", dest="tokens_na", action="store_true",
-                   help="record tokens/cost as N/A (runtime=other only)")
-    a.add_argument("--model", default="", help="model id that priced these tokens")
-    a.add_argument("--token-rates", dest="token_rates", default="",
-                   help="JSON object of per-model rate overrides")
-    a.add_argument("--cost", default=None, help=argparse.SUPPRESS)
-    a.add_argument("--runtime", choices=["claude", "codex", "copilot", "other"], default="other")
-    a.add_argument("--flock", action="store_true", help="acquire exclusive flock before write")
-    a.add_argument("--no-calibrate", dest="no_calibrate", action="store_true",
-                   help="skip calibration sampling (backfills, replays)")
-    a.add_argument("--no-events", dest="no_events", action="store_true",
-                   help="skip the events.jsonl append for this call")
-    a.add_argument("--session-id", dest="session_id", default=None,
-                   help="recorded in the event payload; null when omitted")
-    a.set_defaults(func=cmd_set_actual)
-
-    ia = sub.add_parser("import-actual",
-                        help="record an actual observed elsewhere (migration); runtime=other, "
-                             "tokens=N/A and no calibration sample are FIXED, not optional")
-    ia.add_argument("--state-root", required=True)
-    ia.add_argument("--node", required=True, choices=["story", "sprint", "epic"])
-    ia.add_argument("--story")
-    ia.add_argument("--epic")
-    ia.add_argument("--sprint")
-    ia.add_argument("--elapsed-hours", dest="elapsed_hours")
-    ia.add_argument("--man-hours", dest="man_hours")
-    ia.add_argument("--hitl-hours", dest="hitl_hours")
-    ia.add_argument("--flock", action="store_true")
-    ia.add_argument("--no-events", dest="no_events", action="store_true")
-    ia.add_argument("--session-id", dest="session_id", default=None)
-    ia.set_defaults(func=cmd_import_actual)
-
-    v = sub.add_parser("verify", help="read-back gate; nonzero exit on any gap")
-    v.add_argument("--state-root", required=True, help="path to {implementation_artifacts}/state")
-    v.add_argument("--scope", required=True, choices=["story", "sprint", "epic"])
-    node_args(v)
-    v.add_argument("--require-tokens", action="store_true")
-    v.add_argument("--runtime", choices=["claude", "codex", "copilot", "other"], default="other")
-    v.add_argument("--token-rates", dest="token_rates", default="",
-                   help="JSON object of per-model rate overrides")
-    v.set_defaults(func=cmd_verify)
-
-    le = sub.add_parser("list-epics",
-                        help="list every epic key in the state tree with its status bucket")
-    le.add_argument("--state-root", required=True)
-    le.add_argument("--format", choices=["keys", "json"], default="keys")
-    le.set_defaults(func=cmd_list_epics)
-
-    ls_ = sub.add_parser("list-stories",
-                         help="list story keys for an epic, optionally scoped to one sprint")
-    ls_.add_argument("--state-root", required=True)
-    ls_.add_argument("--epic", required=True)
-    ls_.add_argument("--sprint", default="")
-    ls_.add_argument("--format", choices=["keys", "json"], default="keys")
-    ls_.set_defaults(func=cmd_list_stories)
-
-    sh = sub.add_parser("show", help="render a computed sprint or epic roll-up")
-    sh.add_argument("--state-root", required=True)
-    sh.add_argument("--epic", required=True)
-    sh.add_argument("--sprint", default="")
-    sh.set_defaults(func=cmd_show)
-
-    rp = sub.add_parser("report", help="plan-aware progress report (read-only unless --out)")
-    rp.add_argument("--state-root", required=True)
-    rp.add_argument("--plan", default="", help="path to plan-output-meta.yaml")
-    rp.add_argument("--format", choices=["tree", "json", "md"], default="tree")
-    rp.add_argument("--out", default="", help="write to this file instead of stdout")
-    rp.add_argument("--all", action="store_true",
-                    help="show every status folder (sugar for --status planned,active,archived)")
-    rp.add_argument("--status", default="",
-                    help="comma list of state folders to display: planned, active, archived "
-                         "(default: planned,active). Counting is unaffected — phase "
-                         "denominators always see the whole tree")
-    rp.add_argument("--watch", type=int, default=0, metavar="SECS",
-                    help="re-render on an interval (tree only in practice)")
-    rp.add_argument("--stall-minutes", dest="stall_minutes", type=float,
-                    default=DEFAULT_STALL_MINUTES,
-                    help="flag dispatches open longer than this (default 15)")
-    rp.set_defaults(func=cmd_report)
-
-    dp = sub.add_parser("dispatch", help="record a subagent dispatch open/close")
-    dp.add_argument("--state-root", required=True)
-    dp.add_argument("--event", required=True, choices=["open", "close"])
-    dp.add_argument("--agent", required=True)
-    dp.add_argument("--epic", default="")
-    dp.add_argument("--sprint", default="")
-    dp.add_argument("--story", default="")
-    dp.add_argument("--session-id", dest="session_id", default=None)
-    dp.set_defaults(func=cmd_dispatch)
-
-    si = sub.add_parser("self-install", help="install this package as pm-status/ beside --dest, content-guarded")
-    si.add_argument("--dest", required=True, help="target path, e.g. {project-root}/_bmad/scripts/pm-status.py")
-    si.add_argument("--force", action="store_true", help="overwrite even if dest is same/newer")
-    si.set_defaults(func=cmd_self_install)
-
-    sl = sub.add_parser("set-lock", help="write _lock block to a per-epic active file")
-    sl.add_argument("--state-root", required=True)
-    sl.add_argument("--epic", required=True, help="epic key, e.g. E001")
-    sl.add_argument("--session-id", dest="session_id", required=True)
-    sl.add_argument("--ttl-minutes", dest="ttl_minutes", type=int, default=30)
-    sl.set_defaults(func=cmd_set_lock)
-
-    cl = sub.add_parser("clear-lock", help="remove _lock block from a per-epic active file")
-    cl.add_argument("--state-root", required=True)
-    cl.add_argument("--epic", required=True, help="epic key, e.g. E001")
-    cl.set_defaults(func=cmd_clear_lock)
-
-    ck = sub.add_parser("check-lock", help="check if a per-epic file is free to claim; exit 5 if held")
-    ck.add_argument("--state-root", required=True)
-    ck.add_argument("--epic", required=True, help="epic key, e.g. E001")
-    ck.add_argument("--session-id", dest="session_id", required=True, help="caller's session id")
-    ck.set_defaults(func=cmd_check_lock)
-
-    se = sub.add_parser("set-estimate", help="write estimate block to a story, sprint, or epic node")
-    se.add_argument("--state-root", required=True, help="path to {implementation_artifacts}/state")
-    node_args(se)
-    # Range fields (sprint/epic)
-    se.add_argument("--man-hours-low", dest="man_hours_low")
-    se.add_argument("--man-hours-high", dest="man_hours_high")
-    se.add_argument("--hitl-hours-low", dest="hitl_hours_low")
-    se.add_argument("--hitl-hours-high", dest="hitl_hours_high")
-    se.add_argument("--elapsed-hours-low", "--time-hours-low", dest="elapsed_hours_low")
-    se.add_argument("--elapsed-hours-high", "--time-hours-high", dest="elapsed_hours_high")
-    se.add_argument("--tokens-k-min", dest="tokens_k_min")
-    se.add_argument("--tokens-k-max", dest="tokens_k_max")
-    # --cost / --cost-low / --cost-high are declared but SUPPRESSed from --help
-    # and rejected in cmd_set_estimate: cost is derived from tokens x rates,
-    # never accepted as direct input (see the rejection at the top of
-    # cmd_set_estimate). Declaring them here — rather than leaving them
-    # unrecognized — turns that rejection into a clear usage error instead of
-    # argparse's generic "unrecognized arguments".
-    se.add_argument("--cost-low", dest="cost_low", help=argparse.SUPPRESS)
-    se.add_argument("--cost-high", dest="cost_high", help=argparse.SUPPRESS)
-    # Single-value fields (story)
-    se.add_argument("--man-hours", dest="man_hours")
-    se.add_argument("--hitl-hours", dest="hitl_hours",
-                    help="human attention actually spent supervising (hours)")
-    se.add_argument("--elapsed-hours", "--time-hours", dest="elapsed_hours",
-                    help="--time-hours is a deprecated alias")
-    se.add_argument("--tokens-k", dest="tokens_k_min")  # alias to tokens_k_min for story use
-    se.add_argument("--cost", dest="cost", help=argparse.SUPPRESS)
-    se.add_argument("--confidence", choices=["low", "medium", "high"])
-    se.add_argument("--fix-factor", dest="fix_factor",
-                    help="fix multiplier applied; required for the scope/fix split")
-    se.add_argument("--scope-ratio", dest="scope_ratio",
-                    help="calibrated scope ratio applied (1.0 when cold-start)")
-    se.add_argument("--flock", action="store_true", help="acquire exclusive flock before write")
-    se.set_defaults(func=cmd_set_estimate)
-
-    sf = sub.add_parser("set-field", help="set a nested field at a dot-path within a node")
-    sf.add_argument("--state-root", required=True, help="path to {implementation_artifacts}/state")
-    node_args(sf)
-    sf.add_argument("--field", required=True, help="dot-path within the node, e.g. 'retrospective.summary'")
-    sf.add_argument("--value", required=True, help="string value to set")
-    sf.set_defaults(func=cmd_set_field)
-
-    a = sub.add_parser("add-test-run", help="record one executed test command and its exit code")
-    a.add_argument("--state-root", required=True, help="path to {implementation_artifacts}/state")
-    a.add_argument("--story", required=True)
-    a.add_argument("--command", required=True, help="the test command actually executed")
-    a.add_argument("--exit-code", dest="exit_code", type=int, required=True)
-    a.set_defaults(func=cmd_add_test_run)
-
-    ai = sub.add_parser("append-issue", help="append a BL item to state/issues.yaml")
-    ai.add_argument("--state-root", dest="state_root", default="",
-                    help="path to {implementation_artifacts}/state (preferred)")
-    ai.add_argument("--file", default="",
-                    help="compatibility alias for <state-root>/issues.yaml")
-    ai.add_argument("--session-id", dest="session_id", default=None)
-    ai.add_argument("--key", default="",
-                    help="BL-E{nnn}-{nnn}; omit to auto-allocate the next number for "
-                         "--epic under a lock. An explicit key that already exists "
-                         "exits 2 rather than being silently reassigned.")
-    ai.add_argument("--epic", required=True, help="zero-padded epic number, e.g. '001'")
-    ai.add_argument("--sprint", default="", help="zero-padded sprint number; empty for epic-level")
-    ai.add_argument("--title", required=True)
-    ai.add_argument("--source", default=None,
-                    help="free-text source, stored verbatim (legacy form; prefer --source-phase)")
-    ai.add_argument("--source-phase", dest="source_phase", default=None,
-                    help="structured source: the phase, e.g. code-review. With --source-ref it "
-                         "DERIVES --source as '{phase} ({ref})', so the two cannot disagree")
-    ai.add_argument("--source-ref", dest="source_ref", default=None,
-                    help="structured source: the finding or story it points at; no parentheses")
-    ai.add_argument("--source-note", dest="source_note", default="",
-                    help="structured source: free text appended after the parens")
-    ai.add_argument("--severity", required=True, choices=["Low", "Medium", "High", "Critical"])
-    ai.add_argument("--description", default="")
-    ai.add_argument("--kind", default="defect", choices=list(ISSUE_KINDS),
-                    help="defect (default, not written) | spec-change | spec-proposal")
-    ai.add_argument("--ref", default="",
-                    help="spec kinds only: the docs(spec) commit SHA, or the proposal path")
-    ai.add_argument("--allow-duplicate", dest="allow_duplicate", action="store_true",
-                    help="append even if an existing item matches this title+epic+"
-                         "sprint+source (default: skip and exit 0)")
-    ai.set_defaults(func=cmd_append_issue)
-
-    ri = sub.add_parser("resolve-issue",
-                        help="resolve an open BL item into issues-resolved.yaml")
-    ri.add_argument("--state-root", required=True)
-    ri.add_argument("--key", required=True)
-    ri.add_argument("--resolution", required=True, choices=list(RESOLUTIONS))
-    ri.add_argument("--ref", default=None)
-    ri.add_argument("--note", default=None)
-    ri.add_argument("--session-id", dest="session_id", default=None)
-    ri.add_argument("--cause", default="cli", choices=["cli", "triage", "plan-intake"])
-    ri.set_defaults(func=cmd_resolve_issue)
-
-    ui = sub.add_parser("update-issue", help="change an open BL item's severity")
-    ui.add_argument("--state-root", required=True)
-    ui.add_argument("--key", required=True)
-    ui.add_argument("--severity", required=True, choices=["Low", "Medium", "High", "Critical"])
-    ui.add_argument("--note", default=None)
-    ui.add_argument("--session-id", dest="session_id", default=None)
-    ui.add_argument("--cause", default="cli", choices=["cli", "triage", "plan-intake"])
-    ui.set_defaults(func=cmd_update_issue)
-
-    pi = sub.add_parser("promote-issue", help="turn open BL items into a new estimated story")
-    pi.add_argument("--state-root", required=True)
-    pi.add_argument("--artifacts-root", required=True,
-                    help="implementation_artifacts root (NOT the state root)")
-    pi.add_argument("--key", required=True, action="append", help="repeatable")
-    pi.add_argument("--epic", required=True)
-    pi.add_argument("--sprint", required=True)
-    pi.add_argument("--classification", required=True, choices=list(CLASSIFICATIONS))
-    pi.add_argument("--title", default="")
-    pi.add_argument("--model", default="")
-    pi.add_argument("--token-rates", dest="token_rates", default="")
-    pi.add_argument("--session-id", dest="session_id", default=None)
-    pi.add_argument("--cause", default="cli", choices=["cli", "triage", "plan-intake"])
-    pi.set_defaults(func=cmd_promote_issue)
-
-    si = sub.add_parser("schedule-issue",
-                        help="attach open BL items to a story that already exists")
-    si.add_argument("--state-root", required=True)
-    si.add_argument("--key", required=True, action="append", help="repeatable")
-    si.add_argument("--story", required=True, help="an existing story key E{nnn}-S{nn}-{nnn}")
-    si.add_argument("--session-id", dest="session_id", default=None)
-    si.add_argument("--cause", default="cli", choices=["cli", "triage", "plan-intake"])
-    si.set_defaults(func=cmd_schedule_issue)
-
-    au = sub.add_parser("audit-issues", help="structural integrity checks over the backlog")
-    au.add_argument("--state-root", required=True)
-    au.add_argument("--format", choices=["text", "json"], default="text")
-    au.set_defaults(func=cmd_audit_issues)
-
-    rp = sub.add_parser("repair-issue", help="structural repair gated on an audit-issues finding")
-    rp.add_argument("--state-root", required=True)
-    rp.add_argument("--key", default=None,
-                    help="the item; for reseed, any key of the epic; omit with --all-legacy")
-    rp.add_argument("--action", required=True,
-                    choices=["unschedule", "link", "repoint", "reseed", "reopen",
-                             "normalize-status", "normalize-keys"])
-    rp.add_argument("--story", default=None, help="with --action link")
-    rp.add_argument("--all-legacy", dest="all_legacy", action="store_true",
-                    help="with --action normalize-status: every legacy status in one pass")
-    rp.add_argument("--session-id", dest="session_id", default=None)
-    rp.add_argument("--cause", default="cli", choices=["cli", "triage", "plan-intake"])
-    rp.set_defaults(func=cmd_repair_issue)
-
-    li = sub.add_parser("list-issues", help="list (with filters) open BL items, resolved ones "
-                                            "(--resolved), or both (--all, JSON)")
-    li.add_argument("--state-root", required=True, help="path to {implementation_artifacts}/state")
-    li.add_argument("--epic", help="epic id — accepts 'E001' or '001'")
-    li.add_argument("--sprint", help="sprint id — accepts 'S01' or '01'; never matches an epic-level (empty-sprint) item")
-    li.add_argument("--severity", action="append", choices=["Low", "Medium", "High", "Critical"],
-                    help="filter by severity; repeat to OR multiple severities")
-    li.add_argument("--format", choices=["text", "json"], default="text")
-    li.add_argument("--status", choices=["backlog", "scheduled"],
-                    help="open items with this status")
-    li.add_argument("--resolved", action="store_true", help="list issues-resolved.yaml instead")
-    li.add_argument("--resolution", choices=list(RESOLUTIONS), help="with --resolved only")
-    li.add_argument("--kind", choices=list(ISSUE_KINDS),
-                    help="items of this kind; an item without `kind` is a defect")
-    li.add_argument("--all", action="store_true",
-                    help='JSON {"open": [...], "resolved": [...]} read under one lock')
-    li.set_defaults(func=cmd_list_issues)
-
-    mv = sub.add_parser("move-epic", help="move an epic directory between status folders")
-    mv.add_argument("--state-root", required=True)
-    mv.add_argument("--epic", required=True)
-    mv.add_argument("--to", required=True, choices=list(STATUS_DIRS))
-    mv.set_defaults(func=cmd_move_epic)
-
-    ae = sub.add_parser("archive-epic", help="alias for move-epic --to archived")
-    ae.add_argument("--state-root", required=True)
-    ae.add_argument("--epic", required=True)
-    ae.set_defaults(func=cmd_move_epic, to="archived")
-
-    up = sub.add_parser("usage", help="sum a session transcript's token usage, by class")
-    up.add_argument("transcript", nargs="*",
-                    help="transcript .jsonl file(s) or directory(ies); omit to resolve this "
-                         "session's own transcript from $" + CLAUDE_SESSION_ENV)
-    up.add_argument("--claude-session", dest="claude_session", default="",
-                    help="the Claude session id the transcript must belong to (NOT the l3io "
-                         "run --session-id); defaults to $" + CLAUDE_SESSION_ENV)
-    up.add_argument("--state-root", default="", help="state root, to read events.jsonl")
-    up.add_argument("--agent", default="", help="scope to this agent's dispatch bracket")
-    up.add_argument("--epic", default="", help="scope to this epic")
-    up.add_argument("--sprint", default="", help="scope to this sprint")
-    up.add_argument("--story", default="", help="scope to this story")
-    up.add_argument("--since", default="", help="ISO timestamp lower bound")
-    up.add_argument("--until", default="", help="ISO timestamp upper bound")
-    up.add_argument("--allow-unidentified", action="store_true",
-                    help="sum a file that cannot be confirmed as this session's transcript")
-    up.add_argument("--model", default="", help="also price the total at this model's rates")
-    up.add_argument("--token-rates", dest="token_rates", default="",
-                    help="JSON overrides for the rate table")
-    up.add_argument("--format", choices=["text", "json"], default="text")
-    up.set_defaults(func=cmd_usage)
-
-    cal = sub.add_parser("calibration", help="inspect the calibration file")
-    cal.add_argument("action", choices=["show", "migrate-metrics", "redrive"])
-    cal.add_argument("--state-root", required=True)
-    cal.add_argument("--format", choices=["text", "json"], default="text")
-    cal.set_defaults(func=cmd_calibration)
-
-    es = sub.add_parser("estimate-story", help="compute and write a story estimate")
-    es.add_argument("--state-root", required=True)
-    es.add_argument("--story", required=True)
-    es.add_argument("--classification", required=True, choices=list(CLASSIFICATIONS))
-    es.add_argument("--confidence", choices=["low", "medium", "high"])
-    es.add_argument("--model", default="",
-                    help="model id to price the derived cost; falls back to DEFAULT_ESTIMATE_MODEL")
-    es.add_argument("--token-rates", dest="token_rates", default="",
-                    help="JSON object of per-model rate overrides")
-    es.set_defaults(func=cmd_estimate_story)
-
-    er = sub.add_parser("estimate-rollup", help="roll child estimates up to a sprint or epic")
-    er.add_argument("--state-root", required=True)
-    er.add_argument("--epic", required=True)
-    er.add_argument("--sprint", default="")
-    er.add_argument("--model", default="",
-                    help="model id to price the derived cost; falls back to DEFAULT_ESTIMATE_MODEL")
-    er.add_argument("--token-rates", dest="token_rates", default="",
-                    help="JSON object of per-model rate overrides")
-    er.set_defaults(func=cmd_estimate_rollup)
-
-    rt = sub.add_parser("rates", help="print the effective token rate table (read-only)")
-    rt.add_argument("--model", default="")
-    rt.add_argument("--token-rates", dest="token_rates", default="",
-                    help="JSON object of per-model rate overrides")
-    rt.set_defaults(func=cmd_rates)
-
-    ar = sub.add_parser("adr-reserve",
-                        help="reserve N sequential ADR numbers under a lock, before dispatch")
-    ar.add_argument("--state-root", required=True)
-    ar.add_argument("--epic", required=True)
-    ar.add_argument("--slug", required=True)
-    ar.add_argument("--count", type=int, default=1)
-    ar.add_argument("--adr-dir", dest="adr_dir", default="",
-                    help="the one ADR home to scan (default: <git top-level>/docs/adr)")
-    ar.set_defaults(func=cmd_adr_reserve)
-
-    dp = sub.add_parser("dump-plan",
-                        help="the planned tree plus read-only context, as JSON (read-only)")
-    dp.add_argument("--state-root", required=True)
-    dp.add_argument("--pretty", action="store_true",
-                    help="indent the JSON for reading by hand; the default is compact, "
-                         "which halves the bytes every consumer pipes")
-    dp.set_defaults(func=cmd_dump_plan)
-
-    re_ = sub.add_parser("retire-epic",
-                         help="move an epic to archived/ and record why (never deletes)")
-    re_.add_argument("--state-root", required=True)
-    re_.add_argument("--epic", required=True)
-    re_.add_argument("--reason", required=True)
-    re_.set_defaults(func=cmd_retire_epic)
-
-    rp = sub.add_parser("reparent-story",
-                        help="move a planned story to another sprint, re-keying it")
-    rp.add_argument("--state-root", required=True)
-    rp.add_argument("--artifacts-root", required=True)
-    rp.add_argument("--story", required=True)
-    rp.add_argument("--to-epic", required=True)
-    rp.add_argument("--to-sprint", required=True)
-    rp.set_defaults(func=cmd_reparent_story)
-
-    rl = sub.add_parser("reorg-log",
-                        help="the reorg journal: hash the plan, record a reorg, list or show")
-    rl.add_argument("--state-root", required=True)
-    rl.add_argument("--hash", action="store_true",
-                    help="print the planned tree's placement digest and exit (read-only); "
-                         "capture this BEFORE applying, as the record's pre_hash")
-    rl.add_argument("--record", default="",
-                    help="a YAML record (rationale, pre_hash, operations) to append")
-    rl.add_argument("--list", action="store_true", help="list recorded reorgs (the default)")
-    rl.add_argument("--show", default="", help="show one entry in full, by id")
-    rl.add_argument("--format", choices=("text", "json"), default="text")
-    rl.set_defaults(func=cmd_reorg_log)
-
-    ru = sub.add_parser("reorg-undo",
-                        help="put a recorded reorg back, if the plan has not moved on since")
-    ru.add_argument("--state-root", required=True)
-    ru.add_argument("--artifacts-root", required=True)
-    ru.add_argument("--id", required=True, help="the journal entry id, e.g. R0001")
-    ru.add_argument("--check", action="store_true",
-                    help="test the guard and report, without moving anything")
-    ru.set_defaults(func=cmd_reorg_undo)
-
-    nt = sub.add_parser("notice",
-                        help="record a one-time-ever advisory notice; exit 1 if already shown")
-    nt.add_argument("--state-root", required=True)
-    nt.add_argument("--key", required=True)
-    nt.set_defaults(func=cmd_notice)
-
-    ai = sub.add_parser("sync-agent-instructions",
-                        help="create, replace or remove the l3io block in the running "
-                             "harness's AI instruction file")
-    ai.add_argument("--runtime", required=True,
-                    choices=("claude", "codex", "copilot", "other"))
-    ai.add_argument("--project-root", required=True)
-    ai.add_argument("--body-file")
-    ai.add_argument("--version")
-    g = ai.add_mutually_exclusive_group(required=True)
-    g.add_argument("--apply", action="store_true")
-    g.add_argument("--remove", action="store_true")
-    g.add_argument("--check", action="store_true")
-    ai.set_defaults(func=cmd_sync_agent_instructions)
+    verbs.register(sub)
+    metrics.register(sub)
+    core.register(sub)
+    issues.register(sub)
+    plan.register(sub)
+    instructions.register(sub)
 
     p.add_argument("--version", action="version", version=f"pm-status.py {PM_STATUS_VERSION}")
     return p

@@ -103,6 +103,23 @@ function run(root, args = []) {
   });
 }
 
+// Every .py in a fixture's pm_status package, concatenated — the same scope check-docs.mjs's
+// own `pmStatusSource()` uses, and for the same reason: registration is distributed, so "the
+// CLI's source" is the package, never one file in it.
+function pmStatusSource(root) {
+  const base = path.join(root, "skills", "_shared", "pm_status");
+  const out = [];
+  const walk = (dir) => {
+    for (const e of fs.readdirSync(dir, { withFileTypes: true }).sort((a, b) => a.name.localeCompare(b.name))) {
+      const child = path.join(dir, e.name);
+      if (e.isDirectory()) { if (e.name !== "__pycache__") walk(child); }
+      else if (e.name.endsWith(".py")) out.push(fs.readFileSync(child, "utf8"));
+    }
+  };
+  walk(base);
+  return out.join("\n");
+}
+
 function write(root, rel, text, append = false) {
   const p = path.join(root, rel);
   fs.mkdirSync(path.dirname(p), { recursive: true });
@@ -253,18 +270,21 @@ test("prose mentioning append-issue is not an invocation", async (t) => {
   assert.equal(r.status, 0, r.stderr + r.stdout);
 });
 
-test("check 12: pm-status.py over the 10,000-line limit is caught", async (t) => {
+// The entry file used to carry ADR-0001's 10,000 for the length of the extraction. Task 12
+// removed that exception: distributed registration took the 520-line build_parser out of
+// __main__.py, so it is judged against the same 1,500 as every other file in the package.
+test("check 12: the ENTRY FILE over the 1,500-line cap is caught", async (t) => {
   const root = fixture(t);
   // Padded with comment-only lines so every other check that parses this file (cli-surface,
   // cli-docstring, metric-list, append-issue-pointer) still sees the same real content and
   // still passes -- only the line count should trip.
-  write(root, "skills/_shared/pm_status/__main__.py", "# pad\n".repeat(10001), true);
+  write(root, "skills/_shared/pm_status/__main__.py", "# pad\n".repeat(1501), true);
   const r = await run(root);
   assert.equal(r.status, 1);
-  assert.match(r.stderr, /__main__\.py: \d+ lines, over the 10000-line per-file limit/);
+  assert.match(r.stderr, /__main__\.py: \d+ lines, over the 1500-line per-file limit/);
 });
 
-// A module of the package is capped at 1,500 lines, not at __main__.py's 10,000. That number
+// Every file of the package is capped at 1,500 lines. That number
 // was stated in three places (the split task briefs, boundary-measurement.md, and
 // metrics/__init__.py's docstring) and enforced in none of them until this test existed: a
 // module could have reached 9,999 lines with every gate green.
@@ -286,18 +306,24 @@ test("check 12 boundary: a package module at exactly 1,500 lines passes", async 
   assert.equal(r.status, 0, r.stderr + r.stdout);
 });
 
-// The entry file is mid-extraction and keeps ADR-0001's 10,000 until the last bucket lands.
-// Asserted so that folding it into the module cap later is a deliberate edit here, not a
-// silent consequence of a line count finally dropping.
-test("check 12: __main__.py is on the 10,000 limit, not the module cap", async (t) => {
+// THERE IS NOW ONE LIMIT. The entry file carried ADR-0001's 10,000 while the extraction ran;
+// Task 12 folded it onto the module cap. This test used to assert the two files resolved
+// DIFFERENT limits and now asserts they resolve the same one, so a reintroduced per-file
+// exception fails here rather than passing as "the entry file is special".
+test("check 12: __main__.py resolves the same 1,500 cap as every module", async (t) => {
   const root = fixture(t);
   const r = await run(root, ["-v"]);
-  assert.match(r.stdout, /pm-status-size: skills\/_shared\/pm_status\/__main__\.py \d+ \/ 10000 line limit/);
+  assert.match(r.stdout, /pm-status-size: skills\/_shared\/pm_status\/__main__\.py \d+ \/ 1500 line limit/);
   // Derived, not named: SOME module other than the entry file must be on the 1,500 cap, whatever
   // it is called. Pinning `core/__init__.py` would break the day core grows a sibling file.
   const onCap = r.stdout.split("\n").filter((l) => /\/ 1500 line limit$/.test(l) && !/__main__\.py/.test(l));
   assert.ok(onCap.length > 0,
     "no module other than __main__.py was reported against the 1500-line cap:\n" + r.stdout);
+  // And no file resolves any OTHER limit. A second number reappearing here is the exception
+  // coming back, which is the thing this check exists to prevent.
+  const others = r.stdout.split("\n")
+    .filter((l) => /pm-status-size: /.test(l) && !/\/ 1500 line limit$/.test(l));
+  assert.deepEqual(others, [], "a pm_status file resolved a limit other than 1500:\n" + others.join("\n"));
 });
 
 test("check 26: a second module of the package that assembles a state path is caught", async (t) => {
@@ -314,23 +340,25 @@ test("check 26: a second module of the package that assembles a state path is ca
 function padPmStatusTo(root, total) {
   const rel = "skills/_shared/pm_status/__main__.py";
   const have = (fs.readFileSync(path.join(root, rel), "utf8").match(/\n/g) || []).length;
-  // Already AT the target is success, not an error: pm-status.py sits exactly at the cap, and
-  // the boundary test asks whether a file at the cap passes. Only overshoot cannot be padded.
+  // Already AT the target is success, not an error: the boundary test asks whether a file at
+  // the cap passes, and a file that is already there needs no padding. Only overshoot cannot
+  // be padded. (__main__.py sat exactly at 10,000 before the package split; it is a few
+  // hundred lines now, so both boundary tests below do pad.)
   assert.ok(have <= total, `pm-status.py already has ${have} lines; cannot pad down to ${total}`);
   if (have < total) write(root, rel, "# pad\n".repeat(total - have), true);
   assert.equal((fs.readFileSync(path.join(root, rel), "utf8").match(/\n/g) || []).length, total);
 }
 
-test("check 12 boundary: exactly 10,000 lines passes", async (t) => {
+test("check 12 boundary: the entry file at exactly 1,500 lines passes", async (t) => {
   const root = fixture(t);
-  padPmStatusTo(root, 10000);
+  padPmStatusTo(root, 1500);
   const r = await run(root);
   assert.equal(r.status, 0, r.stderr + r.stdout);
 });
 
-test("check 12 boundary: 8,001 lines fails on check 12 alone", async (t) => {
+test("check 12 boundary: the entry file at 1,501 lines fails on check 12 alone", async (t) => {
   const root = fixture(t);
-  padPmStatusTo(root, 10001);
+  padPmStatusTo(root, 1501);
   const r = await run(root);
   assert.equal(r.status, 1);
   // check-docs.mjs prints "\n<N> documentation problem(s):\n" and then one "  ✗ <failure>"
@@ -339,7 +367,7 @@ test("check 12 boundary: 8,001 lines fails on check 12 alone", async (t) => {
   assert.match(r.stderr, /^1 documentation problem\(s\):$/m, r.stderr);
   const entries = r.stderr.split("\n").filter((l) => l.startsWith("  ✗ "));
   assert.equal(entries.length, 1, r.stderr);
-  assert.match(entries[0], /__main__\.py: 10001 lines, over the 10000-line per-file limit .* by 1$/);
+  assert.match(entries[0], /__main__\.py: 1501 lines, over the 1500-line per-file limit .* by 1$/);
 });
 
 // ---- check 4 (spec-align surface), 13 (spec-align contract), 14 (adr-home) ----
@@ -2180,7 +2208,11 @@ test("check 4/skills: other subcommands are unaffected by the set-status rule", 
 // in a brand-new directory, so it still attacks the scope.
 test("check 4/skills: a second spelling registered in the same add_argument() is accepted", async (t) => {
   const root = fixture(t);
-  const cli = fs.readFileSync(path.join(root, "skills", "_shared", "pm_status", "__main__.py"), "utf8");
+  // Read the WHOLE PACKAGE, not __main__.py. Registration is distributed across the modules
+  // (design §3.2), so `set-estimate` and its --time-hours alias live in verbs/ now. Anchored
+  // on the entry file alone this died with "no longer registers --time-hours" — an error on
+  // the anchor, dressed as a finding about the CLI, when the alias had simply moved file.
+  const cli = pmStatusSource(root);
   assert.match(cli, /add_argument\(\s*"--elapsed-hours",\s*"--time-hours"/,
     "pm-status.py no longer registers --time-hours as an alias; this test needs a new one");
   write(root, path.join("skills", "l3io-execute", "steps", "brand-new-alias-dir", "planted.md"),

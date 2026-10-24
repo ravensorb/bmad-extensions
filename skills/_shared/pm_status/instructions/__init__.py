@@ -293,3 +293,23 @@ def cmd_sync_agent_instructions(args) -> int:
     tail = ("; also " + ", ".join(extra)) if extra else ""
     sys.stdout.write(f"OK sync-agent-instructions {action} {target}{tail}\n")
     return 0
+
+
+# --------------------------------------------------------------------------- #
+# CLI registration -- this module's one verb (design §3.2; the contract and the reason are
+# in core's own register section).
+# --------------------------------------------------------------------------- #
+def register(sub):
+    ai = sub.add_parser("sync-agent-instructions",
+                        help="create, replace or remove the l3io block in the running "
+                             "harness's AI instruction file")
+    ai.add_argument("--runtime", required=True,
+                    choices=("claude", "codex", "copilot", "other"))
+    ai.add_argument("--project-root", required=True)
+    ai.add_argument("--body-file")
+    ai.add_argument("--version")
+    g = ai.add_mutually_exclusive_group(required=True)
+    g.add_argument("--apply", action="store_true")
+    g.add_argument("--remove", action="store_true")
+    g.add_argument("--check", action="store_true")
+    ai.set_defaults(func=cmd_sync_agent_instructions)

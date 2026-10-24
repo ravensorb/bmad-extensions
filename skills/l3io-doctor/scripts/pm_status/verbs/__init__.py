@@ -24,6 +24,7 @@ binding names.
 """
 from __future__ import annotations
 
+import argparse
 import io
 import json
 import os
@@ -57,6 +58,7 @@ from ..core import (
     canonical_epic_key,
     epic_node_lock,
     issues_lock,
+    node_args,
     notices_path,
     parse_story_key,
     sprint_dirname,
@@ -1195,3 +1197,190 @@ def cmd_verify(args) -> int:
         return 4
     sys.stdout.write(f"PASS {label}\n")
     return 0
+
+
+# --------------------------------------------------------------------------- #
+# CLI registration -- this module's sixteen verbs (design §3.2; the contract and the reason
+# are in core's own register section). Order within this function is the order they appear
+# in `pm-status.py --help`.
+# --------------------------------------------------------------------------- #
+def register(sub):
+    s = sub.add_parser("set-status", help="set a node's status atomically")
+    s.add_argument("--state-root", required=True, help="path to {implementation_artifacts}/state")
+    node_args(s)
+    s.add_argument("--status", required=True)
+    s.add_argument("--title")
+    s.add_argument("--reason", default="",
+                   help="required when --status blocked; free-text why the story halted. "
+                        "Rejected on any other status (a --reason for review would only "
+                        "confuse the record).")
+    s.add_argument("--resolution", default="",
+                   help="required when a story transitions blocked -> done; free-text "
+                        "why the story shipped as-is rather than resumed (e.g. \"spec "
+                        "change removed the need for this story\").")
+    s.add_argument("--flock", action="store_true", help="acquire exclusive flock before write")
+    s.add_argument("--no-events", dest="no_events", action="store_true",
+                   help="skip the events.jsonl append for this call")
+    s.add_argument("--session-id", dest="session_id", default=None,
+                   help="recorded in the event payload; null when omitted")
+    s.set_defaults(func=cmd_set_status)
+
+    sd = sub.add_parser("sync-story-doc",
+                        help="write status into the story markdown's frontmatter")
+    sd.add_argument("--artifacts-root", required=True,
+                    help="implementation_artifacts root (NOT the state root)")
+    sd.add_argument("--story", required=True)
+    sd.add_argument("--status", required=True)
+    sd.add_argument("--quiet", action="store_true")
+    sd.set_defaults(func=cmd_sync_story_doc)
+
+    di = sub.add_parser("story-doc-init",
+                        help="create a story document skeleton from its state node")
+    di.add_argument("--state-root", required=True)
+    di.add_argument("--artifacts-root", required=True,
+                    help="implementation_artifacts root (NOT the state root)")
+    di.add_argument("--story", required=True)
+    di.set_defaults(func=cmd_story_doc_init)
+
+    sdo = sub.add_parser("set-depends-on",
+                         help="add or remove dependency keys on an epic or story node's depends_on list")
+    sdo.add_argument("--state-root", required=True)
+    sdo.add_argument("--epic")
+    sdo.add_argument("--story", help="a story node's depends_on takes story keys")
+    sdo.add_argument("--sprint")
+    sdo.add_argument("--add", action="append", metavar="KEY",
+                     help="repeatable; idempotent, order preserved. Epic keys for an epic "
+                          "node, story keys for a story node")
+    sdo.add_argument("--remove", action="append", metavar="KEY",
+                     help="repeatable; idempotent. Refused while story edges still cross "
+                          "that boundary, unless --force")
+    sdo.add_argument("--force", action="store_true",
+                     help="remove even while story edges justify it — for a sequencing "
+                          "decision no story edge expresses")
+    sdo.set_defaults(func=cmd_set_depends_on)
+
+    imp = sub.add_parser("import-node",
+                         help="create a state node from a migration record")
+    imp.add_argument("--state-root", required=True)
+    imp.add_argument("--epic")
+    imp.add_argument("--sprint")
+    imp.add_argument("--story")
+    imp.add_argument("--status", required=True)
+    imp.add_argument("--title", default="")
+    imp.add_argument("--classification", default="unknown")
+    imp.add_argument("--origin", choices=["inferred"],
+                     help="mark the node as reconstructed rather than read")
+    imp.add_argument("--origin-note", default="",
+                     help="why the node was inferred; recorded beside --origin")
+    imp.add_argument("--reason", default="",
+                     help="required when importing a story at --status blocked; "
+                          "recorded on the node as blocked_reason and in the paired "
+                          "block_open event so a future exit-from-blocked can derive "
+                          "duration. Rejected on any other kind or status.")
+    imp.add_argument("--no-events", action="store_true")
+    imp.add_argument("--session-id")
+    imp.set_defaults(func=cmd_import_node)
+
+    v = sub.add_parser("verify", help="read-back gate; nonzero exit on any gap")
+    v.add_argument("--state-root", required=True, help="path to {implementation_artifacts}/state")
+    v.add_argument("--scope", required=True, choices=["story", "sprint", "epic"])
+    node_args(v)
+    v.add_argument("--require-tokens", action="store_true")
+    v.add_argument("--runtime", choices=["claude", "codex", "copilot", "other"], default="other")
+    v.add_argument("--token-rates", dest="token_rates", default="",
+                   help="JSON object of per-model rate overrides")
+    v.set_defaults(func=cmd_verify)
+
+    le = sub.add_parser("list-epics",
+                        help="list every epic key in the state tree with its status bucket")
+    le.add_argument("--state-root", required=True)
+    le.add_argument("--format", choices=["keys", "json"], default="keys")
+    le.set_defaults(func=cmd_list_epics)
+
+    ls_ = sub.add_parser("list-stories",
+                         help="list story keys for an epic, optionally scoped to one sprint")
+    ls_.add_argument("--state-root", required=True)
+    ls_.add_argument("--epic", required=True)
+    ls_.add_argument("--sprint", default="")
+    ls_.add_argument("--format", choices=["keys", "json"], default="keys")
+    ls_.set_defaults(func=cmd_list_stories)
+
+    sh = sub.add_parser("show", help="render a computed sprint or epic roll-up")
+    sh.add_argument("--state-root", required=True)
+    sh.add_argument("--epic", required=True)
+    sh.add_argument("--sprint", default="")
+    sh.set_defaults(func=cmd_show)
+
+    sl = sub.add_parser("set-lock", help="write _lock block to a per-epic active file")
+    sl.add_argument("--state-root", required=True)
+    sl.add_argument("--epic", required=True, help="epic key, e.g. E001")
+    sl.add_argument("--session-id", dest="session_id", required=True)
+    sl.add_argument("--ttl-minutes", dest="ttl_minutes", type=int, default=30)
+    sl.set_defaults(func=cmd_set_lock)
+
+    cl = sub.add_parser("clear-lock", help="remove _lock block from a per-epic active file")
+    cl.add_argument("--state-root", required=True)
+    cl.add_argument("--epic", required=True, help="epic key, e.g. E001")
+    cl.set_defaults(func=cmd_clear_lock)
+
+    ck = sub.add_parser("check-lock", help="check if a per-epic file is free to claim; exit 5 if held")
+    ck.add_argument("--state-root", required=True)
+    ck.add_argument("--epic", required=True, help="epic key, e.g. E001")
+    ck.add_argument("--session-id", dest="session_id", required=True, help="caller's session id")
+    ck.set_defaults(func=cmd_check_lock)
+
+    se = sub.add_parser("set-estimate", help="write estimate block to a story, sprint, or epic node")
+    se.add_argument("--state-root", required=True, help="path to {implementation_artifacts}/state")
+    node_args(se)
+    # Range fields (sprint/epic)
+    se.add_argument("--man-hours-low", dest="man_hours_low")
+    se.add_argument("--man-hours-high", dest="man_hours_high")
+    se.add_argument("--hitl-hours-low", dest="hitl_hours_low")
+    se.add_argument("--hitl-hours-high", dest="hitl_hours_high")
+    se.add_argument("--elapsed-hours-low", "--time-hours-low", dest="elapsed_hours_low")
+    se.add_argument("--elapsed-hours-high", "--time-hours-high", dest="elapsed_hours_high")
+    se.add_argument("--tokens-k-min", dest="tokens_k_min")
+    se.add_argument("--tokens-k-max", dest="tokens_k_max")
+    # --cost / --cost-low / --cost-high are declared but SUPPRESSed from --help
+    # and rejected in cmd_set_estimate: cost is derived from tokens x rates,
+    # never accepted as direct input (see the rejection at the top of
+    # cmd_set_estimate). Declaring them here — rather than leaving them
+    # unrecognized — turns that rejection into a clear usage error instead of
+    # argparse's generic "unrecognized arguments".
+    se.add_argument("--cost-low", dest="cost_low", help=argparse.SUPPRESS)
+    se.add_argument("--cost-high", dest="cost_high", help=argparse.SUPPRESS)
+    # Single-value fields (story)
+    se.add_argument("--man-hours", dest="man_hours")
+    se.add_argument("--hitl-hours", dest="hitl_hours",
+                    help="human attention actually spent supervising (hours)")
+    se.add_argument("--elapsed-hours", "--time-hours", dest="elapsed_hours",
+                    help="--time-hours is a deprecated alias")
+    se.add_argument("--tokens-k", dest="tokens_k_min")  # alias to tokens_k_min for story use
+    se.add_argument("--cost", dest="cost", help=argparse.SUPPRESS)
+    se.add_argument("--confidence", choices=["low", "medium", "high"])
+    se.add_argument("--fix-factor", dest="fix_factor",
+                    help="fix multiplier applied; required for the scope/fix split")
+    se.add_argument("--scope-ratio", dest="scope_ratio",
+                    help="calibrated scope ratio applied (1.0 when cold-start)")
+    se.add_argument("--flock", action="store_true", help="acquire exclusive flock before write")
+    se.set_defaults(func=cmd_set_estimate)
+
+    sf = sub.add_parser("set-field", help="set a nested field at a dot-path within a node")
+    sf.add_argument("--state-root", required=True, help="path to {implementation_artifacts}/state")
+    node_args(sf)
+    sf.add_argument("--field", required=True, help="dot-path within the node, e.g. 'retrospective.summary'")
+    sf.add_argument("--value", required=True, help="string value to set")
+    sf.set_defaults(func=cmd_set_field)
+
+    a = sub.add_parser("add-test-run", help="record one executed test command and its exit code")
+    a.add_argument("--state-root", required=True, help="path to {implementation_artifacts}/state")
+    a.add_argument("--story", required=True)
+    a.add_argument("--command", required=True, help="the test command actually executed")
+    a.add_argument("--exit-code", dest="exit_code", type=int, required=True)
+    a.set_defaults(func=cmd_add_test_run)
+
+    nt = sub.add_parser("notice",
+                        help="record a one-time-ever advisory notice; exit 1 if already shown")
+    nt.add_argument("--state-root", required=True)
+    nt.add_argument("--key", required=True)
+    nt.set_defaults(func=cmd_notice)

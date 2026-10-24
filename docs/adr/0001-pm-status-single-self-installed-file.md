@@ -44,8 +44,10 @@ through its CLI. The first application: the issue audit's heuristic checks go to
 - Negative / trade-offs accepted: `pm-status.py` remains a large file, owned by the package
   maintainers.
 - Follow-ups / exit plan: revisit when the file passes ~6,000 lines, or when a verb needs a
-  dependency its other callers do not; Option C is the first candidate then, after evaluating an
-  existing bundler.
+  dependency its other callers do not. (This clause named Option C as the successor; **the
+  2026-10-03 amendment RETIRED Option C** — see that section for the evidence. The sentence is
+  removed rather than left standing, because an exit plan is read as an instruction and this one
+  pointed at a closed door.)
 
 ## Amendment (2026-09-11)
 
@@ -62,10 +64,11 @@ prose trigger it replaces — a number that only lives in an ADR's prose was exa
 failure mode global rule 3 warns about (a rule that isn't checked is a rule that gets missed
 at 8,000 the same way it was crossed silently at 6,000).
 
-When check 12 trips, **Option C stays the first candidate** — after evaluating an existing
-bundler (for example `stickytape` or `pinliner`), not a hand-rolled one, per global rule 1.
-The dependency trigger from the original decision (a verb needing a dependency its other
-callers do not) is unchanged and still applies independently of line count.
+This amendment named Option C as the candidate to reach for when check 12 trips. **That
+sentence is withdrawn: the 2026-10-03 amendment below retired Option C outright**, after doing
+the bundler evaluation this one asked for. The dependency trigger from the original decision (a
+verb needing a dependency its other callers do not) is unchanged and still applies
+independently of line count.
 
 ## Amendment (2026-10-03) — the limit is raised to 10,000, and Option C is withdrawn
 

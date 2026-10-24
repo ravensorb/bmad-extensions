@@ -32,8 +32,8 @@
 //                    subcommand each parser defines
 //  11. append-issue-pointer every append-issue invocation in skills/ (logical lines, `\`-
 //                    continued lines joined, fenced or not) passes --source and --description
-//  12. pm-status-size skills/_shared/pm_status/__main__.py stays within the 10,000-line limit
-//                    ADR-0001 sets
+//  12. pm-status-size every .py under skills/_shared/pm_status/ stays within the 1,500-line
+//                    per-file limit ADR-0001 sets — __main__.py included, since Task 12
 //  13. spec-align-contract spec-align.py's spec kinds match layout-cleanup.md heuristic 5, and
 //                    its six DIMENSIONS match the enrichment prompt's layout block
 //  14. adr-home      no runtime directive names the old per-epic ADR home (epic-*/arch/adr-*)
@@ -1010,6 +1010,30 @@ function pyStringCollections(src) {
 
 const _surfaceCache = new Map();
 
+// Every top-level `def NAME(...)` body that registers argparse parsers, masked INTO the
+// source: characters outside such a body become spaces, newlines are kept, so the result is
+// the same length as `src` and every match offset in it is still an offset into `src`.
+// Keeping offsets global is what preserves source-order replay across files, which is what
+// makes a rebound variable (`rp` is `report` in metrics and `repair-issue` in issues) resolve
+// to the right subcommand now that the two live in different modules.
+//
+// A body qualifies by what it CONTAINS (`.add_parser(` or `.add_subparsers(`), never by its
+// name, so this does not need editing when a module's registration hook is renamed or when a
+// new bucket appears.
+function parserRegionMask(src) {
+  const lines = src.split("\n");
+  const keep = new Array(lines.length).fill(false);
+  for (let i = 0; i < lines.length; i++) {
+    if (!/^def [A-Za-z_][A-Za-z0-9_]*\(/.test(lines[i])) continue;
+    let end = i + 1;
+    while (end < lines.length && (lines[end].trim() === "" || /^\s/.test(lines[end]))) end += 1;
+    const body = lines.slice(i, end).join("\n");
+    if (!/\.add_parser\(|\.add_subparsers\(/.test(body)) continue;
+    for (let j = i; j < end; j++) keep[j] = true;
+  }
+  return lines.map((ln, i) => (keep[i] ? ln : " ".repeat(ln.length))).join("\n");
+}
+
 function argparseSurface(pyRel) {
   if (_surfaceCache.has(pyRel)) return _surfaceCache.get(pyRel);
   const bySub = new Map();
@@ -1017,12 +1041,24 @@ function argparseSurface(pyRel) {
   const src = pyRel === PM_STATUS ? pmStatusSource() : read(pyRel);
   const consts = pyStringCollections(src);
 
-  const start = src.indexOf("\ndef build_parser(");
-  if (start < 0) return (_surfaceCache.set(pyRel, bySub), bySub);
-  const rest = src.slice(start + 1);
-  const end = rest.search(/\n(?:def |if __name__)/);
-  const region = end < 0 ? rest : rest.slice(0, end);
-  const lines = region.split("\n");
+  // REGISTRATION IS DISTRIBUTED in pm_status (design §3.2): `build_parser` creates the
+  // subparsers object and each module's `register(sub)` adds its own verbs, so the
+  // registrations are spread across seven files that `pmStatusSource()` concatenates.
+  // Slicing the one `def build_parser(` region found NOTHING after that change -- the
+  // function is six calls and a return -- and this checker would have reported an EMPTY
+  // CLI surface, which fails open on checks 4, 10, 27 and 30 at once.
+  //
+  // So the region is every top-level `def NAME(` body that registers a parser, MASKED into
+  // the concatenated source rather than cut out of it: non-region characters become spaces
+  // (newlines kept), so every offset below is still an offset into `src` and the
+  // source-order replay that makes variable rebinding work (`rp` is report and later
+  // repair-issue) is preserved ACROSS files as well as within one function.
+  //
+  // Derived, not listed: a body qualifies by containing `.add_parser(`/`.add_subparsers(`,
+  // so a later rename of `register` or `build_parser` needs no edit here. spec-align.py,
+  // which still registers centrally, is covered by the same rule.
+  const region = parserRegionMask(src);
+  if (!/\.add_parser\(/.test(region)) return (_surfaceCache.set(pyRel, bySub), bySub);
 
   const choicesOf = (tail) => {
     const lit = tail.match(/choices=\[([^\]]*)\]/);
@@ -1030,8 +1066,15 @@ function argparseSurface(pyRel) {
       const vals = [...lit[1].matchAll(/"([^"]*)"|'([^']*)'/g)].map((x) => x[1] ?? x[2]);
       return vals.length ? vals : null;
     }
-    const named = tail.match(/choices=(?:list|tuple|sorted)\(([A-Z_]+)\)/) ||
-                  tail.match(/choices=([A-Z_]+)\b/);
+    // A MODULE-QUALIFIED reference resolves to the same constant: `choices=list(
+    // store.ISSUE_KINDS)` is how a module writes it now that `issues/__init__.py` registers
+    // its own verbs against its submodules rather than importing their names. The lookup is
+    // by the final segment, because `consts` is built from the DEFINITIONS in the
+    // concatenated package source, where the name is bare. Without this the choices went
+    // silently missing — and checks 4 and 27 fail OPEN on a flag whose choices are unknown,
+    // so the loss would have read as success.
+    const named = tail.match(/choices=(?:list|tuple|sorted)\((?:[a-z_][a-z0-9_]*\.)*([A-Z_]+)\)/) ||
+                  tail.match(/choices=(?:[a-z_][a-z0-9_]*\.)*([A-Z_]+)\b/);
     return named && consts.has(named[1]) ? consts.get(named[1]) : null;
   };
   const argsOf = (call, tail) => {
@@ -1046,20 +1089,29 @@ function argparseSurface(pyRel) {
     };
   };
 
-  // Inner helpers, collected by indentation: `    def NAME(PARAM):` plus the more-indented
-  // block under it.
+  // add_argument helpers: `def NAME(PARAM):` plus the more-indented block under it.
+  //
+  // Scanned over the WHOLE source, not over the region, and at ANY indent. pm_status's
+  // `node_args` used to be a closure inside build_parser; distributing registration put it
+  // in `core` at module level, because `verbs` and `metrics` both call it and two copies of
+  // it would be two CLI contracts free to drift. A region-scoped, indent-required scan found
+  // neither, and --story/--epic/--sprint would have silently vanished from five
+  // subcommands' judged surface. Only bodies that actually add_argument are kept, so the
+  // whole-source scan does not turn every single-parameter function in the package into a
+  // helper; a body with no add_argument contributes nothing either way.
+  const srcLines = src.split("\n");
   const helpers = new Map();
-  for (let i = 0; i < lines.length; i++) {
-    const def = lines[i].match(/^(\s+)def ([a-z_]+)\(([a-z_]+)\):\s*$/);
+  for (let i = 0; i < srcLines.length; i++) {
+    const def = srcLines[i].match(/^(\s*)def ([a-z_]+)\(\s*([a-z_]+)\s*(?::[^,)]+)?\s*\)\s*(?:->[^:]+)?:\s*$/);
     if (!def) continue;
     const [, indent, name] = def;
     let body = "";
-    for (let j = i + 1; j < lines.length; j++) {
-      if (lines[j].trim() !== "" && !lines[j].startsWith(indent + " ")) break;
-      body += lines[j] + "\n";
+    for (let j = i + 1; j < srcLines.length; j++) {
+      if (srcLines[j].trim() !== "" && !srcLines[j].startsWith(indent + " ")) break;
+      body += srcLines[j] + "\n";
     }
     const args = pyArgCalls(body).map((c) => argsOf(c.names, c.tail));
-    helpers.set(name, args);
+    if (args.length) helpers.set(name, args);
   }
 
   const events = [];
@@ -2310,22 +2362,21 @@ function checkAppendIssuePointer() {
 // lives in an ADR's prose. Raising either limit below is a decision for that ADR, not a
 // number to move here on its own.
 //
-// TWO limits, because the package has two kinds of file and only one of them is finished.
-// The 1,500-line per-module cap was stated in the package-split task briefs, in
-// boundary-measurement.md and in metrics/__init__.py's own docstring, and enforced NOWHERE:
-// a module could have reached 9,999 lines with every gate green, and calibration.py was
-// already at ~85% of the budget nobody checked. That is this repo's dominant failure mode
-// (a documented number nobody checks), so the cap is now the enforced one for every module.
+// ONE limit, over every .py in the package including __main__.py. The 1,500-line per-file cap
+// was stated in the package-split task briefs, in boundary-measurement.md and in
+// metrics/__init__.py's own docstring, and enforced NOWHERE: a module could have reached 9,999
+// lines with every gate green, and calibration.py was already at ~85% of the budget nobody
+// checked. That is this repo's dominant failure mode (a documented number nobody checks).
 //
-// __main__.py is deliberately NOT on the 1,500 cap yet. It is mid-extraction: code leaves it
-// one module at a time and it only drops under 1,500 when the last bucket (`plan/`) lands.
-// Putting it on the module cap today would mean either failing the build on a planned,
-// transitional state or quietly raising the module number to accommodate it -- the second is
-// the exact thing this check exists to prevent. It therefore keeps the ADR-0001 number it
-// already had, and folds into the module cap when the extraction finishes.
-const PM_STATUS_LINE_LIMIT = 10000;          // __main__.py — ADR-0001 amendment 2026-10-03
-const PM_STATUS_MODULE_LINE_LIMIT = 1500;    // every other file in the package
-const PM_STATUS_ENTRY_FILE = `${PM_STATUS_DIR}/__main__.py`;
+// __main__.py carried a SECOND limit (ADR-0001's 10,000) for the length of the extraction,
+// because code left it one bucket at a time and it only dropped under 1,500 when the last
+// bucket landed. That exception is GONE as of Task 12: distributed registration took the
+// 520-line build_parser out of it and the entry file is now a few hundred lines. Removing the
+// exception was the point — two limits meant the entry file could have grown back to 10,000
+// unnoticed, which is the same hole the module cap was added to close. Do not reintroduce a
+// per-file exception; if one genuinely needs a different number, that is a decision for
+// ADR-0001, where the number lives.
+const PM_STATUS_MODULE_LINE_LIMIT = 1500;    // every .py in the package, entry file included
 
 function checkPmStatusSize() {
   // Per file: the limit exists so no single file outgrows what a reader and a reviewer can hold,
@@ -2333,7 +2384,7 @@ function checkPmStatusSize() {
   // count, matching `wc -l` -- not split("\n").length, which overcounts by one on any file (all
   // of them) that ends with a trailing newline.
   for (const file of pmStatusFiles()) {
-    const limit = file === PM_STATUS_ENTRY_FILE ? PM_STATUS_LINE_LIMIT : PM_STATUS_MODULE_LINE_LIMIT;
+    const limit = PM_STATUS_MODULE_LINE_LIMIT;
     const lines = (read(file).match(/\n/g) || []).length;
     if (lines > limit) {
       failures.push(
