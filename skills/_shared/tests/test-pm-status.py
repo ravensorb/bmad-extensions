@@ -13851,6 +13851,48 @@ class TestReorgJournal(unittest.TestCase):
                       "reparent_story did not save the re-keyed story through "
                       "nodes.save_node -- plan/ holds a private copy of it")
 
+    def test_reparent_story_rewrites_the_doc_through_the_core_module_object(self):
+        """`plan/__init__.py`'s call-style docstring names five names that must be reached
+        through their module object. Four were guarded; `core._atomic_text_write` was not.
+
+        Mutating it to `from ..core import _atomic_text_write` left the WHOLE suite green: the
+        only other patch of that name drives `sync-agent-instructions`, which never enters
+        `plan/`. So a private copy here was invisible, and the patch that looks like it covers
+        this file covers a different module entirely.
+
+        The assertion is on the MOVED DOCUMENT'S OWN PATH, not on 'some write happened'.
+        `nodes.ensure_node_path` makes its own saves through the same patched global during a
+        reparent, so a guard asserting the wrapper was called at all passes with `plan/`
+        holding a private copy — that exact shape already passed a mutation for the wrong
+        reason earlier in this work. Only `_rewrite_doc_key` writes `dest_doc`.
+        """
+        self._story("E001-S01-001")
+        # A story DOCUMENT on disk, which this class's fixture does not otherwise create --
+        # and it is the whole precondition: `_rewrite_doc_key` returns before writing when
+        # there is no document, so without this the guard would pass over a path never taken.
+        self._w(os.path.join(self.ar, "epic-001", "sprint-01", "stories",
+                             "E001-S01-001.md"),
+                "---\nkey: 'E001-S01-001'\ntitle: 'T'\n---\n\n# T\n\nBody the author owns.\n")
+        written = []
+        real = pm.core._atomic_text_write
+
+        def text_write(path, text, *a, **kw):
+            written.append(path)
+            return real(path, text, *a, **kw)
+
+        with mock.patch.object(pm.core, "_atomic_text_write", text_write):
+            new = pm.reparent_story(self.sr, self.ar, "E001-S01-001", "E003", "S02")
+        dest_doc = os.path.join(self.ar, "epic-003", "sprint-02", "stories", f"{new}.md")
+        self.assertTrue(os.path.isfile(dest_doc), "the fixture never moved the document")
+        self.assertIn(dest_doc, written,
+                      "the re-keyed story DOCUMENT was not written through "
+                      "core._atomic_text_write -- plan/ holds a private copy of it. "
+                      f"Written: {written}")
+        # And it really was re-keyed, so the assertion above is about a write that mattered
+        # rather than one the regex declined to make.
+        with open(dest_doc, encoding="utf-8") as fh:
+            self.assertIn(f"key: '{new}'", fh.read())
+
     def test_undo_resolves_the_epic_file_through_the_nodes_module_object(self):
         self._epic("041", "01")
         self._story("E041-S01-001")
