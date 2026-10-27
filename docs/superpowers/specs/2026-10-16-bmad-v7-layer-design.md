@@ -159,6 +159,49 @@ becomes a backlog ticket; `promote-issue` becomes "move this backlog entry into 
 `tickets.toml`", which their model does natively. We keep the *audit* (findings 1a–1l) as a
 doctor mode over their tree, and drop the ledger and its key allocator.
 
+### 3.4 Our scripts are declared, not self-installed
+
+**`self-install` does not survive into 4.0.0, and nothing replaces it — v7 installs our scripts
+for us.** A module declares them in `bmod.toml`:
+
+```toml
+[skill]
+scripts = ["scripts/pm_status/__main__.py", "scripts/pm_status/core/locking.py", ...]
+```
+
+`read_module_scripts()` collects every declared path across a module's skills and
+`declared_scripts_tree()` builds the tree BMad then installs and maintains.
+
+| Property | Measured at `61e01f8` |
+|---|---|
+| Destination | `_bmad/<code>/scripts/` — e.g. `_bmad/l3io-pm/scripts/` |
+| Who installs | BMad's own installer, during `stage_bmad` |
+| Nested paths | **Supported.** `read_declared_script()` validates only that the path resolves under the skill root and is a file — no flat-path rule — and `declared_scripts_tree()` creates intermediate directories. A package is declarable file by file. |
+| Atomicity | BMad's, not ours: it stages a whole `_bmad` and `replace_dir`s it |
+| Call form | `uv run {project-root}/_bmad/<code>/scripts/…` |
+
+**The documented destination contradicts the code.**
+`skills/bmad-toolsmith/shapes/script-utility/shape.md` says `scripts = [...]` "installs it to
+`_bmad/scripts/`" and gives the call form as `uv run {project-root}/_bmad/scripts/<name>.py`.
+`read_module_scripts()`'s docstring says `_bmad/<code>/scripts/`, and `stage_bmad` writes
+module trees to `staging / code / "scripts"`. The code is the one that runs. **Verify against a
+real install before building on either** — this is precisely the documented-behaviour drift
+class our own `check:docs` cannot catch, now in their tree.
+
+**Why this is the mechanism rather than a convenience.** `_bmad/scripts/` and
+`_bmad/<code>/scripts/` are both rebuilt from their *declared* set on every install —
+`ensure_scripts()` and `ensure_plain_tree()` each `rmtree` and recreate when the tree is not an
+exact match. A declared script is part of what the rebuild restores; an undeclared one is what
+the rebuild removes. **Self-install produces undeclared files**, so on v7 it is not merely
+unnecessary, it is the losing side of a directory BMad owns. The same wipe exists on 6.12.4
+(`_installSharedScripts()`), which is why self-install has to re-run at every activation on the
+v6 line — see ADR-0001's 2026-10-23 amendment.
+
+**Consequences for the package split.** Everything `self-install` carries on the v6 line — the
+symlink swap, the tree digest, the retention/GC rule, the downgrade refusal — is v6-only
+machinery with a death date. None of it is built for v7, and none of it should be generalised
+to serve both.
+
 ## 4. Level mapping and execution
 
 ### 4.1 Levels
