@@ -4732,6 +4732,12 @@ function checkGateImports() {
 // KNOWN GAP: file-scoped, not block-scoped. A file probing name A via skills/ and a different
 // name B via commands/ passes, because the two sets are compared per file rather than per
 // probe chain. Tightening that needs shell parsing for a shape no file has today.
+//
+// KNOWN GAP: the name class `[$\w.-]+` excludes `:`, so `.claude/commands/superpowers:requesting-
+// code-review.md` never matches PROBE_COMMANDS_RE and a `superpowers:*` name probed through
+// commands/ alone passes uncaught. Today it is covered only because step-04-arch-gate.md probes it
+// through both layouts and check 37 (whose class includes `:`) judges that file. Widening it is
+// a separate change: it could newly flag other files carrying `superpowers:` probes.
 const PROBE_COMMANDS_RE = /\.claude\/commands\/([$\w.-]+)\.md/g;
 const PROBE_SKILLS_RE = /\.claude\/skills\/([$\w.-]+)\/SKILL\.md/g;
 
