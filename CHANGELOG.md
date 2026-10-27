@@ -2,6 +2,70 @@
 
 All notable changes to this project will be documented in this file. See [commit-and-tag-version](https://github.com/absolute-version/commit-and-tag-version) for commit guidelines.
 
+## [3.6.0](https://github.com/ravensorb/bmad-extensions/compare/3.5.2...3.6.0) (2026-10-27)
+
+
+### Features
+
+* **infra:** enforce the 1,500-line per-module cap in check 12 ([174da13](https://github.com/ravensorb/bmad-extensions/commit/174da13832d30f5788e32c62587cb2f1a2669727))
+* **l3io-pm:** bootstrap pm_status for script-path runs and widen gates to the package ([958139a](https://github.com/ravensorb/bmad-extensions/commit/958139a1c2206d6e3bc147b007898ddcd1763a27))
+* **l3io-pm:** install pm-status as a package directory ([bcb1d9c](https://github.com/ravensorb/bmad-extensions/commit/bcb1d9c94ece8317ffad3f17848c1e44b633e86f))
+* **l3io-pm:** point every binding at the installed package ([a94089c](https://github.com/ravensorb/bmad-extensions/commit/a94089c64c8b6a432242f5e6c18686382115c3f8))
+
+
+### Fixes
+
+* **infra:** derive check 26's pm-status payload exemption from the sync deliveries ([356b2af](https://github.com/ravensorb/bmad-extensions/commit/356b2afb8a46658849d8d95cd29ae59b89bab54f))
+* **infra:** make argparseSurface refuse a quietly-shrunk CLI surface ([65cd619](https://github.com/ravensorb/bmad-extensions/commit/65cd61912673ad85e49cf90b816d0aa3c046bc95))
+* **infra:** read choices=(TUPLE) as well as choices=[LIST] in the CLI surface ([b3a56dc](https://github.com/ravensorb/bmad-extensions/commit/b3a56dc8a9e0c3c13acab129ef8f35908ba0477f))
+* **l3io-pm:** drop readerless facade re-exports and gate them ([f08907d](https://github.com/ravensorb/bmad-extensions/commit/f08907db6dc5f547c4b777c75bb1fcc1ad5f45eb))
+* **l3io-pm:** harden self-install's swap, rollback and shipped-hash coverage ([fb3a154](https://github.com/ravensorb/bmad-extensions/commit/fb3a154a58475d324ae730759c25b840840cfcae))
+* **l3io-pm:** make the re-export reader gate walk the AST, not the text ([4492d50](https://github.com/ravensorb/bmad-extensions/commit/4492d50ff146eb1d181c0353b576ae9a5ed961ed))
+* **l3io-pm:** probe the .agents/ tool root as well as .claude/ so v7 phases stop self-skipping ([0353552](https://github.com/ravensorb/bmad-extensions/commit/0353552f27c9ee7ace9d67835864317790635e99))
+* **l3io-pm:** stop a concurrent self-install crashing on a swept staging tree ([a9ec67c](https://github.com/ravensorb/bmad-extensions/commit/a9ec67c23fc54df77bc7c403bf3e2a31a6c9c80a))
+* **l3io-util:** leave nothing behind when /l3io-doctor uninstall removes the payload ([e67a307](https://github.com/ravensorb/bmad-extensions/commit/e67a307d6d0d0ad45d6cdea7273601cf711d6aed))
+
+
+### Refactoring
+
+* **infra:** derive which file declares check 26's resolver section ([9a3b74a](https://github.com/ravensorb/bmad-extensions/commit/9a3b74af17c0c90ef55aada2fd133f38f5265f4f))
+* **l3io-pm:** extract pm_status.core, the package's dependency root ([555086d](https://github.com/ravensorb/bmad-extensions/commit/555086de096434cec99125aa5b2fa41f3f8dfcd4))
+* **l3io-pm:** extract pm_status.instructions, the marker engine and instruction-file sync ([ff1b67a](https://github.com/ravensorb/bmad-extensions/commit/ff1b67aee20e91f3a468d40a33403a765510ead9))
+* **l3io-pm:** extract pm_status.issues, the deferred-issue lifecycle ([a323704](https://github.com/ravensorb/bmad-extensions/commit/a323704b6076f64afb9d26e0c4c9cff9cce59e08))
+* **l3io-pm:** extract pm_status.metrics, the measurement layer ([5387469](https://github.com/ravensorb/bmad-extensions/commit/53874691280d38cc39f1752ace16e4830802766b))
+* **l3io-pm:** extract pm_status.nodes, the node layer ([a97b9ba](https://github.com/ravensorb/bmad-extensions/commit/a97b9ba3486a7056e2c7b1f08ec34d0a48143508))
+* **l3io-pm:** extract pm_status.plan, the plan operations ([1dcbe95](https://github.com/ravensorb/bmad-extensions/commit/1dcbe9593f35ad114c48d92ac52949033f0559b9))
+* **l3io-pm:** extract pm_status.verbs, the status verbs ([ebea4fc](https://github.com/ravensorb/bmad-extensions/commit/ebea4fc5a53339145b7e81a0bcb219019a664e52))
+* **l3io-pm:** give each module its own register(subparsers) ([c100d01](https://github.com/ravensorb/bmad-extensions/commit/c100d01ae2aba075858dadaae76e2de6049103ec))
+* **l3io-pm:** move pm-status.py into a pm_status package ([1eae5a0](https://github.com/ravensorb/bmad-extensions/commit/1eae5a0be8c282ee2c908db8e4d736e368393415))
+* **l3io-pm:** relocate the seven core-bound items into core's region ([3834813](https://github.com/ravensorb/bmad-extensions/commit/38348131eef491e20d354175d25c143c106b290f))
+
+
+### Documentation
+
+* correct the pm-status package claims the live docs still make about a file ([b2737b4](https://github.com/ravensorb/bmad-extensions/commit/b2737b44ca6e8b6bf3aa6fc24b1e25f3ded5cc45))
+* **infra:** correct the payload claim and record the binding-flip scope ([efd8903](https://github.com/ravensorb/bmad-extensions/commit/efd890321460ced65805cc848868a6ba31db2d9b))
+* **infra:** describe check:module rule 6 as the two payload shapes it checks ([29a95a6](https://github.com/ravensorb/bmad-extensions/commit/29a95a63714fcde9f85fc97356251ea99dea6847))
+* **infra:** design pm-status.py as a package, adopting ADR-0001 Option B ([851932d](https://github.com/ravensorb/bmad-extensions/commit/851932deff5568bacfe26e1f77411738560af278))
+* **infra:** plan the pm-status package split for 3.6.0 ([3bf05f1](https://github.com/ravensorb/bmad-extensions/commit/3bf05f1eb0db28a4b41775454b1d5a1f33e65585))
+* **infra:** re-derive the extraction plan from a measured boundary analysis ([610c4e9](https://github.com/ravensorb/bmad-extensions/commit/610c4e9a51513fa411f217176e994272fe90480d))
+* **infra:** scope the install contract to v6 and drop the symlink design ([7602b34](https://github.com/ravensorb/bmad-extensions/commit/7602b3461661696a8d8461169b21f255490102dd))
+* **l3io-pm:** amend ADR-0001 for the package split, and correct the spec's record ([2dc9d33](https://github.com/ravensorb/bmad-extensions/commit/2dc9d33b43b7cb9ba43153dab48412c6eb3e1342))
+* **l3io-pm:** pin ADR-0001's symlink-atomicity claim to what was measured ([d035b0e](https://github.com/ravensorb/bmad-extensions/commit/d035b0e7684f30f334eb67266393ecc1ee8e48e9))
+* **l3io-pm:** record v7's bmod.toml script declaration, which retires self-install at 4.0.0 ([76d56dd](https://github.com/ravensorb/bmad-extensions/commit/76d56dda0095464004d3a24926f0523848e60719))
+
+
+### Testing
+
+* **infra:** derive the check-bmb fixture line instead of pinning it, and record check 29's colon gap ([c4e6b4c](https://github.com/ravensorb/bmad-extensions/commit/c4e6b4c2d7175096f06f0b7271a7a126d6873cc0))
+* **infra:** make check 26's exactly-one-declaration block inverted by tests ([d870831](https://github.com/ravensorb/bmad-extensions/commit/d8708310db6d150bef0d53b6339982a25a45cb3e))
+* **l3io-pm:** guard plan/'s core and nodes calls against private-copy bindings ([706e07c](https://github.com/ravensorb/bmad-extensions/commit/706e07cb13a7fbd405d0e818506de4bb1af38345))
+* **l3io-pm:** guard reparent-story's doc rewrite against a private core copy ([91a8a69](https://github.com/ravensorb/bmad-extensions/commit/91a8a698d5be4558374a5e3950b61386f18c873a))
+* **l3io-pm:** guard the bootstrap prologue with a planted relative import ([d6fc53b](https://github.com/ravensorb/bmad-extensions/commit/d6fc53b121785b0cb8cc9b37ce6cbae114d8628b))
+* **l3io-pm:** pin package_root directly and guard the core re-exports ([3552fc9](https://github.com/ravensorb/bmad-extensions/commit/3552fc90a8e21d81ac932896191036a460a841a0))
+* **l3io-pm:** pin the 43 subcommands as a registration regression guard ([cfb3185](https://github.com/ravensorb/bmad-extensions/commit/cfb3185e775aeb8fbc826ffa8c3eb2009cee8eee))
+* **l3io-pm:** pin the OSError clause that keeps self-install from swallowing an interrupt ([9663242](https://github.com/ravensorb/bmad-extensions/commit/96632420aa30176287297f7f22fb87d813aa872a)), closes [#2](https://github.com/ravensorb/bmad-extensions/issues/2)
+
 ## [3.5.2](https://github.com/ravensorb/bmad-extensions/compare/3.5.1...3.5.2) (2026-10-23)
 
 

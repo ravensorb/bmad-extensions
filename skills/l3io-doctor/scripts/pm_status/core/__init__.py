@@ -45,7 +45,7 @@ except ModuleNotFoundError:  # pragma: no cover - environment guard
 # The constant half of the version. The other half is `__main__.py`'s top-of-file
 # `# pm-status-version:` marker, which self-install reads off a copy on disk; check:version
 # finds this declaration by searching the package and fails unless the two agree.
-PM_STATUS_VERSION = "3.5.2"
+PM_STATUS_VERSION = "3.6.0"
 
 VALID_STORY_STATUS = {"backlog", "ready-for-dev", "in-progress", "review", "done", "blocked"}
 VALID_SPRINT_STATUS = {"backlog", "in-progress", "review", "done"}
