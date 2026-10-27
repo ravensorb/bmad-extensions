@@ -182,15 +182,21 @@ skills forward migrations, health checks, and the plan-aware progress dashboard 
 `l3io-help` invokes `check-pm-status` on every activation. A standard install carries the
 whole marketplace bundle so this is only false when someone has manually stripped the module.
 
-The check probes the 6.12 (`.claude/skills/`) and pre-6.12 (`.claude/commands/`) layouts,
-project-root first then user home. It looks under `.claude/` only; `bmad-deps.py`'s resolve()
-also probes `.agents/`, but it cannot be used here because it *is* the doctor:
+The check probes the 6.12 (`skills/`) and pre-6.12 (`commands/`) layouts under both tool roots
+(`.claude/`, `.agents/`), project-root first then user home — the same eight paths
+`bmad-deps.py`'s resolve() covers, inlined because that script cannot be used here: it *is* the
+doctor. `.agents/` is the tool-neutral root BMad v7 installs under, so omitting it would make
+this probe report the doctor absent on any non-Claude install:
 
 ```bash
 if   [ -f "{project-root}/.claude/skills/l3io-doctor/SKILL.md" ] \
   || [ -f "{project-root}/.claude/commands/l3io-doctor.md" ] \
+  || [ -f "{project-root}/.agents/skills/l3io-doctor/SKILL.md" ] \
+  || [ -f "{project-root}/.agents/commands/l3io-doctor.md" ] \
   || [ -f "$HOME/.claude/skills/l3io-doctor/SKILL.md" ] \
-  || [ -f "$HOME/.claude/commands/l3io-doctor.md" ]; then
+  || [ -f "$HOME/.claude/commands/l3io-doctor.md" ] \
+  || [ -f "$HOME/.agents/skills/l3io-doctor/SKILL.md" ] \
+  || [ -f "$HOME/.agents/commands/l3io-doctor.md" ]; then
   doctor=present
 else
   doctor=absent

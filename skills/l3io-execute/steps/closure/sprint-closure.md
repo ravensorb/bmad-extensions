@@ -71,14 +71,18 @@ where its behavior is the `adversarial` lens.
 ```bash
 ls {project-root}/.claude/skills/bmad-review/SKILL.md 2>/dev/null \
   || ls {project-root}/.claude/commands/bmad-review.md 2>/dev/null \
+  || ls {project-root}/.agents/skills/bmad-review/SKILL.md 2>/dev/null \
+  || ls {project-root}/.agents/commands/bmad-review.md 2>/dev/null \
   || ls ~/.claude/skills/bmad-review/SKILL.md 2>/dev/null \
-  || ls ~/.claude/commands/bmad-review.md 2>/dev/null
+  || ls ~/.claude/commands/bmad-review.md 2>/dev/null \
+  || ls ~/.agents/skills/bmad-review/SKILL.md 2>/dev/null \
+  || ls ~/.agents/commands/bmad-review.md 2>/dev/null
 ```
 
 A path printed → `{adversarial_reviewer}` = `bmad-review`, invoked as
 `skill:bmad-review lenses=adversarial`, with the clean-release checklist passed as
 `also_consider` (a documented `bmad-review` input). Nothing printed → probe
-the legacy `bmad-review-adversarial-general` the same four ways and invoke it with both scopes exactly as before. <!-- l3io-deprecation-exempt: phase-3 — fallback only when bmad-review is absent; the whole preference-probe is retired in Phase 3, see docs/superpowers/specs/2026-09-20-l3io-customization-layer-design.md §5 Phase 3 -->
+the legacy `bmad-review-adversarial-general` the same eight ways and invoke it with both scopes exactly as before. <!-- l3io-deprecation-exempt: phase-3 — fallback only when bmad-review is absent; the whole preference-probe is retired in Phase 3, see docs/superpowers/specs/2026-09-20-l3io-customization-layer-design.md §5 Phase 3 -->
 Neither present → skip the phase and say so in the phase output, so a skipped review is
 never mistaken for a passed one.
 
@@ -142,8 +146,12 @@ If a UX reviewer is installed and `{ui_facing_stories}` (from the execution cont
 for n in bmad-ux-review bmad-ux; do
   ls {project-root}/.claude/skills/$n/SKILL.md 2>/dev/null \
     || ls {project-root}/.claude/commands/$n.md 2>/dev/null \
+    || ls {project-root}/.agents/skills/$n/SKILL.md 2>/dev/null \
+    || ls {project-root}/.agents/commands/$n.md 2>/dev/null \
     || ls ~/.claude/skills/$n/SKILL.md 2>/dev/null \
-    || ls ~/.claude/commands/$n.md 2>/dev/null
+    || ls ~/.claude/commands/$n.md 2>/dev/null \
+    || ls ~/.agents/skills/$n/SKILL.md 2>/dev/null \
+    || ls ~/.agents/commands/$n.md 2>/dev/null
 done | head -1
 ```
 Bind `{ux_reviewer}` to whichever resolved — the legacy `bmad-ux-review` preferred because it is

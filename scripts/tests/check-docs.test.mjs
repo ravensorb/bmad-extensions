@@ -9,7 +9,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { resolverInvariant, NUMBER_WORDS, RESOLVER_START_MARKER, RESOLVER_END_MARKER } from "../check-docs.mjs";
+import { resolverInvariant, PROBE_LINE_RE, NUMBER_WORDS, RESOLVER_START_MARKER, RESOLVER_END_MARKER } from "../check-docs.mjs";
 
 const REPO = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..");
 const CHECK = path.join(REPO, "scripts", "check-docs.mjs");
@@ -782,9 +782,65 @@ test("check 16: a fallback naming an undeclared skill is caught", async (t) => {
 test("check 16: an existence probe naming a removed skill is allowed", async (t) => {
   const root = fixture(t);
   write(root, "skills/l3io-execute/steps/x-probe.md",
-        "```bash\nls {project-root}/.claude/skills/bmad-architect/SKILL.md 2>/dev/null\n```\n");
+        "```bash\nls {project-root}/.claude/skills/bmad-architect/SKILL.md 2>/dev/null\n" +
+        "ls {project-root}/.agents/skills/bmad-architect/SKILL.md 2>/dev/null\n```\n");
   const r = await run(root);
   assert.equal(r.status, 0, "a probe line cannot dispatch anything; it must pass");
+});
+
+// The probe arm must recognise BOTH tool roots. BMad v7 installs under .agents/, and step files
+// now probe it; a PROBE_LINE_RE that knew only .claude/ read such a line as a DISPATCH of the
+// removed skill and failed the build over the fix itself.
+test("check 16: an .agents/-only probe line of a removed skill is a probe, not a dispatch", async (t) => {
+  const root = fixture(t);
+  write(root, "skills/l3io-execute/steps/x-agents-probe.md",
+        "```bash\nls {project-root}/.agents/skills/bmad-architect/SKILL.md 2>/dev/null\n```\n" +
+        "```bash\nls {project-root}/.claude/skills/bmad-architect/SKILL.md 2>/dev/null\n```\n");
+  const r = await run(root);
+  assert.equal(r.status, 0, r.stderr + r.stdout);
+});
+
+test("PROBE_LINE_RE: an ls probe under either root matches, and prose does not", () => {
+  assert.ok(PROBE_LINE_RE.test("ls ~/.agents/skills/x/SKILL.md 2>/dev/null"));
+  assert.ok(PROBE_LINE_RE.test("  || ls {project-root}/.claude/commands/x.md"));
+  assert.ok(!PROBE_LINE_RE.test("Check the tools under `.agents/skills/` before spawning x"));
+  assert.ok(!PROBE_LINE_RE.test("ls {project-root}/.cursor/skills/x/SKILL.md"));
+});
+
+// ---- check 37 (probe-tool-root-parity) ----
+const ONLY_CLAUDE = "```bash\nls {project-root}/.claude/skills/l3io-doctor/SKILL.md 2>/dev/null\n```\n";
+const ONLY_AGENTS = "```bash\nls {project-root}/.agents/skills/l3io-doctor/SKILL.md 2>/dev/null\n```\n";
+
+test("check 37: a .claude-only skills probe fails, naming the file and the skill", async (t) => {
+  const root = fixture(t);
+  write(root, "skills/l3io-execute/steps/x-root.md", ONLY_CLAUDE);
+  const r = await run(root);
+  assert.equal(r.status, 1, r.stdout);
+  assert.match(r.stderr,
+    /\[check 37\] skills\/l3io-execute\/steps\/x-root\.md: probes `\.claude\/skills\/l3io-doctor\/SKILL\.md` but never `\.agents\/skills\/l3io-doctor\/SKILL\.md`/);
+});
+
+test("check 37: a probe through both tool roots passes", async (t) => {
+  const root = fixture(t);
+  write(root, "skills/l3io-execute/steps/x-root.md", ONLY_CLAUDE + ONLY_AGENTS);
+  const r = await run(root);
+  assert.equal(r.status, 0, r.stderr + r.stdout);
+});
+
+test("check 37: prose naming .agents/ does not stand in for the probe path", async (t) => {
+  const root = fixture(t);
+  write(root, "skills/l3io-execute/steps/x-root.md",
+        ONLY_CLAUDE + "BMad v7 installs under `.agents/`, and `.agents/skills/` is probed too.\n");
+  const r = await run(root);
+  assert.equal(r.status, 1, r.stdout);
+  assert.match(r.stderr, /\[check 37\] .*x-root\.md: probes `\.claude\/skills\/l3io-doctor/);
+});
+
+test("check 37: an .agents/-only probe is fine (the reverse is not a defect)", async (t) => {
+  const root = fixture(t);
+  write(root, "skills/l3io-execute/steps/x-root.md", ONLY_AGENTS);
+  const r = await run(root);
+  assert.equal(r.status, 0, r.stderr + r.stdout);
 });
 
 // The probe arm has the same substring hole the replaced_by arm was hardened against: a bare
@@ -859,7 +915,8 @@ test("check 16 still allows a bare existence probe of a deprecated skill", async
     { status: "deprecated", deprecated_in: "6.12.0", replaced_by: "bmad-build",
       removed_in: undefined });
   write(root, "skills/l3io-execute/steps/probe-only.md",
-    "ls {project-root}/.claude/skills/bmad-dev-story/SKILL.md 2>/dev/null\n");
+    "ls {project-root}/.claude/skills/bmad-dev-story/SKILL.md 2>/dev/null\n" +
+    "ls {project-root}/.agents/skills/bmad-dev-story/SKILL.md 2>/dev/null\n");
   const r = await run(root);
   assert.equal(r.status, 0, r.stderr);
 });

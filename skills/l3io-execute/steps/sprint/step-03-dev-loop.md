@@ -78,8 +78,12 @@ anyway. Phase 3 replaces this probe with a `bmad-build` overlay.
 ```bash
 ls {project-root}/.claude/skills/bmad-dev-story/SKILL.md 2>/dev/null \
   || ls {project-root}/.claude/commands/bmad-dev-story.md 2>/dev/null \
+  || ls {project-root}/.agents/skills/bmad-dev-story/SKILL.md 2>/dev/null \
+  || ls {project-root}/.agents/commands/bmad-dev-story.md 2>/dev/null \
   || ls ~/.claude/skills/bmad-dev-story/SKILL.md 2>/dev/null \
-  || ls ~/.claude/commands/bmad-dev-story.md 2>/dev/null
+  || ls ~/.claude/commands/bmad-dev-story.md 2>/dev/null \
+  || ls ~/.agents/skills/bmad-dev-story/SKILL.md 2>/dev/null \
+  || ls ~/.agents/commands/bmad-dev-story.md 2>/dev/null
 ```
 
 If a path printed, bind `{dev_agent}` = the legacy `bmad-dev-story` and spawn that skill. <!-- l3io-deprecation-exempt: phase-3 — replaced by a bmad-build overlay; see docs/superpowers/specs/2026-09-20-l3io-customization-layer-design.md §5 Phase 3 -->

@@ -68,8 +68,12 @@ attention per story thins out.
 ```bash
 ls {project-root}/.claude/skills/bmad-create-story/SKILL.md 2>/dev/null \
   || ls {project-root}/.claude/commands/bmad-create-story.md 2>/dev/null \
+  || ls {project-root}/.agents/skills/bmad-create-story/SKILL.md 2>/dev/null \
+  || ls {project-root}/.agents/commands/bmad-create-story.md 2>/dev/null \
   || ls ~/.claude/skills/bmad-create-story/SKILL.md 2>/dev/null \
-  || ls ~/.claude/commands/bmad-create-story.md 2>/dev/null
+  || ls ~/.claude/commands/bmad-create-story.md 2>/dev/null \
+  || ls ~/.agents/skills/bmad-create-story/SKILL.md 2>/dev/null \
+  || ls ~/.agents/commands/bmad-create-story.md 2>/dev/null
 ```
 
 A path printed → `{enrich_agent}` = the legacy `bmad-create-story`. <!-- l3io-deprecation-exempt: phase-3 — replaced by a bmad-build overlay; see docs/superpowers/specs/2026-09-20-l3io-customization-layer-design.md §5 Phase 3 --> Nothing printed →

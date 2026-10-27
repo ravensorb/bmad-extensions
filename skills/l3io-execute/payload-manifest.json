@@ -12,18 +12,18 @@
     "references/status-files.md": "2da74468ac33c0d19a512e922feaf18066d8d6e8fc67b7da7e63a8b0fe89113f",
     "scripts/spec-align.py": "bf7385ca6337b3ec3e842716339553f2a5a54a5ca81e721507dce212ed27faec",
     "steps/closure/epic-closure.md": "884ce16ea9acb657c1edc9b01228ade1ad4d4b26f2c6666218e6ac1285727ccf",
-    "steps/closure/sprint-closure.md": "1ae1dd2721b27ba39837a6f22616540eba2a2a5a19eff893bcbc86d0e8e49f60",
+    "steps/closure/sprint-closure.md": "eefef6332bac0f82fdc75792c37f01fb9e6d4479bef40bcd99ba01a0f3853ca2",
     "steps/execute/step-02-scope-resolve.md": "eb99e43dab52d59fcab09978e9697e184f86a0869aff43c2d693703d0c273436",
     "steps/execute/step-03-load-plan.md": "4f2492d5efd6001e781a7b97ae07f31e1016b71fd1bce376b25d3887e0931f2b",
-    "steps/execute/step-04-arch-gate.md": "986973e7582b8794a8c4f8fb73836f28d188875ef22c779839043d62f9703d16",
+    "steps/execute/step-04-arch-gate.md": "9fedfb6966cedaf2bf4a1c5ae36160dfd715db6046716379f7db27fd477e827a",
     "steps/execute/step-05-epic-loop.md": "83169594aca0c6e167539f45be881cc774846db3a63d887db0a22bd277625eb7",
     "steps/execute/step-06-epic-closure.md": "8e514243d094aa27c644b2a7a9a3ba0aadfd170b63e853f69746dbae077fc1cd",
-    "steps/shared/step-00-activate.md": "1490bee1651a4f40adff90f5fee733541655fa9ecb1d68ccb2a24be2ed912aa3",
+    "steps/shared/step-00-activate.md": "78552185b434fe5b0cfcb0d1c80b320907364e020b6be0a914d108557bdd6f90",
     "steps/shared/step-00-digest.md": "27af27894b622e1da2ffade4cd6d292d207bf4d114ef0f1bb5706be86ee0146d",
     "steps/shared/step-01-classify-work.md": "53b6c3df3744f01fc4f7bc38fbf56e27f54ec13ba1cc67fbf5334d26bfb9a12c",
     "steps/shared/step-estimate.md": "dc361f48af47290aace3c10e9aa42cfd4201941cd976ea200f4ec7c25a8ea94a",
-    "steps/sprint/step-02-story-prep.md": "4a8548b5df231442ae053aef13fc81783de1d811077913f3ef8c964bfd606bfa",
-    "steps/sprint/step-03-dev-loop.md": "ac77ab9fab66fb4051a6a2a0cb157f7ac5fbe430c223daf86f49907596443616",
+    "steps/sprint/step-02-story-prep.md": "bd3c9ac09d1a9b84bce669263834fc3d0f3dfc4bda65fea73e77d1c71231e782",
+    "steps/sprint/step-03-dev-loop.md": "a0435f7e57dfb9e1a9bbb3ce9cff29d4af4d6f802a8273a8ff4643a3162a1115",
     "steps/sprint/step-04-sprint-closure.md": "af23ec45f541793781678ff179553de28c2ba73615d12108ea324fd0262ba678"
   }
 }

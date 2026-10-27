@@ -124,6 +124,14 @@
 //                    halt is covered with no edit here. Indented `BLOCKED:` lines (the phase
 //                    status-line template) are outside the inventory by the reference's own
 //                    rule.
+//  37. probe-tool-root-parity  a dependency probe naming .claude/skills/<n>/SKILL.md must also
+//                    name .agents/skills/<n>/SKILL.md in the same file. BMad v7 installs under
+//                    .agents/; check-deps (bmad-deps.py resolve()) probes both, so a step file
+//                    probing .claude/ alone reports the skill present while its own probe finds
+//                    nothing and the phase self-skips silently. Sibling of check 29, one axis
+//                    over (29: layout within a root; 37: the root). No exemption, this
+//                    package's own l3io-doctor included. Same file-scoped KNOWN GAP as 29. See
+//                    the block above probeToolRootParity().
 //  31. no-flags-on-slash-commands  no `/l3io-*` invocation in LIVE_DOCS or in a markdown
 //                    file under skills/ carries a `--flag`. No l3io-* skill parses flags: l3io-execute takes
 //                    `E{nnn}`, `E{nnn}-S{nn}` or nothing, and anything else prints
@@ -2741,6 +2749,11 @@ const DEP_STATUSES = ["required", "optional", "related", "deprecated", "removed"
 // This is NOT exhaustive: a sentence that names a deprecated skill as the thing in use without
 // any verb, assignment, or heading (e.g. a plain declarative "the enricher is `bmad-create-
 // story`" with no `=`) still escapes all three and is not observed by this check.
+// A probe line: `ls` is the command and a tool-root path is its argument, under EITHER root BMad
+// installs into (.claude/ on 6.x, .agents/ on v7). Exported so a test can pin it. Token-bounded on
+// `ls` because a bare includes("ls ") is satisfied by "tools " or "controls ".
+export const PROBE_LINE_RE = /(?:^|[^\w-])ls\s+\S*\.(?:claude|agents)\//;
+
 const PREFERENCE_RE = /\b(?:bind|prefer(?:red|s)?|spawn|invoke|dispatch)\b/i;
 const BINDING_ASSIGNMENT_RE = /`\{[\w-]+\}`\s*=/;
 const HEADING_RE = /^#{1,6}\s/;
@@ -2807,7 +2820,7 @@ function checkBmadDependencyInventory() {
         }
         if (e.status === "deprecated") {
           const line = lines[i];
-          const isProbe = /(?:^|[^\w-])ls\s+\S*\.claude\//.test(line);
+          const isProbe = PROBE_LINE_RE.test(line);
           // Named `l3io-deprecation-exempt`, not `bmad-*` — a `bmad-*`-prefixed marker would
           // itself match BMAD_TOKEN_RE below and fail as an undeclared name.
           const exempt = /l3io-deprecation-exempt:\s*phase-3/.test(line);
@@ -2833,7 +2846,7 @@ function checkBmadDependencyInventory() {
         // would let the guard wave through its own worst case — and replaced_by is interpolated
         // into a RegExp, so it is escaped: a metacharacter in a future value must fail this
         // check cleanly rather than throw out of it.
-        const isProbe = /(?:^|[^\w-])ls\s+\S*\.claude\//.test(line);
+        const isProbe = PROBE_LINE_RE.test(line);
         const escaped = e.replaced_by.split(" ")[0].replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
         const replacedByToken = new RegExp(`(?<![\\w-])${escaped}(?![\\w-])`);
         const historical = isProbe || replacedByToken.test(line) ||
@@ -4746,6 +4759,53 @@ export function probePathParity(opts = {}) {
   return { violations, scanned };
 }
 
+// --- check 37: probe-tool-root-parity ------------------------------------------------ //
+// Every name probed through .claude/skills/<n>/SKILL.md is also probed through
+// .agents/skills/<n>/SKILL.md IN THE SAME FILE.
+//
+// BMad v7 installs skills under .agents/, not .claude/ (its registry.py names both roots, plus
+// ~/ variants). bmad-deps.py's resolve() already probes both, so on a v7 tree `check-deps`
+// reports a skill present while a step file probing .claude/ alone finds nothing and the phase
+// self-skips with no message -- the failure check 29's header calls worse than a missing skill.
+// Check 29 guards the layout axis inside one tool root; this guards the tool-root axis.
+//
+// The matched text is the PATH LITERAL, never prose: a sentence saying ".agents/ is the root v7
+// uses" does not satisfy it. That is also why a probe must not be compacted into
+// `for d in …/.claude …/.agents`: neither literal would then appear and the check would pass over
+// nothing. The reverse (.agents/ only) is fine. No exemption -- the package is meant to run under
+// any agent BMad supports.
+//
+// Scope is derived: every .md under skills/.
+//
+// KNOWN GAP: file-scoped, not block-scoped, exactly as check 29. A file probing A via .claude/
+// and a different B via .agents/ passes.
+const PROBE_CLAUDE_SKILLS_RE = /\.claude\/skills\/([$\w.:-]+)\/SKILL\.md/g;
+const PROBE_AGENTS_SKILLS_RE = /\.agents\/skills\/([$\w.:-]+)\/SKILL\.md/g;
+
+export function probeToolRootParity(opts = {}) {
+  const violations = [];
+  const scanned = [];
+  const sources = [
+    ...walkSkillFiles([".md"]).map((f) => ({ file: f, text: read(f) })),
+    ...(opts.extraSources || []),
+  ];
+  for (const { file, text } of sources) {
+    scanned.push(file);
+    const viaClaude = new Set([...text.matchAll(PROBE_CLAUDE_SKILLS_RE)].map((m) => m[1]));
+    if (!viaClaude.size) continue;
+    const viaAgents = new Set([...text.matchAll(PROBE_AGENTS_SKILLS_RE)].map((m) => m[1]));
+    for (const name of viaClaude) {
+      if (!viaAgents.has(name)) {
+        violations.push(
+          `${file}: probes \`.claude/skills/${name}/SKILL.md\` but never ` +
+          `\`.agents/skills/${name}/SKILL.md\` — BMad v7 installs under .agents/, so on that ` +
+          `tree the probe finds nothing and the phase self-skips silently`);
+      }
+    }
+  }
+  return { violations, scanned };
+}
+
 // --- check 30: subcommand-required -------------------------------------------------- //
 // Every documented invocation of a script that registers subparsers must name one.
 //
@@ -5295,6 +5355,12 @@ function checkProbePathParity() {
   if (verbose) console.log(`  probe-path-parity: ${violations.length} violation(s)`);
 }
 
+function checkProbeToolRootParity() {
+  const { violations } = probeToolRootParity();
+  for (const v of violations) failures.push(`[check 37] ${v}`);
+  if (verbose) console.log(`  probe-tool-root-parity: ${violations.length} violation(s)`);
+}
+
 function checkResolverInvariant() {
 
 
@@ -5336,6 +5402,7 @@ checkGateImports();
 checkNoHandEditDirectives();
 checkForwarderVersionOracle();
 checkProbePathParity();
+checkProbeToolRootParity();
 checkSubcommandRequired();
 checkRecursiveGrep();
 checkNoFlagsOnSlashCommands();

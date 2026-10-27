@@ -52,9 +52,9 @@ test('absolute-path is exempt only for the two documented runtime homes', () => 
   const f = (line) => ({ category: 'absolute-path', severity: 'high',
                          file: 'steps/execute/step-04-arch-gate.md', line });
   const ctx = { skill: 'skills/l3io-execute', tested: new Set() };
-  // Line 34 really does contain ~/.claude/... — the scanner's own `detail` truncates
+  // Line 49 really does contain ~/.claude/... — the scanner's own `detail` truncates
   // before it, which is why the predicate reads the file instead.
-  assert.equal(byId('user-level-runtime-homes').match(f(34), ctx), true);
+  assert.equal(byId('user-level-runtime-homes').match(f(49), ctx), true);
   // A hard-coded machine path on a line with no ~/.claude or ~/.codex must still fail.
   const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'bmb-'));
   fs.mkdirSync(path.join(tmp, 'skills/fake'), { recursive: true });

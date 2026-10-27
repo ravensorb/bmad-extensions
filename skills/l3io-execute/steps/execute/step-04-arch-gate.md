@@ -28,13 +28,33 @@ Halt step and continue to step-05.
 
 ## 2. Detect available reviewers
 
-| Reviewer | Detection command |
+| Reviewer | Detection |
 |---|---|
 | `l3io-arch-review` | Already confirmed present |
-| `bmad-agent-architect` | `ls {project-root}/.claude/skills/bmad-agent-architect/SKILL.md 2>/dev/null \|\| ls {project-root}/.claude/commands/bmad-agent-architect.md 2>/dev/null \|\| ls ~/.claude/skills/bmad-agent-architect/SKILL.md 2>/dev/null \|\| ls ~/.claude/commands/bmad-agent-architect.md 2>/dev/null` |
-| superpowers | `ls {project-root}/.claude/skills/superpowers:requesting-code-review/SKILL.md 2>/dev/null \|\| ls {project-root}/.claude/commands/superpowers:requesting-code-review.md 2>/dev/null \|\| ls ~/.claude/skills/superpowers:requesting-code-review/SKILL.md 2>/dev/null \|\| ls ~/.claude/commands/superpowers:requesting-code-review.md 2>/dev/null` |
+| `bmad-agent-architect` | Probe below |
+| superpowers (`superpowers:requesting-code-review`) | Probe below |
 
-Bind `{active_reviewers}` = list of detected reviewer names. Minimum: `[l3io-arch-review]`.
+Probe both optional reviewers the same eight ways — the 6.12 (`skills/`) and pre-6.12
+(`commands/`) layouts under both tool roots (`.claude/`, `.agents/`), project-root first then
+user home. `.agents/` is the tool-neutral root BMad v7 installs under; probing `.claude/` alone
+reports a reviewer absent on any non-Claude install, and this gate then runs with fewer
+reviewers than are present without ever saying so:
+
+```bash
+for n in bmad-agent-architect superpowers:requesting-code-review; do
+  ls {project-root}/.claude/skills/$n/SKILL.md 2>/dev/null \
+    || ls {project-root}/.claude/commands/$n.md 2>/dev/null \
+    || ls {project-root}/.agents/skills/$n/SKILL.md 2>/dev/null \
+    || ls {project-root}/.agents/commands/$n.md 2>/dev/null \
+    || ls ~/.claude/skills/$n/SKILL.md 2>/dev/null \
+    || ls ~/.claude/commands/$n.md 2>/dev/null \
+    || ls ~/.agents/skills/$n/SKILL.md 2>/dev/null \
+    || ls ~/.agents/commands/$n.md 2>/dev/null
+done
+```
+
+Each printed path names the reviewer it resolved. Bind `{active_reviewers}` = list of detected
+reviewer names. Minimum: `[l3io-arch-review]`.
 
 ## 3. Collect story files for review
 
